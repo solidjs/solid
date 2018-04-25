@@ -79,6 +79,10 @@ So to accomplish rendering we use JSX for templating that gets compiled to nativ
 
 JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is both much more performant and uses considerable less memory. The well defined AST lends well to precompilation. This works so well it almost feels like cheating. I believe it's a big part of bringing the same level of tooling to fine grained change detection libraries already enjoyed by Virtual DOM libraries.
 
+To get setup add this babel plugin config to your .babelrc, webpack or rollup config:
+
+    "plugins": ["@babel/syntax-jsx", ["jsx-dom-expressions", {"noWhitespaceOnly": true, "moduleName": "Solid"}]]
+
 ## Components
 
 Solid.js doesn't have an opinion how you want to modularize your code. You can use objects, classes, or composable functions. Since the core render routine only runs once function closures are sufficient to maintain state. The library was made in mind for Web Components though.
