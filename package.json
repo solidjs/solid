@@ -1,0 +1,22 @@
+{
+  "name": "solid",
+  "description": "A declarative JavaScript library for building user interfaces.",
+  "version": "0.0.1",
+  "author": "Ryan Carniato",
+  "main": "lib/solid.js",
+  "module": "dist/solid.js",
+  "scripts": {
+    "build-es": "rollup -f \"es\" -c -o dist/solid.js",
+    "build-cjs": "rollup -f \"cjs\" -c -o lib/solid.js",
+    "prepublishOnly": "npm run build-es && npm run build-cjs"
+  },
+  "devDependencies": {
+    "coffeescript": "2.x",
+    "rollup": "^0.58.1",
+    "rollup-plugin-coffee2": "^0.1.15",
+    "rollup-plugin-node-resolve": "^3.3.0"
+  },
+  "dependencies": {
+    "symbol-observable": "^1.2.0"
+  }
+}
