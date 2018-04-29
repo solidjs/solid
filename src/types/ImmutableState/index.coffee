@@ -1,8 +1,8 @@
 import Core from '../../Core'
 import Selector from '../Selector'
-import Handler from './Handler'
+import ImmutableHandler from './ImmutableHandler'
 
-export default class State
+export default class ImmutableState
   constructor: (@_state) ->
     @_disposables = []
     @_selectors = []
@@ -76,7 +76,7 @@ export default class State
     return
 
   on: (property, fn) ->
-    @_subscriptions[property] or= {}
+    @_subscriptions[property] or= {clock: Core.clock}
     @_subscriptions[property]._subs or= new Set()
     @_subscriptions[property]._subs.add(fn)
     return {
@@ -118,6 +118,7 @@ export default class State
       delete @_state[property]
     else @_state[property] = value
     @trigger(@_subscriptions[property]?._subs, value)
+    @trigger(@_subscriptions[property]?._subPath, value)
 
   _defineProperty: (property) ->
     Object.defineProperty @, property, {
@@ -125,16 +126,16 @@ export default class State
         return @_state[property] unless Core.context?.fn
         if (value = @_state[property])? and Core.isObject(value) and not (value instanceof Element)
           return value if Core.isFunction(value)
-          @_subscriptions[property] or= {}
+          @_subscriptions[property] or= {clock: Core.clock}
           @_subscriptions[property].path or= [property]
-          value = new Proxy(@_subscriptions[property], new Handler(@_subscriptions[property], value, @))
+          value = new Proxy(@_subscriptions[property], new ImmutableHandler(@_subscriptions[property], value, @))
         Core.context.disposables.push(@on(property, Core.context.fn).unsubscribe)
         value
     }
     Object.defineProperty @, property + '$', {
       get: =>
         if fn = Core.context.fn
-          @_subscriptions[property] or= {_subs: new Set()}
+          @_subscriptions[property] or= {_subs: new Set(), clock: Core.clock}
           @_subscriptions[property]._subPath or= new Set()
           @_subscriptions[property]._subPath.add(Core.context.fn)
           Core.context.disposables.push(=> @_subscriptions[property]._subPath.delete(fn))

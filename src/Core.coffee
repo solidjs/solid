@@ -41,7 +41,7 @@ export default Core = {
         console.error err
       __next_index++
     __next_index = 0
-    Core.tasks.length = 0
+    Core.tasks = []
     Core.clock++
     return
 
@@ -54,7 +54,7 @@ export default Core = {
 
   root: (fn) ->
     Core.setContext {disposables: d = []}, ->
-      fn(-> disposable() for disposable in d; d.length = 0; return)
+      fn(-> disposable() for disposable in d; d = []; return)
 
   ignore: (fn) ->
     { disposables } = (Core.context or {})
@@ -82,7 +82,9 @@ export default Core = {
   clone: (v) ->
     return v unless Core.isObject(v)
     return v.slice(0) if Array.isArray(v)
-    Object.assign({}, v)
+    obj = {}
+    obj[k] = v[k] for k of v
+    obj
 
   unwrap: (item, deep) ->
     return result if result = item?._state

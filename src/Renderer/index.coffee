@@ -133,37 +133,52 @@ multipleExpressions = (parent, accessor) ->
 mapSelector = (valueAccessor, mapFn) ->
   mapped = []
   list = []
+  disposables = []
   length = 0
 
+  Core.context.disposables.push ->
+    d() for d in disposables
+    disposables = []
   new Selector ->
     newList = valueAccessor()
 
     # non-arrays
-    unless Array.isArray(newList)
-      if !newList? or newList is false
+    newListUnwrapped = newList?._state or newList
+    unless Array.isArray(newListUnwrapped)
+      if !newListUnwrapped? or newListUnwrapped is false
         mapped = []
         list = []
+        d() for d in disposables
+        disposables = []
         return
-      return mapped[0] if list[0] is newList
-      list[0] = newList
-      return mapped[0] = Core.root (dispose) -> mapFn(newList)
+      return mapped[0] if list[0] is newListUnwrapped
+      d() for d in disposables
+      disposables = []
+      list[0] = newListUnwrapped
+      return mapped[0] = Core.root (dispose) ->
+        disposables[0] = dispose
+        mapFn(newList)
 
-    newLength = newList.length
-    newListUnwrapped = newList._state or newList
+    newLength = newListUnwrapped.length
     if newLength is 0
       if length isnt 0
         list = []
         mapped = []
         length = 0
+        d() for d in disposables
+        disposables = []
     else if length is 0
       i = 0
       while i < newLength
         list[i] = newListUnwrapped[i]
-        mapped[i] = Core.root (dispose) -> mapFn(newList.peek?(i) or newList[i], i)
+        mapped[i] = Core.root (dispose) ->
+          disposables[i] = dispose
+          mapFn(newList.peek?(i) or newList[i], i)
         i++
       length = newLength
     else
       newMapped = new Array(newLength)
+      tempDisposables = new Array(newLength)
       indexedItems = new Map()
       end = Math.min(length, newLength)
       # reduce from both ends
@@ -173,7 +188,8 @@ mapSelector = (valueAccessor, mapFn) ->
       end = length - 1
       newEnd = newLength - 1
       while end >= 0 and newEnd >= 0 and newListUnwrapped[newEnd] is list[end]
-        newMapped[newEnd] = mapped[end];
+        newMapped[newEnd] = mapped[end]
+        tempDisposables[newEnd] = disposables[newEnd]
         end--
         newEnd--
 
@@ -196,6 +212,8 @@ mapSelector = (valueAccessor, mapFn) ->
         if itemIndex? and itemIndex.length > 0
           j = itemIndex.pop()
           newMapped[j] = mapped[i]
+          tempDisposables[j] = disposables[i]
+        else disposables[i]()
         i++
 
       # set all new values
@@ -203,12 +221,15 @@ mapSelector = (valueAccessor, mapFn) ->
       while j < newLength
         if newMapped.hasOwnProperty(j)
           mapped[j] = newMapped[j]
+          disposables[i] = tempDisposables[i]
         else
-          mapped[j] = Core.root (dispose) -> mapFn(newList.peek?(j) or newList[j], j)
+          mapped[j] = Core.root (dispose) ->
+            disposables[j] = dispose
+            mapFn(newList.peek?(j) or newList[j], j)
         j++
 
       # truncate extra length
-      length = mapped.length = newLength
+      length = mapped.length = disposables.length = newLength
       # save list for next iteration
       list = newListUnwrapped.slice(0)
 
@@ -216,10 +237,9 @@ mapSelector = (valueAccessor, mapFn) ->
 
 export default {
   assign: (a, b) ->
-    props = Object.keys(b)
-    a[k] = b[k] for k in props
+    a[k] = b[k] for k of b
     return
-  wrap: (fn) -> new Sync(fn)
+  wrap: (accessor, fn) -> new Sync -> fn(Core.unwrap(accessor()))
   insert: (parent, multiple, accessor) ->
     if multiple
       multipleExpressions(parent, accessor)

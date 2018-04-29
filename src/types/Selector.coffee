@@ -71,7 +71,7 @@ export default class Selector extends Signal
 
   clean: ->
     disposable() for disposable in @context.disposables
-    @context.disposables.length = 0
+    @context.disposables = []
     @__subscribable?.unsubscribe()
     @__subscribable = null
 
