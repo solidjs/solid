@@ -93,10 +93,10 @@ So the proposition here is if the data is going to be complicated anyway can we 
 
 ## Documentation
 
-* [Data Types](../blob/master/documentation/data-types.md)
-* [Components](../blob/master/documentation/components.md)
-* [Mutability](../blob/master/documentation/mutability.md)
-* [Scheduling](../blob/master/documentation/scheduling.md)
+* [Data Types](../master/documentation/data-types.md)
+* [Components](../master/documentation/components.md)
+* [Mutability](../master/documentation/mutability.md)
+* [Scheduling](../master/documentation/scheduling.md)
 
 ## Status
 
