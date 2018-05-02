@@ -5,10 +5,12 @@ methods = {
   trigger: (property, value, notify) ->
     subs = @_child_subscriptions[property]
     if subs?.size
-      subs.forEach (sub) ->
-        Core.cancelTask(sub.handle) if sub.handle?
-        sub.value = value
-        sub.handle = Core.queueTask(sub)
+      Core.run ->
+        for sub from subs
+          Core.cancelTask(sub.handle, sub.defer) if sub.handle?
+          sub.value = value
+          sub.handle = Core.queueTask(sub, sub.defer)
+        return
     @notify(@_state) if notify
 
   peek: (property) ->

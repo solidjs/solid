@@ -1,8 +1,9 @@
 import Core from '../Core'
 
 export default class Sync
-  constructor: (@handler) ->
+  constructor: (@handler, {defer=true} = {}) ->
     @execute = @execute.bind(@)
+    @execute.defer = defer
     @context = {fn: @execute, disposables: []}
     @execute()
     Core.context?.disposables.push(@dispose.bind(@))

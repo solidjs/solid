@@ -38,9 +38,11 @@ export default class Signal
   unsubscribe: (observer) -> @__subscriptions.delete(observer)
 
   notify: (type, value) ->
-    if @__subscriptions.size
-      @__subscriptions.forEach (sub) ->
-        return unless handler = sub[type]
-        Core.cancelTask(sub.handle) if handler.handle?
+    return unless @__subscriptions.size
+    Core.run =>
+      for sub from @__subscriptions
+        continue unless handler = sub[type]
+        Core.cancelTask(sub.handle, sub.defer) if handler.handle?
         handler.value = value
-        handler.handle = Core.queueTask(handler)
+        handler.handle = Core.queueTask(handler, handler.defer)
+      return

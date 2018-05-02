@@ -8,9 +8,9 @@ To that end this library is based on solely 3 things: JSX precompilation, ES2015
 
 A Simple Component could look like:
 
-import Solid, { State } from 'solid-js'
+    import Solid, { State } from 'solid-js'
 
-    MyComponent() {
+    function MyComponent() {
       state = new State({
         users: [{
           id: 1, firstName: 'John', lastName: 'Smith'
@@ -83,61 +83,20 @@ To get setup add this babel plugin config to your .babelrc, webpack or rollup co
 
     "plugins": ["@babel/syntax-jsx", ["jsx-dom-expressions", {"noWhitespaceOnly": true, "moduleName": "Solid"}]]
 
-## Components
-
-Solid.js doesn't have an opinion how you want to modularize your code. You can use objects, classes, or composable functions. Since the core render routine only runs once function closures are sufficient to maintain state. The library was made in mind for Web Components though.
-
-You could imagine making a base Component class that creates a State instance for the internal state and props, which the child then inherits. In that model Solid would look very similar to somthing like React.
-
-    class Component {
-      constructor () {
-        this.state = new State({})
-        this.props = new State({});
-      }
-
-      connectedCallback() {
-        this.attachShadow({mode: 'open'});
-        Solid.root(() => this.shadowRoot.appendChild(this.render());
-      }
-
-      attributeChangedCallback(attr, oldVal, newVal) {
-        this.props.replace(attr, newVal);
-      }
-    }
-
-    class MyComponent extends Component {
-      constuctor () {
-        @state.set({greeting: 'World'});
-      }
-      render() {
-        <div>Hello {state.greeting}</div>
-      }
-    }
-
-But functional composition is just as fair game.
-
-    Component(fn) {
-      state = new State({});
-      props = new State({});
-      fn({state, props});
-    }
-
-    MyComponent({state}) {
-      state.set({greeting: 'World'});
-      return (<div>Hello {state.greeting}</div>);
-    }
-
-    Solid.root(() =>
-      element.appendChild(Component(MyComponent))
-    );
-
 ## Why?
 
 For all the really good things that came with React and the Virtual DOM evolution of declarative JS UI frameworks it also felt like a bit of a step backwards. And I don't mean the backlash people had with JSX etc..
 
-The thing is for all it's differences the VDOM libraries like React still are based around having a special data object even if they push the complexity to under the hood of rendering. The trade off is lifecycle functions that break apart the declarative nature of the data. At an extreme relying on blacklisting changes in multiple places for shouldComponentUpdate. Imposed boundaries on components to sate performance concerns. A UI model that rerenders every loop that while relatively performant conceptually is at odds with what you see is what you get (it's not a mutable declaration but a series of imperative functions).
+The thing is for all it's differences the VDOM libraries still are based around having a special data object even if they push the complexity to under the hood of rendering. The trade off is lifecycle functions that break apart the declarative nature of the data. At an extreme relying on blacklisting changes in multiple places for shouldComponentUpdate. Imposed boundaries on components to sate performance concerns. A UI model that rerenders every loop that while relatively performant conceptually is at odds with what you see is what you get (it's not a mutable declaration but a series of imperative functions).
 
 So the proposition here is if the data is going to be complicated anyway can we use Proxies to move the complexity into it rather than the rendering. And through using standard reactive interopt we can play we can invite playing nice with others rather push the interopt point in userland.
+
+## Documentation
+
+* [Data Types](../blob/master/documentation/data-types.md)
+* [Components](../blob/master/documentation/components.md)
+* [Mutability](../blob/master/documentation/mutability.md)
+* [Scheduling](../blob/master/documentation/scheduling.md)
 
 ## Status
 

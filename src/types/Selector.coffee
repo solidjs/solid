@@ -4,7 +4,7 @@ import Signal from './Signal'
 sequenceCounter = 0
 
 export default class Selector extends Signal
-  constructor: (@handler) ->
+  constructor: (@handler, {defer} = {}) ->
     super()
     Object.defineProperty @, 'value', {
       get: ->
@@ -15,6 +15,7 @@ export default class Selector extends Signal
       writeable: false
     }
     @execute = @execute.bind(@)
+    @execute.defer = defer
     @context = {fn: @execute, disposables: [], pure: true}
     Core.context?.disposables.push(@dispose.bind(@))
 
@@ -68,6 +69,7 @@ export default class Selector extends Signal
     super(fn)
     Core.queueTask =>
       @clean() unless @__subscriptions.size
+    , true
 
   clean: ->
     disposable() for disposable in @context.disposables

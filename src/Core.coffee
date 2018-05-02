@@ -4,46 +4,64 @@ comparer = (v, k, b, is_array, path, r) ->
     return r.push(new_path.concat([v]))
   r.push.apply(r, Core.diff(v, b[k], new_path))
 
-__next_index = 0
-__next_handle = 1
-
 export default Core = {
   context: null
-  tasks: []
+  queues: {
+    immediate: {
+      tasks: []
+      nextIndex: 0
+      nextHandle: 1
+    }
+    deferred: {
+      tasks: []
+      nextIndex: 0
+      nextHandle: 1
+    }
+  }
   clock: 0
 
-  queueTask: (task) ->
-    Promise.resolve().then(Core.processUpdates) unless Core.tasks.length
-    Core.tasks.push(task)
-    __next_handle++
+  queueTask: (task, defer) ->
+    if defer
+      q = Core.queues.deferred
+      unless q.tasks.length
+        Promise.resolve().then -> Core.processUpdates(q); Core.clock++
+      q.tasks.push(task)
+      return q.nextHandle++
+    Core.queues.immediate.tasks.push(task)
+    Core.queues.immediate.nextHandle++
 
-  cancelTask: (handle) ->
-    index = handle - (__next_handle - Core.tasks.length)
-    Core.tasks[index] = null if __next_index <= index
+  cancelTask: (handle, defer) ->
+    q = if defer then Core.queues.deferred else Core.queues.immediate
+    index = handle - (q.nextHandle - q.tasks.length)
+    q.tasks[index] = null if q.nextIndex <= index
 
-  processUpdates: ->
+  processUpdates: (q) ->
     count = 0; mark = 0
-    while __next_index < Core.tasks.length
-      unless task = Core.tasks[__next_index]
-        __next_index++
+    while q.nextIndex < q.tasks.length
+      unless task = q.tasks[q.nextIndex]
+        q.nextIndex++
         continue
-      if __next_index > mark
+      if q.nextIndex > mark
         if count++ > 5000
           console.error 'Exceeded max task recursion'
-          __next_index = 0
-          return Core.tasks = []
-        mark = Core.tasks.length
+          q.nextIndex = 0
+          return q.tasks = []
+        mark = q.tasks.length
       try
         task(task.value)
         task.handle = null
         task.value = null
       catch err
         console.error err
-      __next_index++
-    __next_index = 0
-    Core.tasks = []
-    Core.clock++
+      q.nextIndex++
+    q.nextIndex = 0
+    q.tasks = []
     return
+
+  run: (fn) ->
+    execute = !Core.queues.immediate.tasks.length
+    fn()
+    Core.processUpdates(Core.queues.immediate) if execute
 
   setContext: (newContext, fn) ->
     context = Core.context

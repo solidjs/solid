@@ -27,6 +27,12 @@ export default class ImmutableState
       @trigger(subs?[property]?._subs, value) if subs
     @trigger(subs?._subs, state) if notify
     @trigger(path.subs, path.state) for path in subPaths
+    # prune subs
+    if value is undefined
+      delete subs[property]
+    else if Array.isArray(value) and not value.length
+      subKeys = ['_subs', 'clock', '_subPath']
+      delete subs[property][k] for k of subs[property] when not (k in subKeys)
     return
 
   replace: ->
@@ -45,14 +51,14 @@ export default class ImmutableState
     return unless state
     if value is undefined and Array.isArray(state)
       state.length -= 1
+      notify = true
     else
       notify = Array.isArray(state) or not (property in state)
       if value is undefined
         delete state[property]
       else state[property] = value
-      return unless subs
-      @trigger(subs[property]?._subs, value)
-      @trigger(subs._subs, state) if notify
+    @trigger(subs[property]?._subs, value) if subs
+    @trigger(subs._subs, state) if notify
     @trigger(path.subs, path.state) for path in subPaths
     return
 
@@ -85,10 +91,12 @@ export default class ImmutableState
 
   trigger: (subs, value) ->
     return unless subs?.size
-    subs.forEach (sub) ->
-      Core.cancelTask(sub.handle) if sub.handle?
-      sub.value = value
-      sub.handle = Core.queueTask(sub)
+    Core.run ->
+      for sub from subs
+        Core.cancelTask(sub.handle, sub.defer) if sub.handle?
+        sub.value = value
+        sub.handle = Core.queueTask(sub, sub.defer)
+      return
 
   dispose: ->
     disposable.unsubscribe() for disposable in @_disposables
@@ -119,6 +127,13 @@ export default class ImmutableState
     else @_state[property] = value
     @trigger(@_subscriptions[property]?._subs, value)
     @trigger(@_subscriptions[property]?._subPath, value)
+    # prune subs
+    if value is undefined
+      delete @_subscriptions[property]
+    else if Array.isArray(value) and not value.length
+      subKeys = ['_subs', 'clock', '_subPath']
+      delete @_subscriptions[property][k] for k of @_subscriptions[property] when not (k in subKeys)
+    return
 
   _defineProperty: (property) ->
     Object.defineProperty @, property, {
