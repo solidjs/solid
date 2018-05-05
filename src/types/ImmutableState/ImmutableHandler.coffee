@@ -2,12 +2,14 @@ import Core from '../../Core'
 
 DEFINED =
   '_state': true
+  'on': true
   'peek': true
   'map': true
 
 export default class ImmutableHandler
   constructor: (target, @_state, @root) ->
     @peek = @peek.bind(@, target)
+    @on = @on.bind(@, target)
     @map = @map.bind(@, target) if Array.isArray(@_state)
     @stateClock = target.clock or Core.clock
 
@@ -29,14 +31,14 @@ export default class ImmutableHandler
       target[property] or= {clock: Core.clock}
       target[property].path or= target.path.concat([property])
       value = new Proxy(target[property], new ImmutableHandler(target[property], value, @root))
-    Core.context.disposables.push(@subscribe(target, property, Core.context.fn).unsubscribe)
+    Core.context.disposables.push(@on(property, Core.context.fn).unsubscribe)
     value
 
   set: (target, property, value) -> return true
 
   deleteProperty: (target, property) -> return true
 
-  subscribe: (target, property, fn) ->
+  on: (target, property, fn) ->
     target[property] or= {clock: Core.clock}
     target[property]._subs or= new Set()
     target[property]._subs.add(fn)

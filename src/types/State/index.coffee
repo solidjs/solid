@@ -24,10 +24,12 @@ setNested = (item, changes) ->
   return
 
 export default class State
-  constructor: (@_state) ->
-    @_disposables = []
-    @_selectors = []
-    @_child_subscriptions = {}
+  constructor: (state) ->
+    Object.defineProperties @, {
+      _state: {value: state, writable: true}
+      _disposables: {value: [], writable: true}
+      _child_subscriptions: {value: {}, writable: true}
+    }
     @_defineProperty(k) for k of @_state
     Core.context?.disposables.push(@dispose.bind(@))
 
@@ -65,12 +67,16 @@ export default class State
     setNested(current, property, value)
     return
 
-  select: (selections...) ->
-    for selection in selections
+  select: ->
+    for selection in arguments
       if Core.isFunction(selection) or 'subscribe' of selection
         selector = if Core.isFunction(selection) then new Selector(selection) else selection
-        @_selectors.push(selector)
         @_disposables.push selector.subscribe (value) =>
+          @replace(change...) for change in ([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
+          return
+        continue
+      if 'then' of selection
+        selection.then (value) =>
           @replace(change...) for change in ([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
           return
         continue
@@ -78,15 +84,19 @@ export default class State
         do (key, selector) =>
           @_defineProperty(key) unless key of @
           selector = if Core.isFunction(selector) then new Selector(selector) else selector
-          @_selectors.push(selector)
+          if 'then' of selector
+            return selector.then (value) =>
+              @replace(change...) for change in Core.diff(value, @_state[key], [key])
+              return
           @_disposables.push selector.subscribe (value) =>
             @replace(change...) for change in Core.diff(value, @_state[key], [key])
             return
     return
 
   dispose: ->
+    return unless @_disposables
     disposable.unsubscribe() for disposable in @_disposables
-    delete @_selectors
+    @_disposables = null
     return
 
   _setProperty: (property, value) ->
@@ -108,6 +118,7 @@ export default class State
           value = Handler.wrap(value)
         Core.context.disposables.push(@on(property, Core.context.fn).unsubscribe)
         value
+      enumerable: true
     }
 
 Object.assign(State::, methods)

@@ -8,7 +8,7 @@ export {default as Selector} from './types/Selector'
 export {default as Sync} from './types/Sync'
 
 export default Object.assign({
-  ignore: Core.ignore.bind(Core)
-  root: Core.root.bind(Core)
-  unwrap: Core.unwrap.bind(Core)
+  ignore: Core.ignore
+  root: Core.root
+  unwrap: Core.unwrap
 }, Renderer)

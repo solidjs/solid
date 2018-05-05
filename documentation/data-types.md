@@ -22,6 +22,14 @@ This replaces the value at the path on the state object. Sometimes changes need 
 
 This takes either Observable, Selector, Function or an object that maps keys to an Observable, Selector, or Function. The Object is the most common form but supports the straight fn to be able to map multiple values from a single selector.
 
+### peek(property)
+
+This grabs a wrapped version of the property without triggering the dependency detection of the getter
+
+### on(property, fn)
+
+Manual subscription to the state object. This returns an object with the unsubscribe method.
+
 ## Signal
 
 This is a simple Observable with a value property that can be tracked inside a computation. Similar to a BehaviorSubject in RxJS.

@@ -1,3 +1,4 @@
+import $$observable from 'symbol-observable'
 import Core from '../Core'
 import Signal from './Signal'
 
@@ -8,11 +9,10 @@ export default class Selector extends Signal
     super()
     Object.defineProperty @, 'value', {
       get: ->
-        Core.context.disposables.push(@subscribe(Core.context.fn).unsubscribe) if Core.context?.fn
+        Core.context.disposables.push(@_subscribe(Core.context.fn).unsubscribe) if Core.context?.fn
         @execute() unless @context.disposables.length
         @__value
-      configurable: false
-      writeable: false
+      enumerable: true
     }
     @execute = @execute.bind(@)
     @execute.defer = defer
@@ -35,13 +35,12 @@ export default class Selector extends Signal
           .catch (err) ->
             @notify('error', err)
         return
-      # TODO check if observable
-      if not ('_state' of new_val) and 'subscribe' of new_val
-        @__subscribable = new_val.subscribe(
+
+      if $$observable of new_val
+        @context.disposables.push (sub = new_val[$$observable]().subscribe(
           (val) => @resolve(val)
           (err) => @notify('error', err)
-          => @__subscribable?.unsubscribe()
-        )
+        )).unsubscribe.bind(sub)
         return
     @resolve(new_val)
 
@@ -56,10 +55,17 @@ export default class Selector extends Signal
     @execute() unless @context.disposables.length
     super()
 
-  subscribe: (fn) ->
-    old_size = @__subscriptions.size
+  subscribe: (observer) ->
+    oldSize = @__subscriptions.size
+    d = @_subscribe(arguments)
+    return d unless oldSize
+    (observer.next or observer)(@__value)
+    d
+
+  _subscribe: (fn) ->
+    oldSize = @__subscriptions.size
     disposable = super(fn)
-    if !old_size and @__subscriptions.size and !@context.disposables.length
+    if !oldSize and @__subscriptions.size and !@context.disposables.length
       @_skipNotify = true
       @execute()
       delete @_skipNotify
@@ -74,8 +80,6 @@ export default class Selector extends Signal
   clean: ->
     disposable() for disposable in @context.disposables
     @context.disposables = []
-    @__subscribable?.unsubscribe()
-    @__subscribable = null
 
   dispose: ->
     return if @__disposed

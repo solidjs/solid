@@ -10,13 +10,11 @@ export default class Signal
     @__value = value
     Object.defineProperty @, 'value', {
       get: ->
-        Core.context.disposables.push(@subscribe(Core.context.fn).unsubscribe) if Core.context?.fn
+        Core.context.disposables.push(@_subscribe(Core.context.fn).unsubscribe) if Core.context?.fn
         @__value
       configurable: true
     }
-    Object.defineProperty @, $$observable, {
-      get: -> @
-    }
+    Object.defineProperty @, $$observable, {value: -> @}
 
   peek: -> @__value
 
@@ -25,6 +23,11 @@ export default class Signal
     @notify('next', value) if notify
 
   subscribe: (observer) ->
+    d = @_subscribe(arguments)
+    (observer.next or observer)(@__value)
+    d
+
+  _subscribe: (observer) ->
     if typeof observer isnt 'object' or observer is null
       observer =
         next: observer
