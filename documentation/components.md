@@ -22,7 +22,7 @@ You could imagine making a base Component class that creates a State instance fo
 
     class MyComponent extends Component {
       constuctor () {
-        @state.set({greeting: 'World'});
+        this.state.set({greeting: 'World'});
       }
       render() {
         <div>Hello {state.greeting}</div>

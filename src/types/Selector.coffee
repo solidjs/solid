@@ -29,10 +29,10 @@ export default class Selector extends Signal
     if new_val and Core.isObject(new_val)
       if 'then' of new_val
         new_val
-          .then (new_val) ->
+          .then (new_val) =>
             return if @__disposed or @seq isnt currentSeq
             @resolve(new_val)
-          .catch (err) ->
+          .catch (err) =>
             @notify('error', err)
         return
 
@@ -86,3 +86,5 @@ export default class Selector extends Signal
     @notify('complete')
     @clean()
     @__disposed = true
+
+Signal::map = (fn) -> new Selector => fn(@value)

@@ -1,5 +1,5 @@
 import $$observable from 'symbol-observable'
-import createRuntime from 'babel-plugin-jsx-dom-expressions/dist/createRuntime'
+import { createRuntime } from 'babel-plugin-jsx-dom-expressions'
 import Core from './Core'
 import Sync from './types/Sync'
 import Selector from './types/Selector'

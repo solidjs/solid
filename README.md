@@ -12,6 +12,7 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
 * Promises and ES Observables are first class citizens:
   * Easy interopt with existing libraries that manage services and state
   * All computations and bindings when resolved to these automatically update asynchronously allowing for 100% pure data declarations.
+  * In so Async Functions are first class citizens and computations can be written using them.
 * Truly just a render library
   * Unopinionated about how you set modularize/componentize your code
   * The whole tree is only rendered once so statefulness is not a decider for the use of functional components
@@ -92,7 +93,7 @@ JSX as a templating language brings a lot of benefits. The just being javascript
 
 To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
 
-    "plugins": [["jsx-dom-expressions", {"noWhitespaceOnly": true, "moduleName": "Solid"}]]
+    "plugins": [["jsx-dom-expressions", {"moduleName": "Solid"}]]
 
 ## Why?
 
