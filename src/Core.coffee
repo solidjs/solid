@@ -6,12 +6,8 @@ comparer = (v, k, b, is_array, path, r) ->
 
 export default Core = {
   context: null
+  frozen: false
   queues: {
-    immediate: {
-      tasks: []
-      nextIndex: 0
-      nextHandle: 1
-    }
     deferred: {
       tasks: []
       nextIndex: 0
@@ -20,25 +16,39 @@ export default Core = {
   }
   clock: 0
 
-  queueTask: (task, defer) ->
-    if defer
+  queueTask: (task, value) ->
+    if Core.frozen
+      Core.cancelTask(task.handle) if task.handle?
+      Core.queues.current.tasks.push(task)
+      task.value = value
+      task.handle = Core.queues.current.nextHandle++
+      return
+    if task.defer
+      Core.cancelTask(task.dhandle, task.defer) if task.dhandle?
       q = Core.queues.deferred
       unless q.tasks.length
         Promise.resolve().then -> Core.processUpdates(q); Core.clock++
       q.tasks.push(task)
-      return q.nextHandle++
-    Core.queues.immediate.tasks.push(task)
-    Core.queues.immediate.nextHandle++
+      task.value = value
+      task.dhandle = q.nextHandle++
+      return
+    task(value)
+    return
 
   cancelTask: (handle, defer) ->
-    q = if defer then Core.queues.deferred else Core.queues.immediate
+    q = if defer then Core.queues.deferred else Core.queues.current
     index = handle - (q.nextHandle - q.tasks.length)
     q.tasks[index] = null if q.nextIndex <= index
 
-  processUpdates: (q) ->
+  processUpdates: (q, current) ->
     count = 0; mark = 0
     while q.nextIndex < q.tasks.length
       unless task = q.tasks[q.nextIndex]
+        q.nextIndex++
+        continue
+      if current and task.defer
+        task.handle = undefined
+        Core.queueTask(task, task.value)
         q.nextIndex++
         continue
       if q.nextIndex > mark
@@ -49,8 +59,7 @@ export default Core = {
         mark = q.tasks.length
       try
         task(task.value)
-        task.handle = null
-        task.value = null
+        task.handle = task.dhandle = task.value = undefined
       catch err
         console.error err
       q.nextIndex++
@@ -59,9 +68,21 @@ export default Core = {
     return
 
   run: (fn) ->
-    execute = !Core.queues.immediate.tasks.length
+    if !Core.frozen
+      execute = true
+      prevQueue = Core.queues.current
+      Core.queues.current = {
+        tasks: []
+        nextIndex: 0
+        nextHandle: 1
+      }
+      Core.frozen = true
     fn()
-    Core.processUpdates(Core.queues.immediate) if execute
+    if execute
+      Core.frozen = false
+      Core.processUpdates(Core.queues.current, true)
+      Core.queues.current = prevQueue
+    return
 
   setContext: (newContext, fn) ->
     context = Core.context

@@ -34,7 +34,7 @@ mapSelector = (valueAccessor, mapFn) ->
     newList = valueAccessor()
 
     # non-arrays
-    newListUnwrapped = newList?._state or newList
+    newListUnwrapped = Core.unwrap(newList, true)
     unless Array.isArray(newListUnwrapped)
       if !newListUnwrapped? or newListUnwrapped is false
         mapped = []
@@ -112,7 +112,7 @@ mapSelector = (valueAccessor, mapFn) ->
       while j < newLength
         if newMapped.hasOwnProperty(j)
           mapped[j] = newMapped[j]
-          disposables[i] = tempDisposables[i]
+          disposables[j] = tempDisposables[j]
         else
           mapped[j] = Core.root (dispose) ->
             disposables[j] = dispose

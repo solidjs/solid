@@ -23,7 +23,7 @@ export default class Signal
     @notify('next', value) if notify
 
   subscribe: (observer) ->
-    d = @_subscribe(arguments)
+    d = @_subscribe.apply(@, arguments)
     (observer.next or observer)(@__value)
     d
 
@@ -41,11 +41,10 @@ export default class Signal
   unsubscribe: (observer) -> @__subscriptions.delete(observer)
 
   notify: (type, value) ->
-    return unless @__subscriptions.size
-    Core.run =>
-      for sub from @__subscriptions
-        continue unless handler = sub[type]
-        Core.cancelTask(sub.handle, sub.defer) if handler.handle?
-        handler.value = value
-        handler.handle = Core.queueTask(handler, handler.defer)
-      return
+    return unless size = @__subscriptions.size
+    i = 0
+    for sub from @__subscriptions
+      continue unless handler = sub[type]
+      Core.queueTask(handler, value)
+      break if ++i is size
+    return

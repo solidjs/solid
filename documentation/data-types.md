@@ -14,9 +14,13 @@ Initializes with object value.
 
 This merges the changes into the path on the state object. All changes in set operation are applied at the same time so it is often more optimal than replace.
 
+Alternatively if you can do multiple sets in a single call by passing an array of paths and changes.
+
 ### replace(...path, value)
 
 This replaces the value at the path on the state object. Sometimes changes need to be made in several locations and this is the easiest way to swap out a specific value. When there is no path it will replace the current state object and notify via diff. This is useful when replacing the state object from the outside like integrating with Time Travel or Redux Dev Tools.
+
+Alternatively if you can do multiple replaces in a single call by passing an array of paths and values.
 
 ### select(...(object|fn))
 

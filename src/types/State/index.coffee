@@ -35,23 +35,30 @@ export default class State
 
   set: ->
     return console.log('Cannot update in a Selector') if Core.context?.pure
-    if arguments.length is 1
-      @_setProperty(property, value) for property, value of arguments[0]
-      return
-    current = @_state
-    changes = arguments[arguments.length - 1]
-    i = 0
-    while i < arguments.length - 1 and (temp = current[arguments[i]])?
-      current = temp
-      i++
-    setNested(current, changes)
+    args = arguments
+    Core.run =>
+      if args.length is 1
+        if Array.isArray(args[0])
+          @set.apply(@, change) for change in args[0]
+        else @_setProperty(property, value) for property, value of args[0]
+        return
+      current = @_state
+      changes = args[args.length - 1]
+      i = 0
+      while i < args.length - 1 and (temp = current[args[i]])?
+        current = temp
+        i++
+      setNested(current, changes)
     return
 
   replace: ->
     if arguments.length is 1
       return console.log('replace must be provided a replacement state') unless arguments[0] instanceof Object
-      @replace(change) for change in Core.diff(arguments[0], @_state)
-      return
+      changes = arguments[0]
+      Core.run =>
+        changes = Core.diff(changes, @_state) unless Array.isArray(changes)
+        @replace.apply(@, change) for change in changes
+        return
 
     if arguments.length is 2
       @_setProperty(arguments[0], arguments[1])
@@ -72,12 +79,12 @@ export default class State
       if Core.isFunction(selection) or 'subscribe' of selection
         selector = if Core.isFunction(selection) then new Selector(selection) else selection
         @_disposables.push selector.subscribe (value) =>
-          @replace(change...) for change in ([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
+          @replace([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
           return
         continue
       if 'then' of selection
         selection.then (value) =>
-          @replace(change...) for change in ([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
+          @replace([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
           return
         continue
       for key, selector of selection
@@ -86,10 +93,10 @@ export default class State
           selector = if Core.isFunction(selector) then new Selector(selector) else selector
           if 'then' of selector
             return selector.then (value) =>
-              @replace(change...) for change in Core.diff(value, @_state[key], [key])
+              @replace(Core.diff(value, @_state[key], [key]))
               return
           @_disposables.push selector.subscribe (value) =>
-            @replace(change...) for change in Core.diff(value, @_state[key], [key])
+            @replace(Core.diff(value, @_state[key], [key]))
             return
     return
 

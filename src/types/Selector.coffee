@@ -55,16 +55,9 @@ export default class Selector extends Signal
     @execute() unless @context.disposables.length
     super()
 
-  subscribe: (observer) ->
+  _subscribe: ->
     oldSize = @__subscriptions.size
-    d = @_subscribe(arguments)
-    return d unless oldSize
-    (observer.next or observer)(@__value)
-    d
-
-  _subscribe: (fn) ->
-    oldSize = @__subscriptions.size
-    disposable = super(fn)
+    disposable = super._subscribe.apply(@, arguments)
     if !oldSize and @__subscriptions.size and !@context.disposables.length
       @_skipNotify = true
       @execute()
@@ -73,9 +66,10 @@ export default class Selector extends Signal
 
   unsubscribe: (fn) ->
     super(fn)
-    Core.queueTask =>
+    delayed = =>
       @clean() unless @__subscriptions.size
-    , true
+    delayed.defer = true
+    Core.queueTask(delayed)
 
   clean: ->
     disposable() for disposable in @context.disposables

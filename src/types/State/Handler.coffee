@@ -35,12 +35,8 @@ export default class Handler
 
   notify: (value) ->
     return unless @__subscriptions.size
-    Core.run =>
-      for sub from @__subscriptions
-        Core.cancelTask(sub.handle, sub.defer) if sub.handle?
-        sub.value = value
-        sub.handle = Core.queueTask(sub, sub.defer)
-      return
+    Core.queueTask(sub, value) for sub from @__subscriptions
+    return
 
 Handler.wrappers = new WeakMap()
 Handler.wrap = (value) ->
