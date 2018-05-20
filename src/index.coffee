@@ -11,4 +11,5 @@ export default Object.assign({
   ignore: Core.ignore
   root: Core.root
   unwrap: Core.unwrap
+  equals: Core.equals
 }, Renderer)

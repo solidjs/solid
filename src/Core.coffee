@@ -126,8 +126,10 @@ export default Core = {
     obj
 
   unwrap: (item, deep) ->
-    return result if result = item?._state
+    return result if result = item?._target
     return item unless deep and Core.isObject(item) and not Core.isFunction(item) and not (item instanceof Element) and not (item instanceof DocumentFragment)
     item[k] = unwrapped for k, v of item when (unwrapped = Core.unwrap(v, true)) isnt v
     item
+
+  equals: (a, b) -> (a?._target or a) is (b?._target or b)
 }

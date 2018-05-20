@@ -5,11 +5,11 @@ import ImmutableHandler from './ImmutableHandler'
 export default class ImmutableState
   constructor: (state) ->
     Object.defineProperties @, {
-      _state: {value: state, writable: true}
+      _target: {value: state, writable: true}
       _disposables: {value: [], writable: true}
       _subscriptions: {value: {}, writable: true}
     }
-    @_defineProperty(k) for k of @_state
+    @_defineProperty(k) for k of @_target
     Core.context?.disposables.push(@dispose.bind(@))
 
   set: ->
@@ -46,7 +46,7 @@ export default class ImmutableState
       return console.log('replace must be provided a replacement state') unless arguments[0] instanceof Object
       changes = arguments[0]
       Core.run =>
-        changes = Core.diff(changes, @_state) unless Array.isArray(changes)
+        changes = Core.diff(changes, @_target) unless Array.isArray(changes)
         @replace.apply(@, change) for change in changes
         return
       return
@@ -77,12 +77,12 @@ export default class ImmutableState
       if Core.isFunction(selection) or 'subscribe' of selection
         selector = if Core.isFunction(selection) then new Selector(selection) else selection
         @_disposables.push selector.subscribe (value) =>
-          @replace([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
+          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
           return
         continue
       if 'then' of selection
         selection.then (value) =>
-          @replace([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
+          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
           return
         continue
       for key, selector of selection
@@ -91,10 +91,10 @@ export default class ImmutableState
           selector = if Core.isFunction(selector) then new Selector(selector) else selector
           if 'then' of selector
             return selector.then (value) =>
-              @replace(Core.diff(value, @_state[key], [key]))
+              @replace(Core.diff(value, @_target[key], [key]))
               return
           @_disposables.push selector.subscribe (value) =>
-            @replace(Core.diff(value, @_state[key], [key]))
+            @replace(Core.diff(value, @_target[key], [key]))
             return
     return
 
@@ -118,7 +118,7 @@ export default class ImmutableState
     return
 
   _resolvePath: (path, length) ->
-    currentState = @_state
+    currentState = @_target
     currentSubs = @_subscriptions
     subPaths = []
     i = 0
@@ -137,8 +137,8 @@ export default class ImmutableState
   _setProperty: (property, value) ->
     @_defineProperty(property) unless property of @
     if value is undefined
-      delete @_state[property]
-    else @_state[property] = value
+      delete @_target[property]
+    else @_target[property] = value
     @trigger(@_subscriptions[property]?._subs, value)
     @trigger(@_subscriptions[property]?._subPath, value)
     # prune subs
@@ -152,8 +152,8 @@ export default class ImmutableState
   _defineProperty: (property) ->
     Object.defineProperty @, property, {
       get: =>
-        return @_state[property] unless Core.context?.fn
-        if (value = @_state[property])? and Core.isObject(value) and not (value instanceof Element)
+        return @_target[property] unless Core.context?.fn
+        if (value = @_target[property])? and Core.isObject(value) and not (value instanceof Element)
           return value if Core.isFunction(value)
           @_subscriptions[property] or= {clock: Core.clock}
           @_subscriptions[property].path or= [property]
@@ -169,5 +169,5 @@ export default class ImmutableState
           @_subscriptions[property]._subPath or= new Set()
           @_subscriptions[property]._subPath.add(Core.context.fn)
           Core.context.disposables.push(=> @_subscriptions[property]._subPath.delete(fn))
-        return @_state[property]
+        return @_target[property]
     }

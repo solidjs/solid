@@ -1,12 +1,12 @@
 import Core from '../../Core'
 
 DEFINED =
-  '_state': true
+  '_target': true
   'on': true
   'peek': true
 
 export default class Handler
-  constructor: (@_state) ->
+  constructor: (@_target) ->
     @__subscriptions = new Set()
     @_child_subscriptions = {}
     @[method] = @[method].bind(@) for method in Object.keys(DEFINED)[2...]

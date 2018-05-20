@@ -6,17 +6,17 @@ methods = {
     subs = @_child_subscriptions[property]
     if subs?.size
       Core.queueTask(sub, value) for sub from subs
-    @notify(@_state) if notify
+    @notify(@_target) if notify
 
   peek: (property) ->
-    value = @_state[property]
+    value = @_target[property]
     if Core.isObject(value) and Object.isFrozen(value)
       value = Core.clone(value)
-      @_state[property] = value
+      @_target[property] = value
     Handler.wrap(value)
 
   on: (property, fn) ->
-    value = @_state[property]
+    value = @_target[property]
     disposable = null
     if Core.isObject(value) and not (Core.isFunction(value) or value instanceof Element)
       handler = Handler.handler(value)

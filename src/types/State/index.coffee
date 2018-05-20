@@ -26,11 +26,11 @@ setNested = (item, changes) ->
 export default class State
   constructor: (state) ->
     Object.defineProperties @, {
-      _state: {value: state, writable: true}
+      _target: {value: state, writable: true}
       _disposables: {value: [], writable: true}
       _child_subscriptions: {value: {}, writable: true}
     }
-    @_defineProperty(k) for k of @_state
+    @_defineProperty(k) for k of @_target
     Core.context?.disposables.push(@dispose.bind(@))
 
   set: ->
@@ -42,7 +42,7 @@ export default class State
           @set.apply(@, change) for change in args[0]
         else @_setProperty(property, value) for property, value of args[0]
         return
-      current = @_state
+      current = @_target
       changes = args[args.length - 1]
       i = 0
       while i < args.length - 1 and (temp = current[args[i]])?
@@ -56,7 +56,7 @@ export default class State
       return console.log('replace must be provided a replacement state') unless arguments[0] instanceof Object
       changes = arguments[0]
       Core.run =>
-        changes = Core.diff(changes, @_state) unless Array.isArray(changes)
+        changes = Core.diff(changes, @_target) unless Array.isArray(changes)
         @replace.apply(@, change) for change in changes
         return
 
@@ -64,7 +64,7 @@ export default class State
       @_setProperty(arguments[0], arguments[1])
       return
 
-    current = @_state
+    current = @_target
     value = arguments[arguments.length - 1]
     property = arguments[arguments.length - 2]
     i = 0
@@ -79,12 +79,12 @@ export default class State
       if Core.isFunction(selection) or 'subscribe' of selection
         selector = if Core.isFunction(selection) then new Selector(selection) else selection
         @_disposables.push selector.subscribe (value) =>
-          @replace([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
+          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
           return
         continue
       if 'then' of selection
         selection.then (value) =>
-          @replace([].concat((Core.diff(val, @_state[key], [key]) for key, val of value or {})...))
+          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
           return
         continue
       for key, selector of selection
@@ -93,10 +93,10 @@ export default class State
           selector = if Core.isFunction(selector) then new Selector(selector) else selector
           if 'then' of selector
             return selector.then (value) =>
-              @replace(Core.diff(value, @_state[key], [key]))
+              @replace(Core.diff(value, @_target[key], [key]))
               return
           @_disposables.push selector.subscribe (value) =>
-            @replace(Core.diff(value, @_state[key], [key]))
+            @replace(Core.diff(value, @_target[key], [key]))
             return
     return
 
@@ -109,19 +109,19 @@ export default class State
   _setProperty: (property, value) ->
     @_defineProperty(property) unless property of @
     if value is undefined
-      delete @_state[property]
-    else @_state[property] = value
+      delete @_target[property]
+    else @_target[property] = value
     @trigger(property, value)
 
   _defineProperty: (property) ->
     Object.defineProperty @, property, {
       get: =>
-        return @_state[property] unless Core.context?.fn
-        if (value = @_state[property])?
+        return @_target[property] unless Core.context?.fn
+        if (value = @_target[property])?
           return value if Core.isFunction(value)
           if Core.isObject(value) and Object.isFrozen(value)
             value = Core.clone(value)
-            @_state[property] = value
+            @_target[property] = value
           value = Handler.wrap(value)
         Core.context.disposables.push(@on(property, Core.context.fn).unsubscribe)
         value

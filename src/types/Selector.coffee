@@ -27,6 +27,13 @@ export default class Selector extends Signal
     context = if is_sleeping then null else @context
     new_val = Core.setContext context, => @handler(@__value)
     if new_val and Core.isObject(new_val)
+      if $$observable of new_val
+        @context.disposables.push (sub = new_val[$$observable]().subscribe(
+          (val) => @resolve(val)
+          (err) => @notify('error', err)
+        )).unsubscribe.bind(sub)
+        return
+
       if 'then' of new_val
         new_val
           .then (new_val) =>
@@ -34,13 +41,6 @@ export default class Selector extends Signal
             @resolve(new_val)
           .catch (err) =>
             @notify('error', err)
-        return
-
-      if $$observable of new_val
-        @context.disposables.push (sub = new_val[$$observable]().subscribe(
-          (val) => @resolve(val)
-          (err) => @notify('error', err)
-        )).unsubscribe.bind(sub)
         return
     @resolve(new_val)
 

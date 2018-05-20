@@ -3,6 +3,7 @@ import { createRuntime } from 'babel-plugin-jsx-dom-expressions'
 import Core from './Core'
 import Sync from './types/Sync'
 import Selector from './types/Selector'
+import Signal from './types/Signal'
 
 runtime = createRuntime({
   wrapExpr: (accessor, fn) -> new Sync ->
@@ -11,11 +12,11 @@ runtime = createRuntime({
       if 'sid' of value
         new Sync -> fn(value.value)
         return
-      if 'then' of value
-        value.then(fn)
-        return
       if $$observable of value
         Core.context.disposables.push((sub = value[$$observable]().subscribe(fn)).unsubscribe.bind(sub))
+        return
+      if 'then' of value
+        value.then(fn)
         return
     fn(value)
   sanitize: Core.unwrap
@@ -26,6 +27,7 @@ mapSelector = (valueAccessor, mapFn) ->
   list = []
   disposables = []
   length = 0
+  signals = [] if (trackIndex = mapFn.length > 1)
 
   Core.context.disposables.push ->
     d() for d in disposables
@@ -41,6 +43,7 @@ mapSelector = (valueAccessor, mapFn) ->
         list = []
         d() for d in disposables
         disposables = []
+        signals = [] if trackIndex
         return
       return mapped[0] if list[0] is newListUnwrapped
       d() for d in disposables
@@ -58,19 +61,22 @@ mapSelector = (valueAccessor, mapFn) ->
         length = 0
         d() for d in disposables
         disposables = []
+        signals = [] if trackIndex
     else if length is 0
       i = 0
       while i < newLength
         list[i] = newListUnwrapped[i]
         mapped[i] = Core.root (dispose) ->
           disposables[i] = dispose
-          mapFn(newList.peek?(i) or newList[i], i)
+          return mapFn(newList.peek?(i) or newList[i], signals[i] = new Signal(i), newList) if trackIndex
+          mapFn(newList.peek?(i) or newList[i])
         i++
       length = newLength
     else
       newMapped = new Array(newLength)
       tempDisposables = new Array(newLength)
       indexedItems = new Map()
+      tempSignals = new Array(newLength) if trackIndex
       end = Math.min(length, newLength)
       # reduce from both ends
       start = 0
@@ -81,6 +87,7 @@ mapSelector = (valueAccessor, mapFn) ->
       while end >= 0 and newEnd >= 0 and newListUnwrapped[newEnd] is list[end]
         newMapped[newEnd] = mapped[end]
         tempDisposables[newEnd] = disposables[newEnd]
+        tempSignals[newEnd] = signals[newEnd] if trackIndex
         end--
         newEnd--
 
@@ -104,6 +111,7 @@ mapSelector = (valueAccessor, mapFn) ->
           j = itemIndex.pop()
           newMapped[j] = mapped[i]
           tempDisposables[j] = disposables[i]
+          tempSignals[j] = signals[i] if trackIndex
         else disposables[i]()
         i++
 
@@ -113,14 +121,19 @@ mapSelector = (valueAccessor, mapFn) ->
         if newMapped.hasOwnProperty(j)
           mapped[j] = newMapped[j]
           disposables[j] = tempDisposables[j]
+          if trackIndex
+            signals[j] = tempSignals[j]
+            signals[j].next(j) if signals[j].peek() isnt j
         else
           mapped[j] = Core.root (dispose) ->
             disposables[j] = dispose
-            mapFn(newList.peek?(j) or newList[j], j)
+            return mapFn(newList.peek?(j) or newList[j], signals[j] = new Signal(j), newList) if trackIndex
+            mapFn(newList.peek?(j) or newList[j])
         j++
 
       # truncate extra length
       length = mapped.length = disposables.length = newLength
+      signals.length = newLength if trackIndex
       # save list for next iteration
       list = newListUnwrapped.slice(0)
 
