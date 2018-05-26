@@ -1,5 +1,5 @@
-import Core from '../../Core'
-import Selector from '../Selector'
+import Core, { queueTask, clone, run, diff, resolveAsync, unwrap, isObject, isFunction } from '../../Core'
+import Signal from '../Signal'
 import ImmutableHandler from './ImmutableHandler'
 
 export default class ImmutableState
@@ -15,7 +15,7 @@ export default class ImmutableState
   set: ->
     return console.log('Cannot update in a Selector') if Core.context?.pure
     args = arguments
-    Core.run =>
+    run =>
       if args.length is 1
         if Array.isArray(args[0])
           @set.apply(@, change) for change in args[0]
@@ -45,8 +45,8 @@ export default class ImmutableState
     if arguments.length is 1
       return console.log('replace must be provided a replacement state') unless arguments[0] instanceof Object
       changes = arguments[0]
-      Core.run =>
-        changes = Core.diff(changes, @_target) unless Array.isArray(changes)
+      run =>
+        changes = diff(changes, @_target) unless Array.isArray(changes)
         @replace.apply(@, change) for change in changes
         return
       return
@@ -72,29 +72,20 @@ export default class ImmutableState
     @trigger(path.subs, path.state) for path in subPaths
     return
 
-   select: ->
+  select: ->
     for selection in arguments
-      if Core.isFunction(selection) or 'subscribe' of selection
-        selector = if Core.isFunction(selection) then new Selector(selection) else selection
-        @_disposables.push selector.subscribe (value) =>
-          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
-          return
-        continue
-      if 'then' of selection
-        selection.then (value) =>
-          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
-          return
-        continue
+      selection = if isFunction(selection) then Signal(selection) else selection
+      continue if resolveAsync selection, @_disposables, (value) =>
+        value = unwrap(value, true)
+        @replace([].concat((diff(val, @_target[key], [key]) for key, val of value or {})...))
+        return
       for key, selector of selection
         do (key, selector) =>
           @_defineProperty(key) unless key of @
-          selector = if Core.isFunction(selector) then new Selector(selector) else selector
-          if 'then' of selector
-            return selector.then (value) =>
-              @replace(Core.diff(value, @_target[key], [key]))
-              return
-          @_disposables.push selector.subscribe (value) =>
-            @replace(Core.diff(value, @_target[key], [key]))
+          selector = if isFunction(selector) then Signal(selector) else selector
+          resolveAsync selector, @_disposables, (value) =>
+            value = unwrap(value, true)
+            @replace(diff(value, @_target[key], [key]))
             return
     return
 
@@ -108,7 +99,7 @@ export default class ImmutableState
 
   trigger: (subs, value) ->
     return unless subs?.size
-    Core.queueTask(sub, value) for sub from subs
+    queueTask(sub, value) for sub from subs
     return
 
   dispose: ->
@@ -127,7 +118,7 @@ export default class ImmutableState
       currentSubs = currentSubs[path[i]]
       if currentState?
         unless currentSubs.clock is Core.clock
-          currentState[path[i]] = Core.clone(currentState[path[i]])
+          currentState[path[i]] = clone(currentState[path[i]])
           currentSubs.clock = Core.clock
         currentState = currentState[path[i]]
       subPaths.push({state: currentState, subs: currentSubs._subPath}) if currentSubs?._subPath?.size
@@ -152,22 +143,22 @@ export default class ImmutableState
   _defineProperty: (property) ->
     Object.defineProperty @, property, {
       get: =>
-        return @_target[property] unless Core.context?.fn
-        if (value = @_target[property])? and Core.isObject(value) and not (value instanceof Element)
-          return value if Core.isFunction(value)
+        return @_target[property] unless Core.context?.exec
+        if (value = @_target[property])? and isObject(value) and not (value instanceof Element)
+          return value if isFunction(value)
           @_subscriptions[property] or= {clock: Core.clock}
           @_subscriptions[property].path or= [property]
           value = new Proxy(@_subscriptions[property], new ImmutableHandler(@_subscriptions[property], value, @))
-        Core.context.disposables.push(@on(property, Core.context.fn).unsubscribe)
+        Core.context.disposables.push(@on(property, Core.context.exec).unsubscribe)
         value
       enumerable: true
     }
-    Object.defineProperty @, property + '$', {
+    Object.defineProperty @, property + 'Signal', {
       get: =>
-        if fn = Core.context.fn
+        if fn = Core.context.exec
           @_subscriptions[property] or= {_subs: new Set(), clock: Core.clock}
           @_subscriptions[property]._subPath or= new Set()
-          @_subscriptions[property]._subPath.add(Core.context.fn)
+          @_subscriptions[property]._subPath.add(Core.context.exec)
           Core.context.disposables.push(=> @_subscriptions[property]._subPath.delete(fn))
         return @_target[property]
     }

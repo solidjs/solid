@@ -67,7 +67,7 @@ You can also deep set:
 
 The use of the function allows for more control over the access to update the state object and is the key to reducing the use of unnecessary Proxies to allow for greater performance.
 
-But where the magic happens is with making computations. This done through State's select method which takes an Observable, a Promise, or a Function and maps it to a state property. The simplest form of passing a function will wrap it in our Selector Observable which is a computation that automatically tracks dependencies.
+But where the magic happens is with making computations. This done through State's select method which takes an Observable, a Promise, or a Function and maps it to a state property. The simplest form of passing a function will wrap it in an Observable which will automatically tracks dependencies.
 
     state.select({
       displayName: () => {
@@ -87,7 +87,7 @@ This is also primary mechanism to interopt with store technologies like Redux, A
 
 ## Solid Rendering
 
-To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the babel-plugin-jsx-dom-expressions which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computeds.
+To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computeds.
 
 JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is both much more performant and uses considerable less memory. The well defined AST lends well to precompilation. This works so well it almost feels like cheating. I believe it's a big part of bringing the same level of tooling to fine grained change detection libraries already enjoyed by Virtual DOM libraries.
 
@@ -116,12 +116,29 @@ So the driving questions here are:
 
 Admittedly it takes a strong reason to not go with the general consensus of best, and most supported libraries and frameworks. But I believe there is a better way out there than how we do it today.
 
+Moreover, working in Web Components has changed my perspective on where the natural boundaries are for the parts of modern web application building. In a sense a library like React does too much and doesn't allow separating key technical approaches. From a Web Component perspective the base pieces are:
+
+* Renderer (JSX vs String Templates vs DOM Crawling, Virtual DOM vs Fine Grained vs Dirty Checking)
+* Change Management (Declarative Data vs Lifecycle, Mutable vs Immutable)
+* Container (JS Objects vs Web Components, Inheritance vs Function Composition)
+
+React takes care of all 3 and doesn't let you swap your solutions for each. Each these areas have different approaches and tradeoffs. Solid.js covers the first 2, but truthfully the focus is on the 2nd one, where the first is a separate project not specific to the library. Containers are not a concern here making it a great candidate for Web Components.
+
 ## Documentation
 
 * [Data Types](../master/documentation/data-types.md)
 * [Components](../master/documentation/components.md)
 * [Mutability](../master/documentation/mutability.md)
 * [Scheduling](../master/documentation/scheduling.md)
+
+## Related Projects
+
+* [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
+The renderer behind Solid.js that enables lightning fast fine grained performance.
+* [React Solid State](https://github.com/ryansolid/react-solid-state)
+A local state swap in for React to use Solid.js paradigm in your existing React apps.
+* [Solid Components](https://github.com/ryansolid/solid-components)
+COMING SOON! A Web Component solution using Solid.js.
 
 ## Status
 
@@ -130,6 +147,4 @@ This project is still a work in progress. Although I've been working on it for t
 Areas of Improvement:
 * Tests
 * Documentation
-* Compile time optimization
-* Run time optimization
 * Examples

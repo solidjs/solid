@@ -1,5 +1,5 @@
-import Core from '../../Core'
-import Selector from '../Selector'
+import Core, { run, diff, unwrap, isFunction, resolveAsync, isObject, clone } from '../../Core'
+import Signal from '../Signal'
 import Handler from './Handler'
 import methods from './methods'
 
@@ -36,7 +36,7 @@ export default class State
   set: ->
     return console.log('Cannot update in a Selector') if Core.context?.pure
     args = arguments
-    Core.run =>
+    run =>
       if args.length is 1
         if Array.isArray(args[0])
           @set.apply(@, change) for change in args[0]
@@ -55,8 +55,8 @@ export default class State
     if arguments.length is 1
       return console.log('replace must be provided a replacement state') unless arguments[0] instanceof Object
       changes = arguments[0]
-      Core.run =>
-        changes = Core.diff(changes, @_target) unless Array.isArray(changes)
+      run =>
+        changes = diff(changes, @_target) unless Array.isArray(changes)
         @replace.apply(@, change) for change in changes
         return
 
@@ -76,27 +76,18 @@ export default class State
 
   select: ->
     for selection in arguments
-      if Core.isFunction(selection) or 'subscribe' of selection
-        selector = if Core.isFunction(selection) then new Selector(selection) else selection
-        @_disposables.push selector.subscribe (value) =>
-          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
-          return
-        continue
-      if 'then' of selection
-        selection.then (value) =>
-          @replace([].concat((Core.diff(val, @_target[key], [key]) for key, val of value or {})...))
-          return
-        continue
+      selection = if isFunction(selection) then Signal(selection) else selection
+      continue if resolveAsync selection, @_disposables, (value) =>
+        value = unwrap(value, true)
+        @replace([].concat((diff(val, @_target[key], [key]) for key, val of value or {})...))
+        return
       for key, selector of selection
         do (key, selector) =>
           @_defineProperty(key) unless key of @
-          selector = if Core.isFunction(selector) then new Selector(selector) else selector
-          if 'then' of selector
-            return selector.then (value) =>
-              @replace(Core.diff(value, @_target[key], [key]))
-              return
-          @_disposables.push selector.subscribe (value) =>
-            @replace(Core.diff(value, @_target[key], [key]))
+          selector = if isFunction(selector) then Signal(selector) else selector
+          resolveAsync selector, @_disposables, (value) =>
+            value = unwrap(value, true)
+            @replace(diff(value, @_target[key], [key]))
             return
     return
 
@@ -116,14 +107,14 @@ export default class State
   _defineProperty: (property) ->
     Object.defineProperty @, property, {
       get: =>
-        return @_target[property] unless Core.context?.fn
+        return @_target[property] unless Core.context?.exec
         if (value = @_target[property])?
-          return value if Core.isFunction(value)
-          if Core.isObject(value) and Object.isFrozen(value)
-            value = Core.clone(value)
+          return value if isFunction(value)
+          if isObject(value) and Object.isFrozen(value)
+            value = clone(value)
             @_target[property] = value
           value = Handler.wrap(value)
-        Core.context.disposables.push(@on(property, Core.context.fn).unsubscribe)
+        Core.context.disposables.push(@on(property, Core.context.exec).unsubscribe)
         value
       enumerable: true
     }

@@ -34,35 +34,39 @@ This grabs a wrapped version of the property without triggering the dependency d
 
 Manual subscription to the state object. This returns an object with the unsubscribe method.
 
-## Signal
+## Observables
 
-This is a simple Observable with a value property that can be tracked inside a computation. Similar to a BehaviorSubject in RxJS.
+This library is based off of using specialized observables that allow for automatic dependency tracking. These are the glue that hold the other pieces together, and are often present behind the scenes even if you aren't aware.
 
-### constructor(value)
+The default export of Solid is a function which is a factory for these. In general there are 3 types of Signal's you will create. These are simple observables without much functionality so access to a larger set of operators will require other libraries.
 
-Initializes with value
+### Signal
 
-### value
+A simple obervable with a next fn to set it's next value and a value property to grab the latest value. It is the most basic of the Observables and is created whenever most things are passed to the default function.
 
-Current value of the Signal
+### Stream
 
-### next(value)
+These are wrappers of existing of Observables and are initiated by passing an Observable to the default function. They trigger on changes to the underlying observable and have all the characteristics of Signals.
 
-Sets the next value of the Signal
+### Selector
 
-### subscribe(observer|next, error, complete)
+These are the Observables which auto track dependencies over an function execution and are created by passing a function to the default function.
 
-Standard Observable subscribe method
+All Signals have available operators available to them:
 
-## Selector
+### map
 
-Most common computation. This is a pure computation and inherits from Signal. The supplied function automatically tracks dependencies when it executes.
+This is a simple map function to translate data from one form to another. It takes a map function and returns a new Selector which returns the mapped value.
 
-A selector is smart in that if a Promise or Observable is returned from it's execution it will map the output of that to the selector. This allows Selectors to map both synchronous and asynchronous values. In so unlike many fine grained libraries Asynchronous computations can remain pure.
+### mapS
 
-### constructor(fn, options)
+This returns a specialized mapping Selector that is optimized for rendering. Depending on the input value, it will call the passed in mapped function differently.
 
-This sets the function that will execute. Currently the only option is 'defer' which is a boolean to indicate whether it should be defered to the microtask queue. Defaults to false.
+* If the value is falsey like false, null, undefined, empty array it will clear the current mapped data
+* If it is a non-array it will call the mapFn once with that value
+* If it is an Array it will call the fn for each item, and on changes only call it for new items.
+
+In so this method can act as both iteration, and conditionals for JSX templates.
 
 ## Sync
 

@@ -1,21 +1,21 @@
-import Core from '../Core'
+import Core, { setContext } from '../Core'
 
 export default class Sync
   constructor: (@handler, {defer=true} = {}) ->
-    @execute = @execute.bind(@)
-    @execute.defer = defer
-    @context = {fn: @execute, disposables: []}
-    @execute()
+    @exec = @exec.bind(@)
+    @exec.defer = defer
+    @disposables = []
+    @exec()
     Core.context?.disposables.push(@dispose.bind(@))
 
-  execute: ->
+  exec: ->
     return if @__disposed
     @clean()
-    Core.setContext @context, @handler
+    setContext @, @handler
 
   clean: ->
-    disposable() for disposable in @context.disposables
-    @context.disposables = []
+    disposable() for disposable in @disposables
+    @disposables = []
 
   dispose: ->
     return if @__disposed
