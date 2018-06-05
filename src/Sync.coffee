@@ -1,4 +1,4 @@
-import Core, { setContext } from '../Core'
+import Core, { setContext } from './Core'
 
 export default class Sync
   constructor: (@handler, {defer=true} = {}) ->

@@ -1,4 +1,4 @@
-import Core, { isFunction, isObject } from '../../Core'
+import Core, { isFunction, isObject } from '../Core'
 
 DEFINED =
   '_target': true

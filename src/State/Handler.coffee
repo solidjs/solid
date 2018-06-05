@@ -1,4 +1,4 @@
-import Core, { isObject, isFunction, clone, queueTask } from '../../Core'
+import Core, { isObject, isFunction, clone, queueTask } from '../Core'
 
 DEFINED =
   '_target': true

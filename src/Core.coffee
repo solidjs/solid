@@ -4,6 +4,38 @@ comparer = (v, k, b, is_array, path, r) ->
     return r.push(new_path.concat([v]))
   r.push.apply(r, diff(v, b[k], new_path))
 
+cancelTask = (handle, defer) ->
+  q = if defer then Core.queues.deferred else Core.queues.current
+  index = handle - (q.nextHandle - q.tasks.length)
+  q.tasks[index] = null if q.nextIndex <= index
+
+processUpdates = (q, current) ->
+  count = 0; mark = 0
+  while q.nextIndex < q.tasks.length
+    unless task = q.tasks[q.nextIndex]
+      q.nextIndex++
+      continue
+    if current and task.defer
+      task.handle = undefined
+      queueTask(task, task.value)
+      q.nextIndex++
+      continue
+    if q.nextIndex > mark
+      if count++ > 5000
+        console.error 'Exceeded max task recursion'
+        q.nextIndex = 0
+        return q.tasks = []
+      mark = q.tasks.length
+    try
+      task(task.value)
+      task.handle = task.dhandle = task.value = undefined
+    catch err
+      console.error err
+    q.nextIndex++
+  q.nextIndex = 0
+  q.tasks = []
+  return
+
 export default Core = {
   context: null
   frozen: false
@@ -36,38 +68,6 @@ export queueTask = (task, value) ->
   task(value)
   return
 
-export cancelTask = (handle, defer) ->
-  q = if defer then Core.queues.deferred else Core.queues.current
-  index = handle - (q.nextHandle - q.tasks.length)
-  q.tasks[index] = null if q.nextIndex <= index
-
-export processUpdates = (q, current) ->
-  count = 0; mark = 0
-  while q.nextIndex < q.tasks.length
-    unless task = q.tasks[q.nextIndex]
-      q.nextIndex++
-      continue
-    if current and task.defer
-      task.handle = undefined
-      queueTask(task, task.value)
-      q.nextIndex++
-      continue
-    if q.nextIndex > mark
-      if count++ > 5000
-        console.error 'Exceeded max task recursion'
-        q.nextIndex = 0
-        return q.tasks = []
-      mark = q.tasks.length
-    try
-      task(task.value)
-      task.handle = task.dhandle = task.value = undefined
-    catch err
-      console.error err
-    q.nextIndex++
-  q.nextIndex = 0
-  q.tasks = []
-  return
-
 export run = (fn) ->
   if !Core.frozen
     execute = true
@@ -95,6 +95,10 @@ export setContext = (newContext, fn) ->
 export root = (fn) ->
   setContext {disposables: d = []}, ->
     fn(-> disposable() for disposable in d; d = []; return)
+
+export onClean = (fn) ->
+  return unless Core.context
+  Core.context.disposables.push(fn)
 
 export ignore = (fn) ->
   { disposables } = (Core.context or {})
@@ -131,18 +135,6 @@ export unwrap = (item, deep) ->
   return item unless deep and isObject(item) and not isFunction(item) and not (item instanceof Element) and not (item instanceof DocumentFragment)
   item[k] = unwrapped for k, v of item when (unwrapped = unwrap(v, true)) isnt v
   item
-
-export resolveAsync = (value, disposables, fn) ->
-  return unless isObject(value)
-  if 'subscribe' of value
-    disposables.push value.subscribe((val) =>
-      return if resolveAsync(val, disposables, fn)
-      fn(val)
-    )
-    return true
-  if 'then' of value
-    value.then(fn)
-    return true
 
 export isEqual = (a, b) -> (a?._target or a) is (b?._target or b)
 

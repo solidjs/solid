@@ -9,20 +9,19 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
   * Data behavior is part of the declaration
   * No need for lifecycle functions, and the large chains of conditionals they bring.
 * ES6 Proxies to keep data access simple and POJO like
-* Promises and ES Observables are first class citizens:
-  * Easy interopt with existing libraries that manage services and state
-  * All computations and bindings when resolved to these automatically update asynchronously allowing for 100% pure data declarations.
-  * In so Async Functions are first class citizens and computations can be written using them.
+* Promises and ES(RxJS) Observables are first class citizens:
+  * Easy interopt with existing libraries that manage services and state.
+  * All Solid Signals & Selectors are Observables and support RxJS pipeable operators
+  * All Selectors and bindings when resolved to these automatically update asynchronously allowing for 100% pure data declarations.
+  * Async Functions are first class citizens and Selectors can be written using them.
 * Truly just a render library
   * Unopinionated about how you set modularize/componentize your code
   * The whole tree is only rendered once so statefulness is not a decider for the use of functional components
   * Use familiar techniques like HOCs, Class inheritance, dependency injection as you see fit.
-* Performance on par with the fastest Virtual DOM libraries
+* Performance exceeding the fastest Virtual DOM libraries. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark)
 
 <br />
 A Simple Component could look like:
-
-    import Solid, { State } from 'solid-js'
 
     function MyComponent() {
       state = new State({
@@ -41,9 +40,7 @@ A Simple Component could look like:
       </>);
     }
 
-    Solid.root(=>
-      mountEl.appendChild(MyComponent())
-    );
+    root(() => mountEl.appendChild(MyComponent()));
 
 ## Solid State
 
@@ -65,21 +62,19 @@ You can also deep set:
 
     state.set('user', {firstName: 'Jake', middleName: 'Reese'});
 
-The use of the function allows for more control over the access to update the state object and is the key to reducing the use of unnecessary Proxies to allow for greater performance.
+This takes the form similar to ImmutableJS for set and setIn leaving all mutation control at the top level state object.
 
-But where the magic happens is with making computations. This done through State's select method which takes an Observable, a Promise, or a Function and maps it to a state property. The simplest form of passing a function will wrap it in an Observable which will automatically tracks dependencies.
+But where the magic happens is with making Selectors. This done through State's select method which takes an Observable, a Promise, or a Function and maps it to a state property. The simplest form of passing a function will wrap it in an Observable which will automatically tracks dependencies.
 
     state.select({
-      displayName: () => {
-        return `${state.user.firstName} ${state.user.lastName}`;
-      }
+      displayName: () => `${state.user.firstName} ${state.user.lastName}`;
     })
 
     console.log(state.displayName); // Jake Smith
 
-Whenever any dependency changes the State value will immediately update. Internally all JSX expressions also get wrapped in computations so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
+Whenever any dependency changes the State value will immediately update. Internally all JSX expressions also get wrapped in Selectors so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
 
-This is also primary mechanism to interopt with store technologies like Redux, Apollo, RxJS which expose themselves as Observables or Promises. When you hook up these selectors you can use standard methods to map the properties you want and the State object will automatically diff the changes to only affect the minimal amount.
+This is also primary mechanism to interopt with store technologies like Redux, Apollo, RxJS which expose themselves as Observables or Promises. When you hook up these Selectors you can use standard methods to map the properties you want and the State object will automatically diff the changes to only affect the minimal amount.
 
     props.select({
       myCounter: Observable.from(store).map(({counter}) => counter)
@@ -89,15 +84,19 @@ This is also primary mechanism to interopt with store technologies like Redux, A
 
 To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computeds.
 
-JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is both much more performant and uses considerable less memory. The well defined AST lends well to precompilation. This works so well it almost feels like cheating. I believe it's a big part of bringing the same level of tooling to fine grained change detection libraries already enjoyed by Virtual DOM libraries.
+JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is both much more performant and uses considerable less memory.
 
 To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
 
-    "plugins": [["jsx-dom-expressions", {"moduleName": "Solid"}]]
+    "plugins": ["jsx-dom-expressions"]
+
+And include at the top of your files:
+
+    import r from 'solid-js/dom'
 
 ## Why?
 
-This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very inspired by fine grain change detection libraries like Knockout.js and the radical approach taken by Cycle.js. I feel the API for those were a considerable barrier. At the same time, for all the really good things that came with React and the Virtual DOM evolution of UI frameworks it also felt like a bit of a step backwards.
+This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very inspired by fine grain change detection libraries like Knockout.js and the radical approach taken by Cycle.js. The idea here is to ease users into the world of Observable programming by keeping it transparent and starting simple.  The Virtual DOM as seen in React for all it's advances has some signifigant trade offs:
 
 * The VDOM render while performant is still conceptually a constant re-render
   * It feels much more imperative as variable declarations and iterative methods for constructing the tree are constantly re-evaluating
@@ -106,6 +105,7 @@ This project started as trying to find a small performant library to work with W
   * Imposes boundaries on components to solve performance concerns
   * Prices you into a very specific but not necessarily obvious structure
   * Only served to make it more ambiguous when emerging best practices lead to specialized component classification anyway
+* Abstracts debugging to the point a <div /> is not longer just a div
 * VDOM libraries still are based around having a specialized data objects.
 
 So the driving questions here are:
@@ -118,18 +118,19 @@ Admittedly it takes a strong reason to not go with the general consensus of best
 
 Moreover, working in Web Components has changed my perspective on where the natural boundaries are for the parts of modern web application building. In a sense a library like React does too much and doesn't allow separating key technical approaches. From a Web Component perspective the base pieces are:
 
-* Renderer (JSX vs String Templates vs DOM Crawling, Virtual DOM vs Fine Grained vs Dirty Checking)
-* Change Management (Declarative Data vs Lifecycle, Mutable vs Immutable)
-* Container (JS Objects vs Web Components, Inheritance vs Function Composition)
+1. Renderer (JSX vs String Templates vs DOM Crawling, Virtual DOM vs Fine Grained vs Dirty Checking)
+2. Change Management (Declarative Data vs Lifecycle, Mutable vs Immutable)
+3. Container (JS Objects vs Web Components, Inheritance vs Function Composition)
 
-React takes care of all 3 and doesn't let you swap your solutions for each. Each these areas have different approaches and tradeoffs. Solid.js covers the first 2, but truthfully the focus is on the 2nd one, where the first is a separate project not specific to the library. Containers are not a concern here making it a great candidate for Web Components.
+React takes care of all 3 and doesn't let you swap your solutions for each. Each these areas have different approaches and tradeoffs. Solid.js focuses on 2, just touching on the first as needed. Containers are not a concern here making it a great candidate for Web Components.
 
 ## Documentation
 
-* [Data Types](../master/documentation/data-types.md)
+* [State](../master/documentation/state.md)
 * [Components](../master/documentation/components.md)
 * [Mutability](../master/documentation/mutability.md)
 * [Scheduling](../master/documentation/scheduling.md)
+* [Observables](../master/documentation/observables.md)
 
 ## Related Projects
 
@@ -142,7 +143,7 @@ COMING SOON! A Web Component solution using Solid.js.
 
 ## Status
 
-This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. It took discovering the approaches used by Surplus.js to fill the missing pieces this library needed to prove out it's concept. And now I believe we can have performance and a simple clean API. The focus has been API, correctness, performance, compatibility, in that order so there is a lot of work to be done.
+This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. It took discovering the approaches used by [Surplus.js](https://github.com/adamhaile/surplus) to fill the missing pieces this library needed to prove out it's concept. And now I believe we can have performance and a simple clean API.
 
 Areas of Improvement:
 * Tests

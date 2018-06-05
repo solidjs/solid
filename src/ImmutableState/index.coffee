@@ -1,4 +1,4 @@
-import Core, { queueTask, clone, run, diff, resolveAsync, unwrap, isObject, isFunction } from '../../Core'
+import Core, { queueTask, clone, run, diff, unwrap, isObject, isFunction } from '../Core'
 import Signal from '../Signal'
 import ImmutableHandler from './ImmutableHandler'
 
@@ -74,19 +74,21 @@ export default class ImmutableState
 
   select: ->
     for selection in arguments
-      selection = if isFunction(selection) then Signal(selection) else selection
-      continue if resolveAsync selection, @_disposables, (value) =>
-        value = unwrap(value, true)
-        @replace([].concat((diff(val, @_target[key], [key]) for key, val of value or {})...))
+      if isFunction(selection) or 'then' of selection or 'subscribe' of selection
+        selection = Signal(selection) unless 'sid' of selection
+        @_disposables.push selection.subscribe (value) =>
+          value = unwrap(value, true)
+          @replace([].concat((diff(val, @_target[key], [key]) for key, val of value or {})...))
+          return
         return
       for key, selector of selection
         do (key, selector) =>
           @_defineProperty(key) unless key of @
-          selector = if isFunction(selector) then Signal(selector) else selector
-          resolveAsync selector, @_disposables, (value) =>
-            value = unwrap(value, true)
-            @replace(diff(value, @_target[key], [key]))
+          selector = Signal(selector) unless 'sid' of selector
+          @_disposables.push selector.subscribe (value) =>
+            @replace(diff(unwrap(value, true), @_target[key], [key]))
             return
+          return
     return
 
   on: (property, fn) ->

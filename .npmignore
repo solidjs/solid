@@ -1,2 +1,3 @@
 src/
 rollup.config.js
+dom/src

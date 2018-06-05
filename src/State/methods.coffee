@@ -1,4 +1,4 @@
-import Core, { queueTask, isObject, isFunction, clone } from '../../Core'
+import Core, { queueTask, isObject, isFunction, clone } from '../Core'
 import Handler from './Handler'
 
 methods = {
