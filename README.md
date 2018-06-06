@@ -18,7 +18,7 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
   * Unopinionated about how you set modularize/componentize your code
   * The whole tree is only rendered once so statefulness is not a decider for the use of functional components
   * Use familiar techniques like HOCs, Class inheritance, dependency injection as you see fit.
-* Performance exceeding the fastest Virtual DOM libraries. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark)
+* Performance amongst the fastest libraries. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark)
 
 <br />
 A Simple Component could look like:
