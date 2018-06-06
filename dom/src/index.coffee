@@ -2,7 +2,7 @@ import { createRuntime } from 'babel-plugin-jsx-dom-expressions'
 
 import { Sync, onClean, unwrap } from 'solid-js'
 
-export default createRuntime({
+runtime = createRuntime({
   wrapExpr: (accessor, fn) -> new Sync =>
     value = accessor()
     if value? and typeof value is 'object'
@@ -19,3 +19,9 @@ export default createRuntime({
     fn(value)
   sanitize: unwrap
 })
+
+runtime.addEventListener = (node, eventName, fn) ->
+  fn = fn.next.bind(fn) if typeof fn is 'object' and 'next' of fn
+  node.addEventListener(eventName, fn)
+
+export default runtime

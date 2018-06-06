@@ -23,62 +23,72 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
 <br />
 A Simple Component could look like:
 
-    function MyComponent() {
-      state = new State({
-        users: [{
-          id: 1, firstName: 'John', lastName: 'Smith'
-        }, {
-          id: 2, firstName: 'Jane', lastNameL 'Smith'
-        }]
-      });
+```js
+function MyComponent() {
+  state = new State({
+    users: [{
+      id: 1, firstName: 'John', lastName: 'Smith'
+    }, {
+      id: 2, firstName: 'Jane', lastNameL 'Smith'
+    }]
+  });
 
-      return (<>
-        <h1>Welcome</h1>
-        <ul>{
-          state.users.map(user => <li>{user.firstName} {user.lastName}</li>)
-        }</ul>
-      </>);
-    }
+  return (<>
+    <h1>Welcome</h1>
+    <ul>{
+      state.users.map(user => <li>{user.firstName} {user.lastName}</li>)
+    }</ul>
+  </>);
+}
 
-    root(() => mountEl.appendChild(MyComponent()));
+root(() => mountEl.appendChild(MyComponent()));
+```
 
 ## Solid State
 
 It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their set method.
 
-    var state = new State({counter: 0});
-    state.set({
-      counter: state.counter + 1
-    });
+```js
+var state = new State({counter: 0});
+state.set({
+  counter: state.counter + 1
+});
+```
 
 You can also deep set:
 
-    var state = new State({
-      user: {
-        firstName: 'John'
-        lastName: 'Smith'
-      }
-    });
+```js
+var state = new State({
+  user: {
+    firstName: 'John'
+    lastName: 'Smith'
+  }
+});
 
-    state.set('user', {firstName: 'Jake', middleName: 'Reese'});
+state.set('user', {firstName: 'Jake', middleName: 'Reese'});
+```
 
 This takes the form similar to ImmutableJS for set and setIn leaving all mutation control at the top level state object.
 
 But where the magic happens is with making Selectors. This done through State's select method which takes an Observable, a Promise, or a Function and maps it to a state property. The simplest form of passing a function will wrap it in an Observable which will automatically tracks dependencies.
 
-    state.select({
-      displayName: () => `${state.user.firstName} ${state.user.lastName}`;
-    })
+```js
+state.select({
+  displayName: () => `${state.user.firstName} ${state.user.lastName}`;
+})
 
-    console.log(state.displayName); // Jake Smith
+console.log(state.displayName); // Jake Smith
+```
 
 Whenever any dependency changes the State value will immediately update. Internally all JSX expressions also get wrapped in Selectors so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
 
 This is also primary mechanism to interopt with store technologies like Redux, Apollo, RxJS which expose themselves as Observables or Promises. When you hook up these Selectors you can use standard methods to map the properties you want and the State object will automatically diff the changes to only affect the minimal amount.
 
-    props.select({
-      myCounter: Observable.from(store).map(({counter}) => counter)
-    })
+```js
+props.select({
+  myCounter: Observable.from(store).map(({counter}) => counter)
+})
+```
 
 ## Solid Rendering
 
@@ -88,11 +98,15 @@ JSX as a templating language brings a lot of benefits. The just being javascript
 
 To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
 
-    "plugins": ["jsx-dom-expressions"]
+```js
+"plugins": ["jsx-dom-expressions"]
+```
 
 And include at the top of your files:
 
-    import r from 'solid-js/dom'
+```js
+import r from 'solid-js/dom'
+```
 
 ## Why?
 

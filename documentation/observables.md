@@ -16,37 +16,43 @@ A computation is calculation over a function execution that automatically dynami
 
 This the simplest computation and technically isn't an Observable. It has no ability to be subscribed to, and doesn't notify change. Instead it just runs to keep things in sync when ever changes occur. This is the core piece used in rendering where side effects are necessary (ie.. rendering or updating the DOM) and have a low overhead of execution. They run immediately when created, and every time there after as dependencies change. They are also useful for debugging state changes.
 
-    import { Sync, State } from 'solid-js';
+```js
+import { Sync, State } from 'solid-js';
 
-    state = new State({count: 1});
+state = new State({count: 1});
 
-    new Sync(() => {
-      console.log(state.count);
-    });
-    state.set({count: state.count + 1});
+new Sync(() => {
+  console.log(state.count);
+});
+state.set({count: state.count + 1});
 
-    // 1
-    // 2
+// 1
+// 2
+```
 
 By default Sync execution is defered to the next Microtask to reduce unnecessary recalculation but this can be controlled by the second argument options.
 
-    new Sync(() => ...., {defer: false})
+```js
+new Sync(() => ...., {defer: false})
+```
 
 ## Signals
 
 These are the most primitive of the Observables in Solid, and resemble BehaviorSubjects in RxJS. They are multicast, and have no provider of data. Instead the next method is called on them manually to push updates to subscribers. Their value can be fetched from their value property useful for computations. The can manually be subscribed to as any other Observable.
 
-    import { S } from 'solid-js'
+```js
+import { S } from 'solid-js'
 
-    const name$ = S('John');
-    new Sync(() => {
-      console.log(name$.value);
-    });
+const name$ = S('John');
+new Sync(() => {
+  console.log(name$.value);
+});
 
-    name$.next('Jane');
+name$.next('Jane');
 
-    // John
-    // Jane
+// John
+// Jane
+```
 
 Its important to note this factory treats all non-Observables, non-Promises as basic values. An array is just an array. Combine with other libraries if you need to use more complicated streams.
 
@@ -54,19 +60,21 @@ Its important to note this factory treats all non-Observables, non-Promises as b
 
 These computations are also Observables. They are pure functions that allow the merging of mapping of several observable values. They are similar to combineLatest in RxJS except the dependencies aren't explicit and they also behave like flatMap. They support asynchronous return types allowing them to be the only method used in most places and are key to the state.select method.
 
-    import { S, State } from 'solid-js'
+```js
+import { S, State } from 'solid-js'
 
-    const state = new State({count: 1});
+const state = new State({count: 1});
 
-    const countx3$ = S(() => state.count * 3);
-    new Sync(() => {
-      console.log(countx3$.value);
-    });
+const countx3$ = S(() => state.count * 3);
+new Sync(() => {
+  console.log(countx3$.value);
+});
 
-    state.set({count: state.count + 1});
+state.set({count: state.count + 1});
 
-    // 3
-    // 6
+// 3
+// 6
+```
 
 Selectors as dynamic multi-tracking map functions are very powerful without resorting to chaining/composing operators. You can represent pretty much any operator using them which makes them a strong fallback for any solution.
 
@@ -76,79 +84,66 @@ Returning 'undefined' is considered not a value and does not notify. If you want
 
 They also pass the previous value on each execution. This is useful for reducing operations (obligatory Redux in a couple lines example):
 
-    const reducer = (state, action) => {
-      switch(action.type) {
-        case 'LIST/ADD':
-          return {...state, list: [...state.list, action.payload]};
-        default:
-          return state;
-      }
-    }
+```js
+const reducer = (state, action) => {
+  switch(action.type) {
+    case 'LIST/ADD':
+      return {...state, list: [...state.list, action.payload]};
+    default:
+      return state;
+  }
+}
 
-    // redux
-    const actions$ = S()
-    const store$ = S((state = {list: []}) => reducer(state, actions$.value));
+// redux
+const actions$ = S()
+const store$ = S((state = {list: []}) => reducer(state, actions$.value));
 
-    // subscription and dispatch
-    store$.subscribe(({list}) => console.log(list));
-    actions$.next({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}})
+// subscription and dispatch
+store$.subscribe(({list}) => console.log(list));
+actions$.next({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}})
+```
 
 ## Streams
 
 These are wrappers of existing of Observables and Promises. They trigger on changes to the underlying object and have all the characteristics of Signals.
 
-    import { S } from 'solid-js'
+```js
+import { S } from 'solid-js'
 
-    delaySec = new Promise((resolve) => {
-      setTimeout(resolve, 1000)
-    }).then(() => 5);
+delaySec = new Promise((resolve) => {
+  setTimeout(resolve, 1000)
+}).then(() => 5);
 
-    delayedVal$ = S(delaySec)
-    new Sync(() => {
-      console.log(delayedVal$.value);
-    });
+delayedVal$ = S(delaySec)
+new Sync(() => {
+  console.log(delayedVal$.value);
+});
 
-    // undefined
-    // 5                   after 1000ms
-
-Streams are driven off of a producer, so it is also possible to write a custom Producer. Producers have start/stop methods to control the stream. You can access _ prefixed versions of the observer properties to propogate events through the stream.
-
-    function fromEvent(el, eventName) {
-      var handler;
-      return {
-        start(stream) {
-          handler = stream._next.bind(stream);
-          el.addEventListener(eventName, handler);
-        }
-
-        stop() {
-          el.removeEventListener(eventName, handler);
-          handler = null;
-        }
-      }
-    }
-
-    S(fromEvent(window, 'resize'))
+// undefined
+// 5                   after 1000ms
+```
 
 ## Operators
 
 Operators in Solid are functionally composable or pipeable(RxJS) and constructed using currying. They all take their arguments and return a function that takes a function, Observable, or Promise. In so when using Solid you may find you aren't explicitly using the Signal factory as much as you might expect although basic operators are available as chain syntax on Solid observables.
 
-    import { S, State, pipe, map } from 'solid-js'
+```js
+import { S, State, map } from 'solid-js'
 
-    state = new State({name: 'Heather', count: 1});
+state = new State({name: 'Heather', count: 1});
 
-    // single expression
-    upperName$ = map((name) => name.toUpperCase())(() => state.name)
+// single expression
+upperName$ = map((name) => name.toUpperCase())(() => state.name)
 
-    // in steps
-    reverseName = map((name) => name.reverse())
-    reverseUpperName$ = reverseName(upperName$)
+// in steps
+reverseName = map((name) => name.reverse())
+reverseUpperName$ = reverseName(upperName$)
 
-    // chain syntax
-    reverseUpperNameChained$ = S(() => state.name)
-      .map((name) => name.toUpperCase())
-      .map((name) => name.reverse())
+// chain syntax
+reverseUpperNameChained$ = S(() => state.name)
+  .map((name) => name.toUpperCase())
+  .map((name) => name.reverse())
+```
 
 Solid.js only contains a very small subset of operators helpful for rendering or connecting other observable libraries. If you require more operators it's recommended to write your own or use with a more complete library like RxJS.
 
@@ -163,29 +158,57 @@ Memoized map useful for rendering. It returns existing mapped value if input val
 ### pipe(...obsv)
 This composes a sequence of operators into a single operator.
 
-It is not difficult to write your own:
+## Advanced
 
-    import { S } from 'solid-js'
+For those who still need more flexibility there is the ability to extend to create your own Observables and Operators.
 
-    function filter(filterFn) {
-      return (source) =>
-        S(source).map((value) => {
-          if (fn(value)) return value;
-          return;
-        })
+### Creating Observable
+
+Streams are driven off of a producer, so it is also possible to write a custom Producer. Producers have start/stop methods to control the stream. You can access _ prefixed versions of the observer properties to propogate events through the stream.
+
+```js
+function fromEvent(el, eventName) {
+  var handler;
+  return {
+    start(stream) {
+      handler = stream._next.bind(stream);
+      el.addEventListener(eventName, handler);
     }
 
-    state = new State({number: 2});
+    stop() {
+      el.removeEventListener(eventName, handler);
+      handler = null;
+    }
+  }
+}
 
-    <div>{
-      S(() => state.number).pipe(
-        .filter((num) => num % 2 === 0)
-        .map((num) => `${num} is even.`)
-      )
-    }</div>
+S(fromEvent(window, 'resize'))
+```
 
-    state.set({number: 3}); // will be skipped in display
-    state.set({number: 6});
+### Creating a custom pipeable operator
 
+It is not difficult to write your own:
 
+```js
+import { S, pipe } from 'solid-js'
 
+function filter(filterFn) {
+  return (source) =>
+    S(source).map((value) => {
+      if (fn(value)) return value;
+      return;
+    })
+}
+
+state = new State({number: 2});
+
+<div>{
+  S(() => state.number).pipe(
+    filter((num) => num % 2 === 0)
+    map((num) => `${num} is even.`)
+  )
+}</div>
+
+state.set({number: 3}); // will be skipped in display
+state.set({number: 6});
+```

@@ -31,4 +31,3 @@ This grabs a wrapped version of the property without triggering the dependency d
 ### on(property, fn)
 
 Manual subscription to the state object. This returns an object with the unsubscribe method.
-
