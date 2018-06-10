@@ -68,10 +68,6 @@ class Signal
     @_value = value
     @notify('next', value)
 
-  error: (value) -> @notify('error', value)
-
-  complete: -> @notify('complete')
-
   subscribe: (observer) ->
     d = @_subscribe.apply(@, arguments)
     (observer.next or observer).call(observer, @_value) unless @_value is undefined
@@ -83,9 +79,7 @@ class Signal
       observer =
         next: observer
         error: arguments[1]
-        complete: =>
-          onComplete?()
-          @unsubscribe(observer)
+        complete: arguments[2]
     @_subscriptions.add(observer)
     return {
       unsubscribe: @unsubscribe.bind(@, observer)
@@ -251,11 +245,9 @@ class Stream extends Signal
     queueTask(delayed)
 
   next: ->
-  error: ->
-  complete: ->
   _next: (value) -> super.next(value)
-  _error: (value) -> super.error(value)
-  _complete: -> super.complete()
+  _error: (value) -> @notify('error', value)
+  _complete: -> @notify('complete'); @dispose()
 
   peek: ->
     unless @initialized
@@ -266,6 +258,7 @@ class Stream extends Signal
   dispose: ->
     return unless @initialized
     @provider.stop(@)
+    @_subscriptions.clear()
     delete @initialized
 
 class Selector extends Signal
@@ -291,8 +284,6 @@ class Selector extends Signal
       super.next(value)
 
   next: ->
-  error: ->
-  complete: ->
 
   peek: ->
     @exec() unless @disposables.length
@@ -314,7 +305,7 @@ class Selector extends Signal
 
   clean: ->
     disposable() for disposable in @disposables
-    @disposables = []
+    @disposables.length = 0
 
   dispose: ->
     return if @__disposed

@@ -129,6 +129,7 @@ export default class ImmutableState
 
   _setProperty: (property, value) ->
     @_defineProperty(property) unless property of @
+    value = unwrap(value)
     if value is undefined
       delete @_target[property]
     else @_target[property] = value

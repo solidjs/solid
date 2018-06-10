@@ -8,15 +8,17 @@ setNested = (item, changes) ->
   isArray = Array.isArray(item)
   if arguments.length is 3
     notify = isArray or not (arguments[1] of item)
-    if arguments[2] is undefined
+    value = unwrap(arguments[2])
+    if value is undefined
       delete item[arguments[1]]
       item.length-- if isArray
-    else item[arguments[1]] = arguments[2]
-    handler.trigger(arguments[1], arguments[2], notify)
+    else item[arguments[1]] = value
+    handler.trigger(arguments[1], value, notify)
     return
 
   for property, value of changes
     notify = isArray or not (property of item)
+    value = unwrap(value)
     if value is undefined
       delete item[property]
     else item[property] = value
@@ -101,6 +103,7 @@ export default class State
 
   _setProperty: (property, value) ->
     @_defineProperty(property) unless property of @
+    value = unwrap(value)
     if value is undefined
       delete @_target[property]
     else @_target[property] = value

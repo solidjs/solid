@@ -33,7 +33,7 @@ processUpdates = (q, current) ->
       console.error err
     q.nextIndex++
   q.nextIndex = 0
-  q.tasks = []
+  q.tasks = null
   return
 
 export default Core = {
@@ -41,7 +41,6 @@ export default Core = {
   frozen: false
   queues: {
     deferred: {
-      tasks: []
       nextIndex: 0
       nextHandle: 1
     }
@@ -59,7 +58,8 @@ export queueTask = (task, value) ->
   if task.defer
     cancelTask(task.dhandle, task.defer) if task.dhandle?
     q = Core.queues.deferred
-    unless q.tasks.length
+    unless q.tasks
+      q.tasks = []
       Promise.resolve().then -> processUpdates(q); Core.clock++
     q.tasks.push(task)
     task.value = value
@@ -93,8 +93,9 @@ export setContext = (newContext, fn) ->
   ret
 
 export root = (fn) ->
-  setContext {disposables: d = []}, ->
-    fn(-> disposable() for disposable in d; d = []; return)
+  d = []
+  dispose = -> disposable() for disposable in d; d = []; return
+  setContext {disposables: d}, => fn(dispose)
 
 export onClean = (fn) ->
   return unless Core.context

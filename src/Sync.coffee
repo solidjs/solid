@@ -15,7 +15,7 @@ export default class Sync
 
   clean: ->
     disposable() for disposable in @disposables
-    @disposables = []
+    @disposables.length = 0
 
   dispose: ->
     return if @__disposed
