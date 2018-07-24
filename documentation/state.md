@@ -24,10 +24,6 @@ Alternatively if you can do multiple replaces in a single call by passing an arr
 
 This takes either Observable, Selector, Function or an object that maps keys to an Observable, Selector, or Function. The Object is the most common form but supports a straight function to be able to map multiple values from a single selector.
 
-### peek(property)
+### sample(property)
 
 This grabs a wrapped version of the property without triggering the dependency detection of the getter
-
-### on(property, fn)
-
-Manual subscription to the state object. This returns an object with the unsubscribe method.

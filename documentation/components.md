@@ -26,7 +26,7 @@ class MyComponent extends Component {
     this.state.set({greeting: 'World'});
   }
   render() {
-    <div>Hello {state.greeting}</div>
+    return <div>Hello {state.greeting}</div>
   }
 }
 ```
@@ -42,7 +42,7 @@ function Component(fn) {
 
 function MyComponent({state}) {
   state.set({greeting: 'World'});
-  return (<div>Hello {state.greeting}</div>);
+  return <div>Hello {state.greeting}</div>;
 }
 
 root(() => element.appendChild(Component(MyComponent)));

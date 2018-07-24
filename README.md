@@ -9,9 +9,8 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
   * Data behavior is part of the declaration
   * No need for lifecycle functions, and the large chains of conditionals they bring.
 * ES6 Proxies to keep data access simple and POJO like
-* Promises and ES(RxJS) Observables are first class citizens:
+* Promises and ES Observables are first class citizens:
   * Easy interopt with existing libraries that manage services and state.
-  * All Solid Signals & Selectors are Observables and support RxJS pipeable operators
   * All Selectors and bindings when resolved to these automatically update asynchronously allowing for 100% pure data declarations.
   * Async Functions are first class citizens and Selectors can be written using them.
 * Truly just a render library
@@ -29,7 +28,7 @@ function MyComponent() {
     users: [{
       id: 1, firstName: 'John', lastName: 'Smith'
     }, {
-      id: 2, firstName: 'Jane', lastNameL 'Smith'
+      id: 2, firstName: 'Jane', lastName: 'Smith'
     }]
   });
 
@@ -41,7 +40,7 @@ function MyComponent() {
   </>);
 }
 
-root(() => mountEl.appendChild(MyComponent()));
+S.root(() => mountEl.appendChild(MyComponent()));
 ```
 
 ## Solid State
@@ -86,7 +85,7 @@ This is also primary mechanism to interopt with store technologies like Redux, A
 
 ```js
 props.select({
-  myCounter: Observable.from(store).map(({counter}) => counter)
+  myCounter: map(({counter}) => counter)(store.observable())
 })
 ```
 
@@ -142,14 +141,14 @@ React takes care of all 3 and doesn't let you swap your solutions for each. Each
 
 * [State](../master/documentation/state.md)
 * [Components](../master/documentation/components.md)
+* [Signals](../master/documentation/signals.md)
 * [Mutability](../master/documentation/mutability.md)
-* [Scheduling](../master/documentation/scheduling.md)
-* [Observables](../master/documentation/observables.md)
 
 ## Related Projects
 
 * [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
 The renderer behind Solid.js that enables lightning fast fine grained performance.
+* [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 A local state swap in for React to use Solid.js paradigm in your existing React apps.
 * [Solid Components](https://github.com/ryansolid/solid-components)
@@ -157,9 +156,4 @@ COMING SOON! A Web Component solution using Solid.js.
 
 ## Status
 
-This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. It took discovering the approaches used by [Surplus.js](https://github.com/adamhaile/surplus) to fill the missing pieces this library needed to prove out it's concept. And now I believe we can have performance and a simple clean API.
-
-Areas of Improvement:
-* Tests
-* Documentation
-* Examples
+This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. It took discovering the approaches used by [Surplus.js](https://github.com/adamhaile/surplus) to fill the missing pieces this library needed to prove out it's concept. I was impressed so much by Surplus that I'm using [S.js](https://github.com/adamhaile/S) for Signals. And now I believe we can have performance and a simple clean API.
