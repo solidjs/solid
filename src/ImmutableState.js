@@ -72,13 +72,13 @@ const proxyTraps = {
     if (property.endsWith('$')) {
       property = property.slice(0, -1);
       value = target._state[property];
-      if (!S.isFrozen() || typeof value === 'function') return value;
+      if (!S.isListening() || typeof value === 'function') return value;
       register(target, property);
       track(target, property, '_subTree');
       return value;
     }
     value = target._state[property];
-    if (!S.isFrozen() || typeof value === 'function') return value;
+    if (!S.isListening() || typeof value === 'function') return value;
     register(target, property);
     track(target, property, '_self');
     if (isObject(value) && !(value instanceof Element)) value = new Proxy(target[property], proxyTraps);
@@ -223,7 +223,7 @@ export default class ImmutableState {
     Object.defineProperty(this, property, {
       get() {
         var value = this._state[property];
-        if (!S.isFrozen() || typeof value === 'function') return value;
+        if (!S.isListening() || typeof value === 'function') return value;
         register(this._nodes, property);
         track(this._nodes, property, '_self');
         if (isObject(value) && !(value instanceof Element)) value = new Proxy(this._nodes[property], proxyTraps);
@@ -235,7 +235,7 @@ export default class ImmutableState {
     Object.defineProperty(this, property + '$', {
       get() {
         var value = this._state[property];
-        if (!S.isFrozen()) return value;
+        if (!S.isListening()) return value;
         register(this._nodes, property);
         track(this._nodes, property, '_subTree');
         return value;

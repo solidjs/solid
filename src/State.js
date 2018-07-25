@@ -82,7 +82,7 @@ const proxyTraps = {
     if (property === 'sample') return sample.bind(null, target);
     let value = target[property];
     if (property === 'length' || typeof property === 'symbol') return value;
-    if (!S.isFrozen() || typeof value === 'function') return value;
+    if (!S.isListening() || typeof value === 'function') return value;
     track(target, property);
     return sample(target, property);
   },
@@ -157,7 +157,7 @@ export default class State {
     Object.defineProperty(this, property, {
       get() {
         const value = this._state[property];
-        if (!S.isFrozen() || typeof value === 'function') return value;
+        if (!S.isListening() || typeof value === 'function') return value;
         track(this._state, property);
         return sample(this._state, property);
       },

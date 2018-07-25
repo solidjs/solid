@@ -25,29 +25,27 @@ function resolveAsync(value, fn) {
 }
 
 function fromPromise(promise, seed) {
-  let s = S.data(seed),
-      complete = false;
+  let s = S.makeDataNode(seed),
+    complete = false;
   promise
     .then((value) => {
       if (complete) return;
-      s(value);
+      s.next(value);
     }).catch(err => console.error(err));
 
-  S.makeComputationNode(function disposer() { S.cleanup(function dispose() { complete = true; }); });
-  return s;
+  S.cleanup(function dispose() { complete = true; });
+  return () => s.current();
 }
 
 function fromObservable(observable, seed) {
-  let s = S.data(seed),
-      disposable = observable.subscribe(s, err => console.error(err));
+  let s = S.makeDataNode(seed),
+    disposable = observable.subscribe(v => s.next(v), err => console.error(err));
 
-  S.makeComputationNode(function disposer() {
-    S.cleanup(function dispose() {
-      disposable.unsubscribe();
-      disposable = null;
-    });
+  S.cleanup(function dispose() {
+    disposable.unsubscribe();
+    disposable = null;
   });
-  return s;
+  return () => s.current();
 }
 
 export function isObject(obj) {
