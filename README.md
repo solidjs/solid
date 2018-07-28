@@ -40,7 +40,7 @@ function MyComponent() {
   </>);
 }
 
-S.root(() => mountEl.appendChild(MyComponent()));
+S.root(() => mountEl.appendChild(<MyComponent />));
 ```
 
 ## Solid State
@@ -104,7 +104,7 @@ To get setup add this babel plugin config to your .babelrc, webpack, or rollup c
 And include at the top of your files:
 
 ```js
-import r from 'solid-js/dom'
+import { r } from 'solid-js/dom'
 ```
 
 ## Why?
@@ -156,4 +156,4 @@ COMING SOON! A Web Component solution using Solid.js.
 
 ## Status
 
-This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. It took discovering the approaches used by [Surplus.js](https://github.com/adamhaile/surplus) to fill the missing pieces this library needed to prove out it's concept. I was impressed so much by Surplus that I'm using [S.js](https://github.com/adamhaile/S) for Signals. And now I believe we can have performance and a simple clean API.
+This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. It took discovering the approaches used by [Surplus.js](https://github.com/adamhaile/surplus) to fill the missing pieces this library needed to prove out it's concept. And now I believe we can have performance and a simple clean API.
