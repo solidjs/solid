@@ -1,4 +1,5 @@
-const { S, from } = require('../lib/solid');
+const S = require('s-js');
+const { from } = require('../lib/solid');
 const Observable = require('zen-observable');
 
 describe('Signal factory', () => {
@@ -15,7 +16,7 @@ describe('Signal factory', () => {
   test('Signal from an async Signal', (done) => {
     s = S.data('init')
     setTimeout(s, 20, 'started');
-    S.root(async () => {
+    S.root(() => {
       var out = from(s);
       expect(out()).toBe('init');
       S.on(out, () => {

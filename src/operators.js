@@ -4,11 +4,11 @@ import { unwrap, from }  from './utils';
 export function map(fn) {
   return function mapper(input) {
     input = from(input);
-    return S(() => {
+    return () => {
       const value = input();
       if (value === void 0) return;
       return S.sample(() => fn(value));
-    });
+    };
   };
 }
 
@@ -28,14 +28,12 @@ export function memo(mapFn) {
       list = [],
       disposables = [],
       length = 0;
-  S.makeComputationNode(function disposer() {
-    S.cleanup(function dispose() {
-      for (let i = 0; i < disposables.length; i++) disposables[i]();
-    });
+  S.cleanup(function dispose() {
+    for (let i = 0; i < disposables.length; i++) disposables[i]();
   });
   return map(function mapper(newList) {
     let newListUnwrapped = unwrap(newList),
-        i, j, newLength, start, end, newEnd, item, itemIndex, newMapped,
+        i, j = 0, newLength, start, end, newEnd, item, itemIndex, newMapped,
         indexedItems, tempDisposables;
     // Non-Arrays
     if (!Array.isArray(newListUnwrapped)) {
@@ -52,17 +50,7 @@ export function memo(mapFn) {
       disposables = [];
       length = 1;
       list[0] = newListUnwrapped;
-      return mapped[0] = S.root(function disposer(dispose) {
-        disposables[0] = dispose;
-        return mapFn(newList);
-      });
-    }
-
-    function mappedFn(dispose) {
-      let ref;
-      disposables[j] = dispose;
-      const row = (ref = newList.sample) ? ref(j) : newList[j];
-      return mapFn(row, j);
+      return mapped[0] = S.root(mappedFn);
     }
 
     newLength = newListUnwrapped.length;
@@ -140,6 +128,13 @@ export function memo(mapFn) {
       list = newListUnwrapped.slice(0);
     }
     return mapped;
+
+    function mappedFn(dispose) {
+      let ref;
+      disposables[j] = dispose;
+      const row = (ref = newList.sample) ? ref(j) : newList[j];
+      return mapFn(row, j);
+    }
   });
 }
 

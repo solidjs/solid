@@ -40,7 +40,7 @@ function MyComponent() {
   </>);
 }
 
-S.root(() => mountEl.appendChild(<MyComponent />));
+root(() => mountEl.appendChild(<MyComponent />));
 ```
 
 ## Solid State

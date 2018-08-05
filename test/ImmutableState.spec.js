@@ -1,4 +1,5 @@
-const { S, ImmutableState } = require('../lib/solid');
+const S = require('s-js');
+const { ImmutableState } = require('../lib/solid');
 
 describe('state.set', () => {
 

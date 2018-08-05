@@ -1,4 +1,5 @@
-const { S, State } = require('../lib/solid');
+const S = require('s-js');
+const { State } = require('../lib/solid');
 
 describe('state.set', () => {
 

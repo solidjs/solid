@@ -5,7 +5,7 @@ Signals are the glue that hold the library together. They often are invisible bu
 At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propogate it's change detection. Signals are a simple primitive that contain values that change over time. With Signals you can track sorts of changes from various sources in your applications. You can create a Signal manually or from any Async source.
 
 ```js
-import { S } from 'solid-js';
+import S from 's-js';
 
 function fromInterval(delay) {
   var s = S.data(0);
@@ -21,7 +21,8 @@ Solid comes with a from operator that automatically handles creating Signals fro
 A computation is calculation over a function execution that automatically dynamically tracks it's dependencies. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies. You can create a computation by passing a function into state.select and any of Solid's operators.
 
 ```js
-import { S, State } from 'solid-js';
+import S from 's-js';
+import { State } from 'solid-js';
 
 state = new State({count: 1});
 
@@ -98,17 +99,17 @@ No-op for fn's, but ensures observables/promises are made into a Signal.
 ### observable(s)
 Returns a minimal observable implementation.
 
-To write your own pipeable operator involves creating a function that returns a function that takes a Signal and returns a new Signal. Generally it looks like this:
+To write your own pipeable operator involves creating a function that returns a function that takes a thunk and returns a new thunk. Generally it looks like this:
 
 ```js
-import { S, pipe, map, from } from 'solid-js';
+import { pipe, map, from } from 'solid-js';
 
 function someOperator(...someArguments) {
   return function(input) {
     // lift the input into a Signal if isn't already
     input = from(input)
-    return S(() =>
-      //...do some calculation
+    return () =>
+      //...do some calculation based on input
     )
   }
 }

@@ -21,6 +21,6 @@ export default [{
     file: 'dist/dom.js',
     format: 'es'
   }],
-  external: ['solid-js', 'babel-plugin-jsx-dom-expressions'],
+  external: ['s-js', 'solid-js', 'babel-plugin-jsx-dom-expressions'],
   plugins: [nodeResolve({ extensions: ['.js'] })]
 }];

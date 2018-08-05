@@ -1,11 +1,13 @@
 import { createRuntime } from 'babel-plugin-jsx-dom-expressions';
-import { S, unwrap, from } from 'solid-js';
+import S from 's-js';
+import { unwrap, from } from 'solid-js';
 
 function handleEvent(handler, id) {
-  return e => {
+  return function(e) {
     let node = e.target,
       name = `__ev$${e.type}`;
     while (node && node !== this && !(node[name])) node = node.parentNode;
+    if (!node || node === this) return;
     if (node[name] && node[name + 'Id'] === id) handler(node[name], e);
   }
 }
@@ -37,7 +39,7 @@ export function delegateEvent(eventName, handler) {
   let attached = null,
     eId = ++eventId,
     fn = handleEvent(handler, eId);
-  S.cleanup(() => attached.removeEventListener(eventName, fn));
+  S.cleanup(() => attached && attached.removeEventListener(eventName, fn));
   return data => element => {
     element[`__ev$${eventName}`] = data;
     element[`__ev$${eventName}Id`] = eId;
