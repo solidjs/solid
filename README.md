@@ -11,7 +11,7 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
 * ES6 Proxies to keep data access simple and POJO like
 * Promises and ES Observables are first class citizens:
   * Easy interopt with existing libraries that manage services and state.
-  * All Selectors and bindings when resolved to these automatically update asynchronously allowing for 100% pure data declarations.
+  * All Selectors when resolved to these automatically update asynchronously allowing for 100% pure data declarations.
   * Async Functions are first class citizens and Selectors can be written using them.
 * Truly just a render library
   * Unopinionated about how you set modularize/componentize your code

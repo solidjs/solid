@@ -1,6 +1,5 @@
 import { createRuntime } from 'babel-plugin-jsx-dom-expressions';
 import S from 's-js';
-import { unwrap, from } from 'solid-js';
 
 function handleEvent(handler, id) {
   return function(e) {
@@ -17,22 +16,7 @@ function shallowDiff(a, b) {
   return [a.filter(i => !sb.has(i)), (b.filter(i => !sa.has(i)))];
 }
 
-export const r = createRuntime({
-  wrap(el, accessor, isAttr, fn, deep) {
-    S.makeComputationNode(() => {
-      let value = accessor();
-      if ((value != null) && value instanceof Object) {
-        if ('then' in value || 'subscribe' in value) value = from(value);
-        if (typeof value === 'function' && !isAttr && !deep) {
-          r.wrap(el, value, isAttr, fn, true);
-          return;
-        }
-        if (isAttr) value = unwrap(value);
-      }
-      S.sample(() => fn(el, value));
-    });
-  }
-});
+export const r = createRuntime({wrap: S.makeComputationNode});
 
 let eventId = 0
 export function delegateEvent(eventName, handler) {
