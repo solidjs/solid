@@ -19,34 +19,27 @@ function shallowDiff(a, b) {
 export const r = createRuntime({wrap: S.makeComputationNode});
 
 let eventId = 0
-export function delegateEvent(eventName, handler) {
-  let attached = null,
-    eId = ++eventId,
-    fn = handleEvent(handler, eId);
-  S.cleanup(() => attached && attached.removeEventListener(eventName, fn));
-  return data => element => {
-    element[`__ev$${eventName}`] = data;
+export function delegateEvent(element, eventName, handler) {
+  let eId = ++eventId;
+  element.addEventListener(eventName, handleEvent(handler, eId));
+  return (element, value) => {
+    element[`__ev$${eventName}`] = value();
     element[`__ev$${eventName}Id`] = eId;
-    if (attached) return;
-    attached = true
-    Promise.resolve().then(() => {
-      attached = 'getRootNode' in element ? element.getRootNode() : document;
-      attached.addEventListener(eventName, fn);
-    })
   }
 }
 
 export function selectOn(signal, handler) {
   let index = [];
   S.on(signal, prev => {
-    let id = signal()
+    let id = signal();
     if (prev != null && index[prev]) handler(index[prev], false);
     if (id != null) handler(index[id], true);
     return id;
   });
-  return id => element => {
-    index[id] = element
-    S.cleanup(() => index[id] = null);
+  return (element, value) => {
+    let id = value();
+    index[id] = element;
+    S.cleanup(function() { index[id] = null; });
   }
 }
 
@@ -54,13 +47,14 @@ export function multiSelectOn(signal, handler) {
   let index = [];
   S.on(signal, prev => {
     let value = signal();
-    [additions, removals] = shallowDiff(value, prev)
-    additions.forEach(id => handler(index[id], true))
-    removals.forEach(id => handler(index[id], false))
+    [additions, removals] = shallowDiff(value, prev);
+    additions.forEach(id => handler(index[id], true));
+    removals.forEach(id => handler(index[id], false));
     return value;
   });
-  return id => element => {
+  return (element, value) => {
+    let id = value();
     index[id] = element;
-    S.cleanup(() => index[id] = null);
+    S.cleanup(function() { index[id] = null; });
   }
 }

@@ -1,5 +1,5 @@
 const S = require('s-js');
-const { ImmutableState } = require('../lib/solid');
+const { ImmutableState, from } = require('../lib/solid');
 
 describe('state.set', () => {
 
@@ -125,7 +125,7 @@ describe('state.select', () => {
       var p = new Promise(resolve => { setTimeout(resolve, 20, 'promised'); }),
         state = new ImmutableState();
 
-      state.select({ data: p });
+      state.select({ data: from(p) });
       await p;
       expect(state.data).toBe('promised');
       done();

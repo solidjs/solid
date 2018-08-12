@@ -9,10 +9,12 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
   * Data behavior is part of the declaration
   * No need for lifecycle functions, and the large chains of conditionals they bring.
 * ES6 Proxies to keep data access simple and POJO like
-* Promises and ES Observables are first class citizens:
+* Easy Promises and ES Observables interoptability:
   * Easy interopt with existing libraries that manage services and state.
   * All Selectors when resolved to these automatically update asynchronously allowing for 100% pure data declarations.
   * Async Functions are first class citizens and Selectors can be written using them.
+  * from operator converts Promise or Observable to a Signal.
+* Expandable custom operators and binding directives.
 * Truly just a render library
   * Unopinionated about how you set modularize/componentize your code
   * The whole tree is only rendered once so statefulness is not a decider for the use of functional components
@@ -79,13 +81,13 @@ state.select({
 console.log(state.displayName); // Jake Smith
 ```
 
-Whenever any dependency changes the State value will immediately update. Internally all JSX expressions also get wrapped in Selectors so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
+Whenever any dependency changes the State value will immediately update. Internally all JSX expressions also get wrapped in computations so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
 
 This is also primary mechanism to interopt with store technologies like Redux, Apollo, RxJS which expose themselves as Observables or Promises. When you hook up these Selectors you can use standard methods to map the properties you want and the State object will automatically diff the changes to only affect the minimal amount.
 
 ```js
 props.select({
-  myCounter: map(({counter}) => counter)(store.observable())
+  myCounter: map(({counter}) => counter)(from(store.observable()))
 })
 ```
 

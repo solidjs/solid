@@ -1,9 +1,42 @@
 import S from 's-js';
-import { unwrap, from }  from './utils';
+import $$observable from 'symbol-observable';
+import { unwrap, isObject }  from './utils';
+
+function fromPromise(promise, seed) {
+  let s = S.makeDataNode(seed),
+    complete = false;
+  promise
+    .then((value) => {
+      if (complete) return;
+      s.next(value);
+    }).catch(err => console.error(err));
+
+  S.cleanup(function dispose() { complete = true; });
+  return () => s.current();
+}
+
+function fromObservable(observable, seed) {
+  let s = S.makeDataNode(seed),
+    disposable = observable.subscribe(v => s.next(v), err => console.error(err));
+
+  S.cleanup(function dispose() {
+    disposable.unsubscribe();
+    disposable = null;
+  });
+  return () => s.current();
+}
+
+export function from(input, seed) {
+  if (isObject(input)) {
+    if (typeof input === 'function') return input;
+    if ($$observable in input) return fromObservable(input[$$observable](), seed);
+    if ('then' in input) return fromPromise(input, seed);
+  }
+  throw new Error('from() input must be a function, Promise, or Observable');
+}
 
 export function map(fn) {
   return function mapper(input) {
-    input = from(input);
     return () => {
       const value = input();
       if (value === void 0) return;
@@ -16,7 +49,6 @@ export function pipe(...fns) {
   if (!fns) return i => i;
   if (fns.length === 1) return fns[0];
   return (input) => {
-    input = from(input);
     return fns.reduce(((prev, fn) => fn(prev)), input);
   };
 }

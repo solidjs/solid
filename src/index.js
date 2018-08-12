@@ -1,7 +1,7 @@
 export { default as State } from './State';
 export { default as ImmutableState } from './ImmutableState';
 
-export { unwrap, from } from './utils'
+export { unwrap } from './utils'
 export * from './operators';
 
 import S from 's-js';

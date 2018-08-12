@@ -102,15 +102,13 @@ Returns a minimal observable implementation.
 To write your own pipeable operator involves creating a function that returns a function that takes a thunk and returns a new thunk. Generally it looks like this:
 
 ```js
-import { pipe, map, from } from 'solid-js';
+import { pipe, map } from 'solid-js';
 
 function someOperator(...someArguments) {
   return function(input) {
-    // lift the input into a Signal if isn't already
-    input = from(input)
     return () =>
       //...do some calculation based on input
-    )
+      // return fn(input())
   }
 }
 

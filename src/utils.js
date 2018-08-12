@@ -1,5 +1,4 @@
 import S from 's-js';
-import $$observable from 'symbol-observable';
 
 function comparer(v, k, b, isArray, path, r) {
   let ref, ref1;
@@ -22,30 +21,6 @@ function resolveAsync(value, fn) {
     return;
   }
   fn(value);
-}
-
-function fromPromise(promise, seed) {
-  let s = S.makeDataNode(seed),
-    complete = false;
-  promise
-    .then((value) => {
-      if (complete) return;
-      s.next(value);
-    }).catch(err => console.error(err));
-
-  S.cleanup(function dispose() { complete = true; });
-  return () => s.current();
-}
-
-function fromObservable(observable, seed) {
-  let s = S.makeDataNode(seed),
-    disposable = observable.subscribe(v => s.next(v), err => console.error(err));
-
-  S.cleanup(function dispose() {
-    disposable.unsubscribe();
-    disposable = null;
-  });
-  return () => s.current();
 }
 
 export function isObject(obj) {
@@ -112,15 +87,6 @@ export function clone(v) {
   return obj;
 }
 
-export function from(input, seed) {
-  if (isObject(input)) {
-    if (typeof input === 'function') return input;
-    if ($$observable in input) return fromObservable(input[$$observable](), seed);
-    if ('then' in input) return fromPromise(input, seed);
-  }
-  throw new Error('from() input must be a function, Promise, or Observable');
-}
-
 export function select() {
   const mapFn1 = selection => () => {
     const unwrapped = unwrap(selection(), true),
@@ -145,12 +111,12 @@ export function select() {
   for (let i = 0; i < arguments.length; i++) {
     const selection = arguments[i];
     if (typeof selection === 'function' || 'then' in selection || 'subscribe' in selection) {
-      S.makeComputationNode(mapFn1(from(selection)));
+      S.makeComputationNode(mapFn1(selection));
       continue;
     }
     for (let key in selection) {
       if (!(key in this)) this._defineProperty(key);
-      S.makeComputationNode(mapFn2(key, from(selection[key])));
+      S.makeComputationNode(mapFn2(key, selection[key]));
     }
   }
   return this;
