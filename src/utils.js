@@ -63,14 +63,15 @@ export function diff(a, b, path = []) {
 }
 
 export function unwrap(item, deep) {
-  let k, result, unwrapped, v;
+  let keys, result, unwrapped, v;
   if (result = item != null ? item._state : void 0) return result;
 
   if (!deep || !isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
 
-  for (k in item) {
-    v = item[k];
-    if ((unwrapped = unwrap(v, true)) !== v) item[k] = unwrapped;
+  keys = Object.keys(item);
+  for (let i = 0, l = keys.length; i < l; i++) {
+    v = item[keys[i]];
+    if ((unwrapped = unwrap(v, true)) !== v) item[keys[i]] = unwrapped;
   }
   return item;
 }
@@ -80,11 +81,7 @@ export function clone(v) {
 
   if (Array.isArray(v)) return v.slice(0);
 
-  const obj = {};
-  for (let k in v) {
-    obj[k] = v[k];
-  }
-  return obj;
+  return Object.assign({}, v);
 }
 
 export function select() {

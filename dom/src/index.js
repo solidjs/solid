@@ -23,7 +23,7 @@ export function delegateEvent(element, eventName, handler) {
   let eId = ++eventId;
   element.addEventListener(eventName, handleEvent(handler, eId));
   return (element, value) => {
-    element[`__ev$${eventName}`] = value();
+    element[`__ev$${eventName}`] = S.sample(value);
     element[`__ev$${eventName}Id`] = eId;
   }
 }
@@ -37,7 +37,7 @@ export function selectOn(signal, handler) {
     return id;
   });
   return (element, value) => {
-    let id = value();
+    let id = S.sample(value);
     index[id] = element;
     S.cleanup(function() { index[id] = null; });
   }
@@ -53,7 +53,7 @@ export function multiSelectOn(signal, handler) {
     return value;
   });
   return (element, value) => {
-    let id = value();
+    let id = S.sample(value);
     index[id] = element;
     S.cleanup(function() { index[id] = null; });
   }

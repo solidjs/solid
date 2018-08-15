@@ -1,3 +1,6 @@
+// ensure Symbol.observable
+if (!Symbol.observable) Symbol.observable = Symbol('observable');
+
 export { default as State } from './State';
 export { default as ImmutableState } from './ImmutableState';
 

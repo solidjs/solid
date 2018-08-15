@@ -33,7 +33,7 @@ function track(target, property) {
 function setNested(item, changes) {
   let node = getDataNode(item),
     isArray = Array.isArray(item),
-    value, notify;
+    value, notify, keys;
 
   if (arguments.length === 3) {
     notify = isArray || !(arguments[1] in item);
@@ -48,14 +48,14 @@ function setNested(item, changes) {
     return;
   }
 
-  for (const property in changes) {
-    if (changes.hasOwnProperty(property)) {
-      notify = isArray || !(property in item);
-      value = unwrap(changes[property]);
-      if (value === void 0) delete item[property];
-      else item[property] = value;
-      trigger(node, property, notify);
-    }
+  keys = Object.keys(changes);
+  for (let i = 0, l = keys.length; i < l; i++) {
+    const property = keys[i];
+    notify = isArray || !(property in item);
+    value = unwrap(changes[property]);
+    if (value === void 0) delete item[property];
+    else item[property] = value;
+    trigger(node, property, notify);
   }
 }
 
@@ -108,7 +108,11 @@ export default class State {
         if (Array.isArray(args[0])) {
           for (let i = 0; i < args[0].length; i++) this.set.apply(this, args[0][i]);
         } else {
-          for (let property in args[0]) this._setProperty(property, args[0][property]);
+          const keys = Object.keys(args[0]);
+          for (let i = 0, l = keys.length; i < l; i++) {
+            const property = keys[i];
+            this._setProperty(property, args[0][property]);
+          }
         }
         return;
       }

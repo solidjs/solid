@@ -1,5 +1,4 @@
 import S from 's-js';
-import $$observable from 'symbol-observable';
 import { unwrap, isObject }  from './utils';
 
 function fromPromise(promise, seed) {
@@ -29,7 +28,7 @@ function fromObservable(observable, seed) {
 export function from(input, seed) {
   if (isObject(input)) {
     if (typeof input === 'function') return input;
-    if ($$observable in input) return fromObservable(input[$$observable](), seed);
+    if (Symbol.observable in input) return fromObservable(input[Symbol.observable](), seed);
     if ('then' in input) return fromPromise(input, seed);
   }
   throw new Error('from() input must be a function, Promise, or Observable');
@@ -172,7 +171,7 @@ export function memo(mapFn) {
 
 // export observable
 export function observable(input) {
-  if ($$observable in input) return input[$$observable]();
+  if (Symbol.observable in input) return input[Symbol.observable]();
   return {
     subscribe(observer) {
       if (!(observer instanceof Object) || observer == null) {
@@ -188,6 +187,6 @@ export function observable(input) {
         unsubscribe() { complete = true; }
       };
     },
-    [$$observable]() { return this; }
+    [Symbol.observable]() { return this; }
   };
 }

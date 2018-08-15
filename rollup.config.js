@@ -10,7 +10,7 @@ export default [{
     file: 'dist/solid.js',
     format: 'es'
   }],
-  external: ['s-js', 'symbol-observable'],
+  external: ['s-js'],
   plugins: [nodeResolve({ extensions: ['.js'] })]
 }, {
   input: 'dom/src/index.js',

@@ -2,7 +2,7 @@
 
 Signals are the glue that hold the library together. They often are invisible but interact in very powerful ways that you get more familiar with Solid they unlock a lot of potential. So consider this an intermediate to advanced topic.
 
-At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propogate it's change detection. Signals are a simple primitive that contain values that change over time. With Signals you can track sorts of changes from various sources in your applications. You can create a Signal manually or from any Async source.
+At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propagate it's change detection. Signals are a simple primitive that contain values that change over time. With Signals you can track sorts of changes from various sources in your applications. You can create a Signal manually or from any Async source.
 
 ```js
 import S from 's-js';
