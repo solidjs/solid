@@ -44,6 +44,11 @@ function MyComponent() {
 
 root(() => mountEl.appendChild(<MyComponent />));
 ```
+## Installation
+
+```sh
+> npm install solid-js s-js babel-plugin-jsx-dom-expressions
+```
 
 ## Solid State
 
