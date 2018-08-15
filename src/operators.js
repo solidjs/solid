@@ -34,6 +34,10 @@ export function from(input, seed) {
   throw new Error('from() input must be a function, Promise, or Observable');
 }
 
+export function pipe(input, ...fns) {
+  compose(...fns)(input);
+}
+
 export function map(fn) {
   return function mapper(input) {
     return () => {
@@ -44,7 +48,7 @@ export function map(fn) {
   };
 }
 
-export function pipe(...fns) {
+export function compose(...fns) {
   if (!fns) return i => i;
   if (fns.length === 1) return fns[0];
   return (input) => {

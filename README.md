@@ -89,6 +89,14 @@ This is also primary mechanism to interopt with store technologies like Redux, A
 props.select({
   myCounter: map(({counter}) => counter)(from(store.observable()))
 })
+
+// or if you prefer
+props.select({
+  myCounter: pipe(
+    from(store.observable()),
+    map(({counter}) => counter)
+  )
+})
 ```
 
 ## Solid Rendering
@@ -143,8 +151,9 @@ React takes care of all 3 and doesn't let you swap your solutions for each. Each
 
 * [State](../master/documentation/state.md)
 * [Components](../master/documentation/components.md)
-* [Signals](../master/documentation/signals.md)
+* [Operators](../master/documentation/operators.md)
 * [Mutability](../master/documentation/mutability.md)
+* [Signals](../master/documentation/signals.md)
 
 ## Related Projects
 
@@ -158,4 +167,4 @@ COMING SOON! A Web Component solution using Solid.js.
 
 ## Status
 
-This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. It took discovering the approaches used by [Surplus.js](https://github.com/adamhaile/surplus) to fill the missing pieces this library needed to prove out it's concept. And now I believe we can have performance and a simple clean API.
+This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. I'm still constantly changing API as I approach a 0.1.0 release.
