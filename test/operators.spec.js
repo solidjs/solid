@@ -1,8 +1,8 @@
 const S = require('s-js');
-const { from } = require('../lib/solid');
+const { from, pipe, map } = require('../lib/solid');
 const Observable = require('zen-observable');
 
-describe('Signal factory', () => {
+describe('from operator', () => {
 
   test('Signal passthrough', () => {
     S.root(() => {
@@ -57,4 +57,25 @@ describe('Signal factory', () => {
     });
   });
 
+});
+
+describe('pipe operator', () => {
+
+  test('Signal passthrough', () => {
+    S.root(() => {
+      var data = S.data(5),
+          out = pipe(data);
+
+      expect(out).toBe(data);
+    });
+  });
+
+  test('pipe map', () => {
+    S.root(() => {
+      var data = S.data(5),
+          out = pipe(data, map(i => i * 2));
+
+      expect(out()).toBe(data() * 2);
+    });
+  });
 });

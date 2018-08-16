@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -16,7 +16,7 @@
     "test": "npm run build && jest"
   },
   "peerDependencies": {
-    "babel-plugin-jsx-dom-expressions": "~0.0.28",
+    "babel-plugin-jsx-dom-expressions": "~0.0.29",
     "s-js": "~0.4.9"
   },
   "devDependencies": {

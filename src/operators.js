@@ -35,7 +35,7 @@ export function from(input, seed) {
 }
 
 export function pipe(input, ...fns) {
-  compose(...fns)(input);
+  return compose(...fns)(input);
 }
 
 export function map(fn) {

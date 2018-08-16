@@ -107,7 +107,7 @@ export function select() {
 
   for (let i = 0; i < arguments.length; i++) {
     const selection = arguments[i];
-    if (typeof selection === 'function' || 'then' in selection || 'subscribe' in selection) {
+    if (typeof selection === 'function') {
       S.makeComputationNode(mapFn1(selection));
       continue;
     }
