@@ -133,7 +133,7 @@ This project started as trying to find a small performant library to work with W
   * Imposes boundaries on components to solve performance concerns
   * Prices you into a very specific but not necessarily obvious structure
   * Only served to make it more ambiguous when emerging best practices lead to specialized component classification anyway
-* Abstracts debugging to the point a <div /> is not longer just a div
+* Abstracts debugging to the point a ```<div />``` is not longer just a div
 * VDOM libraries still are based around having a specialized data objects.
 
 So the driving questions here are:
@@ -157,6 +157,7 @@ React takes care of all 3 and doesn't let you swap your solutions for each. Each
 * [State](../master/documentation/state.md)
 * [Components](../master/documentation/components.md)
 * [Operators](../master/documentation/operators.md)
+* [Rendering](../master/documentation/rendering.md)
 * [Mutability](../master/documentation/mutability.md)
 * [Signals](../master/documentation/signals.md)
 

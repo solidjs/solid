@@ -1,16 +1,6 @@
 import { createRuntime } from 'babel-plugin-jsx-dom-expressions';
 import S from 's-js';
 
-function handleEvent(handler, id) {
-  return function(e) {
-    let node = e.target,
-      name = `__ev$${e.type}`;
-    while (node && node !== this && !(node[name])) node = node.parentNode;
-    if (!node || node === this) return;
-    if (node[name] && node[name + 'Id'] === id) handler(node[name], e);
-  }
-}
-
 function shallowDiff(a, b) {
   let sa = new Set(a), sb = new Set(b);
   return [a.filter(i => !sb.has(i)), (b.filter(i => !sa.has(i)))];
@@ -18,43 +8,28 @@ function shallowDiff(a, b) {
 
 export const r = createRuntime({wrap: S.makeComputationNode});
 
-let eventId = 0
-export function delegateEvent(element, eventName, handler) {
-  let eId = ++eventId;
-  element.addEventListener(eventName, handleEvent(handler, eId));
-  return (element, value) => {
-    element[`__ev$${eventName}`] = S.sample(value);
-    element[`__ev$${eventName}Id`] = eId;
+export function selectWhen(signal, handler) {
+  return list => {
+    S.on(signal, element => {
+      const model = signal();
+      if (element) handler(element, false);
+      if (element = model && list().find(el => el.model === model)) handler(element, true);
+      return element;
+    });
+    return list;
   }
 }
 
-export function selectOn(signal, handler) {
-  let index = [];
-  S.on(signal, prev => {
-    let id = signal();
-    if (prev != null && index[prev]) handler(index[prev], false);
-    if (id != null) handler(index[id], true);
-    return id;
-  });
-  return (element, value) => {
-    let id = S.sample(value);
-    index[id] = element;
-    S.cleanup(function() { index[id] = null; });
-  }
-}
-
-export function multiSelectOn(signal, handler) {
-  let index = [];
-  S.on(signal, prev => {
-    let value = signal();
-    [additions, removals] = shallowDiff(value, prev);
-    additions.forEach(id => handler(index[id], true));
-    removals.forEach(id => handler(index[id], false));
-    return value;
-  });
-  return (element, value) => {
-    let id = S.sample(value);
-    index[id] = element;
-    S.cleanup(function() { index[id] = null; });
+export function selectEach(signal, handler) {
+  return list => {
+    S.on(signal, elements => {
+      const models = signal(),
+        newElements = list().filter(el => models.indexOf(el.model) > -1),
+        [additions, removals] = shallowDiff(newElements, elements);
+      additions.forEach(el => handler(el, true));
+      removals.forEach(el => handler(el, false));
+      return newElements;
+    });
+    return list;
   }
 }

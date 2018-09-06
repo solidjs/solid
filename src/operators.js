@@ -39,26 +39,43 @@ export function pipe(input, ...fns) {
 }
 
 export function map(fn) {
-  return function mapper(input) {
-    return () => {
-      const value = input();
-      if (value === void 0) return;
-      return S.sample(() => fn(value));
-    };
-  };
+  return input => () => {
+    const value = input();
+    if (value === void 0) return;
+    return S.sample(() => fn(value));
+  }
 }
 
 export function compose(...fns) {
   if (!fns) return i => i;
   if (fns.length === 1) return fns[0];
-  return (input) => {
-    return fns.reduce(((prev, fn) => fn(prev)), input);
-  };
+  return input => fns.reduce(((prev, fn) => fn(prev)), input);
+}
+
+// memoized map that handles falsey rejection
+export function when(mapFn) {
+  let mapped, value, disposable;
+  S.cleanup(function dispose() {
+    disposable && disposable();
+  });
+  return map(function mapper(newValue) {
+    if (newValue == null || newValue === false) {
+      disposable && disposable();
+      return value = mapped = disposable = null;
+    }
+    if (value === newValue) return mapped;
+    disposable && disposable();
+    disposable = null;
+    value = newValue;
+    return mapped = S.root((d) => {
+      disposable = d;
+      return mapFn(value);
+    });
+  })
 }
 
 // Need to be able grab wrapped state internals so can't use S-Array
-// handles non arrays as well, and falsey rejection
-export function memo(mapFn) {
+export function each(mapFn) {
   let mapped = [],
       list = [],
       disposables = [],
@@ -67,28 +84,8 @@ export function memo(mapFn) {
     for (let i = 0; i < disposables.length; i++) disposables[i]();
   });
   return map(function mapper(newList) {
-    let newListUnwrapped = unwrap(newList),
-        i, j = 0, newLength, start, end, newEnd, item, itemIndex, newMapped,
-        indexedItems, tempDisposables;
-    // Non-Arrays
-    if (!Array.isArray(newListUnwrapped)) {
-      if (newListUnwrapped == null || newListUnwrapped === false) {
-        for (i = 0; i < length; i++) disposables[i]();
-        list = [];
-        mapped = [];
-        disposables = [];
-        length = 0;
-        return null;
-      }
-      if (list[0] === newListUnwrapped) return mapped[0];
-      for (i = 0; i < length; i++) disposables[i]();
-      disposables = [];
-      length = 1;
-      list[0] = newListUnwrapped;
-      return mapped[0] = S.root(mappedFn);
-    }
-
-    newLength = newListUnwrapped.length;
+    let newListUnwrapped = unwrap(newList), i, j = 0,
+      newLength = (newListUnwrapped && newListUnwrapped.length) || 0;
     if (newLength === 0) {
       if (length !== 0) {
         for (i = 0; i < length; i++) disposables[i]();
@@ -106,13 +103,13 @@ export function memo(mapFn) {
       }
       length = newLength;
     } else {
-      newMapped = new Array(newLength);
-      tempDisposables = new Array(newLength);
-      indexedItems = new Map();
+      const newMapped = new Array(newLength),
+        tempDisposables = new Array(newLength),
+        indexedItems = new Map();
 
       // reduce from both ends
-      end = Math.min(length, newLength);
-      start = 0;
+      let end = Math.min(length, newLength),
+        start = 0, item, itemIndex, newEnd;
       while (start < end && newListUnwrapped[start] === list[start]) start++;
 
       end = length - 1;

@@ -43,8 +43,11 @@ This composes a sequence of operators into a single operator.
 ### map(value => ....)
 Maps a value to a new value.
 
-### memo(item => ....)
-A super mapper for rendering, memo is a memoized map that returns previously mapped value if input value is the same. It automatically splits across arrays and clears on falsey values.
+### when(value => ....)
+Memoized maps a value to a new value, but returns null when value is false or null. Useful for conditionals in rendering.
+
+### each(item => ....)
+Each is a memoized array map that returns previously mapped value if input value is the same. Useful for lists in rendering.
 
 ### observable
 Returns a minimal observable implementation.
