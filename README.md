@@ -163,7 +163,7 @@ React takes care of all 3 and doesn't let you swap your solutions for each. Each
 
 ## Examples
 
-* [TodoMVC](https://github.com/ryansolid/todomvc-solid)
+* [TodoMVC](https://github.com/ryansolid/solid-todomvc)
 * [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid)
 
 ## Related Projects
