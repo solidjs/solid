@@ -62,16 +62,16 @@ export function diff(a, b, path = []) {
   return r;
 }
 
-export function unwrap(item, deep) {
+export function unwrap(item, depth) {
   let keys, result, unwrapped, v;
   if (result = item != null ? item._state : void 0) return result;
 
-  if (!deep || !isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
+  if (!depth || !isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
 
   keys = Object.keys(item);
   for (let i = 0, l = keys.length; i < l; i++) {
     v = item[keys[i]];
-    if ((unwrapped = unwrap(v, true)) !== v) item[keys[i]] = unwrapped;
+    if ((unwrapped = unwrap(v, depth - 1)) !== v) item[keys[i]] = unwrapped;
   }
   return item;
 }
@@ -86,7 +86,7 @@ export function clone(v) {
 
 export function select() {
   const mapFn1 = selection => () => {
-    const unwrapped = unwrap(selection(), true),
+    const unwrapped = unwrap(selection(), 10),
       results = [];
     resolveAsync(unwrapped, (value) => {
       if (value === void 0) return;
@@ -98,7 +98,7 @@ export function select() {
   };
 
   const mapFn2 = (key, selector) => () => {
-    const unwrapped = unwrap(selector(), true);
+    const unwrapped = unwrap(selector(), 10);
     resolveAsync(unwrapped, (value) => {
       if (value === void 0) return;
       this.replace(diff(value, this._state[key], [key]));

@@ -26,7 +26,7 @@ A Simple Component could look like:
 
 ```js
 function MyComponent() {
-  state = new State({
+  const state = new State({
     users: [{
       id: 1, firstName: 'John', lastName: 'Smith'
     }, {
@@ -55,7 +55,7 @@ root(() => mountEl.appendChild(<MyComponent />));
 It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their set method.
 
 ```js
-var state = new State({counter: 0});
+const state = new State({counter: 0});
 state.set({
   counter: state.counter + 1
 });
@@ -64,7 +64,7 @@ state.set({
 You can also deep set:
 
 ```js
-var state = new State({
+const state = new State({
   user: {
     firstName: 'John'
     lastName: 'Smith'
@@ -161,6 +161,11 @@ React takes care of all 3 and doesn't let you swap your solutions for each. Each
 * [Mutability](../master/documentation/mutability.md)
 * [Signals](../master/documentation/signals.md)
 
+## Examples
+
+* [TodoMVC](https://github.com/ryansolid/todomvc-solid)
+* [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid)
+
 ## Related Projects
 
 * [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
@@ -173,4 +178,4 @@ COMING SOON! A Web Component solution using Solid.js.
 
 ## Status
 
-This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept. I'm still constantly changing API as I approach a 0.1.0 release.
+This project is still a work in progress. Although I've been working on it for the past 2 years it's been evolving considerably. I've decided to open source this at this point to share the concept.

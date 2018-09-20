@@ -84,7 +84,7 @@ export function each(mapFn) {
     for (let i = 0; i < disposables.length; i++) disposables[i]();
   });
   return map(function mapper(newList) {
-    let newListUnwrapped = unwrap(newList), i, j = 0,
+    let newListUnwrapped = unwrap(newList, 1), i, j = 0,
       newLength = (newListUnwrapped && newListUnwrapped.length) || 0;
     if (newLength === 0) {
       if (length !== 0) {
