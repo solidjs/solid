@@ -174,7 +174,7 @@ The renderer behind Solid.js that enables lightning fast fine grained performanc
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 A local state swap in for React to use Solid.js paradigm in your existing React apps.
 * [Solid Components](https://github.com/ryansolid/solid-components)
-COMING SOON! A Web Component solution using Solid.js.
+Extensions to Solid.js that add a Web Component wrapper, Portals, and a Context API.
 
 ## Status
 
