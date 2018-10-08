@@ -25,6 +25,8 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
 A Simple Component could look like:
 
 ```js
+import {State, root} from 'solid'
+
 function MyComponent() {
   const state = new State({
     users: [{
@@ -44,6 +46,17 @@ function MyComponent() {
 
 root(() => mountEl.appendChild(<MyComponent />));
 ```
+
+where `root` is from S.js. You could also write
+
+```js
+import S from 's-js'
+
+// ...
+
+S.root(() => mountEl.appendChild(<MyComponent />));
+```
+
 ## Installation
 
 ```sh
