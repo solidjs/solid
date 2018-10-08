@@ -4,7 +4,7 @@ Solid.js doesn't have an opinion how you want to modularize your code. You can u
 
 You could imagine making a base Component class that creates a State instance for the internal state and props, which the child then inherits. In that model Solid would look very similar to somthing like React.
 
-```js
+```jsx
 class Component {
   constructor () {
     this.state = new State({})
@@ -33,7 +33,7 @@ class MyComponent extends Component {
 
 But functional composition is just as fair game.
 
-```js
+```jsx
 function Component(fn) {
   state = new State({});
   props = new State({});
@@ -50,7 +50,7 @@ root(() => element.appendChild(Component(MyComponent)));
 
 You can also use S.js `S.data` or `S.value` signals directly, and are not required to use Solid's `State` mechanism. As an example, the following will show a count of ticking seconds:
 
-```js
+```jsx
 import S fromn 's-js'
 
 const seconds = S.value(0)
