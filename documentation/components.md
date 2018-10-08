@@ -48,7 +48,7 @@ function MyComponent({state}) {
 root(() => element.appendChild(Component(MyComponent)));
 ```
 
-You can also use S.js `S.data` or `S.value` signals directly, and are not required to use Solid's `State` mechanism. For example, the following will show a ticking count os elapsed seconds:
+You can also use S.js `S.data` or `S.value` signals directly, and are not required to use Solid's `State` mechanism. As an example, the following will show a count of ticking seconds:
 
 ```js
 import S fromn 's-js'
