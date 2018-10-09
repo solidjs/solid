@@ -6,3 +6,4 @@ export * from './operators';
 
 import S from 's-js';
 export const root = S.root;
+export const cleanup = S.cleanup;

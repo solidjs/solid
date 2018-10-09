@@ -10,11 +10,11 @@ import S from 's-js';
 function fromInterval(delay) {
   var s = S.data(0);
       handle = setInterval(() => s(s() + 1), delay);
-  S.cleanup(() => clearInterval(handle))
+  S.cleanup(() => clearInterval(handle));
   return s;
 }
 ```
-Solid comes with a from operator that automatically handles creating Signals from Promises, and Observables.
+Solid comes with a from operator that automatically handles creating Signals from Promises, and Observables. As a convenience `S.root` and `S.cleanup` methods are exposed through Solid as exports as well.
 
 ### Computation
 
@@ -46,8 +46,8 @@ const reducer = (state, action) => {
 }
 
 // redux
-const action = S.data()
-const store = S(state => reducer(state, action()),  {list: []});
+const action = S.data(),
+    store = S(state => reducer(state, action()),  {list: []});
 
 // subscribe and dispatch
 S(() => console.log(store().list));
@@ -60,9 +60,9 @@ That being said there are plenty of reasons to use actual Redux. And since a Red
 You can also use S.js `S.data` or `S.value` signals directly. As an example, the following will show a count of ticking seconds:
 
 ```jsx
-import S fromn 's-js'
+import S from 's-js'
 
-const seconds = S.data(0)
+const seconds = S.data(0);
 const div = <div>Number of seconds elapsed: {seconds()}</div>
 
 setInterval(() => seconds(seconds() + 1), 1000)
