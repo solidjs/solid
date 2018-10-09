@@ -14,7 +14,7 @@ function fromInterval(delay) {
   return s;
 }
 ```
-Solid comes with a from operator that automatically handles creating Signals from functions, promises, and observables.
+Solid comes with a from operator that automatically handles creating Signals from Promises, and Observables.
 
 ### Computation
 
@@ -54,6 +54,20 @@ S(() => console.log(store().list));
 action({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}});
 ```
 That being said there are plenty of reasons to use actual Redux. And since a Redux Store exports an Observable it's just a map function away from passing into a State Selector in Solid to use in your components.
+
+### Rendering
+
+You can also use S.js `S.data` or `S.value` signals directly. As an example, the following will show a count of ticking seconds:
+
+```jsx
+import S fromn 's-js'
+
+const seconds = S.data(0)
+const div = <div>Number of seconds elapsed: {seconds()}</div>
+
+setInterval(() => seconds(seconds() + 1), 1000)
+S.root(() => document.body.appendChild(div))
+```
 
 ### Observable
 
