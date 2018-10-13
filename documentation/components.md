@@ -41,7 +41,7 @@ import { State, root } from 'solid-js'
 function Component(fn) {
   state = new State({});
   props = new State({});
-  fn({state, props});
+  return fn({state, props});
 }
 
 function MyComponent({state}) {
