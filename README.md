@@ -166,6 +166,8 @@ React takes care of all 3 and doesn't let you swap your solutions for each. Each
 
 ## Examples
 
+* [Counter](https://codepen.io/ryansolid/pen/XxpZLX/?editors=1000#0) on CodePen
+* [Simple Todos](https://codepen.io/ryansolid/pen/ZqLoxo?editors=1000) on CodePen
 * [TodoMVC](https://github.com/ryansolid/solid-todomvc)
 * [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid)
 
