@@ -10,26 +10,28 @@ export const r = createRuntime({wrap: S.makeComputationNode});
 
 export function selectWhen(signal, handler) {
   return list => {
-    S.on(signal, element => {
+    const cached = S(list);
+    S.makeComputationNode(element => {
       const model = signal();
       if (element) handler(element, false);
-      if (element = model && list().find(el => el.model === model)) handler(element, true);
+      if (element = model && S.sample(cached).find(el => el.model === model)) handler(element, true);
       return element;
     });
-    return list;
+    return cached;
   }
 }
 
 export function selectEach(signal, handler) {
   return list => {
-    S.on(signal, elements => {
+    const cached = S(list);
+    S.makeComputationNode(elements => {
       const models = signal(),
-        newElements = list().filter(el => models.indexOf(el.model) > -1),
+        newElements = S.sample(cached).filter(el => models.indexOf(el.model) > -1),
         [additions, removals] = shallowDiff(newElements, elements);
       additions.forEach(el => handler(el, true));
       removals.forEach(el => handler(el, false));
       return newElements;
     });
-    return list;
+    return cached;
   }
 }
