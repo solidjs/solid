@@ -2,7 +2,7 @@
 
 Solid.js doesn't have an opinion how you want to modularize your code. You can use objects, classes, or composable functions. Since the core render routine only runs once function closures are sufficient to maintain state. The library was made in mind for Web Components though.
 
-You could imagine making a base Component class that creates a State instance for the internal state and props, which the child then inherits. In that model Solid would look very similar to somthing like React.
+You could imagine making a base Component class that creates a State instance for the internal state and props, which the child then inherits. In that model Solid would look very similar to something like React.
 
 ```jsx
 import { State, root } from 'solid-js'
@@ -28,7 +28,7 @@ class MyComponent extends Component {
     this.state.set({greeting: 'World'});
   }
   render() {
-    return <div>Hello {state.greeting}</div>
+    return <div>Hello {(state.greeting)}</div>
   }
 }
 ```
@@ -46,7 +46,7 @@ function Component(fn) {
 
 function MyComponent({state}) {
   state.set({greeting: 'World'});
-  return <div>Hello {state.greeting}</div>;
+  return <div>Hello {(state.greeting)}</div>;
 }
 
 root(() => element.appendChild(Component(MyComponent)));

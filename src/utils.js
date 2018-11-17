@@ -1,26 +1,17 @@
-import S from 's-js';
-
 function comparer(v, k, b, isArray, path, r) {
-  let ref, ref1;
+  let index;
   const newPath = path.concat([k]);
-  if (isArray && !(((v != null ? v.id : void 0) && (v != null ? v.id : void 0) === ((ref = b[k]) != null ? ref.id : void 0)) || ((v != null ? v._id : void 0) && (v != null ? v._id : void 0) === ((ref1 = b[k]) != null ? ref1._id : void 0))) || !((v != null) && ((b != null ? b[k] : void 0) != null) && (v instanceof Object))) {
-    return r.push(newPath.concat([v]));
+  if (isArray && v != null && typeof v === 'object'
+      && k != (index = b.findIndex(i => i && (i === v || (v.id != null && i.id === v.id) || (v._id != null && i._id === v._id)))))  {
+    return r.push(newPath.concat([index > -1 ? b[index] : v]));
   }
   return r.push.apply(r, diff(v, b[k], newPath));
 }
 
-function resolveAsync(value, fn) {
-  if (!isObject(value)) return fn(value);
-  if ('subscribe' in value) {
-    const dispose = value.subscribe(fn);
-    S.cleanup(function disposer() { dispose.unsubscribe(); });
-    return;
-  }
-  if ('then' in value) {
-    value.then(fn);
-    return;
-  }
-  fn(value);
+function clone(v) {
+  if (!isObject(v)) return v;
+  if (Array.isArray(v)) return v.slice(0);
+  return Object.assign({}, v);
 }
 
 export function isObject(obj) {
@@ -62,60 +53,23 @@ export function diff(a, b, path = []) {
   return r;
 }
 
-export function unwrap(item, depth) {
-  let keys, result, unwrapped, v;
+export function unwrap(item, deep) {
+  let result, unwrapped, v;
   if (result = item != null ? item._state : void 0) return result;
+  if (!deep || !isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
+  if (Object.isFrozen(item)) item = clone(item);
 
-  if (!depth || !isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
-
-  keys = Object.keys(item);
-  for (let i = 0, l = keys.length; i < l; i++) {
-    v = item[keys[i]];
-    if ((unwrapped = unwrap(v, depth - 1)) !== v) item[keys[i]] = unwrapped;
+  if (Array.isArray(item)) {
+    for (let i = 0, l = item.length; i < l; i++) {
+      v = item[i];
+      if ((unwrapped = unwrap(v, deep)) !== v) item[i] = unwrapped;
+    }
+  } else {
+    let keys = Object.keys(item);
+    for (let i = 0, l = keys.length; i < l; i++) {
+      v = item[keys[i]];
+      if ((unwrapped = unwrap(v, deep)) !== v) item[keys[i]] = unwrapped;
+    }
   }
   return item;
 }
-
-export function clone(v) {
-  if (!isObject(v)) return v;
-
-  if (Array.isArray(v)) return v.slice(0);
-
-  return Object.assign({}, v);
-}
-
-export function select() {
-  const mapFn1 = selection => () => {
-    const unwrapped = unwrap(selection(), 10),
-      results = [];
-    resolveAsync(unwrapped, (value) => {
-      if (value === void 0) return;
-      for (let key in value || {}) {
-        results.push(diff(value[key], this._state[key], [key]));
-      }
-      this.replace([].concat(...results));
-    });
-  };
-
-  const mapFn2 = (key, selector) => () => {
-    const unwrapped = unwrap(selector(), 10);
-    resolveAsync(unwrapped, (value) => {
-      if (value === void 0) return;
-      this.replace(diff(value, this._state[key], [key]));
-    });
-  };
-
-  for (let i = 0; i < arguments.length; i++) {
-    const selection = arguments[i];
-    if (typeof selection === 'function') {
-      S.makeComputationNode(mapFn1(selection));
-      continue;
-    }
-    for (let key in selection) {
-      if (!(key in this)) this._defineProperty(key);
-      S.makeComputationNode(mapFn2(key, selection[key]));
-    }
-  }
-  return this;
-}
-

@@ -1,5 +1,5 @@
 import S from 's-js';
-import { unwrap, isObject }  from './utils';
+import { isObject }  from './utils';
 
 function fromPromise(promise, seed) {
   let s = S.makeDataNode(seed),
@@ -84,8 +84,8 @@ export function each(mapFn) {
     for (let i = 0; i < disposables.length; i++) disposables[i]();
   });
   return map(function mapper(newList) {
-    let newListUnwrapped = unwrap(newList, 1), i, j = 0,
-      newLength = (newListUnwrapped && newListUnwrapped.length) || 0;
+    let i, j = 0,
+      newLength = (newList && newList.length) || 0;
     if (newLength === 0) {
       if (length !== 0) {
         for (i = 0; i < length; i++) disposables[i]();
@@ -97,7 +97,7 @@ export function each(mapFn) {
     } else if (length === 0) {
       j = 0;
       while (j < newLength) {
-        list[j] = newListUnwrapped[j];
+        list[j] = newList[j];
         mapped[j] = S.root(mappedFn);
         j++;
       }
@@ -110,11 +110,11 @@ export function each(mapFn) {
       // reduce from both ends
       let end = Math.min(length, newLength),
         start = 0, item, itemIndex, newEnd;
-      while (start < end && newListUnwrapped[start] === list[start]) start++;
+      while (start < end && newList[start] === list[start]) start++;
 
       end = length - 1;
       newEnd = newLength - 1;
-      while (end >= 0 && newEnd >= 0 && newListUnwrapped[newEnd] === list[end]) {
+      while (end >= 0 && newEnd >= 0 && newList[newEnd] === list[end]) {
         newMapped[newEnd] = mapped[end];
         tempDisposables[newEnd] = disposables[end];
         end--;
@@ -124,7 +124,7 @@ export function each(mapFn) {
       // create indices
       j = newEnd;
       while (j >= start) {
-        item = newListUnwrapped[j];
+        item = newList[j];
         itemIndex = indexedItems.get(item);
         if (itemIndex != null) itemIndex.push(j);
         else indexedItems.set(item, [j]);
@@ -147,6 +147,7 @@ export function each(mapFn) {
       // set all new values
       j = start;
       while (j < newLength) {
+        list[j] = newList[j];
         if (newMapped.hasOwnProperty(j)) {
           mapped[j] = newMapped[j];
           disposables[j] = tempDisposables[j];
@@ -155,17 +156,13 @@ export function each(mapFn) {
       }
 
       // truncate extra length
-      length = mapped.length = disposables.length = newLength;
-      // save list for next iteration
-      list = newListUnwrapped.slice(0);
+      length = list.length = mapped.length = disposables.length = newLength;
     }
     return mapped;
 
     function mappedFn(dispose) {
-      let ref;
       disposables[j] = dispose;
-      const row = (ref = newList.sample) ? ref(j) : newList[j];
-      return mapFn(row, j);
+      return mapFn(list[j], j);
     }
   });
 }

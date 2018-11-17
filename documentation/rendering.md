@@ -9,9 +9,13 @@ This approach both is more performant and produces less code then creating each 
 
 More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
 
+## Binding
+
+By default data is simply bound to expressions. If you wish to bind it for dynamic changes add inner parenthesis to your binding. Ex {( )}
+
 ## Events
 
-on_____ properties get added (addEventListener) as event handlers on the element. If the event handler has 2 arguments, the second argument will be the model property or (nearest parent's). This is useful to automatically handle event delegation without any special syntax, methods, or synthetics.
+on_____ properties get added (addEventListener) as event handlers on the element. If the event handler has 3 arguments, the second argument will be the model property or (nearest parent's). The 3rd will be a similarly attributed action property to different events of the same type (like 2 types of clicks). This is useful to automatically handle event delegation without any special syntax, methods, or synthetics.
 
 ## Operators
 

@@ -1,6 +1,6 @@
 # State
 
-State is the core work horse of Solid. It represents the local data, the output all the asynchronous interaction as a simple to read javascript object. While fine grained observable itself it is has a minimal API footprint and in most cases be treated like a normal object when reading, supporting destructuring and native methods. The reason is that for the most part with the exception of accessing it's properties under a computation you are dealing with a plain javascript object. However, when under a computation, ie under the function context of a Sync or Selector, you are dealing with proxy objects that automatically tracked as dependencies of the computation and upon changing will force evaluation. In fact, Solid can be written that dependency tracking is handled automatically by the library.
+State is the core work horse of Solid. It represents the local data, the output all the asynchronous interaction as a simple to read javascript object. While fine grained observable itself it is has a minimal API footprint and in most cases be treated like a normal object when reading, supporting destructuring and native methods. However, when under a computation, ie under the function context of a Sync or Selector, you are dealing with proxy objects that automatically tracked as dependencies of the computation and upon changing will force evaluation. In fact, Solid can be written that dependency tracking is handled automatically by the library.
 
 While this state concept is heavily borrowed from React and it's API from ImmutableJS, there is a key difference in the role it plays here. In React you keep things simple in your state and the whole library is about reconciling DOM rendering. Here you can almost view the State object as the target, the thing that is diffed and maintained. The DOM rendering is actually quite simple to the point the compiled source exposes the vast majority of the DOM manipulations, where you can easily drop a breakpoint. So change detection being nested and focusing on interaction with other change mechanisms are key.
 
@@ -23,7 +23,3 @@ Alternatively if you can do multiple replaces in a single call by passing an arr
 ### select(...(object|fn))
 
 This takes either Observable, Selector, Function or an object that maps keys to an Observable, Selector, or Function. The Object is the most common form but supports a straight function to be able to map multiple values from a single selector.
-
-### sample(property)
-
-This grabs a wrapped version of the property without triggering the dependency detection of the getter

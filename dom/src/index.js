@@ -1,6 +1,10 @@
 import { createRuntime } from 'babel-plugin-jsx-dom-expressions';
 import S from 's-js';
 
+function createHandler(className) {
+  return (e, s) => e.classList.toggle(className, s)
+}
+
 function shallowDiff(a, b) {
   let sa = new Set(a), sb = new Set(b);
   return [a.filter(i => !sb.has(i)), (b.filter(i => !sa.has(i)))];
@@ -9,6 +13,7 @@ function shallowDiff(a, b) {
 export const r = createRuntime({wrap: S.makeComputationNode});
 
 export function selectWhen(signal, handler) {
+  if (typeof handler === 'string') handler = createHandler(handler);
   return list => {
     const cached = S(list);
     S.makeComputationNode(element => {
@@ -22,6 +27,7 @@ export function selectWhen(signal, handler) {
 }
 
 export function selectEach(signal, handler) {
+  if (typeof handler === 'string') handler = createHandler(handler);
   return list => {
     const cached = S(list);
     S.makeComputationNode(elements => {

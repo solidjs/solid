@@ -39,7 +39,7 @@ function MyComponent() {
   return (<>
     <h1>Welcome</h1>
     <ul>{
-      state.users.map(user => <li>{user.firstName} {user.lastName}</li>)
+      state.users.map(user => <li>{(user.firstName)} {(user.lastName)}</li>)
     }</ul>
   </>);
 }
@@ -55,7 +55,7 @@ root(() => mountEl.appendChild(<MyComponent />));
 
 ## Solid State
 
-It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their set method.
+It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their set method. They give the control of an immutable interface and the performance of a mutable one.
 
 ```js
 const state = new State({counter: 0});
@@ -161,7 +161,6 @@ React takes care of all 3 and doesn't let you swap your solutions for each. Each
 * [Components](../master/documentation/components.md)
 * [Operators](../master/documentation/operators.md)
 * [Rendering](../master/documentation/rendering.md)
-* [Mutability](../master/documentation/mutability.md)
 * [Signals](../master/documentation/signals.md)
 
 ## Examples

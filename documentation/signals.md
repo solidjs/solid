@@ -14,7 +14,7 @@ function fromInterval(delay) {
   return s;
 }
 ```
-Solid comes with a from operator that automatically handles creating Signals from Promises, and Observables. As a convenience `S.root` and `S.cleanup` methods are exposed through Solid as exports as well.
+Solid comes with a from operator that automatically handles creating Signals from Promises, and Observables. As a convenience several S methods including root and cleanup are exposed through Solid as exports as well.
 
 ### Computation
 
@@ -63,7 +63,7 @@ You can also use S.js `S.data` or `S.value` signals directly. As an example, the
 import S from 's-js'
 
 const seconds = S.data(0);
-const div = <div>Number of seconds elapsed: {seconds()}</div>
+const div = <div>Number of seconds elapsed: {(seconds())}</div>
 
 setInterval(() => seconds(seconds() + 1), 1000)
 S.root(() => document.body.appendChild(div))
