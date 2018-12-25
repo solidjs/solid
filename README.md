@@ -74,6 +74,12 @@ const [state, setState] = useState({
 setState('user', {firstName: 'Jake', middleName: 'Reese'});
 ```
 
+You can also use functions:
+```js
+const [state, setState] = useState({counter: 0});
+setState('counter', c => c + 1);
+```
+
 This takes the form similar to ImmutableJS for set and setIn leaving all mutation control at the top level state object.
 
 But where the magic happens is with computations(effects and memos) which automatically track dependencies.
