@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 - 2018-12-25
+- New setState API inspired by Falcor paths to handle ranges.
+- Reduction in API to remove State object functions and change to React-like Hooks API syntax.
+- Expose reconcile method to do deep differences against immutable data sources (previously automatically done for selectors).
+- Removed 'from' operators as limited usefulness with new patterns.
+
 ## 0.2.0 - 2018-11-13
 - Large simplifications to remove inconsistency around wrapping and unwrapping values. State values are always wrapped get, and fully unwrapped on set.
 - Updated binding syntax. Dynamic expressions are now bound with an inner parenthesis ```{( )}```js

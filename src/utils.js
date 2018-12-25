@@ -53,22 +53,22 @@ export function diff(a, b, path = []) {
   return r;
 }
 
-export function unwrap(item, deep) {
+export function unwrap(item) {
   let result, unwrapped, v;
   if (result = item != null ? item._state : void 0) return result;
-  if (!deep || !isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
+  if (!isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
   if (Object.isFrozen(item)) item = clone(item);
 
   if (Array.isArray(item)) {
     for (let i = 0, l = item.length; i < l; i++) {
       v = item[i];
-      if ((unwrapped = unwrap(v, deep)) !== v) item[i] = unwrapped;
+      if ((unwrapped = unwrap(v)) !== v) item[i] = unwrapped;
     }
   } else {
     let keys = Object.keys(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       v = item[keys[i]];
-      if ((unwrapped = unwrap(v, deep)) !== v) item[keys[i]] = unwrapped;
+      if ((unwrapped = unwrap(v)) !== v) item[keys[i]] = unwrapped;
     }
   }
   return item;

@@ -1,41 +1,13 @@
 import S from 's-js';
-import { isObject }  from './utils';
-
-function fromPromise(promise, seed) {
-  let s = S.makeDataNode(seed),
-    complete = false;
-  promise
-    .then((value) => {
-      if (complete) return;
-      s.next(value);
-    }).catch(err => console.error(err));
-
-  S.cleanup(function dispose() { complete = true; });
-  return () => s.current();
-}
-
-function fromObservable(observable, seed) {
-  let s = S.makeDataNode(seed),
-    disposable = observable.subscribe(v => s.next(v), err => console.error(err));
-
-  S.cleanup(function dispose() {
-    disposable.unsubscribe();
-    disposable = null;
-  });
-  return () => s.current();
-}
-
-export function from(input, seed) {
-  if (isObject(input)) {
-    if (typeof input === 'function') return input;
-    if (Symbol.observable in input) return fromObservable(input[Symbol.observable](), seed);
-    if ('then' in input) return fromPromise(input, seed);
-  }
-  throw new Error('from() input must be a function, Promise, or Observable');
-}
 
 export function pipe(input, ...fns) {
   return compose(...fns)(input);
+}
+
+export function compose(...fns) {
+  if (!fns) return i => i;
+  if (fns.length === 1) return fns[0];
+  return input => fns.reduce(((prev, fn) => fn(prev)), input);
 }
 
 export function map(fn) {
@@ -46,10 +18,12 @@ export function map(fn) {
   }
 }
 
-export function compose(...fns) {
-  if (!fns) return i => i;
-  if (fns.length === 1) return fns[0];
-  return input => fns.reduce(((prev, fn) => fn(prev)), input);
+export function tap(fn) {
+  return input => () => {
+    const value = input();
+    if (value !== void 0) S.sample(() => fn(value));
+    return;
+  }
 }
 
 // memoized map that handles falsey rejection

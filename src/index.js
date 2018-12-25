@@ -1,7 +1,6 @@
-export { default as State } from './State';
-
-export { unwrap } from './utils'
+export * from './signals';
 export * from './operators';
+export { unwrap } from './utils'
 
 import S from 's-js';
-export const { root, cleanup, sample, data, effect } = S;
+export const { root, cleanup: useCleanup, sample, freeze } = S;

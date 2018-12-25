@@ -1,39 +1,43 @@
 # Signals
 
-Signals are the glue that hold the library together. They often are invisible but interact in very powerful ways that you get more familiar with Solid they unlock a lot of potential. So consider this an intermediate to advanced topic.
+Signals are the glue that hold the library together. They often are invisible but interact in very powerful ways that you get more familiar with Solid they unlock a lot of potential. So consider this an intermediate topic.
 
-At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propagate it's change detection. Signals are a simple primitive that contain values that change over time. With Signals you can track sorts of changes from various sources in your applications. You can create a Signal manually or from any Async source.
+At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propagate it's change detection. Signals are a simple primitive that contain values that change over time. With Signals you can track sorts of changes from various sources in your applications. You can update a Signal manually or from any Async source.
 
 ```js
-import S from 's-js';
+import { useSignal, cleanup } from 'solid-js';
 
 function fromInterval(delay) {
-  var s = S.data(0);
-      handle = setInterval(() => s(s() + 1), delay);
-  S.cleanup(() => clearInterval(handle));
+  var s = useSignal(0);
+    handle = setInterval(() => s(s() + 1), delay);
+  cleanup(() => clearInterval(handle));
   return s;
 }
 ```
-Solid comes with a from operator that automatically handles creating Signals from Promises, and Observables. As a convenience several S methods including root and cleanup are exposed through Solid as exports as well.
 
-### Computation
+### Accessors & Context
 
-A computation is calculation over a function execution that automatically dynamically tracks it's dependencies. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies. You can create a computation by passing a function into state.select and any of Solid's operators.
+Signals are special functions that when executed return their value. Accessors are just functions that "access", or read a value from one or more Signals. At the time of reading the Signal the current execution context (a computation) has the ability to track Signals that have been read, building out a dependency tree that can automatically trigger recalculations as their values are updated. This can be as nested as desired and each new nested context tracks it's own dependencies. Since Accessors by nature of being composed of Signal reads are too reactive we don't need to wrap Signals at every level just at the top level where they are used and around any place that is computationally expensive where you may want to memoize or store intermediate values.
+
+### Computations
+
+An computation is calculation over a function execution that automatically dynamically tracks any dependent signals. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
+
+There are 2 main computations used by Solid: Effects which produce side effects, and Memos which are pure and return a read-only Signal.
 
 ```js
-import S from 's-js';
-import { State } from 'solid-js';
+import { useState, useEffect } from 'solid-js';
 
-state = new State({count: 1});
+const [state, setState] = useState({count: 1});
 
-S(() => console.log(state.count));
-state.set({count: state.count + 1});
+useEffect(() => console.log(state.count));
+setState({count: state.count + 1});
 
 // 1
 // 2
 ```
 
-They also pass the previous value on each execution. This is useful for reducing operations (obligatory Redux in a couple lines example):
+Memos also pass the previous value on each execution. This is useful for reducing operations (obligatory Redux in a couple lines example):
 
 ```js
 const reducer = (state, action) => {
@@ -46,27 +50,27 @@ const reducer = (state, action) => {
 }
 
 // redux
-const action = S.data(),
-    store = S(state => reducer(state, action()),  {list: []});
+const dispatch = useSignal(),
+  getStore = useMemo(state => reducer(state, dispatch()), {list: []});
 
 // subscribe and dispatch
-S(() => console.log(store().list));
-action({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}});
+useEffect(() => console.log(getStore().list));
+dispatch({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}});
 ```
-That being said there are plenty of reasons to use actual Redux. And since a Redux Store exports an Observable it's just a map function away from passing into a State Selector in Solid to use in your components.
+That being said there are plenty of reasons to use actual Redux.
 
 ### Rendering
 
-You can also use S.js `S.data` or `S.value` signals directly. As an example, the following will show a count of ticking seconds:
+You can also use signals directly. As an example, the following will show a count of ticking seconds:
 
 ```jsx
-import S from 's-js'
+import { useSignal } from 'solid-js'
 
-const seconds = S.data(0);
-const div = <div>Number of seconds elapsed: {(seconds())}</div>
+const seconds = useSignal(0);
+const div = <div>Number of seconds elapsed: {( seconds() )}</div>
 
 setInterval(() => seconds(seconds() + 1), 1000)
-S.root(() => document.body.appendChild(div))
+root(() => document.body.appendChild(div))
 ```
 
 ### Observable

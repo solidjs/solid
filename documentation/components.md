@@ -5,12 +5,13 @@ Solid.js doesn't have an opinion how you want to modularize your code. You can u
 You could imagine making a base Component class that creates a State instance for the internal state and props, which the child then inherits. In that model Solid would look very similar to something like React.
 
 ```jsx
-import { State, root } from 'solid-js'
+import { useState, root } from 'solid-js'
 
 class Component {
   constructor () {
-    this.state = new State({})
-    this.props = new State({});
+    const [state, setState] = useState({}),
+      [props, setProps] = useState({});
+    Object.assign(this, { state, setState, props, _setProps: setProps });
   }
 
   connectedCallback() {
@@ -19,13 +20,13 @@ class Component {
   }
 
   attributeChangedCallback(attr, oldVal, newVal) {
-    this.props.replace(attr, newVal);
+    this._setProps({[attr]: newVal});
   }
 }
 
 class MyComponent extends Component {
   constuctor () {
-    this.state.set({greeting: 'World'});
+    this.setState({greeting: 'World'});
   }
   render() {
     return <div>Hello {(state.greeting)}</div>
@@ -36,16 +37,16 @@ class MyComponent extends Component {
 But functional composition is just as fair game.
 
 ```jsx
-import { State, root } from 'solid-js'
+import { useState, root } from 'solid-js'
 
 function Component(fn) {
-  state = new State({});
-  props = new State({});
-  return fn({state, props});
+  const [state, setState] = useState({}),
+    [props] = useState({});
+  return fn({state, setState, props});
 }
 
-function MyComponent({state}) {
-  state.set({greeting: 'World'});
+function MyComponent({state, setState}) {
+  setState({greeting: 'World'});
   return <div>Hello {(state.greeting)}</div>;
 }
 
