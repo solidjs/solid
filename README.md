@@ -94,7 +94,7 @@ This is also primary mechanism to interopt with store technologies like Redux, A
 useEffect(() => {
   const disposable = store.observable()
     .subscribe(({ todos }) => setState(reconcile('todos', todos)));
-  cleanup(() => disposable.unsubscribe());
+  useCleanup(() => disposable.unsubscribe());
 });
 ```
 
@@ -145,6 +145,7 @@ Admittedly it takes a strong reason to not go with the general consensus of best
 * [Signals](../master/documentation/signals.md)
 * [Operators](../master/documentation/operators.md)
 * [Rendering](../master/documentation/rendering.md)
+* [API](../master/documentation/api.md)
 
 ## Examples
 

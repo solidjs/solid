@@ -18,3 +18,12 @@ Alternatively if you can do multiple sets in a single call by passing an array o
 
 Path can be string keys, array of keys, wildcards ('*'), iterating objects ({from, to, by}), or filter functions. This gives incredible expressive power to describe state changes.
 
+All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time).
+
+### reconcile(...path, value)
+
+This can be used to do deep diffs by producing the list of changes to apply from a new State value. This is useful when pulling in immutable data trees from stores to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
+
+```js
+setState(reconcile('users', store.get('users')))
+```
