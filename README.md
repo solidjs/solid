@@ -9,13 +9,8 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
   * Data behavior is part of the declaration
   * No need for lifecycle functions, and the large chains of conditionals they bring.
 * ES6 Proxies to keep data access simple and POJO like
-* Easy Promises and ES Observables interoptability:
-  * Easy interopt with existing libraries that manage services and state.
 * Expandable custom operators and binding directives.
-* Truly just a render library
-  * Unopinionated about how you set modularize/componentize your code
-  * The whole tree is only rendered once so statefulness is not a decider for the use of functional components
-  * Use familiar techniques like HOCs, Class inheritance, dependency injection as you see fit.
+* Immutable interface with performance of mutability.
 * Performance amongst the fastest libraries. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark)
 
 <br />
@@ -108,7 +103,7 @@ useEffect(() => {
 
 To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computeds.
 
-JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is both much more performant and uses considerable less memory.
+JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is more transparent and easier to follow and debug.
 
 To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
 
@@ -120,6 +115,43 @@ And include at the top of your files:
 
 ```js
 import { r } from 'solid-js/dom'
+```
+
+## Components
+
+Templates in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and generally return their DOM nodes to render. Other than that nothing is special about them. Unlike Virtual Dom libraries these functions can contain state as they are not called repeatedly but only executed on initial creation.
+
+Since the all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM. Since contexts/lifecycle management is independent of code modularization through registering event handlers Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
+
+```jsx
+import { useState, root } from 'solid-js'
+
+class Component extends HTMLElement {
+  constructor () {
+    const [state, setState] = useState({}),
+      [props, __setProps] = useState({});
+    Object.assign(this, {state, setState, props, __setProps});
+  }
+
+  connectedCallback() {
+    this.attachShadow({mode: 'open'});
+    root(() => this.shadowRoot.appendChild(this.render());
+  }
+
+  attributeChangedCallback(attr, oldVal, newVal) {
+    this.__setProps({[attr]: newVal});
+  }
+}
+
+class MyComponent extends Component {
+  constuctor () {
+    super();
+    this.setState({greeting: 'World'});
+  }
+  render() {
+    return <div>Hello {(state.greeting)}</div>
+  }
+}
 ```
 
 ## Why?
@@ -147,7 +179,6 @@ Admittedly it takes a strong reason to not go with the general consensus of best
 ## Documentation
 
 * [State](../master/documentation/state.md)
-* [Components](../master/documentation/components.md)
 * [Signals](../master/documentation/signals.md)
 * [Operators](../master/documentation/operators.md)
 * [Rendering](../master/documentation/rendering.md)
