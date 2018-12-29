@@ -73,3 +73,25 @@ export function unwrap(item) {
   }
   return item;
 }
+
+// export observable
+export function observable(input) {
+  if (Symbol.observable in input) return input[Symbol.observable]();
+  return {
+    subscribe(observer) {
+      if (!(observer instanceof Object) || observer == null) {
+        throw new TypeError('Expected the observer to be an object.');
+      }
+      observer = observer.next || observer;
+      let complete = false;
+      S.on(input, function next() {
+        if (complete) return;
+        observer(input());
+      });
+      return {
+        unsubscribe() { complete = true; }
+      };
+    },
+    [Symbol.observable]() { return this; }
+  };
+}

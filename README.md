@@ -17,26 +17,15 @@ Solid.js is yet another declaritive Javascript library for creating user interfa
 A Simple Component could look like:
 
 ```jsx
-import { useState, root } from 'solid-js'
+import { root } from 'solid-js'
 
-function MyComponent() {
-  const [state, setState] = useState({
-    users: [{
-      id: 1, firstName: 'John', lastName: 'Smith'
-    }, {
-      id: 2, firstName: 'Jane', lastName: 'Smith'
-    }]
-  });
-
-  return (<>
+const MyComponent = props =>
+  <>
     <h1>Welcome</h1>
-    <ul>{
-      state.users.map(user => <li>{( user.firstName )} {( user.lastName )}</li>)
-    }</ul>
-  </>);
-}
+    <p>Hello {props.name}</p>
+  </>
 
-root(() => mountEl.appendChild(<MyComponent />));
+root(() => mountEl.appendChild(<MyComponent name='Taylor' />));
 ```
 
 ## Installation
@@ -49,11 +38,18 @@ root(() => mountEl.appendChild(<MyComponent />));
 
 It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their setter method. They give the control of an immutable interface and the performance of a mutable one.
 
-```js
-const [state, setState] = useState({counter: 0});
-setState({
-  counter: state.counter + 1
-});
+```jsx
+import { root, useState } from 'solid-js'
+
+const CountingComponent = () => {
+  const [state, setState] = useState({counter: 0}),
+    interval = setInterval(() => setState({
+      counter: state.counter + 1
+    }), 1000);
+  useCleanup(() => clearInterval(interval));
+
+  return <div>{state.counter}</div>
+}
 ```
 
 You can also deep set:
@@ -180,7 +176,6 @@ Admittedly it takes a strong reason to not go with the general consensus of best
 
 * [State](../master/documentation/state.md)
 * [Signals](../master/documentation/signals.md)
-* [Operators](../master/documentation/operators.md)
 * [Rendering](../master/documentation/rendering.md)
 * [API](../master/documentation/api.md)
 

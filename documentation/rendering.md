@@ -17,9 +17,24 @@ By default data is simply bound to expressions. If you wish to bind it for dynam
 
 on_____ properties get added (addEventListener) as event handlers on the element. If the event handler has 3 arguments, the second argument will be the model property or (nearest parent's). The 3rd will be a similarly attributed action property to different events of the same type (like 2 types of clicks). This is useful to automatically handle event delegation without any special syntax, methods, or synthetics.
 
-## Operators
+## Control Flow
 
-Most operators are general purpose. However there a couple included in this library to handle the common case of selection/multi-selection. These are often present through selection, hover effects etc.. The following operators optimize large lists down to one computation instead of n. They use the model property to identify context. And only execute their handler method on contexts that are entering or exiting selected state.
+While you could use a map function for loops and raw ternary operators of conditionals they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods. To keep things simple and optimizable the the renderer uses a special JSX tag (<$>) for control flow. Current 'each' and 'when' are supported.
+
+```jsx
+<ul>
+  <$ each={ state.users }>{
+    user => <li>
+      <div>{( user.firstName )}</div>
+      <$ when={ user.stars > 100 }>{
+        () => <div>Verified</div>
+      }</$>
+    </li>
+  }</$>
+</ul>
+```
+
+The library also includes a couple afterRender hooks for this element.
 
 ### selectWhen(signal, handler)
 ### selectEach(signal, handler)

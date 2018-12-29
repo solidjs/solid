@@ -1,4 +1,4 @@
-const { root, useState, useSignal, useEffect, reconcile, cleanup } = require('../lib/solid');
+const { root, useState, useSignal, useEffect, reconcile } = require('../lib/solid');
 
 describe('setState', () => {
 

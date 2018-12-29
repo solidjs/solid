@@ -46,7 +46,10 @@ function setProperty(state, property, value) {
   value = unwrap(value);
   if (state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
-  if (value === void 0) delete state[property];
+  if (value === void 0) {
+    delete state[property];
+    if (Array.isArray(state)) state.length -= 1;
+  }
   else state[property] = value;
   trigger(getDataNode(state), property, notify);
 }
