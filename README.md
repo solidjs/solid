@@ -190,11 +190,11 @@ Admittedly it takes a strong reason to not go with the general consensus of best
 
 * [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
 The renderer behind Solid.js that enables lightning fast fine grained performance.
-* [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
-A local state swap in for React to use Solid.js paradigm in your existing React apps.
+React Hooks API to use Solid.js paradigm in your existing React apps.
 * [Solid Components](https://github.com/ryansolid/solid-components)
 Extensions to Solid.js that add a Web Component wrapper, Portals, and a Context API.
+* [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
 
 ## Status
 
