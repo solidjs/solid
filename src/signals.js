@@ -136,7 +136,10 @@ export function reconcile() {
 
 export function useMemo(fn, seed) { return S(fn, seed); }
 
-export function useSignal(value) { return S.data(value); }
+export function useSignal(value) {
+  const d = S.makeDataNode(value);
+  return [d.current.bind(d), d.next.bind(d)];
+}
 
 export function useEffect(fn, deps, defer) {
   if (!deps) return S.effect(fn);

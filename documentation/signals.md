@@ -8,10 +8,10 @@ At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propagate it's
 import { useSignal, useCleanup } from 'solid-js';
 
 function fromInterval(delay) {
-  var s = useSignal(0);
-    handle = setInterval(() => s(s() + 1), delay);
+  const [getCount, setCount] = useSignal(0);
+    handle = setInterval(() => setCount(getCount() + 1), delay);
   useCleanup(() => clearInterval(handle));
-  return s;
+  return getCount;
 }
 ```
 
@@ -40,7 +40,7 @@ setState({count: state.count + 1});
 Memos also pass the previous value on each execution. This is useful for reducing operations (obligatory Redux in a couple lines example):
 
 ```js
-const reducer = (state, action) => {
+const reducer = (state, action = {}) => {
   switch(action.type) {
     case 'LIST/ADD':
       return {...state, list: [...state.list, action.payload]};
@@ -50,8 +50,8 @@ const reducer = (state, action) => {
 }
 
 // redux
-const dispatch = useSignal(),
-  getStore = useMemo(state => reducer(state, dispatch()), {list: []});
+const [getAction, dispatch] = useSignal(),
+  getStore = useMemo(state => reducer(state, getAction()), {list: []});
 
 // subscribe and dispatch
 useEffect(() => console.log(getStore().list));
@@ -66,10 +66,10 @@ You can also use signals directly. As an example, the following will show a coun
 ```jsx
 import { useSignal } from 'solid-js'
 
-const seconds = useSignal(0);
-const div = <div>Number of seconds elapsed: {( seconds() )}</div>
+const [getSeconds, setSeconds] = useSignal(0);
+const div = <div>Number of seconds elapsed: {( getSeconds() )}</div>
 
-setInterval(() => seconds(seconds() + 1), 1000)
+setInterval(() => setSeconds(getSeconds() + 1), 1000)
 root(() => document.body.appendChild(div))
 ```
 

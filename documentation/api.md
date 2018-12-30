@@ -12,11 +12,11 @@ Creates a new State object and setState pair that can be used to maintain your c
 
 Creates a new effect that automatically tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
 
-### `useSignal(initialValue): signal`
+### `useSignal(initialValue): [getValueFn, setValueFn]`
 
 Creates a new signal that can be used for reactive tracking.
 
-### `useMemo(prev => <code>, initialValue): signal`
+### `useMemo(prev => <code>, initialValue): getValueFn`
 
 Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update.
 

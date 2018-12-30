@@ -75,11 +75,12 @@ describe('setState with reconcile', () => {
 
 describe('useEffect', () => {
 
-  test('Setting state', () => {
+  test('Setting state from signal', () => {
     root(() => {
-      var data = useSignal('signal'),
+      var [ getData, setData ] = useSignal('init'),
         [ state, setState ] = useState({});
-      useEffect(() => setState('data', data()));
+      useEffect(() => setState('data', getData()));
+      setData('signal')
       expect(state.data).toBe('signal');
     });
   });

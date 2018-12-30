@@ -1,8 +1,11 @@
 # Changelog
 
+## 0.3.2 - 2018-12-30
+- Separated useSignal getter/setters for clearer more consistent API
+
 ## 0.3.1 - 2018-12-29
 - Remove operators from core package since are auxilliary with new API.
-- Updated JSX Dom Expressions to use new control flow JSX.
+- Updated JSX Dom Expressions to use new control flow JSX and JSX Fragment support.
 
 ## 0.3.0 - 2018-12-25
 - New setState API inspired by Falcor paths to handle ranges.
