@@ -62,7 +62,7 @@ function mergeState(state, value) {
   }
 }
 
-function updatePath(current, path, traversed = []) {
+function updatePath(current, path, traversed = [], replace) {
   if (path.length === 1) {
     let value = path[0];
     if (typeof value === 'function') {
@@ -70,7 +70,7 @@ function updatePath(current, path, traversed = []) {
       // deep map
       if (Array.isArray(value)) {
         for (let i = 0; i < value.length; i += 1)
-          updatePath(current, value[i], traversed);
+          updatePath(current, value[i], traversed, true);
         return;
       }
     }
@@ -84,28 +84,28 @@ function updatePath(current, path, traversed = []) {
   if (Array.isArray(part)) {
     // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
     for (let i = 0; i < part.length; i++)
-      updatePath(current, [part[i]].concat(path), [].concat(traversed, [part[i]]));
+      updatePath(current, [part[i]].concat(path), traversed.concat([part[i]]), replace);
   } else if (isArray && partType === 'function') {
     // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
     for (let i = 0; i < current.length; i++)
-      if (part(current[i], i)) updatePath(current[i], path.slice(0), [].concat(traversed, [i]));
+      if (part(current[i], i)) updatePath(current[i], path.slice(0), traversed.concat([i]), replace);
   } else if (isArray && partType === 'object') {
     // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
     const {from = 0, to = current.length - 1, by = 1} = part;
     for (let i = from; i <= to; i += by)
-      updatePath(current[i], path.slice(0), [].concat(traversed, [i]));
+      updatePath(current[i], path.slice(0), traversed.concat([i]), replace);
   } else if (isArray && part === '*') {
     // Ex. update('data', '*', 'label', l => l + ' !!!');
     for (let i = 0; i < current.length; i++)
-      updatePath(current, [i].concat(path), [].concat(traversed, [i]));
+      updatePath(current, [i].concat(path), traversed.concat([i]), replace);
   } else if (path.length === 1) {
     let value = path[0];
     if (typeof value === 'function')
       value = value(typeof current[part] === 'object' ? wrap(current[part]) : current[part], traversed.concat([part]));
-    if (current[part] != null && typeof current[part] === 'object' && value !== null && typeof value === 'object' && !Array.isArray(value))
+    if (!replace && current[part] != null && typeof current[part] === 'object' && value !== null && typeof value === 'object' && !Array.isArray(value))
       return mergeState(current[part], value);
     return setProperty(current, part, value);
-  } else updatePath(current[part], path);
+  } else updatePath(current[part], path, traversed.concat([part]), replace);
 }
 
 export function useState(state) {
