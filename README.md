@@ -172,6 +172,14 @@ So the driving questions here are:
 
 Admittedly it takes a strong reason to not go with the general consensus of best, and most supported libraries and frameworks. And React's Hooks API addresses the majority of what I once considered it's most untenable faults. But I believe there is a better way out there than how we do it today.
 
+I cover this in more detail in my Bring Your Own Framework Blog Series.
+
+## Blog Series
+* [Part 1: Writing a JS Framework in 2018](https://medium.com/@ryansolid/b-y-o-f-part-1-writing-a-js-framework-in-2018-b02a41026929)
+* [Part 2: Web Components as Containers](https://medium.com/@ryansolid/b-y-o-f-part-2-web-components-as-containers-85e04a7d96e9)
+* [Part 3: Change Management in JavaScript Frameworks](https://medium.com/@ryansolid/b-y-o-f-part-3-change-management-in-javascript-frameworks-6af6e436f63c)
+* Part 4 & 5: <i>Coming Soon</i>
+
 ## Documentation
 
 * [State](../master/documentation/state.md)
