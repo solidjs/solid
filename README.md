@@ -48,7 +48,7 @@ const CountingComponent = () => {
     }), 1000);
   useCleanup(() => clearInterval(interval));
 
-  return <div>{state.counter}</div>
+  return <div>{(state.counter)}</div>
 }
 ```
 
