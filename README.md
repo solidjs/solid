@@ -22,7 +22,7 @@ import { root } from 'solid-js'
 const MyComponent = props =>
   <>
     <h1>Welcome</h1>
-    <p>Hello {props.name}</p>
+    <p>Hello {(props.name)}</p>
   </>
 
 root(() => mountEl.appendChild(<MyComponent name='Taylor' />));
