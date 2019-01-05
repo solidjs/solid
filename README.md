@@ -31,7 +31,7 @@ root(() => mountEl.appendChild(<MyComponent name='Taylor' />));
 ## Installation
 
 ```sh
-> npm install solid-js s-js babel-plugin-jsx-dom-expressions
+> npm install solid-js babel-plugin-jsx-dom-expressions
 ```
 
 ## Solid State
@@ -85,14 +85,12 @@ console.log(state.displayName); // Jake Smith
 
 Whenever any dependency changes the State value will immediately update. Internally all JSX expressions also get wrapped in effects so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
 
-This is also primary mechanism to interopt with store technologies like Redux, Apollo, RxJS which expose themselves as Observables or Promises. When you hook up these effects you can use standard methods to map the properties you want and the reconcile method will diff the changes to only affect the minimal amount.
+Solid State also exposes a reconcile method used with setState that does immutable diffing to allow for automatic efficient interopt with store technologies like Redux, Apollo, RxJS which expose themselves as Observables or Promises.
 
 ```js
-useEffect(() => {
-  const disposable = store.observable()
-    .subscribe(({ todos }) => setState(reconcile('todos', todos)));
-  useCleanup(() => disposable.unsubscribe());
-});
+const disposable = store.observable()
+  .subscribe(({ todos }) => setState(reconcile('todos', todos)));
+useCleanup(() => disposable.unsubscribe());
 ```
 
 ## Solid Rendering

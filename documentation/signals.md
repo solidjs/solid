@@ -7,7 +7,7 @@ At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propagate it's
 ```js
 import { useSignal, useCleanup } from 'solid-js';
 
-function fromInterval(delay) {
+function useTick(delay) {
   const [getCount, setCount] = useSignal(0);
     handle = setInterval(() => setCount(getCount() + 1), delay);
   useCleanup(() => clearInterval(handle));
@@ -66,11 +66,13 @@ You can also use signals directly. As an example, the following will show a coun
 ```jsx
 import { useSignal } from 'solid-js'
 
-const [getSeconds, setSeconds] = useSignal(0);
-const div = <div>Number of seconds elapsed: {( getSeconds() )}</div>
+root(() => {
+  const [getSeconds, setSeconds] = useSignal(0);
+    div = <div>Number of seconds elapsed: {( getSeconds() )}</div>
 
-setInterval(() => setSeconds(getSeconds() + 1), 1000)
-root(() => document.body.appendChild(div))
+  setInterval(() => setSeconds(getSeconds() + 1), 1000)
+  document.body.appendChild(div)
+})
 ```
 
 ### Observable

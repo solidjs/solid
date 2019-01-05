@@ -12,9 +12,9 @@ Creates a new State object and setState pair that can be used to maintain your c
 
 Creates a new effect that automatically tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
 
-### `useSignal(initialValue): [getValueFn, setValueFn]`
+### `useSignal(initialValue, comparatorFn): [getValueFn, setValueFn]`
 
-Creates a new signal that can be used for reactive tracking.
+Creates a new signal that can be used for reactive tracking. By default signals always notify on setting a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `useMemo(prev => <code>, initialValue): getValueFn`
 

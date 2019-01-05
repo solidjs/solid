@@ -8,21 +8,12 @@ function comparer(v, k, b, isArray, path, r) {
   return r.push.apply(r, diff(v, b[k], newPath));
 }
 
-function clone(v) {
-  if (!isObject(v)) return v;
-  if (Array.isArray(v)) return v.slice(0);
-  return Object.assign({}, v);
-}
-
-export function isObject(obj) {
-  let ref;
-  return obj !== null && ((ref = typeof obj) === 'object' || ref === 'function');
-}
+export function isWrappable(obj) { return obj !== null && typeof obj === 'object' && !(obj instanceof Element); }
 
 export function diff(a, b, path = []) {
   let i, k, l, len, v;
   const r = [];
-  if (!isObject(a) || (b == null)) {
+  if (!isWrappable(a) || (b == null)) {
     if (a !== b) {
       r.push(path.concat([a]));
     }
@@ -55,16 +46,17 @@ export function diff(a, b, path = []) {
 
 export function unwrap(item) {
   let result, unwrapped, v;
-  if (result = item != null ? item._state : void 0) return result;
-  if (!isObject(item) || (typeof item === 'function') || (item instanceof Element)) return item;
-  if (Object.isFrozen(item)) item = clone(item);
+  if (result = (item != null) && item._state) return result;
+  if (!isWrappable(item)) return item;
 
   if (Array.isArray(item)) {
+    if (Object.isFrozen(item)) item = item.slice(0);
     for (let i = 0, l = item.length; i < l; i++) {
       v = item[i];
       if ((unwrapped = unwrap(v)) !== v) item[i] = unwrapped;
     }
   } else {
+    if (Object.isFrozen(item)) item = Object.assign({}, item);
     let keys = Object.keys(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       v = item[keys[i]];
