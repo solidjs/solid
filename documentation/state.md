@@ -22,8 +22,24 @@ All changes made in a single setState command are applied syncronously (ie all c
 
 ### reconcile(...path, value)
 
-This can be used to do deep diffs by producing the list of changes to apply from a new State value. This is useful when pulling in immutable data trees from stores to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
+This can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
 
 ```js
 setState(reconcile('users', store.get('users')))
 ```
+
+If you pass as array you can configure the diff algorithm with an options object:
+
+```js
+setState(reconcile(
+  ['users', store.get('users')],
+  {
+    mode: 'force' // type of comparison - default: 'default'
+    key: '_id' // does a keyed comparison on arrays with key - default: 'id'
+  }
+))
+```
+<b>Modes</b>
+* default: tries to detect array position changes by ref when not keyed
+* merge: overwrites rather than detects array position changes when not keyed
+* force: updates everything assuming 100% dirty

@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "jest": "~23.6.0",
-    "rollup": "^1.0.0",
+    "rollup": "^1.1.0",
     "rollup-plugin-node-resolve": "^4.0.0"
   }
 }

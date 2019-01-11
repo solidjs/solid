@@ -53,22 +53,24 @@ describe('setState with reconcile', () => {
 
   test('Track a state reconcile', () => {
     root(() => {
-      var [state, setState] = useState({ data: 2 }),
+      var [state, setState] = useState({ data: 2, missing: 'soon' }),
         executionCount = 0;
 
-      expect.assertions(2);
+      expect.assertions(4);
       useEffect(() => {
-        if (executionCount === 0)
+        if (executionCount === 0) {
           expect(state.data).toBe(2);
-        else if (executionCount === 1) {
+          expect(state.missing).toBe('soon');
+        } else if (executionCount === 1) {
           expect(state.data).toBe(5);
+          expect(state.missing).toBe(undefined);
         } else {
           // should never get here
           expect(executionCount).toBe(-1);
         }
         executionCount++;
       });
-      setState(reconcile('data', 5));
+      setState(reconcile({'data': 5}));
     });
   });
 });
