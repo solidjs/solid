@@ -38,7 +38,7 @@ function applyState(target, parent, property, mode, key) {
         keyVal = key ? item[key] : item;
         j = newIndices.get(keyVal);
         if (j !== undefined && j !== -1) {
-          temp[j] = mapped[i];
+          temp[j] = previous[i];
           j = newIndicesNext[j];
           newIndices.set(keyVal, j);
         }

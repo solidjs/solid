@@ -34,7 +34,7 @@ If you pass as array you can configure the diff algorithm with an options object
 setState(reconcile(
   ['users', store.get('users')],
   {
-    mode: 'force' // type of comparison - default: 'default'
+    mode: 'force', // type of comparison - default: 'default'
     key: '_id' // does a keyed comparison on arrays with key - default: 'id'
   }
 ))

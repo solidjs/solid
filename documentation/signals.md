@@ -75,6 +75,26 @@ root(() => {
 })
 ```
 
+### Composition
+
+State and Signals combine wonderfully as wrapping a state selector in a function instantly makes it reactive accessor. They encourage composing more sophisticated patterns to fit developer need.
+
+```js
+// deep reconciled immutable reducer
+const useReducer = (reducer, init) => {
+  const [state, setState] = useState(init),
+    [getAction, dispatch] = useSignal();
+  useEffect((prevState = init) => {
+    let action, next;
+    if (!(action = getAction())) return prevState;
+    next = reducer(prevState, action);
+    setState(reconcile(next));
+    return next;
+  })
+  return [state, dispatch];
+}
+```
+
 ### Observable
 
 Signals and Observable are similar concepts that can work together but there are a few key differences. Observables are as defined by the [TC39 Proposal](https://github.com/tc39/proposal-observable). These are a standard way of representing streams, and follow a few key conventions. Mostly that they are cold, unicast, and push-based by default. What this means is that they do not do anything until subscribed to at which point they create the source, and do so for each subscription. So if you had an Observable from a DOM Event, subscribing would add an event listener for each function you pass. In so being unicast they aren't managing a list of subscribers. Finally being push you don't ask for the latest value, they tell you.
