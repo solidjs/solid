@@ -192,6 +192,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series.
 * [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
 * [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid with Web Components
 * [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
+* [UIBench Benchmark](https://github.com/ryansolid/solid-uibench) a benchmark tests a variety of UI scenarios.
 * [DBMon Benchmark](https://github.com/ryansolid/solid-dbmon) A benchmark testing ability of libraries to render unoptimized data.
 
 ## Related Projects
