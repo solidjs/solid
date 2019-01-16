@@ -57,9 +57,9 @@ function getDataNodes(target) {
   return nodes;
 }
 
-export function setProperty(state, property, value, force) {
+export function setProperty(state, property, value) {
   value = unwrap(value);
-  if (!force && state[property] === value) return;
+  if (state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
   if (value === void 0) {
     delete state[property];

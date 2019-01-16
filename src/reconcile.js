@@ -1,26 +1,19 @@
-import { setProperty, unwrap, isWrappable } from './state'
+import { setProperty, unwrap, isWrappable } from './state';
 
-const DEFAULT = 'default',
-  MERGE = 'merge',
-  FORCE = 'force';
-
-function applyState(target, parent, property, mode, key) {
-  let previous = parent[property], force = mode === FORCE;
-  if (!force && target === previous) return;
-
-  if (!isWrappable(target) || (previous == null)) {
-    return (force || target !== previous) && setProperty(parent, property, target, force);
-  }
+function applyState(target, parent, property, merge, key) {
+  let previous = parent[property];
+  if (target === previous) return;
+  if (!isWrappable(target) || (previous == null))
+    return (target !== previous) && setProperty(parent, property, target);
 
   if (Array.isArray(target)) {
-    if (target.length && previous.length && (mode === DEFAULT
-      || (key && mode === MERGE && target[0][key] != null))) {
-      // skip common prefix and suffix
+    if (target.length && previous.length && (!merge || (key && target[0][key] != null))) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal,
         temp = new Array(target.length),
         newIndices = new Map();
+      // skip common prefix and suffix
       for (start = 0, end = Math.min(previous.length, target.length); start < end && (previous[start] === target[start] || key && previous[start][key] === target[start][key]); start++)
-        applyState(target[start], previous, start, mode, key);
+        applyState(target[start], previous, start, merge, key);
       for (end = previous.length - 1, newEnd = target.length - 1; end >= 0 && newEnd >= 0 &&  (previous[end] === target[newEnd] || key && previous[end][key] === target[newEnd][key]); end--, newEnd--)
         temp[newEnd] = previous[end];
       // prepare a map of all indices in target
@@ -47,13 +40,13 @@ function applyState(target, parent, property, mode, key) {
       for (j = start; j < target.length; j++) {
         if (temp.hasOwnProperty(j)) {
           setProperty(previous, j, temp[j]);
-          applyState(target[j], previous, j, mode, key);
+          applyState(target[j], previous, j, merge, key);
         }
         else setProperty(previous, j, target[j])
       }
     } else {
       for (let i = 0, len = target.length; i < len; i++) {
-        applyState(target[i], previous, i, mode, key);
+        applyState(target[i], previous, i, merge, key);
       }
     }
     if (previous.length > target.length) setProperty(previous, 'length', target.length);
@@ -62,7 +55,7 @@ function applyState(target, parent, property, mode, key) {
 
   const targetKeys = Object.keys(target);
   for (let i = 0, len = targetKeys.length; i < len; i++) {
-    applyState(target[targetKeys[i]], previous, targetKeys[i], mode, key);
+    applyState(target[targetKeys[i]], previous, targetKeys[i], merge, key);
   }
   const previousKeys = Object.keys(previous);
   for (let i = 0, len = previousKeys.length; i < len; i++) {
@@ -83,13 +76,12 @@ export function reconcile(path, options = {}) {
     value = arguments[arguments.length - 1];
     options = {};
   }
-  const mode = options.mode !== undefined ? options.mode : DEFAULT,
-    key = options.key !== undefined ? options.key : 'id';
+  const { merge, key = 'id' } = options;
   return state => {
     state = unwrap(state);
     if (path) {
       for (let i = 0; i < path.length - 1; i += 1) state = state[path[i]];
-      applyState(value, state, path[path.length - 1], mode, key);
-    } else applyState(value, { state }, 'state', mode, key);
+      applyState(value, state, path[path.length - 1], merge, key);
+    } else applyState(value, { state }, 'state', merge, key);
   }
 }

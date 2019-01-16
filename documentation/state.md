@@ -34,12 +34,8 @@ If you pass as array you can configure the diff algorithm with an options object
 setState(reconcile(
   ['users', store.get('users')],
   {
-    mode: 'force', // type of comparison - default: 'default'
     key: '_id' // does a keyed comparison on arrays with key - default: 'id'
+    merge: false //  overwrites rather than detects array position changes when not keyed - default: false
   }
 ))
 ```
-<b>Modes</b>
-* default: tries to detect array position changes by ref when not keyed
-* merge: overwrites rather than detects array position changes when not keyed
-* force: updates everything assuming 100% dirty

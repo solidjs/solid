@@ -1,10 +1,13 @@
 # Changelog
 
+## 0.3.7 - 2019-01-16
+- Improved data reconciler performance
+- Added data reconciler options
+
 ## 0.3.4 - 2019-01-04
 - Added optional comparator for signals.
 - Removed redundant type checks and extra function calls.
 - Changed S.js to a dependency instead of a peer dependency.
-
 
 ## 0.3.2 - 2018-12-30
 - Separated useSignal getter/setters for clearer more consistent API
