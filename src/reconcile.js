@@ -14,7 +14,7 @@ function applyState(target, parent, property, merge, key) {
       // skip common prefix and suffix
       for (start = 0, end = Math.min(previous.length, target.length); start < end && (previous[start] === target[start] || key && previous[start][key] === target[start][key]); start++)
         applyState(target[start], previous, start, merge, key);
-      for (end = previous.length - 1, newEnd = target.length - 1; end >= 0 && newEnd >= 0 &&  (previous[end] === target[newEnd] || key && previous[end][key] === target[newEnd][key]); end--, newEnd--)
+      for (end = previous.length - 1, newEnd = target.length - 1; end >= 0 && newEnd >= 0 && (previous[end] === target[newEnd] || key && previous[end][key] === target[newEnd][key]); end--, newEnd--)
         temp[newEnd] = previous[end];
       // prepare a map of all indices in target
       newIndicesNext = new Array(newEnd + 1);
