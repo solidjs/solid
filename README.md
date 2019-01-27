@@ -191,6 +191,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series.
 * [Counter](https://codepen.io/ryansolid/pen/XxpZLX/?editors=1000) on CodePen
 * [Simple Todos](https://codepen.io/ryansolid/pen/ZqLoxo?editors=1000) on CodePen
 * [Async Effect](https://codepen.io/ryansolid/pen/daPWLR?editors=1000) on CodePen
+* [Redux Undoable Todos](https://codepen.io/ryansolid/pen/Rvrgro?editors=1000) on CodePen
 * [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
 * [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid with Web Components
 * [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
