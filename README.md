@@ -1,6 +1,6 @@
 # Solid.js
 
-Solid.js is yet another declaritive Javascript library for creating user interfaces.  It does not use the Virtual DOM. Instead it opts to compile it's templates down to real DOM nodes and wrap updates in fine grained computations.
+Solid.js is yet another declarative Javascript library for creating user interfaces.  It does not use the Virtual DOM. Instead it opts to compile it's templates down to real DOM nodes and wrap updates in fine grained computations.
 
 ### Key Features:
 * Real DOM with fine grained change detection (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>)
@@ -71,7 +71,7 @@ const [state, setState] = useState({counter: 0});
 setState('counter', c => c + 1);
 ```
 
-This takes the form similar to ImmutableJS for set and setIn leaving all mutation control at the top level state object.
+This takes the form similar to ImmutableJS for set and setIn leaving all mutation control at the top level state object. Keep in mind that setState when setting an object attempts to merge instead of replace.
 
 But where the magic happens is with computations(effects and memos) which automatically track dependencies.
 
@@ -83,14 +83,13 @@ useEffect(() => setState({
 console.log(state.displayName); // Jake Smith
 ```
 
-Whenever any dependency changes the State value will immediately update. Internally all JSX expressions also get wrapped in effects so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
+Whenever any dependency changes the State value will immediately update. JSX expressions can also get wrapped in effects so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
 
-Solid State also exposes a reconcile method used with setState that does immutable diffing to allow for automatic efficient interopt with store technologies like Redux, Apollo, RxJS which expose themselves as Observables or Promises.
+Solid State also exposes a reconcile method used with setState that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo, or RxJS.
 
 ```js
-const disposable = store.observable()
-  .subscribe(({ todos }) => setState(reconcile('todos', todos)));
-useCleanup(() => disposable.unsubscribe());
+const unsubscribe = store.subscribe(({ todos }) => setState(reconcile('todos', todos)));
+useCleanup(() => unsubscribe());
 ```
 
 ## Solid Rendering
@@ -177,7 +176,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series.
 * [Part 2: Web Components as Containers](https://medium.com/@ryansolid/b-y-o-f-part-2-web-components-as-containers-85e04a7d96e9)
 * [Part 3: Change Management in JavaScript Frameworks](https://medium.com/@ryansolid/b-y-o-f-part-3-change-management-in-javascript-frameworks-6af6e436f63c)
 * [Part 4: Rendering the DOM](https://medium.com/@ryansolid/b-y-o-f-part-4-rendering-the-dom-753657689647)
-* Part 5: <i>Coming Soon</i>
+* [Part 5: JS Frameworks in 2019](https://medium.com/@ryansolid/b-y-o-f-part-5-js-frameworks-in-2019-deb9c4d3e74)
 
 ## Documentation
 

@@ -15,7 +15,7 @@ By default data is simply bound to expressions. If you wish to bind it for dynam
 
 ## Events
 
-on_____ properties get added (addEventListener) as event handlers on the element. If the event handler has 3 arguments, the second argument will be the model property or (nearest parent's). The 3rd will be a similarly attributed action property to different events of the same type (like 2 types of clicks). This is useful to automatically handle event delegation without any special syntax, methods, or synthetics.
+on_____ properties get added (addEventListener) as event handlers on the element. If the event handler has more than one argument, the second argument will be the model property or (nearest parent's). The 3rd will be a similarly attributed action property to different events of the same type (like 2 types of clicks). This is useful to automatically handle event delegation without any special syntax, methods, or synthetics.
 
 ## Control Flow
 
