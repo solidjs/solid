@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.8 - 2019-01-31
+- Add support for HyperScript
+
 ## 0.3.7 - 2019-01-16
 - Improved data reconciler performance
 - Added data reconciler options

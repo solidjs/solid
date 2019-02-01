@@ -110,6 +110,12 @@ And include at the top of your files:
 import { r } from 'solid-js/dom'
 ```
 
+Or, if you prefer you can use HyperScript. It does come at signifigant performance hit, as it doesn't benefit from any of the compile time optimizations that set Solid apart in performance. But it is an option for those who want to avoid Babel or do not wish to use JSX. Even though it is much slower it is still in the performance category of most popular frameworks. There are some minor differences from how you would write typical HyperScript as you need to manually wrap expressions in functions to make them observable. More information available at [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions). Include Solid HyperScript by:
+
+```js
+import { h } from 'solid-js/dom'
+```
+
 ## Components
 
 Templates in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and generally return their DOM nodes to render. Other than that nothing is special about them. Unlike Virtual Dom libraries these functions can contain state as they are not called repeatedly but only executed on initial creation.
