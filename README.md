@@ -115,6 +115,7 @@ Or, if you prefer you can use HyperScript. It does come at signifigant performan
 ```js
 import { h } from 'solid-js/dom'
 ```
+With HyperScript it is possible to map to element functions or even tagged template literals which offer many different development experiences. See examples below.
 
 ## Components
 
@@ -198,6 +199,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series.
 * [Async Effect](https://codepen.io/ryansolid/pen/daPWLR?editors=1000) on CodePen
 * [Redux Undoable Todos](https://codepen.io/ryansolid/pen/Rvrgro?editors=1000) on CodePen
 * [Simple Todos HyperScript](https://codepen.io/ryansolid/pen/WPGobB?editors=0010) on CodePen
+* [Simple Todos Template Literals](https://codepen.io/ryansolid/pen/GzQNWB?editors=0010) on CodePen
 * [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
 * [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid with Web Components
 * [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
