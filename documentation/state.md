@@ -4,7 +4,7 @@ State is the core work horse of Solid. It represents the local data, the output 
 
 While this state concept is heavily borrowed from React and it's API from ImmutableJS, there is a key difference in the role it plays here. In React you keep things simple in your state and the whole library is about reconciling DOM rendering. Here you can almost view the State object as the target, the thing that is diffed and maintained. The DOM rendering is actually quite simple to the point the compiled source exposes the vast majority of the DOM manipulations, where you can easily drop a breakpoint. So change detection being nested and focusing on interaction with other change mechanisms are key.
 
-### useState(object)
+### createState(object)
 
 Initializes with object value and returns an array where the first index is the state object and the second is the setState method.
 

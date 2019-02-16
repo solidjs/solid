@@ -121,7 +121,7 @@ function updatePath(current, path, traversed = []) {
   } else updatePath(current[part], path, traversed.concat([part]));
 }
 
-export function useState(state = {}) {
+export function createState(state = {}) {
   state = unwrap(state);
   const wrappedState = wrap(state);
   return [wrappedState, setState];

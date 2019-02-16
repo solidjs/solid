@@ -5,9 +5,11 @@ Solid.js is yet another declarative Javascript library for creating user interfa
 ### Key Features:
 * Real DOM with fine grained change detection (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>)
 * JSX precompilation with support for standard JSX features and W3C Web Components
+* Webcomponent friendly implicit event delegation
 * Declarative data
   * Data behavior is part of the declaration
   * No need for lifecycle functions, and the large chains of conditionals they bring.
+  * Power of Hooks with no Hook Rules.
 * ES6 Proxies to keep data access simple and POJO like
 * Expandable custom operators and binding directives.
 * Immutable interface with performance of mutability.
@@ -17,7 +19,7 @@ Solid.js is yet another declarative Javascript library for creating user interfa
 A Simple Component could look like:
 
 ```jsx
-import { root } from 'solid-js'
+import { createRoot } from 'solid-js'
 
 const MyComponent = props =>
   <>
@@ -25,7 +27,7 @@ const MyComponent = props =>
     <p>Hello {(props.name)}</p>
   </>
 
-root(() => mountEl.appendChild(<MyComponent name='Taylor' />));
+createRoot(() => mountEl.appendChild(<MyComponent name='Taylor' />));
 ```
 
 ## Installation
@@ -39,14 +41,14 @@ root(() => mountEl.appendChild(<MyComponent name='Taylor' />));
 It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their setter method. They give the control of an immutable interface and the performance of a mutable one.
 
 ```jsx
-import { root, useState } from 'solid-js'
+import { createRoot, createState, onCleanup } from 'solid-js'
 
 const CountingComponent = () => {
-  const [state, setState] = useState({counter: 0}),
+  const [state, setState] = createState({counter: 0}),
     interval = setInterval(() => setState({
       counter: state.counter + 1
     }), 1000);
-  useCleanup(() => clearInterval(interval));
+  onCleanup(() => clearInterval(interval));
 
   return <div>{(state.counter)}</div>
 }
@@ -55,7 +57,7 @@ const CountingComponent = () => {
 You can also deep set:
 
 ```js
-const [state, setState] = useState({
+const [state, setState] = createState({
   user: {
     firstName: 'John'
     lastName: 'Smith'
@@ -67,7 +69,7 @@ setState('user', {firstName: 'Jake', middleName: 'Reese'});
 
 You can also use functions:
 ```js
-const [state, setState] = useState({counter: 0});
+const [state, setState] = createState({counter: 0});
 setState('counter', c => c + 1);
 ```
 
@@ -76,7 +78,7 @@ This takes the form similar to ImmutableJS for set and setIn leaving all mutatio
 But where the magic happens is with computations(effects and memos) which automatically track dependencies.
 
 ```js
-useEffect(() => setState({
+createEffect(() => setState({
   displayName: `${state.user.firstName} ${state.user.lastName}`
 }));
 
@@ -89,7 +91,7 @@ Solid State also exposes a reconcile method used with setState that does deep di
 
 ```js
 const unsubscribe = store.subscribe(({ todos }) => setState(reconcile('todos', todos)));
-useCleanup(() => unsubscribe());
+onCleanup(() => unsubscribe());
 ```
 
 ## Solid Rendering
@@ -124,18 +126,18 @@ Templates in Solid are just Pascal(Capital) cased functions. Their first argumen
 Since the all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM. Since contexts/lifecycle management is independent of code modularization through registering event handlers Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
 
 ```jsx
-import { useState, root } from 'solid-js'
+import { createState, createRoot } from 'solid-js'
 
 class Component extends HTMLElement {
   constructor () {
-    const [state, setState] = useState({}),
-      [props, __setProps] = useState({});
+    const [state, setState] = createState({}),
+      [props, __setProps] = createState({});
     Object.assign(this, {state, setState, props, __setProps});
   }
 
   connectedCallback() {
     this.attachShadow({mode: 'open'});
-    root(() => this.shadowRoot.appendChild(this.render());
+    createRoot(() => this.shadowRoot.appendChild(this.render());
   }
 
   attributeChangedCallback(attr, oldVal, newVal) {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 - 2019-02-16
+- Rename API to create__ to be semantically correct
+- Added implicit event delegation
+
 ## 0.3.8 - 2019-01-31
 - Add support for HyperScript
 

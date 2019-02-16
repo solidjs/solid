@@ -5,12 +5,12 @@ Signals are the glue that hold the library together. They often are invisible bu
 At it's core Solid uses [S.js](https://github.com/adamhaile/S) to propagate it's change detection. Signals are a simple primitive that contain values that change over time. With Signals you can track sorts of changes from various sources in your applications. Solid's State object is built from a Proxy over a tree of Signals. You can update a Signal manually or from any Async source.
 
 ```js
-import { useSignal, useCleanup } from 'solid-js';
+import { createSignal, onCleanup } from 'solid-js';
 
 function useTick(delay) {
-  const [getCount, setCount] = useSignal(0);
+  const [getCount, setCount] = createSignal(0);
     handle = setInterval(() => setCount(getCount() + 1), delay);
-  useCleanup(() => clearInterval(handle));
+  onCleanup(() => clearInterval(handle));
   return getCount;
 }
 ```
@@ -26,11 +26,11 @@ An computation is calculation over a function execution that automatically dynam
 There are 2 main computations used by Solid: Effects which produce side effects, and Memos which are pure and return a read-only Signal.
 
 ```js
-import { useState, useEffect } from 'solid-js';
+import { createState, createEffect } from 'solid-js';
 
-const [state, setState] = useState({count: 1});
+const [state, setState] = createState({count: 1});
 
-useEffect(() => console.log(state.count));
+createEffect(() => console.log(state.count));
 setState({count: state.count + 1});
 
 // 1
@@ -50,11 +50,11 @@ const reducer = (state, action = {}) => {
 }
 
 // redux
-const [getAction, dispatch] = useSignal(),
-  getStore = useMemo(state => reducer(state, getAction()), {list: []});
+const [getAction, dispatch] = createSignal(),
+  getStore = createMemo(state => reducer(state, getAction()), {list: []});
 
 // subscribe and dispatch
-useEffect(() => console.log(getStore().list));
+createEffect(() => console.log(getStore().list));
 dispatch({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}});
 ```
 That being said there are plenty of reasons to use actual Redux.
@@ -64,10 +64,10 @@ That being said there are plenty of reasons to use actual Redux.
 You can also use signals directly. As an example, the following will show a count of ticking seconds:
 
 ```jsx
-import { useSignal } from 'solid-js'
+import { createRoot, createSignal } from 'solid-js'
 
-root(() => {
-  const [getSeconds, setSeconds] = useSignal(0);
+createRoot(() => {
+  const [getSeconds, setSeconds] = createSignal(0);
     div = <div>Number of seconds elapsed: {( getSeconds() )}</div>
 
   setInterval(() => setSeconds(getSeconds() + 1), 1000)
@@ -82,15 +82,15 @@ State and Signals combine wonderfully as wrapping a state selector in a function
 ```js
 // deep reconciled immutable reducer
 const useReducer = (reducer, init) => {
-  const [state, setState] = useState(init),
-    [getAction, dispatch] = useSignal();
-  useEffect((prevState = init) => {
+  const [state, setState] = createState(init),
+    [getAction, dispatch] = createSignal();
+  createEffect((prevState = init) => {
     let action, next;
     if (!(action = getAction())) return prevState;
     next = reducer(prevState, action);
     setState(reconcile(next));
     return next;
-  })
+  }, [ getAction ])
   return [state, dispatch];
 }
 ```
@@ -101,4 +101,4 @@ Signals and Observable are similar concepts that can work together but there are
 
 Observables track next value, errors, and completion. This is very useful for tracking discreet events over time. Signals are much simpler. They are hot and multicast in nature and while capable of pushing values over time aren't aware of it themselves. They are simple and synchronous. They don't complete, they exist or they don't exist.
 
-Observables can work well with Signals as being a source that feeds data into them. Like State, Observables are another tool that allow more control in a specific aspect of your application. Where State is valuable for reconciling multiple Signals together into a serializable structure to keep managing Component or Storage code simple, Observables are useful for transforming Async data pipelines like handling Data Communication services.
+Observables can work well with Signals as being a source that feeds data into them. Like State, Observables are another tool that allow more control in a specific aspect of your application. Where State is valuable for reconciling multiple Signals together into a serializable structure to keep managing Component or Store code simple, Observables are useful for transforming Async data pipelines like handling Data Communication services.

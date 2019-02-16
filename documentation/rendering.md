@@ -15,7 +15,7 @@ By default data is simply bound to expressions. If you wish to bind it for dynam
 
 ## Events
 
-on_____ properties get added (addEventListener) as event handlers on the element. If the event handler has more than one argument, the second argument will be the model property or (nearest parent's). The 3rd will be a similarly attributed action property to different events of the same type (like 2 types of clicks). This is useful to automatically handle event delegation without any special syntax, methods, or synthetics.
+on_____ properties get added (addEventListener) as event handlers on the element. Camel Case events will be delegated by default and the second argument will be the model property or (nearest parent's). Use all lowercase for directly bound events.
 
 ## Control Flow
 
@@ -26,9 +26,9 @@ While you could use a map function for loops and raw ternary operators of condit
   <$ each={ state.users }>{
     user => <li>
       <div>{( user.firstName )}</div>
-      <$ when={ user.stars > 100 }>{
-        () => <div>Verified</div>
-      }</$>
+      <$ when={ user.stars > 100 }>
+        <div>Verified</div>
+      </$>
     </li>
   }</$>
 </ul>

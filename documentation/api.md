@@ -1,26 +1,26 @@
 # API
 
-### `root(disposer => <code>)`
+### `createRoot(disposer => <code>)`
 
 Creates a new non-tracked context that doesn't auto-dispose. All Solid code should be wrapped in one of these top level as they ensure that all memory/computations are freed up.
 
-### `useState(initValue): [state, setState]`
+### `createState(initValue): [state, setState]`
 
 Creates a new State object and setState pair that can be used to maintain your componenents state.
 
-### `useEffect(() => <code>, dependencies, defer)`
+### `createEffect(() => <code>, dependencies, defer)`
 
 Creates a new effect that automatically tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
 
-### `useSignal(initialValue, comparatorFn): [getValueFn, setValueFn]`
+### `createSignal(initialValue, comparatorFn): [getValueFn, setValueFn]`
 
 Creates a new signal that can be used for reactive tracking. By default signals always notify on setting a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
-### `useMemo(prev => <code>, initialValue): getValueFn`
+### `createMemo(prev => <code>, initialValue): getValueFn`
 
 Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update.
 
-### `useCleanup(() => <code>)`
+### `onCleanup(() => <code>)`
 
 Registers a cleanup method that performs that executes on disposal or recalculation of the current context.
 

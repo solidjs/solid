@@ -1,14 +1,14 @@
-const { root, useState, useSignal, useEffect, reconcile } = require('../lib/solid');
+const { createRoot, createState, createSignal, createEffect, reconcile } = require('../lib/solid');
 
 describe('setState', () => {
 
   test('Track a state change', () => {
-    root(() => {
-      var [state, setState] = useState({data: 2}),
+    createRoot(() => {
+      var [state, setState] = createState({data: 2}),
         executionCount = 0;
 
       expect.assertions(2);
-      useEffect(() => {
+      createEffect(() => {
         if (executionCount === 0)
           expect(state.data).toBe(2);
         else if (executionCount === 1) {
@@ -26,12 +26,12 @@ describe('setState', () => {
   });
 
   test('Track a nested state change', () => {
-    root(() => {
-      var [state, setState] = useState({user: {firstName: 'John', lastName: 'Smith'}}),
+    createRoot(() => {
+      var [state, setState] = createState({user: {firstName: 'John', lastName: 'Smith'}}),
         executionCount = 0;
 
       expect.assertions(2);
-      useEffect(() => {
+      createEffect(() => {
         if (executionCount === 0)
           expect(state.user.firstName).toBe('John');
         else if (executionCount === 1) {
@@ -52,12 +52,12 @@ describe('setState', () => {
 describe('setState with reconcile', () => {
 
   test('Track a state reconcile', () => {
-    root(() => {
-      var [state, setState] = useState({ data: 2, missing: 'soon' }),
+    createRoot(() => {
+      var [state, setState] = createState({ data: 2, missing: 'soon' }),
         executionCount = 0;
 
       expect.assertions(4);
-      useEffect(() => {
+      createEffect(() => {
         if (executionCount === 0) {
           expect(state.data).toBe(2);
           expect(state.missing).toBe('soon');
@@ -75,23 +75,23 @@ describe('setState with reconcile', () => {
   });
 });
 
-describe('useEffect', () => {
+describe('createEffect', () => {
 
   test('Setting state from signal', () => {
-    root(() => {
-      var [ getData, setData ] = useSignal('init'),
-        [ state, setState ] = useState({});
-      useEffect(() => setState('data', getData()));
+    createRoot(() => {
+      var [ getData, setData ] = createSignal('init'),
+        [ state, setState ] = createState({});
+      createEffect(() => setState('data', getData()));
       setData('signal')
       expect(state.data).toBe('signal');
     });
   });
 
   test('Select Promise', (done) => {
-    root(async () => {
+    createRoot(async () => {
       var p = new Promise(resolve => { setTimeout(resolve, 20, 'promised'); }),
-        [ state, setState ] = useState({});
-      useEffect(() => p.then(v => setState('data', v)));
+        [ state, setState ] = createState({});
+      createEffect(() => p.then(v => setState('data', v)));
       await p;
       expect(state.data).toBe('promised');
       done();
