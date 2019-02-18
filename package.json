@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "jest": "~24.1.0",
-    "rollup": "^1.1.0",
+    "rollup": "^1.2.1",
     "rollup-plugin-node-resolve": "^4.0.0",
     "babel-plugin-jsx-dom-expressions": "~0.4.4"
   }
