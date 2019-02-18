@@ -1,3 +1,6 @@
+documentation/
 src/
 rollup.config.js
 dom/src
+test/
+.travis.yml

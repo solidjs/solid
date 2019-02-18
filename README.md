@@ -1,5 +1,11 @@
 # Solid.js
 
+![](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)
+![](https://img.shields.io/npm/v/solid-js.svg?style=flat)
+![](https://img.shields.io/bundlephobia/minzip/solid-js.svg?style=flat)
+![](https://img.shields.io/david/ryansolid/solid.svg?style=flat)
+![](https://img.shields.io/npm/dt/solid-js.svg?style=flat)
+
 Solid.js is yet another declarative Javascript library for creating user interfaces.  It does not use the Virtual DOM. Instead it opts to compile it's templates down to real DOM nodes and wrap updates in fine grained computations.
 
 ### Key Features:
@@ -41,7 +47,7 @@ createRoot(() => mountEl.appendChild(<MyComponent name='Taylor' />));
 It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their setter method. They give the control of an immutable interface and the performance of a mutable one.
 
 ```jsx
-import { createRoot, createState, onCleanup } from 'solid-js'
+import { createState, onCleanup } from 'solid-js'
 
 const CountingComponent = () => {
   const [state, setState] = createState({counter: 0}),
