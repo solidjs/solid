@@ -1,8 +1,8 @@
 # Solid.js
 
-![](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)
-[![Coverage Status](https://coveralls.io/repos/github/ryansolid/solid/badge.svg?branch=master)](https://coveralls.io/github/ryansolid/solid?branch=master)
-![](https://img.shields.io/npm/v/solid-js.svg?style=flat)
+[![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
+[![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
+[![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 ![](https://img.shields.io/bundlephobia/minzip/solid-js.svg?style=flat)
 ![](https://img.shields.io/david/ryansolid/solid.svg?style=flat)
 ![](https://img.shields.io/npm/dt/solid-js.svg?style=flat)
