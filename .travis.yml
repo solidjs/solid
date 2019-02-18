@@ -1,3 +1,8 @@
 language: node_js
 node_js: '10'
 cache: npm
+jobs:
+  include:
+    - stage: Produce Coverage
+      node_js: node
+      script: jest --coverage && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage

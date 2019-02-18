@@ -1,6 +1,7 @@
 # Solid.js
 
 ![](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)
+[![Coverage Status](https://coveralls.io/repos/github/ryansolid/solid/badge.svg?branch=master)](https://coveralls.io/github/ryansolid/solid?branch=master)
 ![](https://img.shields.io/npm/v/solid-js.svg?style=flat)
 ![](https://img.shields.io/bundlephobia/minzip/solid-js.svg?style=flat)
 ![](https://img.shields.io/david/ryansolid/solid.svg?style=flat)
