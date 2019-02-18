@@ -5,6 +5,7 @@ const SNODE = Symbol('solid-node'),
 const proxyTraps = {
   get(target, property) {
     if (property === '_state') return target;
+    if (property === SPROXY || property === SNODE) return;
     const value = target[property],
       wrappable = isWrappable(value);
     if (S.isListening() && typeof value !== 'function') {
@@ -99,12 +100,12 @@ function updatePath(current, path, traversed = []) {
   } else if (isArray && partType === 'function') {
     // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
     for (let i = 0; i < current.length; i++)
-      if (part(current[i], i)) updatePath(current[i], path.slice(0), traversed.concat([i]));
+      if (part(current[i], i)) updatePath(current, [i].concat(path), traversed.concat([i]));
   } else if (isArray && partType === 'object') {
     // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
     const {from = 0, to = current.length - 1, by = 1} = part;
     for (let i = from; i <= to; i += by)
-      updatePath(current[i], path.slice(0), traversed.concat([i]));
+      updatePath(current, [i].concat(path), traversed.concat([i]));
   } else if (isArray && part === '*') {
     // Ex. update('data', '*', 'label', l => l + ' !!!');
     for (let i = 0; i < current.length; i++)
