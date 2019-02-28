@@ -143,7 +143,7 @@ const Parent = () => (
   </section>
 );
 
-const Child = ({greeting, children}) => (
+const Label = ({greeting, children}) => (
   <>
     <div>{greeting}</div>
     {children}
