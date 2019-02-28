@@ -28,11 +28,12 @@ A Simple Component could look like:
 ```jsx
 import { createRoot } from 'solid-js'
 
-const MyComponent = props =>
+const MyComponent = ({name}) => (
   <>
     <h1>Welcome</h1>
-    <p>Hello {props.name}</p>
+    <p>Hello {name}</p>
   </>
+);
 
 createRoot(() => mountEl.appendChild(<MyComponent name='Taylor' />));
 ```
@@ -51,13 +52,14 @@ It all starts with a State object. These objects can represent the local state o
 import { createState, onCleanup } from 'solid-js'
 
 const CountingComponent = () => {
-  const [state, setState] = createState({counter: 0}),
-    interval = setInterval(() => setState({
-      counter: state.counter + 1
-    }), 1000);
+  const [state, setState] = createState({counter: 0});
+
+  const interval = setInterval(() => setState({
+    counter: state.counter + 1
+  }), 1000);
   onCleanup(() => clearInterval(interval));
 
-  return <div>{(state.counter)}</div>
+  return <div>{(state.counter)}</div>;
 }
 ```
 
@@ -97,7 +99,9 @@ Whenever any dependency changes the State value will immediately update. JSX exp
 Solid State also exposes a reconcile method used with setState that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo, or RxJS.
 
 ```js
-const unsubscribe = store.subscribe(({ todos }) => setState(reconcile('todos', todos)));
+const unsubscribe = store.subscribe(({ todos }) => (
+  setState(reconcile('todos', todos)));
+);
 onCleanup(() => unsubscribe());
 ```
 
@@ -154,13 +158,15 @@ import { createState, createRoot } from 'solid-js'
 
 class Component extends HTMLElement {
   constructor () {
-    const [state, setState] = createState({}),
-      [props, __setProps] = createState({});
+    const [state, setState] = createState({});
+    const [props, __setProps] = createState({});
+
     Object.assign(this, {state, setState, props, __setProps});
   }
 
   connectedCallback() {
     !this.shadowRoot && this.attachShadow({mode: 'open'});
+
     createRoot(dispose => {
       this.dispose = dispose;
       this.shadowRoot.appendChild(this.render());
@@ -249,4 +255,4 @@ Extensions to Solid.js that add a Web Component wrapper, Portals, and a Context 
 
 ## Status
 
-This project is still a work in progress. Do not use in production. I am still refining the API.
+This project is still a work in progress. I am still refining the API especially around rendering.
