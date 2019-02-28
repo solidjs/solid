@@ -31,7 +31,7 @@ import { createRoot } from 'solid-js'
 const MyComponent = props =>
   <>
     <h1>Welcome</h1>
-    <p>Hello {(props.name)}</p>
+    <p>Hello {props.name}</p>
   </>
 
 createRoot(() => mountEl.appendChild(<MyComponent name='Taylor' />));
@@ -103,7 +103,7 @@ onCleanup(() => unsubscribe());
 
 ## Solid Rendering
 
-To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computeds.
+To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computeds when indicated by in inner parens `{( )}`.
 
 JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is more transparent and easier to follow and debug.
 
@@ -128,7 +128,24 @@ With HyperScript it is possible to map to element functions or even tagged templ
 
 ## Components
 
-Templates in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and generally return their DOM nodes to render. Other than that nothing is special about them. Unlike Virtual Dom libraries these functions can contain state as they are not called repeatedly but only executed on initial creation.
+Templates in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and return real DOM nodes. Other than that nothing is special about them. Unlike Virtual Dom libraries these functions can contain state as they are not called repeatedly but only executed on initial creation.
+
+```jsx
+const Parent = () => (
+  <section>
+    <Label greeting='Hello'>
+      <div>John</div>
+    </Label>
+  </section>
+);
+
+const Child = ({greeting, children}) => (
+  <>
+    <div>{greeting}</div>
+    {children}
+  </>
+);
+```
 
 Since the all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM. Since contexts/lifecycle management is independent of code modularization through registering event handlers Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
 
@@ -143,9 +160,14 @@ class Component extends HTMLElement {
   }
 
   connectedCallback() {
-    this.attachShadow({mode: 'open'});
-    createRoot(() => this.shadowRoot.appendChild(this.render());
+    !this.shadowRoot && this.attachShadow({mode: 'open'});
+    createRoot(dispose => {
+      this.dispose = dispose;
+      this.shadowRoot.appendChild(this.render());
+    }
   }
+
+  diconnectedCallback() { this.dispose && this.dispose(); }
 
   attributeChangedCallback(attr, oldVal, newVal) {
     this.__setProps({[attr]: newVal});
