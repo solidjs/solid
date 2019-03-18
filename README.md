@@ -227,6 +227,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 * [Counter](https://codepen.io/ryansolid/pen/XxpZLX/?editors=1000) on CodePen
 * [Simple Todos](https://codepen.io/ryansolid/pen/ZqLoxo?editors=1000) on CodePen
 * [Async Effect](https://codepen.io/ryansolid/pen/daPWLR?editors=1000) on CodePen
+* [Suspense](https://codepen.io/ryansolid/pen/MxXbaY?editors=1000)
 * [Redux Undoable Todos](https://codepen.io/ryansolid/pen/Rvrgro?editors=1000) on CodePen
 * [Simple Todos HyperScript](https://codepen.io/ryansolid/pen/WPGobB?editors=0010) on CodePen
 * [Simple Todos Template Literals](https://codepen.io/ryansolid/pen/GzQNWB?editors=0010) on CodePen
