@@ -15,15 +15,17 @@ By default data is simply bound to expressions. If you wish to bind it for dynam
 
 ## Events
 
-on_____ properties get added (addEventListener) as event handlers on the element. Camel Case events will be delegated by default and the second argument will be the model property or (nearest parent's). Use all lowercase for directly bound events.
+on_____ properties get added (addEventListener) as event handlers on the element. Camel Case events will be delegated by default and the second argument will be the model property or (nearest parent's). Use all lowercase for directly bound native events.
+
+If you need to use non-lowercase or hyphenated event names use the events binding.
 
 ## Control Flow
 
-While you could use a map function for loops and raw ternary operators of conditionals they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods. To keep things simple and optimizable the the renderer uses a special JSX tag (<$>) for control flow. Current 'each' and 'when' are supported.
+While you could use a map function for loops and raw ternary operators of conditionals they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods. To keep things simple and optimizable the the renderer uses a special JSX tag (<$>) for control flow. Current 'each', 'when', 'portal', and 'suspend' are supported.
 
 ```jsx
 <ul>
-  <$ each={ state.users }>{
+  <$ each={ state.users } fallback={ <div>No Users</div> }>{
     user => <li>
       <div>{( user.firstName )}</div>
       <$ when={ user.stars > 100 }>
@@ -34,7 +36,7 @@ While you could use a map function for loops and raw ternary operators of condit
 </ul>
 ```
 
-The library also includes a couple afterRender hooks for this element.
+The library also includes a couple afterRender hooks.
 
 ### selectWhen(signal, handler)
 ### selectEach(signal, handler)

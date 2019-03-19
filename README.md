@@ -11,14 +11,17 @@ Solid.js is yet another declarative Javascript library for creating user interfa
 
 ### Key Features:
 * Real DOM with fine grained change detection (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>)
-* JSX precompilation with support for standard JSX features and W3C Web Components
-* Webcomponent friendly implicit event delegation
+* JSX precompilation with support for standard JSX features
+* Webcomponent friendly
+  * Implicit event delegation with Shadow DOM Retargeting
+  * Shadow DOM Portals
+  * Custom Element friendly Suspense flow
 * Declarative data
   * Data behavior is part of the declaration
-  * No need for lifecycle functions, and the large chains of conditionals they bring.
-  * Power of Hooks with no Hook Rules.
+  * Simple function Components with no need for lifecycle functions
+  * Power of Hooks with no Hook Rules
 * ES6 Proxies to keep data access simple and POJO like
-* Expandable custom operators and binding directives.
+* Custom binding directives.
 * Immutable interface with performance of mutability.
 * Performance amongst the fastest libraries. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark)
 
