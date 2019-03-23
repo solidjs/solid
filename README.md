@@ -1,4 +1,4 @@
-# Solid.js
+## <img src="assets/logo.png" alt="drawing" width="500"/><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The Deceptively Simple User Interface Library
 
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
@@ -7,38 +7,35 @@
 ![](https://img.shields.io/david/ryansolid/solid.svg?style=flat)
 ![](https://img.shields.io/npm/dt/solid-js.svg?style=flat)
 
-Solid.js is yet another declarative Javascript library for creating user interfaces.  It does not use the Virtual DOM. Instead it opts to compile it's templates down to real DOM nodes and wrap updates in fine grained computations.
+Solid is yet another declarative Javascript library for creating user interfaces.  It does not use a Virtual DOM. Instead it opts to compile it's templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
 
 ### Key Features:
-* Real DOM with fine grained change detection (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>)
-* JSX precompilation with support for standard JSX features
+* Real DOM with fine-grained updates (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>).
+* Declarative data
+  * Simple composable primitives without the hidden rules.
+  * Function Components with no need for lifecycle methods or specialized configuration objects.
+* Less than 10% slower vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
+* Supports modern features like JSX Fragments, Portals, Suspense, and Asynchronous Rendering.
 * Webcomponent friendly
   * Implicit event delegation with Shadow DOM Retargeting
   * Shadow DOM Portals
   * Custom Element friendly Suspense flow
-* Declarative data
-  * Data behavior is part of the declaration
-  * Simple function Components with no need for lifecycle functions
-  * Power of Hooks with no Hook Rules
-* ES6 Proxies to keep data access simple and POJO like
-* Custom binding directives.
-* Immutable interface with performance of mutability.
-* Performance amongst the fastest libraries. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark)
 
 <br />
-A Simple Component could look like:
+A Simple Component looks like:
 
 ```jsx
-import { createRoot } from 'solid-js'
-
-const MyComponent = ({name}) => (
-  <>
-    <h1>Welcome</h1>
-    <p>Hello {name}</p>
-  </>
+const HelloMessage = ({name}) => (
+  <div>
+    Hello {name}
+  </div>
 );
 
-createRoot(() => mountEl.appendChild(<MyComponent name='Taylor' />));
+createRoot(() =>
+  document
+    .getElementById("hello-example")
+    .appendChild(<HelloMessage name="Taylor" />)
+);
 ```
 
 ## Installation
@@ -49,7 +46,7 @@ createRoot(() => mountEl.appendChild(<MyComponent name='Taylor' />));
 
 ## Solid State
 
-It all starts with a State object. These objects can represent the local state or the props in your components. State objects look like plain javascript options except to control change detection you call their setter method. They give the control of an immutable interface and the performance of a mutable one.
+It all starts with State. State objects are immutable so to update you call their companion setter function. Through the use of proxies they give the control of an immutable interface and the performance of a mutable one.
 
 ```jsx
 import { createState, onCleanup } from 'solid-js'
@@ -57,9 +54,10 @@ import { createState, onCleanup } from 'solid-js'
 const CountingComponent = () => {
   const [state, setState] = createState({counter: 0});
 
-  const interval = setInterval(() => setState({
-    counter: state.counter + 1
-  }), 1000);
+  const interval = setInterval(() =>
+    setState({counter: state.counter + 1})
+  , 1000);
+
   onCleanup(() => clearInterval(interval));
 
   return <div>{(state.counter)}</div>;
@@ -85,19 +83,21 @@ const [state, setState] = createState({counter: 0});
 setState('counter', c => c + 1);
 ```
 
-This takes the form similar to ImmutableJS for set and setIn leaving all mutation control at the top level state object. Keep in mind that setState when setting an object attempts to merge instead of replace.
+This takes the form similar to ImmutableJS setIn for leaving all mutation control at the top level state object. Keep in mind that setState when setting an object attempts to merge instead of replace.
 
 But where the magic happens is with computations(effects and memos) which automatically track dependencies.
 
 ```js
-createEffect(() => setState({
-  displayName: `${state.user.firstName} ${state.user.lastName}`
-}));
+createEffect(() =>
+  setState({
+    displayName: `${state.user.firstName} ${state.user.lastName}`
+  })
+);
 
 console.log(state.displayName); // Jake Smith
 ```
 
-Whenever any dependency changes the State value will immediately update. JSX expressions can also get wrapped in effects so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
+Whenever any dependency changes the State value will immediately update. JSX expressions can also be wrapped in effects so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
 
 Solid State also exposes a reconcile method used with setState that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo, or RxJS.
 
@@ -135,7 +135,7 @@ With HyperScript it is possible to map to element functions or even tagged templ
 
 ## Components
 
-Templates in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and return real DOM nodes. Other than that nothing is special about them. Unlike Virtual Dom libraries these functions can contain state as they are not called repeatedly but only executed on initial creation.
+Templates in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and return real DOM nodes. Other than that nothing is special about them.
 
 ```jsx
 const Parent = () => (
@@ -154,7 +154,7 @@ const Label = ({greeting, children}) => (
 );
 ```
 
-Since the all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM. Since contexts/lifecycle management is independent of code modularization through registering event handlers Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
+Since the all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM. Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
 
 ```jsx
 import { createState, createRoot } from 'solid-js'
@@ -263,4 +263,4 @@ Extensions to Solid.js that add a Web Component wrapper, Portals, and a Context 
 
 ## Status
 
-This project is still a work in progress. I am still refining the API especially around rendering.
+This project is still a work in progress. While Solid's change management is reaching stability (this repo), I am still refining the rendering API from the [Babel Plugin](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions).
