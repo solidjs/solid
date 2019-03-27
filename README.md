@@ -9,7 +9,7 @@
 
 Solid is yet another declarative Javascript library for creating user interfaces.  It does not use a Virtual DOM. Instead it opts to compile it's templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
 
-### Key Features:
+### Key Features
 * Real DOM with fine-grained updates (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>).
 * Declarative data
   * Simple composable primitives without the hidden rules.

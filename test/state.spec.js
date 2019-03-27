@@ -115,7 +115,7 @@ describe('Unwrapping Edge Cases', () => {
     expect(s.data.user.firstName).toBe('John');
     expect(s.data.user.lastName).toBe('Snow');
     // check if proxy still
-    expect(s.data.user._state).toBe(undefined);
+    expect(s.data.user._state).toBeUndefined();
   });
   test('Unwrap nested frozen array', () => {
     var [state] = createState({data: [{user: {firstName: 'John', lastName: 'Snow'}}]}),
@@ -123,17 +123,17 @@ describe('Unwrapping Edge Cases', () => {
     expect(s.data[0].user.firstName).toBe('John');
     expect(s.data[0].user.lastName).toBe('Snow');
     // check if proxy still
-    expect(s.data[0].user._state).toBe(undefined);
-  })
+    expect(s.data[0].user._state).toBeUndefined();
+  });
   test('Unwrap nested frozen state array', () => {
     var [state] = createState({data: Object.freeze([{user: {firstName: 'John', lastName: 'Snow'}}])}),
       s = unwrap({...state});
     expect(s.data[0].user.firstName).toBe('John');
     expect(s.data[0].user.lastName).toBe('Snow');
     // check if proxy still
-    expect(s.data[0].user._state).toBe(undefined);
+    expect(s.data[0].user._state).toBeUndefined();
   });
-})
+});
 
 describe('Tracking State changes', () => {
   test('Track a state change', () => {
@@ -168,9 +168,9 @@ describe('Tracking State changes', () => {
 
       expect.assertions(2);
       createEffect(() => {
-        if (executionCount === 0)
+        if (executionCount === 0) {
           expect(state.user.firstName).toBe('John');
-        else if (executionCount === 1) {
+        } else if (executionCount === 1) {
           expect(state.user.firstName).toBe('Jake');
         } else {
           // should never get here
@@ -191,12 +191,12 @@ describe('Setting state from Effects', () => {
       var [ getData, setData ] = createSignal('init'),
         [ state, setState ] = createState({});
       createEffect(() => setState('data', getData()));
-      setData('signal')
+      setData('signal');
       expect(state.data).toBe('signal');
     });
   });
 
-  test('Select Promise', (done) => {
+  test('Select Promise', done => {
     createRoot(async () => {
       var p = new Promise(resolve => { setTimeout(resolve, 20, 'promised'); }),
         [ state, setState ] = createState({});

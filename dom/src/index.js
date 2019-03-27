@@ -2,7 +2,7 @@ import { createRuntime, createHyperScript } from 'babel-plugin-jsx-dom-expressio
 import S from 's-js';
 
 function createHandler(className) {
-  return (e, s) => e.classList.toggle(className, s)
+  return (e, s) => e.classList.toggle(className, s);
 }
 
 function shallowDiff(a, b) {
@@ -17,7 +17,9 @@ export function selectWhen(signal, handler) {
   let start, end;
   S.makeComputationNode(element => {
     const model = signal();
-    if (element) handler(element, false);
+    if (element) {
+      handler(element, false);
+    }
     let marker = start;
     while(marker && marker !== end) {
       if (marker.model === model) {
@@ -26,25 +28,29 @@ export function selectWhen(signal, handler) {
       }
       marker = marker.nextSibling;
     }
-  })
+  });
   return (s, e) => (start = s, end = e);
 }
 
 export function selectEach(signal, handler) {
-  if (typeof handler === 'string') handler = createHandler(handler);
+  if (typeof handler === 'string') {
+    handler = createHandler(handler);
+  }
   let start, end;
   S.makeComputationNode(elements => {
     const models = signal(), newElements = [];
     let marker = start;
     while(marker && marker !== end) {
-      if (models.indexOf(marker.model) > -1) newElements.push(marker);
+      if (models.indexOf(marker.model) > -1) {
+        newElements.push(marker);
+      }
       marker = marker.nextSibling;
     }
     const [additions, removals] = shallowDiff(newElements, elements);
     additions.forEach(el => handler(el, true));
     removals.forEach(el => handler(el, false));
     return newElements;
-  })
+  });
   return (s, e) => (start = s, end = e);
 }
 

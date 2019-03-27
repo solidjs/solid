@@ -8,7 +8,7 @@ describe('setState with reconcile', () => {
     expect(state.missing).toBe('soon');
     setState(reconcile({'data': 5}));
     expect(state.data).toBe(5);
-    expect(state.missing).toBe(undefined);
+    expect(state.missing).toBeUndefined();
   });
 
   test('Reconcile a simple object on a nested path', () => {
@@ -18,14 +18,14 @@ describe('setState with reconcile', () => {
     setState(reconcile('data', 'user', {'firstName': 'Jake', middleName: 'R'}));
     expect(state.data.user.firstName).toBe('Jake');
     expect(state.data.user.middleName).toBe('R');
-    expect(state.data.user.lastName).toBe(undefined);
+    expect(state.data.user.lastName).toBeUndefined();
   });
 
   test('Reconcile reorder a keyed array', () => {
     const JOHN = {id: 1, firstName: 'John', lastName: 'Snow'},
-      NED = {id: 2, firstName: 'Ned', lastName: 'Stark'};
-      BRANDON = {id: 3, firstName: 'Brandon', lastName: 'Start'}
-      ARYA = {id: 4, firstName: 'Arya', lastName: 'Start'}
+      NED = {id: 2, firstName: 'Ned', lastName: 'Stark'},
+      BRANDON = {id: 3, firstName: 'Brandon', lastName: 'Start'},
+      ARYA = {id: 4, firstName: 'Arya', lastName: 'Start'};
     var [state, setState] = createState({users: [JOHN, NED, BRANDON]});
     expect(Object.is(unwrap(state.users[0]), JOHN)).toBe(true);
     expect(Object.is(unwrap(state.users[1]), NED)).toBe(true);
@@ -51,8 +51,8 @@ describe('setState with reconcile', () => {
 
   test('Reconcile overwrite in non-keyed merge mode', () => {
     const JOHN = {id: 1, firstName: 'John', lastName: 'Snow'},
-      NED = {id: 2, firstName: 'Ned', lastName: 'Stark'};
-      BRANDON = {id: 3, firstName: 'Brandon', lastName: 'Start'}
+      NED = {id: 2, firstName: 'Ned', lastName: 'Stark'},
+      BRANDON = {id: 3, firstName: 'Brandon', lastName: 'Start'};
     var [state, setState] = createState({users: [{...JOHN}, {...NED}, {...BRANDON}]});
     expect(state.users[0].id).toBe(1);
     expect(state.users[0].firstName).toBe('John');

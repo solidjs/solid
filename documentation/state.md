@@ -4,13 +4,13 @@ State is the core work horse of Solid. It represents the local data, the output 
 
 While this state concept is heavily borrowed from React and it's API from ImmutableJS, there is a key difference in the role it plays here. In React you keep things simple in your state and the whole library is about reconciling DOM rendering. Here you can almost view the State object as the target, the thing that is diffed and maintained. The DOM rendering is actually quite simple to the point the compiled source exposes the vast majority of the DOM manipulations, where you can easily drop a breakpoint. So change detection being nested and focusing on interaction with other change mechanisms are key.
 
-### createState(object)
+### `createState(object)`
 
 Initializes with object value and returns an array where the first index is the state object and the second is the setState method.
 
-### setState(changes)
-### setState(...path, changes)
-### setState([...path, changes], [...path, changes])
+### `setState(changes)`
+### `setState(...path, changes)`
+### `setState([...path, changes], [...path, changes])`
 
 This merges the changes into the path on the state object. All changes in set operation are applied at the same time so it is often more optimal than replace.
 
@@ -20,7 +20,7 @@ Path can be string keys, array of keys, wildcards ('*'), iterating objects ({fro
 
 All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time).
 
-### reconcile(...path, value)
+### `reconcile(...path, value)`
 
 This can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
 

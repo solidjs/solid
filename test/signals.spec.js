@@ -31,7 +31,7 @@ describe('Create signals', () => {
   test('Create an Effect with explicit deps', () => {
     createRoot(() => {
       let temp;
-      const [sign] = createSignal('thoughts')
+      const [sign] = createSignal('thoughts');
       createEffect(() => temp = 'unpure ' + sign(), [sign]);
       expect(temp).toBe('unpure thoughts');
     });
@@ -63,17 +63,17 @@ describe('Update signals', () => {
   });
   test('Create and trigger a Memo', () => {
     createRoot(() => {
-      const [name, setName] = createSignal('John')
+      const [name, setName] = createSignal('John'),
         memo = createMemo(() => 'Hello ' + name());
       expect(memo()).toBe('Hello John');
-      setName('Jake')
+      setName('Jake');
       expect(memo()).toBe('Hello Jake');
     });
   });
   test('Create and trigger an Effect', () => {
     createRoot(() => {
       let temp;
-      const [sign, setSign] = createSignal('thoughts')
+      const [sign, setSign] = createSignal('thoughts');
       createEffect(() => temp = 'unpure ' + sign());
       expect(temp).toBe('unpure thoughts');
       setSign('mind');
@@ -83,7 +83,7 @@ describe('Update signals', () => {
   test('Create an Effect trigger explicit deps', () => {
     createRoot(() => {
       let temp;
-      const [sign, setSign] = createSignal('thoughts')
+      const [sign, setSign] = createSignal('thoughts');
       createEffect(() => temp = 'unpure ' + sign(), sign);
       expect(temp).toBe('unpure thoughts');
       setSign('mind');
@@ -93,11 +93,11 @@ describe('Update signals', () => {
   test('Create an Effect trigger not in explicit deps', () => {
     createRoot(() => {
       let temp;
-      const [sign, setSign] = createSignal('thoughts')
+      const [sign, setSign] = createSignal('thoughts');
       createEffect(() => temp = 'unpure ' + sign(), []);
       expect(temp).toBe('unpure thoughts');
       setSign('mind');
       expect(temp).toBe('unpure thoughts');
     });
   });
-})
+});
