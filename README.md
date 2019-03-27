@@ -1,9 +1,8 @@
-## <img src="assets/logo.png" alt="drawing" width="500"/><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The Deceptively Simple User Interface Library
+## <img src="assets/logo.png" alt="drawing" width="500"/><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The Deceptively Simple User Interface Library
 
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
-![](https://img.shields.io/bundlephobia/minzip/solid-js.svg?style=flat)
 ![](https://img.shields.io/david/ryansolid/solid.svg?style=flat)
 ![](https://img.shields.io/npm/dt/solid-js.svg?style=flat)
 ![](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
@@ -16,6 +15,7 @@ Solid is yet another declarative Javascript library for creating user interfaces
   * Simple composable primitives without the hidden rules.
   * Function Components with no need for lifecycle methods or specialized configuration objects.
 * Less than 10% slower vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
+* Tiny in size, 7.07 kB minified and gzipped with all dependencies.
 * Supports modern features like JSX Fragments, Portals, Suspense, and Asynchronous Rendering.
 * Webcomponent friendly
   * Implicit event delegation with Shadow DOM Retargeting
@@ -246,10 +246,10 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 
 * [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
 The renderer behind Solid.js that enables lightning fast fine grained performance.
-* [React Solid State](https://github.com/ryansolid/react-solid-state)
-React Hooks API to use Solid.js paradigm in your existing React apps.
 * [Solid Components](https://github.com/ryansolid/solid-components)
 Extensions to Solid.js that add a Web Component wrapper, Portals, and a Context API.
+* [React Solid State](https://github.com/ryansolid/react-solid-state)
+React Hooks API to use Solid.js paradigm in your existing React apps.
 * [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
 
 ## Articles
@@ -259,8 +259,9 @@ Extensions to Solid.js that add a Web Component wrapper, Portals, and a Context 
 * [Part 3: Change Management in JavaScript Frameworks](https://medium.com/@ryansolid/b-y-o-f-part-3-change-management-in-javascript-frameworks-6af6e436f63c)
 * [Part 4: Rendering the DOM](https://medium.com/@ryansolid/b-y-o-f-part-4-rendering-the-dom-753657689647)
 * [Part 5: JS Frameworks in 2019](https://medium.com/@ryansolid/b-y-o-f-part-5-js-frameworks-in-2019-deb9c4d3e74)
-* [How I wrote the Fastest JavaScript UI Framework](https://medium.com/@ryansolid/how-i-wrote-the-fastest-javascript-ui-framework-37525b42d6c9?source=friends_link&sk=8eb9387a535a306d1eb96f7ce88c4db5)
+* [How I wrote the Fastest JavaScript UI Framework](https://medium.com/@ryansolid/how-i-wrote-the-fastest-javascript-ui-framework-37525b42d6c9?source=friends_link&sk=8eb9387a535a306d1eb96f7ce88c4db5) The key to Solid's performance.
 * [React Hooks: Has React Jumped the Shark?](https://medium.com/js-dojo/react-hooks-has-react-jumped-the-shark-c8cf04e246cf?source=friends_link&sk=a5017cca813ea970b480cc44afb32034) Comparison of React Hooks to Solid.
+* [What Every JavaScript Framework Could Learn from React](https://medium.com/@ryansolid/what-every-javascript-framework-could-learn-from-react-1e2bbd9feb09?source=friends_link&sk=75b3f6f90eecc7d210814baa2d5ab52c) The lessons Solid learned from React.
 
 ## Status
 
