@@ -17,9 +17,7 @@ export function selectWhen(signal, handler) {
   let start, end;
   S.makeComputationNode(element => {
     const model = signal();
-    if (element) {
-      handler(element, false);
-    }
+    if (element) handler(element, false);
     let marker = start;
     while(marker && marker !== end) {
       if (marker.model === model) {
@@ -33,17 +31,13 @@ export function selectWhen(signal, handler) {
 }
 
 export function selectEach(signal, handler) {
-  if (typeof handler === 'string') {
-    handler = createHandler(handler);
-  }
+  if (typeof handler === 'string') handler = createHandler(handler);
   let start, end;
   S.makeComputationNode(elements => {
     const models = signal(), newElements = [];
     let marker = start;
     while(marker && marker !== end) {
-      if (models.indexOf(marker.model) > -1) {
-        newElements.push(marker);
-      }
+      if (models.indexOf(marker.model) > -1) newElements.push(marker);
       marker = marker.nextSibling;
     }
     const [additions, removals] = shallowDiff(newElements, elements);

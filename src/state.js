@@ -12,25 +12,17 @@ export function unwrap(item) {
   if (!isWrappable(item)) return item;
 
   if (Array.isArray(item)) {
-    if (Object.isFrozen(item)) {
-      item = item.slice(0);
-    }
+    if (Object.isFrozen(item)) item = item.slice(0);
     for (let i = 0, l = item.length; i < l; i++) {
       v = item[i];
-      if ((unwrapped = unwrap(v)) !== v) {
-        item[i] = unwrapped;
-      }
+      if ((unwrapped = unwrap(v)) !== v) item[i] = unwrapped;
     }
   } else {
-    if (Object.isFrozen(item)) {
-      item = Object.assign({}, item);
-    }
+    if (Object.isFrozen(item)) item = Object.assign({}, item);
     let keys = Object.keys(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       v = item[keys[i]];
-      if ((unwrapped = unwrap(v)) !== v) {
-        item[keys[i]] = unwrapped;
-      }
+      if ((unwrapped = unwrap(v)) !== v) item[keys[i]] = unwrapped;
     }
   }
   return item;
@@ -38,9 +30,7 @@ export function unwrap(item) {
 
 function getDataNodes(target) {
   let nodes = target[SNODE];
-  if (!nodes) {
-    target[SNODE] = nodes = {};
-  }
+  if (!nodes) target[SNODE] = nodes = {};
   return nodes;
 }
 
@@ -74,9 +64,7 @@ export function setProperty(state, property, value) {
   const notify = Array.isArray(state) || !(property in state);
   if (value === void 0) {
     delete state[property];
-  } else {
-    state[property] = value;
-  }
+  } else state[property] = value;
   let nodes = getDataNodes(state), node;
   (node = nodes[property]) && node.next();
   notify && (node = nodes._self) && node.next();
@@ -98,7 +86,8 @@ function updatePath(current, path, traversed = []) {
       // reconciled
       if (value === undefined) return;
     }
-    return mergeState(current, value);
+    mergeState(current, value);
+    return;
   }
 
   const part = path.shift(),
@@ -134,18 +123,13 @@ function updatePath(current, path, traversed = []) {
     }
     if (isWrappable(current[part]) && isWrappable(value) && !Array.isArray(value)) {
       mergeState(current[part], value);
-    } else {
-      setProperty(current, part, value);
-    }
-  } else {
-    updatePath(current[part], path, traversed.concat([part]));
-  }
+    } else setProperty(current, part, value);
+  } else updatePath(current[part], path, traversed.concat([part]));
 }
 
 export function createState(state = {}) {
   state = unwrap(state);
   const wrappedState = wrap(state);
-  return [wrappedState, setState];
 
   function setState() {
     const args = arguments;
@@ -154,9 +138,9 @@ export function createState(state = {}) {
         for (let i = 0; i < args.length; i += 1) {
           updatePath(state, args[i]);
         }
-      } else {
-        updatePath(state, Array.prototype.slice.call(args));
-      }
+      } else updatePath(state, Array.prototype.slice.call(args));
     });
   }
+
+  return [wrappedState, setState];
 }

@@ -16,17 +16,12 @@ export function createSignal(value, comparator) {
         d.next(v);
       }
     };
-  } else {
-    setter = d.next.bind(d);
-  }
+  } else setter = d.next.bind(d);
   return [d.current.bind(d), setter];
 }
 
 export function createMemo(fn, seed) { return S(fn, seed); }
 
 export function createEffect(fn, deps, defer) {
-  if (!deps) {
-    return S.makeComputationNode(fn);
-  }
-  S.on(deps, fn, null, defer);
+  deps ? S.on(deps, fn, undefined, defer) : S.makeComputationNode(fn);
 }
