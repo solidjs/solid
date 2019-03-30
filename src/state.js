@@ -4,7 +4,7 @@ const SNODE = Symbol('solid-node'),
 
 function wrap(value) { return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps)); }
 
-export function isWrappable(obj) { return obj !== null && typeof obj === 'object' && !(obj instanceof Element); }
+export function isWrappable(obj) { return obj !== null && typeof obj === 'object'; }
 
 export function unwrap(item) {
   let result, unwrapped, v;

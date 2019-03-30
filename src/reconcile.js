@@ -46,7 +46,7 @@ function applyState(target, parent, property, merge, key) {
           setProperty(previous, j, temp[j]);
           applyState(target[j], previous, j, merge, key);
         }
-        else setProperty(previous, j, target[j])
+        else setProperty(previous, j, target[j]);
       }
     } else {
       for (let i = 0, len = target.length; i < len; i++) {
@@ -87,5 +87,5 @@ export function reconcile(path, options = {}) {
       for (let i = 0; i < path.length - 1; i += 1) state = state[path[i]];
       applyState(value, state, path[path.length - 1], merge, key);
     } else applyState(value, { state }, 'state', merge, key);
-  }
+  };
 }
