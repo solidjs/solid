@@ -230,6 +230,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 
 * [Counter](https://codepen.io/ryansolid/pen/XxpZLX/?editors=1000) on CodePen
 * [Simple Todos](https://codepen.io/ryansolid/pen/ZqLoxo?editors=1000) on CodePen
+* [Simple Routing](https://codepen.io/ryansolid/pen/OGMjzE?editors=1000) on CodePen
 * [Async Effect](https://codepen.io/ryansolid/pen/daPWLR?editors=1000) on CodePen
 * [Suspense](https://codepen.io/ryansolid/pen/MxXbaY?editors=1000) on CodePen
 * [Redux Undoable Todos](https://codepen.io/ryansolid/pen/Rvrgro?editors=1000) on CodePen
