@@ -30,6 +30,12 @@ describe('Simple setState modes', () => {
     expect(state.ending).toBe(2);
   });
 
+  test('Top level merge no arguments', () => {
+    const [state, setState] = createState({starting: 1});
+    setState({});
+    expect(state.starting).toBe(1);
+  });
+
   test('Top level state function merge', () => {
     const [state, setState] = createState({starting: 1});
     setState(s => ({ ending: s.starting + 1 }));
@@ -205,5 +211,26 @@ describe('Setting state from Effects', () => {
       expect(state.data).toBe('promised');
       done();
     });
+  });
+});
+
+describe('State wrapping', () => {
+  test('Setting plain object', () => {
+    const data = { withProperty: 'y' },
+      [ state ] = createState({ data });
+    // not wrapped
+    expect(state.data).not.toBe(data);
+  });
+  test('Setting plain array', () => {
+    const data = [1, 2, 3],
+      [ state ] = createState({ data });
+    // not wrapped
+    expect(state.data).not.toBe(data);
+  });
+  test('Setting non-wrappable', () => {
+    const date = new Date(),
+      [ state ] = createState({ time: date });
+    // not wrapped
+    expect(state.time).toBe(date);
   });
 });

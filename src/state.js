@@ -4,7 +4,7 @@ const SNODE = Symbol('solid-node'),
 
 function wrap(value) { return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps)); }
 
-export function isWrappable(obj) { return obj !== null && typeof obj === 'object'; }
+export function isWrappable(obj) { return obj !== null && typeof obj === 'object' && (obj.__proto__ === Object.prototype || Array.isArray(obj)); }
 
 export function unwrap(item) {
   let result, unwrapped, v;
@@ -71,7 +71,7 @@ export function setProperty(state, property, value) {
 }
 
 function mergeState(state, value) {
-  const keys = Object.keys(value) || [];
+  const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
     setProperty(state, key, value[key]);

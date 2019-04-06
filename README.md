@@ -47,7 +47,7 @@ createRoot(() =>
 
 ## Solid State
 
-It all starts with State. State objects are immutable so to update you call their companion setter function. Through the use of proxies they give the control of an immutable interface and the performance of a mutable one.
+It all starts with State. State objects are immutable so to update you call their companion setter function. Through the use of proxies they give the control of an immutable interface and the performance of a mutable one. Note only Plain Objects and Arrays are deeply wrapped.
 
 ```jsx
 import { createState, onCleanup } from 'solid-js'
@@ -111,7 +111,7 @@ onCleanup(() => unsubscribe());
 
 ## Solid Rendering
 
-To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computeds when indicated by in inner parens `{( )}`.
+To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computations when indicated by in inner parens `{( )}`.
 
 JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is more transparent and easier to follow and debug.
 
@@ -248,7 +248,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 * [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
 The renderer behind Solid.js that enables lightning fast fine grained performance.
 * [Solid Components](https://github.com/ryansolid/solid-components)
-Extensions to Solid.js that add a Web Component wrapper, Portals, and a Context API.
+Extensions to Solid.js that add a Web Component wrapper and a Context API.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 React Hooks API to use Solid.js paradigm in your existing React apps.
 * [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
