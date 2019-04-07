@@ -1,4 +1,4 @@
-import { createRuntime, createHyperScript } from 'babel-plugin-jsx-dom-expressions';
+import { createRuntime, createHyperScript } from 'dom-expressions';
 import S from 's-js';
 
 function createHandler(className) {

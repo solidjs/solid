@@ -41,6 +41,7 @@ createRoot(() =>
 
 ## Installation
 
+To use Solid with JSX (recommended) run:
 ```sh
 > npm install solid-js babel-plugin-jsx-dom-expressions
 ```
@@ -111,7 +112,7 @@ onCleanup(() => unsubscribe());
 
 ## Solid Rendering
 
-To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computations when indicated by in inner parens `{( )}`.
+To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computations when indicated by in inner parens `{( )}`.
 
 JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is more transparent and easier to follow and debug.
 
@@ -127,7 +128,7 @@ And include at the top of your files:
 import { r } from 'solid-js/dom'
 ```
 
-Or, if you prefer you can use HyperScript. It does come at signifigant performance hit, as it doesn't benefit from any of the compile time optimizations that set Solid apart in performance. But it is an option for those who want to avoid Babel or do not wish to use JSX. Even though it is much slower it is still in the performance category of most popular frameworks. There are some minor differences from how you would write typical HyperScript as you need to manually wrap expressions in functions to make them observable. More information available at [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions). Include Solid HyperScript by:
+Or, if you prefer you can use HyperScript. It does come at signifigant performance hit, as it doesn't benefit from any of the compile time optimizations that set Solid apart in performance. But it is an option for those who want to avoid Babel or do not wish to use JSX. Even though it is much slower it is still in the performance category of most popular frameworks. There are some minor differences from how you would write typical HyperScript as you need to manually wrap expressions in functions to make them observable. More information available at [Dom Expressions](https://github.com/ryansolid/dom-expressions). Include Solid HyperScript by:
 
 ```js
 import { h } from 'solid-js/dom'
@@ -245,8 +246,10 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 
 ## Related Projects
 
-* [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
+* [DOM Expressions](https://github.com/ryansolid/dom-expressions)
 The renderer behind Solid.js that enables lightning fast fine grained performance.
+* [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
+Babel plugin that converts JSX to DOM Expressions.
 * [Solid Components](https://github.com/ryansolid/solid-components)
 Extensions to Solid.js that add a Web Component wrapper and a Context API.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)

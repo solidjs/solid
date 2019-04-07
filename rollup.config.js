@@ -22,6 +22,6 @@ export default [{
     file: 'dist/dom.js',
     format: 'es'
   }],
-  external: ['s-js', 'babel-plugin-jsx-dom-expressions'],
+  external: ['s-js', 'dom-expressions'],
   plugins
 }];
