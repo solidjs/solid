@@ -36,12 +36,33 @@ While you could use a map function for loops and raw ternary operators of condit
 </ul>
 ```
 
-The library also includes a couple afterRender hooks.
+The library also includes a couple afterRender directives that can be applied to the each and when control flow.
 
 ### selectWhen(signal, handler)
 ### selectEach(signal, handler)
 
-These trigger on the signal to indicate the selected model/s and calls the handler function with associated element, and a boolean to indicate whether the model is selected or not.
+These trigger on the signal to indicate the selected model/s and calls the handler function with associated element, and a boolean to indicate whether the model is selected or not. If the handler is a string instead of a function the default behavior is to toggle a class with the string name.
+
+These directives also require setting a model on the child element in order to identify the node.
+
+```js
+const [state, setState] = createState({
+  list: [ /* ... */ ],
+  selected: [ /* ... */]
+})
+
+/* .... */
+
+<$
+  each={state.list}
+  afterRender={selectEach(
+    () => state.selected,
+    (node, selected) => node.toggleClass('selected', selected)
+  )}
+>{ item =>
+  <div model={item} onClick={select} />
+}</$>
+```
 
 ## Custom Directives
 

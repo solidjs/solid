@@ -12,13 +12,112 @@ Initializes with object value and returns an array where the first index is the 
 ### `setState(...path, changes)`
 ### `setState([...path, changes], [...path, changes])`
 
-This merges the changes into the path on the state object. All changes in set operation are applied at the same time so it is often more optimal than replace.
+This merges the changes into the path on the state object. All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time). Changes can take the form of function that passes previous state and returns new state or a value. Objects are always merged.
 
-Alternatively if you can do multiple sets in a single call by passing an array of paths and changes.
+```js
+const [state, setState] = createState({ firstName: 'John', lastName: 'Miller' });
 
+setState({ firstName: 'Johnny', middleName: 'Lee' })
+// ({ firstName: 'Johnny', middleName: 'Lee', lastName: 'Miller' })
+
+setState(state => { preferredName: state.firstName, lastName: 'Milner' });
+// ({ firstName: 'Johnny', preferredName: 'Johnny', middleName: 'Lee', lastName: 'Milner' })
+```
+
+The function form is not terribly useful top level given Solid's synchronous nature. However, setState also supports nested setting where you can indicate the path to the change. When nested the state you are updating may be other non Object values. Objects are still merged but other values (including Arrays) are replaced.
+
+```js
+const [state, setState] = createState({
+  counter: 2,
+  list: [
+    { id: 23, title: 'Birds' }
+    { id: 27, title: 'Fish' }
+  ]
+});
+
+setState('counter', c => c + 1);
+setState('list', l => [...l, {id: 43, title: 'Marsupials'}]);
+setState('list', 2, 'read', true);
+// {
+//   counter: 3,
+//   list: [
+//     { id: 23, title: 'Birds' }
+//     { id: 27, title: 'Fish' }
+//     { id: 43, title: 'Marsupials', read: true }
+//   ]
+// }
+```
 Path can be string keys, array of keys, wildcards ('*'), iterating objects ({from, to, by}), or filter functions. This gives incredible expressive power to describe state changes.
 
-All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time).
+```js
+const [state, setState] = createState({
+  todos: [
+    { task: 'Finish work', completed: false }
+    { task: 'Go grocery shopping', completed: false }
+    { task: 'Make dinner', completed: false }
+  ]
+});
+
+setState('todos', [0, 2], 'completed', true);
+// {
+//   todos: [
+//     { task: 'Finish work', completed: true }
+//     { task: 'Go grocery shopping', completed: false }
+//     { task: 'Make dinner', completed: true }
+//   ]
+// }
+
+setState('todos', { from: 0, to: 1 }, 'completed', c => !c);
+// {
+//   todos: [
+//     { task: 'Finish work', completed: false }
+//     { task: 'Go grocery shopping', completed: true }
+//     { task: 'Make dinner', completed: true }
+//   ]
+// }
+
+setState('todos', todo => todo.completed, 'title', t => t + '!')
+// {
+//   todos: [
+//     { task: 'Finish work', completed: false }
+//     { task: 'Go grocery shopping!', completed: true }
+//     { task: 'Make dinner!', completed: true }
+//   ]
+// }
+
+setState('todos', '*', todo => { marked: true, completed: !todo.completed })
+// {
+//   todos: [
+//     { task: 'Finish work', completed: true, marked: true }
+//     { task: 'Go grocery shopping!', completed: false, marked: true }
+//     { task: 'Make dinner!', completed: false, marked: true }
+//   ]
+// }
+```
+
+Additionally you can do multiple sets in a single call by passing an array of paths and changes.
+
+```js
+const [state, setState] = createState({
+  counter: 2,
+  list: [
+    { id: 23, title: 'Birds' }
+    { id: 27, title: 'Fish' }
+  ]
+});
+
+setState(
+  ['counter', c => c * 3],
+  ['list', 1, 'title', t => t + '!']
+);
+// {
+//   counter: 6,
+//   list: [
+//     { id: 23, title: 'Birds' }
+//     { id: 27, title: 'Fish!' }
+//   ]
+// }
+```
 
 ### `reconcile(...path, value)`
 
