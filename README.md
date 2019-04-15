@@ -49,6 +49,12 @@ To use Solid with JSX (recommended) run:
 
 You can also run Solid from the browser directly with your flavor of renderer found in the [Solid Standalone](https://github.com/ryansolid/solid-standalone) package.
 
+For example get started with Tagged Template Literal version in the browser by simply including a script tag on the page.
+
+```html
+<script src="https://unpkg.com/solid-standalone/html.min.js"></script>
+```
+
 ## Solid State
 
 It all starts with State. State objects are immutable so to update you call their companion setter function. Through the use of proxies they give the control of an immutable interface and the performance of a mutable one. Note only Plain Objects and Arrays are deeply wrapped.
@@ -238,8 +244,8 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 * [Async Effect](https://codepen.io/ryansolid/pen/daPWLR?editors=1000) on CodePen
 * [Suspense](https://codepen.io/ryansolid/pen/MxXbaY?editors=1000) on CodePen
 * [Redux Undoable Todos](https://codepen.io/ryansolid/pen/Rvrgro?editors=1000) on CodePen
-* [Simple Todos HyperScript](https://codepen.io/ryansolid/pen/WPGobB?editors=0010) on CodePen
 * [Simple Todos Template Literals](https://codepen.io/ryansolid/pen/GzQNWB?editors=0010) on CodePen
+* [Simple Todos HyperScript](https://codepen.io/ryansolid/pen/WPGobB?editors=0010) on CodePen
 * [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
 * [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid with Web Components
 * [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
@@ -253,6 +259,10 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 The renderer behind Solid.js that enables lightning fast fine grained performance.
 * [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
 Babel plugin that converts JSX to DOM Expressions.
+* [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions)
+Tagged Template Literal API for DOM Expressions.
+* [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions)
+HyperScript API for DOM Expressions.
 * [Solid Components](https://github.com/ryansolid/solid-components)
 Extensions to Solid.js that add a Web Component wrapper and a Context API.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
@@ -261,6 +271,7 @@ React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Past Articles
 
+* [Building a Simple JavaScript App with Solid](https://levelup.gitconnected.com/building-a-simple-javascript-app-with-solid-ff17c8836409) Dissecting building TodoMVC with Solid.
 * [Solid — The Best JavaScript UI Library You’ve Never Heard Of](https://levelup.gitconnected.com/solid-the-best-javascript-ui-library-youve-never-heard-of-297b22848ac1?source=friends_link&sk=d61fc9352b4a98c6c9f5f6bd2077a722)
 * [What Every JavaScript Framework Could Learn from React](https://medium.com/@ryansolid/what-every-javascript-framework-could-learn-from-react-1e2bbd9feb09?source=friends_link&sk=75b3f6f90eecc7d210814baa2d5ab52c) The lessons Solid learned from React.
 * [React Hooks: Has React Jumped the Shark?](https://medium.com/js-dojo/react-hooks-has-react-jumped-the-shark-c8cf04e246cf?source=friends_link&sk=a5017cca813ea970b480cc44afb32034) Comparison of React Hooks to Solid.
@@ -273,4 +284,4 @@ React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Status
 
-This project is still a work in progress. While Solid's change management is reaching stability (this repo), I am still refining the rendering API from the [Babel Plugin](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions).
+This project is still a work in progress. While Solid's change management is reaching stability (this repo), I am still refining the rendering APIs from the [DOM Expressions](https://github.com/ryansolid/dom-expressions).
