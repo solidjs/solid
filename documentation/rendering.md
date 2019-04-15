@@ -1,4 +1,4 @@
-# Rendering
+# JSX Rendering
 
 Rendering involves precompilation of JSX templates into optimized native js code. The JSX code constructs:
 * Template DOM elements which are cloned on each instantiation

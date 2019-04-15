@@ -47,6 +47,8 @@ To use Solid with JSX (recommended) run:
 > npm install solid-js babel-plugin-jsx-dom-expressions
 ```
 
+You can also run Solid from the browser directly with your flavor of renderer found in the [Solid Standalone](https://github.com/ryansolid/solid-standalone) package.
+
 ## Solid State
 
 It all starts with State. State objects are immutable so to update you call their companion setter function. Through the use of proxies they give the control of an immutable interface and the performance of a mutable one. Note only Plain Objects and Arrays are deeply wrapped.
@@ -113,9 +115,7 @@ onCleanup(() => unsubscribe());
 
 ## Solid Rendering
 
-To accomplish rendering we use JSX for templating that gets compiled to native DOM element instructions. To do that we take advantage of the [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) which while converting JSX to DOM element instructions wraps expressions to be wrapped in our computations when indicated by in inner parens `{( )}`.
-
-JSX as a templating language brings a lot of benefits. The just being javascript goes beyond just not needing a DSL, but setting up closure based context instead of creating context objects. This is more transparent and easier to follow and debug.
+Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps expressions to be wrapped in our computations when indicated by in inner parens `{( )}`.
 
 To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
 
@@ -129,12 +129,14 @@ And include at the top of your files:
 import { r } from 'solid-js/dom'
 ```
 
-Or, if you prefer you can use HyperScript. It does come at signifigant performance hit, as it doesn't benefit from any of the compile time optimizations that set Solid apart in performance. But it is an option for those who want to avoid Babel or do not wish to use JSX. Even though it is much slower it is still in the performance category of most popular frameworks. There are some minor differences from how you would write typical HyperScript as you need to manually wrap expressions in functions to make them observable. More information available at [Dom Expressions](https://github.com/ryansolid/dom-expressions). Include Solid HyperScript by:
+Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions).
 
+For convenience Solid exports interfaces to runtimes for these as:
 ```js
-import { h } from 'solid-js/dom'
+import { h } from 'solid-js/h';
+import { html } from 'solid-js/html'
 ```
-With HyperScript it is possible to map to element functions or even tagged template literals which offer many different development experiences. See examples below.
+Remember you still need to install the library separately for these to work.
 
 ## Components
 
@@ -225,7 +227,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 
 * [State](../master/documentation/state.md)
 * [Signals](../master/documentation/signals.md)
-* [Rendering](../master/documentation/rendering.md)
+* [JSX Rendering](../master/documentation/rendering.md)
 * [API](../master/documentation/api.md)
 
 ## Examples

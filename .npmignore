@@ -2,6 +2,6 @@ assets/
 documentation/
 src/
 rollup.config.js
-dom/src
 test/
+coverage/
 .travis.yml

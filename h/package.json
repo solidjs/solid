@@ -1,0 +1,6 @@
+{
+  "name": "solid-js/h",
+  "main": "../lib/h.js",
+  "module": "../dist/h.js",
+  "sideEffects": false
+}

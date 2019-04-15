@@ -1,4 +1,4 @@
-import { createRuntime, createHyperScript } from 'dom-expressions';
+import { createRuntime } from 'dom-expressions';
 import S from 's-js';
 
 function createHandler(className) {
@@ -47,5 +47,3 @@ export function selectEach(signal, handler) {
   });
   return (s, e) => (start = s, end = e);
 }
-
-export const h = createHyperScript(r);

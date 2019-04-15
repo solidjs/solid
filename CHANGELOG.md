@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 - 2019-04-14
+- Add support for multiple renderers (JSX, Tagged Template Literals, HyperScript). Added direct imports or 'solid-js/dom' alternatives 'solid-js/html' and 'solid-js/h'.
+- Reorganized dependencies work.
+
 ## 0.4.2 - 2019-03-18
 - Add fallbacks for control flow
 - Add new Portal Control Flow - This allows nodes to be rendered outside of the component tree with support for satelite ShadowRoots.

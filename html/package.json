@@ -1,0 +1,6 @@
+{
+  "name": "solid-js/html",
+  "main": "../lib/html.js",
+  "module": "../dist/html.js",
+  "sideEffects": false
+}
