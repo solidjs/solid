@@ -123,6 +123,8 @@ onCleanup(() => unsubscribe());
 
 Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps expressions to be wrapped in our computations when indicated by in inner parens `{( )}`.
 
+> Prettier and some compile to JS libraries like CoffeeScript will strip Parenthesis causing issues with Solid's JSX. So unfortunately they are incompatible at this time.
+
 To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
 
 ```js
