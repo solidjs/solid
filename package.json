@@ -14,7 +14,9 @@
   "sideEffects": false,
   "scripts": {
     "prebuild": "rimraf dist/* lib/* types/*",
-    "build": "rollup -c && tsc",
+    "build": "run-p -cnl build:*",
+    "build:js": "rollup -c",
+    "build:types": "tsc",
     "prepublishOnly": "npm run build",
     "test": "npm run build && jest --coverage"
   },
@@ -27,6 +29,7 @@
     "@babel/preset-typescript": "^7.3.3",
     "coveralls": "^3.0.3",
     "jest": "~24.7.1",
+    "npm-run-all": "^4.1.5",
     "rimraf": "^2.6.3",
     "rollup": "^1.10.0",
     "rollup-plugin-babel": "^4.3.2",

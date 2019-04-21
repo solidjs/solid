@@ -4,5 +4,6 @@
     "emitDeclarationOnly": true,
     "declaration": true,
     "newLine": "LF",
+    "incremental": true
   }
 }
