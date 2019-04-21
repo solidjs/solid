@@ -21,9 +21,11 @@
     "s-js": "~0.4.9"
   },
   "devDependencies": {
+    "@babel/core": "^7.4.3",
     "coveralls": "^3.0.3",
     "jest": "~24.7.1",
     "rollup": "^1.10.0",
+    "rollup-plugin-babel": "^4.3.2",
     "rollup-plugin-node-resolve": "^4.1.0"
   }
 }
