@@ -266,7 +266,7 @@ Tagged Template Literal API for DOM Expressions.
 * [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions)
 HyperScript API for DOM Expressions.
 * [Solid Components](https://github.com/ryansolid/solid-components)
-Extensions to Solid.js that add a Web Component wrapper and a Context API.
+Extensions to Solid.js that add a Web Component wrapper with a Context API, and Hot Module Replacement.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 React Hooks API to use Solid.js paradigm in your existing React apps.
 * [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
