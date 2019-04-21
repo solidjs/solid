@@ -43,11 +43,11 @@ const proxyTraps = {
     if (S.isListening() && typeof value !== 'function') {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._self || (nodes._self = S.makeDataNode());
+        node = nodes._self || (nodes._self = S.makeDataNode(undefined));
         node.current();
       }
       nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = S.makeDataNode());
+      node = nodes[property] || (nodes[property] = S.makeDataNode(undefined));
       node.current();
     }
     return wrappable ? wrap(value) : value;

@@ -80,7 +80,7 @@ export function reconcile(path, options = {}) {
     value = arguments[arguments.length - 1];
     options = {};
   }
-  const { merge, key = 'id' } = options;
+  const { merge, key = 'id' } = options as any;
   return state => {
     state = unwrap(state);
     if (path) {

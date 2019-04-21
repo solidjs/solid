@@ -9,7 +9,7 @@ const plugins = [nodeResolve({
 })]
 
 export default [{
-  input: 'src/index.js',
+  input: 'src/index.ts',
   output: [{
     file: 'lib/solid.js',
     format: 'cjs'
