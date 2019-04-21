@@ -1,7 +1,10 @@
 import nodeResolve from 'rollup-plugin-node-resolve';
 import babel from 'rollup-plugin-babel';
 
-const plugins = [nodeResolve(), babel({
+const plugins = [nodeResolve({
+  extensions: ['.js', '.ts']
+}), babel({
+  extensions: ['.js', '.ts'],
   exclude: 'node_modules/**'
 })]
 

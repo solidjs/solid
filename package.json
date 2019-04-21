@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.4.3",
+    "@babel/preset-typescript": "^7.3.3",
     "coveralls": "^3.0.3",
     "jest": "~24.7.1",
     "rollup": "^1.10.0",
