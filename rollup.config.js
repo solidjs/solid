@@ -1,9 +1,15 @@
 import nodeResolve from 'rollup-plugin-node-resolve';
+import babel from 'rollup-plugin-babel';
 
-const plugins = [nodeResolve()]
+const plugins = [nodeResolve({
+  extensions: ['.js', '.ts']
+}), babel({
+  extensions: ['.js', '.ts'],
+  exclude: 'node_modules/**'
+})]
 
 export default [{
-  input: 'src/index.js',
+  input: 'src/index.ts',
   output: [{
     file: 'lib/solid.js',
     format: 'cjs'
