@@ -148,7 +148,7 @@ export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
   function setState(update: object): void
   function setState(...path: any[]): void
   function setState(paths: any[][]): void
-  function setState() {
+  function setState(): void {
     const args = arguments;
     S.freeze(() => {
       if (Array.isArray(args[0])) {
@@ -159,5 +159,5 @@ export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
     });
   }
 
-  return [wrappedState as Wrapped<T>, setState];
+  return [wrappedState, setState] as [Wrapped<T>, typeof setState];
 }
