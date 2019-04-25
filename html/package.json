@@ -2,5 +2,6 @@
   "name": "solid-js/html",
   "main": "../lib/html.js",
   "module": "../dist/html.js",
+  "types": "../types/dom/html.d.ts",
   "sideEffects": false
 }

@@ -5,7 +5,8 @@ const plugins = [nodeResolve({
   extensions: ['.js', '.ts']
 }), babel({
   extensions: ['.js', '.ts'],
-  exclude: 'node_modules/**'
+  exclude: 'node_modules/**',
+  "presets": ["@babel/preset-typescript"],
 })]
 
 export default [{
@@ -20,7 +21,7 @@ export default [{
   external: ['s-js'],
   plugins
 }, {
-  input: 'src/dom/index.js',
+  input: 'src/dom/index.ts',
   output: [{
     file: 'lib/dom.js',
     format: 'cjs'
@@ -31,7 +32,7 @@ export default [{
   external: ['s-js', 'dom-expressions'],
   plugins
 }, {
-  input: 'src/dom/html.js',
+  input: 'src/dom/html.ts',
   output: [{
     file: 'lib/html.js',
     format: 'cjs'
@@ -39,10 +40,10 @@ export default [{
     file: 'dist/html.js',
     format: 'es'
   }],
-  external: ['solid-js/dom', 'lit-dom-expressions'],
+  external: ['./index', 'lit-dom-expressions'],
   plugins
 }, {
-  input: 'src/dom/h.js',
+  input: 'src/dom/h.ts',
   output: [{
     file: 'lib/h.js',
     format: 'cjs'
@@ -50,6 +51,6 @@ export default [{
     file: 'dist/h.js',
     format: 'es'
   }],
-  external: ['solid-js/dom', 'hyper-dom-expressions'],
+  external: ['./index', 'hyper-dom-expressions'],
   plugins
 }];

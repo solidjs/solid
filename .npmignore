@@ -3,5 +3,7 @@ documentation/
 src/
 rollup.config.js
 test/
+types/tsconfig.tsbuildinfo
 coverage/
 .travis.yml
+tsconfig.json

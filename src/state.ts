@@ -2,11 +2,25 @@ import S from 's-js';
 const SNODE = Symbol('solid-node'),
   SPROXY = Symbol('solid-proxy');
 
-function wrap(value) { return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps)); }
+type StateNode = {
+  [SNODE]?: any,
+  [SPROXY]?: any,
+  [k: string]: any,
+  [k: number]: any
+}
+type Proxy<T> = {
+  get(): any,
+  set(): boolean,
+}
+type Wrapped<T> = {
+  [P in keyof T]: Proxy<T[P]>;
+}
 
-export function isWrappable(obj) { return obj !== null && typeof obj === 'object' && (obj.__proto__ === Object.prototype || Array.isArray(obj)); }
+function wrap<T extends StateNode>(value: T): Wrapped<T> { return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps)); }
 
-export function unwrap(item) {
+export function isWrappable(obj: any) { return obj !== null && typeof obj === 'object' && (obj.__proto__ === Object.prototype || Array.isArray(obj)); }
+
+export function unwrap<T extends StateNode>(item: any): T {
   let result, unwrapped, v;
   if ((result = (item != null) && item._state)) return result;
   if (!isWrappable(item)) return item;
@@ -28,17 +42,17 @@ export function unwrap(item) {
   return item;
 }
 
-function getDataNodes(target) {
+function getDataNodes(target: StateNode) {
   let nodes = target[SNODE];
   if (!nodes) target[SNODE] = nodes = {};
   return nodes;
 }
 
 const proxyTraps = {
-  get(target, property) {
+  get(target: StateNode, property: string | number | symbol) {
     if (property === '_state') return target;
     if (property === SPROXY || property === SNODE) return;
-    const value = target[property],
+    const value = target[property as string | number],
       wrappable = isWrappable(value);
     if (S.isListening() && typeof value !== 'function') {
       let nodes, node;
@@ -58,8 +72,8 @@ const proxyTraps = {
   deleteProperty() { return true; }
 };
 
-export function setProperty(state, property, value) {
-  value = unwrap(value);
+export function setProperty(state: StateNode, property: string | number, value: any) {
+  value = unwrap(value) as StateNode;
   if (state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
   if (value === void 0) {
@@ -70,7 +84,7 @@ export function setProperty(state, property, value) {
   notify && (node = nodes._self) && node.next();
 }
 
-function mergeState(state, value) {
+function mergeState(state: StateNode, value: {[k: string]: any}) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
@@ -78,7 +92,7 @@ function mergeState(state, value) {
   }
 }
 
-function updatePath(current, path, traversed = []) {
+function updatePath(current: StateNode, path: any[], traversed: (number|string)[] = []) {
   if (path.length === 1) {
     let value = path[0];
     if (typeof value === 'function') {
@@ -127,20 +141,23 @@ function updatePath(current, path, traversed = []) {
   } else updatePath(current[part], path, traversed.concat([part]));
 }
 
-export function createState(state = {}) {
-  state = unwrap(state);
-  const wrappedState = wrap(state);
+export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
+  state = unwrap(state || {}) as T;
+  const wrappedState = wrap(state) as Wrapped<T>;
 
+  function setState(update: object): void
+  function setState(...path: any[]): void
+  function setState(paths: any[][]): void
   function setState() {
     const args = arguments;
     S.freeze(() => {
       if (Array.isArray(args[0])) {
         for (let i = 0; i < args.length; i += 1) {
-          updatePath(state, args[i]);
+          updatePath(state as T, args[i]);
         }
-      } else updatePath(state, Array.prototype.slice.call(args));
+      } else updatePath(state as T, Array.prototype.slice.call(args));
     });
   }
 
-  return [wrappedState, setState];
+  return [wrappedState as Wrapped<T>, setState];
 }

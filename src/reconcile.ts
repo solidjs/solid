@@ -1,6 +1,10 @@
 import { setProperty, unwrap, isWrappable } from './state';
 
-function applyState(target, parent, property, merge, key) {
+type ReconcileOptions = {
+  key?: string, merge?: boolean
+}
+
+function applyState(target: any, parent: any, property: string | number, merge: boolean | undefined, key: string) {
   let previous = parent[property];
   if (target === previous) return;
   if (!isWrappable(target) || (previous == null)) {
@@ -68,8 +72,11 @@ function applyState(target, parent, property, merge, key) {
 }
 
 // Diff method for setState
-export function reconcile(path, options = {}) {
-  let value;
+export function reconcile(...path: any[]): (state: any) => void
+export function reconcile(value: any): (state: any) => void
+export function reconcile(path: any[], options: ReconcileOptions): (state: any) => void
+export function reconcile(path: any, options: ReconcileOptions = {}): (state: any) => void {
+  let value: any;
   if (Array.isArray(path)) {
     value = path.pop();
   } else if (typeof path === 'object') {
@@ -80,7 +87,7 @@ export function reconcile(path, options = {}) {
     value = arguments[arguments.length - 1];
     options = {};
   }
-  const { merge, key = 'id' } = options as any;
+  const { merge, key = 'id' } = options;
   return state => {
     state = unwrap(state);
     if (path) {

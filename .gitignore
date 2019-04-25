@@ -4,4 +4,3 @@ lib/
 .vscode/
 coverage/
 types/
-tsconfig.tsbuildinfo
