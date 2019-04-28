@@ -10,11 +10,11 @@ type StateNode = {
 }
 type Proxy<T> = {
   get(): any,
-  set(): boolean,
+  set(): boolean
 }
 type Wrapped<T> = {
   [P in keyof T]: Proxy<T[P]>;
-}
+} & { _state: T }
 
 function wrap<T extends StateNode>(value: T): Wrapped<T> { return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps)); }
 

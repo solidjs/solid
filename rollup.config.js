@@ -23,10 +23,10 @@ export default [{
 }, {
   input: 'src/dom/index.ts',
   output: [{
-    file: 'lib/dom.js',
+    file: 'lib/dom/index.js',
     format: 'cjs'
   }, {
-    file: 'dist/dom.js',
+    file: 'dist/dom/index.js',
     format: 'es'
   }],
   external: ['s-js', 'dom-expressions'],
@@ -34,10 +34,10 @@ export default [{
 }, {
   input: 'src/dom/html.ts',
   output: [{
-    file: 'lib/html.js',
+    file: 'lib/dom/html.js',
     format: 'cjs'
   }, {
-    file: 'dist/html.js',
+    file: 'dist/dom/html.js',
     format: 'es'
   }],
   external: ['./index', 'lit-dom-expressions'],
@@ -45,10 +45,10 @@ export default [{
 }, {
   input: 'src/dom/h.ts',
   output: [{
-    file: 'lib/h.js',
+    file: 'lib/dom/h.js',
     format: 'cjs'
   }, {
-    file: 'dist/h.js',
+    file: 'dist/dom/h.js',
     format: 'es'
   }],
   external: ['./index', 'hyper-dom-expressions'],
