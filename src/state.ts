@@ -12,10 +12,28 @@ type Proxy<T> = {
   get(): any,
   set(): boolean
 }
+type Partial<T> = { [P in keyof T]?: Partial<T[P]> }
 type Wrapped<T> = {
   [P in keyof T]: Proxy<T[P]>;
 } & { _state: T }
+type StateAtom = string | number | boolean | symbol | null | undefined | any[]
+type StateSetter<T> = (
+  Partial<T>
+  | ((prevState: Wrapped<T>, traversed?: (string | number)[]) => Partial<T>)
+)
+type NestedStateSetter<T> = StateSetter<T> | StateAtom | ((prevState: StateAtom, traversed?: (string | number)[]) => StateAtom)
+type StatePathRange = { from?: number, to?: number, by?: number }
+type StatePathPart = string | (string | number)[] | StatePathRange | ((item: any, index: number) => boolean)
 
+// do up to depth of 8
+type StatePath = ([string, NestedStateSetter<any>]
+  | [string, StatePathPart, NestedStateSetter<any>]
+  | [string, StatePathPart, StatePathPart, NestedStateSetter<any>]
+  | [string, StatePathPart, StatePathPart, StatePathPart, NestedStateSetter<any>]
+  | [string, StatePathPart, StatePathPart, StatePathPart, StatePathPart, NestedStateSetter<any>]
+  | [string, StatePathPart, StatePathPart, StatePathPart, StatePathPart, StatePathPart, NestedStateSetter<any>]
+  | [string, StatePathPart, StatePathPart, StatePathPart, StatePathPart, StatePathPart, StatePathPart, NestedStateSetter<any>]
+)
 function wrap<T extends StateNode>(value: T): Wrapped<T> { return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps)); }
 
 export function isWrappable(obj: any) { return obj !== null && typeof obj === 'object' && (obj.__proto__ === Object.prototype || Array.isArray(obj)); }
@@ -145,9 +163,10 @@ export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
   state = unwrap(state || {}) as T;
   const wrappedState = wrap(state) as Wrapped<T>;
 
-  function setState(update: object): void
-  function setState(...path: any[]): void
-  function setState(paths: any[][]): void
+  function setState(update: StateSetter<T>): void
+  function setState(...path: StatePath): void
+  function setState(paths: StatePath[]): void
+  function setState(reconcile: (s: Wrapped<T>) => void) : void
   function setState(): void {
     const args = arguments;
     S.freeze(() => {

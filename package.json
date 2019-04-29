@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.5.1-beta.3",
+  "version": "0.5.1",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -21,21 +21,21 @@
     "test": "npm run build && jest --coverage"
   },
   "dependencies": {
-    "dom-expressions": "~0.7.7",
+    "dom-expressions": "~0.7.10",
     "s-js": "~0.4.9"
   },
   "devDependencies": {
-    "@babel/core": "^7.4.3",
+    "@babel/core": "^7.4.4",
     "@babel/preset-typescript": "^7.3.3",
     "coveralls": "^3.0.3",
     "jest": "~24.7.1",
     "npm-run-all": "^4.1.5",
-    "hyper-dom-expressions": "0.7.3",
-    "lit-dom-expressions": "0.7.3",
+    "hyper-dom-expressions": "~0.7.4",
+    "lit-dom-expressions": "~0.7.4",
     "rimraf": "^2.6.3",
-    "rollup": "^1.10.0",
+    "rollup": "^1.10.1",
     "rollup-plugin-babel": "^4.3.2",
-    "rollup-plugin-node-resolve": "^4.1.0",
-    "typescript": "^3.4.4"
+    "rollup-plugin-node-resolve": "^4.2.3",
+    "typescript": "^3.4.5"
   }
 }
