@@ -265,7 +265,7 @@ Babel plugin that converts JSX to DOM Expressions.
 Tagged Template Literal API for DOM Expressions.
 * [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions)
 HyperScript API for DOM Expressions.
-* [Solid Components](https://github.com/ryansolid/solid-components)
+* [Solid Element](https://github.com/ryansolid/solid-element)
 Extensions to Solid.js that add a Web Component wrapper with a Context API, and Hot Module Replacement.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 React Hooks API to use Solid.js paradigm in your existing React apps.
