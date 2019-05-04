@@ -237,6 +237,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series(links bel
 * [Signals](../master/documentation/signals.md)
 * [JSX Rendering](../master/documentation/rendering.md)
 * [API](../master/documentation/api.md)
+* [Comparison with other Libraries](../master/documentation/comparison.md)
 
 ## Examples
 
