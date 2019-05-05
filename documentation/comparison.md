@@ -18,7 +18,7 @@ However, as much as Solid aligns with React's design philosophy, it works signif
 
 ## Svelte
 
-Svelte pioneered the precompiled disappearing framework that Solid also employs to a certain degree. Solid differs slightly in that while it uses similar precompilation techniques it doesn't compile away the reactive system meaning that ultimately a little bit larger. This is a key part of Solid's incredible performance.
+Svelte pioneered the precompiled disappearing framework that Solid also employs to a certain degree. Both libraries are truly reactive and can produce really small execution code bundles although Svelte is the winner there. Solid requires a bit more explicitness in it's declarations and relying less on implicit analysis from the compiler, but that is part of what gives Solid superior performance.
 
 Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding in constrast to Solid's deliberate choice to embrace CQRS and immutable interface. Solid uses proxies to track dependencies but very consciously blocks setters, considering 2 way binding and direct mutation a dangerous anti-pattern in terms of large scale solutions. Instead Solid has adopted expressive setters(influenced by ImmutableJS and Falcor) to give flexibility of plain objects, with greater brevity, and significantly more control.
 
