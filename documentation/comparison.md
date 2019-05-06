@@ -20,7 +20,7 @@ However, as much as Solid aligns with React's design philosophy, it works signif
 
 Svelte pioneered the precompiled disappearing framework that Solid also employs to a certain degree. Both libraries are truly reactive and can produce really small execution code bundles although Svelte is the winner there. Solid requires a bit more explicitness in its declarations and relying less on implicit analysis from the compiler, but that is part of what gives Solid superior performance.
 
-Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding in constrast to Solid's deliberate choice to embrace CQRS and immutable interface. Solid uses proxies to track dependencies but very consciously blocks setters, considering 2 way binding and direct mutation a dangerous anti-pattern in terms of large scale solutions. Instead Solid has adopted expressive setters(influenced by ImmutableJS and Falcor) to give flexibility of plain objects, with greater brevity, and significantly more control. With functional template composition, in many cases Solid allows developers to even less code written than Svelte.
+Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding in constrast to Solid's deliberate choice to embrace CQRS and immutable interface. Solid uses proxies to track dependencies but very consciously blocks setters, considering 2 way binding and direct mutation a dangerous anti-pattern in terms of large scale solutions. Instead Solid has adopted expressive setters(influenced by ImmutableJS and Falcor) to give flexibility of plain objects, with greater brevity, and significantly more control. With functional template composition, in many cases Solid allows developers to write even less code than Svelte.
 
 Svelte still represents pushing the boundaries of precompilation where Solid is a bit more conservative. But we feel Solid really takes the best of both worlds.
 
@@ -32,7 +32,7 @@ The biggest difference is that while these libraries do not use the Virtual DOM 
 
 ## Vue
 
-Solid is not particularly influenced by Vue, but they are relatable. They both use Proxies over a Reactive system, but that is where the similarities end. Vue's fine grained dependency detection just feeds into a less fine-grained Virtual DOM and Component system whereas Solid keeps its granularity right down to its direct DOM updates.
+Solid is not particularly influenced by Vue, but they are relatable. They both use Proxies in their Reactive system, but that is where the similarities end. Vue's fine grained dependency detection just feeds into a less fine-grained Virtual DOM and Component system whereas Solid keeps its granularity right down to its direct DOM updates.
 
 Vue works off configuration objects where Solid uses a more functional approach instead opting for composeable primitives. Vue credits its configuration as an easy learning curve, but we feel having fewer simple primitives actually reduces mental overhead in a similar way. Where configuration objects or lifecycles require learning and remember how they apply(like a checklist), Solid's primitives are not unlike understanding what Array.map does. Once you have the tool you can do the job.
 
@@ -44,4 +44,4 @@ RxJS is the Reactive library. While Solid has a similar idea of Observable data 
 
 ## Others
 
-Angular and a few other popular libraries are notably missing from this comparison and it is mostly lack of experience with them to give an adequate comparison. Mostly larger Frameworks do not share much in common with Solid and it is much harder to compare them headon.
+Angular and a few other popular libraries are notably missing from this comparison and it is mostly lack of experience with them to give an adequate comparison. Mostly larger Frameworks do not share much in common with Solid and it is much harder to compare them head on.
