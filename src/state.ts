@@ -14,7 +14,7 @@ type Proxy<T> = {
 }
 type Partial<T> = { [P in keyof T]?: Partial<T[P]> }
 type Wrapped<T> = {
-  [P in keyof T]: Proxy<T[P]>;
+  [P in keyof T]: T[P] extends object ? Proxy<T[P]> : T[P];
 } & { _state: T }
 type StateAtom = string | number | boolean | symbol | null | undefined | any[]
 type StateSetter<T> = (
