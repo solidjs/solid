@@ -1,7 +1,7 @@
 assets/
 documentation/
 src/
-rollup.config.js
+*.config.js
 test/
 types/tsconfig.tsbuildinfo
 coverage/

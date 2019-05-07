@@ -1,5 +1,4 @@
 import { createHTML } from 'lit-dom-expressions';
-import { r } from './index';
-export { selectWhen, selectEach } from './index';
+import * as r from './index';
 
-export const html = createHTML(r);
+export default createHTML(r);

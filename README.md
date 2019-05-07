@@ -128,21 +128,15 @@ Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/
 To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
 
 ```js
-"plugins": ["jsx-dom-expressions"]
-```
-
-And include at the top of your files:
-
-```js
-import { r } from 'solid-js/dom'
+"plugins": [["jsx-dom-expressions", {moduleName: 'solid-js/dom'}]]
 ```
 
 Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions).
 
 For convenience Solid exports interfaces to runtimes for these as:
 ```js
-import { h } from 'solid-js/h';
-import { html } from 'solid-js/html'
+import h from 'solid-js/h';
+import html from 'solid-js/html'
 ```
 Remember you still need to install the library separately for these to work.
 

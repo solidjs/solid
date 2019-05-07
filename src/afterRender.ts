@@ -1,8 +1,6 @@
-import { createRuntime } from 'dom-expressions';
 import S from 's-js';
 
 type DelegatableNode = Node & { model: any }
-
 function createHandler(className: string) {
   return (e: HTMLElement, s: boolean) => e.classList.toggle(className, s);
 }
@@ -11,8 +9,6 @@ function shallowDiff(a: HTMLElement[], b: HTMLElement[]) {
   let sa = new Set(a), sb = new Set(b);
   return [a.filter(i => !sb.has(i)), (b.filter(i => !sa.has(i)))];
 }
-
-export const r = createRuntime({wrap: S.makeComputationNode, root: S.root, cleanup: S.cleanup, sample: S.sample});
 
 export function selectWhen(signal: () => any, handler: string) : (s: Node, e: Node | null) => void
 export function selectWhen(signal: () => any, handler: (element: HTMLElement, selected: boolean) => void) : (s: Node, e: Node | null) => void

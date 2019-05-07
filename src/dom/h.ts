@@ -1,5 +1,4 @@
 import { createHyperScript } from 'hyper-dom-expressions';
-import { r } from './index';
-export { selectWhen, selectEach } from './index';
+import * as r from './index';
 
-export const h = createHyperScript(r);
+export default createHyperScript(r);

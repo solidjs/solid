@@ -21,7 +21,7 @@ export default [{
   external: ['s-js'],
   plugins
 }, {
-  input: 'src/dom/index.ts',
+  input: 'src/dom/index.js',
   output: [{
     file: 'lib/dom/index.js',
     format: 'cjs'
@@ -29,8 +29,8 @@ export default [{
     file: 'dist/dom/index.js',
     format: 'es'
   }],
-  external: ['s-js', 'dom-expressions'],
-  plugins
+  external: ['s-js'],
+  plugins: [plugins[0]]
 }, {
   input: 'src/dom/html.ts',
   output: [{
