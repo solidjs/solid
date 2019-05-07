@@ -30,7 +30,7 @@ export default [{
     format: 'es'
   }],
   external: ['s-js'],
-  plugins: [plugins[0]]
+  plugins: plugins
 }, {
   input: 'src/dom/html.ts',
   output: [{
