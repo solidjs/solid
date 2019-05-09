@@ -8,7 +8,7 @@
 ![](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 [![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/solid-js)
 
-Solid is yet another declarative Javascript library for creating user interfaces.  It does not use a Virtual DOM. Instead it opts to compile it's templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
+Solid is yet another declarative Javascript library for creating user interfaces.  It does not use a Virtual DOM. Instead it opts to compile its templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
 
 ### Key Features
 * Real DOM with fine-grained updates (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>).
@@ -203,17 +203,17 @@ class MyComponent extends Component {
 
 ## Why?
 
-This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very inspired by fine grain change detection libraries like Knockout.js and RxJS. The idea here is to ease users into the world of Observable programming by keeping it transparent and starting simple. Classically the Virtual DOM as seen in React for all it's advances has some signifigant trade offs:
+This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very much inspired by fine-grain change detection libraries like Knockout.js and RxJS. The idea here is to ease users into the world of Observable programming by keeping it transparent and starting simple. Classically the Virtual DOM as seen in React for all its advances has some signifigant trade-offs:
 
 * The VDOM render while performant is still conceptually a constant re-render
   * It feels much more imperative as variable declarations and iterative methods for constructing the tree are constantly re-evaluating.
-* Reintroduced lifecycle function hell that break apart the declarative nature of the data. Ex. relying on blacklisting changes across the tree with shouldComponentUpdate.
+* Reintroduced lifecycle function hell that breaks apart the declarative nature of the data. E.g., relying on blacklisting changes across the tree with shouldComponentUpdate.
 * Homogenous promise of Components and the overly simplistic local state in practice:
   * Imposes boundaries on components to solve performance concerns
-  * Prices you into a very specific but not necessarily obvious structure
+  * Places you into a very specific but not necessarily obvious structure
   * Only served to make it more ambiguous when emerging best practices lead to specialized component classification anyway
 * Abstracts debugging to the point a ```<div />``` is not longer just a div
-* VDOM libraries still are based around having a specialized data objects.
+* VDOM libraries still are based around having specialized data objects.
 
 So the driving questions here are:
 * If the data is going to be specialized anyway can we use Proxies to move the complexity into it rather than the rendering while keeping the appearance simple?
@@ -221,9 +221,9 @@ So the driving questions here are:
 * Does this approach ultimately provide more adaptibility while reducing the API surface?
 * Is fine grained change detection fundamentally more performant than the Virtual DOM?
 
-Admittedly it takes a strong reason to not go with the general consensus of best, and most supported libraries and frameworks. And React's Hooks API addresses the majority of what I once considered it's most untenable faults. But I believe there is a better way out there than how we do it today.
+Admittedly it takes a strong reason to not go with the general consensus of best, and most supported libraries and frameworks. And React's Hooks API addresses the majority of what I once considered its most untenable faults. But I believe there is a better way out there than how we do it today.
 
-I cover this in more detail in my Bring Your Own Framework Blog Series(links below).
+I cover this in more detail in my Bring Your Own Framework Blog Series (links below).
 
 ## Documentation
 
