@@ -351,53 +351,43 @@ export function each(parent, accessor, expr, options, afterNode) {
     );
   }
 
-  cleanup(function dispose() {
+  function disposeAll() {
     for (let i of disposables.keys()) disposables.get(i)();
     disposables.clear();
-  });
+  }
+
+  cleanup(disposeAll);
   wrap((renderedValues = []) => {
     const data = accessor() || [];
     return sample(() => {
       parent = (afterNode && afterNode.parentNode) || parent;
       const length = data.length;
 
-      // clear fallback
-      if (isFallback) {
-        if (beforeNode !== undefined || afterNode !== undefined) {
-          let node = beforeNode != undefined ? beforeNode.nextSibling : parent.firstChild;
-          removeNodes(parent, node, afterNode === undefined ? null : afterNode);
-        } else parent.textContent = "";
-        for (let i of disposables.keys()) disposables.get(i)();
-        disposables.clear();
-        isFallback = false;
-      }
-
       // Fast path for clear
-      if (length === 0) {
+      if (length === 0 || isFallback) {
         if (beforeNode !== undefined || afterNode !== undefined) {
           let node = beforeNode != undefined ? beforeNode.nextSibling : parent.firstChild;
           removeNodes(parent, node, afterNode === undefined ? null : afterNode);
         } else parent.textContent = "";
-
-        for (let i of disposables.keys()) disposables.get(i)();
-        disposables.clear();
-        after();
-        if (fallback) {
-          isFallback = true;
-          root(disposer => {
-            const node = addNode(parent, fallback(), afterNode, ++groupCounter);
-            disposables.set(node, disposer);
-          });
-        }
-        return [];
+        disposeAll();
+        if (length === 0) {
+          after();
+          if (fallback) {
+            isFallback = true;
+            root(disposer => {
+              const node = addNode(parent, fallback(), afterNode, ++groupCounter);
+              disposables.set(node, disposer);
+            });
+          }
+          return [];
+        } else isFallback = false;
       }
 
       // Fast path for create
       if (renderedValues.length === 0) {
-        let nextData = new Array(length);
-        for (let i = 0; i < length; i++) createFn(nextData[i] = data[i], i, afterNode);
+        for (let i = 0; i < length; i++) createFn(data[i], i, afterNode);
         after();
-        return nextData;
+        return data.slice(0);
       }
 
       let prevStart = 0,
