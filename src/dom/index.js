@@ -167,7 +167,7 @@ function eventHandler(e) {
       handler(e, model);
       if (e.cancelBubble) return;
     }
-    node = node.host || node.parentNode;
+    node = (node.host && node.host instanceof Node) ? node.host : node.parentNode;
   }
 }
 
