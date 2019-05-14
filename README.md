@@ -244,6 +244,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 * [Simple Todos Template Literals](https://codepen.io/ryansolid/pen/GzQNWB?editors=0010) on CodePen
 * [Simple Todos HyperScript](https://codepen.io/ryansolid/pen/WPGobB?editors=0010) on CodePen
 * [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
+* [Hacker News App](https://github.com/ryansolid/solid-hackernews-app) Small application to showcase Solid and Solid Element
 * [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid with Web Components
 * [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
 * [UIBench Benchmark](https://github.com/ryansolid/solid-uibench) a benchmark tests a variety of UI scenarios.
