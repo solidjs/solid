@@ -235,14 +235,14 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 
 ## Examples
 
-* [Counter](https://codepen.io/ryansolid/pen/XxpZLX/?editors=1000) on CodePen
-* [Simple Todos](https://codepen.io/ryansolid/pen/ZqLoxo?editors=1000) on CodePen
-* [Simple Routing](https://codepen.io/ryansolid/pen/OGMjzE?editors=1000) on CodePen
-* [Async Effect](https://codepen.io/ryansolid/pen/daPWLR?editors=1000) on CodePen
-* [Suspense](https://codepen.io/ryansolid/pen/MxXbaY?editors=1000) on CodePen
-* [Redux Undoable Todos](https://codepen.io/ryansolid/pen/Rvrgro?editors=1000) on CodePen
-* [Simple Todos Template Literals](https://codepen.io/ryansolid/pen/GzQNWB?editors=0010) on CodePen
-* [Simple Todos HyperScript](https://codepen.io/ryansolid/pen/WPGobB?editors=0010) on CodePen
+* [Counter](https://codesandbox.io/s/8no2n9k94l) Simple Counter
+* [Simple Todos](https://codesandbox.io/s/lrm786ojqz) Todos with LocalStorage persistence
+* [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'when' control flow for simple routing
+* [Async Effect](https://codesandbox.io/s/2o4wmxj9zy) Ajax requests to SWAPI with Promise cancellation
+* [Suspense](https://codesandbox.io/s/5v67oym224) Various Async loading with Solid's Suspend control flow
+* [Redux Undoable Todos](https://codesandbox.io/s/pkjw38r8mj) Example from Redux site done with Solid.
+* [Simple Todos Template Literals](https://codesandbox.io/s/jpm68z1q33) Simple Todos using Lit DOM Expressions
+* [Simple Todos HyperScript](https://codesandbox.io/s/0vmjlmq94v) Simple Todos using Hyper DOM Expressions
 * [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
 * [Hacker News App](https://github.com/ryansolid/solid-hackernews-app) Small application to showcase Solid and Solid Element
 * [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid with Web Components
