@@ -51,7 +51,7 @@ Or you can get started with a simple app with the CLI with by running:
 ```sh
 > npm init solid app my-app
 ```
-_`npm init solid <project-type> <project-name>` is available with npm 6 or later.
+_`npm init solid <project-type> <project-name>` is available with npm 6+._
 
 ## Solid State
 
@@ -251,6 +251,8 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 
 ## Related Projects
 
+* [Solid Element](https://github.com/ryansolid/solid-element)
+Extensions to Solid.js that add a Web Component wrapper with a Context API, and Hot Module Replacement.
 * [DOM Expressions](https://github.com/ryansolid/dom-expressions)
 The renderer behind Solid.js that enables lightning fast fine grained performance.
 * [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
@@ -259,8 +261,6 @@ Babel plugin that converts JSX to DOM Expressions.
 Tagged Template Literal API for DOM Expressions.
 * [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions)
 HyperScript API for DOM Expressions.
-* [Solid Element](https://github.com/ryansolid/solid-element)
-Extensions to Solid.js that add a Web Component wrapper with a Context API, and Hot Module Replacement.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 React Hooks API to use Solid.js paradigm in your existing React apps.
 * [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
