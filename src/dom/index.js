@@ -365,8 +365,8 @@ export function each(parent, accessor, expr, options, afterNode) {
 
       // Fast path for clear
       if (length === 0 || isFallback) {
-        if (beforeNode !== undefined || afterNode !== undefined) {
-          let node = beforeNode != undefined ? beforeNode.nextSibling : parent.firstChild;
+        if (beforeNode || afterNode) {
+          let node = beforeNode ? beforeNode.nextSibling : parent.firstChild;
           removeNodes(parent, node, afterNode === undefined ? null : afterNode);
         } else parent.textContent = "";
         disposeAll();

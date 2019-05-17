@@ -22,7 +22,7 @@ Svelte pioneered the precompiled disappearing framework that Solid also employs 
 
 Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding in constrast to Solid's deliberate choice to embrace CQRS and immutable interface. Solid uses proxies to track dependencies but very consciously blocks setters, considering 2 way binding and direct mutation a dangerous anti-pattern in terms of large scale solutions. Instead Solid has adopted expressive setters(influenced by ImmutableJS and Falcor) to give flexibility of plain objects, with greater brevity, and significantly more control. With functional template composition, in many cases Solid allows developers to write even less code than Svelte.
 
-Svelte still represents pushing the boundaries of precompilation where Solid is a bit more conservative. But we feel Solid really takes the best of both worlds.
+Svelte still represents pushing the boundaries of precompilation where Solid is a bit more conservative offering HyperScript and Tagged Template Literal options in addition to the compiled JSX. But we feel Solid really takes the best of both worlds.
 
 ## LitHTML & LighterHTML
 

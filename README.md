@@ -47,13 +47,11 @@ To use Solid with JSX (recommended) run:
 > npm install solid-js babel-plugin-jsx-dom-expressions
 ```
 
-You can also run Solid from the browser directly with your flavor of renderer found in the [Solid Standalone](https://github.com/ryansolid/solid-standalone) package.
-
-For example get started with Tagged Template Literal version in the browser by simply including a script tag on the page.
-
-```html
-<script src="https://unpkg.com/solid-standalone/html.min.js"></script>
+Or you can get started with a simple app with the CLI with by running:
+```sh
+> npm init solid app my-app
 ```
+_`npm init solid <project-type> <project-name>` is available with npm 6 or later.
 
 ## Solid State
 
