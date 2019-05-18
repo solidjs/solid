@@ -367,7 +367,7 @@ export function each(parent, accessor, expr, options, afterNode) {
       if (length === 0 || isFallback) {
         if (beforeNode || afterNode) {
           let node = beforeNode ? beforeNode.nextSibling : parent.firstChild;
-          removeNodes(parent, node, afterNode === undefined ? null : afterNode);
+          removeNodes(parent, node, afterNode ? afterNode : null);
         } else parent.textContent = "";
         disposeAll();
         if (length === 0) {
@@ -431,8 +431,8 @@ export function each(parent, accessor, expr, options, afterNode) {
         a = renderedValues[prevEnd], b = data[newStart];
         while(a === b) {
           loop = true;
-          _node = step(prevEndNode, BACKWARD);
-          let mark = _node.nextSibling;
+          let mark = step(prevEndNode, BACKWARD, true);
+          _node = mark.previousSibling;
           if (newStartNode !== mark) {
             insertNodes(parent, mark, prevEndNode.nextSibling, newStartNode)
             prevEndNode = _node;
