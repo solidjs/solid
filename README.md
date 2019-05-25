@@ -16,8 +16,7 @@ Solid is yet another declarative Javascript library for creating user interfaces
   * Simple composable primitives without the hidden rules.
   * Function Components with no need for lifecycle methods or specialized configuration objects.
 * Less than 10% slower vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
-* Tiny in size, 7.07 kB minified and gzipped with all dependencies.
-* Supports modern features like JSX Fragments, Portals, Suspense, and Asynchronous Rendering.
+* Supports modern features like JSX Fragments, Context, Portals, Suspense, and Asynchronous Rendering.
 * Webcomponent friendly
   * Implicit event delegation with Shadow DOM Retargeting
   * Shadow DOM Portals
@@ -252,7 +251,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 ## Related Projects
 
 * [Solid Element](https://github.com/ryansolid/solid-element)
-Extensions to Solid.js that add a Web Component wrapper with a Context API, and Hot Module Replacement.
+Extensions to Solid.js that add a Web Component wrapper and Hot Module Replacement.
 * [DOM Expressions](https://github.com/ryansolid/dom-expressions)
 The renderer behind Solid.js that enables lightning fast fine grained performance.
 * [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)

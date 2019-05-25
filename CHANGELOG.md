@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 - 2019-05-25
+v0.7.0 brings further improvements in tree shaking, Context API including Provide control flow, and suspense helpers for loading Async Components and Data.
+
+This is a breaking change as in order to support this version, Solid has forked S.js the underlying library and now ships with it built in. This means Solid will no longer be compatible other S.js libraries. It is a turning point but enables the powerful new features.
+
+## 0.6.0 - 2019-05-07
+v0.6.0 brings a Tree Shakeable runtime. This means when Solid used with JSX the compiler can intelligently only include the code that is being used.
+
+This is a breaking change in that:
+* No longer need to import 'r' and selectWhen and selectEach directives have been moved to solid-js from solid-js/dom. You should not need to import from 'solid-js/dom' directly anymore as your compiled code will do it automatically.
+* HyperScript and Lit imports have been made the default import now.. ex:
+```js
+import html from 'solid-js/html'
+```
+* Tidied up the compiled template code. This should make it much nicer to debug when not minified.
+
 ## 0.5.0 - 2019-04-14
 - Add support for multiple renderers (JSX, Tagged Template Literals, HyperScript). Added direct imports or 'solid-js/dom' alternatives 'solid-js/html' and 'solid-js/h'.
 - Reorganized dependencies work.

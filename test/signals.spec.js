@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createEffect, createMemo, freeze } = require('../lib/solid');
+const { createRoot, createSignal, createEffect, createDependentEffect, createMemo, freeze, sample, onCleanup, setDefaults } = require('../lib/solid');
 
 describe('Create signals', () => {
   test('Create and read a Signal', () => {
@@ -32,7 +32,7 @@ describe('Create signals', () => {
     createRoot(() => {
       let temp;
       const [sign] = createSignal('thoughts');
-      createEffect(() => temp = 'unpure ' + sign(), [sign]);
+      createDependentEffect(() => temp = 'unpure ' + sign(), [sign]);
       expect(temp).toBe('unpure thoughts');
     });
   });
@@ -70,6 +70,17 @@ describe('Update signals', () => {
       expect(memo()).toBe('Hello Jake');
     });
   });
+  test('Create and trigger a Memo in an effect', () => {
+    createRoot(() => {
+      let temp;
+      const [name, setName] = createSignal('John'),
+        memo = createMemo(() => 'Hello ' + name());
+      createEffect(() => temp = memo() + '!!!')
+      expect(temp).toBe('Hello John!!!');
+      setName('Jake');
+      expect(temp).toBe('Hello Jake!!!');
+    });
+  });
   test('Create and trigger an Effect', () => {
     createRoot(() => {
       let temp;
@@ -84,7 +95,7 @@ describe('Update signals', () => {
     createRoot(() => {
       let temp;
       const [sign, setSign] = createSignal('thoughts');
-      createEffect(() => temp = 'unpure ' + sign(), sign);
+      createDependentEffect(() => temp = 'unpure ' + sign(), sign);
       expect(temp).toBe('unpure thoughts');
       setSign('mind');
       expect(temp).toBe('unpure mind');
@@ -94,10 +105,61 @@ describe('Update signals', () => {
     createRoot(() => {
       let temp;
       const [sign, setSign] = createSignal('thoughts');
-      createEffect(() => temp = 'unpure ' + sign(), []);
+      createDependentEffect(() => temp = 'unpure ' + sign(), []);
       expect(temp).toBe('unpure thoughts');
       setSign('mind');
       expect(temp).toBe('unpure thoughts');
     });
+  });
+});
+
+describe('Sample signals', () => {
+  test('Mute an effect', () => {
+    createRoot(() => {
+      let temp;
+      const [sign, setSign] = createSignal('thoughts');
+      createEffect(() => temp = 'unpure ' + sample(sign));
+      expect(temp).toBe('unpure thoughts');
+      setSign('mind');
+      expect(temp).toBe('unpure thoughts');
+    });
+  });
+});
+
+describe('onCleanup', () => {
+  test('Clean an effect', () => {
+    createRoot(() => {
+      let temp;
+      const [sign, setSign] = createSignal('thoughts');
+      createEffect(() => {
+        sign()
+        onCleanup(() => temp = 'after');
+      });
+      expect(temp).toBeUndefined();
+      setSign('mind');
+      expect(temp).toBe('after');
+    });
+  });
+  test('Explicit root disposal', () => {
+    let temp, disposer;
+    createRoot(dispose => {
+      disposer = dispose;
+      onCleanup(() => temp = 'disposed')
+    });
+    expect(temp).toBeUndefined();
+    disposer();
+    expect(temp).toBe('disposed');
+  });
+});
+
+describe('Set Default Props', () => {
+  test('simple set', () => {
+    const props = {a: 'ji', b: null, c: 'j'},
+      defaultProps = {a: 'yy', b: 'ggg', d: 'DD'};
+    setDefaults(props, defaultProps);
+    expect(props.a).toBe('ji');
+    expect(props.b).toBe(null);
+    expect(props.c).toBe('j');
+    expect(props.d).toBe('DD');
   });
 });

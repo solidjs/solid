@@ -1,7 +1,8 @@
-import S from 's-js';
+import { makeDataNode, on, makeComputationNode } from '@ryansolid/s-js';
+export { comp as createMemo } from '@ryansolid/s-js';
 
-export function createSignal<T>(value: T, comparator?: (v: T, p: T) => boolean): [() => T, (v: T) => void] {
-  const d = S.makeDataNode(value);
+export function createSignal<T>(value?: T, comparator?: (v?: T, p?: T) => boolean): [() => T, (v: T) => void] {
+  const d = makeDataNode(value);
   let setter;
   if (comparator) {
     let age = -1;
@@ -20,8 +21,11 @@ export function createSignal<T>(value: T, comparator?: (v: T, p: T) => boolean):
   return [d.current.bind(d), setter];
 }
 
-export function createMemo<T>(fn: (v?: T) => T, seed?: T): () => T { return S(fn, seed as T); }
+export function createEffect<T>(fn: (v?: T) => T, seed?: T) {
+  makeComputationNode(fn, seed, false, false)
+}
 
-export function createEffect<T>(fn: (v?: T) => T, deps?: () => any | (() => any)[], defer?: boolean) {
-  deps ? S.on(deps, fn, undefined, defer) : S.makeComputationNode(fn);
+// explicit dependencies and defered initial execution
+export function createDependentEffect<T>(fn: (v?: T) => T, deps: () => any | (() => any)[], defer?: boolean) {
+  on(deps, fn, undefined, defer);
 }

@@ -84,7 +84,7 @@ State and Signals combine wonderfully as wrapping a state selector in a function
 const useReducer = (reducer, init) => {
   const [state, setState] = createState(init),
     [getAction, dispatch] = createSignal();
-  createEffect((prevState = init) => {
+  createDependentEffect((prevState = init) => {
     let action, next;
     if (!(action = getAction())) return prevState;
     next = reducer(prevState, action);

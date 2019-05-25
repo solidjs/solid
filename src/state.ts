@@ -1,4 +1,4 @@
-import S from 's-js';
+import { isListening, makeDataNode, freeze } from '@ryansolid/s-js';
 const SNODE = Symbol('solid-node'),
   SPROXY = Symbol('solid-proxy');
 
@@ -72,14 +72,14 @@ const proxyTraps = {
     if (property === SPROXY || property === SNODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
-    if (S.isListening() && typeof value !== 'function') {
+    if (isListening() && typeof value !== 'function') {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._self || (nodes._self = S.makeDataNode(undefined));
+        node = nodes._self || (nodes._self = makeDataNode(undefined));
         node.current();
       }
       nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = S.makeDataNode(undefined));
+      node = nodes[property] || (nodes[property] = makeDataNode(undefined));
       node.current();
     }
     return wrappable ? wrap(value) : value;
@@ -169,7 +169,7 @@ export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
   function setState(reconcile: (s: Wrapped<T>) => void) : void
   function setState(): void {
     const args = arguments;
-    S.freeze(() => {
+    freeze(() => {
       if (Array.isArray(args[0])) {
         for (let i = 0; i < args.length; i += 1) {
           updatePath(state as T, args[i]);

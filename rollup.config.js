@@ -18,7 +18,6 @@ export default [{
     file: 'dist/solid.js',
     format: 'es'
   }],
-  external: ['s-js'],
   plugins
 }, {
   input: 'src/dom/index.js',
@@ -29,7 +28,7 @@ export default [{
     file: 'dist/dom/index.js',
     format: 'es'
   }],
-  external: ['s-js'],
+  external: ['../solid.js'],
   plugins: plugins
 }, {
   input: 'src/dom/html.ts',

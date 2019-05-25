@@ -1,4 +1,4 @@
-import S from 's-js';
+import { makeComputationNode } from '@ryansolid/s-js';
 
 type DelegatableNode = Node & { model: any }
 function createHandler(className: string) {
@@ -15,18 +15,18 @@ export function selectWhen(signal: () => any, handler: (element: HTMLElement, se
 export function selectWhen(signal: () => any, handler: any) : (s: Node, e: Node | null) => void {
   if (typeof handler === 'string') handler = createHandler(handler);
   let start: Node, end: Node | null;
-  S.makeComputationNode((element?: HTMLElement) => {
+  makeComputationNode<HTMLElement | undefined>((element?: HTMLElement) => {
     const model = signal();
     if (element) handler(element, false);
     let marker: Node | null = start;
     while(marker && marker !== end) {
       if ((marker as DelegatableNode).model === model) {
         handler(marker, true);
-        return marker;
+        return marker as HTMLElement;
       }
       marker = marker.nextSibling;
     }
-  });
+  }, undefined, false, false);
   return (s, e) => (start = s, end = e);
 }
 
@@ -35,7 +35,7 @@ export function selectEach(signal: () => any, handler: (element: HTMLElement, se
 export function selectEach(signal: () => any, handler: any) : (s: Node, e: Node | null) => void {
   if (typeof handler === 'string') handler = createHandler(handler);
   let start: Node, end: Node | null;
-  S.makeComputationNode((elements: HTMLElement[] = []) => {
+  makeComputationNode((elements: HTMLElement[] = []) => {
     const models = signal(), newElements = [];
     let marker: Node | null = start;
     while(marker && marker !== end) {
@@ -46,6 +46,6 @@ export function selectEach(signal: () => any, handler: any) : (s: Node, e: Node 
     additions.forEach(el => handler(el, true));
     removals.forEach(el => handler(el, false));
     return newElements;
-  });
+  }, undefined, false, false);
   return (s, e) => (start = s, end = e);
 }

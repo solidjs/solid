@@ -1,17 +1,18 @@
 import { Attributes } from 'dom-expressions';
-import S from 's-js';
+import {
+      createEffect as wrap, sample, createRoot as root,
+      onCleanup as cleanup, setContext, registerSuspense,
+      getContextOwner as currentContext
+    } from '../solid.js';
 
-const wrap = S,
-  root = S.root,
-  sample = S.sample,
-  cleanup = S.cleanup;
+
 
 const GROUPING = '__rGroup',
   FORWARD = 'nextSibling',
   BACKWARD = 'previousSibling';
 let groupCounter = 0;
 
-export { wrap };
+export { wrap, currentContext };
 
 function normalizeIncomingArray(normalized, array) {
   for (let i = 0, len = array.length; i < len; i++) {
@@ -72,7 +73,7 @@ function removeNodes(parent, node, end) {
 }
 
 function clearAll(parent, current, marker, startNode) {
-  if (!marker) return parent.textContent = '';
+  if (marker === undefined) return parent.textContent = '';
   if (Array.isArray(current)) startNode = current[0];
   else if (current != null && current != '' && startNode === undefined) {
     startNode = step(marker.previousSibling, BACKWARD, true);
@@ -87,14 +88,15 @@ function insertExpression(parent, value, current, marker) {
   const t = typeof value;
   if (t === 'string' || t === 'number') {
     if (t === 'number') value = value.toString();
-    if (marker) {
+    if (marker !== undefined) {
+      const startNode = (marker && marker.previousSibling) || parent.lastChild;
       if (value === '') clearAll(parent, current, marker)
       else if (current !== '' && typeof current === 'string') {
-        marker.previousSibling.data = value;
+        startNode.data = value;
       } else {
         const node = document.createTextNode(value);
         if (current !== '' && current != null) {
-          parent.replaceChild(node, marker.previousSibling);
+          parent.replaceChild(node, startNode);
         } else parent.insertBefore(node, marker);
       }
       current = value;
@@ -567,53 +569,67 @@ export function each(parent, accessor, expr, options, afterNode) {
 }
 
 export function suspend(parent, accessor, expr, options, marker) {
-  let beforeNode, disposable, current, first = true;
+  let beforeNode, disposable, current;
   const { fallback } = options,
-    doc = document.implementation.createHTMLDocument(),
-    rendered = sample(expr);
+    doc = document.implementation.createHTMLDocument();
 
   if (marker) beforeNode = marker.previousSibling;
   for (let name of eventRegistry.keys()) doc.addEventListener(name, eventHandler);
   Object.defineProperty(doc.body, 'host', { get() { return (marker && marker.parentNode) || parent; } });
   cleanup(function dispose() { disposable && disposable(); });
 
-  wrap(cached => {
-    const value = !!accessor();
-    let node;
-    if (value === cached) return cached;
-    parent = (marker && marker.parentNode) || parent;
-    if (value) {
-      if (first) {
-        insertExpression(doc.body, rendered);
-        first = false;
-      } else {
-        node = beforeNode ? beforeNode.nextSibling : parent.firstChild;
-        while (node && node !== marker) {
-          const next = node.nextSibling;
-          doc.body.appendChild(node);
-          node = next;
+  function suspense(options) {
+    const rendered = sample(expr);
+    wrap(cached => {
+      const value = !!options.suspended();
+      if (value === cached) return cached;
+      let node;
+      parent = (marker && marker.parentNode) || parent;
+      if (value) {
+        if (options.initializing) insertExpression(doc.body, rendered);
+        else {
+          node = beforeNode ? beforeNode.nextSibling : parent.firstChild;
+          while (node && node !== marker) {
+            const next = node.nextSibling;
+            doc.body.appendChild(node);
+            node = next;
+          }
         }
+        if (fallback) {
+          sample(() => root(disposer => {
+            disposable = disposer;
+            current = insertExpression(parent, fallback(), null, marker)
+          }));
+        }
+        return value;
       }
-      if (fallback) {
-        sample(() => root(disposer => {
-          disposable = disposer;
-          current = insertExpression(parent, fallback(), null, marker)
-        }));
+      if (options.initializing) insertExpression(parent, rendered, null, marker);
+      else {
+        if (disposable) {
+          clearAll(parent, current, marker, beforeNode ? beforeNode.nextSibling : parent.firstChild);
+          disposable();
+        }
+        while (node = doc.body.firstChild) parent.insertBefore(node, marker);
       }
       return value;
-    }
-    if (first) {
-      insertExpression(parent, rendered, null, marker);
-      first = false;
-    } else {
-      if (disposable) {
-        clearAll(parent, current, marker, beforeNode ? beforeNode.nextSibling : parent.firstChild);
-        disposable();
-      }
-      while (node = doc.body.firstChild) parent.insertBefore(node, marker);
-    }
-    return value;
-  });
+    });
+  }
+
+  if (accessor) {
+    const config = { suspended: accessor, initializing: true }
+    suspense(config);
+    config.initializing = false;
+  } else registerSuspense(suspense);
+
+}
+
+export function provide(parent, accessor, expr, options, marker) {
+  const Context = accessor(),
+    { value } = options;
+  insertExpression(parent, () => sample(() => {
+    setContext(Context.id, Context.initFn ? Context.initFn(value) : value);
+    return expr();
+  }), undefined, marker);
 }
 
 export function portal(parent, accessor, expr, options, marker) {

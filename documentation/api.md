@@ -8,9 +8,9 @@ Creates a new non-tracked context that doesn't auto-dispose. All Solid code shou
 
 Creates a new State object and setState pair that can be used to maintain your componenents state.
 
-### `createEffect(() => <code>, dependencies, defer)`
+### `createEffect(prev => <code>, initialValue): void`
 
-Creates a new effect that automatically tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
+Creates a new effect that automatically tracks dependencies. 2nd argument is the initial value.
 
 ### `createSignal(initialValue, comparatorFn): [getValueFn, setValueFn]`
 
@@ -19,6 +19,10 @@ Creates a new signal that can be used for reactive tracking. By default signals 
 ### `createMemo(prev => <code>, initialValue): getValueFn`
 
 Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update.
+
+### `createDependentEffect(() => <code>, dependencies, defer): void`
+
+Creates a new effect that explicitly tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
 
 ### `onCleanup(() => <code>)`
 
@@ -31,3 +35,23 @@ Ignores tracking any of the dependencies in the executing code block and returns
 ### `freeze(() => <code>): any`
 
 Ensures that all updates within the block happen at the same time to prevent unnecessary recalculation. Solid State's setState method and computations(useEffect, useMemo) automatically wrap their code in freeze blocks.
+
+### `createContext(initFn): Context`
+
+Creates a new context object that can be used with useContext and the Provide control flow.
+
+### `useContext(Context): any`
+
+Hook to grab context to allow for deep passing of props with hierarchal resolution of dependencies without having to pass them through each Component function.
+
+### `lazy(() => <Promise>): Component`
+
+Used to lazy load components to allow for things like code splitting and Suspense.
+
+### `loadResource(<Promise>): getValueFn`
+
+Creates a memo that updates when promise is resolved. This plays into Suspend control flow.
+
+### `setDefaults(props, defaultProps): void`
+
+Sets default props for function components in case caller doesn't provide them.
