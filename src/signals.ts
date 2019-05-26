@@ -131,9 +131,9 @@ export function isListening() {
 
 // context API
 
-interface Context { id: symbol, initFn: Function };
+export interface Context { id: symbol, initFn?: Function };
 
-export function createContext(initFn: any) {
+export function createContext(initFn?: Function): Context {
   const id = Symbol('context');
   return { id, initFn };
 }

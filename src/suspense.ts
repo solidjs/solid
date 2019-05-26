@@ -19,7 +19,7 @@ export const SuspenseContext = createContext(() => {
 // used in the runtime to seed the Suspend control flow
 export function registerSuspense(fn: (o: { suspended: () => any, initializing: boolean }) => void) {
   createEffect(() => {
-    const c = SuspenseContext.initFn();
+    const c = (SuspenseContext.initFn as Function)();
     setContext(SuspenseContext.id, c);
     fn(c);
     c.initializing = false;
