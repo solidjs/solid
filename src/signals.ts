@@ -71,7 +71,8 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Co
     },
     root = disposer === null ? UNOWNED : getCandidateNode(),
     result: T;
-  root.owner = detachedOwner || Owner;
+  let potentialOwner = detachedOwner || Owner;
+  root !== potentialOwner && (root.owner = potentialOwner);
   Owner = root;
 
   try {
@@ -143,12 +144,14 @@ export function useContext(context: Context) {
 }
 
 export function getContextOwner() {
+  Owner && (Owner.noRecycle = true);
   return Owner;
 }
 
 export function setContext(key: symbol | string, value: any) {
   if (Owner === null) return console.warn("Context keys cannot be set without a root or parent");
   const context = Owner.context || (Owner.context = {});
+  Owner.noRecycle = true;
   context[key] = value;
 }
 
@@ -197,7 +200,6 @@ export class DataNode {
 class ComputationNode {
   fn: ((v: any) => any) | null;
   value: any;
-  context: any;
   age: number;
   state: number;
   source1: null | Log;
@@ -206,6 +208,8 @@ class ComputationNode {
   sourceslots: null | number[];
   log: Log | null;
   owner: any;
+  context: any;
+  noRecycle?: boolean;
   owned: ComputationNode[] | null;
   cleanups: (((final: boolean) => void)[]) | null;
 
@@ -381,11 +385,12 @@ function getCandidateNode() {
 
 function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => T, value: T, orphan: boolean) {
   var _owner = orphan || Owner === null || Owner === UNOWNED ? null : Owner,
-    recycle = node.source1 === null && (node.owned === null && node.cleanups === null || _owner !== null),
+    recycle = !node.noRecycle && node.source1 === null && (node.owned === null && node.cleanups === null || _owner !== null),
     i: number;
 
   if (recycle) {
     LastNode = node;
+    node.owner = null;
 
     if (_owner !== null) {
       if (node.owned !== null) {
