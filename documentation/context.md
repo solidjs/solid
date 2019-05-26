@@ -6,7 +6,7 @@ Example below using Solid's own state mechanism although context can house just 
 
 ```jsx
 // counter.js
-import { createState, createContext } from 'solid-element';
+import { createState, createContext } from 'solid-js';
 
 export createContext((count = 0) => {
   const [state, setState] = createState({ count });
