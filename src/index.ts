@@ -1,9 +1,13 @@
 export { createState, unwrap } from './state';
-export { reconcile } from './reconcile';
-export * from './signals';
-export * from './afterRender';
 
-export * from './context';
+export { reconcile } from './reconcile';
+
+export {
+  createRoot, createSignal, createEffect, createDependentEffect, createMemo, isListening,
+  onCleanup, sample, freeze, createContext, useContext, setContext, getContextOwner
+} from './signals';
+
+export * from './afterRender';
 export * from './suspense';
 
 // set component defaults
@@ -15,5 +19,3 @@ export function setDefaults(props: Props, defaultProps: Props) {
     !(key in props) && (props[key] = defaultProps[key]);
   }
 }
-
-export { root as createRoot, cleanup as onCleanup, sample, freeze, setContext, getContextOwner } from '@ryansolid/s-js';

@@ -227,6 +227,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 * [State](../master/documentation/state.md)
 * [Signals](../master/documentation/signals.md)
 * [JSX Rendering](../master/documentation/rendering.md)
+* [Context](../master/documentation/context.md)
 * [API](../master/documentation/api.md)
 * [Comparison with other Libraries](../master/documentation/comparison.md)
 
@@ -262,7 +263,6 @@ Tagged Template Literal API for DOM Expressions.
 HyperScript API for DOM Expressions.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 React Hooks API to use Solid.js paradigm in your existing React apps.
-* [S.js](https://github.com/adamhaile/S) The fine grained change detection engine that drives all computations and tracks all dependencies.
 
 ## Past Articles
 

@@ -1,6 +1,4 @@
-import { sample, setContext } from '@ryansolid/s-js';
-import { createSignal, createEffect } from './signals';
-import { createContext, useContext } from './context';
+import { createSignal, createEffect, createContext, useContext, setContext, sample } from './signals';
 
 // Suspense Context
 export const SuspenseContext = createContext(() => {

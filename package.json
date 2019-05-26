@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,7 @@
     "build": "run-p -cnl build:*",
     "build:js": "rollup -c",
     "build:types": "tsc && cpx ./src/dom/index.d.ts ./types/dom",
+    "bench": "node --allow-natives-syntax bench/bench.js",
     "prepublishOnly": "npm run build",
     "test": "npm run build && jest --coverage"
   },
@@ -34,7 +35,6 @@
     "rollup": "^1.12.3",
     "rollup-plugin-babel": "^4.3.2",
     "rollup-plugin-node-resolve": "^5.0.0",
-    "@ryansolid/s-js": "~0.4.14",
     "typescript": "^3.4.5"
   }
 }

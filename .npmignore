@@ -1,4 +1,5 @@
 assets/
+bench/
 documentation/
 src/
 *.config.js

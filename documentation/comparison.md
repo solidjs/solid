@@ -8,7 +8,7 @@ This library owes its existence to Knockout. Modernizing its model for fine grai
 
 Knockout's bindings are just strings in HTML which are walked over at runtime. They depend on cloning context($parent etc...). Whereas Solid uses JSX or Tagged Template Literals for templating opting for an in JavaScript API.
 
-The biggest difference might be that Solid is built on S.js which has explicit mechanisms to handle batching of changes whereas Knockout has deferUpdates which uses a microtask queue, and S has a hierarchal model to automatically handle garbage cleanup and Knockout only has explicit disposal built in.
+The biggest difference might be that Solid is built on [S.js](https://github.com/adamhaile/S) which has explicit mechanisms to handle batching of changes whereas Knockout has deferUpdates which uses a microtask queue, and S has a hierarchal model to automatically handle garbage cleanup and Knockout only has explicit disposal built in.
 
 ## React
 

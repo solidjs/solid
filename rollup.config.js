@@ -6,7 +6,7 @@ const plugins = [nodeResolve({
 }), babel({
   extensions: ['.js', '.ts'],
   exclude: 'node_modules/**',
-  "presets": ["@babel/preset-typescript"],
+  "presets": ["@babel/preset-typescript"]
 })]
 
 export default [{
