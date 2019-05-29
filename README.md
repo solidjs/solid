@@ -266,7 +266,7 @@ React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Past Articles
 
-* [The Fastest Way to Render the DOM](https://medium.com/@ryansolid/the-fastest-way-to-render-the-dom-e3b226b15ca3) Comparison of all Solid Renderers against the Fastest Libraries in the World.
+* [The Fastest Way to Render the DOM](https://medium.com/@ryansolid/the-fastest-way-to-render-the-dom-e3b226b15ca3?source=friends_link&sk=5ae1688dde789e46cecf5c976e708da5) Comparison of all Solid Renderers against the Fastest Libraries in the World.
 * [JavaScript UI Compilers: Comparing Svelte and Solid](https://medium.com/@ryansolid/javascript-ui-compilers-comparing-svelte-and-solid-cbcba2120cea) A closer look at precompiled UI libraries
 * [Building a Simple JavaScript App with Solid](https://levelup.gitconnected.com/building-a-simple-javascript-app-with-solid-ff17c8836409) Dissecting building TodoMVC with Solid.
 * [Solid — The Best JavaScript UI Library You’ve Never Heard Of](https://levelup.gitconnected.com/solid-the-best-javascript-ui-library-youve-never-heard-of-297b22848ac1?source=friends_link&sk=d61fc9352b4a98c6c9f5f6bd2077a722)
