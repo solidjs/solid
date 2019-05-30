@@ -2,12 +2,6 @@ import { createSignal, createEffect, createContext, useContext, setContext, samp
 import { createState, Wrapped } from './state';
 
 // Suspense Context
-type ContextStore = {
-  increment: () => void
-  decrement: () => void
-  suspended: () => Boolean
-  initializing: Boolean
-}
 export const SuspenseContext = createContext(() => {
   let counter = 0;
   const [get, next] = createSignal<void>(),
@@ -45,12 +39,12 @@ export function lazy<T extends Function>(fn: () => Promise<{default: T}>) {
 // load any async resource
 type ResourceState = { loading: Boolean, data?: any, error?: any }
 export function loadResource<T>(fn: () => Promise<T>): Wrapped<ResourceState>
-export function loadResource<T>(p: Promise<T>):  Wrapped<ResourceState>
-export function loadResource<T>(resource: any):  Wrapped<ResourceState> {
+export function loadResource<T>(p: Promise<T>): Wrapped<ResourceState>
+export function loadResource<T>(resource: any): Wrapped<ResourceState> {
   const { increment, decrement } = useContext(SuspenseContext) || {} as ResourceState;
-  const [state, setState] = createState<ResourceState>({loading: false})
+  const [state, setState] = createState<ResourceState>({ loading: false })
 
-  function doRequest(p: Promise<T>, ref?: {cancelled: Boolean}) {
+  function doRequest(p: Promise<T>, ref?: { cancelled: Boolean }) {
     setState({ loading: true })
     increment && increment();
     p.then((data: T) => !(ref && ref.cancelled) && setState({ data, loading: false }))
@@ -60,8 +54,10 @@ export function loadResource<T>(resource: any):  Wrapped<ResourceState> {
 
   if (typeof resource === 'function') {
     createEffect(() => {
-      let ref = {cancelled: false};
-      doRequest(resource(), ref)
+      let ref = {cancelled: false},
+        res = resource();
+      if (!res) return setState({ data: undefined, loading: false });
+      doRequest(res, ref)
       onCleanup(() => ref.cancelled = true)
     });
   } else doRequest(resource);
