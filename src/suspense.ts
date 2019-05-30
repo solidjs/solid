@@ -47,12 +47,12 @@ type ResourceState = { loading: Boolean, data?: any, error?: any }
 export function loadResource<T>(fn: () => Promise<T>): Wrapped<ResourceState>
 export function loadResource<T>(p: Promise<T>):  Wrapped<ResourceState>
 export function loadResource<T>(resource: any):  Wrapped<ResourceState> {
-  const { increment, decrement } = useContext(SuspenseContext);
+  const { increment, decrement } = useContext(SuspenseContext) || {} as ResourceState;
   const [state, setState] = createState<ResourceState>({loading: false})
 
   function doRequest(p: Promise<T>, ref?: {cancelled: Boolean}) {
     setState({ loading: true })
-    increment && sample(increment);
+    increment && increment();
     p.then((data: T) => !(ref && ref.cancelled) && setState({ data, loading: false }))
       .catch((error: any) => setState({ error, loading: false }))
       .finally(() => decrement && decrement());
