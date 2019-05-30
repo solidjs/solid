@@ -13,7 +13,7 @@ type Proxy<T> = {
   set(): boolean
 }
 type Partial<T> = { [P in keyof T]?: Partial<T[P]> }
-type Wrapped<T> = {
+export type Wrapped<T> = {
   [P in keyof T]: T[P] extends object ? Proxy<T[P]> : T[P];
 } & { _state: T }
 type StateAtom = string | number | boolean | symbol | null | undefined | any[]

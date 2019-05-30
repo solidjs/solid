@@ -110,7 +110,7 @@ function insertExpression(parent, value, current, marker) {
   } else if (t === 'function') {
     wrap(function() { current = insertExpression(parent, value(), current, marker); });
   } else if (value instanceof Node || Array.isArray(value)) {
-    clearAll(parent, current, marker);
+    if (current !== '' && current != null) clearAll(parent, current, marker);
     addNode(parent, value, marker, ++groupCounter);
     current = value;
   } else {
@@ -120,9 +120,9 @@ function insertExpression(parent, value, current, marker) {
   return current;
 }
 
-export function insert(parent, accessor, init, marker) {
-  if (typeof accessor !== 'function') return insertExpression(parent, accessor, init, marker);
-  wrap((current = init) => insertExpression(parent, accessor(), current, marker));
+export function insert(parent, accessor, marker, initial) {
+  if (typeof accessor !== 'function') return insertExpression(parent, accessor, initial, marker);
+  wrap((current = initial) => insertExpression(parent, accessor(), current, marker));
 }
 
 function dynamicProp(props, key) {

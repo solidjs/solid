@@ -48,9 +48,9 @@ Hook to grab context to allow for deep passing of props with hierarchal resoluti
 
 Used to lazy load components to allow for things like code splitting and Suspense.
 
-### `loadResource(<Promise>): getValueFn`
+### `loadResource(<Promise> | () => <Promise>): getValueFn`
 
-Creates a memo that updates when promise is resolved. This plays into Suspend control flow.
+Creates a memo that updates when promise is resolved. If a function is provided it tracks dependency changes to retrigger. This works with the Suspend control flow.
 
 ### `setDefaults(props, defaultProps): void`
 
