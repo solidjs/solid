@@ -76,7 +76,7 @@ function clearAll(parent, current, marker, startNode) {
   if (marker === undefined) return parent.textContent = '';
   if (Array.isArray(current)) startNode = current[0];
   else if (current != null && current != '' && startNode === undefined) {
-    startNode = step(marker.previousSibling, BACKWARD, true);
+    startNode = step((marker && marker.previousSibling) || parent.lastChild, BACKWARD, true);
   }
   startNode && removeNodes(parent, startNode, marker);
   return '';
