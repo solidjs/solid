@@ -45,7 +45,7 @@ function addNode(parent, node, afterNode, counter) {
     return mark;
   }
   let mark, t = typeof node;
-  if (t === 'string' || t === 'number') node = document.createTextNode(node);
+  if (node == null || t === 'string' || t === 'number') node = document.createTextNode(node || '');
   else if (node.nodeType === 11 && (mark = node.firstChild) && mark !== node.lastChild) {
     mark[GROUPING] = node.lastChild[GROUPING] = counter;
   }

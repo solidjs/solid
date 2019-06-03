@@ -8,13 +8,9 @@ type StateNode = {
   [k: string]: any,
   [k: number]: any
 }
-type Proxy<T> = {
-  get(): any,
-  set(): boolean
-}
 type Partial<T> = { [P in keyof T]?: Partial<T[P]> }
 export type Wrapped<T> = {
-  [P in keyof T]: T[P] extends object ? Proxy<T[P]> : T[P];
+  [P in keyof T]: T[P] extends object ? Wrapped<T[P]> : T[P];
 } & { _state: T }
 type StateAtom = string | number | boolean | symbol | null | undefined | any[]
 type StateSetter<T> = (
