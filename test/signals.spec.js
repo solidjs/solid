@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createEffect, createDependentEffect, createMemo, freeze, sample, onCleanup, setDefaults } = require('../lib/solid');
+const { createRoot, createSignal, createEffect, createDependentEffect, createMemo, freeze, sample, onCleanup } = require('../lib/solid');
 
 describe('Create signals', () => {
   test('Create and read a Signal', () => {
@@ -149,17 +149,5 @@ describe('onCleanup', () => {
     expect(temp).toBeUndefined();
     disposer();
     expect(temp).toBe('disposed');
-  });
-});
-
-describe('Set Default Props', () => {
-  test('simple set', () => {
-    const props = {a: 'ji', b: null, c: 'j'},
-      defaultProps = {a: 'yy', b: 'ggg', d: 'DD'};
-    setDefaults(props, defaultProps);
-    expect(props.a).toBe('ji');
-    expect(props.b).toBe(null);
-    expect(props.c).toBe('j');
-    expect(props.d).toBe('DD');
   });
 });

@@ -47,7 +47,7 @@ setState('list', 2, 'read', true);
 //   ]
 // }
 ```
-Path can be string keys, array of keys, wildcards ('*'), iterating objects ({from, to, by}), or filter functions. This gives incredible expressive power to describe state changes.
+Path can be string keys, array of keys, iterating objects ({from, to, by}), or filter functions. This gives incredible expressive power to describe state changes.
 
 ```js
 const [state, setState] = createState({
@@ -85,7 +85,7 @@ setState('todos', todo => todo.completed, 'title', t => t + '!')
 //   ]
 // }
 
-setState('todos', '*', todo => { marked: true, completed: !todo.completed })
+setState('todos', {}, todo => { marked: true, completed: !todo.completed })
 // {
 //   todos: [
 //     { task: 'Finish work', completed: true, marked: true }

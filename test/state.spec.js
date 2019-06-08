@@ -85,7 +85,7 @@ describe('Array setState modes', () => {
     expect(state.rows[3]).toBe(8);
     expect(state.rows[4]).toBe(5);
   });
-  test('Update traversal info', () => {
+  test('Update traversal range', () => {
     const [state, setState] = createState({rows: [1, 2, 3, 4, 5]});
     setState('rows', {from: 1, to: 4, by: 2}, r => r * 2);
     expect(state.rows[0]).toBe(1);
@@ -94,18 +94,9 @@ describe('Array setState modes', () => {
     expect(state.rows[3]).toBe(8);
     expect(state.rows[4]).toBe(5);
   });
-  test('Update traversal info defaults', () => {
+  test('Update traversal range defaults', () => {
     const [state, setState] = createState({rows: [1, 2, 3, 4, 5]});
     setState('rows', {}, r => r * 2);
-    expect(state.rows[0]).toBe(2);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(6);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(10);
-  });
-  test('Update *', () => {
-    const [state, setState] = createState({rows: [1, 2, 3, 4, 5]});
-    setState('rows', '*', r => r * 2);
     expect(state.rows[0]).toBe(2);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(6);

@@ -257,6 +257,47 @@ export function when(parent, accessor, expr, options, marker) {
   });
 }
 
+export function switchWhen(parent, conditions, _, options, marker) {
+  let beforeNode, current, disposable;
+  const { fallback } = options;
+
+  if (marker) beforeNode = marker.previousSibling;
+  function evalConditions() {
+    for (let i = 0; i < conditions.length; i++) {
+      if (conditions[i].condition()) return {index: i, render: conditions[i].render, afterRender: conditions[i].options.afterRender};
+    }
+    return {index: -1};
+  }
+  cleanup(function dispose() { disposable && disposable(); });
+
+  wrap(cached => {
+    const {index, render, afterRender} = evalConditions();
+    if (index === cached) return cached;
+    return sample(() => {
+      parent = (marker && marker.parentNode) || parent;
+      disposable && disposable();
+      if (index < 0) {
+        clearAll(parent, current, marker, beforeNode ? beforeNode.nextSibling : parent.firstChild);
+        current = null;
+        afterRender && afterRender(current, marker);
+        if (fallback) {
+          root(disposer => {
+            disposable = disposer;
+            current = insertExpression(parent, fallback(), current, marker)
+          });
+        }
+        return index;
+      }
+      root(disposer => {
+        disposable = disposer;
+        current = insertExpression(parent, render(), current, marker)
+      });
+      afterRender && afterRender(current, marker);
+      return index;
+    });
+  });
+}
+
 function insertNodes(parent, node, end, target) {
   let tmp;
   while (node !== end) {

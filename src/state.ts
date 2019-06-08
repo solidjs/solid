@@ -138,11 +138,6 @@ function updatePath(current: StateNode, path: any[], traversed: (number|string)[
     for (let i = from; i <= to; i += by) {
       updatePath(current, [i].concat(path), traversed.concat([i]));
     }
-  } else if (isArray && part === '*') {
-    // Ex. update('data', '*', 'label', l => l + ' !!!');
-    for (let i = 0; i < current.length; i++) {
-      updatePath(current, [i].concat(path), traversed.concat([i]));
-    }
   } else if (path.length === 1) {
     let value = path[0];
     if (typeof value === 'function') {

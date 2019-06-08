@@ -24,9 +24,13 @@ Creates a readonly signal that recalculates it's value whenever the executed cod
 
 Creates a new effect that explicitly tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
 
-### `onCleanup(() => <code>)`
+### `onCleanup((final: boolean) => <code>)`
 
 Registers a cleanup method that performs that executes on disposal or recalculation of the current context.
+
+### `afterEffects(() => <code>)`
+
+Registers a method that will run after the current execution process is complete. If multiple are registered they will processed LIFO (Last In First Out). These are useful when waiting on refs to resolves or child DOM nodes to render.
 
 ### `sample(() => <code>): any`
 
