@@ -14,6 +14,12 @@ let groupCounter = 0;
 
 export { wrap, currentContext };
 
+export function template(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  return t;
+}
+
 function normalizeIncomingArray(normalized, array) {
   for (let i = 0, len = array.length; i < len; i++) {
     let item = array[i];
