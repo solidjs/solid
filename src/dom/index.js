@@ -100,14 +100,14 @@ function clearAll(parent, current, marker, startNode) {
   return '';
 }
 
-function insertExpression(parent, value, current, marker) {
+function insertExpression(parent, value, current, marker, beforeNode) {
   if (value === current) return current;
-  parent = (marker && marker.parentNode) || parent;
+  parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
   const t = typeof value;
   if (t === 'string' || t === 'number') {
     if (t === 'number') value = value.toString();
     if (marker !== undefined) {
-      const startNode = (marker && marker.previousSibling) || parent.lastChild;
+      const startNode = (marker && marker.previousSibling) || (beforeNode && beforeNode.nextSibling) || parent.lastChild;
       if (value === '') clearAll(parent, current, marker)
       else if (current !== '' && typeof current === 'string') {
         startNode.data = value;
@@ -138,7 +138,9 @@ function insertExpression(parent, value, current, marker) {
 
 export function insert(parent, accessor, marker, initial) {
   if (typeof accessor !== 'function') return insertExpression(parent, accessor, initial, marker);
-  wrap((current = initial) => insertExpression(parent, accessor(), current, marker));
+  let beforeNode;
+  if (marker !== undefined) beforeNode = (marker && marker.previousSibling) || parent.lastChild;
+  wrap((current = initial) => insertExpression(parent, accessor(), current, marker, beforeNode));
 }
 
 function dynamicProp(props, key) {
@@ -242,14 +244,14 @@ export function when(parent, accessor, expr, options, marker) {
   let beforeNode, current, disposable;
   const { afterRender, fallback } = options;
 
-  if (marker) beforeNode = marker.previousSibling;
+  if (marker !== undefined) beforeNode = (marker && marker.previousSibling) || parent.lastChild;
   cleanup(function dispose() { disposable && disposable(); });
 
   wrap(cached => {
     const value = accessor();
     if (value === cached) return cached;
     return sample(() => {
-      parent = (marker && marker.parentNode) || parent;
+      parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
       disposable && disposable();
       if (value == null || value === false) {
         clearAll(parent, current, marker, beforeNode ? beforeNode.nextSibling : parent.firstChild);
@@ -281,7 +283,7 @@ export function switchWhen(parent, conditions, _, options, marker) {
   let beforeNode, current, disposable;
   const { fallback } = options;
 
-  if (marker) beforeNode = marker.previousSibling;
+  if (marker !== undefined) beforeNode = (marker && marker.previousSibling) || parent.lastChild;
   function evalConditions() {
     for (let i = 0; i < conditions.length; i++) {
       if (conditions[i].condition()) return {index: i, render: conditions[i].render, afterRender: conditions[i].options && conditions[i].options.afterRender};
@@ -294,7 +296,7 @@ export function switchWhen(parent, conditions, _, options, marker) {
     const {index, render, afterRender} = evalConditions();
     if (index === cached) return cached;
     return sample(() => {
-      parent = (marker && marker.parentNode) || parent;
+      parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
       disposable && disposable();
       if (index < 0) {
         clearAll(parent, current, marker, beforeNode ? beforeNode.nextSibling : parent.firstChild);
@@ -425,12 +427,12 @@ export function each(parent, accessor, expr, options, afterNode) {
   wrap((renderedValues = []) => {
     const data = accessor() || [];
     return sample(() => {
-      parent = (afterNode && afterNode.parentNode) || parent;
+      parent = (afterNode && afterNode.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
       const length = data.length;
 
       // Fast path for clear
       if (length === 0 || isFallback) {
-        if (beforeNode || afterNode) {
+        if (afterNode !== undefined) {
           let node = beforeNode ? beforeNode.nextSibling : parent.firstChild;
           removeNodes(parent, node, afterNode ? afterNode : null);
         } else parent.textContent = "";
@@ -635,9 +637,9 @@ export function suspend(parent, accessor, expr, options, marker) {
   const { fallback } = options,
     doc = document.implementation.createHTMLDocument();
 
-  if (marker) beforeNode = marker.previousSibling;
+  if (marker !== undefined) beforeNode = (marker && marker.previousSibling) || parent.lastChild;
   for (let name of eventRegistry.keys()) doc.addEventListener(name, eventHandler);
-  Object.defineProperty(doc.body, 'host', { get() { return (marker && marker.parentNode) || parent; } });
+  Object.defineProperty(doc.body, 'host', { get() { return (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent; } });
   cleanup(function dispose() { disposable && disposable(); });
 
   function suspense(options) {
@@ -646,7 +648,7 @@ export function suspend(parent, accessor, expr, options, marker) {
       const value = !!options.suspended();
       if (value === cached) return cached;
       let node;
-      parent = (marker && marker.parentNode) || parent;
+      parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
       if (value) {
         if (options.initializing) {
           if (typeof rendered !== 'function') current = insertExpression(doc.body, rendered);
@@ -709,7 +711,9 @@ export function portal(parent, accessor, expr, options, marker) {
     container =  document.createElement('div'),
     anchor = (accessor && sample(accessor)) || document.body,
     renderRoot = (useShadow && container.attachShadow) ? container.attachShadow({ mode: 'open' }) : container;
-  Object.defineProperty(container, 'host', { get() { return (marker && marker.parentNode) || parent; } });
+  let beforeNode;
+  if (marker !== undefined) beforeNode = (marker && marker.previousSibling) || parent.lastChild;
+  Object.defineProperty(container, 'host', { get() { return (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent; } });
   const nodes = sample(() => expr(container));
   if (typeof nodes !== 'function') insertExpression(container, nodes);
   else wrap(() => insertExpression(container, nodes()));
