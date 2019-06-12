@@ -259,27 +259,22 @@ export function when(parent, accessor, expr, options, marker) {
     return sample(() => {
       parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
       disposable && disposable();
+      clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
+      current = null;
       if (value == null || value === false) {
-        clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
-        current = null;
         afterRender && afterRender(current, marker);
         if (fallback) {
           root(disposer => {
             disposable = disposer;
-            const rendered = fallback();
-            if (typeof rendered !== 'function') current = insertExpression(parent, rendered, current, marker);
-            else wrap(() => current = insertExpression(parent, rendered(), current, marker));
+            addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
           });
         }
-        return value;
+      } else {
+        root(disposer => {
+          disposable = disposer;
+          addNode(parent, expr(value), marker, ++groupCounter, node => current = node, afterRender && afterRender(node, marker));
+        });
       }
-      root(disposer => {
-        disposable = disposer;
-        const rendered = expr(value);
-        if (typeof rendered !== 'function') current = insertExpression(parent, rendered, current, marker);
-        else wrap(() => current = insertExpression(parent, rendered(), current, marker));
-      });
-      afterRender && afterRender(current, marker);
       return value;
     });
   });
@@ -304,27 +299,22 @@ export function switchWhen(parent, conditions, _, options, marker) {
     return sample(() => {
       parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
       disposable && disposable();
+      clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
+      current = null;
       if (index < 0) {
-        clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
-        current = null;
-        afterRender && afterRender(current, marker);
+        afterRender && afterRender(null, marker);
         if (fallback) {
           root(disposer => {
             disposable = disposer;
-            const rendered = fallback();
-            if (typeof rendered !== 'function') current = insertExpression(parent, rendered, current, marker);
-            else wrap(() => current = insertExpression(parent, rendered(), current, marker));
+            addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
           });
         }
-        return index;
+      } else {
+        root(disposer => {
+          disposable = disposer;
+          addNode(parent, render(), marker, ++groupCounter, node => current = node, afterRender && afterRender(node, marker));
+        });
       }
-      root(disposer => {
-        disposable = disposer;
-        const rendered = render();
-        if (typeof rendered !== 'function') current = insertExpression(parent, rendered, current, marker);
-        else wrap(() => current = insertExpression(parent, rendered(), current, marker));
-      });
-      afterRender && afterRender(current, marker);
       return index;
     });
   });
@@ -656,10 +646,8 @@ export function suspend(parent, accessor, expr, options, marker) {
       let node;
       parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
       if (value) {
-        if (options.initializing) {
-          if (typeof rendered !== 'function') insertExpression(doc.body, rendered);
-          else wrap(() => insertExpression(doc.body, rendered()));
-        } else {
+        if (options.initializing) addNode(doc.body, rendered, undefined, ++groupCounter);
+        else {
           node = marker !== undefined ? step(marker.previousSibling, BACKWARD, true) : parent.firstChild;
           while (node && node !== marker) {
             const next = node.nextSibling;
@@ -670,17 +658,13 @@ export function suspend(parent, accessor, expr, options, marker) {
         if (fallback) {
           sample(() => root(disposer => {
             disposable = disposer;
-            const rendered = fallback();
-            if (typeof rendered !== 'function') current = insertExpression(parent, rendered, current, marker);
-            else wrap(() => current = insertExpression(parent, rendered(), current, marker));
+            addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
           }));
         }
         return value;
       }
-      if (options.initializing) {
-        if (typeof rendered !== 'function') current = insertExpression(parent, rendered, undefined, marker);
-        else wrap(() => current = insertExpression(parent, rendered(), undefined, marker));
-      } else {
+      if (options.initializing) addNode(parent, rendered, marker, ++groupCounter, node => current = node);
+      else {
         if (disposable) {
           clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
           disposable();
@@ -705,9 +689,7 @@ export function provide(parent, accessor, expr, options, marker) {
   wrap(() => {
     sample(() => {
       setContext(Context.id, Context.initFn ? Context.initFn(value) : value);
-      const rendered = expr();
-      if (typeof rendered !== 'function') insertExpression(parent, rendered, undefined, marker);
-      else wrap(() => insertExpression(parent, rendered(), undefined, marker));
+      addNode(parent, expr(), marker, ++groupCounter);
     });
   });
 }
@@ -721,10 +703,7 @@ export function portal(parent, accessor, expr, options, marker) {
   if (marker !== undefined) beforeNode = marker ? marker.previousSibling : parent.lastChild;
   Object.defineProperty(container, 'host', { get() { return (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent; } });
   const nodes = sample(() => expr(container));
-  if (typeof nodes !== 'function') insertExpression(container, nodes);
-  else wrap(() => insertExpression(container, nodes()));
-  // ShadyDOM polyfill doesn't handle mutationObserver on shadowRoot properly
-  if (container !== renderRoot) Promise.resolve().then(() => { while(container.firstChild) renderRoot.appendChild(container.firstChild); });
+  addNode(renderRoot, nodes, undefined, ++groupCounter);
   anchor.appendChild(container);
   cleanup(() => anchor.removeChild(container));
 }
