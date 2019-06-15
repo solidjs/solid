@@ -1,4 +1,9 @@
 # Changelog
+## 0.8.0 - 2019-06-14
+v0.8.0 brings further improvements in reducing bundle size and optimizations in reactivity. New Features:
+* Universal loadResource API
+* afterEffects hook
+* Switch Control Flow
 
 ## 0.7.0 - 2019-05-25
 v0.7.0 brings further improvements in tree shaking, Context API including Provide control flow, and suspense helpers for loading Async Components and Data.
