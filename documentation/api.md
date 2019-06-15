@@ -16,9 +16,9 @@ Creates a new effect that automatically tracks dependencies. 2nd argument is the
 
 Creates a new signal that can be used for reactive tracking. By default signals always notify on setting a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
-### `createMemo(prev => <code>, initialValue): getValueFn`
+### `createMemo(prev => <code>, initialValue, comparatorFn): getValueFn`
 
-Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update.
+Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. Memos only notify dependents when returned value changes. You can also set a custom comparator.
 
 ### `createDependentEffect(() => <code>, dependencies, defer): void`
 

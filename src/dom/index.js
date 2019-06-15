@@ -1,6 +1,6 @@
 import { Attributes } from 'dom-expressions';
 import {
-      createEffect as wrap, sample, createRoot as root,
+      createEffect as wrap, sample, createRoot as root, createMemo as memo,
       onCleanup as cleanup, setContext, registerSuspense,
       getContextOwner as currentContext
     } from '../solid.js';
@@ -248,74 +248,51 @@ export function spread(node, accessor) {
 
 export function when(parent, accessor, expr, options, marker) {
   let beforeNode, current, disposable;
-  const { afterRender, fallback } = options;
+  const { afterRender, fallback } = options,
+    condition = memo(accessor);
 
   if (marker !== undefined) beforeNode = marker ? marker.previousSibling : parent.lastChild;
-  cleanup(function dispose() { disposable && disposable(); });
-
-  wrap(cached => {
-    const value = accessor();
-    if (value === cached) return cached;
-    return sample(() => {
+  wrap(() => {
+    const value = condition();
+    sample(() => {
       parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
-      disposable && disposable();
       clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
       current = null;
       if (value == null || value === false) {
         afterRender && afterRender(current, marker);
         if (fallback) {
-          root(disposer => {
-            disposable = disposer;
-            addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
-          });
+          addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
         }
-      } else {
-        root(disposer => {
-          disposable = disposer;
-          addNode(parent, expr(value), marker, ++groupCounter, node => current = node, afterRender && afterRender(node, marker));
-        });
-      }
-      return value;
+      } else addNode(parent, expr(value), marker, ++groupCounter, node => (current = node, afterRender && afterRender(node, marker)));
     });
   });
 }
 
 export function switchWhen(parent, conditions, _, options, marker) {
   let beforeNode, current, disposable;
-  const { fallback } = options;
+  const { fallback } = options,
+    evalConditions = memo(() => {
+      for (let i = 0; i < conditions.length; i++) {
+        if (conditions[i].condition()) return i;
+      }
+      return -1;
+    });
 
   if (marker !== undefined) beforeNode = marker ? marker.previousSibling : parent.lastChild;
-  function evalConditions() {
-    for (let i = 0; i < conditions.length; i++) {
-      if (conditions[i].condition()) return {index: i, render: conditions[i].render, afterRender: conditions[i].options && conditions[i].options.afterRender};
-    }
-    return {index: -1};
-  }
-  cleanup(function dispose() { disposable && disposable(); });
-
-  wrap(cached => {
-    const {index, render, afterRender} = evalConditions();
-    if (index === cached) return cached;
-    return sample(() => {
+  wrap(() => {
+    const index = evalConditions();
+    sample(() => {
       parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
-      disposable && disposable();
       clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
       current = null;
       if (index < 0) {
-        afterRender && afterRender(null, marker);
         if (fallback) {
-          root(disposer => {
-            disposable = disposer;
-            addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
-          });
+          addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
         }
       } else {
-        root(disposer => {
-          disposable = disposer;
-          addNode(parent, render(), marker, ++groupCounter, node => current = node, afterRender && afterRender(node, marker));
-        });
+        const afterRender = conditions[index].options && conditions[index].options.afterRender;
+        addNode(parent, conditions[index].render(), marker, ++groupCounter, node => current = node, afterRender && afterRender(node, marker));
       }
-      return index;
     });
   });
 }
