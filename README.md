@@ -137,67 +137,6 @@ import html from 'solid-js/html'
 ```
 Remember you still need to install the library separately for these to work.
 
-## Components
-
-Templates in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and return real DOM nodes. Other than that nothing is special about them.
-
-```jsx
-const Parent = () => (
-  <section>
-    <Label greeting='Hello'>
-      <div>John</div>
-    </Label>
-  </section>
-);
-
-const Label = ({greeting, children}) => (
-  <>
-    <div>{greeting}</div>
-    {children}
-  </>
-);
-```
-
-Since the all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM. Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
-
-```jsx
-import { createState, createRoot } from 'solid-js'
-
-class Component extends HTMLElement {
-  constructor () {
-    const [state, setState] = createState({});
-    const [props, __setProps] = createState({});
-
-    Object.assign(this, {state, setState, props, __setProps});
-  }
-
-  connectedCallback() {
-    !this.shadowRoot && this.attachShadow({mode: 'open'});
-
-    createRoot(dispose => {
-      this.dispose = dispose;
-      this.shadowRoot.appendChild(this.render());
-    }
-  }
-
-  diconnectedCallback() { this.dispose && this.dispose(); }
-
-  attributeChangedCallback(attr, oldVal, newVal) {
-    this.__setProps({[attr]: newVal});
-  }
-}
-
-class MyComponent extends Component {
-  constuctor () {
-    super();
-    this.setState({greeting: 'World'});
-  }
-  render() {
-    return <div>Hello {(state.greeting)}</div>
-  }
-}
-```
-
 ## Why?
 
 This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very much inspired by fine-grain change detection libraries like Knockout.js and RxJS. The idea here is to ease users into the world of Observable programming by keeping it transparent and starting simple. Classically the Virtual DOM as seen in React for all its advances has some signifigant trade-offs:
@@ -226,6 +165,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 
 * [State](../master/documentation/state.md)
 * [Signals](../master/documentation/signals.md)
+* [Components](../master/documentation/components.md)
 * [JSX Rendering](../master/documentation/rendering.md)
 * [Context](../master/documentation/context.md)
 * [API](../master/documentation/api.md)
@@ -235,7 +175,8 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 
 * [Counter](https://codesandbox.io/s/8no2n9k94l) Simple Counter
 * [Simple Todos](https://codesandbox.io/s/lrm786ojqz) Todos with LocalStorage persistence
-* [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'when' control flow for simple routing
+* [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'switch' control flow for simple routing
+* [Scoreboard](https://codesandbox.io/s/solid-scoreboard-sjpje) Make use of hooks to do some simple transitions
 * [Async Resource](https://codesandbox.io/s/2o4wmxj9zy) Ajax requests to SWAPI with Promise cancellation
 * [Suspense](https://codesandbox.io/s/5v67oym224) Various Async loading with Solid's Suspend control flow
 * [Redux Undoable Todos](https://codesandbox.io/s/pkjw38r8mj) Example from Redux site done with Solid.

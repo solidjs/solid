@@ -71,7 +71,7 @@ const proxyTraps = {
     if (isListening() && typeof value !== 'function') {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._self || (nodes._self = new DataNode(undefined));
+        node = nodes._ || (nodes._ = new DataNode(undefined));
         node.current();
       }
       nodes = getDataNodes(target);
@@ -95,7 +95,7 @@ export function setProperty(state: StateNode, property: string | number, value: 
   } else state[property] = value;
   let nodes = getDataNodes(state), node;
   (node = nodes[property]) && node.next();
-  notify && (node = nodes._self) && node.next();
+  notify && (node = nodes._) && node.next();
 }
 
 function mergeState(state: StateNode, value: {[k: string]: any}) {
@@ -158,14 +158,13 @@ export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
   function setState(...path: StatePath): void
   function setState(paths: StatePath[]): void
   function setState(reconcile: (s: Wrapped<T>) => void) : void
-  function setState(): void {
-    const args = arguments;
+  function setState(...args: any[]): void {
     freeze(() => {
       if (Array.isArray(args[0])) {
         for (let i = 0; i < args.length; i += 1) {
           updatePath(state as T, args[i]);
         }
-      } else updatePath(state as T, Array.prototype.slice.call(args));
+      } else updatePath(state as T, args);
     });
   }
 

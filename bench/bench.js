@@ -45,7 +45,7 @@ function run(fn, n, scount) {
     end;
 
   createRoot(function () {
-    // run 3 times to warm up 
+    // run 3 times to warm up
     var sources = createDataSignals(scount, []);
     fn(n / 100, sources);
     sources = createDataSignals(scount, []);
@@ -93,8 +93,9 @@ function createComputations0to1(n, sources) {
 
 function createComputations1to1000(n, sources) {
   for (var i = 0; i < n / 1000; i++) {
+    const [get] = sources[i];
     for (var j = 0; j < 1000; j++) {
-      createComputation1(sources[i]);
+      createComputation1(get);
     }
     //sources[i] = null;
   }
@@ -102,39 +103,43 @@ function createComputations1to1000(n, sources) {
 
 function createComputations1to8(n, sources) {
   for (var i = 0; i < n / 8; i++) {
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
+    const [get] = sources[i];
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
     //sources[i] = null;
   }
 }
 
 function createComputations1to4(n, sources) {
   for (var i = 0; i < n / 4; i++) {
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
+    const [get] = sources[i];
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
+    createComputation1(get);
     //sources[i] = null;
   }
 }
 
 function createComputations1to2(n, sources) {
   for (var i = 0; i < n / 2; i++) {
-    createComputation1(sources[i]);
-    createComputation1(sources[i]);
+    const [get] = sources[i];
+    createComputation1(get);
+    createComputation1(get);
     //sources[i] = null;
   }
 }
 
 function createComputations1to1(n, sources) {
   for (var i = 0; i < n; i++) {
-    createComputation1(sources[i]);
+    const [get] = sources[i]
+    createComputation1(get);
     //sources[i] = null;
   }
 }
@@ -142,8 +147,8 @@ function createComputations1to1(n, sources) {
 function createComputations2to1(n, sources) {
   for (var i = 0; i < n; i++) {
     createComputation2(
-      sources[i * 2],
-      sources[i * 2 + 1]
+      sources[i * 2][0],
+      sources[i * 2 + 1][0]
     );
     //sources[i * 2] = null;
     //sources[i * 2 + 1] = null;
@@ -153,10 +158,10 @@ function createComputations2to1(n, sources) {
 function createComputations4to1(n, sources) {
   for (var i = 0; i < n; i++) {
     createComputation4(
-      sources[i * 4],
-      sources[i * 4 + 1],
-      sources[i * 4 + 2],
-      sources[i * 4 + 3]
+      sources[i * 4][0],
+      sources[i * 4 + 1][0],
+      sources[i * 4 + 2][0],
+      sources[i * 4 + 3][0]
     );
     //sources[i * 4] = null;
     //sources[i * 4 + 1] = null;
@@ -168,14 +173,14 @@ function createComputations4to1(n, sources) {
 function createComputations8(n, sources) {
   for (var i = 0; i < n; i++) {
     createComputation8(
-      sources[i * 8],
-      sources[i * 8 + 1],
-      sources[i * 8 + 2],
-      sources[i * 8 + 3],
-      sources[i * 8 + 4],
-      sources[i * 8 + 5],
-      sources[i * 8 + 6],
-      sources[i * 8 + 7]
+      sources[i * 8][0],
+      sources[i * 8 + 1][0],
+      sources[i * 8 + 2][0],
+      sources[i * 8 + 3][0],
+      sources[i * 8 + 4][0],
+      sources[i * 8 + 5][0],
+      sources[i * 8 + 6][0],
+      sources[i * 8 + 7][0]
     );
     sources[i * 8] = null;
     sources[i * 8 + 1] = null;
@@ -200,19 +205,19 @@ function createComputation0(i) {
 }
 
 function createComputation1(s1) {
-  createEffect(function () { return s1[0](); });
+  createEffect(function () { return s1(); });
 }
 
 function createComputation2(s1, s2) {
-  createEffect(function () { return s1[0]() + s2[0](); });
+  createEffect(function () { return s1() + s2(); });
 }
 
 function createComputation4(s1, s2, s3, s4) {
-  createEffect(function () { return s1[0]() + s2[0]() + s3[0]() + s4[0](); });
+  createEffect(function () { return s1() + s2() + s3() + s4(); });
 }
 
 function createComputation8(s1, s2, s3, s4, s5, s6, s7, s8) {
-  createEffect(function () { return s1[0]() + s2[0]() + s3[0]() + s4[0]() + s5[0]() + s6[0]() + s7[0]() + s8[0](); });
+  createEffect(function () { return s1() + s2() + s3() + s4() + s5() + s6() + s7() + s8(); });
 }
 
 function createComputation1000(ss, offset) {
@@ -226,35 +231,35 @@ function createComputation1000(ss, offset) {
 }
 
 function updateComputations1to1(n, sources) {
-  var s1 = sources[0];
-  createEffect(function () { return s1[0](); });
+  var [get1, set1] = sources[0];
+  createEffect(function () { return get1(); });
   for (var i = 0; i < n; i++) {
-    s1[1](i);
+    set1(i);
   }
 }
 
 function updateComputations2to1(n, sources) {
-  var s1 = sources[0],
-    s2 = sources[1];
-  createEffect(function () { return s1[0]() + s2[0](); });
+  var [get1, set1] = sources[0],
+    [get2] = sources[1];
+  createEffect(function () { return get1() + get2(); });
   for (var i = 0; i < n; i++) {
-    s1[1](i);
+    set1(i);
   }
 }
 
 function updateComputations4to1(n, sources) {
-  var s1 = sources[0],
-    s2 = sources[1],
-    s3 = sources[2],
-    s4 = sources[3];
-  createEffect(function () { return s1[0]() + s2[0]() + s3[0]() + s4[0](); });
+  var [get1, set1] = sources[0],
+    [get2] = sources[1];
+    [get3] = sources[2],
+    [get4] = sources[3];
+  createEffect(function () { return get1() + get2() + get3() + get4(); });
   for (var i = 0; i < n; i++) {
-    s1[1](i);
+    set1(i);
   }
 }
 
 function updateComputations1000to1(n, sources) {
-  var s1 = sources[0];
+  var [get1, set1] = sources[0];
   createEffect(function () {
     var sum = 0;
     for (var i = 0; i < 1000; i++) {
@@ -263,37 +268,37 @@ function updateComputations1000to1(n, sources) {
     return sum;
   });
   for (var i = 0; i < n; i++) {
-    s1[1](i);
+    set1(i);
   }
 }
 
 function updateComputations1to2(n, sources) {
-  var s1 = sources[0];
-  createEffect(function () { return s1[0](); });
-  createEffect(function () { return s1[0](); });
+  var [set1, get1] = sources[0];
+  createEffect(function () { return get1(); });
+  createEffect(function () { return get1(); });
   for (var i = 0; i < n / 2; i++) {
-    s1[1](i);
+    set1(i);
   }
 }
 
 function updateComputations1to4(n, sources) {
-  var s1 = sources[0];
-  createEffect(function () { return s1[0](); });
-  createEffect(function () { return s1[0](); });
-  createEffect(function () { return s1[0](); });
-  createEffect(function () { return s1[0](); });
+  var [set1, get1] = sources[0];
+  createEffect(function () { return get1(); });
+  createEffect(function () { return get1(); });
+  createEffect(function () { return get1(); });
+  createEffect(function () { return get1(); });
   for (var i = 0; i < n / 4; i++) {
-    s1[1](i);
+    set1(i);
   }
 }
 
 function updateComputations1to1000(n, sources) {
-  var s1 = sources[0];
+  var [set1, get1] = sources[0];
   for (var i = 0; i < 1000; i++) {
-    createEffect(function () { return s1[0](); });
+    createEffect(function () { return get1(); });
   }
   for (var i = 0; i < n / 1000; i++) {
-    s1[1](i);
+    set1(i);
   }
 }
 
@@ -304,12 +309,4 @@ function browserNow() {
 function nodeNow() {
   var hrt = process.hrtime();
   return hrt[0] * 1000 + hrt[1] / 1e6;
-}
-
-function repeat(n, val) {
-  var arr = [];
-  for (var i = 0; i < n; i++) {
-    arr[i] = val;
-  }
-  return arr;
 }

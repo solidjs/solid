@@ -216,7 +216,7 @@ class ComputationNode {
     this.source1slot = 0;
     this.sources = null;
     this.sourceslots = null;
-    this.owner = Owner;
+    this.owner = null;
     this.owned = null;
     this.cleanups = null;
   }
@@ -306,10 +306,10 @@ function lookup(owner: ComputationNode, key: symbol | string): any {
 
 function makeComputationNode<T>(fn: (v: T | undefined) => T, value: T | undefined, orphan: boolean, sample: boolean): void {
   var node = getCandidateNode(),
-    owner = Owner,
     listener = Listener,
     toplevel = RunningClock === null;
 
+  node.owner = Owner;
   Owner = node;
   Listener = sample ? null : node;
 
@@ -319,11 +319,11 @@ function makeComputationNode<T>(fn: (v: T | undefined) => T, value: T | undefine
     value = fn(value);
   }
 
-  Owner = owner;
+  Owner = node.owner;
   Listener = listener;
 
   recycleOrClaimNode(node, fn, value, orphan);
-  if (toplevel) finishToplevelComputation(owner, listener);
+  if (toplevel) finishToplevelComputation(Owner, listener);
 }
 
 function execToplevelComputation<T>(fn: (v: T | undefined) => T, value: T) {
