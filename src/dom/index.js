@@ -133,7 +133,7 @@ function insertExpression(parent, value, current, marker, beforeNode) {
     current = clearAll(parent, current, marker);
   } else if (value instanceof Node || Array.isArray(value)) {
     if (current !== '' && current != null) clearAll(parent, current, marker);
-    addNode(parent, value, marker, ++groupCounter);
+    addNode(parent, value, marker || (beforeNode && beforeNode.nextSibling), ++groupCounter);
     current = value;
   } else {
     throw new Error("content must be Node, stringable, or array of same");
@@ -247,7 +247,7 @@ export function spread(node, accessor) {
 }
 
 export function when(parent, accessor, expr, options, marker) {
-  let beforeNode, current, disposable;
+  let beforeNode, current;
   const { afterRender, fallback } = options,
     condition = memo(accessor);
 
@@ -261,15 +261,15 @@ export function when(parent, accessor, expr, options, marker) {
       if (value == null || value === false) {
         afterRender && afterRender(current, marker);
         if (fallback) {
-          addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
+          addNode(parent, fallback(), marker || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => current = node);
         }
-      } else addNode(parent, expr(value), marker, ++groupCounter, node => (current = node, afterRender && afterRender(node, marker)));
+      } else addNode(parent, expr(value), marker || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => (current = node, afterRender && afterRender(node, marker)));
     });
   });
 }
 
 export function switchWhen(parent, conditions, _, options, marker) {
-  let beforeNode, current, disposable;
+  let beforeNode, current;
   const { fallback } = options,
     evalConditions = memo(() => {
       for (let i = 0; i < conditions.length; i++) {
@@ -287,11 +287,11 @@ export function switchWhen(parent, conditions, _, options, marker) {
       current = null;
       if (index < 0) {
         if (fallback) {
-          addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
+          addNode(parent, fallback(), marker || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => current = node);
         }
       } else {
         const afterRender = conditions[index].options && conditions[index].options.afterRender;
-        addNode(parent, conditions[index].render(), marker, ++groupCounter, node => current = node, afterRender && afterRender(node, marker));
+        addNode(parent, conditions[index].render(), marker || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => current = node, afterRender && afterRender(node, marker));
       }
     });
   });
@@ -415,7 +415,7 @@ export function each(parent, accessor, expr, options, afterNode) {
           if (fallback) {
             isFallback = true;
             root(disposer =>
-              addNode(parent, fallback(), afterNode, ++groupCounter, node => disposables.set(node, disposer))
+              addNode(parent, fallback(), afterNode || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => disposables.set(node, disposer))
             );
           }
           return [];
@@ -635,12 +635,12 @@ export function suspend(parent, accessor, expr, options, marker) {
         if (fallback) {
           sample(() => root(disposer => {
             disposable = disposer;
-            addNode(parent, fallback(), marker, ++groupCounter, node => current = node);
+            addNode(parent, fallback(), marker || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => current = node);
           }));
         }
         return value;
       }
-      if (options.initializing) addNode(parent, rendered, marker, ++groupCounter, node => current = node);
+      if (options.initializing) addNode(parent, rendered, marker || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => current = node);
       else {
         if (disposable) {
           clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
