@@ -257,7 +257,7 @@ export function when(parent, accessor, expr, options, marker) {
     const value = condition();
     sample(() => {
       parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
-      clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
+      clearAll(parent, current, marker !== undefined ? marker || (current ? step(current, FORWARD) : null) : marker, beforeNode && beforeNode.nextSibling);
       current = null;
       if (value == null || value === false) {
         afterRender && afterRender(current, marker);
@@ -284,7 +284,7 @@ export function switchWhen(parent, conditions, _, options, marker) {
     const index = evalConditions();
     sample(() => {
       parent = (marker && marker.parentNode) || (beforeNode && beforeNode.parentNode) || parent;
-      clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
+      clearAll(parent, current, marker !== undefined ? marker || (current ? step(current, FORWARD) : null) : marker, beforeNode && beforeNode.nextSibling);
       current = null;
       if (index < 0) {
         if (fallback) {
@@ -643,7 +643,7 @@ export function suspend(parent, accessor, expr, options, marker) {
       if (options.initializing) addNode(parent, rendered, marker || (beforeNode && beforeNode.nextSibling), ++groupCounter, node => current = node);
       else {
         if (disposable) {
-          clearAll(parent, current, marker, beforeNode && beforeNode.nextSibling);
+          clearAll(parent, current, marker !== undefined ? marker || (current ? step(current, FORWARD) : null) : marker, beforeNode && beforeNode.nextSibling);
           disposable();
         }
         while (node = doc.body.firstChild) parent.insertBefore(node, marker);
