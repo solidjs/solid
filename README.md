@@ -165,8 +165,8 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 
 * [State](../master/documentation/state.md)
 * [Signals](../master/documentation/signals.md)
-* [Components](../master/documentation/components.md)
 * [JSX Rendering](../master/documentation/rendering.md)
+* [Components](../master/documentation/components.md)
 * [Context](../master/documentation/context.md)
 * [API](../master/documentation/api.md)
 * [Comparison with other Libraries](../master/documentation/comparison.md)

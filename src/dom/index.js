@@ -97,9 +97,10 @@ function removeNodes(parent, node, end) {
 }
 
 function clearAll(parent, current, marker, startNode) {
+  if (current == null || current === '') return '';
   if (marker === undefined) return parent.textContent = '';
   if (Array.isArray(current)) startNode = current[0];
-  else if (current != null && current != '' && startNode == null) {
+  else if (startNode == null) {
     startNode = step((marker && marker.previousSibling) || parent.lastChild, BACKWARD, true);
   }
   startNode && removeNodes(parent, startNode, marker);
@@ -374,10 +375,9 @@ function findGreatestIndexLEQ(seq, n) {
 // https://github.com/Freak613/stage0/blob/master/reconcile.js
 // This implementation is tailored for fine grained change detection and adds support for fragments
 export function each(parent, accessor, expr, options, afterNode) {
-  let disposables = new Map(),
-    isFallback = false,
-    beforeNode = afterNode ? afterNode.previousSibling : null;
+  let disposables = new Map(), isFallback = false, beforeNode;
   const { afterRender, fallback } = options;
+  if (afterNode !== undefined) beforeNode = afterNode ? afterNode.previousSibling : parent.lastChild;
 
   function createFn(item, i, afterNode) {
     return root(disposer =>
