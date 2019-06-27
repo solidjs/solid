@@ -9,6 +9,10 @@ This approach both is more performant and produces less code then creating each 
 
 More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
 
+### Note on TypeScript
+
+There are a few caveats with using Solid's JSX with TypeScript. You need to add index.d.ts from [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) to your Type roots. This defines the JSX elements and attributes needed to use Solid's JSX. It also globally defines $ for Solid's control flow. As of current it is impossible to set this as an intrinsic element. There is an issue submitted: https://github.com/microsoft/TypeScript/issues/31606. Similarly TypeScript doesn't like Solid's always single JSX children. It needs to be cast to handle those cases. Similarly issues have not gained traction as it appears TypeScript TSX only fully supports React or React-look-a-likes. https://github.com/Microsoft/TypeScript/issues/30918.
+
 ## Binding
 
 By default data is simply bound to expressions. If you wish to bind it for dynamic changes add inner parenthesis to your binding. Ex {( )}

@@ -60,6 +60,10 @@ const DynamicComponent = props => <div>{( props.name )}</div>
 <DynamicComponent name='John' />
 ```
 
+## Children
+
+Solid handles JSX Children as if they are always a single value. Either the value of a single node, string, or expression, or in the case of multiple children a single fragment. This ensures consistent behavior when attaching to the DOM and optimal performance for cloning templates but still allows many other patterns. If you need to pass multiple data points you can pass an array in a single expression. The same goes for functions, to support patterns like render props.
+
 ## Web Components
 
 Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
