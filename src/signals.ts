@@ -76,6 +76,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Co
   } finally {
     Owner = owner;
   }
+  afterNode(root);
 
   if (disposer !== null && recycleOrClaimNode(root, null as any, undefined, true)) {
     root = null!;
@@ -120,6 +121,12 @@ export function onCleanup(fn: (final: boolean) => void): void {
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
 };
+
+export function afterEffects(fn: () => void): void {
+  if (Owner === null) console.warn("afterEffects created without a root or parent will never be run");
+  else if (Owner.afters === null) Owner.afters = [fn];
+  else Owner.afters.push(fn);
+}
 
 export function isListening() {
   return Listener !== null;
@@ -207,6 +214,7 @@ class ComputationNode {
   noRecycle?: boolean;
   owned: ComputationNode[] | null;
   cleanups: (((final: boolean) => void)[]) | null;
+  afters: ((() => void)[]) | null;
 
   constructor() {
     this.fn = null;
@@ -219,6 +227,7 @@ class ComputationNode {
     this.owner = null;
     this.owned = null;
     this.cleanups = null;
+    this.afters = null;
   }
 }
 
@@ -322,6 +331,7 @@ function makeComputationNode<T>(fn: (v: T | undefined) => T, value: T | undefine
   Owner = node.owner;
   Listener = listener;
 
+  afterNode(node);
   recycleOrClaimNode(node, fn, value, orphan);
   if (toplevel) finishToplevelComputation(Owner, listener);
 }
@@ -382,6 +392,14 @@ function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => 
           _owner.cleanups.push(node.cleanups[i]);
         }
         node.cleanups = null;
+      }
+
+      if (node.afters !== null) {
+        if (_owner.afters === null) _owner.afters = node.afters;
+        else for (i = 0; i < node.afters.length; i++) {
+          _owner.afters.push(node.afters[i]);
+        }
+        node.afters = null;
       }
     }
   } else {
@@ -522,9 +540,21 @@ function updateNode(node: ComputationNode) {
     cleanupNode(node, false);
     node.value = node.fn!(node.value);
     node.state = CURRENT;
+    afterNode(node);
 
     Owner = owner;
     Listener = listener;
+  }
+}
+
+function afterNode(node: ComputationNode) {
+  var i, afters = node.afters;
+
+  if (afters !== null) {
+    Promise.resolve().then(() => {
+      for (i = 0; i < afters!.length; i++) afters![i]();
+    });
+    node.afters = null;
   }
 }
 

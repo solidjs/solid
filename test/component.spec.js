@@ -1,4 +1,4 @@
-const { setDefaults, afterEffects } = require('../lib/solid');
+const { setDefaults } = require('../lib/solid');
 
 describe('Set Default Props', () => {
   test('simple set', () => {
@@ -9,18 +9,5 @@ describe('Set Default Props', () => {
     expect(props.b).toBe(null);
     expect(props.c).toBe('j');
     expect(props.d).toBe('DD');
-  });
-});
-
-describe('Trigger afterEffects', () => {
-  test('Queue up and execute reverse order', async (done) => {
-    let result = ''
-    afterEffects(() => result += 'Smith!');
-    afterEffects(() => result += 'John ');
-    afterEffects(() => result += 'Hello, ');
-    expect(result).toBe('');
-    await Promise.resolve();
-    expect(result).toBe('Hello, John Smith!');
-    done();
   });
 });

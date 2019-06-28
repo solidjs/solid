@@ -6,13 +6,3 @@ export function setDefaults(props: Props, defaultProps: Props) {
     !(key in props) && (props[key] = defaultProps[key]);
   }
 }
-
-const afterStack: Function[] = [];
-function runAfter() {
-  let cb;
-  while(cb = afterStack.pop()) cb();
-}
-export function afterEffects(fn: () => void) {
-  if (!afterStack.length) Promise.resolve().then(runAfter);
-  afterStack.push(fn);
-}

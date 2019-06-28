@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createEffect, createDependentEffect, createMemo, freeze, sample, onCleanup } = require('../lib/solid');
+const { createRoot, createSignal, createEffect, createDependentEffect, createMemo, freeze, sample, onCleanup, afterEffects } = require('../lib/solid');
 
 describe('Create signals', () => {
   test('Create and read a Signal', () => {
@@ -149,5 +149,35 @@ describe('onCleanup', () => {
     expect(temp).toBeUndefined();
     disposer();
     expect(temp).toBe('disposed');
+  });
+});
+
+describe('Trigger afterEffects', () => {
+  test('Queue up and execute in order', async (done) => {
+    let result = ''
+    createRoot(() => {
+      afterEffects(() => result += 'Hello, ');
+      afterEffects(() => result += 'John ');
+      afterEffects(() => result += 'Smith!');
+    });
+    expect(result).toBe('');
+    await Promise.resolve();
+    expect(result).toBe('Hello, John Smith!');
+    done();
+  });
+
+  test('Queue up and execute in reverse order when nested', async (done) => {
+    let result = ''
+    createRoot(() => {
+      afterEffects(() => result += 'Smith!');
+      createEffect(() => {
+        afterEffects(() => result += 'John ');
+        createEffect(() => afterEffects(() => result += 'Hello, '))
+      })
+    });
+    expect(result).toBe('');
+    await Promise.resolve();
+    expect(result).toBe('Hello, John Smith!');
+    done();
   });
 });

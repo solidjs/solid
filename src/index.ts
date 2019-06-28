@@ -1,6 +1,6 @@
 export {
   createRoot, createSignal, createEffect, createDependentEffect, createMemo, isListening,
-  onCleanup, sample, freeze, createContext, useContext, setContext, getContextOwner
+  onCleanup, afterEffects, sample, freeze, createContext, useContext, setContext, getContextOwner
 } from './signals';
 
 export { createState, unwrap } from './state';
