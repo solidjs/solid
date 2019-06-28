@@ -617,5 +617,6 @@ function cleanupSource(source: Log, slot: number) {
 function dispose(node: ComputationNode) {
   node.fn = null;
   node.owner = null;
+  node.afters = null;
   cleanupNode(node, true);
 }
