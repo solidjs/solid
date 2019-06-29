@@ -70,9 +70,9 @@ const [state, setState] = createState({
 
 ## Custom Directives
 
-Custom Directives are supported by Solid. They aren't often necessary as Components/HOCs can carry their own capability. However it is a powerful tool to enhance the functionality of the rendering. And can be suitable for small reusable behavior and optimizations.
+Custom Directives are supported by Solid. Directives are a way to encapsulate DOM manipulation like what you do with Refs without exposing them into your Component. They are reusable and applicable to any DOM element. They aren't often necessary as Components/Hooks can carry their own capability. However it is a powerful tool to enhance the functionality of binding attributes. And can be suitable for small reusable behavior and optimizations.
 
-Custom bindings are functions that take the form
+Custom directives are functions that take the form:
 ```js
 const custom = (element, valueAccessor) => {
   const value = valueAccessor();

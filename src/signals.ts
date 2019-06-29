@@ -21,17 +21,36 @@ export function createSignal<T>(value?: T, comparator?: (v?: T, p?: T) => boolea
   return [d.current.bind(d), setter];
 }
 
-export function createEffect<T>(fn: (v?: T) => T, seed?: T) { makeComputationNode(fn, seed, false, false); }
+export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
+  const node = getCandidateNode(),
+    listener = Listener,
+    toplevel = RunningClock === null;
+
+  node.owner = Owner;
+  Owner = node;
+  Listener = node;
+
+  if (toplevel) {
+    value = execToplevelComputation(fn, value as T);
+  } else {
+    value = fn(value);
+  }
+
+  Owner = node.owner;
+  Listener = listener;
+
+  afterNode(node);
+  recycleOrClaimNode(node, fn, value, false);
+  if (toplevel) finishToplevelComputation(Owner, listener);
+}
 
 // explicit dependencies and defered initial execution
 export function createDependentEffect<T>(fn: (v?: T) => T, deps: () => any | (() => any)[], defer?: boolean) {
   if (Array.isArray(deps)) deps = callAll(deps);
   defer = !!defer;
 
-  return createEffect(on);
-
-  function on(value: T | undefined): T {
-    var listener = Listener;
+  createEffect((value: T | undefined) => {
+    const listener = Listener;
     deps();
     if (defer) defer = false;
     else {
@@ -40,7 +59,7 @@ export function createDependentEffect<T>(fn: (v?: T) => T, deps: () => any | (()
       Listener = listener;
     }
     return value as T;
-  }
+  });
 }
 
 const EQUAL = (a: any, b: any) => a === b
@@ -50,13 +69,12 @@ export function createMemo<T>(fn: (v: T | undefined) => T, value?: T, comparator
   // TODO: Restore synchronicity
   comparator || (comparator = EQUAL);
   const [s, set] = createSignal(fn(undefined), comparator);
-  makeComputationNode(v => (set(v = fn(v)), v), value, false, false)
+  createEffect(v => (set(v = fn(v)), v), value)
   return s;
 };
 
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: ComputationNode): T {
-  var owner = Owner,
-    disposer = fn.length === 0 ? null : function _dispose() {
+  let disposer = fn.length === 0 ? null : function _dispose() {
       if (root === null) {
         // nothing to dispose
       } else if (RunningClock !== null) {
@@ -66,15 +84,15 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Co
       }
     },
     root = disposer === null ? UNOWNED : getCandidateNode(),
-    result: T;
-  let potentialOwner = detachedOwner || Owner;
-  root !== potentialOwner && (root.owner = potentialOwner);
+    result: T,
+    owner = detachedOwner || Owner;
+  root !== owner && (root.owner = owner);
   Owner = root;
 
   try {
     result = disposer === null ? (fn as any)() : fn(disposer);
   } finally {
-    Owner = owner;
+    Owner = root.owner;
   }
   afterNode(root);
 
@@ -86,11 +104,10 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Co
 };
 
 export function freeze<T>(fn: () => T): T {
-  var result: T = undefined!;
+  let result: T = undefined!;
 
-  if (RunningClock !== null) {
-    result = fn();
-  } else {
+  if (RunningClock !== null) result = fn();
+  else {
     RunningClock = RootClock;
     RunningClock.changes.reset();
 
@@ -106,7 +123,7 @@ export function freeze<T>(fn: () => T): T {
 };
 
 export function sample<T>(fn: () => T): T {
-  var result: T,
+  let result: T,
     listener = Listener;
 
   Listener = null;
@@ -137,8 +154,7 @@ export function isListening() {
 export interface Context { id: symbol, initFn?: Function };
 
 export function createContext(initFn?: Function): Context {
-  const id = Symbol('context');
-  return { id, initFn };
+  return { id: Symbol('context'), initFn };
 }
 
 export function useContext(context: Context) {
@@ -165,15 +181,13 @@ export class DataNode {
   pending: any;
   log: Log | null;
 
-  constructor(public value: any) {
+  constructor(public value?: any) {
     this.pending = NOTPENDING;
     this.log = null;
   }
 
   current() {
-    if (Listener !== null) {
-      logDataRead(this);
-    }
+    if (Listener !== null) logDataRead(this);
     return this.value;
   }
 
@@ -200,7 +214,7 @@ export class DataNode {
   }
 }
 
-class ComputationNode {
+type ComputationNode = {
   fn: ((v: any) => any) | null;
   value: any;
   age: number;
@@ -215,19 +229,22 @@ class ComputationNode {
   owned: ComputationNode[] | null;
   cleanups: (((final: boolean) => void)[]) | null;
   afters: ((() => void)[]) | null;
-
-  constructor() {
-    this.fn = null;
-    this.age = -1
-    this.state = CURRENT;
-    this.source1 = null;
-    this.source1slot = 0;
-    this.sources = null;
-    this.sourceslots = null;
-    this.owner = null;
-    this.owned = null;
-    this.cleanups = null;
-    this.afters = null;
+}
+function makeComputationNode(): ComputationNode {
+  return {
+    fn: null,
+    age: -1,
+    state: CURRENT,
+    source1: null,
+    source1slot: 0,
+    sources: null,
+    sourceslots: null,
+    owner: null,
+    owned: null,
+    value: undefined,
+    context: undefined,
+    cleanups: null,
+    afters: null
   }
 }
 
@@ -279,8 +296,8 @@ class Queue<T> {
   }
 
   run(fn: (item: T) => void) {
-    var items = this.items;
-    for (var i = 0; i < this.count; i++) {
+    let items = this.items;
+    for (let i = 0; i < this.count; i++) {
       fn(items[i]!);
       items[i] = null!;
     }
@@ -289,14 +306,14 @@ class Queue<T> {
 }
 
 // Constants
-var NOTPENDING = {},
+let NOTPENDING = {},
   CURRENT = 0,
   STALE = 1,
   RUNNING = 2,
-  UNOWNED = new ComputationNode();
+  UNOWNED = makeComputationNode();
 
 // "Globals" used to keep track of current system state
-var RootClock = createClock(),
+let RootClock = createClock(),
   RunningClock = null as any, // currently running clock
   Listener = null as ComputationNode | null, // currently listening computation
   Owner = null as ComputationNode | null, // owner for new computations
@@ -305,35 +322,12 @@ var RootClock = createClock(),
 // Functions
 function callAll(ss: (() => any)[]) {
   return function all() {
-    for (var i = 0; i < ss.length; i++) ss[i]();
+    for (let i = 0; i < ss.length; i++) ss[i]();
   }
 }
 
 function lookup(owner: ComputationNode, key: symbol | string): any {
   return (owner && owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key));
-}
-
-function makeComputationNode<T>(fn: (v: T | undefined) => T, value: T | undefined, orphan: boolean, sample: boolean): void {
-  var node = getCandidateNode(),
-    listener = Listener,
-    toplevel = RunningClock === null;
-
-  node.owner = Owner;
-  Owner = node;
-  Listener = sample ? null : node;
-
-  if (toplevel) {
-    value = execToplevelComputation(fn, value as T);
-  } else {
-    value = fn(value);
-  }
-
-  Owner = node.owner;
-  Listener = listener;
-
-  afterNode(node);
-  recycleOrClaimNode(node, fn, value, orphan);
-  if (toplevel) finishToplevelComputation(Owner, listener);
 }
 
 function execToplevelComputation<T>(fn: (v: T | undefined) => T, value: T) {
@@ -362,14 +356,14 @@ function finishToplevelComputation(owner: ComputationNode | null, listener: Comp
 }
 
 function getCandidateNode() {
-  var node = LastNode;
-  if (node === null) node = new ComputationNode();
+  let node = LastNode;
+  if (node === null) node = makeComputationNode();
   else LastNode = null;
   return node;
 }
 
 function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => T, value: T, orphan: boolean) {
-  var _owner = orphan || Owner === null || Owner === UNOWNED ? null : Owner,
+  let _owner = orphan || Owner === null || Owner === UNOWNED ? null : Owner,
     recycle = !node.noRecycle && node.source1 === null && (node.owned === null && node.cleanups === null || _owner !== null),
     i: number;
 
@@ -409,7 +403,7 @@ function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => 
 }
 
 function logRead(from: Log) {
-  var to = Listener!,
+  let to = Listener!,
     fromslot: number,
     toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
 
@@ -446,7 +440,7 @@ function logDataRead(data: DataNode) {
 
 function event() {
   // b/c we might be under a top level S.root(), have to preserve current root
-  var owner = Owner;
+  let owner = Owner;
   RootClock.updates.reset();
   RootClock.time++;
   try {
@@ -458,7 +452,7 @@ function event() {
 }
 
 function run(clock: Clock) {
-  var running = RunningClock,
+  let running = RunningClock,
     count = 0;
 
   RunningClock = clock;
@@ -490,20 +484,20 @@ function applyDataChange(data: DataNode) {
 }
 
 function markComputationsStale(log: Log) {
-  var node1 = log.node1,
+  let node1 = log.node1,
     nodes = log.nodes;
 
   // mark all downstream nodes stale which haven't been already
   if (node1 !== null) markNodeStale(node1);
   if (nodes !== null) {
-    for (var i = 0, len = nodes.length; i < len; i++) {
+    for (let i = 0, len = nodes.length; i < len; i++) {
       markNodeStale(nodes[i]);
     }
   }
 }
 
 function markNodeStale(node: ComputationNode) {
-  var time = RootClock.time;
+  let time = RootClock.time;
   if (node.age < time) {
     node.age = time;
     node.state = STALE;
@@ -513,8 +507,8 @@ function markNodeStale(node: ComputationNode) {
 }
 
 function markOwnedNodesForDisposal(owned: ComputationNode[]) {
-  for (var i = 0; i < owned.length; i++) {
-    var child = owned[i];
+  for (let i = 0; i < owned.length; i++) {
+    let child = owned[i];
     child.age = RootClock.time;
     child.state = CURRENT;
     if (child.owned !== null) markOwnedNodesForDisposal(child.owned);
@@ -523,7 +517,7 @@ function markOwnedNodesForDisposal(owned: ComputationNode[]) {
 
 function updateNode(node: ComputationNode) {
   if (node.state === STALE) {
-    var owner = Owner,
+    let owner = Owner,
       listener = Listener;
 
     Owner = Listener = node;
@@ -540,18 +534,18 @@ function updateNode(node: ComputationNode) {
 }
 
 function afterNode(node: ComputationNode) {
-  var i, afters = node.afters;
+  let afters = node.afters;
 
   if (afters !== null) {
     Promise.resolve().then(() => {
-      for (i = 0; i < afters!.length; i++) afters![i]();
+      for (let i = 0; i < afters!.length; i++) afters![i]();
     });
     node.afters = null;
   }
 }
 
 function cleanupNode(node: ComputationNode, final: boolean) {
-  var source1 = node.source1,
+  let source1 = node.source1,
     sources = node.sources,
     sourceslots = node.sourceslots,
     cleanups = node.cleanups,
@@ -585,7 +579,7 @@ function cleanupNode(node: ComputationNode, final: boolean) {
 }
 
 function cleanupSource(source: Log, slot: number) {
-  var nodes = source.nodes!,
+  let nodes = source.nodes!,
     nodeslots = source.nodeslots!,
     last: ComputationNode,
     lastslot: number;
