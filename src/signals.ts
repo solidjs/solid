@@ -393,14 +393,6 @@ function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => 
         }
         node.cleanups = null;
       }
-
-      if (node.afters !== null) {
-        if (_owner.afters === null) _owner.afters = node.afters;
-        else for (i = 0; i < node.afters.length; i++) {
-          _owner.afters.push(node.afters[i]);
-        }
-        node.afters = null;
-      }
     }
   } else {
     node.fn = fn;
