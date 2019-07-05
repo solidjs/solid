@@ -205,9 +205,10 @@ HyperScript API for DOM Expressions.
 * [React Solid State](https://github.com/ryansolid/react-solid-state)
 React Hooks API to use Solid.js paradigm in your existing React apps.
 
-## Past Articles
+## Articles
 
-* [The Real Cost of UI Components](https://medium.com/better-programming/the-real-cost-of-ui-components-6d2da4aba205?source=friends_link&sk=a412aa18825c8424870d72a556db2169) Comparison of the cost of Components in different ui Libraries.
+* [Finding Fine Grained Reactive Programming](https://levelup.gitconnected.com/finding-fine-grained-reactive-programming-89741994ddee?source=friends_link&sk=31c66a70c1dce7dd5f3f4229423ad127) Introduction to the inner workings of Solid's Reactive system.
+* [The Real Cost of UI Components](https://medium.com/better-programming/the-real-cost-of-ui-components-6d2da4aba205?source=friends_link&sk=a412aa18825c8424870d72a556db2169) Comparison of the cost of Components in different UI Libraries.
 * [The Fastest Way to Render the DOM](https://medium.com/@ryansolid/the-fastest-way-to-render-the-dom-e3b226b15ca3?source=friends_link&sk=5ae1688dde789e46cecf5c976e708da5) Comparison of all Solid Renderers against the Fastest Libraries in the World.
 * [JavaScript UI Compilers: Comparing Svelte and Solid](https://medium.com/@ryansolid/javascript-ui-compilers-comparing-svelte-and-solid-cbcba2120cea) A closer look at precompiled UI libraries
 * [Building a Simple JavaScript App with Solid](https://levelup.gitconnected.com/building-a-simple-javascript-app-with-solid-ff17c8836409) Dissecting building TodoMVC with Solid.
