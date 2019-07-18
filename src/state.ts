@@ -9,9 +9,24 @@ type StateNode = {
   [k: number]: any
 }
 type Partial<T> = { [P in keyof T]?: Partial<T[P]> }
+
+// well-known symbols need special treatment until https://github.com/microsoft/TypeScript/issues/24622 is implemented.
+type AddSymbolToPrimitive<T> = T extends
+  {[Symbol.toPrimitive]: infer V;} ?
+  {[Symbol.toPrimitive]: V;} :
+  {};
+type AddCallable<T> = T extends
+  {(...x: any): infer V;} ?
+  {(...x: any): V;} :
+  {};
+
 export type Wrapped<T> = {
   [P in keyof T]: T[P] extends object ? Wrapped<T[P]> : T[P];
-} & { _state: T }
+} & {
+  _state: T
+} & AddSymbolToPrimitive<T>
+  & AddCallable<T>;
+
 type StateAtom = string | number | boolean | symbol | null | undefined | any[]
 type StateSetter<T> = (
   Partial<T>
