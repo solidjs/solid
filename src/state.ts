@@ -16,8 +16,8 @@ type AddSymbolToPrimitive<T> = T extends
   {[Symbol.toPrimitive]: V;} :
   {};
 type AddCallable<T> = T extends
-  {(...x: any): infer V;} ?
-  {(...x: any): V;} :
+  {(...x: any[]): infer V;} ?
+  {(...x: Parameters<T>): V;} :
   {};
 
 export type Wrapped<T> = {
