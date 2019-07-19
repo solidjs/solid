@@ -1,12 +1,13 @@
 export {
   createRoot, createSignal, createEffect, createDependentEffect, createMemo, isListening,
-  onCleanup, afterEffects, sample, freeze, createContext, useContext, setContext, getContextOwner
-} from './signals';
+  onCleanup, afterEffects, sample, freeze, createContext, useContext, getContextOwner
+} from './signal';
 
 export { createState, unwrap } from './state';
 
 export { reconcile } from './reconcile';
 
+export * from './operator';
 export * from './component';
-export * from './afterRender';
+export * from './transform';
 export * from './suspense';

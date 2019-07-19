@@ -21,9 +21,9 @@ import CounterContext from './counter';
 
 const AppComponent = () => {
   // start counter at 2
-  <$ provide={CounterContext} value={2}>
+  <CounterContext.Provide value={2}>
     //...
-  </$>
+  </CounterContext.Provide>
 }
 
 // nested.js

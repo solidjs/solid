@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createEffect, createDependentEffect, createMemo, freeze, sample, onCleanup, afterEffects } = require('../lib/solid');
+import { createRoot, createSignal, createEffect, createDependentEffect, createMemo, freeze, sample, onCleanup, afterEffects } from '../dist/index';
 
 describe('Create signals', () => {
   test('Create and read a Signal', () => {

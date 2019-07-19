@@ -1,4 +1,4 @@
-import { isListening, DataNode, freeze } from './signals';
+import { isListening, DataNode, freeze } from './signal';
 const SNODE = Symbol('solid-node'),
   SPROXY = Symbol('solid-proxy');
 

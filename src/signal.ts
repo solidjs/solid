@@ -35,7 +35,6 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
   } else {
     value = fn(value);
   }
-
   Owner = node.owner;
   Listener = listener;
 
@@ -62,13 +61,11 @@ export function createDependentEffect<T>(fn: (v?: T) => T, deps: () => any | (()
   });
 }
 
-const EQUAL = (a: any, b: any) => a === b
 export function createMemo<T>(fn: (v: T | undefined) => T, value?: T, comparator?: (v?: T, p?: T) => boolean): () => T {
   if (Owner === null) console.warn("computations created without a root or parent will never be disposed");
 
   // TODO: Restore synchronicity
-  comparator || (comparator = EQUAL);
-  const [s, set] = createSignal(fn(undefined), comparator);
+  const [s, set] = createSignal(value, comparator);
   createEffect(v => (set(v = fn(v)), v), value)
   return s;
 };
@@ -79,19 +76,20 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Co
         // nothing to dispose
       } else if (RunningClock !== null) {
         RootClock.disposes.add(root);
-      } else {
-        dispose(root);
-      }
+      } else dispose(root);
     },
     root = disposer === null ? UNOWNED : getCandidateNode(),
     result: T,
+    listener = Listener,
     owner = detachedOwner || Owner;
   root !== owner && (root.owner = owner);
   Owner = root;
 
   try {
+    Listener = null;
     result = disposer === null ? (fn as any)() : fn(disposer);
   } finally {
+    Listener = listener;
     Owner = root.owner;
   }
   afterNode(root);
@@ -150,11 +148,10 @@ export function isListening() {
 };
 
 // context API
-
-export interface Context { id: symbol, initFn?: Function };
-
+export interface Context { id: symbol, Provide: (props: any) => any };
 export function createContext(initFn?: Function): Context {
-  return { id: Symbol('context'), initFn };
+  const id = Symbol('context');
+  return { id, Provide: createProvider(id, initFn) };
 }
 
 export function useContext(context: Context) {
@@ -165,13 +162,6 @@ export function useContext(context: Context) {
 export function getContextOwner() {
   Owner && (Owner.noRecycle = true);
   return Owner;
-}
-
-export function setContext(key: symbol | string, value: any) {
-  if (Owner === null) return console.warn("Context keys cannot be set without a root or parent");
-  const context = Owner.context || (Owner.context = {});
-  Owner.noRecycle = true;
-  context[key] = value;
 }
 
 // Internal implementation
@@ -302,6 +292,22 @@ class Queue<T> {
       items[i] = null!;
     }
     this.count = 0;
+  }
+}
+
+function createProvider(id: symbol, initFn?: Function) {
+  return (props: any) => {
+    let rendered;
+    createEffect(() => {
+      sample(() => {
+        if (Owner === null) return console.warn("Context keys cannot be set without a root or parent");
+        const context = Owner.context || (Owner.context = {});
+        Owner.noRecycle = true;
+        context[id] = initFn ? initFn(props.value) : props.value;
+        rendered = props.children;
+      });
+    });
+    return rendered;
   }
 }
 

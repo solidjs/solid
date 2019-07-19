@@ -1,4 +1,4 @@
-const { createState, reconcile, unwrap } = require('../lib/solid');
+import { createState, reconcile, unwrap } from '../dist/index';
 
 describe('setState with reconcile', () => {
 

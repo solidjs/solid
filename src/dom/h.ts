@@ -2,4 +2,4 @@
 import { createHyperScript } from 'hyper-dom-expressions';
 import * as r from './index';
 
-export default createHyperScript(r);
+export default createHyperScript(r as any);

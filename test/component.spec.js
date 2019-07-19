@@ -1,4 +1,4 @@
-const { setDefaults } = require('../lib/solid');
+import { setDefaults } from '../dist/index';
 
 describe('Set Default Props', () => {
   test('simple set', () => {

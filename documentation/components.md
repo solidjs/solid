@@ -69,7 +69,8 @@ Solid handles JSX Children as if they are always a single value. Either the valu
 Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
 
 ```jsx
-import { createState, createRoot } from 'solid-js'
+import { createState } from 'solid-js';
+import { render } from 'solid-js/dom';
 
 class Component extends HTMLElement {
   constructor () {
@@ -81,11 +82,7 @@ class Component extends HTMLElement {
 
   connectedCallback() {
     !this.shadowRoot && this.attachShadow({mode: 'open'});
-
-    createRoot(dispose => {
-      this.dispose = dispose;
-      this.shadowRoot.appendChild(this.render());
-    }
+    this.dispose = render(this.render.bind(this), this.shadowRoot);
   }
 
   diconnectedCallback() { this.dispose && this.dispose(); }

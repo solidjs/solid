@@ -1,12 +1,9 @@
 module.exports = {
-  output: 'src/dom/index.js',
+  output: 'src/dom/runtime.js',
   includeTypes: true,
   variables: {
-    imports: [ `import {
-      createEffect as wrap, sample, createRoot as root, createMemo as memo,
-      onCleanup as cleanup, setContext, registerSuspense,
-      getContextOwner as currentContext
-    } from '../solid.js'` ],
-    includeContext: true
+    imports: [`import { createEffect as wrap, getContextOwner as currentContext } from '../index'`],
+    includeContext: true,
+    fragmentError: `import 'solid-js/fragment'.`
   }
 }

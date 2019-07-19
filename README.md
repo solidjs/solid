@@ -32,10 +32,9 @@ const HelloMessage = ({name}) => (
   </div>
 );
 
-createRoot(() =>
-  document
-    .getElementById("hello-example")
-    .appendChild(<HelloMessage name="Taylor" />)
+render(
+  () => <HelloMessage name="Taylor" />,
+  document.getElementById("hello-example")
 );
 ```
 
@@ -43,7 +42,7 @@ createRoot(() =>
 
 To use Solid with JSX (recommended) run:
 ```sh
-> npm install solid-js babel-plugin-jsx-dom-expressions
+> npm install solid-js babel-preset-solid
 ```
 
 Or you can get started with a simple app with the CLI with by running:
@@ -122,10 +121,10 @@ Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/
 
 > Prettier and some compile to JS libraries like CoffeeScript will strip Parenthesis causing issues with Solid's JSX. So unfortunately they are incompatible at this time.
 
-To get setup add this babel plugin config to your .babelrc, webpack, or rollup config:
+The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
 
 ```js
-"plugins": [["jsx-dom-expressions", {moduleName: 'solid-js/dom'}]]
+"presets": ["solid"]
 ```
 
 Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions).

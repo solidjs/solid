@@ -1,4 +1,4 @@
-const { createRoot, createState, createSignal, createEffect, unwrap } = require('../lib/solid');
+import { createRoot, createState, createSignal, createEffect, unwrap } from '../dist/index';
 
 describe('State immutablity', () => {
   test('Setting a property', () => {

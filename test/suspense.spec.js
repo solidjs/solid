@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createEffect, setContext, SuspenseContext, lazy, loadResource } = require('../lib/solid');
+import { createRoot, createSignal, createEffect, SuspenseContext, lazy, loadResource } from '../dist/index';
 
 describe('Simulate Lazy Component', () => {
   let resolve, result;
@@ -7,12 +7,17 @@ describe('Simulate Lazy Component', () => {
 
   test('setup context', async done => {
     createRoot(() => {
-      setContext(SuspenseContext.id, SuspenseContext.initFn());
-      const value = LazyChild({greeting: 'Hello'})
-      createEffect(() => result = value());
+      const props = {}
+      Object.defineProperty(props, 'children', {
+        get() {
+          const value = LazyChild({greeting: 'Hello'})
+          createEffect(() => result = value());
+        }
+      })
+      SuspenseContext.Provide(props);
     });
     expect(result).toBeUndefined();
-    resolve({default: Child});
+    await resolve({default: Child});
     await Promise.resolve();
     expect(result).toBe('Hello');
     done();

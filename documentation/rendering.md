@@ -12,9 +12,15 @@ More documentation is available at: [babel-plugin-jsx-dom-expressions](https://g
 ### Note on attribute binding order
 Static attributes are created as part of the html template together. Expressions fixed and dynamic are applied afterwards in JSX binding order. While this is fine for most DOM elements there are some like input elements with `type='range'` where order matters. Keep this in mind when binding elements.
 
-### Note on TypeScript
+## Entry
 
-There are a few caveats with using Solid's JSX with TypeScript. You need to add index.d.ts from [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) to your Type roots. This defines the JSX elements and attributes needed to use Solid's JSX. It also globally defines $ for Solid's control flow. As of current it is impossible to set this as an intrinsic element. There is an issue submitted: https://github.com/microsoft/TypeScript/issues/31606. Similarly TypeScript doesn't like Solid's always single JSX children. It needs to be cast to handle those cases. Similarly issues have not gained traction as it appears TypeScript TSX only fully supports React or React-look-a-likes. https://github.com/Microsoft/TypeScript/issues/30918.
+The easiest way to mount Solid is to import render from 'solid-js/dom'. `render` takes a function as the first argument and the mounting container for the second and returns a disposal method. This `render` automatically creates the reactive root and handles rendering into the mount container. Solid assumes full control of the mount container so use an element with no children.
+
+```jsx
+import { render } from 'solid-js/dom';
+
+render(() => <App />, document.getElementById('main'));
+```
 
 ## Binding
 
@@ -28,22 +34,22 @@ If you need to use non-lowercase or hyphenated event names use the events bindin
 
 ## Control Flow
 
-While you could use a map function for loops and raw ternary operators of conditionals they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods. To keep things simple and optimizable the the renderer uses a special JSX tag (<$>) for control flow. Current 'each', 'when', 'switch', 'provide', 'suspend', and 'portal' are supported.
+While you could use a map function for loops and raw ternary operators of conditionals they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods.  Current 'For', 'Show', 'Switch/Match', 'Suspense', and 'Portal' are supported.
 
 ```jsx
 <ul>
-  <$ each={ state.users } fallback={ <div>No Users</div> }>{
+  <For each={( state.users )} fallback={ <div>No Users</div> }>{
     user => <li>
       <div>{( user.firstName )}</div>
-      <$ when={ user.stars > 100 }>
+      <Show when={( user.stars > 100 )}>
         <div>Verified</div>
-      </$>
+      </Show>
     </li>
-  }</$>
+  }</For>
 </ul>
 ```
 
-The library also includes a couple afterRender directives that can be applied to the each and when control flow.
+The library also includes a couple transform directives that can be applied to the each and when control flow.
 
 ### selectWhen(signal, handler)
 ### selectEach(signal, handler)
@@ -60,30 +66,18 @@ const [state, setState] = createState({
 
 /* .... */
 
-<$
-  each={state.list}
-  afterRender={selectEach(
+<For
+  each={(state.list)}
+  transform={selectEach(
     () => state.selected,
     (node, selected) => node.toggleClass('selected', selected)
   )}
 >{ item =>
   <div model={item} onClick={select} />
-}</$>
+}</For>
 ```
 
-## Custom Directives
+## Refs
 
-Custom Directives are supported by Solid. Directives are a way to encapsulate DOM manipulation like what you do with Refs without exposing them into your Component. They are reusable and applicable to any DOM element. They aren't often necessary as Components/Hooks can carry their own capability. However it is a powerful tool to enhance the functionality of binding attributes. And can be suitable for small reusable behavior and optimizations.
+Refs come in 2 flavours. Ref which directly assigns the value, and forwardRef which calls a callback `(ref) => void` with the reference.
 
-Custom directives are functions that take the form:
-```js
-const custom = (element, valueAccessor) => {
-  const value = valueAccessor();
-  // ... do something with the value and the element
-}
-```
-
-To use a binding simply prepend it with a $:
-```js
-<div $custom={someConfig} />
-```

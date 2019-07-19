@@ -6,21 +6,22 @@ const plugins = [nodeResolve({
 }), babel({
   extensions: ['.js', '.ts'],
   exclude: 'node_modules/**',
+  babelrc: false,
   "presets": ["@babel/preset-typescript"]
 })]
 
 export default [{
   input: 'src/index.ts',
   output: [{
-    file: 'lib/solid.js',
+    file: 'lib/index.js',
     format: 'cjs'
   }, {
-    file: 'dist/solid.js',
+    file: 'dist/index.js',
     format: 'es'
   }],
   plugins
 }, {
-  input: 'src/dom/index.js',
+  input: 'src/dom/index.ts',
   output: [{
     file: 'lib/dom/index.js',
     format: 'cjs'
@@ -28,7 +29,7 @@ export default [{
     file: 'dist/dom/index.js',
     format: 'es'
   }],
-  external: ['../solid.js'],
+  external: ['../index'],
   plugins: plugins
 }, {
   input: 'src/dom/html.ts',

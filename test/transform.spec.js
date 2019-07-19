@@ -1,4 +1,4 @@
-const { createRoot, createSignal,  selectWhen, selectEach } = require('../lib/solid');
+import { createRoot, createSignal,  selectWhen, selectEach } from '../dist/index';
 
 function createList(parent, length) {
   let i = 0;
@@ -17,7 +17,7 @@ describe('selectWhen', () => {
   test('various selection', () => {
     createRoot(() => {
       const handler = selectWhen(selected, 'selected');
-      handler(div.firstChild, null);
+      handler(() => [...div.childNodes]);
       expect(div.childNodes[1].className).toBe('');
       setSelected(2);
       expect(div.childNodes[1].className).toBe('selected');
@@ -37,7 +37,7 @@ describe('selectEach', () => {
   test('various selection', () => {
     createRoot(() => {
       const handler = selectEach(selected, 'selected');
-      handler(div.firstChild, null);
+      handler(() => [...div.childNodes]);
       expect(div.childNodes[1].className).toBe('');
       setSelected([2]);
       expect(div.childNodes[1].className).toBe('selected');
