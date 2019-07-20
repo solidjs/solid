@@ -14,7 +14,7 @@ export function render(code: () => any, element: Node): () => void {
 }
 
 export function For<T, U>(props: {each: T[], fallback?: any, transform?: (fn: () => U[]) => () => U[], children: (item: T) => U }) {
-  const mapped = map<T, U>(() => props.each, props.children, 'fallback' in props ? () => props.fallback : undefined);
+  const mapped = map<T, U>(props.children, 'fallback' in props ? () => props.fallback : undefined)(() => props.each);
   return props.transform ? props.transform(mapped) : mapped;
 }
 

@@ -15,11 +15,11 @@ function useTick(delay) {
 }
 ```
 
-### Accessors & Context
+## Accessors & Context
 
 Signals are special functions that when executed return their value. Accessors are just functions that "access", or read a value from one or more Signals. At the time of reading the Signal the current execution context (a computation) has the ability to track Signals that have been read, building out a dependency tree that can automatically trigger recalculations as their values are updated. This can be as nested as desired and each new nested context tracks it's own dependencies. Since Accessors by nature of being composed of Signal reads are too reactive we don't need to wrap Signals at every level just at the top level where they are used and around any place that is computationally expensive where you may want to memoize or store intermediate values.
 
-### Computations
+## Computations
 
 An computation is calculation over a function execution that automatically dynamically tracks any dependent signals. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
 
@@ -59,7 +59,7 @@ dispatch({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}});
 ```
 That being said there are plenty of reasons to use actual Redux.
 
-### Rendering
+## Rendering
 
 You can also use signals directly. As an example, the following will show a count of ticking seconds:
 
@@ -75,7 +75,7 @@ createRoot(() => {
 })
 ```
 
-### Composition
+## Composition
 
 State and Signals combine wonderfully as wrapping a state selector in a function instantly makes it reactive accessor. They encourage composing more sophisticated patterns to fit developer need.
 
@@ -95,7 +95,20 @@ const useReducer = (reducer, init) => {
 }
 ```
 
-### Observable
+## Operators
+
+Solid provides a couple simple operators to help construct more complicated behaviors. They are in Functional Programming form, where they are functions that return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with 3 basic ones:
+
+### `pipe(...operators): (signal) => any`
+The pipe operator is used to combine other operators.
+
+### `map(iterator: (item, index) => any, fallback: () => any): (signal) => any[]`
+Memoized array map operator with optional fallback. This operator does not re-map items if already in the list.
+
+### `reduce(accumulator: (memo, item, index) => any, seed): (signal) => any`
+Array reduce operator useful for combining or filtering lists.
+
+## Observables
 
 Signals and Observable are similar concepts that can work together but there are a few key differences. Observables are as defined by the [TC39 Proposal](https://github.com/tc39/proposal-observable). These are a standard way of representing streams, and follow a few key conventions. Mostly that they are cold, unicast, and push-based by default. What this means is that they do not do anything until subscribed to at which point they create the source, and do so for each subscription. So if you had an Observable from a DOM Event, subscribing would add an event listener for each function you pass. In so being unicast they aren't managing a list of subscribers. Finally being push you don't ask for the latest value, they tell you.
 
