@@ -13,20 +13,20 @@ export function render(code: () => any, element: Node): () => void {
   return disposer!;
 }
 
-export function For<T, U>(props: {each: T[], fallback?: any, transform?: (fn: () => U[]) => () => U[], children: (item: T) => U }) {
+export function For<T, U>(props: {each: T[], fallback?: any, transform?: (mapped: () => U[], source: () => T[]) => () => U[], children: (item: T) => U }) {
   const mapped = map<T, U>(props.children, 'fallback' in props ? () => props.fallback : undefined)(() => props.each);
-  return props.transform ? props.transform(mapped) : mapped;
+  return props.transform ? props.transform(mapped, () => props.each) : mapped;
 }
 
-export function Show(props: {when: boolean, fallback?: any, transform?: (fn: () => any) => () => any, children: any }) {
+export function Show<T>(props: {when: boolean, fallback?: any, transform?: (mapped: () => T, source: () => boolean) => () => T | undefined, children: any }) {
   const condition = createMemo(() => props.when, undefined, EQUAL),
     useFallback = 'fallback' in props,
     mapped = () => condition() ? sample(() => props.children) : useFallback && sample(() => props.fallback)
-  return props.transform ? props.transform(mapped) : mapped;
+  return props.transform ? props.transform(mapped, condition) : mapped;
 }
 
 type MatchProps = { when: boolean, children: any }
-export function Switch(props: { fallback?: any, transform: (fn: () => any) => () => any, children: any }) {
+export function Switch<T>(props: { fallback?: any, transform: (mapped: () => T, source: () => number) => () => T, children: any }) {
   let conditions = props.children;
   Array.isArray(conditions) || (conditions = [conditions]);
   const useFallback = 'fallback' in props,
@@ -40,7 +40,7 @@ export function Switch(props: { fallback?: any, transform: (fn: () => any) => ()
       const index = evalConditions();
       return sample(() => index < 0 ? useFallback && props.fallback : conditions[index].children);
     };
-  return props.transform ? props.transform(mapped) : mapped;
+  return props.transform ? props.transform(mapped, evalConditions) : mapped;
 }
 
 export function Match(props: MatchProps) { return props; }

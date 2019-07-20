@@ -35,7 +35,7 @@ export function map<T, U>(
       for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
     })
     return () => {
-      let newItems = list(),
+      let newItems = list() || [],
         i: number,
         j: number;
       return sample(() => {
@@ -130,7 +130,7 @@ export function map<T, U>(
 
 export function reduce<T, U>(fn: (memo: U | undefined, value: T, i: number) => U, seed?: U) {
   return (list: () => T[]) => () => {
-    let newList = list(),
+    let newList = list() || [],
       result = seed;
     return sample(() => {
       for (let i = 0; i < newList.length; i++) {

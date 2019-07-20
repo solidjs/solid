@@ -1,5 +1,4 @@
-import { render } from '../../dist/dom/index'
-import { clearDelegatedEvents } from '../../dist/dom/index'
+import { render, clearDelegatedEvents } from '../../dist/dom/index'
 
 describe('Testing a simple Portal', () => {
   let div = document.createElement('div'),

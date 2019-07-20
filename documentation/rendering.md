@@ -49,7 +49,7 @@ While you could use a map function for loops and raw ternary operators of condit
 </ul>
 ```
 
-The library also includes a couple transform directives that can be applied to the each and when control flow.
+The library also includes a couple transform directives that can be applied to the For control flow.
 
 ### selectWhen(signal, handler)
 ### selectEach(signal, handler)
