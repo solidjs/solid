@@ -7,7 +7,6 @@
 ![](https://img.shields.io/npm/dt/solid-js.svg?style=flat)
 ![](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 [![Gitter chat](https://badges.gitter.im/solidjs-community/community.png)](https://gitter.im/solidjs-community/community "Gitter chat")
-[![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/solid-js)
 
 Solid is yet another declarative Javascript library for creating user interfaces.  It does not use a Virtual DOM. Instead it opts to compile its templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
 
