@@ -13,20 +13,38 @@ export function render(code: () => any, element: Node): () => void {
   return disposer!;
 }
 
-export function For<T, U>(props: {each: T[], fallback?: any, transform?: (mapped: () => U[], source: () => T[]) => () => U[], children: (item: T) => U }) {
-  const mapped = map<T, U>(props.children, 'fallback' in props ? () => props.fallback : undefined)(() => props.each);
+export function For<T, U>(
+    props: {
+      each: T[],
+      fallback?: any,
+      transform?: (mapped: () => U[], source: () => T[]) => () => U[],
+      children: (item: T) => U,
+    }) {
+  const mapped = map<T, U>(
+    props.children, 'fallback' in props ? () => props.fallback : undefined
+  )(() => props.each);
   return props.transform ? props.transform(mapped, () => props.each) : mapped;
 }
 
-export function Show<T>(props: {when: boolean, fallback?: any, transform?: (mapped: () => T, source: () => boolean) => () => T | undefined, children: any }) {
+export function Show<T>(
+    props: {
+      when: boolean,
+      fallback?: any,
+      transform?: (mapped: () => T, source: () => boolean) => () => T | undefined,
+      children: any,
+    }) {
   const condition = createMemo(() => props.when, undefined, EQUAL),
     useFallback = 'fallback' in props,
     mapped = () => condition() ? sample(() => props.children) : useFallback && sample(() => props.fallback)
   return props.transform ? props.transform(mapped, condition) : mapped;
 }
 
-type MatchProps = { when: boolean, children: any }
-export function Switch<T>(props: { fallback?: any, transform: (mapped: () => T, source: () => number) => () => T, children: any }) {
+export function Switch<T>(
+    props: {
+      fallback?: any,
+      transform?: (mapped: () => T, source: () => number) => () => T,
+      children: any,
+    }) {
   let conditions = props.children;
   Array.isArray(conditions) || (conditions = [conditions]);
   const useFallback = 'fallback' in props,
@@ -43,9 +61,15 @@ export function Switch<T>(props: { fallback?: any, transform: (mapped: () => T, 
   return props.transform ? props.transform(mapped, evalConditions) : mapped;
 }
 
+type MatchProps = { when: boolean, children: any }
 export function Match(props: MatchProps) { return props; }
 
-export function Suspense(props: { delayMs?: number, fallback: any, children: any }) {
+export function Suspense(
+    props: {
+      delayMs?: number,
+      fallback: any,
+      children: any,
+    }) {
   return createComponent(SuspenseContext.Provide, { value: props.delayMs,  children: () => {
     const c = useContext(SuspenseContext),
       rendered = sample(() => props.children),
@@ -64,7 +88,12 @@ export function Suspense(props: { delayMs?: number, fallback: any, children: any
   }}, ['children']);
 }
 
-export function Portal(props: {mount?: Node, useShadow: boolean, children: any}) {
+export function Portal(
+    props: {
+      mount?: Node,
+      useShadow: boolean,
+      children: any,
+    }) {
   const { useShadow } = props,
     container =  document.createElement('div'),
     marker = document.createTextNode(''),
