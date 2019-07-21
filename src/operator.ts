@@ -23,8 +23,8 @@ export function pipe(...fns: Array<Operator<any, any>>): Operator<any, any> {
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function map<T, U>(
-  mapFn: (v: T, i: number) => U | any,
-  fallback?: () => any
+  mapFn: (v: T, i: number) => U,
+  fallback?: () => U
 ) {
   return (list: () => T[]) => {
     let items = [] as T[],
