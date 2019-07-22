@@ -14,13 +14,22 @@ function applyState(target: any, parent: any, property: string | number, merge: 
 
   if (Array.isArray(target)) {
     if (target.length && previous.length && (!merge || (key && target[0][key] != null))) {
-      let i, j, start, end, newEnd, item, newIndicesNext, keyVal,
-        temp = new Array(target.length),
-        newIndices = new Map();
-      // skip common prefix and suffix
+      let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
+      // common prefix
       for (start = 0, end = Math.min(previous.length, target.length); start < end && (previous[start] === target[start] || key && previous[start][key] === target[start][key]); start++) {
         applyState(target[start], previous, start, merge, key);
       }
+      // fast path for addition
+      if (start >= previous.length && previous.length <= target.length) {
+        for (j = start; j < target.length; j++) {
+          setProperty(previous, j, target[j]);
+        }
+        return;
+      }
+
+      const temp = new Array(target.length),
+        newIndices = new Map();
+      // common suffix
       for (end = previous.length - 1, newEnd = target.length - 1; end >= 0 && newEnd >= 0 && (previous[end] === target[newEnd] || key && previous[end][key] === target[newEnd][key]); end--, newEnd--) {
         temp[newEnd] = previous[end];
       }
