@@ -86,7 +86,7 @@ export function map<T, U>(
               mapped[j] = createRoot(mapper);
             }
             len = newLen;
-            return mapped
+            return mapped;
           }
 
           newIndices = new Map<T, number>();
