@@ -91,7 +91,7 @@ export function Suspense(
 export function Portal(
     props: {
       mount?: Node,
-      useShadow: boolean,
+      useShadow?: boolean,
       children: any,
     }) {
   const { useShadow } = props,
