@@ -1,7 +1,10 @@
 // Modified version of S.js[https://github.com/adamhaile/S] by Adam Haile
 
 // Public interface
-export function createSignal<T>(value?: T, comparator?: (v?: T, p?: T) => boolean): [() => T, (v: T) => void] {
+export function createSignal<T>(
+  value?: T,
+  comparator?: (v?: T, p?: T) => boolean
+): [() => T, (v: T) => void] {
   const d = new DataNode(value);
   let setter;
   if (comparator) {
@@ -10,7 +13,9 @@ export function createSignal<T>(value?: T, comparator?: (v?: T, p?: T) => boolea
       if (!comparator(value, v)) {
         const time = RootClock.time;
         if (time === age) {
-          throw new Error(`Conflicting value update: ${v} is not the same as ${value}`);
+          throw new Error(
+            `Conflicting value update: ${v} is not the same as ${value}`
+          );
         }
         age = time;
         value = v;
@@ -44,7 +49,11 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
 }
 
 // explicit dependencies and defered initial execution
-export function createDependentEffect<T>(fn: (v?: T) => T, deps: () => any | (() => any)[], defer?: boolean) {
+export function createDependentEffect<T>(
+  fn: (v?: T) => T,
+  deps: () => any | (() => any)[],
+  defer?: boolean
+) {
   if (Array.isArray(deps)) deps = callAll(deps);
   defer = !!defer;
 
@@ -61,23 +70,36 @@ export function createDependentEffect<T>(fn: (v?: T) => T, deps: () => any | (()
   });
 }
 
-export function createMemo<T>(fn: (v: T | undefined) => T, value?: T, comparator?: (v?: T, p?: T) => boolean): () => T {
-  if (Owner === null) console.warn("computations created without a root or parent will never be disposed");
+export function createMemo<T>(
+  fn: (v: T | undefined) => T,
+  value?: T,
+  comparator?: (v?: T, p?: T) => boolean
+): () => T {
+  if (Owner === null)
+    console.warn(
+      "computations created without a root or parent will never be disposed"
+    );
 
   // TODO: Restore synchronicity
   const [s, set] = createSignal(value, comparator);
-  createEffect(v => (set(v = fn(v)), v), value)
+  createEffect(v => (set((v = fn(v))), v), value);
   return s;
-};
+}
 
-export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: ComputationNode): T {
-  let disposer = fn.length === 0 ? null : function _dispose() {
-      if (root === null) {
-        // nothing to dispose
-      } else if (RunningClock !== null) {
-        RootClock.disposes.add(root);
-      } else dispose(root);
-    },
+export function createRoot<T>(
+  fn: (dispose: () => void) => T,
+  detachedOwner?: ComputationNode
+): T {
+  let disposer =
+      fn.length === 0
+        ? null
+        : function _dispose() {
+            if (root === null) {
+              // nothing to dispose
+            } else if (RunningClock !== null) {
+              RootClock.disposes.add(root);
+            } else dispose(root);
+          },
     root = disposer === null ? UNOWNED : getCandidateNode(),
     result: T,
     listener = Listener,
@@ -94,12 +116,15 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Co
   }
   afterNode(root);
 
-  if (disposer !== null && recycleOrClaimNode(root, null as any, undefined, true)) {
+  if (
+    disposer !== null &&
+    recycleOrClaimNode(root, null as any, undefined, true)
+  ) {
     root = null!;
   }
 
   return result;
-};
+}
 
 export function freeze<T>(fn: () => T): T {
   let result: T = undefined!;
@@ -118,7 +143,7 @@ export function freeze<T>(fn: () => T): T {
   }
 
   return result;
-};
+}
 
 export function sample<T>(fn: () => T): T {
   let result: T,
@@ -132,30 +157,40 @@ export function sample<T>(fn: () => T): T {
 }
 
 export function onCleanup(fn: (final: boolean) => void): void {
-  if (Owner === null) console.warn("cleanups created without a root or parent will never be run");
+  if (Owner === null)
+    console.warn("cleanups created without a root or parent will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
-};
+}
 
 export function afterEffects(fn: () => void): void {
-  if (Owner === null) console.warn("afterEffects created without a root or parent will never be run");
+  if (Owner === null)
+    console.warn(
+      "afterEffects created without a root or parent will never be run"
+    );
   else if (Owner.afters === null) Owner.afters = [fn];
   else Owner.afters.push(fn);
 }
 
 export function isListening() {
   return Listener !== null;
-};
+}
 
 // context API
-export interface Context { id: symbol, Provide: (props: any) => any };
+export interface Context {
+  id: symbol;
+  Provide: (props: any) => any;
+}
 export function createContext(initFn?: Function): Context {
-  const id = Symbol('context');
+  const id = Symbol("context");
   return { id, Provide: createProvider(id, initFn) };
 }
 
 export function useContext(context: Context) {
-  if (Owner === null) return console.warn("Context keys cannot be looked up without a root or parent");
+  if (Owner === null)
+    return console.warn(
+      "Context keys cannot be looked up without a root or parent"
+    );
   return lookup(Owner, context.id);
 }
 
@@ -183,15 +218,20 @@ export class DataNode {
 
   next(value: any) {
     if (RunningClock !== null) {
-      if (this.pending !== NOTPENDING) { // value has already been set once, check for conflicts
+      if (this.pending !== NOTPENDING) {
+        // value has already been set once, check for conflicts
         if (value !== this.pending) {
-          throw new Error("conflicting changes: " + value + " !== " + this.pending);
+          throw new Error(
+            "conflicting changes: " + value + " !== " + this.pending
+          );
         }
-      } else { // add to list of changes
+      } else {
+        // add to list of changes
         this.pending = value;
         RootClock.changes.add(this);
       }
-    } else { // not batching, respond to change now
+    } else {
+      // not batching, respond to change now
       if (this.log !== null) {
         this.pending = value;
         RootClock.changes.add(this);
@@ -219,7 +259,7 @@ type ComputationNode = {
   owned: ComputationNode[] | null;
   cleanups: (((final: boolean) => void)[]) | null;
   afters: ((() => void)[]) | null;
-}
+};
 function makeComputationNode(): ComputationNode {
   return {
     fn: null,
@@ -235,7 +275,7 @@ function makeComputationNode(): ComputationNode {
     context: undefined,
     cleanups: null,
     afters: null
-  }
+  };
 }
 
 type Clock = {
@@ -243,34 +283,34 @@ type Clock = {
   changes: Queue<DataNode>;
   updates: Queue<ComputationNode>;
   disposes: Queue<ComputationNode>;
-}
+};
 function createClock() {
   return {
     time: 0,
     changes: new Queue<DataNode>(), // batched changes to data nodes
     updates: new Queue<ComputationNode>(), // computations to update
-    disposes: new Queue<ComputationNode>(), // disposals to run after current batch of updates finishes
-  }
+    disposes: new Queue<ComputationNode>() // disposals to run after current batch of updates finishes
+  };
 }
 
 type Log = {
-  node1: null | ComputationNode,
-  node1slot: number,
-  nodes: null | ComputationNode[],
-  nodeslots: null | number[]
-}
+  node1: null | ComputationNode;
+  node1slot: number;
+  nodes: null | ComputationNode[];
+  nodeslots: null | number[];
+};
 function createLog(): Log {
   return {
     node1: null as null | ComputationNode,
     node1slot: 0,
     nodes: null as null | ComputationNode[],
     nodeslots: null as null | number[]
-  }
+  };
 }
 
 class Queue<T> {
   count: number;
-  items: T[]
+  items: T[];
 
   constructor() {
     this.items = [];
@@ -300,7 +340,10 @@ function createProvider(id: symbol, initFn?: Function) {
     let rendered;
     createEffect(() => {
       sample(() => {
-        if (Owner === null) return console.warn("Context keys cannot be set without a root or parent");
+        if (Owner === null)
+          return console.warn(
+            "Context keys cannot be set without a root or parent"
+          );
         const context = Owner.context || (Owner.context = {});
         Owner.noRecycle = true;
         context[id] = initFn ? initFn(props.value) : props.value;
@@ -308,7 +351,7 @@ function createProvider(id: symbol, initFn?: Function) {
       });
     });
     return rendered;
-  }
+  };
 }
 
 // Constants
@@ -329,11 +372,14 @@ let RootClock = createClock(),
 function callAll(ss: (() => any)[]) {
   return function all() {
     for (let i = 0; i < ss.length; i++) ss[i]();
-  }
+  };
 }
 
 function lookup(owner: ComputationNode, key: symbol | string): any {
-  return (owner && owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key));
+  return (
+    (owner && owner.context && owner.context[key]) ||
+    (owner.owner && lookup(owner.owner, key))
+  );
 }
 
 function execToplevelComputation<T>(fn: (v: T | undefined) => T, value: T) {
@@ -348,7 +394,10 @@ function execToplevelComputation<T>(fn: (v: T | undefined) => T, value: T) {
   }
 }
 
-function finishToplevelComputation(owner: ComputationNode | null, listener: ComputationNode | null) {
+function finishToplevelComputation(
+  owner: ComputationNode | null,
+  listener: ComputationNode | null
+) {
   if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
     RootClock.time++;
     try {
@@ -368,9 +417,17 @@ function getCandidateNode() {
   return node;
 }
 
-function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => T, value: T, orphan: boolean) {
+function recycleOrClaimNode<T>(
+  node: ComputationNode,
+  fn: (v: T | undefined) => T,
+  value: T,
+  orphan: boolean
+) {
   let _owner = orphan || Owner === null || Owner === UNOWNED ? null : Owner,
-    recycle = !node.noRecycle && node.source1 === null && (node.owned === null && node.cleanups === null || _owner !== null),
+    recycle =
+      !node.noRecycle &&
+      node.source1 === null &&
+      ((node.owned === null && node.cleanups === null) || _owner !== null),
     i: number;
 
   if (recycle) {
@@ -380,17 +437,19 @@ function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => 
     if (_owner !== null) {
       if (node.owned !== null) {
         if (_owner.owned === null) _owner.owned = node.owned;
-        else for (i = 0; i < node.owned.length; i++) {
-          _owner.owned.push(node.owned[i]);
-        }
+        else
+          for (i = 0; i < node.owned.length; i++) {
+            _owner.owned.push(node.owned[i]);
+          }
         node.owned = null;
       }
 
       if (node.cleanups !== null) {
         if (_owner.cleanups === null) _owner.cleanups = node.cleanups;
-        else for (i = 0; i < node.cleanups.length; i++) {
-          _owner.cleanups.push(node.cleanups[i]);
-        }
+        else
+          for (i = 0; i < node.cleanups.length; i++) {
+            _owner.cleanups.push(node.cleanups[i]);
+          }
         node.cleanups = null;
       }
     }
@@ -411,7 +470,8 @@ function recycleOrClaimNode<T>(node: ComputationNode, fn: (v: T | undefined) => 
 function logRead(from: Log) {
   let to = Listener!,
     fromslot: number,
-    toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
+    toslot =
+      to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
 
   if (from.node1 === null) {
     from.node1 = to;
@@ -466,8 +526,13 @@ function run(clock: Clock) {
   clock.disposes.reset();
 
   // for each batch ...
-  while (clock.changes.count !== 0 || clock.updates.count !== 0 || clock.disposes.count !== 0) {
-    if (count > 0) // don't tick on first run, or else we expire already scheduled updates
+  while (
+    clock.changes.count !== 0 ||
+    clock.updates.count !== 0 ||
+    clock.disposes.count !== 0
+  ) {
+    if (count > 0)
+      // don't tick on first run, or else we expire already scheduled updates
       clock.time++;
 
     clock.changes.run(applyDataChange);

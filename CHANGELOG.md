@@ -1,4 +1,10 @@
 # Changelog
+## 0.9.0 - 2019-07-20
+v0.9.0 makes signifigant changes to underlying reconciler.
+* New Control Flow
+* Removes Custom Directives
+* New Functional Operators
+
 ## 0.8.0 - 2019-06-14
 v0.8.0 brings further improvements in reducing bundle size and optimizations in reactivity. New Features:
 * Universal loadResource API

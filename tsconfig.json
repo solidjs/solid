@@ -3,8 +3,10 @@
     "outDir": "types",
     "emitDeclarationOnly": true,
     "declaration": true,
+    "target": "esnext",
     "newLine": "LF",
     "incremental": true,
+    "moduleResolution": "node",
     "strict": true
   }
 }

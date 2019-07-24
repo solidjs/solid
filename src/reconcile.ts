@@ -1,38 +1,74 @@
-import { setProperty, unwrap, isWrappable } from './state';
+import { setProperty, unwrap, isWrappable } from "./state";
 
 type ReconcileOptions = {
-  key?: string, merge?: boolean
-}
+  key?: string;
+  merge?: boolean;
+};
 
-function applyState(target: any, parent: any, property: string | number, merge: boolean | undefined, key: string) {
+function applyState(
+  target: any,
+  parent: any,
+  property: string | number,
+  merge: boolean | undefined,
+  key: string
+) {
   let previous = parent[property];
   if (target === previous) return;
-  if (!isWrappable(target) || (previous == null)) {
-    (target !== previous) && setProperty(parent, property, target);
+  if (!isWrappable(target) || previous == null) {
+    target !== previous && setProperty(parent, property, target);
     return;
   }
 
   if (Array.isArray(target)) {
-    if (target.length && previous.length && (!merge || (key && target[0][key] != null))) {
+    if (
+      target.length &&
+      previous.length &&
+      (!merge || (key && target[0][key] != null))
+    ) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
       // common prefix
-      for (start = 0, end = Math.min(previous.length, target.length); start < end && (previous[start] === target[start] || key && previous[start][key] === target[start][key]); start++) {
+      for (
+        start = 0, end = Math.min(previous.length, target.length);
+        start < end &&
+        (previous[start] === target[start] ||
+          (key && previous[start][key] === target[start][key]));
+        start++
+      ) {
         applyState(target[start], previous, start, merge, key);
-      }
-      // fast path for addition
-      if (start >= previous.length && previous.length <= target.length) {
-        for (j = start; j < target.length; j++) {
-          setProperty(previous, j, target[j]);
-        }
-        return;
       }
 
       const temp = new Array(target.length),
         newIndices = new Map();
       // common suffix
-      for (end = previous.length - 1, newEnd = target.length - 1; end >= 0 && newEnd >= 0 && (previous[end] === target[newEnd] || key && previous[end][key] === target[newEnd][key]); end--, newEnd--) {
+      for (
+        end = previous.length - 1, newEnd = target.length - 1;
+        end >= start &&
+        newEnd >= start &&
+        (previous[end] === target[newEnd] ||
+          (key && previous[end][key] === target[newEnd][key]));
+        end--, newEnd--
+      ) {
         temp[newEnd] = previous[end];
       }
+
+      // remove any remaining nodes and we're done
+      if (start > newEnd) {
+        const rLen = end - start + 1;
+        if (rLen > 0) previous.splice(start, rLen);
+        setProperty(previous, "length", target.length);
+        return;
+      }
+
+      // insert any remaining updates and we're done
+      if (start > end) {
+        for (j = start; j <= newEnd; j++) setProperty(previous, j, target[j]);
+        for (; j < target.length; j++) {
+          setProperty(previous, j, temp[j]);
+          applyState(target[j], previous, j, merge, key);
+        }
+        return;
+      }
+
       // prepare a map of all indices in target
       newIndicesNext = new Array(newEnd + 1);
       for (j = newEnd; j >= start; j--) {
@@ -55,18 +91,18 @@ function applyState(target: any, parent: any, property: string | number, merge: 
       }
       // set all the new values
       for (j = start; j < target.length; j++) {
-        if (temp.hasOwnProperty(j)) {
+        if (j in temp) {
           setProperty(previous, j, temp[j]);
           applyState(target[j], previous, j, merge, key);
-        }
-        else setProperty(previous, j, target[j]);
+        } else setProperty(previous, j, target[j]);
       }
     } else {
       for (let i = 0, len = target.length; i < len; i++) {
         applyState(target[i], previous, i, merge, key);
       }
     }
-    if (previous.length > target.length) setProperty(previous, 'length', target.length);
+    if (previous.length > target.length)
+      setProperty(previous, "length", target.length);
     return;
   }
 
@@ -76,32 +112,39 @@ function applyState(target: any, parent: any, property: string | number, merge: 
   }
   const previousKeys = Object.keys(previous);
   for (let i = 0, len = previousKeys.length; i < len; i++) {
-    if (target[previousKeys[i]] === undefined) setProperty(previous, previousKeys[i], undefined);
+    if (target[previousKeys[i]] === undefined)
+      setProperty(previous, previousKeys[i], undefined);
   }
 }
 
 // Diff method for setState
-export function reconcile(...path: any[]): (state: any) => void
-export function reconcile(value: any): (state: any) => void
-export function reconcile(path: any[], options: ReconcileOptions): (state: any) => void
-export function reconcile(path: any, options: ReconcileOptions = {}): (state: any) => void {
+export function reconcile(...path: any[]): (state: any) => void;
+export function reconcile(value: any): (state: any) => void;
+export function reconcile(
+  path: any[],
+  options: ReconcileOptions
+): (state: any) => void;
+export function reconcile(
+  path: any,
+  options: ReconcileOptions = {}
+): (state: any) => void {
   let value: any;
   if (Array.isArray(path)) {
     value = path.pop();
-  } else if (typeof path === 'object') {
+  } else if (typeof path === "object") {
     value = path;
     path = undefined;
   } else {
-    path = Array.prototype.slice.call(arguments, 0, -1),
-    value = arguments[arguments.length - 1];
+    (path = Array.prototype.slice.call(arguments, 0, -1)),
+      (value = arguments[arguments.length - 1]);
     options = {};
   }
-  const { merge, key = 'id' } = options;
+  const { merge, key = "id" } = options;
   return state => {
     state = unwrap(state);
     if (path) {
       for (let i = 0; i < path.length - 1; i += 1) state = state[path[i]];
       applyState(value, state, path[path.length - 1], merge, key);
-    } else applyState(value, { state }, 'state', merge, key);
+    } else applyState(value, { state }, "state", merge, key);
   };
 }
