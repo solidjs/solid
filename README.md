@@ -3,10 +3,10 @@
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
-![](https://img.shields.io/david/ryansolid/solid.svg?style=flat)
-![](https://img.shields.io/npm/dt/solid-js.svg?style=flat)
-![](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
-[![Gitter chat](https://badges.gitter.im/solidjs-community/community.png)](https://gitter.im/solidjs-community/community "Gitter chat")
+[![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
+[![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
+[![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=social)](https://www.reddit.com/r/solidjs/)
+
 
 Solid is yet another declarative Javascript library for creating user interfaces.  It does not use a Virtual DOM. Instead it opts to compile its templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
 
