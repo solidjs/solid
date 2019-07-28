@@ -76,7 +76,7 @@ export function Switch(props: {
   return props.transform ? props.transform(mapped, evalConditions) : mapped;
 }
 
-type MatchProps = { when: boolean; children: any };
+type MatchProps = { when: boolean; children: JSX.Element };
 export function Match(props: MatchProps): JSX.Element {
   return props;
 }
