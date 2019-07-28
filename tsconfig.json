@@ -7,6 +7,10 @@
     "newLine": "LF",
     "incremental": true,
     "moduleResolution": "node",
-    "strict": true
+    "strict": true,
+    "types": [
+      "node",
+      "./node_modules/babel-plugin-jsx-dom-expressions"
+    ]
   }
 }
