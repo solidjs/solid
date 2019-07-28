@@ -52,9 +52,9 @@ export function Show(props: {
 export function Switch(props: {
   fallback?: JSX.Element;
   transform?: (mapped: () => JSX.Element, source: () => number) => () => JSX.Element;
-  children: JSX.MatchElement[];
+  children: JSX.MatchElement | JSX.MatchElement[];
 }): JSX.Element {
-  let conditions = props.children;
+  let conditions = props.children as JSX.MatchElement[];
   Array.isArray(conditions) || (conditions = [conditions]);
   const useFallback = "fallback" in props,
     evalConditions = createMemo(
