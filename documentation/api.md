@@ -30,7 +30,7 @@ Registers a cleanup method that performs that executes on disposal or recalculat
 
 ### `afterEffects(() => <code>)`
 
-Registers a method that will run after the current execution process is complete. If multiple are registered they will processed LIFO (Last In First Out). These are useful when waiting on refs to resolves or child DOM nodes to render.
+Registers a method that will run after the current execution process is complete. These are useful when waiting on refs to resolves or child DOM nodes to render.
 
 ### `sample(() => <code>): any`
 

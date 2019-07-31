@@ -1,8 +1,9 @@
 export * from "./runtime";
 import { createComponent, insert } from "./runtime";
 import {
+  createEffect,
   createRoot,
-  createMemo,
+  createSignal,
   SuspenseContext,
   onCleanup,
   sample,
@@ -11,6 +12,11 @@ import {
 } from "../index";
 
 const EQUAL = (a: any, b: any): boolean => a === b;
+function track<T>(fn: (p: T | undefined) => T) {
+  const [s, set] = createSignal<T>(undefined, EQUAL);
+  createEffect<T>(v => (set(v = fn(v)), v));
+  return s;
+}
 
 export function render(code: () => any, element: Node): () => void {
   let disposer: () => void;
@@ -25,7 +31,7 @@ export function For<T, U>(props: {
   each: T[];
   fallback?: any;
   transform?: (mapped: () => U[], source: () => T[]) => () => U[];
-  children: (item: T) => U;
+  children: (item: T, index?: number) => U;
 }) {
   const mapped = map<T, U>(
     props.children,
@@ -36,36 +42,34 @@ export function For<T, U>(props: {
 
 export function Show<T>(props: {
   when: boolean;
-  fallback?: any;
-  transform?: (mapped: () => T, source: () => boolean) => () => T | undefined;
-  children: any;
+  fallback?: T;
+  transform?: (mapped: () => T | undefined, source: () => boolean) => () => T | undefined;
+  children: T;
 }) {
-  const condition = createMemo(() => props.when, undefined, EQUAL),
+  const condition = track(() => props.when),
     useFallback = "fallback" in props,
     mapped = () =>
       condition()
         ? sample(() => props.children)
-        : useFallback && sample(() => props.fallback);
+        : useFallback ? sample(() => props.fallback): undefined;
   return props.transform ? props.transform(mapped, condition) : mapped;
 }
 
 export function Switch<T>(props: {
-  fallback?: any;
+  fallback?: T;
   transform?: (mapped: () => T, source: () => number) => () => T;
   children: any;
 }) {
   let conditions = props.children;
   Array.isArray(conditions) || (conditions = [conditions]);
   const useFallback = "fallback" in props,
-    evalConditions = createMemo(
+    evalConditions = track(
       () => {
         for (let i = 0; i < conditions.length; i++) {
           if (conditions[i].when) return i;
         }
         return -1;
-      },
-      undefined,
-      EQUAL
+      }
     ),
     mapped = () => {
       const index = evalConditions();

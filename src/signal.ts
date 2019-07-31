@@ -27,25 +27,7 @@ export function createSignal<T>(
 }
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
-  const node = getCandidateNode(),
-    listener = Listener,
-    toplevel = RunningClock === null;
-
-  node.owner = Owner;
-  Owner = node;
-  Listener = node;
-
-  if (toplevel) {
-    value = execToplevelComputation(fn, value as T);
-  } else {
-    value = fn(value);
-  }
-  Owner = node.owner;
-  Listener = listener;
-
-  afterNode(node);
-  recycleOrClaimNode(node, fn, value, false);
-  if (toplevel) finishToplevelComputation(Owner, listener);
+  makeComputationNode(fn, value, false);
 }
 
 // explicit dependencies and defered initial execution
@@ -70,20 +52,20 @@ export function createDependentEffect<T>(
   });
 }
 
-export function createMemo<T>(
-  fn: (v: T | undefined) => T,
-  value?: T,
-  comparator?: (v?: T, p?: T) => boolean
-): () => T {
-  if (Owner === null)
-    console.warn(
-      "computations created without a root or parent will never be disposed"
-    );
+export function createMemo<T>(fn: (v: T | undefined) => T, value?: T): () => T {
+  var { node, value: _value } = makeComputationNode(fn, value, false);
+  return node === null ? () => _value : () => {
+    if (Listener !== null) {
+      if (node!.age === RootClock.time) {
+        if (node!.state === RUNNING) throw new Error("circular dependency");
+        else updateNode(node!); // checks for state === STALE internally, so don't need to check here
+      }
+      if (node!.log === null) node!.log = createLog();
+      logRead(node!.log);
+    }
 
-  // TODO: Restore synchronicity
-  const [s, set] = createSignal(value, comparator);
-  createEffect(v => (set((v = fn(v))), v), value);
-  return s;
+    return node!.value;
+  }
 }
 
 export function createRoot<T>(
@@ -114,7 +96,6 @@ export function createRoot<T>(
     Listener = listener;
     Owner = root.owner;
   }
-  afterNode(root);
 
   if (
     disposer !== null &&
@@ -164,12 +145,7 @@ export function onCleanup(fn: (final: boolean) => void): void {
 }
 
 export function afterEffects(fn: () => void): void {
-  if (Owner === null)
-    console.warn(
-      "afterEffects created without a root or parent will never be run"
-    );
-  else if (Owner.afters === null) Owner.afters = [fn];
-  else Owner.afters.push(fn);
+  Promise.resolve().then(fn);
 }
 
 export function isListening() {
@@ -212,7 +188,10 @@ export class DataNode {
   }
 
   current() {
-    if (Listener !== null) logDataRead(this);
+    if (Listener !== null) {
+      if (this.log === null) this.log = createLog();
+      logRead(this.log);
+    }
     return this.value;
   }
 
@@ -254,13 +233,13 @@ type ComputationNode = {
   sources: null | Log[];
   sourceslots: null | number[];
   owner: any;
+  log: Log | null;
   context: any;
   noRecycle?: boolean;
   owned: ComputationNode[] | null;
   cleanups: (((final: boolean) => void)[]) | null;
-  afters: ((() => void)[]) | null;
 };
-function makeComputationNode(): ComputationNode {
+function createComputationNode(): ComputationNode {
   return {
     fn: null,
     age: -1,
@@ -271,10 +250,10 @@ function makeComputationNode(): ComputationNode {
     sourceslots: null,
     owner: null,
     owned: null,
+    log: null,
     value: undefined,
     context: undefined,
-    cleanups: null,
-    afters: null
+    cleanups: null
   };
 }
 
@@ -338,28 +317,19 @@ class Queue<T> {
 function createProvider(id: symbol, initFn?: Function) {
   return (props: any) => {
     let rendered;
-    createEffect(() => {
-      sample(() => {
-        if (Owner === null)
-          return console.warn(
-            "Context keys cannot be set without a root or parent"
-          );
-        const context = Owner.context || (Owner.context = {});
-        Owner.noRecycle = true;
-        context[id] = initFn ? initFn(props.value) : props.value;
-        rendered = props.children;
-      });
-    });
+    makeComputationNode(() => {
+      if (Owner === null)
+        return console.warn(
+          "Context keys cannot be set without a root or parent"
+        );
+      const context = Owner.context || (Owner.context = {});
+      Owner.noRecycle = true;
+      context[id] = initFn ? initFn(props.value) : props.value;
+      rendered = props.children;
+    }, undefined, true);
     return rendered;
   };
 }
-
-// Constants
-let NOTPENDING = {},
-  CURRENT = 0,
-  STALE = 1,
-  RUNNING = 2,
-  UNOWNED = makeComputationNode();
 
 // "Globals" used to keep track of current system state
 let RootClock = createClock(),
@@ -367,6 +337,13 @@ let RootClock = createClock(),
   Listener = null as ComputationNode | null, // currently listening computation
   Owner = null as ComputationNode | null, // owner for new computations
   LastNode = null as ComputationNode | null; // cached unused node, for re-use
+
+// Constants
+let NOTPENDING = {},
+  CURRENT = 0,
+  STALE = 1,
+  RUNNING = 2,
+  UNOWNED = createComputationNode();
 
 // Functions
 function callAll(ss: (() => any)[]) {
@@ -380,6 +357,41 @@ function lookup(owner: ComputationNode, key: symbol | string): any {
     (owner && owner.context && owner.context[key]) ||
     (owner.owner && lookup(owner.owner, key))
   );
+}
+
+var makeComputationNodeResult = {
+  node: null as null | ComputationNode,
+  value: undefined as any
+};
+function makeComputationNode<T>(
+  fn: (v: T | undefined) => T,
+  value: T | undefined,
+  sample: boolean
+) {
+  const node = getCandidateNode(),
+    listener = Listener,
+    toplevel = RunningClock === null;
+
+  node.owner = Owner;
+  Owner = node;
+  Listener = sample ? null : node;
+
+  if (toplevel) {
+    value = execToplevelComputation(fn, value as T);
+  } else {
+    value = fn(value);
+  }
+  Owner = node.owner;
+  Listener = listener;
+
+  var recycled = recycleOrClaimNode(node, fn, value, false);
+
+  if (toplevel) finishToplevelComputation(Owner, listener);
+
+  makeComputationNodeResult.node = recycled ? null : node;
+  makeComputationNodeResult.value = value!;
+
+  return makeComputationNodeResult;
 }
 
 function execToplevelComputation<T>(fn: (v: T | undefined) => T, value: T) {
@@ -412,7 +424,7 @@ function finishToplevelComputation(
 
 function getCandidateNode() {
   let node = LastNode;
-  if (node === null) node = makeComputationNode();
+  if (node === null) node = createComputationNode();
   else LastNode = null;
   return node;
 }
@@ -478,11 +490,13 @@ function logRead(from: Log) {
     from.node1slot = toslot;
     fromslot = -1;
   } else if (from.nodes === null) {
+    if (from.node1 === to) return;
     from.nodes = [to];
     from.nodeslots = [toslot];
     fromslot = 0;
   } else {
     fromslot = from.nodes.length;
+    if (from.nodes[fromslot - 1] === to) return;
     from.nodes.push(to);
     from.nodeslots!.push(toslot);
   }
@@ -497,11 +511,6 @@ function logRead(from: Log) {
     to.sources.push(from);
     to.sourceslots!.push(fromslot);
   }
-}
-
-function logDataRead(data: DataNode) {
-  if (data.log === null) data.log = createLog();
-  logRead(data.log);
 }
 
 function event() {
@@ -574,6 +583,7 @@ function markNodeStale(node: ComputationNode) {
     node.state = STALE;
     RootClock.updates.add(node);
     if (node.owned !== null) markOwnedNodesForDisposal(node.owned);
+    if (node.log !== null) markComputationsStale(node.log);
   }
 }
 
@@ -597,21 +607,9 @@ function updateNode(node: ComputationNode) {
     cleanupNode(node, false);
     node.value = node.fn!(node.value);
     node.state = CURRENT;
-    afterNode(node);
 
     Owner = owner;
     Listener = listener;
-  }
-}
-
-function afterNode(node: ComputationNode) {
-  let afters = node.afters;
-
-  if (afters !== null) {
-    Promise.resolve().then(() => {
-      for (let i = 0; i < afters!.length; i++) afters![i]();
-    });
-    node.afters = null;
   }
 }
 
@@ -674,6 +672,6 @@ function cleanupSource(source: Log, slot: number) {
 function dispose(node: ComputationNode) {
   node.fn = null;
   node.owner = null;
-  node.afters = null;
+  node.log = null;
   cleanupNode(node, true);
 }

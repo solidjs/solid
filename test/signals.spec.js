@@ -165,19 +165,4 @@ describe('Trigger afterEffects', () => {
     expect(result).toBe('Hello, John Smith!');
     done();
   });
-
-  test('Queue up and execute in reverse order when nested', async (done) => {
-    let result = ''
-    createRoot(() => {
-      afterEffects(() => result += 'Smith!');
-      createEffect(() => {
-        afterEffects(() => result += 'John ');
-        createEffect(() => afterEffects(() => result += 'Hello, '))
-      })
-    });
-    expect(result).toBe('');
-    await Promise.resolve();
-    expect(result).toBe('Hello, John Smith!');
-    done();
-  });
 });

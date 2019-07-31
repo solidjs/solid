@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
