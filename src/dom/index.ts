@@ -51,7 +51,7 @@ export function Show<T>(props: {
     mapped = () =>
       condition()
         ? sample(() => props.children)
-        : useFallback ? sample(() => props.fallback): undefined;
+        : useFallback ? sample(() => props.fallback) : undefined;
   return props.transform ? props.transform(mapped, condition) : mapped;
 }
 
