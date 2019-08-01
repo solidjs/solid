@@ -31,7 +31,7 @@ export function For<T, U>(props: {
   each: T[];
   fallback?: any;
   transform?: (mapped: () => U[], source: () => T[]) => () => U[];
-  children: (item: T, index?: number) => U;
+  children: (item: T, index: number) => U;
 }) {
   const mapped = map<T, U>(
     props.children,
