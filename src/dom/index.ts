@@ -31,7 +31,7 @@ export function For<T, U>(props: {
   each: T[];
   fallback?: any;
   transform?: (mapped: () => U[], source: () => T[]) => () => U[];
-  children: (item: T, index?: number) => U;
+  children: (item: T, index: number) => U;
 }) {
   const mapped = map<T, U>(
     props.children,
@@ -51,7 +51,7 @@ export function Show<T>(props: {
     mapped = () =>
       condition()
         ? sample(() => props.children)
-        : useFallback ? sample(() => props.fallback): undefined;
+        : useFallback ? sample(() => props.fallback) : undefined;
   return props.transform ? props.transform(mapped, condition) : mapped;
 }
 
