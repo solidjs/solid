@@ -1,22 +1,13 @@
 export * from "./runtime";
 import { createComponent, insert } from "./runtime";
 import {
-  createEffect,
   createRoot,
-  createSignal,
   SuspenseContext,
   onCleanup,
   sample,
   map,
   useContext
 } from "../index";
-
-const EQUAL = (a: any, b: any): boolean => a === b;
-function track<T>(fn: (p: T | undefined) => T) {
-  const [s, set] = createSignal<T>(undefined, EQUAL);
-  createEffect<T>(v => (set(v = fn(v)), v));
-  return s;
-}
 
 export function render(code: () => any, element: Node): () => void {
   let disposer: () => void;
@@ -43,16 +34,29 @@ export function For<T, U>(props: {
 export function Show<T>(props: {
   when: boolean;
   fallback?: T;
-  transform?: (mapped: () => T | undefined, source: () => boolean) => () => T | undefined;
+  transform?: (
+    mapped: () => T | undefined,
+    source: () => boolean
+  ) => () => T | undefined;
   children: T;
 }) {
-  const condition = track(() => props.when),
-    useFallback = "fallback" in props,
-    mapped = () =>
-      condition()
-        ? sample(() => props.children)
-        : useFallback ? sample(() => props.fallback) : undefined;
-  return props.transform ? props.transform(mapped, condition) : mapped;
+  let dispose: () => void, cached: T | undefined, prev: Boolean;
+  const useFallback = "fallback" in props,
+    mapped = () => {
+      const v = props.when;
+      if (v === prev) return cached;
+      prev = v;
+      dispose && dispose();
+      return createRoot(disposer => {
+        dispose = disposer;
+        return (cached = v
+          ? props.children
+          : useFallback
+          ? props.fallback
+          : undefined);
+      });
+    };
+  return props.transform ? props.transform(mapped, () => props.when) : mapped;
 }
 
 export function Switch<T>(props: {
@@ -60,22 +64,30 @@ export function Switch<T>(props: {
   transform?: (mapped: () => T, source: () => number) => () => T;
   children: any;
 }) {
-  let conditions = props.children;
+  let conditions = props.children,
+    dispose: () => void,
+    cached: T | undefined,
+    prev: number;
   Array.isArray(conditions) || (conditions = [conditions]);
   const useFallback = "fallback" in props,
-    evalConditions = track(
-      () => {
-        for (let i = 0; i < conditions.length; i++) {
-          if (conditions[i].when) return i;
-        }
-        return -1;
+    evalConditions = () => {
+      for (let i = 0; i < conditions.length; i++) {
+        if (conditions[i].when) return i;
       }
-    ),
+      return -1;
+    },
     mapped = () => {
       const index = evalConditions();
-      return sample(() =>
-        index < 0 ? useFallback && props.fallback : conditions[index].children
-      );
+      if (index === prev) return cached;
+      prev = index;
+      dispose && dispose();
+      return createRoot(disposer => {
+        dispose = disposer;
+        return (cached =
+          index < 0
+            ? useFallback && props.fallback
+            : conditions[index].children);
+      });
     };
   return props.transform ? props.transform(mapped, evalConditions) : mapped;
 }

@@ -48,6 +48,7 @@ While you could use a map function for loops and raw ternary operators of condit
   }</For>
 </ul>
 ```
+*Note these are designed to handle more complex scenarios like template/component insertions. Child expressions are inert unless you return a function. For simple dynamic strings use ternary operator.*
 
 The library also includes a couple transform directives that can be applied to the For control flow.
 
