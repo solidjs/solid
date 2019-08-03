@@ -24,18 +24,17 @@ export function selectWhen(
 ): (s: () => any) => () => any {
   if (typeof handler === "string") handler = createHandler(handler);
   return list => {
-    const cached = createMemo(list);
     createEffect(element => {
       const model = signal();
       if (element) handler(element, false);
       if (
         (element =
-          model && sample(cached as () => any[]).find(el => el.model === model))
+          model && sample(list as () => any[]).find(el => el.model === model))
       )
         handler(element, true);
       return element;
     });
-    return cached;
+    return list;
   };
 }
 
@@ -53,10 +52,9 @@ export function selectEach(
 ): (s: () => any) => () => any {
   if (typeof handler === "string") handler = createHandler(handler);
   return list => {
-    const cached = createMemo(list);
     createEffect<HTMLElement[]>((elements = []) => {
       const models = signal(),
-        newElements = sample(cached as () => any[]).filter(
+        newElements = sample(list as () => any[]).filter(
           el => models.indexOf(el.model) > -1
         ),
         [additions, removals] = shallowDiff(newElements, elements!);
@@ -64,6 +62,6 @@ export function selectEach(
       removals.forEach(el => handler(el, false));
       return newElements;
     });
-    return cached;
+    return list;
   };
 }

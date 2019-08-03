@@ -2,6 +2,7 @@ export * from "./runtime";
 import { createComponent, insert } from "./runtime";
 import {
   createRoot,
+  createMemo,
   SuspenseContext,
   onCleanup,
   sample,
@@ -24,10 +25,10 @@ export function For<T, U>(props: {
   transform?: (mapped: () => U[], source: () => T[]) => () => U[];
   children: (item: T, index: number) => U;
 }) {
-  const mapped = map<T, U>(
+  const mapped = createMemo(map<T, U>(
     props.children,
     "fallback" in props ? () => props.fallback : undefined
-  )(() => props.each);
+  )(() => props.each));
   return props.transform ? props.transform(mapped, () => props.each) : mapped;
 }
 
@@ -42,7 +43,7 @@ export function Show<T>(props: {
 }) {
   let dispose: () => void, cached: T | undefined, prev: Boolean;
   const useFallback = "fallback" in props,
-    mapped = () => {
+    mapped = createMemo(() => {
       const v = props.when;
       if (v === prev) return cached;
       prev = v;
@@ -55,7 +56,7 @@ export function Show<T>(props: {
           ? props.fallback
           : undefined);
       });
-    };
+    });
   return props.transform ? props.transform(mapped, () => props.when) : mapped;
 }
 
@@ -76,7 +77,7 @@ export function Switch<T>(props: {
       }
       return -1;
     },
-    mapped = () => {
+    mapped = createMemo(() => {
       const index = evalConditions();
       if (index === prev) return cached;
       prev = index;
@@ -88,7 +89,7 @@ export function Switch<T>(props: {
             ? useFallback && props.fallback
             : conditions[index].children);
       });
-    };
+    });
   return props.transform ? props.transform(mapped, evalConditions) : mapped;
 }
 
@@ -118,13 +119,13 @@ export function Suspense(props: {
           }
         });
 
-        return () => {
+        return createMemo(() => {
           const value = c.suspended();
           if (c.initializing) c.initializing = false;
           if (!value) return [marker, rendered];
           setTimeout(insert(doc.body, rendered));
           return [marker, props.fallback];
-        };
+        });
       }
     },
     ["children"]

@@ -329,7 +329,6 @@ function createProvider(id: symbol, initFn?: Function) {
         Owner.noRecycle = true;
         context[id] = initFn ? initFn(props.value) : props.value;
         rendered = props.children;
-        typeof rendered === "function" && (rendered = createMemo(rendered));
       },
       undefined,
       true
