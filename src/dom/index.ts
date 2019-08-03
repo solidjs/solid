@@ -103,7 +103,7 @@ export function Suspense(props: {
   children: any;
 }) {
   return createComponent(
-    SuspenseContext.Provide,
+    SuspenseContext.Provider,
     {
       value: props.delayMs,
       children: () => {

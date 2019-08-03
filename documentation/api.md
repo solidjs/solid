@@ -42,7 +42,7 @@ Ensures that all updates within the block happen at the same time to prevent unn
 
 ### `createContext(initFn): Context`
 
-Creates a new context object that can be used with useContext and the Provide control flow.
+Creates a new context object that can be used with useContext and the Provider control flow.
 
 ### `useContext(Context): any`
 

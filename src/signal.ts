@@ -54,18 +54,20 @@ export function createDependentEffect<T>(
 
 export function createMemo<T>(fn: (v: T | undefined) => T, value?: T): () => T {
   var { node, value: _value } = makeComputationNode(fn, value, false);
-  return node === null ? () => _value : () => {
-    if (Listener !== null) {
-      if (node!.age === RootClock.time) {
-        if (node!.state === RUNNING) throw new Error("circular dependency");
-        else updateNode(node!); // checks for state === STALE internally, so don't need to check here
-      }
-      if (node!.log === null) node!.log = createLog();
-      logRead(node!.log);
-    }
+  return node === null
+    ? () => _value
+    : () => {
+        if (Listener !== null) {
+          if (node!.age === RootClock.time) {
+            if (node!.state === RUNNING) throw new Error("circular dependency");
+            else updateNode(node!); // checks for state === STALE internally, so don't need to check here
+          }
+          if (node!.log === null) node!.log = createLog();
+          logRead(node!.log);
+        }
 
-    return node!.value;
-  }
+        return node!.value;
+      };
 }
 
 export function createRoot<T>(
@@ -155,11 +157,11 @@ export function isListening() {
 // context API
 export interface Context {
   id: symbol;
-  Provide: (props: any) => any;
+  Provider: (props: any) => any;
 }
 export function createContext(initFn?: Function): Context {
   const id = Symbol("context");
-  return { id, Provide: createProvider(id, initFn) };
+  return { id, Provider: createProvider(id, initFn) };
 }
 
 export function useContext(context: Context) {
@@ -317,16 +319,21 @@ class Queue<T> {
 function createProvider(id: symbol, initFn?: Function) {
   return (props: any) => {
     let rendered;
-    makeComputationNode(() => {
-      if (Owner === null)
-        return console.warn(
-          "Context keys cannot be set without a root or parent"
-        );
-      const context = Owner.context || (Owner.context = {});
-      Owner.noRecycle = true;
-      context[id] = initFn ? initFn(props.value) : props.value;
-      rendered = props.children;
-    }, undefined, true);
+    makeComputationNode(
+      () => {
+        if (Owner === null)
+          return console.warn(
+            "Context keys cannot be set without a root or parent"
+          );
+        const context = Owner.context || (Owner.context = {});
+        Owner.noRecycle = true;
+        context[id] = initFn ? initFn(props.value) : props.value;
+        rendered = props.children;
+        typeof rendered === "function" && (rendered = createMemo(rendered));
+      },
+      undefined,
+      true
+    );
     return rendered;
   };
 }

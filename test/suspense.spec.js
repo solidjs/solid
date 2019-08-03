@@ -14,7 +14,7 @@ describe('Simulate Lazy Component', () => {
           createEffect(() => result = value());
         }
       })
-      SuspenseContext.Provide(props);
+      SuspenseContext.Provider(props);
     });
     expect(result).toBeUndefined();
     await resolve({default: Child});
