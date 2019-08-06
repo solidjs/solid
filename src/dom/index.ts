@@ -42,6 +42,7 @@ export function Show<T>(props: {
   children: T;
 }) {
   let dispose: () => void, cached: T | undefined, prev: Boolean;
+  onCleanup(() => dispose && dispose());
   const useFallback = "fallback" in props,
     mapped = createMemo(() => {
       const v = props.when;
@@ -70,6 +71,7 @@ export function Switch<T>(props: {
     cached: T | undefined,
     prev: number;
   Array.isArray(conditions) || (conditions = [conditions]);
+  onCleanup(() => dispose && dispose());
   const useFallback = "fallback" in props,
     evalConditions = () => {
       for (let i = 0; i < conditions.length; i++) {
@@ -123,7 +125,7 @@ export function Suspense(props: {
           const value = c.suspended();
           if (c.initializing) c.initializing = false;
           if (!value) return [marker, rendered];
-          setTimeout(insert(doc.body, rendered));
+          setTimeout(() => insert(doc.body, rendered));
           return [marker, props.fallback];
         });
       }
