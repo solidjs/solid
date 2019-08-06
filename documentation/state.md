@@ -76,7 +76,7 @@ setState('todos', { from: 0, to: 1 }, 'completed', c => !c);
 //   ]
 // }
 
-setState('todos', todo => todo.completed, 'title', t => t + '!')
+setState('todos', todo => todo.completed, 'task', t => t + '!')
 // {
 //   todos: [
 //     { task: 'Finish work', completed: false }
