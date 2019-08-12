@@ -19,7 +19,7 @@ describe('Testing an only child when control flow', () => {
     setCount(7);
     expect(div.innerHTML).toBe('7');
     setCount(5);
-    expect(div.innerHTML).toBe('7');
+    expect(div.innerHTML).toBe('5');
     setCount(2);
     expect(div.innerHTML).toBe('');
   });

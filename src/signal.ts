@@ -1,4 +1,5 @@
 // Modified version of S.js[https://github.com/adamhaile/S] by Adam Haile
+// Comparator memos from VSJolund fork https://github.com/VSjolund/vs-bind
 
 // Public interface
 export function createSignal<T>(
@@ -52,20 +53,33 @@ export function createDependentEffect<T>(
   });
 }
 
-export function createMemo<T>(fn: (v: T | undefined) => T, value?: T): () => T {
-  var { node, value: _value } = makeComputationNode(fn, value, false);
+export function createMemo<T>(
+  fn: (v: T | undefined) => T,
+  value?: T,
+  comparator?: (a: T, b: T) => boolean
+): () => T {
+  var { node, value: _value } = makeComputationNode(
+    fn,
+    value,
+    false,
+    comparator
+  );
   return node === null
     ? () => _value
     : () => {
         if (Listener !== null) {
-          if (node!.age === RootClock.time) {
-            if (node!.state === RUNNING) throw new Error("circular dependency");
-            else updateNode(node!); // checks for state === STALE internally, so don't need to check here
+          const state = node!.state;
+          if ((state & 7) !== 0) {
+            liftComputation(node!);
           }
-          if (node!.log === null) node!.log = createLog();
-          logRead(node!.log);
+          if (node!.age === RootClock.time && state === 8) {
+            throw new Error("Circular dependency.");
+          }
+          if ((state & 16) === 0) {
+            if (node!.log === null) node!.log = createLog();
+            logRead(node!.log);
+          }
         }
-
         return node!.value;
       };
 }
@@ -228,13 +242,17 @@ export class DataNode {
 type ComputationNode = {
   fn: ((v: any) => any) | null;
   value: any;
+  comparator?: (a: any, b: any) => boolean;
   age: number;
   state: number;
   source1: null | Log;
   source1slot: number;
   sources: null | Log[];
   sourceslots: null | number[];
-  owner: any;
+  dependents: null | (ComputationNode | null)[];
+  dependentslot: number;
+  dependentcount: number;
+  owner: ComputationNode | null;
   log: Log | null;
   context: any;
   noRecycle?: boolean;
@@ -245,15 +263,19 @@ function createComputationNode(): ComputationNode {
   return {
     fn: null,
     age: -1,
-    state: CURRENT,
+    state: 0,
     source1: null,
     source1slot: 0,
     sources: null,
     sourceslots: null,
+    dependents: null,
+    dependentslot: 0,
+    dependentcount: 0,
     owner: null,
     owned: null,
     log: null,
     value: undefined,
+    comparator: undefined,
     context: undefined,
     cleanups: null
   };
@@ -342,13 +364,11 @@ let RootClock = createClock(),
   RunningClock = null as any, // currently running clock
   Listener = null as ComputationNode | null, // currently listening computation
   Owner = null as ComputationNode | null, // owner for new computations
+  Pending = null as ComputationNode | null, // pending node
   LastNode = null as ComputationNode | null; // cached unused node, for re-use
 
 // Constants
 let NOTPENDING = {},
-  CURRENT = 0,
-  STALE = 1,
-  RUNNING = 2,
   UNOWNED = createComputationNode();
 
 // Functions
@@ -372,28 +392,23 @@ var makeComputationNodeResult = {
 function makeComputationNode<T>(
   fn: (v: T | undefined) => T,
   value: T | undefined,
-  sample: boolean
+  sample: boolean,
+  comparator?: (a: T, b: T) => boolean
 ) {
   const node = getCandidateNode(),
     listener = Listener,
     toplevel = RunningClock === null;
 
   node.owner = Owner;
+  node.comparator = comparator;
   Owner = node;
   Listener = sample ? null : node;
-
-  if (toplevel) {
-    value = execToplevelComputation(fn, value as T);
-  } else {
-    value = fn(value);
-  }
+  value = toplevel ? execToplevelComputation(fn, value as T) : fn(value);
   Owner = node.owner;
   Listener = listener;
 
   var recycled = recycleOrClaimNode(node, fn, value, false);
-
   if (toplevel) finishToplevelComputation(Owner, listener);
-
   makeComputationNodeResult.node = recycled ? null : node;
   makeComputationNodeResult.value = value!;
 
@@ -416,8 +431,11 @@ function finishToplevelComputation(
   owner: ComputationNode | null,
   listener: ComputationNode | null
 ) {
-  if (RootClock.changes.count > 0 || RootClock.updates.count > 0) {
-    RootClock.time++;
+  if (
+    RootClock.changes.count !== 0 ||
+    RootClock.updates.count !== 0 ||
+    RootClock.disposes.count !== 0
+  ) {
     try {
       run(RootClock);
     } finally {
@@ -451,7 +469,7 @@ function recycleOrClaimNode<T>(
   if (recycle) {
     LastNode = node;
     node.owner = null;
-
+    resetComputation(node, 31);
     if (_owner !== null) {
       if (node.owned !== null) {
         if (_owner.owned === null) _owner.owned = node.owned;
@@ -519,11 +537,20 @@ function logRead(from: Log) {
   }
 }
 
+function liftComputation(node: ComputationNode) {
+  if ((node.state & 6) !== 0) {
+    applyUpstreamUpdates(node);
+  }
+  if ((node.state & 1) !== 0) {
+    updateNode(node);
+  }
+  resetComputation(node, 31);
+}
+
 function event() {
   // b/c we might be under a top level S.root(), have to preserve current root
   let owner = Owner;
   RootClock.updates.reset();
-  RootClock.time++;
   try {
     run(RootClock);
   } finally {
@@ -535,9 +562,7 @@ function event() {
 function run(clock: Clock) {
   let running = RunningClock,
     count = 0;
-
   RunningClock = clock;
-
   clock.disposes.reset();
 
   // for each batch ...
@@ -546,10 +571,7 @@ function run(clock: Clock) {
     clock.updates.count !== 0 ||
     clock.disposes.count !== 0
   ) {
-    if (count > 0)
-      // don't tick on first run, or else we expire already scheduled updates
-      clock.time++;
-
+    clock.time++;
     clock.changes.run(applyDataChange);
     clock.updates.run(updateNode);
     clock.disposes.run(dispose);
@@ -566,56 +588,153 @@ function run(clock: Clock) {
 function applyDataChange(data: DataNode) {
   data.value = data.pending;
   data.pending = NOTPENDING;
-  if (data.log) markComputationsStale(data.log);
+  if (data.log) setComputationState(data.log, stateStale);
 }
 
-function markComputationsStale(log: Log) {
-  let node1 = log.node1,
-    nodes = log.nodes;
-
-  // mark all downstream nodes stale which haven't been already
-  if (node1 !== null) markNodeStale(node1);
-  if (nodes !== null) {
-    for (let i = 0, len = nodes.length; i < len; i++) {
-      markNodeStale(nodes[i]);
+function updateNode(node: ComputationNode) {
+  const state = node.state;
+  if ((state & 16) === 0) {
+    if ((state & 2) !== 0) {
+      node.dependents![node.dependentslot++] = null;
+      if (node.dependentslot === node.dependentcount) {
+        resetComputation(node, 14);
+      }
+    } else if ((state & 1) !== 0) {
+      if (node.comparator) {
+        const current = updateComputation(node);
+        const comparator = node.comparator;
+        if (!comparator(current, node.value)) {
+          markDownstreamComputations(node, false, true);
+        }
+      } else {
+        updateComputation(node);
+      }
     }
   }
 }
 
-function markNodeStale(node: ComputationNode) {
-  let time = RootClock.time;
+function updateComputation(node: ComputationNode) {
+  const value = node.value,
+    owner = Owner,
+    listener = Listener;
+  Owner = Listener = node;
+  node.state = 8;
+  cleanupNode(node, false);
+  node.value = node.fn!(node.value);
+  resetComputation(node, 31);
+  Owner = owner;
+  Listener = listener;
+  return value;
+}
+
+function stateStale(node: ComputationNode) {
+  const time = RootClock.time;
   if (node.age < time) {
+    node.state |= 1;
     node.age = time;
-    node.state = STALE;
-    RootClock.updates.add(node);
-    if (node.owned !== null) markOwnedNodesForDisposal(node.owned);
-    if (node.log !== null) markComputationsStale(node.log);
+    setDownstreamState(node, !!node.comparator);
   }
 }
 
-function markOwnedNodesForDisposal(owned: ComputationNode[]) {
-  for (let i = 0; i < owned.length; i++) {
-    let child = owned[i];
-    child.age = RootClock.time;
-    child.state = CURRENT;
-    if (child.owned !== null) markOwnedNodesForDisposal(child.owned);
+function statePending(node: ComputationNode) {
+  const time = RootClock.time;
+  if (node.age < time) {
+    node.state |= 2;
+    let dependents = node.dependents || (node.dependents = [])
+    dependents[node.dependentcount++] = Pending;
+    setDownstreamState(node, true);
   }
 }
 
-function updateNode(node: ComputationNode) {
-  if (node.state === STALE) {
-    let owner = Owner,
-      listener = Listener;
+function setDownstreamState(node: ComputationNode, pending: boolean) {
+  RootClock.updates.add(node);
+  if (node.comparator) {
+    const pending = Pending;
+    Pending = node;
+    markDownstreamComputations(node, true, false);
+    Pending = pending;
+  } else {
+    markDownstreamComputations(node, pending, false);
+  }
+}
 
-    Owner = Listener = node;
+function pendingStateStale(node: ComputationNode) {
+  if ((node.state & 2) !== 0) {
+    node.state = 1;
+    const time = RootClock.time;
+    if (node.age < time) {
+      node.age = time;
+      if (!node.comparator) {
+        markDownstreamComputations(node, false, true);
+      }
+    }
+  }
+}
 
-    node.state = RUNNING;
-    cleanupNode(node, false);
-    node.value = node.fn!(node.value);
-    node.state = CURRENT;
+function markDownstreamComputations(
+  node: ComputationNode,
+  onchange: boolean,
+  dirty: boolean
+) {
+  const owned = node.owned;
+  if (owned !== null) {
+    const pending = onchange && !dirty;
+    markForDisposal(owned, pending, RootClock.time);
+  }
+  const log = node.log;
+  if (log !== null) {
+    setComputationState(
+      log,
+      dirty ? pendingStateStale : onchange ? statePending : stateStale
+    );
+  }
+}
 
-    Owner = owner;
-    Listener = listener;
+function setComputationState(log: Log, stateFn: (v: ComputationNode) => void) {
+  const node1 = log.node1,
+    nodes = log.nodes;
+  if (node1 !== null) stateFn(node1);
+  if (nodes !== null) {
+    for (let i = 0, ln = nodes.length; i < ln; i++) {
+      stateFn(nodes[i]);
+    }
+  }
+}
+
+function markForDisposal(
+  children: ComputationNode[],
+  pending: boolean,
+  time: number
+) {
+  for (let i = 0, ln = children.length; i < ln; i++) {
+    const child = children[i];
+    if (child !== null) {
+      if (pending) {
+        if ((child.state & 16) === 0) {
+          child.state |= 4;
+        }
+      } else {
+        child.age = time;
+        child.state = 16;
+      }
+      const owned = child.owned;
+      if (owned !== null) markForDisposal(owned, pending, time);
+    }
+  }
+}
+
+function applyUpstreamUpdates(node: ComputationNode) {
+  if ((node.state & 4) !== 0) {
+    const owner = node.owner;
+    if ((owner!.state & 7) !== 0) liftComputation(owner!);
+    node.state &= ~4;
+  }
+  if ((node.state & 2) !== 0) {
+    const slots = node.dependents;
+    for (let i = node.dependentslot, ln = node.dependentcount; i < ln; i++) {
+      liftComputation(slots![i]!);
+      slots![i] = null;
+    }
   }
 }
 
@@ -675,9 +794,16 @@ function cleanupSource(source: Log, slot: number) {
   }
 }
 
+function resetComputation(node: ComputationNode, flags: number) {
+  node.state &= ~flags;
+  node.dependentslot = 0;
+  node.dependentcount = 0;
+}
+
 function dispose(node: ComputationNode) {
   node.fn = null;
-  node.owner = null;
   node.log = null;
+  node.dependents = null;
   cleanupNode(node, true);
+  resetComputation(node, 31);
 }

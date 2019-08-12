@@ -119,6 +119,19 @@ setState(
 // }
 ```
 
+## Modifiers
+This library also provides of state setter modifiers which can optionally be included to provide different behavior when setting state.
+
+### `force(changes)`
+### `force(...path, changes)`
+### `force([...path, changes], [...path, changes])`
+
+By default state only updates on value change. To get typical signal like behavior on a change you can force update using the force modifier.
+
+```js
+setState(force({name: 'John'}));
+```
+
 ### `reconcile(...path, value)`
 
 This can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.

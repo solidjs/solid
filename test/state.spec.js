@@ -1,4 +1,4 @@
-import { createRoot, createState, createSignal, createEffect, unwrap } from '../dist/index';
+import { createRoot, createState, createSignal, createEffect, unwrap, force } from '../dist/index';
 
 describe('State immutablity', () => {
   test('Setting a property', () => {
@@ -223,5 +223,57 @@ describe('State wrapping', () => {
       [ state ] = createState({ time: date });
     // not wrapped
     expect(state.time).toBe(date);
+  });
+});
+
+describe('Tracking Forced State changes', () => {
+  test('Track a state change', () => {
+    createRoot(() => {
+      var [state, setState] = createState({data: 2}),
+        executionCount = 0;
+
+      expect.assertions(3);
+      createEffect(() => {
+        if (executionCount === 0)
+          expect(state.data).toBe(2);
+        else if (executionCount === 1) {
+          expect(state.data).toBe(5);
+        } else if (executionCount === 2) {
+          expect(state.data).toBe(5);
+        } else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      });
+
+      setState({data: 5});
+
+      // same value again should retrigger
+      setState(force({data: 5}));
+    });
+  });
+
+  test('Track a nested state change', () => {
+    createRoot(() => {
+      var [state, setState] = createState({user: {firstName: 'John', lastName: 'Smith'}}),
+        executionCount = 0;
+
+      expect.assertions(2);
+      createEffect(() => {
+        if (executionCount === 0) {
+          expect(state.user.firstName).toBe('John');
+        } else if (executionCount === 1) {
+          expect(state.user.firstName).toBe('John');
+        } else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      });
+
+      setState(force('user', 'firstName', 'John'));
+
+    });
   });
 });

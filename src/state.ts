@@ -150,10 +150,11 @@ const proxyTraps = {
 export function setProperty(
   state: StateNode,
   property: string | number,
-  value: any
+  value: any,
+  force?: boolean
 ) {
   value = unwrap(value) as StateNode;
-  if (state[property] === value) return;
+  if (!force && state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
   if (value === void 0) {
     delete state[property];
@@ -164,18 +165,19 @@ export function setProperty(
   notify && (node = nodes._) && node.next();
 }
 
-function mergeState(state: StateNode, value: { [k: string]: any }) {
+function mergeState(state: StateNode, value: { [k: string]: any }, force?: boolean) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
-    setProperty(state, key, value[key]);
+    setProperty(state, key, value[key], force);
   }
 }
 
 function updatePath(
   current: StateNode,
   path: any[],
-  traversed: (number | string)[] = []
+  traversed: (number | string)[] = [],
+  force?: boolean
 ) {
   if (path.length === 1) {
     let value = path[0];
@@ -184,7 +186,7 @@ function updatePath(
       // reconciled
       if (value === undefined) return;
     }
-    mergeState(current, value);
+    mergeState(current, value, force);
     return;
   }
 
@@ -195,19 +197,19 @@ function updatePath(
   if (Array.isArray(part)) {
     // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
     for (let i = 0; i < part.length; i++) {
-      updatePath(current, [part[i]].concat(path), traversed.concat([part[i]]));
+      updatePath(current, [part[i]].concat(path), traversed.concat([part[i]]), force);
     }
   } else if (isArray && partType === "function") {
     // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
     for (let i = 0; i < current.length; i++) {
       if (part(current[i], i))
-        updatePath(current, [i].concat(path), traversed.concat([i]));
+        updatePath(current, [i].concat(path), traversed.concat([i]), force);
     }
   } else if (isArray && partType === "object") {
     // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
     const { from = 0, to = current.length - 1, by = 1 } = part;
     for (let i = from; i <= to; i += by) {
-      updatePath(current, [i].concat(path), traversed.concat([i]));
+      updatePath(current, [i].concat(path), traversed.concat([i]), force);
     }
   } else if (path.length === 1) {
     let value = path[0];
@@ -223,9 +225,9 @@ function updatePath(
       isWrappable(value) &&
       !Array.isArray(value)
     ) {
-      mergeState(current[part], value);
-    } else setProperty(current, part, value);
-  } else updatePath(current[part], path, traversed.concat([part]));
+      mergeState(current[part], value, force);
+    } else setProperty(current, part, value, force);
+  } else updatePath(current[part], path, traversed.concat([part]), force);
 }
 
 export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
@@ -247,4 +249,20 @@ export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
   }
 
   return [wrappedState, setState] as [Wrapped<T>, typeof setState];
+}
+
+// force state change even if value hasn't changed
+export function force<T>(update: StateSetter<T>): (state: Wrapped<T>) => void;
+export function force<T>(...path: StatePath): (state: Wrapped<T>) => void;
+export function force<T>(paths: StatePath[]): (state: Wrapped<T>) => void;
+export function force<T>(reconcile: (s: Wrapped<T>) => void): (state: Wrapped<T>) => void;
+export function force<T>(...args: any[]): (state: Wrapped<T>) => void {
+  return state => {
+    state = unwrap(state);
+    if (Array.isArray(args[0])) {
+      for (let i = 0; i < args.length; i += 1) {
+        updatePath(state as T, args[i], [], true);
+      }
+    } else updatePath(state as T, args, [], true);
+  }
 }

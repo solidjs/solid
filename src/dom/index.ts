@@ -7,8 +7,11 @@ import {
   onCleanup,
   sample,
   map,
+  afterEffects,
   useContext
 } from "../index";
+
+const equalFn = <T>(a: T, b: T) => a === b;
 
 export function render(code: () => any, element: Node): () => void {
   let disposer: () => void;
@@ -25,10 +28,12 @@ export function For<T, U>(props: {
   transform?: (mapped: () => U[], source: () => T[]) => () => U[];
   children: (item: T, index: number) => U;
 }) {
-  const mapped = createMemo(map<T, U>(
-    props.children,
-    "fallback" in props ? () => props.fallback : undefined
-  )(() => props.each));
+  const mapped = createMemo(
+    map<T, U>(
+      props.children,
+      "fallback" in props ? () => props.fallback : undefined
+    )(() => props.each)
+  );
   return props.transform ? props.transform(mapped, () => props.each) : mapped;
 }
 
@@ -41,24 +46,12 @@ export function Show<T>(props: {
   ) => () => T | undefined;
   children: T;
 }) {
-  let dispose: () => void, cached: T | undefined, prev: Boolean;
-  onCleanup(() => dispose && dispose());
   const useFallback = "fallback" in props,
-    mapped = createMemo(() => {
-      const v = props.when;
-      if (v === prev) return cached;
-      prev = v;
-      dispose && dispose();
-      return createRoot(disposer => {
-        dispose = disposer;
-        return (cached = v
-          ? props.children
-          : useFallback
-          ? props.fallback
-          : undefined);
-      });
-    });
-  return props.transform ? props.transform(mapped, () => props.when) : mapped;
+    condition = createMemo(() => props.when, undefined, equalFn),
+    mapped = createMemo(() =>
+      condition() ? props.children : useFallback ? props.fallback : undefined
+    );
+  return props.transform ? props.transform(mapped, condition) : mapped;
 }
 
 export function Switch<T>(props: {
@@ -66,31 +59,24 @@ export function Switch<T>(props: {
   transform?: (mapped: () => T, source: () => number) => () => T;
   children: any;
 }) {
-  let conditions = props.children,
-    dispose: () => void,
-    cached: T | undefined,
-    prev: number;
+  let conditions = props.children;
   Array.isArray(conditions) || (conditions = [conditions]);
-  onCleanup(() => dispose && dispose());
   const useFallback = "fallback" in props,
-    evalConditions = () => {
-      for (let i = 0; i < conditions.length; i++) {
-        if (conditions[i].when) return i;
-      }
-      return -1;
-    },
+    evalConditions = createMemo(
+      () => {
+        for (let i = 0; i < conditions.length; i++) {
+          if (conditions[i].when) return i;
+        }
+        return -1;
+      },
+      undefined,
+      equalFn
+    ),
     mapped = createMemo(() => {
       const index = evalConditions();
-      if (index === prev) return cached;
-      prev = index;
-      dispose && dispose();
-      return createRoot(disposer => {
-        dispose = disposer;
-        return (cached =
-          index < 0
-            ? useFallback && props.fallback
-            : conditions[index].children);
-      });
+      return index < 0
+        ? useFallback && props.fallback
+        : conditions[index].children;
     });
   return props.transform ? props.transform(mapped, evalConditions) : mapped;
 }
@@ -110,6 +96,7 @@ export function Suspense(props: {
     {
       value: props.delayMs,
       children: () => {
+        let dispose: () => void;
         const c = useContext(SuspenseContext),
           rendered = sample(() => props.children),
           marker = document.createTextNode(""),
@@ -124,8 +111,14 @@ export function Suspense(props: {
         return createMemo(() => {
           const value = c.suspended();
           if (c.initializing) c.initializing = false;
+          dispose && dispose();
           if (!value) return [marker, rendered];
-          setTimeout(() => insert(doc.body, rendered));
+          afterEffects(() =>
+            createRoot(disposer => {
+              dispose = disposer;
+              insert(doc.body, rendered)
+            })
+          );
           return [marker, props.fallback];
         });
       }
