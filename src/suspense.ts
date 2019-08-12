@@ -10,7 +10,7 @@ import {
 import { createState, Wrapped } from "./state";
 
 // Suspense Context
-export const SuspenseContext = createContext((delayMs: number = 0) => {
+export const SuspenseContext = createContext((maxDuration: number = 0) => {
   let counter = 0,
     t: NodeJS.Timeout,
     suspended = false;
@@ -19,7 +19,7 @@ export const SuspenseContext = createContext((delayMs: number = 0) => {
       increment: () => {
         if (++counter === 1) {
           if (!store.initializing) {
-            t = setTimeout(() => ((suspended = true), next()), delayMs);
+            t = setTimeout(() => ((suspended = true), next()), maxDuration);
           } else suspended = true;
         }
       },

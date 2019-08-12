@@ -80,5 +80,5 @@ const [state, setState] = createState({
 
 ## Refs
 
-Refs come in 2 flavours. Ref which directly assigns the value, and forwardRef which calls a callback `(ref) => void` with the reference.
+Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef` which calls a callback `(ref) => void` with the reference.
 

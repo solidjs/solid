@@ -1,4 +1,12 @@
 # Changelog
+## 0.10.0 - 2019-08-11
+v0.10.0 makes significant changes to the reactive system. Key updates:
+* Fixed synchronicity on all hooks/control flows.
+* Adds the ability to use comparators on `createMemo`.
+* Fixes bugs with nested control flows.
+* Fixes bugs with Suspense.
+* Update Suspense `delayMs` to `maxDuration` to match React. (Usage of `maxDuration` still experimental)
+
 ## 0.9.0 - 2019-07-20
 v0.9.0 makes signifigant changes to underlying reconciler.
 * New Control Flow

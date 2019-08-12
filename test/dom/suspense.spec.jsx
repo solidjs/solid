@@ -11,7 +11,7 @@ describe('Testing a context suspend control flow', () => {
       return props.greeting;
     },
     Component = () =>
-      <Suspense fallback={'Loading'} delayMs={100}>
+      <Suspense fallback={'Loading'} maxDuration={100}>
         <LazyComponent greeting={'Hi, '}/>
         <LazyComponent greeting={'Jo'}/>
       </Suspense>

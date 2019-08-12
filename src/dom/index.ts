@@ -87,14 +87,14 @@ export function Match(props: MatchProps) {
 }
 
 export function Suspense(props: {
-  delayMs?: number;
+  maxDuration?: number;
   fallback: any;
   children: any;
 }) {
   return createComponent(
     SuspenseContext.Provider,
     {
-      value: props.delayMs,
+      value: props.maxDuration,
       children: () => {
         let dispose: () => void;
         const c = useContext(SuspenseContext),

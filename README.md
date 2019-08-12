@@ -15,7 +15,7 @@ Solid is yet another declarative Javascript library for creating user interfaces
 * Declarative data
   * Simple composable primitives without the hidden rules.
   * Function Components with no need for lifecycle methods or specialized configuration objects.
-* Less than 10% slower vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
+* Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
 * Supports modern features like JSX Fragments, Context, Portals, Suspense, and Asynchronous Rendering.
 * Webcomponent friendly
   * Implicit event delegation with Shadow DOM Retargeting
@@ -119,7 +119,7 @@ onCleanup(() => unsubscribe());
 
 Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps expressions to be wrapped in our computations when indicated by in inner parens `{( )}`.
 
-> Prettier and some compile to JS libraries like CoffeeScript will strip Parenthesis causing issues with Solid's JSX. So unfortunately they are incompatible at this time.
+> Prettier and some compile to JS libraries like CoffeeScript will strip Parenthesis causing issues with Solid's JSX. So unfortunately they are incompatible at this time. Use `// prettier-ignore` at the top of your JSX to have Prettier not format your JSX.
 
 The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
 
@@ -206,6 +206,7 @@ React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Articles
 
+* [How we wrote the Fastest JavaScript UI Frameworks](https://medium.com/@ryansolid/how-we-wrote-the-fastest-javascript-ui-frameworks-a96f2636431e)
 * [Finding Fine Grained Reactive Programming](https://levelup.gitconnected.com/finding-fine-grained-reactive-programming-89741994ddee?source=friends_link&sk=31c66a70c1dce7dd5f3f4229423ad127) Introduction to the inner workings of Solid's Reactive system.
 * [The Real Cost of UI Components](https://medium.com/better-programming/the-real-cost-of-ui-components-6d2da4aba205?source=friends_link&sk=a412aa18825c8424870d72a556db2169) Comparison of the cost of Components in different UI Libraries.
 * [The Fastest Way to Render the DOM](https://medium.com/@ryansolid/the-fastest-way-to-render-the-dom-e3b226b15ca3?source=friends_link&sk=5ae1688dde789e46cecf5c976e708da5) Comparison of all Solid Renderers against the Fastest Libraries in the World.
