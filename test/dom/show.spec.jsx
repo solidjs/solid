@@ -19,7 +19,8 @@ describe('Testing an only child when control flow', () => {
     setCount(7);
     expect(div.innerHTML).toBe('7');
     setCount(5);
-    expect(div.innerHTML).toBe('5');
+    // direct children are inert, dynamic expression serves to lazy evaluate
+    expect(div.innerHTML).toBe('7');
     setCount(2);
     expect(div.innerHTML).toBe('');
   });

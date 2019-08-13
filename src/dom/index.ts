@@ -49,7 +49,11 @@ export function Show<T>(props: {
   const useFallback = "fallback" in props,
     condition = createMemo(() => props.when, undefined, equalFn),
     mapped = createMemo(() =>
-      condition() ? props.children : useFallback ? props.fallback : undefined
+      condition()
+        ? sample(() => props.children)
+        : useFallback
+        ? sample(() => props.fallback)
+        : undefined
     );
   return props.transform ? props.transform(mapped, condition) : mapped;
 }
@@ -74,9 +78,9 @@ export function Switch<T>(props: {
     ),
     mapped = createMemo(() => {
       const index = evalConditions();
-      return index < 0
-        ? useFallback && props.fallback
-        : conditions[index].children;
+      return sample(() =>
+        index < 0 ? useFallback && props.fallback : conditions[index].children
+      );
     });
   return props.transform ? props.transform(mapped, evalConditions) : mapped;
 }
@@ -116,7 +120,7 @@ export function Suspense(props: {
           afterEffects(() =>
             createRoot(disposer => {
               dispose = disposer;
-              insert(doc.body, rendered)
+              insert(doc.body, rendered);
             })
           );
           return [marker, props.fallback];
