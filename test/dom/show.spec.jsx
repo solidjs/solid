@@ -1,12 +1,12 @@
 import { createRoot, createSignal } from '../../dist/index';
 
-describe('Testing an only child when control flow', () => {
+describe('Testing an only child show control flow', () => {
   let div, disposer;
   const [count, setCount] = createSignal(0);
   const Component = () =>
     <div ref={div}><Show when={( count() >= 5 )}>{( count() )}</Show></div>
 
-  test('Create when control flow', () => {
+  test('Create show control flow', () => {
     createRoot(dispose => {
       disposer = dispose;
       <Component />
@@ -15,7 +15,7 @@ describe('Testing an only child when control flow', () => {
     expect(div.innerHTML).toBe('');
   });
 
-  test('Toggle when control flow', () => {
+  test('Toggle show control flow', () => {
     setCount(7);
     expect(div.innerHTML).toBe('7');
     setCount(5);
@@ -28,7 +28,7 @@ describe('Testing an only child when control flow', () => {
   test('dispose', () => disposer());
 });
 
-describe('Testing an only child when control flow with DOM children', () => {
+describe('Testing an only child show control flow with DOM children', () => {
   let div, disposer;
   const [count, setCount] = createSignal(0);
   const Component = () =>
@@ -37,7 +37,7 @@ describe('Testing an only child when control flow with DOM children', () => {
       <span>counted</span>
     </Show></div>
 
-  test('Create when control flow', () => {
+  test('Create show control flow', () => {
     createRoot(dispose => {
       disposer = dispose;
       <Component />
@@ -46,7 +46,7 @@ describe('Testing an only child when control flow with DOM children', () => {
     expect(div.innerHTML).toBe('');
   });
 
-  test('Toggle when control flow', () => {
+  test('Toggle show control flow', () => {
     setCount(7);
     expect(div.firstChild.innerHTML).toBe('7');
     setCount(5);
@@ -58,7 +58,7 @@ describe('Testing an only child when control flow with DOM children', () => {
   test('dispose', () => disposer());
 });
 
-describe('Testing an only child when control flow with DOM children and fallback', () => {
+describe('Testing an only child show control flow with DOM children and fallback', () => {
   let div, disposer;
   const [count, setCount] = createSignal(0);
   const Component = () =>
@@ -77,7 +77,7 @@ describe('Testing an only child when control flow with DOM children and fallback
     expect(div.innerHTML).toBe('<span>Too Low</span>');
   });
 
-  test('Toggle when control flow', () => {
+  test('Toggle show control flow', () => {
     setCount(7);
     expect(div.firstChild.innerHTML).toBe('7');
     setCount(5);

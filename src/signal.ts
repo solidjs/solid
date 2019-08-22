@@ -371,6 +371,9 @@ let RootClock = createClock(),
 let NOTPENDING = {},
   UNOWNED = createComputationNode();
 
+// State
+// 1 - Stale, 2 - Pending, 4 - Pending Disposal, 8 - Running, 16 - Disposed
+
 // Functions
 function callAll(ss: (() => any)[]) {
   return function all() {
@@ -593,12 +596,18 @@ function applyDataChange(data: DataNode) {
 
 function updateNode(node: ComputationNode) {
   const state = node.state;
-  if ((state & 16) === 0) {
+  if (state && (state & 16) === 0) {
     if ((state & 2) !== 0) {
       node.dependents![node.dependentslot++] = null;
       if (node.dependentslot === node.dependentcount) {
         resetComputation(node, 14);
       }
+    } else if (
+      (state & 4) !== 0 &&
+      (node.owner && (node.owner.state & 2) !== 0)
+    ) {
+      // requeue if marked for disposal and parent is still pending
+      RootClock.updates.add(node);
     } else if ((state & 1) !== 0) {
       if (node.comparator) {
         const current = updateComputation(node);
@@ -640,7 +649,7 @@ function statePending(node: ComputationNode) {
   const time = RootClock.time;
   if (node.age < time) {
     node.state |= 2;
-    let dependents = node.dependents || (node.dependents = [])
+    let dependents = node.dependents || (node.dependents = []);
     dependents[node.dependentcount++] = Pending;
     setDownstreamState(node, true);
   }
