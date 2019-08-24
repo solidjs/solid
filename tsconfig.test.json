@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
-    "outDir": "types",
-    "emitDeclarationOnly": true,
-    "declaration": true,
+    "noEmit": true,
     "target": "esnext",
-    "newLine": "LF",
-    "incremental": true,
     "moduleResolution": "node",
     "strict": true,
     "lib": ["dom", "es2015"],
@@ -16,6 +12,6 @@
     ],
   },
   "include": [
-    "src/**/*"
+    "test/**/*"
   ]
 }
