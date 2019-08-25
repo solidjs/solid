@@ -3,4 +3,4 @@ dist/
 lib/
 .vscode/
 coverage/
-types/
+/types/
