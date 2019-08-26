@@ -5,4 +5,6 @@ jobs:
   include:
     - stage: Produce Coverage
       node_js: '10'
-      script: npm run build && jest --coverage && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage
+      script:
+        - npm run build && jest --coverage && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage
+        - npm run test:types

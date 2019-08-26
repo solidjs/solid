@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "moduleResolution": "node",
+    "strict": true,
+    "lib": ["dom", "es2015"],
+    "jsx": "preserve",
+    "typeRoots": [
+      "./node_modules/babel-plugin-jsx-dom-expressions",
+      "./node_modules/@types"
+    ],
+  },
+  "include": [
+    "test/**/*"
+  ]
+}

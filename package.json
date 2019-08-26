@@ -19,7 +19,8 @@
     "build:types": "tsc && ncp ./src/dom/runtime.d.ts ./types/dom/runtime.d.ts",
     "bench": "node --allow-natives-syntax bench/bench.js",
     "prepublishOnly": "npm run build",
-    "test": "npm run build && jest --coverage"
+    "test": "npm run build && jest --coverage",
+    "test:types": "tsc --project tsconfig.test.json"
   },
   "devDependencies": {
     "@babel/core": "^7.5.5",
