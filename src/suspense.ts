@@ -13,28 +13,32 @@ import { createState, Wrapped } from "./state";
 export const SuspenseContext = createContext((maxDuration: number = 0) => {
   let counter = 0,
     t: NodeJS.Timeout,
-    suspended = false;
+    state = "running";
   const [get, next] = createSignal<void>(),
     store = {
       increment: () => {
         if (++counter === 1) {
           if (!store.initializing) {
-            t = setTimeout(() => ((suspended = true), next()), maxDuration);
-          } else suspended = true;
+            if (maxDuration) {
+              state = "suspended";
+              t = setTimeout(() => ((state = "fallback"), next()), maxDuration);
+            } else state = "fallback";
+            next();
+          } else state = "fallback";
         }
       },
       decrement: () => {
         if (--counter === 0) {
-          clearTimeout(t);
-          if (suspended) {
-            suspended = false;
+          t && clearTimeout(t);
+          if (state !== "running") {
+            state = "running";
             next();
           }
         }
       },
-      suspended: () => {
+      state: () => {
         get();
-        return suspended;
+        return state;
       },
       initializing: true
     };

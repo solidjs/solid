@@ -21,7 +21,6 @@ function testFor() {
 
 function testShow() {
   () => {
-    /* doesn't compile
     let showElement = (
       <Show when={true}>
         <div/>
@@ -29,7 +28,6 @@ function testShow() {
     );
     // type assertions
     let showElementTypeAssert = showElement as JSX.Element;
-    */
   }
 }
 
@@ -75,7 +73,6 @@ function testSuspense() {
 
 function testPortal() {
   () => {
-    /* doesn't compile
     let portalElement = (
       <Portal>
         <div/>
@@ -83,7 +80,27 @@ function testPortal() {
     );
     // type assertions
     let portalElementTypeAssert = portalElement as JSX.Element;
-    */
+  }
+}
+
+
+function testFragment() {
+  () => {
+    let fragmentElement = <>
+      <div />
+      <div />
+    </>
+    // type assertions
+    let fragmentElementTypeAssert = fragmentElement as JSX.Element;
+  }
+}
+
+
+function testRefs() {
+  () => {
+    let simpleRef,
+      forwardRef = (e: HTMLDivElement) => simpleRef = e,
+      element = <div forwardRef={forwardRef} ref={simpleRef} />;
   }
 }
 
@@ -93,9 +110,9 @@ function testRender() {
   () => {
     render(() => <div/>, dummyNode);
     render(() => <For each={([])}>{() => <div/>}</For>, dummyNode);
-    // render(() => <Show when={true}><div/></Show>, dummyNode);
+    render(() => <Show when={true}><div/></Show>, dummyNode);
     render(() => <Switch><Match when={true}>{<div/>}</Match></Switch>, dummyNode);
     render(() => <Suspense fallback={Suspense}><div/></Suspense>, dummyNode);
-    // render(() => <Portal><div/></Portal>, dummyNode);
+    render(() => <Portal><div/></Portal>, dummyNode);
   }
 }

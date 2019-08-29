@@ -113,10 +113,10 @@ export function Suspense(props: {
         });
 
         return createMemo(() => {
-          const value = c.suspended();
+          const value = c.state();
           if (c.initializing) c.initializing = false;
           dispose && dispose();
-          if (!value) return [marker, rendered];
+          if (value !== 'fallback') return [marker, rendered];
           afterEffects(() =>
             createRoot(disposer => {
               dispose = disposer;
@@ -134,6 +134,7 @@ export function Suspense(props: {
 export function Portal(props: {
   mount?: Node;
   useShadow?: boolean;
+  ref?: (e: HTMLDivElement) => void;
   children: any;
 }) {
   const { useShadow } = props,
@@ -152,6 +153,7 @@ export function Portal(props: {
   });
   insert(renderRoot, sample(() => props.children));
   mount.appendChild(container);
+  props.ref && props.ref(container);
   onCleanup(() => mount.removeChild(container));
   return marker;
 }

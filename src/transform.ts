@@ -1,4 +1,5 @@
-import { createEffect, createMemo, sample } from "./signal";
+import { createEffect, createMemo, sample, useContext } from "./signal";
+import { SuspenseContext } from "./suspense";
 
 function createHandler(className: string) {
   return (e: HTMLElement, s: boolean) => e.classList.toggle(className, s);
@@ -64,4 +65,10 @@ export function selectEach(
     });
     return list;
   };
+}
+
+export function suspense<T>(mapped: () => T) {
+  const { state } = useContext(SuspenseContext);
+  let cached: T;
+  return () => (state() === "suspended" ? cached : (cached = mapped()));
 }

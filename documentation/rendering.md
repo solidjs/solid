@@ -71,11 +71,31 @@ const [state, setState] = createState({
   each={(state.list)}
   transform={selectEach(
     () => state.selected,
-    (node, selected) => node.toggleClass('selected', selected)
+    (node, selected) => node.classList.toggle('selected', selected)
   )}
 >{ item =>
   <div model={item} onClick={select} />
 }</For>
+```
+
+### suspense
+
+This transform directive informs control flow to suspend with the current Suspense state. Branching changes are deferred are held on Suspense is resolved for the For, Show, and Switch control flows.
+
+```jsx
+<Suspense fallback={( <Loader /> )} maxDuration={ 500 }>
+  <Switch transform={ suspense }>
+    <Match when={( state.tab === 0 )}>
+      <AsyncChild page='Uno' />
+    </Match>
+    <Match when={( state.tab === 1 )}>
+      <AsyncChild page='Dos' />
+    </Match>
+    <Match when={( state.tab === 2 )}>
+      <AsyncChild page='Tres' />
+    </Match>
+  </Switch>
+</Suspense>
 ```
 
 ## Refs
