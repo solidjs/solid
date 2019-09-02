@@ -51,21 +51,15 @@ function applyState(
         temp[newEnd] = previous[end];
       }
 
-      // remove any remaining nodes and we're done
-      if (start > newEnd) {
-        const rLen = end - start + 1;
-        if (rLen > 0) previous.splice(start, rLen);
-        setProperty(previous, "length", target.length);
-        return;
-      }
-
-      // insert any remaining updates and we're done
-      if (start > end) {
+      // insert any remaining updates and remove any remaining nodes and we're done
+      if (start > newEnd || start > end) {
         for (j = start; j <= newEnd; j++) setProperty(previous, j, target[j]);
         for (; j < target.length; j++) {
           setProperty(previous, j, temp[j]);
           applyState(target[j], previous, j, merge, key);
         }
+        if (previous.length > target.length)
+          setProperty(previous, "length", target.length);
         return;
       }
 
