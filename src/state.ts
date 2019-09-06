@@ -14,7 +14,7 @@ type Partial<T> = { [P in keyof T]?: Partial<T[P]> };
 type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
   ? { [Symbol.toPrimitive]: V }
   : {};
-type AddCallable<T> = T extends { (...x: any[]): infer V }
+type AddCallable<T> = T extends { (...x: unknown[]): infer V }
   ? { (...x: Parameters<T>): V }
   : {};
 
@@ -25,7 +25,7 @@ export type Wrapped<T> = {
 } & AddSymbolToPrimitive<T> &
   AddCallable<T>;
 
-type StateAtom = string | number | boolean | symbol | null | undefined | any[];
+type StateAtom = string | number | boolean | symbol | null | undefined | unknown[];
 type StateSetter<T> =
   | Partial<T>
   | ((prevState: Wrapped<T>, traversed?: (string | number)[]) => Partial<T>);
@@ -38,19 +38,19 @@ type StatePathPart =
   | string
   | (string | number)[]
   | StatePathRange
-  | ((item: any, index: number) => boolean);
+  | ((item: unknown, index: number) => boolean);
 
 // do up to depth of 8
 type StatePath =
-  | [string, NestedStateSetter<any>]
-  | [string, StatePathPart, NestedStateSetter<any>]
-  | [string, StatePathPart, StatePathPart, NestedStateSetter<any>]
+  | [string, NestedStateSetter<unknown>]
+  | [string, StatePathPart, NestedStateSetter<unknown>]
+  | [string, StatePathPart, StatePathPart, NestedStateSetter<unknown>]
   | [
       string,
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<any>
+      NestedStateSetter<unknown>
     ]
   | [
       string,
@@ -58,16 +58,7 @@ type StatePath =
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<any>
-    ]
-  | [
-      string,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      NestedStateSetter<any>
+      NestedStateSetter<unknown>
     ]
   | [
       string,
@@ -76,8 +67,17 @@ type StatePath =
       StatePathPart,
       StatePathPart,
       StatePathPart,
+      NestedStateSetter<unknown>
+    ]
+  | [
+      string,
       StatePathPart,
-      NestedStateSetter<any>
+      StatePathPart,
+      StatePathPart,
+      StatePathPart,
+      StatePathPart,
+      StatePathPart,
+      NestedStateSetter<unknown>
     ];
 function wrap<T extends StateNode>(value: T): Wrapped<T> {
   return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps));
@@ -150,7 +150,7 @@ const proxyTraps = {
 export function setProperty(
   state: StateNode,
   property: string | number,
-  value: any,
+  value: unknown,
   force?: boolean
 ) {
   value = unwrap(value) as StateNode;
@@ -165,7 +165,7 @@ export function setProperty(
   notify && (node = nodes._) && node.next();
 }
 
-function mergeState(state: StateNode, value: { [k: string]: any }, force?: boolean) {
+function mergeState(state: StateNode, value: { [k: string]: unknown }, force?: boolean) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
