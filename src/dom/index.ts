@@ -1,15 +1,8 @@
 export * from "./runtime";
-import { createComponent, insert } from "./runtime";
-import {
-  createRoot,
-  createMemo,
-  SuspenseContext,
-  onCleanup,
-  sample,
-  map,
-  afterEffects,
-  useContext
-} from "../index";
+export * from "./Suspense";
+export * from "./transform";
+import { insert } from "./runtime";
+import { createRoot, createMemo, onCleanup, sample, map } from "../index";
 
 const equalFn = <T>(a: T, b: T) => a === b;
 
@@ -88,47 +81,6 @@ export function Switch<T>(props: {
 type MatchProps = { when: boolean; children: any };
 export function Match(props: MatchProps) {
   return props;
-}
-
-export function Suspense(props: {
-  maxDuration?: number;
-  fallback: any;
-  children: any;
-}) {
-  return createComponent(
-    SuspenseContext.Provider,
-    {
-      value: props.maxDuration,
-      children: () => {
-        let dispose: () => void;
-        const c = useContext(SuspenseContext),
-          rendered = sample(() => props.children),
-          marker = document.createTextNode(""),
-          doc = document.implementation.createHTMLDocument();
-
-        Object.defineProperty(doc.body, "host", {
-          get() {
-            return marker && marker.parentNode;
-          }
-        });
-
-        return createMemo(() => {
-          const value = c.state();
-          if (c.initializing) c.initializing = false;
-          dispose && dispose();
-          if (value !== 'fallback') return [marker, rendered];
-          afterEffects(() =>
-            createRoot(disposer => {
-              dispose = disposer;
-              insert(doc.body, rendered);
-            })
-          );
-          return [marker, props.fallback];
-        });
-      }
-    },
-    ["children"]
-  );
 }
 
 export function Portal(props: {

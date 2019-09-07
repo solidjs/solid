@@ -20,5 +20,4 @@ export { reconcile } from "./reconcile";
 
 export * from "./operator";
 export * from "./component";
-export * from "./transform";
 export * from "./suspense";

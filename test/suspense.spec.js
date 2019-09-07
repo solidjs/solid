@@ -1,28 +1,4 @@
-import { createRoot, createSignal, createEffect, SuspenseContext, lazy, loadResource } from '../dist/index';
-
-describe('Simulate Lazy Component', () => {
-  let resolve, result;
-  const LazyChild = lazy(() => new Promise(r => resolve = r)),
-    Child = props => props.greeting;
-
-  test('setup context', async done => {
-    createRoot(() => {
-      const props = {}
-      Object.defineProperty(props, 'children', {
-        get() {
-          const value = LazyChild({greeting: 'Hello'})
-          createEffect(() => result = value());
-        }
-      })
-      SuspenseContext.Provider(props);
-    });
-    expect(result).toBeUndefined();
-    await resolve({default: Child});
-    await Promise.resolve();
-    expect(result).toBe('Hello');
-    done();
-  });
-});
+import { createRoot, createSignal, loadResource } from '../dist/index';
 
 describe('Simulate a dynamic fetch', () => {
   let resolve, trigger, result;

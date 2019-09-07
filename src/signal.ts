@@ -172,10 +172,11 @@ export function isListening() {
 export interface Context {
   id: symbol;
   Provider: (props: any) => any;
+  defaultValue: unknown
 }
-export function createContext(initFn?: Function): Context {
+export function createContext(defaultValue?: unknown): Context {
   const id = Symbol("context");
-  return { id, Provider: createProvider(id, initFn) };
+  return { id, Provider: createProvider(id), defaultValue };
 }
 
 export function useContext(context: Context) {
@@ -183,7 +184,7 @@ export function useContext(context: Context) {
     return console.warn(
       "Context keys cannot be looked up without a root or parent"
     );
-  return lookup(Owner, context.id);
+  return lookup(Owner, context.id) || context.defaultValue;
 }
 
 export function getContextOwner() {
@@ -338,8 +339,8 @@ class Queue<T> {
   }
 }
 
-function createProvider(id: symbol, initFn?: Function) {
-  return (props: any) => {
+function createProvider(id: symbol) {
+  return (props: {value: unknown, children: any}) => {
     let rendered;
     makeComputationNode(
       () => {
@@ -349,7 +350,7 @@ function createProvider(id: symbol, initFn?: Function) {
           );
         const context = Owner.context || (Owner.context = {});
         Owner.noRecycle = true;
-        context[id] = initFn ? initFn(props.value) : props.value;
+        context[id] = props.value;
         rendered = props.children;
       },
       undefined,

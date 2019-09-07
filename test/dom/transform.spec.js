@@ -1,4 +1,5 @@
-import { createRoot, createSignal,  selectWhen, selectEach } from '../dist/index';
+import { createRoot, createSignal } from '../../dist/index';
+import { selectWhen, selectEach, awaitSuspense } from '../../dist/dom/index';
 
 function createList(parent, length) {
   let i = 0;
@@ -52,3 +53,13 @@ describe('selectEach', () => {
     })
   });
 });
+
+describe('awaitSuspense', () => {
+  test('test default state', () => {
+    createRoot(() => {
+      const accessor = () => 'Hello';
+      expect(awaitSuspense(accessor)()).toBe('Hello');
+    })
+  });
+});
+

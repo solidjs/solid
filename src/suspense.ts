@@ -1,5 +1,4 @@
 import {
-  createSignal,
   createEffect,
   createContext,
   useContext,
@@ -10,40 +9,7 @@ import {
 import { createState, Wrapped } from "./state";
 
 // Suspense Context
-export const SuspenseContext = createContext((maxDuration: number = 0) => {
-  let counter = 0,
-    t: NodeJS.Timeout,
-    state = "running";
-  const [get, next] = createSignal<void>(),
-    store = {
-      increment: () => {
-        if (++counter === 1) {
-          if (!store.initializing) {
-            if (maxDuration) {
-              state = "suspended";
-              t = setTimeout(() => ((state = "fallback"), next()), maxDuration);
-            } else state = "fallback";
-            next();
-          } else state = "fallback";
-        }
-      },
-      decrement: () => {
-        if (--counter === 0) {
-          t && clearTimeout(t);
-          if (state !== "running") {
-            state = "running";
-            next();
-          }
-        }
-      },
-      state: () => {
-        get();
-        return state;
-      },
-      initializing: true
-    };
-  return store;
-});
+export const SuspenseContext = createContext({ state: () => "running" });
 
 // lazy load a function component asynchronously
 export function lazy<T extends Function>(fn: () => Promise<{ default: T }>) {
@@ -61,8 +27,7 @@ type ResourceState = { loading: Boolean; data?: any; error?: any };
 export function loadResource<T>(fn: () => Promise<T>): Wrapped<ResourceState>;
 export function loadResource<T>(p: Promise<T>): Wrapped<ResourceState>;
 export function loadResource<T>(resource: any): Wrapped<ResourceState> {
-  const { increment, decrement } =
-    useContext(SuspenseContext) || ({} as ResourceState);
+  const { increment, decrement } = useContext(SuspenseContext);
   const [state, setState] = createState<ResourceState>({ loading: false });
 
   function doRequest(p: Promise<T>, ref?: { cancelled: Boolean }) {

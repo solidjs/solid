@@ -40,9 +40,9 @@ Ignores tracking any of the dependencies in the executing code block and returns
 
 Ensures that all updates within the block happen at the same time to prevent unnecessary recalculation. Solid State's setState method and computations(useEffect, useMemo) automatically wrap their code in freeze blocks.
 
-### `createContext(initFn): Context`
+### `createContext(defaultContext): Context`
 
-Creates a new context object that can be used with useContext and the Provider control flow.
+Creates a new context object that can be used with useContext and the Provider control flow. Default Context is used when no Provider is found above in the hierarchy.
 
 ### `useContext(Context): any`
 
