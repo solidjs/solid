@@ -42,15 +42,15 @@ type StatePathPart =
 
 // do up to depth of 8
 type StatePath =
-  | [string, NestedStateSetter<any>]
-  | [string, StatePathPart, NestedStateSetter<any>]
-  | [string, StatePathPart, StatePathPart, NestedStateSetter<any>]
+  | [string, NestedStateSetter<unknown>]
+  | [string, StatePathPart, NestedStateSetter<unknown>]
+  | [string, StatePathPart, StatePathPart, NestedStateSetter<unknown>]
   | [
       string,
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<any>
+      NestedStateSetter<unknown>
     ]
   | [
       string,
@@ -58,16 +58,7 @@ type StatePath =
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<any>
-    ]
-  | [
-      string,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      NestedStateSetter<any>
+      NestedStateSetter<unknown>
     ]
   | [
       string,
@@ -76,8 +67,17 @@ type StatePath =
       StatePathPart,
       StatePathPart,
       StatePathPart,
+      NestedStateSetter<unknown>
+    ]
+  | [
+      string,
       StatePathPart,
-      NestedStateSetter<any>
+      StatePathPart,
+      StatePathPart,
+      StatePathPart,
+      StatePathPart,
+      StatePathPart,
+      NestedStateSetter<unknown>
     ];
 function wrap<T extends StateNode>(value: T): Wrapped<T> {
   return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps));
