@@ -10,10 +10,10 @@ import { createState, createContext } from 'solid-js';
 
 export const CounterContext = createContext([{ count: 0 }, {}]);
 
-export function CounterProvider(props) => {
-  const [state, setState] = createState({ count: props.count || 0 });
+export function CounterProvider(props) {
+  const [state, setState] = createState({ count: props.count || 0 }),
     store = [state, {
-      increment() { setState('count', c => c + 1); }
+      increment() { setState('count', c => c + 1); },
       decrement() { setState('count', c => c - 1); }
     }];
 

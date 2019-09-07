@@ -176,6 +176,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 * [Simple Todos](https://codesandbox.io/s/lrm786ojqz) Todos with LocalStorage persistence
 * [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'switch' control flow for simple routing
 * [Scoreboard](https://codesandbox.io/s/solid-scoreboard-sjpje) Make use of hooks to do some simple transitions
+* [Counter Context](https://codesandbox.io/s/counter-context-gur76) Implement a global store with Context API.
 * [Async Resource](https://codesandbox.io/s/2o4wmxj9zy) Ajax requests to SWAPI with Promise cancellation
 * [Suspense](https://codesandbox.io/s/5v67oym224) Various Async loading with Solid's Suspend control flow
 * [Redux Undoable Todos](https://codesandbox.io/s/pkjw38r8mj) Example from Redux site done with Solid.
