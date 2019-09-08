@@ -36,6 +36,7 @@ type NestedStateSetter<T> =
 type StatePathRange = { from?: number; to?: number; by?: number };
 type StatePathPart =
   | string
+  | number
   | (string | number)[]
   | StatePathRange
   | ((item: any, index: number) => boolean);
