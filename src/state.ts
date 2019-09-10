@@ -126,7 +126,7 @@ const proxyTraps = {
     if (property === SPROXY || property === SNODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
-    if (isListening() && typeof value !== "function") {
+    if (isListening()) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = new DataNode());
