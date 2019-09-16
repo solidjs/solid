@@ -1,4 +1,4 @@
-import { Attributes } from 'dom-expressions';
+import { Attributes, NonComposedEvents } from 'dom-expressions';
 import { createEffect as wrap, getContextOwner as currentContext } from '../index';
 
 
@@ -49,7 +49,7 @@ export function classList(node, value) {
 
 export function spread(node, accessor) {
   if (typeof accessor === 'function') {
-    wrap(() => spreadExpression(node, accessor()));
+    wrap(current => spreadExpression(node, accessor(), current));
   } else spreadExpression(node, accessor);
 }
 
@@ -105,22 +105,36 @@ function eventHandler(e) {
   }
 }
 
-function spreadExpression(node, props) {
+function spreadExpression(node, props, prevProps = {}) {
   let info;
   for (const prop in props) {
     const value = props[prop];
+    if (value === prevProps[prop]) continue;
     if (prop === 'style') {
       Object.assign(node.style, value);
     } else if (prop === 'classList') {
       classList(node, value);
+    // really only for forwarding from Components, can't forward normal ref
+    } else if (prop === 'ref' || prop === 'forwardRef') {
+      value(node);
+    } else if (prop.slice(0, 2) === 'on') {
+      const lc = prop.toLowerCase();
+      if (lc !== prop && !NonComposedEvents.has(lc.slice(2))) {
+        const name = lc.slice(2);
+        node[`__${name}`] = value;
+        delegateEvents([name]);
+      } else node[lc] = value;
     } else if (prop === 'events') {
       for (const eventName in value) node.addEventListener(eventName, value[eventName]);
+    } else if (prop === 'children') {
+      insertExpression(node, value, prevProps[prop]);
     } else if (info = Attributes[prop]) {
       if (info.type === 'attribute') {
-        node.setAttribute(prop, value)
+        node.setAttribute(prop, value);
       } else node[info.alias] = value;
     } else node[prop] = value;
   }
+  return Object.assign({}, props);
 }
 
 function normalizeIncomingArray(normalized, array) {
