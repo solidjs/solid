@@ -1,4 +1,4 @@
-import { createRoot, createState, createSignal, createEffect, unwrap, force } from '../dist/index';
+import { createRoot, createState, createSignal, createEffect, createMemo, unwrap, force } from '../dist/index';
 
 describe('State immutablity', () => {
   test('Setting a property', () => {
@@ -179,6 +179,21 @@ describe('Tracking State changes', () => {
       setState('user', 'firstName', 'Jake');
 
     });
+  });
+});
+
+describe('Handling functions in state', () => {
+  test('Array Native Methods: Array.Filter', () => {
+    var [ state ] = createState({ list: [0, 1, 2] }),
+      getFiltered = createMemo(() => state.list.filter(i => i % 2));
+    expect(getFiltered()).toStrictEqual([1]);
+  });
+
+  test('Track function change', () => {
+    var [ state, setState ] = createState({ fn: () => 1 }),
+      getValue = createMemo(() => state.fn());
+    setState({ fn: () => 2 });
+    expect(getValue()).toBe(2);
   });
 });
 

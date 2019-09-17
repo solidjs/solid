@@ -1,12 +1,15 @@
 describe("Basic element attributes", () => {
   test("spread", () => {
+    let div;
     const props = {
         id: "main",
         name: "main",
         children: <p>Hi</p>,
+        ref: (ref) => div = ref,
         onClick: () => console.log("clicked")
       },
       d = <div {...props} />;
+    expect(div).toBe(d);
     expect(d.id).toBe("main");
     expect(d.name).toBe("main");
     expect(d.__click).toBeDefined();

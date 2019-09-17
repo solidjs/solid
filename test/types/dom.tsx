@@ -3,6 +3,7 @@
  * They are not executed by the test suite.
  */
 import { render, For, Show, Switch, Match, Suspense, Portal } from '../../src/dom/index';
+import { EventHandler } from '@jest/types/build/Circus';
 
 
 function testFor() {
@@ -101,6 +102,15 @@ function testRefs() {
     let simpleRef,
       forwardRef = (e: HTMLDivElement) => simpleRef = e,
       element = <div forwardRef={forwardRef} ref={simpleRef} />;
+  }
+}
+
+function testSpreads() {
+  () => {
+    let simpleRef,
+      forwardRef = (e: HTMLElement) => simpleRef = e,
+      Component = (props: (JSX.HTMLAttributes<HTMLDivElement> & {ref?: (e: HTMLElement) => void})) => <div {...props} />,
+      element = <Component forwardRef={forwardRef} onClick={() => console.log('Hi')} />;
   }
 }
 
