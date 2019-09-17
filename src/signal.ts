@@ -597,20 +597,16 @@ function applyDataChange(data: DataNode) {
 
 function updateNode(node: ComputationNode) {
   const state = node.state;
-  if (state && (state & 16) === 0) {
+  if ((state & 16) === 0) {
     if ((state & 2) !== 0) {
       node.dependents![node.dependentslot++] = null;
       if (node.dependentslot === node.dependentcount) {
         resetComputation(node, 14);
       }
-    } else if (
-      (state & 4) !== 0 &&
-      (node.owner && (node.owner.state & 2) !== 0)
-    ) {
-      // requeue if marked for disposal and parent is still pending
-      RootClock.updates.add(node);
     } else if ((state & 1) !== 0) {
-      if (node.comparator) {
+      if ((state & 4) !== 0) {
+        liftComputation(node);
+      } else if (node.comparator) {
         const current = updateComputation(node);
         const comparator = node.comparator;
         if (!comparator(current, node.value)) {
@@ -742,9 +738,11 @@ function applyUpstreamUpdates(node: ComputationNode) {
   if ((node.state & 2) !== 0) {
     const slots = node.dependents;
     for (let i = node.dependentslot, ln = node.dependentcount; i < ln; i++) {
-      liftComputation(slots![i]!);
+      const slot = slots![i];
+      if (slot != null) liftComputation(slot);
       slots![i] = null;
     }
+    node.state &= ~2;
   }
 }
 
