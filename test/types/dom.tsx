@@ -109,7 +109,7 @@ function testSpreads() {
   () => {
     let simpleRef,
       forwardRef = (e: HTMLElement) => simpleRef = e,
-      Component = (props: (JSX.HTMLAttributes<HTMLDivElement> & {ref?: (e: HTMLElement) => void})) => <div {...props} />,
+      Component = (props: JSX.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
       element = <Component forwardRef={forwardRef} onClick={() => console.log('Hi')} />;
   }
 }
