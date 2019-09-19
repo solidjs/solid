@@ -208,6 +208,7 @@ React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Articles
 
+* [Designing SolidJS: Reactivity](https://medium.com/@ryansolid/designing-solidjs-reactivity-75180a4c74b4?source=friends_link&sk=dbb9dd46a2e902c199ad3d5c7aeb1566) Finding the right reactivity model for Solid.
 * [Designing SolidJS: Dualities](https://medium.com/@ryansolid/designing-solidjs-dualities-69ee4c08aa03?source=friends_link&sk=161ddd70db4fca50d6f33b6d53056d36) How exploring opposites can help us redefine the whole problem space.
 * [How we wrote the Fastest JavaScript UI Frameworks](https://medium.com/@ryansolid/how-we-wrote-the-fastest-javascript-ui-frameworks-a96f2636431e) How Solid topped the JS Framework Benchmark.
 * [Finding Fine Grained Reactive Programming](https://levelup.gitconnected.com/finding-fine-grained-reactive-programming-89741994ddee?source=friends_link&sk=31c66a70c1dce7dd5f3f4229423ad127) Introduction to the inner workings of Solid's Reactive system.
