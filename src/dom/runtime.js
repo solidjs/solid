@@ -47,10 +47,10 @@ export function classList(node, value) {
   }
 }
 
-export function spread(node, accessor) {
+export function spread(node, accessor, isSVG) {
   if (typeof accessor === 'function') {
-    wrap(current => spreadExpression(node, accessor(), current));
-  } else spreadExpression(node, accessor);
+    wrap(current => spreadExpression(node, accessor(), current, isSVG));
+  } else spreadExpression(node, accessor, undefined, isSVG);
 }
 
 export function insert(parent, accessor, marker, initial) {
@@ -105,7 +105,7 @@ function eventHandler(e) {
   }
 }
 
-function spreadExpression(node, props, prevProps = {}) {
+function spreadExpression(node, props, prevProps = {}, isSVG) {
   let info;
   for (const prop in props) {
     const value = props[prop];
@@ -132,6 +132,8 @@ function spreadExpression(node, props, prevProps = {}) {
       if (info.type === 'attribute') {
         node.setAttribute(prop, value);
       } else node[info.alias] = value;
+    } else if (isSVG) {
+      node.setAttribute(prop, value);
     } else node[prop] = value;
   }
   return Object.assign({}, props);
