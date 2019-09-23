@@ -180,10 +180,7 @@ export function createContext(defaultValue?: unknown): Context {
 }
 
 export function useContext(context: Context) {
-  if (Owner === null)
-    return console.warn(
-      "Context keys cannot be looked up without a root or parent"
-    );
+  if (Owner === null) return context.defaultValue;
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
