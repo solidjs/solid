@@ -1,5 +1,5 @@
 # Changelog
-## 0.11.0
+## 0.11.0 - 2019-09-27
 v0.11.0 continues to add updates to the reactive system as well as some new features:
 * Fix reactivity resolution ordering on downstream conditionals
 * Add basic (non-namespaced) SVG support
