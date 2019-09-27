@@ -1,4 +1,13 @@
 # Changelog
+## 0.11.0
+v0.11.0 continues to add updates to the reactive system as well as some new features:
+* Fix reactivity resolution ordering on downstream conditionals
+* Add basic (non-namespaced) SVG support
+* Add experimental Server Side Rendering and Client Side Hydration capabilities
+* Add Suspense aware control flow transformation (`awaitSuspense`)
+* Allow state objects to track functions
+* More TypeScript definition improvments and fixes
+
 ## 0.10.0 - 2019-08-11
 v0.10.0 makes significant changes to the reactive system. Key updates:
 * Fixed synchronicity on all hooks/control flows.
