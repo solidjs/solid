@@ -1,17 +1,30 @@
 export * from "./runtime";
 export * from "./Suspense";
 export * from "./transform";
-import { insert } from "./runtime";
+import { insert, hydration, startSSR } from "./runtime";
 import { createRoot, createMemo, onCleanup, sample, map } from "../index";
 
 const equalFn = <T>(a: T, b: T) => a === b;
 
-export function render(code: () => any, element: Node): () => void {
+export function render(code: () => any, element: HTMLElement): () => void {
   let disposer: () => void;
   createRoot(dispose => {
     disposer = dispose;
     insert(element, code());
   });
+  return disposer!;
+}
+
+export function renderSSR(code: () => any, element: HTMLElement): () => void {
+  startSSR();
+  return render(code, element);
+}
+
+export function hydrate(code: () => any, element: HTMLElement): () => void {
+  let disposer: () => void;
+  hydration(() => {
+    disposer = render(code, element);
+  }, element);
   return disposer!;
 }
 

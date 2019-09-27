@@ -102,3 +102,29 @@ This transform directive informs control flow to suspend with the current Suspen
 
 Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef` which calls a callback `(ref) => void` with the reference. To support forwarded properties on spreads, both `ref` and `forwardRef` are called as functions.
 
+## Server Side Rendering (Experimental)
+
+### To use SSR on the server:
+1. Configure babel-preset-solid with generate option 'ssr'
+```json
+"presets": [["solid", { "generate": "ssr" }]]
+```
+2. Use `renderSSR` entry:
+```jsx
+import { renderSSR } from 'solid-js/dom';
+
+renderSSR(() => <App />, document.getElementById('main'));
+```
+
+### To rehydrate on the client:
+1. Configure babel-preset-solid with generate option 'hydrate'
+```json
+"presets": [["solid", { "generate": "hydrate" }]]
+```
+2. Use `hydrate` entry:
+```jsx
+import { hydrate } from 'solid-js/dom';
+
+hydrate(() => <App />, document.getElementById('main'));
+```
+

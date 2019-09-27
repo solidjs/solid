@@ -64,6 +64,61 @@ export function insert(parent, accessor, marker, initial) {
   }
 }
 
+// SSR
+let hydrateRegistry = null,
+  hydrateKey = 0,
+  SSR = false;
+
+export function isSSR() { return SSR; }
+export function startSSR() {
+  hydrateKey = 0;
+  SSR = true;
+}
+
+export function hydration(code, root) {
+  hydrateRegistry = new Map();
+  hydrateKey = 0;
+  SSR = false;
+  const iterator = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: node => node.hasAttribute('_hk') && NodeFilter.FILTER_ACCEPT
+  });
+  let node;
+  while (node = iterator.nextNode()) hydrateRegistry.set(node.getAttribute('_hk'), node);
+
+  code();
+  hydrateRegistry = null;
+}
+
+export function getNextElement(template) {
+  if (!hydrateRegistry) {
+    const el = template.content.firstChild.cloneNode(true);
+    if (SSR) el.setAttribute('_hk', `${hydrateKey++}`);
+    return el;
+  }
+  return hydrateRegistry.get(`${hydrateKey++}`);
+}
+
+export function getNextMarker(start) {
+  let end = start,
+    count = 0,
+    current = [];
+  if (hydrateRegistry) {
+    while (end) {
+      if (end.nodeType === 8) {
+        const v = end.nodeValue;
+        if (v === "#") count++;
+        else if (v === "/") {
+          if (count === 0) return [end, current];
+          count--;
+        }
+      }
+      current.push(end);
+      end = end.nextSibling;
+    }
+  }
+  return [end, current];
+}
+
 // Internal Functions
 function dynamicProp(props, key) {
   const src = props[key];
@@ -331,12 +386,12 @@ function reconcileArrays(parent, ns, us) {
   }
 
   // Positions for reusing nodes from current DOM state
-  const P = new Array(umax - umin + 1);
-  for(let i = umin; i <= umax; i++) P[i] = NOMATCH;
-
-  // Index to resolve position from current to new
-  const I = new Map();
-  for(let i = umin; i <= umax; i++) I.set(us[i], i);
+  const P = new Array(umax - umin + 1),
+    I = new Map();
+  for(let i = umin; i <= umax; i++) {
+    P[i] = NOMATCH;
+    I.set(us[i], i);
+  }
 
   let reusingNodes = umin + us.length - 1 - umax,
     toRemove = []

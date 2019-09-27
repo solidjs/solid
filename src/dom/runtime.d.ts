@@ -7,3 +7,8 @@ export function clearDelegatedEvents(): void;
 export function spread(node: HTMLElement, accessor: any, isSVG: Boolean): void;
 export function classList(node: HTMLElement, value: { [k: string]: boolean; }): void;
 export function currentContext(): any;
+export function isSSR(): boolean;
+export function startSSR(): void;
+export function hydration(fn: () => unknown, node: HTMLElement): void;
+export function getNextElement(template: HTMLTemplateElement): Node;
+export function getNextMarker(start: Node): [Node, Array<Node>];
