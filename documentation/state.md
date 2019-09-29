@@ -146,7 +146,7 @@ If you pass as array you can configure the diff algorithm with an options object
 setState(reconcile(
   ['users', store.get('users')],
   {
-    key: '_id' // does a keyed comparison on arrays with key - default: 'id'
+    key: '_id' // does a keyed comparison - default: 'id'
     merge: false //  overwrites rather than detects array position changes when not keyed - default: false
   }
 ))

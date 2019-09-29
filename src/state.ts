@@ -86,7 +86,7 @@ function wrap<T extends StateNode>(value: T): Wrapped<T> {
 
 export function isWrappable(obj: any) {
   return (
-    obj !== null &&
+    obj != null &&
     typeof obj === "object" &&
     (obj.__proto__ === Object.prototype || Array.isArray(obj))
   );
