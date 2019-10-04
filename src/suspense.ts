@@ -15,7 +15,7 @@ export const SuspenseContext = createContext({ state: () => "running" });
 export function lazy<T extends Function>(fn: () => Promise<{ default: T }>) {
   return (props: object) => {
     const result = loadResource(fn().then(mod => mod.default));
-    let Comp: T | undefined;
+    let Comp: T | Wrapped<T> | undefined;
     return createMemo(
       () => (Comp = result.data) && sample(() => (Comp as T)(props))
     );
@@ -23,12 +23,12 @@ export function lazy<T extends Function>(fn: () => Promise<{ default: T }>) {
 }
 
 // load any async resource
-type ResourceState = { loading: Boolean; data?: any; error?: any };
-export function loadResource<T>(fn: () => Promise<T>): Wrapped<ResourceState>;
-export function loadResource<T>(p: Promise<T>): Wrapped<ResourceState>;
-export function loadResource<T>(resource: any): Wrapped<ResourceState> {
+type ResourceState<T> = { loading: Boolean; data?: T; error?: any };
+export function loadResource<T>(fn: () => Promise<T>): Wrapped<ResourceState<T>>;
+export function loadResource<T>(p: Promise<T>): Wrapped<ResourceState<T>>;
+export function loadResource<T>(resource: any): Wrapped<ResourceState<T>> {
   const { increment, decrement } = useContext(SuspenseContext);
-  const [state, setState] = createState<ResourceState>({ loading: false });
+  const [state, setState] = createState<ResourceState<T>>({ loading: false });
 
   function doRequest(p: Promise<T>, ref?: { cancelled: Boolean }) {
     setState({ loading: true });
