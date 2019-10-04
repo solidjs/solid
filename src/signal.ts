@@ -172,7 +172,7 @@ export function isListening() {
 export interface Context {
   id: symbol;
   Provider: (props: any) => any;
-  defaultValue: unknown
+  defaultValue: unknown;
 }
 export function createContext(defaultValue?: unknown): Context {
   const id = Symbol("context");
@@ -336,8 +336,23 @@ class Queue<T> {
   }
 }
 
+function resolveChildren(children: any): any {
+  if (typeof children === "function") return createMemo(children)
+  if (Array.isArray(children)) {
+    const results: any[] = [];
+    for (let i = 0; i < children.length; i++) {
+      let result = resolveChildren(children[i]);
+      Array.isArray(result)
+        ? results.push.apply(results, result)
+        : results.push(result);
+    }
+    return results;
+  }
+  return children;
+}
+
 function createProvider(id: symbol) {
-  return (props: {value: unknown, children: any}) => {
+  return (props: { value: unknown; children: any }) => {
     let rendered;
     makeComputationNode(
       () => {
@@ -348,7 +363,7 @@ function createProvider(id: symbol) {
         const context = Owner.context || (Owner.context = {});
         Owner.noRecycle = true;
         context[id] = props.value;
-        rendered = props.children;
+        rendered = resolveChildren(props.children);
       },
       undefined,
       true

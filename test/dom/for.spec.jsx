@@ -1,5 +1,5 @@
-import { createRoot, createSignal } from '../../dist/index';
-import { insert } from '../../dist/dom/index';
+import { createRoot, createSignal } from '../../dist';
+import { insert } from '../../dist/dom';
 
 describe('Testing an only child each control flow', () => {
   let div, disposer;
