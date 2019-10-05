@@ -4,9 +4,11 @@ export * from "./transform";
 import { insert, hydration, startSSR } from "./runtime";
 import { createRoot, createMemo, onCleanup, sample, map } from "../index";
 
+type MountableElement = Element | Document | ShadowRoot | DocumentFragment;
+
 const equalFn = <T>(a: T, b: T) => a === b;
 
-export function render(code: () => any, element: HTMLElement): () => void {
+export function render(code: () => any, element: MountableElement): () => void {
   let disposer: () => void;
   createRoot(dispose => {
     disposer = dispose;
@@ -15,12 +17,12 @@ export function render(code: () => any, element: HTMLElement): () => void {
   return disposer!;
 }
 
-export function renderSSR(code: () => any, element: HTMLElement): () => void {
+export function renderSSR(code: () => any, element: MountableElement): () => void {
   startSSR();
   return render(code, element);
 }
 
-export function hydrate(code: () => any, element: HTMLElement): () => void {
+export function hydrate(code: () => any, element: MountableElement): () => void {
   let disposer: () => void;
   hydration(() => {
     disposer = render(code, element);
@@ -97,7 +99,7 @@ export function Match(props: MatchProps) {
 }
 
 export function Portal(props: {
-  mount?: Node;
+  mount?: MountableElement;
   useShadow?: boolean;
   ref?: (e: HTMLDivElement) => void;
   children: any;
