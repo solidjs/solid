@@ -154,12 +154,12 @@ export function setProperty(
   value: any,
   force?: boolean
 ) {
-  value = unwrap(value) as StateNode;
-  if (!force && state[property] === value) return;
+  let unwrappedValue = unwrap(value);
+  if (!force && state[property] === unwrappedValue) return;
   const notify = Array.isArray(state) || !(property in state);
-  if (value === void 0) {
+  if (unwrappedValue === void 0) {
     delete state[property];
-  } else state[property] = value;
+  } else state[property] = unwrappedValue;
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.next();
