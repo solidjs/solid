@@ -231,25 +231,28 @@ function updatePath(
   } else updatePath(current[part], path, traversed.concat([part]), force);
 }
 
-export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
-  state = unwrap(state || {}) as T;
-  const wrappedState = wrap(state) as Wrapped<T>;
 
-  function setState(update: StateSetter<T>): void;
-  function setState(...path: StatePath): void;
-  function setState(paths: StatePath[]): void;
-  function setState(reconcile: (s: Wrapped<T>) => void): void;
+interface SetStateFunction<T> {
+  (update: StateSetter<T>): void;
+  (...path: StatePath): void;
+  (paths: StatePath[]): void;
+  (reconcile: (s: Wrapped<T>) => void): void;
+}
+
+export function createState<T extends StateNode>(state?: T | Wrapped<T>): [Wrapped<T>, SetStateFunction<T>] {
+  const unwrappedState = unwrap<T>(state || {})
+  const wrappedState = wrap<T>(unwrappedState);
   function setState(...args: any[]): void {
     freeze(() => {
       if (Array.isArray(args[0])) {
         for (let i = 0; i < args.length; i += 1) {
-          updatePath(state as T, args[i]);
+          updatePath(unwrappedState, args[i]);
         }
-      } else updatePath(state as T, args);
+      } else updatePath(unwrappedState, args);
     });
   }
 
-  return [wrappedState, setState] as [Wrapped<T>, typeof setState];
+  return [wrappedState, setState];
 }
 
 // force state change even if value hasn't changed
