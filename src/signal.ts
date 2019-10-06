@@ -40,7 +40,7 @@ export function createDependentEffect<T>(
   if (Array.isArray(deps)) deps = callAll(deps);
   defer = !!defer;
 
-  createEffect((value: T | undefined) => {
+  createEffect<T | undefined>((value: T | undefined) => {
     const listener = Listener;
     deps();
     if (defer) defer = false;
@@ -49,7 +49,7 @@ export function createDependentEffect<T>(
       value = fn(value);
       Listener = listener;
     }
-    return value as T;
+    return value;
   });
 }
 
