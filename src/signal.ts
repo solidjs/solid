@@ -115,7 +115,7 @@ export function createRoot<T>(
 
   if (
     disposer !== null &&
-    recycleOrClaimNode(root, null as any, undefined, true)
+    recycleOrClaimNode(root, null, undefined, true)
   ) {
     root = null!;
   }
@@ -471,7 +471,7 @@ function getCandidateNode() {
 
 function recycleOrClaimNode<T>(
   node: ComputationNode,
-  fn: (v: T | undefined) => T,
+  fn: ((v: T | undefined) => T) | null,
   value: T,
   orphan: boolean
 ) {
