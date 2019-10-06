@@ -302,10 +302,10 @@ type Log = {
 };
 function createLog(): Log {
   return {
-    node1: null as null | ComputationNode,
+    node1: null,
     node1slot: 0,
-    nodes: null as null | ComputationNode[],
-    nodeslots: null as null | number[]
+    nodes: null,
+    nodeslots: null
   };
 }
 
