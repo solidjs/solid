@@ -23,13 +23,13 @@ export function selectWhen(
   handler: any
 ): (s: () => any) => () => any {
   if (typeof handler === "string") handler = createHandler(handler);
-  return list => {
+  return (list: () => any[]) => {
     createEffect(element => {
       const model = signal();
       if (element) handler(element, false);
       if (
         (element =
-          model && sample(list as () => any[]).find(el => el.model === model))
+          model && sample(list).find(el => el.model === model))
       )
         handler(element, true);
       return element;
@@ -51,10 +51,10 @@ export function selectEach(
   handler: any
 ): (s: () => any) => () => any {
   if (typeof handler === "string") handler = createHandler(handler);
-  return list => {
+  return (list: () => any[]) => {
     createEffect<Element[]>((elements = []) => {
       const models = signal(),
-        newElements = sample(list as () => any[]).filter(
+        newElements = sample(list).filter(
           el => models.indexOf(el.model) > -1
         ),
         [additions, removals] = shallowDiff(newElements, elements!);
