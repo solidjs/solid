@@ -107,7 +107,9 @@ export function createRoot<T>(
 
   try {
     Listener = null;
-    result = disposer === null ? (fn as any)() : fn(disposer);
+    // TS does not support `if (fn.length === 0) { fn(); }`
+    // therefore this rather ugly type cast is needed.
+    result = disposer === null ? (fn as (() => T)) () : fn(disposer);
   } finally {
     Listener = listener;
     Owner = root.owner;
