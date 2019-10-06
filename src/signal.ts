@@ -419,7 +419,7 @@ function makeComputationNode<T>(
   node.comparator = comparator;
   Owner = node;
   Listener = sample ? null : node;
-  value = toplevel ? execToplevelComputation(fn, value as T) : fn(value);
+  value = toplevel ? execToplevelComputation(fn, value) : fn(value);
   Owner = node.owner;
   Listener = listener;
 
@@ -431,7 +431,7 @@ function makeComputationNode<T>(
   return makeComputationNodeResult;
 }
 
-function execToplevelComputation<T>(fn: (v: T | undefined) => T, value: T) {
+function execToplevelComputation<T>(fn: (v: T | undefined) => T, value?: T) {
   RunningClock = RootClock;
   RootClock.changes.reset();
   RootClock.updates.reset();
