@@ -64,7 +64,7 @@ export function Suspense(props: {
           }
         });
 
-        return createMemo(() => {
+        return () => {
           const value = store.state();
           if (store.initializing) store.initializing = false;
           dispose && dispose();
@@ -76,7 +76,7 @@ export function Suspense(props: {
             })
           );
           return [marker, props.fallback];
-        });
+        };
       }
     },
     ["children"]

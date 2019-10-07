@@ -354,7 +354,7 @@ function resolveChildren(children: any): any {
 }
 
 function createProvider(id: symbol) {
-  return (props: { value: unknown; children: any }) => {
+  return function provider(props: { value: unknown; children: any }) {
     let rendered;
     makeComputationNode(
       () => {
