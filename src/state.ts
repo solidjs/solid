@@ -239,7 +239,7 @@ interface SetStateFunction<T> {
   (reconcile: (s: Wrapped<T>) => void): void;
 }
 
-export function createState<T extends StateNode>(state?: T | Wrapped<T>): [Wrapped<T>, SetStateFunction<T>] {
+export function createState<T extends StateNode>(state: T | Wrapped<T>): [Wrapped<T>, SetStateFunction<T>] {
   const unwrappedState = unwrap<T>(state || {})
   const wrappedState = wrap<T>(unwrappedState);
   function setState(...args: any[]): void {
