@@ -154,12 +154,12 @@ export function setProperty(
   value: any,
   force?: boolean
 ) {
-  value = unwrap(value) as StateNode;
-  if (!force && state[property] === value) return;
+  let unwrappedValue = unwrap(value);
+  if (!force && state[property] === unwrappedValue) return;
   const notify = Array.isArray(state) || !(property in state);
-  if (value === void 0) {
+  if (unwrappedValue === void 0) {
     delete state[property];
-  } else state[property] = value;
+  } else state[property] = unwrappedValue;
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.next();
@@ -231,25 +231,28 @@ function updatePath(
   } else updatePath(current[part], path, traversed.concat([part]), force);
 }
 
-export function createState<T extends StateNode>(state?: T | Wrapped<T>) {
-  state = unwrap(state || {}) as T;
-  const wrappedState = wrap(state) as Wrapped<T>;
 
-  function setState(update: StateSetter<T>): void;
-  function setState(...path: StatePath): void;
-  function setState(paths: StatePath[]): void;
-  function setState(reconcile: (s: Wrapped<T>) => void): void;
+interface SetStateFunction<T> {
+  (update: StateSetter<T>): void;
+  (...path: StatePath): void;
+  (paths: StatePath[]): void;
+  (reconcile: (s: Wrapped<T>) => void): void;
+}
+
+export function createState<T extends StateNode>(state?: T | Wrapped<T>): [Wrapped<T>, SetStateFunction<T>] {
+  const unwrappedState = unwrap<T>(state || {})
+  const wrappedState = wrap<T>(unwrappedState);
   function setState(...args: any[]): void {
     freeze(() => {
       if (Array.isArray(args[0])) {
         for (let i = 0; i < args.length; i += 1) {
-          updatePath(state as T, args[i]);
+          updatePath(unwrappedState, args[i]);
         }
-      } else updatePath(state as T, args);
+      } else updatePath(unwrappedState, args);
     });
   }
 
-  return [wrappedState, setState] as [Wrapped<T>, typeof setState];
+  return [wrappedState, setState];
 }
 
 // force state change even if value hasn't changed

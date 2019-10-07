@@ -87,7 +87,7 @@ export function pipe(...fns: Array<Operator<any, any>>): Operator<any, any> {
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function map<T, U>(mapFn: (v: T, i: number) => U, fallback?: () => U) {
   return (list: () => T[]) => {
-    let items = [] as T[],
+    let items = [] as (T | typeof FALLBACK)[],
       mapped = [] as U[],
       disposers = [] as (() => void)[],
       len = 0;
@@ -101,14 +101,14 @@ export function map<T, U>(mapFn: (v: T, i: number) => U, fallback?: () => U) {
         j: number;
       return sample(() => {
         let newLen = newItems.length,
-          newIndices: Map<T, number>,
+          newIndices: Map<T | typeof FALLBACK, number>,
           newIndicesNext: number[],
           temp: U[],
           tempdisposers: (() => void)[],
           start: number,
           end: number,
           newEnd: number,
-          item: T;
+          item: T | typeof FALLBACK;
 
         // fast path for empty arrays
         if (newLen === 0) {
@@ -120,7 +120,7 @@ export function map<T, U>(mapFn: (v: T, i: number) => U, fallback?: () => U) {
             len = 0;
           }
           if (fallback) {
-            items = [(FALLBACK as unknown) as any];
+            items = [FALLBACK];
             mapped[0] = createRoot(disposer => {
               disposers[0] = disposer;
               return fallback();

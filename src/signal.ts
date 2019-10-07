@@ -40,7 +40,7 @@ export function createDependentEffect<T>(
   if (Array.isArray(deps)) deps = callAll(deps);
   defer = !!defer;
 
-  createEffect((value: T | undefined) => {
+  createEffect<T | undefined>((value: T | undefined) => {
     const listener = Listener;
     deps();
     if (defer) defer = false;
@@ -49,7 +49,7 @@ export function createDependentEffect<T>(
       value = fn(value);
       Listener = listener;
     }
-    return value as T;
+    return value;
   });
 }
 
@@ -107,7 +107,9 @@ export function createRoot<T>(
 
   try {
     Listener = null;
-    result = disposer === null ? (fn as any)() : fn(disposer);
+    // TS does not support `if (fn.length === 0) { fn(); }`
+    // therefore this rather ugly type cast is needed.
+    result = disposer === null ? (fn as (() => T)) () : fn(disposer);
   } finally {
     Listener = listener;
     Owner = root.owner;
@@ -115,7 +117,7 @@ export function createRoot<T>(
 
   if (
     disposer !== null &&
-    recycleOrClaimNode(root, null as any, undefined, true)
+    recycleOrClaimNode(root, null, undefined, true)
   ) {
     root = null!;
   }
@@ -302,10 +304,10 @@ type Log = {
 };
 function createLog(): Log {
   return {
-    node1: null as null | ComputationNode,
+    node1: null,
     node1slot: 0,
-    nodes: null as null | ComputationNode[],
-    nodeslots: null as null | number[]
+    nodes: null,
+    nodeslots: null
   };
 }
 
@@ -419,7 +421,7 @@ function makeComputationNode<T>(
   node.comparator = comparator;
   Owner = node;
   Listener = sample ? null : node;
-  value = toplevel ? execToplevelComputation(fn, value as T) : fn(value);
+  value = toplevel ? execToplevelComputation(fn, value) : fn(value);
   Owner = node.owner;
   Listener = listener;
 
@@ -431,7 +433,7 @@ function makeComputationNode<T>(
   return makeComputationNodeResult;
 }
 
-function execToplevelComputation<T>(fn: (v: T | undefined) => T, value: T) {
+function execToplevelComputation<T>(fn: (v: T | undefined) => T, value?: T) {
   RunningClock = RootClock;
   RootClock.changes.reset();
   RootClock.updates.reset();
@@ -471,7 +473,7 @@ function getCandidateNode() {
 
 function recycleOrClaimNode<T>(
   node: ComputationNode,
-  fn: (v: T | undefined) => T,
+  fn: ((v: T | undefined) => T) | null,
   value: T,
   orphan: boolean
 ) {
