@@ -32,7 +32,7 @@ If you need to use non-lowercase or hyphenated event names use the events bindin
 
 ## Control Flow
 
-While you could use a map function for loops and raw ternary operators of conditionals they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods. Current 'For', 'Show', 'Switch/Match', 'Suspense', and 'Portal' are supported.
+While you could use a map function for loops and raw ternary operators of conditionals they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods. Currently 'For', 'Show', 'Switch/Match', 'Suspense', and 'Portal' are supported.
 
 ```jsx
 <ul>
@@ -49,7 +49,7 @@ While you could use a map function for loops and raw ternary operators of condit
 </ul>
 ```
 
-_Note these are designed to handle more complex scenarios like template/component insertions. Child expressions are inert unless you return a function. For simple dynamic strings use ternary operator._
+_Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic strings use ternary operator._
 
 The library also includes a couple transform directives that can be applied to the For control flow.
 

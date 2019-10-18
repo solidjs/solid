@@ -126,6 +126,8 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 "presets": ["solid"]
 ```
 
+Remember there are significant differences between how Solid's JSX works and a library like React. Refer to [JSX Rendering](../master/documentation/rendering.md) for more information.
+
 Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions).
 
 For convenience Solid exports interfaces to runtimes for these as:
