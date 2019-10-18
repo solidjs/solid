@@ -6,5 +6,6 @@ src/
 test/
 types/tsconfig.tsbuildinfo
 coverage/
+.editorconfig
 .travis.yml
 tsconfig.json
