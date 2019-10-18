@@ -37,11 +37,11 @@ addDecorator(story => {
 Replace the auto generated html story with this:
 
 ```js
-import { console } from 'global';
+import { console } from "global";
 import { createState, onCleanup } from "solid-js";
 
 export default {
-  title: 'Demo',
+  title: "Demo"
 };
 
 export const heading = () => <h1>Hello World</h1>;
@@ -67,7 +67,7 @@ function Counter() {
 
 export const counter = () => {
   return <Counter />;
-}
+};
 ```
 
 ### Step 5: npm run storybook

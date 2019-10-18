@@ -5,7 +5,7 @@ describe("Basic element attributes", () => {
         id: "main",
         name: "main",
         children: <p>Hi</p>,
-        ref: (ref) => div = ref,
+        ref: ref => (div = ref),
         onClick: () => console.log("clicked")
       },
       d = <div {...props} />;

@@ -5,10 +5,10 @@ Signals are the glue that hold the library together. They often are invisible bu
 Signals are a simple primitive that contain values that change over time. With Signals you can track sorts of changes from various sources in your applications. Solid's State object is built from a Proxy over a tree of Signals. You can update a Signal manually or from any Async source.
 
 ```js
-import { createSignal, onCleanup } from 'solid-js';
+import { createSignal, onCleanup } from "solid-js";
 
 function useTick(delay) {
-  const [getCount, setCount] = createSignal(0);
+  const [getCount, setCount] = createSignal(0),
     handle = setInterval(() => setCount(getCount() + 1), delay);
   onCleanup(() => clearInterval(handle));
   return getCount;
@@ -26,12 +26,12 @@ An computation is calculation over a function execution that automatically dynam
 There are 2 main computations used by Solid: Effects which produce side effects, and Memos which are pure and return a read-only Signal.
 
 ```js
-import { createState, createEffect } from 'solid-js';
+import { createState, createEffect } from "solid-js";
 
-const [state, setState] = createState({count: 1});
+const [state, setState] = createState({ count: 1 });
 
 createEffect(() => console.log(state.count));
-setState({count: state.count + 1});
+setState({ count: state.count + 1 });
 
 // 1
 // 2
@@ -41,22 +41,23 @@ Memos also pass the previous value on each execution. This is useful for reducin
 
 ```js
 const reducer = (state, action = {}) => {
-  switch(action.type) {
-    case 'LIST/ADD':
-      return {...state, list: [...state.list, action.payload]};
+  switch (action.type) {
+    case "LIST/ADD":
+      return { ...state, list: [...state.list, action.payload] };
     default:
       return state;
   }
-}
+};
 
 // redux
 const [getAction, dispatch] = createSignal(),
-  getStore = createMemo(state => reducer(state, getAction()), {list: []});
+  getStore = createMemo(state => reducer(state, getAction()), { list: [] });
 
 // subscribe and dispatch
 createEffect(() => console.log(getStore().list));
-dispatch({type: 'LIST/ADD', payload: {id: 1, title: 'New Value'}});
+dispatch({ type: "LIST/ADD", payload: { id: 1, title: "New Value" } });
 ```
+
 That being said there are plenty of reasons to use actual Redux.
 
 ## Rendering
@@ -64,15 +65,15 @@ That being said there are plenty of reasons to use actual Redux.
 You can also use signals directly. As an example, the following will show a count of ticking seconds:
 
 ```jsx
-import { createRoot, createSignal } from 'solid-js'
+import { createRoot, createSignal } from "solid-js";
 
 createRoot(() => {
   const [getSeconds, setSeconds] = createSignal(0);
-    div = <div>Number of seconds elapsed: {( getSeconds() )}</div>
+  div = <div>Number of seconds elapsed: {getSeconds()}</div>;
 
-  setInterval(() => setSeconds(getSeconds() + 1), 1000)
-  document.body.appendChild(div)
-})
+  setInterval(() => setSeconds(getSeconds() + 1), 1000);
+  document.body.appendChild(div);
+});
 ```
 
 ## Composition
@@ -84,15 +85,18 @@ State and Signals combine wonderfully as wrapping a state selector in a function
 const useReducer = (reducer, init) => {
   const [state, setState] = createState(init),
     [getAction, dispatch] = createSignal();
-  createDependentEffect((prevState = init) => {
-    let action, next;
-    if (!(action = getAction())) return prevState;
-    next = reducer(prevState, action);
-    setState(reconcile(next));
-    return next;
-  }, [ getAction ])
+  createDependentEffect(
+    (prevState = init) => {
+      let action, next;
+      if (!(action = getAction())) return prevState;
+      next = reducer(prevState, action);
+      setState(reconcile(next));
+      return next;
+    },
+    [getAction]
+  );
   return [state, dispatch];
-}
+};
 ```
 
 ## Operators
@@ -100,12 +104,15 @@ const useReducer = (reducer, init) => {
 Solid provides a couple simple operators to help construct more complicated behaviors. They are in Functional Programming form, where they are functions that return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with 3 basic ones:
 
 ### `pipe(...operators): (signal) => any`
+
 The pipe operator is used to combine other operators.
 
 ### `map(iterator: (item, index) => any, fallback: () => any): (signal) => any[]`
+
 Memoized array map operator with optional fallback. This operator does not re-map items if already in the list.
 
 ### `reduce(accumulator: (memo, item, index) => any, seed): (signal) => any`
+
 Array reduce operator useful for combining or filtering lists.
 
 ## Observables

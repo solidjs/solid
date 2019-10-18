@@ -27,10 +27,7 @@ export function selectWhen(
     createEffect(element => {
       const model = signal();
       if (element) handler(element, false);
-      if (
-        (element =
-          model && sample(list).find(el => el.model === model))
-      )
+      if ((element = model && sample(list).find(el => el.model === model)))
         handler(element, true);
       return element;
     });
@@ -54,9 +51,7 @@ export function selectEach(
   return (list: () => any[]) => {
     createEffect<Element[]>((elements = []) => {
       const models = signal(),
-        newElements = sample(list).filter(
-          el => models.indexOf(el.model) > -1
-        ),
+        newElements = sample(list).filter(el => models.indexOf(el.model) > -1),
         [additions, removals] = shallowDiff(newElements, elements!);
       additions.forEach(el => handler(el, true));
       removals.forEach(el => handler(el, false));

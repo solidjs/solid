@@ -2,8 +2,7 @@ import {
   createRoot,
   createSignal,
   createEffect,
-  createMemo,
-  sample
+  createMemo
 } from "../dist/index";
 
 const EQUAL = (a, b) => a === b;
@@ -294,16 +293,20 @@ describe("createMemo", () => {
       });
     });
 
-    it('evaluates nested trackings', () => {
+    it("evaluates nested trackings", () => {
       createRoot(() => {
         let [s1, set1] = createSignal(1);
         let [s2] = createSignal(1);
         let count = 0;
         let c1;
-        createMemo(() => {
-          c1 = createMemo(() => s2(), undefined, EQUAL);
-          return s1();
-        }, undefined, EQUAL);
+        createMemo(
+          () => {
+            c1 = createMemo(() => s2(), undefined, EQUAL);
+            return s1();
+          },
+          undefined,
+          EQUAL
+        );
         createEffect(() => {
           count++;
           c1();

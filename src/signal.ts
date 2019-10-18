@@ -115,10 +115,7 @@ export function createRoot<T>(
     Owner = root.owner;
   }
 
-  if (
-    disposer !== null &&
-    recycleOrClaimNode(root, null, undefined, true)
-  ) {
+  if (disposer !== null && recycleOrClaimNode(root, null, undefined, true)) {
     root = null!;
   }
 
@@ -339,7 +336,7 @@ class Queue<T> {
 }
 
 function resolveChildren(children: any): any {
-  if (typeof children === "function") return createMemo(children)
+  if (typeof children === "function") return createMemo(children);
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {

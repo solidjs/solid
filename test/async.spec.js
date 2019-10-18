@@ -40,7 +40,7 @@ describe("using Context with no root", () => {
   test("loads default value", () => {
     expect(() => {
       let resolve;
-      loadResource(new Promise(r => resolve = r));
+      loadResource(new Promise(r => (resolve = r)));
       resolve("Hi");
     }).not.toThrow();
   });

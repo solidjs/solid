@@ -5,13 +5,13 @@ Components in Solid are just Pascal(Capital) cased functions. Their first argume
 ```jsx
 const Parent = () => (
   <section>
-    <Label greeting='Hello'>
+    <Label greeting="Hello">
       <div>John</div>
     </Label>
   </section>
 );
 
-const Label = ({greeting, children}) => (
+const Label = ({ greeting, children }) => (
   <>
     <div>{greeting}</div>
     {children}
@@ -24,81 +24,81 @@ Since the all nodes from JSX are actual DOM nodes the only responsibility of top
 Components also support dynamic bindings which allow you to pass values that will change. However you need to be careful to only access your props inside bindings or effects.
 
 ```jsx
-// Right! But probably not that useful
+// Name will never update as it is destructured outside
 const StaticComponent = ({ name }) => <div>{ name }</div>
 
-// Right! Updates like you'd expect
-const DynamicComponent = props => <div>{( props.name )}</div>
+// Updates like you'd expect
+const DynamicComponent = props => <div>{ props.name }</div>
 
-// Wrong! accessing in the rest params is static since not in an expression
-const StaticComponent2 = ({ name }) => <div>{( name )}</div>
-
-
-// works properly and update on state.name change
-<DynamicComponent name={( state.name )}/>
-
-// will not update on state.name change and pass by value
+// Update on state.name change
 <DynamicComponent name={ state.name }/>
 
+// will not update on name change and pass by value
+const { name } = state;
+<DynamicComponent name={ name }/>
+
 // Still won't update even with the dynamic binding
-<StaticComponent name={( state.name )}/>
+<StaticComponent name={ state.name }/>
 ```
 
 If you are very performance oriented you can also pass accessor functions instead of using Dynamic syntax on Function components. This will reduce overhead a little bit but requires that a function is always passed.
 
 ```jsx
-const DynamicComponent = ({ name }) => <div>{( name() )}</div>
+const DynamicComponent = ({ name }) => <div>{ name() }</div>
 
 <DynamicComponent name={() => state.name}/>
 ```
 
-Keep in mind while Solid allows you to explicitly set what bindings update when creating generic components don't get too restrictive here. If the consumer passes in a static value the computation will not be kept (as it will never update) and there will be minimal overhead.
+Keep in mind while Solid allows you set what bindings update when creating generic components don't get too restrictive here. If the consumer passes in a static value the computation will not be kept (as it will never update) and there will be minimal overhead.
 
 ```jsx
-const DynamicComponent = props => <div>{( props.name )}</div>
+const DynamicComponent = props => <div>{ props.name }</div>
 
+// won't result in the computation being kept
 <DynamicComponent name='John' />
 ```
 
 ## Children
 
-Solid handles JSX Children as if they are always a single value. Either the value of a single node, string, or expression, or in the case of multiple children a single fragment. This ensures consistent behavior when attaching to the DOM and optimal performance for cloning templates but still allows many other patterns. If you need to pass multiple data points you can pass an array in a single expression. The same goes for functions, to support patterns like render props.
+Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array.
 
 ## Web Components
 
 Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
 
 ```jsx
-import { createState } from 'solid-js';
-import { render } from 'solid-js/dom';
+import { createState } from "solid-js";
+import { render } from "solid-js/dom";
 
 class Component extends HTMLElement {
-  constructor () {
+  constructor() {
     const [state, setState] = createState({});
     const [props, __setProps] = createState({});
 
-    Object.assign(this, {state, setState, props, __setProps});
+    Object.assign(this, { state, setState, props, __setProps });
   }
 
   connectedCallback() {
-    !this.shadowRoot && this.attachShadow({mode: 'open'});
+    !this.shadowRoot && this.attachShadow({ mode: "open" });
     this.dispose = render(this.render.bind(this), this.shadowRoot);
   }
 
-  diconnectedCallback() { this.dispose && this.dispose(); }
+  diconnectedCallback() {
+    this.dispose && this.dispose();
+  }
 
   attributeChangedCallback(attr, oldVal, newVal) {
-    this.__setProps({[attr]: newVal});
+    this.__setProps({ [attr]: newVal });
   }
 }
 
 class MyComponent extends Component {
-  constuctor () {
+  constuctor() {
     super();
-    this.setState({greeting: 'World'});
+    this.setState({ greeting: "World" });
   }
   render() {
-    return <div>Hello {(state.greeting)}</div>
+    return <div>Hello {state.greeting}</div>;
   }
 }
 ```

@@ -19,7 +19,7 @@ type AddCallable<T> = T extends { (...x: any[]): infer V }
   : {};
 
 export type Wrapped<T> = {
-  [P in keyof T]: T[P] extends object ? Wrapped<T[P]> : T[P]
+  [P in keyof T]: T[P] extends object ? Wrapped<T[P]> : T[P];
 } & {
   _state: T;
 } & AddSymbolToPrimitive<T> &
@@ -126,7 +126,10 @@ const proxyTraps = {
     if (property === SPROXY || property === SNODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
-    if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
+    if (
+      isListening() &&
+      (typeof value !== "function" || target.hasOwnProperty(property))
+    ) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = new DataNode());
@@ -166,7 +169,11 @@ export function setProperty(
   notify && (node = nodes._) && node.next();
 }
 
-function mergeState(state: StateNode, value: { [k: string]: any }, force?: boolean) {
+function mergeState(
+  state: StateNode,
+  value: { [k: string]: any },
+  force?: boolean
+) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
@@ -198,7 +205,12 @@ function updatePath(
   if (Array.isArray(part)) {
     // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
     for (let i = 0; i < part.length; i++) {
-      updatePath(current, [part[i]].concat(path), traversed.concat([part[i]]), force);
+      updatePath(
+        current,
+        [part[i]].concat(path),
+        traversed.concat([part[i]]),
+        force
+      );
     }
   } else if (isArray && partType === "function") {
     // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
@@ -231,7 +243,6 @@ function updatePath(
   } else updatePath(current[part], path, traversed.concat([part]), force);
 }
 
-
 interface SetStateFunction<T> {
   (update: StateSetter<T>): void;
   (...path: StatePath): void;
@@ -239,8 +250,10 @@ interface SetStateFunction<T> {
   (reconcile: (s: Wrapped<T>) => void): void;
 }
 
-export function createState<T extends StateNode>(state: T | Wrapped<T>): [Wrapped<T>, SetStateFunction<T>] {
-  const unwrappedState = unwrap<T>(state || {})
+export function createState<T extends StateNode>(
+  state: T | Wrapped<T>
+): [Wrapped<T>, SetStateFunction<T>] {
+  const unwrappedState = unwrap<T>(state || {});
   const wrappedState = wrap<T>(unwrappedState);
   function setState(...args: any[]): void {
     freeze(() => {
@@ -259,7 +272,9 @@ export function createState<T extends StateNode>(state: T | Wrapped<T>): [Wrappe
 export function force<T>(update: StateSetter<T>): (state: Wrapped<T>) => void;
 export function force<T>(...path: StatePath): (state: Wrapped<T>) => void;
 export function force<T>(paths: StatePath[]): (state: Wrapped<T>) => void;
-export function force<T>(reconcile: (s: Wrapped<T>) => void): (state: Wrapped<T>) => void;
+export function force<T>(
+  reconcile: (s: Wrapped<T>) => void
+): (state: Wrapped<T>) => void;
 export function force<T>(...args: any[]): (state: Wrapped<T>) => void {
   return state => {
     state = unwrap(state);
@@ -268,5 +283,5 @@ export function force<T>(...args: any[]): (state: Wrapped<T>) => void {
         updatePath(state as T, args[i], [], true);
       }
     } else updatePath(state as T, args, [], true);
-  }
+  };
 }

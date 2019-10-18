@@ -1,90 +1,97 @@
-import { createRoot, createSignal } from '../../dist/index';
+import { createRoot, createSignal } from "../../dist/index";
 
-describe('Testing an only child show control flow', () => {
+describe("Testing an only child show control flow", () => {
   let div, disposer;
   const [count, setCount] = createSignal(0);
-  const Component = () =>
-    <div ref={div}><Show when={( count() >= 5 )}>{( count() )}</Show></div>
+  const Component = () => (
+    <div ref={div}>
+      <Show when={count() >= 5}>{count()}</Show>
+    </div>
+  );
 
-  test('Create show control flow', () => {
+  test("Create show control flow", () => {
     createRoot(dispose => {
       disposer = dispose;
-      <Component />
+      <Component />;
     });
 
-    expect(div.innerHTML).toBe('');
+    expect(div.innerHTML).toBe("");
   });
 
-  test('Toggle show control flow', () => {
+  test("Toggle show control flow", () => {
     setCount(7);
-    expect(div.innerHTML).toBe('7');
+    expect(div.innerHTML).toBe("7");
     setCount(5);
     // direct children are inert, dynamic expression serves to lazy evaluate
-    expect(div.innerHTML).toBe('7');
+    expect(div.innerHTML).toBe("7");
     setCount(2);
-    expect(div.innerHTML).toBe('');
+    expect(div.innerHTML).toBe("");
   });
 
-  test('dispose', () => disposer());
+  test("dispose", () => disposer());
 });
 
-describe('Testing an only child show control flow with DOM children', () => {
+describe("Testing an only child show control flow with DOM children", () => {
   let div, disposer;
   const [count, setCount] = createSignal(0);
-  const Component = () =>
-    <div ref={div}><Show when={( count() >= 5 )}>
-      <span>{count}</span>
-      <span>counted</span>
-    </Show></div>
+  const Component = () => (
+    <div ref={div}>
+      <Show when={count() >= 5}>
+        <span>{count}</span>
+        <span>counted</span>
+      </Show>
+    </div>
+  );
 
-  test('Create show control flow', () => {
+  test("Create show control flow", () => {
     createRoot(dispose => {
       disposer = dispose;
-      <Component />
+      <Component />;
     });
 
-    expect(div.innerHTML).toBe('');
+    expect(div.innerHTML).toBe("");
   });
 
-  test('Toggle show control flow', () => {
+  test("Toggle show control flow", () => {
     setCount(7);
-    expect(div.firstChild.innerHTML).toBe('7');
+    expect(div.firstChild.innerHTML).toBe("7");
     setCount(5);
-    expect(div.firstChild.innerHTML).toBe('5');
+    expect(div.firstChild.innerHTML).toBe("5");
     setCount(2);
-    expect(div.innerHTML).toBe('');
+    expect(div.innerHTML).toBe("");
   });
 
-  test('dispose', () => disposer());
+  test("dispose", () => disposer());
 });
 
-describe('Testing an only child show control flow with DOM children and fallback', () => {
+describe("Testing an only child show control flow with DOM children and fallback", () => {
   let div, disposer;
   const [count, setCount] = createSignal(0);
-  const Component = () =>
-    <div ref={div}><Show when={( count() >= 5 )}
-      fallback={<span>Too Low</span>}
-    >
-      <span>{count}</span>
-    </Show></div>
+  const Component = () => (
+    <div ref={div}>
+      <Show when={count() >= 5} fallback={<span>Too Low</span>}>
+        <span>{count}</span>
+      </Show>
+    </div>
+  );
 
-  test('Create when control flow', () => {
+  test("Create when control flow", () => {
     createRoot(dispose => {
       disposer = dispose;
-      <Component />
+      <Component />;
     });
 
-    expect(div.innerHTML).toBe('<span>Too Low</span>');
+    expect(div.innerHTML).toBe("<span>Too Low</span>");
   });
 
-  test('Toggle show control flow', () => {
+  test("Toggle show control flow", () => {
     setCount(7);
-    expect(div.firstChild.innerHTML).toBe('7');
+    expect(div.firstChild.innerHTML).toBe("7");
     setCount(5);
-    expect(div.firstChild.innerHTML).toBe('5');
+    expect(div.firstChild.innerHTML).toBe("5");
     setCount(2);
-    expect(div.firstChild.innerHTML).toBe('Too Low');
+    expect(div.firstChild.innerHTML).toBe("Too Low");
   });
 
-  test('dispose', () => disposer());
+  test("dispose", () => disposer());
 });

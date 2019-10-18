@@ -1,8 +1,15 @@
-import { pipe, map, reduce, createSignal, createMemo, createRoot } from '../dist';
+import {
+  pipe,
+  map,
+  reduce,
+  createSignal,
+  createMemo,
+  createRoot
+} from "../dist";
 
-describe('Pipe operator', () => {
-  const multiply = (m) => (s) => () => s() * m;
-  test('no ops', () => {
+describe("Pipe operator", () => {
+  const multiply = m => s => () => s() * m;
+  test("no ops", () => {
     createRoot(() => {
       const [s, set] = createSignal(0),
         r = createMemo(pipe()(s));
@@ -12,7 +19,7 @@ describe('Pipe operator', () => {
     });
   });
 
-  test('single op', () => {
+  test("single op", () => {
     createRoot(() => {
       const [s, set] = createSignal(1),
         r = createMemo(pipe(multiply(2))(s));
@@ -22,10 +29,15 @@ describe('Pipe operator', () => {
     });
   });
 
-  test('multiple ops', () => {
+  test("multiple ops", () => {
     createRoot(() => {
       const [s, set] = createSignal(1),
-        r = createMemo(pipe(multiply(2), multiply(3))(s));
+        r = createMemo(
+          pipe(
+            multiply(2),
+            multiply(3)
+          )(s)
+        );
       expect(r()).toBe(6);
       set(2);
       expect(r()).toBe(12);
@@ -33,8 +45,8 @@ describe('Pipe operator', () => {
   });
 });
 
-describe('Reduce operator', () => {
-  test('simple addition', () => {
+describe("Reduce operator", () => {
+  test("simple addition", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
         sum = reduce((m, v) => m + v, 0),
@@ -45,10 +57,10 @@ describe('Reduce operator', () => {
     });
   });
 
-  test('filter list', () => {
+  test("filter list", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        filterOdd = reduce((m, v) => v % 2 ? [...m, v] : m, []),
+        filterOdd = reduce((m, v) => (v % 2 ? [...m, v] : m), []),
         r = createMemo(filterOdd(s));
       expect(r()).toEqual([1, 3]);
       set([3, 4, 5]);
@@ -57,8 +69,8 @@ describe('Reduce operator', () => {
   });
 });
 
-describe('Map operator', () => {
-  test('simple map', () => {
+describe("Map operator", () => {
+  test("simple map", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
         double = map(v => v * 2),
@@ -69,14 +81,14 @@ describe('Map operator', () => {
     });
   });
 
-  test('show fallback', () => {
+  test("show fallback", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        double = map(v => v * 2, () => 'Empty'),
+        double = map(v => v * 2, () => "Empty"),
         r = createMemo(double(s));
       expect(r()).toEqual([2, 4, 6, 8]);
       set([]);
-      expect(r()).toEqual(['Empty']);
+      expect(r()).toEqual(["Empty"]);
       set([3, 4, 5]);
       expect(r()).toEqual([6, 8, 10]);
     });

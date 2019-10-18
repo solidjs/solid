@@ -1,4 +1,4 @@
-import { Attributes, NonComposedEvents } from 'dom-expressions';
+import { Attributes, SVGAttributes, NonComposedEvents } from 'dom-expressions';
 import { createEffect as wrap, getContextOwner as currentContext } from '../index';
 
 
@@ -188,7 +188,10 @@ function spreadExpression(node, props, prevProps = {}, isSVG) {
         node.setAttribute(prop, value);
       } else node[info.alias] = value;
     } else if (isSVG) {
-      node.setAttribute(prop, value);
+      if (info = SVGAttributes[prop]) {
+        if (info.alias) node.setAttribute(info.alias, value);
+        else node.setAttribute(prop, value);
+      } else node.setAttribute(prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`), value);
     } else node[prop] = value;
   }
   return Object.assign({}, props);

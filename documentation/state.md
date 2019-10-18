@@ -9,7 +9,9 @@ While this state concept is heavily borrowed from React and it's API from Immuta
 Initializes with object value and returns an array where the first index is the state object and the second is the setState method.
 
 ### `setState(changes)`
+
 ### `setState(...path, changes)`
+
 ### `setState([...path, changes], [...path, changes])`
 
 This merges the changes into the path on the state object. All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time). Changes can take the form of function that passes previous state and returns new state or a value. Objects are always merged.
@@ -47,6 +49,7 @@ setState('list', 2, 'read', true);
 //   ]
 // }
 ```
+
 Path can be string keys, array of keys, iterating objects ({from, to, by}), or filter functions. This gives incredible expressive power to describe state changes.
 
 ```js
@@ -120,16 +123,19 @@ setState(
 ```
 
 ## Modifiers
+
 This library also provides of state setter modifiers which can optionally be included to provide different behavior when setting state.
 
 ### `force(changes)`
+
 ### `force(...path, changes)`
+
 ### `force([...path, changes], [...path, changes])`
 
 By default state only updates on value change. To get typical signal like behavior on a change you can force update using the force modifier.
 
 ```js
-setState(force({name: 'John'}));
+setState(force({ name: "John" }));
 ```
 
 ### `reconcile(...path, value)`
@@ -137,7 +143,7 @@ setState(force({name: 'John'}));
 This can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
 
 ```js
-setState(reconcile('users', store.get('users')))
+setState(reconcile("users", store.get("users")));
 ```
 
 If you pass as array you can configure the diff algorithm with an options object:

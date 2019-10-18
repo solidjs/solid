@@ -17,12 +17,18 @@ export function render(code: () => any, element: MountableElement): () => void {
   return disposer!;
 }
 
-export function renderSSR(code: () => any, element: MountableElement): () => void {
+export function renderSSR(
+  code: () => any,
+  element: MountableElement
+): () => void {
   startSSR();
   return render(code, element);
 }
 
-export function hydrate(code: () => any, element: MountableElement): () => void {
+export function hydrate(
+  code: () => any,
+  element: MountableElement
+): () => void {
   let disposer: () => void;
   hydration(() => {
     disposer = render(code, element);
