@@ -1,4 +1,5 @@
-import { createRoot, createSignal } from "../../dist/index";
+import { render } from "../../dist/dom";
+import { createRoot, createSignal } from "../../dist";
 
 describe("Testing a single match switch control flow", () => {
   let div, disposer;
@@ -61,6 +62,27 @@ describe("Testing an only child when control flow", () => {
     expect(div.innerHTML).toBe("3");
     setCount(9);
     expect(div.innerHTML).toBe("fallback");
+  });
+
+  test("dispose", () => disposer());
+});
+
+describe("Test top level switch control flow", () => {
+  let div = document.createElement("div"),
+    disposer;
+  const [count, setCount] = createSignal(0);
+  const Component = () => (
+    <Switch fallback={"fallback"}>
+      <Match when={count() && count() < 2}>1</Match>
+    </Switch>
+  );
+
+  test("Create when control flow", () => {
+    disposer = render(Component, div);
+
+    expect(div.innerHTML).toBe("fallback");
+    setCount(1);
+    expect(div.innerHTML).toBe("1");
   });
 
   test("dispose", () => disposer());

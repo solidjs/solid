@@ -1,3 +1,5 @@
+import { createRoot } from "../../dist";
+
 describe("Basic element attributes", () => {
   test("spread", () => {
     let div;
@@ -8,7 +10,7 @@ describe("Basic element attributes", () => {
         ref: ref => (div = ref),
         onClick: () => console.log("clicked")
       },
-      d = <div {...props} />;
+      d = createRoot(() => <div {...props} />);
     expect(div).toBe(d);
     expect(d.id).toBe("main");
     expect(d.name).toBe("main");

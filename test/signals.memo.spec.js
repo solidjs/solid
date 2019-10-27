@@ -317,32 +317,34 @@ describe("createMemo", () => {
     });
 
     it("propagates in topological order", () => {
-      let [s1, set] = createSignal(true);
-      let order = "";
-      let t1 = createMemo(
-        () => {
-          order += "t1";
-          return s1();
-        },
-        undefined,
-        EQUAL
-      );
-      let t2 = createMemo(
-        () => {
-          order += "t2";
-          return s1();
-        },
-        undefined,
-        EQUAL
-      );
-      createEffect(() => {
-        t1();
-        t2();
-        order += "c1";
+      createRoot(() => {
+        let [s1, set] = createSignal(true);
+        let order = "";
+        let t1 = createMemo(
+          () => {
+            order += "t1";
+            return s1();
+          },
+          undefined,
+          EQUAL
+        );
+        let t2 = createMemo(
+          () => {
+            order += "t2";
+            return s1();
+          },
+          undefined,
+          EQUAL
+        );
+        createEffect(() => {
+          t1();
+          t2();
+          order += "c1";
+        });
+        order = "";
+        set(false);
+        expect(order).toBe("t1t2c1");
       });
-      order = "";
-      set(false);
-      expect(order).toBe("t1t2c1");
     });
 
     it("does not evaluate dependencies with tracking sources that have not changed", () => {

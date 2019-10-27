@@ -7,11 +7,13 @@ const eventRegistry = new Set();
 
 export { wrap, currentContext };
 
-export function template(html) {
+export function template(html, isSVG) {
   const t = document.createElement('template');
   t.innerHTML = html;
   if (t.innerHTML !== html) throw new Error(`Template html does not match input:\n${t.innerHTML}\n${html}`);
-  return t;
+  let node = t.content.firstChild;
+  if (isSVG) node = node.firstChild;
+  return node;
 }
 
 export function createComponent(Comp, props, dynamicKeys) {
@@ -91,7 +93,7 @@ export function hydration(code, root) {
 
 export function getNextElement(template) {
   if (!hydrateRegistry) {
-    const el = template.content.firstChild.cloneNode(true);
+    const el = template.cloneNode(true);
     if (SSR) el.setAttribute('_hk', `${hydrateKey++}`);
     return el;
   }
