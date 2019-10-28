@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0 - 2019-10-27
+v0.13.0 contains large changes to the reactive system and compiler.
+
+The main update is to simplify reactivity by removing computation recycling. While this was a useful feature to avoid unnecessary computation nodes, Solid now uses batching as a different approach to get similar results. Most templating libraries can offer breakneck update speeds without fine grained updates. The real cost of these top down approaches is the need to redo structural reconcilliation. The current approach is that different computations will be created for each:
+* Dynamic insert expression (any expression between tags)
+* Spread operator
+* JSX template entry point(Top level tag, Fragment, or Component Children)
+
+To aid in performance simple text inserts the `textContent` binding is now optimized so they can be batched.
+
+In addition there are some improvements to template cloning and SVG handing in SSR.
+
 ## 0.12.0 - 2019-10-18
 
 v0.12.0 contains a breaking change to the reactive rendering system
