@@ -137,4 +137,4 @@ export default const UserPanel = props => {
 ```
 This examples handles the different states. However, you could have Suspense handle the loading state for you instead by wrapping with the `Suspense` Component.
 
-> **For React Users:** At the time of writing this React has settled how their resource API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
+> **For React Users:** At the time of writing this React has not settled how their resource API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
