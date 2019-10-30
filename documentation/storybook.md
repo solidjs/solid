@@ -61,8 +61,7 @@ function Counter() {
     clearInterval(timer);
   });
 
-  /* prettier-ignore */
-  return <div>{(state.count)}</div>;
+  return <div>{state.count}</div>;
 }
 
 export const counter = () => {
