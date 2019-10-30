@@ -171,7 +171,7 @@ I cover this in more detail in my Bring Your Own Framework Blog Series (links be
 - [JSX Rendering](../master/documentation/rendering.md)
 - [Components](../master/documentation/components.md)
 - [Context](../master/documentation/context.md)
-- [Suspense](../master/documentation/context.md)
+- [Suspense](../master/documentation/suspense.md)
 - [API](../master/documentation/api.md)
 - [Comparison with other Libraries](../master/documentation/comparison.md)
 - [Storybook](../master/documentation/storybook.md)
