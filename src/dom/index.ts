@@ -2,7 +2,7 @@ export * from "./runtime";
 export * from "./Suspense";
 export * from "./transform";
 import { insert, hydration, startSSR } from "./runtime";
-import { createRoot, createMemo, onCleanup, sample, map } from "../index";
+import { createRoot, createMemo, onCleanup, sample, map } from "../index.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment;
 

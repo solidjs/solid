@@ -1,5 +1,5 @@
 import { Attributes, SVGAttributes, NonComposedEvents } from 'dom-expressions';
-import { createEffect as wrap, getContextOwner as currentContext } from '../index';
+import { createEffect as wrap, getContextOwner as currentContext } from '../index.js';
 
 
 

@@ -6,7 +6,7 @@ import {
   createComponent,
   delegateEvents,
   classList
-} from "./index";
+} from "./index.js";
 
 export default createHTML({
   wrap,

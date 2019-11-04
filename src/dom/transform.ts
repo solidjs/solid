@@ -1,4 +1,4 @@
-import { createEffect, sample, useContext, SuspenseContext } from "../index";
+import { createEffect, sample, useContext, SuspenseContext } from "../index.js";
 
 function createHandler(className: string) {
   return (e: Element, s: boolean) => e.classList.toggle(className, s);

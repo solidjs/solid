@@ -2,11 +2,10 @@ import { insert, createComponent } from "./runtime";
 import {
   createRoot,
   createSignal,
-  createMemo,
   sample,
   SuspenseContext,
   afterEffects
-} from "../index";
+} from "../index.js";
 
 export function Suspense(props: {
   maxDuration?: number;

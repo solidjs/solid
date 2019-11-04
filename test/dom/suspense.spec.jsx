@@ -1,5 +1,5 @@
-import { lazy, createSignal, createEffect, loadResource } from "../../dist";
-import { render } from "../../dist/dom";
+import { lazy, createSignal, createEffect, loadResource } from "../../dist/index";
+import { render } from "../../dist/dom/index";
 
 describe("Testing a context suspend control flow", () => {
   let div = document.createElement("div"),
