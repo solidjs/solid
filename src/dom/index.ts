@@ -36,6 +36,10 @@ export function hydrate(
   return disposer!;
 }
 
+export function wrapCondition(fn: () => boolean): () => boolean {
+  return createMemo(fn, undefined, equalFn);
+}
+
 export function For<T, U>(props: {
   each: T[];
   fallback?: any;

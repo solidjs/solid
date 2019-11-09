@@ -1,5 +1,5 @@
 import { Attributes, SVGAttributes, NonComposedEvents } from 'dom-expressions';
-import { createEffect as wrap, getContextOwner as currentContext } from '../index.js';
+import { createEffect as wrap, sample as ignore, getContextOwner as currentContext } from '../index.js';
 
 
 
@@ -21,7 +21,7 @@ export function createComponent(Comp, props, dynamicKeys) {
     for (let i = 0; i < dynamicKeys.length; i++) dynamicProp(props, dynamicKeys[i]);
   }
 
-  return Comp(props);
+  return ignore(() => Comp(props));
 }
 
 export function delegateEvents(eventNames) {

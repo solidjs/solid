@@ -3,7 +3,7 @@
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
-[![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
+[![](https://img.shields.io/npm/dt/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
 [![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=social)](https://www.reddit.com/r/solidjs/)
 
@@ -141,7 +141,7 @@ Remember you still need to install the library separately for these to work.
 
 ## Why?
 
-This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very much inspired by fine-grain change detection libraries like Knockout.js and RxJS. The idea here is to ease users into the world of Observable programming by keeping it transparent and starting simple. Classically the Virtual DOM as seen in React for all its advances has some signifigant trade-offs:
+This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very much inspired by fine-grain change detection libraries like Knockout.js and RxJS. The idea here is to ease users into the world of Reactive programming by keeping it transparent and starting simple. Classically the Virtual DOM, as seen in React, for all its advances has some signifigant trade-offs:
 
 - The VDOM render while performant is still conceptually a constant re-render
   - It feels much more imperative as variable declarations and iterative methods for constructing the tree are constantly re-evaluating.
@@ -159,10 +159,6 @@ So the driving questions here are:
 - Can this free up existing constraints on how you modularize your view code?
 - Does this approach ultimately provide more adaptibility while reducing the API surface?
 - Is fine grained change detection fundamentally more performant than the Virtual DOM?
-
-Admittedly it takes a strong reason to not go with the general consensus of best, and most supported libraries and frameworks. And React's Hooks API addresses the majority of what I once considered its most untenable faults. But I believe there is a better way out there than how we do it today.
-
-I cover this in more detail in my Bring Your Own Framework Blog Series (links below).
 
 ## Documentation
 
