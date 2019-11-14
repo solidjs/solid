@@ -49,15 +49,6 @@ const DynamicComponent = ({ name }) => <div>{ name() }</div>
 <DynamicComponent name={() => state.name}/>
 ```
 
-Keep in mind while Solid allows you set what bindings update when creating generic components don't get too restrictive here. If the consumer passes in a static value the computation will not be kept (as it will never update) and there will be minimal overhead.
-
-```jsx
-const DynamicComponent = props => <div>{ props.name }</div>
-
-// won't result in the computation being kept
-<DynamicComponent name='John' />
-```
-
 ## Children
 
 Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array.

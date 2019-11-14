@@ -15,18 +15,21 @@ Solid is yet another declarative Javascript library for creating user interfaces
 - Declarative data
   - Simple composable primitives without the hidden rules.
   - Function Components with no need for lifecycle methods or specialized configuration objects.
-- Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
-- Supports modern features like JSX Fragments, Context, Portals, Suspense, SSR, and Asynchronous Rendering.
+  - Render once mental model.
+- Fast! Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
+- Supports modern features like JSX, Fragments, Context, Portals, Suspense, SSR, and Asynchronous Rendering.
+- Built on TypeScript.
 - Webcomponent friendly
   - Implicit event delegation with Shadow DOM Retargeting
   - Shadow DOM Portals
   - Custom Element friendly Suspense flow
+- Transparent debugging: a `<div>` is just a div.
 
-<br />
-A Simple Component looks like:
-
+## The Gist
 ```jsx
-const HelloMessage = ({ name }) => <div>Hello {name}</div>;
+import { render } from "solid-js/dom";
+
+const HelloMessage = props => <div>Hello {props.name}</div>;
 
 render(
   () => <HelloMessage name="Taylor" />,
@@ -34,25 +37,52 @@ render(
 );
 ```
 
-## Installation
+A Simple Component is just a function that accepts properties. Solid uses a `render` function to create the reactive mount point of your application.
 
-To use Solid with JSX (recommended) run:
+The JSX is then compiled down to efficient real DOM expressions:
 
-```sh
-> npm install solid-js babel-preset-solid
+```js
+import { render, template, insert, createComponent } from "solid-js/dom";
+
+const _tmpl$ = template(`<div>Hello </div>`);
+
+const HelloMessage = props => {
+  const _el$ = _tmpl$.cloneNode(true);
+  insert(_el$, () => props.name, null);
+  return _el$;
+};
+
+render(
+  () => createComponent(HelloMessage, { name: "Taylor" }),
+  document.getElementById("hello-example")
+);
 ```
 
-Or you can get started with a simple app with the CLI with by running:
+That `_el$` is a real div element and `props.name`, `Taylor` in this case, is appended to it's child nodes. Notice that `props.name` is wrapped in a function. That is because that is the only part of this component that will ever execute again. Even if a name is updated from the outside only that one expression will be re-evaluated. The compiler optimizes initial render and the runtime optimizes updates. It's the best of both worlds.
+
+## Installation
+
+You can get started with a simple app with the CLI with by running:
 
 ```sh
 > npm init solid app my-app
 ```
 
+Use `app-ts` for a TypeScript starter.
+
 _`npm init solid <project-type> <project-name>` is available with npm 6+._
+
+Or you can install the dependencies in your own project. To use Solid with JSX (recommended) run:
+
+```sh
+> npm install solid-js babel-preset-solid
+```
 
 ## Solid State
 
-It all starts with State. State objects are immutable so to update you call their companion setter function. Through the use of proxies they give the control of an immutable interface and the performance of a mutable one. Note only Plain Objects and Arrays are deeply wrapped.
+Solid's data management is built off a set of flexible reactive primitives. Similar to React Hooks except instead of whitelisting change for an owning Component they independentally are soley responsible for all the updates.
+
+Solid's State primitive is arguably its most powerful and distinctive one. Through the use of proxies and explicit setters it gives the control of an immutable interface and the performance of a mutable one. Note only Plain Objects and Arrays are deeply wrapped. To get started set and update state with an object.
 
 ```jsx
 import { createState, onCleanup } from "solid-js";
@@ -71,7 +101,7 @@ const CountingComponent = () => {
 };
 ```
 
-You can also deep set:
+You can also deep set along a path:
 
 ```js
 const [state, setState] = createState({
@@ -84,14 +114,44 @@ const [state, setState] = createState({
 setState('user', {firstName: 'Jake', middleName: 'Reese'});
 ```
 
-You can also use functions:
+This takes the form similar to [ImmutableJS](https://github.com/immutable-js/immutable-js)'s setIn for leaving all mutation control at the top level state object. Paths support ranges and filter functions to produce compact declarative updates:
+
+```js
+const [state, setState] = createState({
+  todos: [{
+    title: "Learn SolidJS"
+    completed: false
+  }, /* ... */]
+});
+
+// updated only the todos that aren't completed
+setState('todos', t => !t.completed, { completed: true });
+```
+
+Keep in mind that when setting an object `setState` shallow merges instead of replace. This way top level or nested is consistent.
+
+But what about TypeScript? You can also deeply set state in a type safe way inspired by [Immer](https://github.com/immerjs/immer). By using functions the immutability is temporarily revoked and you can either mutate the data returning nothing, or set a new value by returning it:
+
+```js
+const [state, setState] = createState({
+  user: {
+    firstName: 'John'
+    lastName: 'Smith'
+  }
+});
+
+setState(s => {
+  s.user.firstName = "Jacob";
+  s.user.middleName = "Jeremiah";
+})
+```
+
+And you can also nest function setters along a path as well:
 
 ```js
 const [state, setState] = createState({ counter: 0 });
 setState("counter", c => c + 1);
 ```
-
-This takes the form similar to ImmutableJS setIn for leaving all mutation control at the top level state object. Keep in mind that setState when setting an object attempts to merge instead of replace.
 
 But where the magic happens is with computations(effects and memos) which automatically track dependencies.
 
@@ -105,13 +165,13 @@ createEffect(() =>
 console.log(state.displayName); // Jake Smith
 ```
 
-Whenever any dependency changes the State value will immediately update. JSX expressions can also be wrapped in effects so for something as trivial as a display name you could just inline the expression in the template and have it update automatically.
+Whenever any dependency changes the State value will update immediately. However, each `setState` statement will notify subscribers synchronously with all changes applied. This means you can depend on the value being set on the next line and know that additional work has not been done.
 
-Solid State also exposes a reconcile method used with setState that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo, or RxJS.
+Solid State also exposes a reconcile method used with setState that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo(GraphQL), or RxJS.
 
 ```js
 const unsubscribe = store.subscribe(({ todos }) => (
-  setState(reconcile('todos', todos)));
+  setState('todos', reconcile(todos)));
 );
 onCleanup(() => unsubscribe());
 ```
@@ -126,7 +186,7 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 "presets": ["solid"]
 ```
 
-Remember there are significant differences between how Solid's JSX works and a library like React. Refer to [JSX Rendering](../master/documentation/rendering.md) for more information.
+Remember even though the syntax is almost identical, there are significant differences between how Solid's JSX works and a library like React. Refer to [JSX Rendering](../master/documentation/rendering.md) for more information.
 
 Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions).
 
@@ -138,27 +198,6 @@ import html from "solid-js/html";
 ```
 
 Remember you still need to install the library separately for these to work.
-
-## Why?
-
-This project started as trying to find a small performant library to work with Web Components, that had easy interopt with existing standards. It is very much inspired by fine-grain change detection libraries like Knockout.js and RxJS. The idea here is to ease users into the world of Reactive programming by keeping it transparent and starting simple. Classically the Virtual DOM, as seen in React, for all its advances has some signifigant trade-offs:
-
-- The VDOM render while performant is still conceptually a constant re-render
-  - It feels much more imperative as variable declarations and iterative methods for constructing the tree are constantly re-evaluating.
-- Reintroduced lifecycle function hell that breaks apart the declarative nature of the data. E.g., relying on blacklisting changes across the tree with shouldComponentUpdate.
-- Homogenous promise of Components and the overly simplistic local state in practice:
-  - Imposes boundaries on components to solve performance concerns
-  - Places you into a very specific but not necessarily obvious structure
-  - Only served to make it more ambiguous when emerging best practices lead to specialized component classification anyway
-- Abstracts debugging to the point a `<div />` is not longer just a div
-- VDOM libraries still are based around having specialized data objects.
-
-So the driving questions here are:
-
-- If the data is going to be specialized anyway can we use Proxies to move the complexity into it rather than the rendering while keeping the appearance simple?
-- Can this free up existing constraints on how you modularize your view code?
-- Does this approach ultimately provide more adaptibility while reducing the API surface?
-- Is fine grained change detection fundamentally more performant than the Virtual DOM?
 
 ## Documentation
 
