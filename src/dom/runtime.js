@@ -241,6 +241,7 @@ function checkDynamicArray(array) {
 }
 
 function insertExpression(parent, value, current, marker) {
+
   if (value === current) return current;
   const t = typeof value,
     multi = marker !== undefined;
@@ -263,6 +264,7 @@ function insertExpression(parent, value, current, marker) {
     current = cleanChildren(parent, current, marker);
   } else if (t === 'function') {
     wrap(() => current = insertExpression(parent, value(), current, marker));
+
   } else if (Array.isArray(value)) {
     const array = normalizeIncomingArray([], value);
     if (array.length === 0) {
