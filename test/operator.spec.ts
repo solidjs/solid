@@ -5,10 +5,10 @@ import {
   createSignal,
   createMemo,
   createRoot
-} from "../dist";
+} from "../src";
 
 describe("Pipe operator", () => {
-  const multiply = m => s => () => s() * m;
+  const multiply = (m: number) => (s: () => number) => () => s() * m;
   test("no ops", () => {
     createRoot(() => {
       const [s, set] = createSignal(0),
@@ -32,12 +32,7 @@ describe("Pipe operator", () => {
   test("multiple ops", () => {
     createRoot(() => {
       const [s, set] = createSignal(1),
-        r = createMemo(
-          pipe(
-            multiply(2),
-            multiply(3)
-          )(s)
-        );
+        r = createMemo(pipe(multiply(2), multiply(3))(s));
       expect(r()).toBe(6);
       set(2);
       expect(r()).toBe(12);
@@ -49,7 +44,7 @@ describe("Reduce operator", () => {
   test("simple addition", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        sum = reduce((m, v) => m + v, 0),
+        sum = reduce((m: number, v: number) => m + v, 0),
         r = createMemo(sum(s));
       expect(r()).toBe(10);
       set([3, 4, 5]);
@@ -60,7 +55,10 @@ describe("Reduce operator", () => {
   test("filter list", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        filterOdd = reduce((m, v) => (v % 2 ? [...m, v] : m), []),
+        filterOdd = reduce(
+          (m: number[], v: number) => (v % 2 ? [...m, v] : m),
+          []
+        ),
         r = createMemo(filterOdd(s));
       expect(r()).toEqual([1, 3]);
       set([3, 4, 5]);
@@ -73,7 +71,7 @@ describe("Map operator", () => {
   test("simple map", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        double = map(v => v * 2),
+        double = map((v: number) => v * 2),
         r = createMemo(double(s));
       expect(r()).toEqual([2, 4, 6, 8]);
       set([3, 4, 5]);
@@ -84,7 +82,10 @@ describe("Map operator", () => {
   test("show fallback", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        double = map(v => v * 2, () => "Empty"),
+        double = map<number, number | string>(
+          v => v * 2,
+          () => "Empty"
+        ),
         r = createMemo(double(s));
       expect(r()).toEqual([2, 4, 6, 8]);
       set([]);

@@ -1,11 +1,6 @@
-import {
-  createRoot,
-  createSignal,
-  createEffect,
-  createMemo
-} from "../dist/index";
+import { createRoot, createSignal, createEffect, createMemo } from "../src";
 
-const EQUAL = (a, b) => a === b;
+const EQUAL = <T>(a: T, b: T) => a === b;
 
 describe("createMemo", () => {
   describe("executing propagating", () => {
@@ -96,14 +91,14 @@ describe("createMemo", () => {
   });
 
   describe("with changing dependencies", () => {
-    var i, setI;
-    var t, setT;
-    var e, setE;
-    var fevals;
-    var f;
+    var i: () => boolean, setI: (v: boolean) => void;
+    var t: () => number, setT: (v: number) => void;
+    var e: () => number, setE: (v: number) => void;
+    var fevals: number;
+    var f: () => number;
 
     function init() {
-      [i, setI] = createSignal(true);
+      [i, setI] = createSignal<boolean>(true);
       [t, setT] = createSignal(1);
       [e, setE] = createSignal(2);
       fevals = 0;
@@ -298,7 +293,7 @@ describe("createMemo", () => {
         let [s1, set1] = createSignal(1);
         let [s2] = createSignal(1);
         let count = 0;
-        let c1;
+        let c1: () => number;
         createMemo(
           () => {
             c1 = createMemo(() => s2(), undefined, EQUAL);
@@ -351,7 +346,7 @@ describe("createMemo", () => {
       createRoot(() => {
         let [s1, set] = createSignal(1);
         let order = "";
-        let c2;
+        let c2: () => boolean;
         createEffect(() => {
           order += "c1";
           if (s1() > 1) {
@@ -461,7 +456,7 @@ describe("createMemo", () => {
     it("throws when cycle created by modifying a branch", () => {
       createRoot(() => {
         var [d, set] = createSignal(1),
-          f = createMemo(() => (f ? f() : d()));
+          f: () => number = createMemo(() => (f ? f() : d()));
 
         expect(() => {
           set(0);

@@ -1,16 +1,18 @@
-import { createRoot, createSignal, loadResource } from "../dist/index";
+import { createRoot, createSignal, loadResource, ResourceState } from "../src";
 
 describe("Simulate a dynamic fetch", () => {
-  let resolve, trigger, result;
-  function fetcher(id) {
-    return new Promise(r => (resolve = r));
+  let resolve: (v: string) => void,
+    trigger: (v: number) => void,
+    result: ResourceState<string>;
+  function fetcher(id: number) {
+    return new Promise<string>(r => (resolve = r));
   }
 
   test("initial async resource", async done => {
     createRoot(() => {
       const [id, setId] = createSignal(1);
       trigger = setId;
-      result = loadResource(() => fetcher(id()));
+      result = loadResource<string>(() => fetcher(id()));
     });
     expect(result.data).toBeUndefined();
     expect(result.loading).toBe(true);
@@ -39,9 +41,9 @@ describe("Simulate a dynamic fetch", () => {
 describe("using Context with no root", () => {
   test("loads default value", () => {
     expect(() => {
-      let resolve;
+      let resolve: (v: string) => void;
       loadResource(new Promise(r => (resolve = r)));
-      resolve("Hi");
+      resolve!("Hi");
     }).not.toThrow();
   });
 });

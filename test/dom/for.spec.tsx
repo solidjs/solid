@@ -1,8 +1,8 @@
-import { createRoot, createSignal } from "../../dist";
-import { insert } from "../../dist/dom";
+import { createRoot, createSignal } from "../../src";
+import { insert, For } from "../../src/dom";
 
 describe("Testing an only child each control flow", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -14,7 +14,7 @@ describe("Testing an only child each control flow", () => {
     </div>
   );
 
-  function apply(array) {
+  function apply(array: string[]) {
     setList(array);
     expect(div.innerHTML).toBe(array.join(""));
     setList([n1, n2, n3, n4]);
@@ -94,9 +94,9 @@ describe("Testing an multi child each control flow", () => {
     n4 = "d";
   const [list, setList] = createSignal([n1, n2, n3, n4]);
   const Component = () => <For each={list()}>{item => item}</For>;
-  let disposer;
+  let disposer: () => void;
 
-  function apply(array) {
+  function apply(array: string[]) {
     setList(array);
     expect(div.innerHTML).toBe(array.join("") + "z");
     setList([n1, n2, n3, n4]);
@@ -168,7 +168,7 @@ describe("Testing an multi child each control flow", () => {
 });
 
 describe("Testing an only child each control flow with fragment children", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -187,7 +187,7 @@ describe("Testing an only child each control flow with fragment children", () =>
     </div>
   );
 
-  function apply(array) {
+  function apply(array: string[]) {
     setList(array);
     expect(div.innerHTML).toBe(array.map(p => `${p}${p}`).join(""));
     setList([n1, n2, n3, n4]);
@@ -259,7 +259,7 @@ describe("Testing an only child each control flow with fragment children", () =>
 });
 
 describe("Testing an only child each control flow with array children", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -271,7 +271,7 @@ describe("Testing an only child each control flow with array children", () => {
     </div>
   );
 
-  function apply(array) {
+  function apply(array: string[]) {
     setList(array);
     expect(div.innerHTML).toBe(array.map(p => `${p}${p}`).join(""));
     setList([n1, n2, n3, n4]);
@@ -343,12 +343,12 @@ describe("Testing an only child each control flow with array children", () => {
 });
 
 describe("Testing each control flow with fallback", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
     n4 = "d";
-  const [list, setList] = createSignal([]);
+  const [list, setList] = createSignal<string[]>([]);
   const Component = () => (
     <div ref={div}>
       <For each={list()} fallback={"Empty"}>
@@ -373,12 +373,12 @@ describe("Testing each control flow with fallback", () => {
 });
 
 describe("Testing each that maps to undefined", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
     n4 = "d";
-  const [list, setList] = createSignal([]);
+  const [list, setList] = createSignal<string[]>([]);
   const Component = () => (
     <div ref={div}>
       <For each={list()}>{item => undefined}</For>

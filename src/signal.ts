@@ -4,14 +4,14 @@
 // Public interface
 export function createSignal<T>(
   value?: T,
-  comparator?: (v?: T, p?: T) => boolean
+  comparator?: (v: T, p: T) => boolean
 ): [() => T, (v: T) => void] {
   const d = new DataNode(value);
   let setter;
   if (comparator) {
     let age = -1;
     setter = (v: T) => {
-      if (!comparator(value, v)) {
+      if (!comparator(value!, v)) {
         const time = RootClock.time;
         if (time === age) {
           throw new Error(
@@ -33,14 +33,14 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
 
 export function createDependentEffect<T>(
   fn: (v?: T) => T,
-  deps: () => any | (() => any)[],
+  deps: (() => any) | (() => any)[],
   defer?: boolean
 ) {
-  if (Array.isArray(deps)) deps = callAll(deps);
+  const resolved = Array.isArray(deps) ? callAll(deps) : deps;
   defer = !!defer;
   createEffect<T>((value: T | undefined) => {
     const listener = Listener;
-    deps();
+    resolved();
     if (defer) defer = false;
     else {
       Listener = null;

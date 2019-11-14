@@ -4,7 +4,7 @@
     "target": "esnext",
     "moduleResolution": "node",
     "strict": true,
-    "lib": ["dom", "es2015"],
+    "lib": ["dom", "es2015", "dom.iterable"],
     "jsx": "preserve",
     "typeRoots": [
       "./node_modules/babel-plugin-jsx-dom-expressions",

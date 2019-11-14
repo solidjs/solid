@@ -8,7 +8,7 @@ import {
   sample,
   onCleanup,
   afterEffects
-} from "../dist/index";
+} from "../src";
 
 describe("Create signals", () => {
   test("Create and read a Signal", () => {
@@ -153,13 +153,13 @@ describe("onCleanup", () => {
     });
   });
   test("Explicit root disposal", () => {
-    let temp, disposer;
+    let temp: string | undefined, disposer: () => void;
     createRoot(dispose => {
       disposer = dispose;
       onCleanup(() => (temp = "disposed"));
     });
     expect(temp).toBeUndefined();
-    disposer();
+    disposer!();
     expect(temp).toBe("disposed");
   });
 });

@@ -11,19 +11,23 @@ import { createState, Wrapped } from "./state";
 // Suspense Context
 export const SuspenseContext = createContext({ state: () => "running" });
 
+interface ComponentType<T> {
+  (props: T): any
+}
+
 // lazy load a function component asynchronously
-export function lazy<T extends Function>(fn: () => Promise<{ default: T }>) {
-  return (props: object) => {
+export function lazy<T extends ComponentType<any>>(fn: () => Promise<{ default: T }>): T {
+  return ((props: any) => {
     const result = loadResource(fn().then(mod => mod.default));
     let Comp: T | Wrapped<T> | undefined;
-    return createMemo(
+    return createMemo<T>(
       () => (Comp = result.data) && sample(() => (Comp as T)(props))
     );
-  };
+  }) as T;
 }
 
 // load any async resource
-type ResourceState<T> = { loading: Boolean; data?: T; error?: any };
+export type ResourceState<T> = { loading: Boolean; data?: T; error?: any };
 export function loadResource<T>(fn: () => Promise<T>): Wrapped<ResourceState<T>>;
 export function loadResource<T>(p: Promise<T>): Wrapped<ResourceState<T>>;
 export function loadResource<T>(resource: any): Wrapped<ResourceState<T>> {

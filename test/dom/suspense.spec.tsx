@@ -1,13 +1,13 @@
-import { lazy, createSignal, createEffect, loadResource } from "../../dist/index";
-import { render } from "../../dist/dom/index";
+import { lazy, createSignal, createEffect, loadResource } from "../../src";
+import { render, Suspense } from "../../src/dom";
 
 describe("Testing a context suspend control flow", () => {
   let div = document.createElement("div"),
-    disposer,
-    resolvers = [],
+    disposer: () => void,
+    resolvers: Function[] = [],
     [triggered, trigger] = createSignal(false);
-  const LazyComponent = lazy(() => new Promise(r => resolvers.push(r))),
-    ChildComponent = props => {
+  const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
+    ChildComponent = (props: {greeting: string}) => {
       createEffect(
         () => triggered() && loadResource(new Promise(r => setTimeout(r, 300)))
       );

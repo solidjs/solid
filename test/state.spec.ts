@@ -6,7 +6,7 @@ import {
   createMemo,
   unwrap,
   force
-} from "../dist/index";
+} from "../src";
 
 describe("State immutablity", () => {
   test("Setting a property", () => {
@@ -26,13 +26,13 @@ describe("State immutablity", () => {
 
 describe("Simple setState modes", () => {
   test("Simple Key Value", () => {
-    const [state, setState] = createState();
+    const [state, setState] = createState({ key: null });
     setState("key", "value");
     expect(state.key).toBe("value");
   });
 
   test("Top level merge", () => {
-    const [state, setState] = createState({ starting: 1 });
+    const [state, setState] = createState({ starting: 1, ending: 1 });
     setState({ ending: 2 });
     expect(state.starting).toBe(1);
     expect(state.ending).toBe(2);
@@ -45,39 +45,68 @@ describe("Simple setState modes", () => {
   });
 
   test("Top level state function merge", () => {
-    const [state, setState] = createState({ starting: 1 });
+    const [state, setState] = createState({ starting: 1, ending: 1 });
     setState(s => ({ ending: s.starting + 1 }));
     expect(state.starting).toBe(1);
     expect(state.ending).toBe(2);
   });
 
   test("Nested merge", () => {
-    const [state, setState] = createState({ data: { starting: 1 } });
+    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
     setState("data", { ending: 2 });
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
 
   test("Nested state function merge", () => {
-    const [state, setState] = createState({ data: { starting: 1 } });
-    setState("data", d => ({ ending: d.starting + 1 }));
+    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    setState("data", (d: { starting: number }) => ({ ending: d.starting + 1 }));
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
+});
 
-  test("Multiple Updates", () => {
-    const [state, setState] = createState({ starting: 1 });
-    setState([{ middle: 2 }], ["ending", 3]);
-    expect(state.starting).toBe(1);
-    expect(state.middle).toBe(2);
-    expect(state.ending).toBe(3);
+describe("setState Mutations", () => {
+  test("Top Level Mutation", () => {
+    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    setState(s => {
+      s.data.ending = s.data.starting + 1;
+    });
+    expect(state.data.starting).toBe(1);
+    expect(state.data.ending).toBe(2);
+  });
+  test("Nested Level Mutation", () => {
+    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    setState("data", (s: { starting: number; ending: number }) => {
+      s.ending = s.starting + 1;
+    });
+    expect(state.data.starting).toBe(1);
+    expect(state.data.ending).toBe(2);
+  });
+  test("Top Level Deletion", () => {
+    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    setState(s => {
+      delete s.data.ending;
+    });
+    expect(state.data.starting).toBe(1);
+    expect(state.data.ending).not.toBeDefined();
+  });
+  test("Top Level Object Mutation", () => {
+    const [state, setState] = createState({ data: { starting: 1, ending: 1 } }),
+      next = { starting: 3, ending: 6 };
+    setState(s => {
+      s.data = next;
+    });
+    expect(unwrap(state.data)).toBe(next);
+    expect(state.data.starting).toBe(3);
+    expect(state.data.ending).toBe(6);
   });
 });
 
 describe("Array setState modes", () => {
   test("Update Specific", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", [1, 3], r => r * 2);
+    setState("rows", [1, 3], (r: number) => r * 2);
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(3);
@@ -86,7 +115,11 @@ describe("Array setState modes", () => {
   });
   test("Update filterFn", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", (r, i) => i % 2, r => r * 2);
+    setState(
+      "rows",
+      (r: number, i: number) => !!(i % 2),
+      (r: number) => r * 2
+    );
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(3);
@@ -95,7 +128,7 @@ describe("Array setState modes", () => {
   });
   test("Update traversal range", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", { from: 1, to: 4, by: 2 }, r => r * 2);
+    setState("rows", { from: 1, to: 4, by: 2 }, (r: number) => r * 2);
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(3);
@@ -104,7 +137,7 @@ describe("Array setState modes", () => {
   });
   test("Update traversal range defaults", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", {}, r => r * 2);
+    setState("rows", {}, (r: number) => r * 2);
     expect(state.rows[0]).toBe(2);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(6);
@@ -219,7 +252,7 @@ describe("Setting state from Effects", () => {
   test("Setting state from signal", () => {
     createRoot(() => {
       var [getData, setData] = createSignal("init"),
-        [state, setState] = createState({});
+        [state, setState] = createState({ data: null });
       createEffect(() => setState("data", getData()));
       setData("signal");
       expect(state.data).toBe("signal");
@@ -228,10 +261,10 @@ describe("Setting state from Effects", () => {
 
   test("Select Promise", done => {
     createRoot(async () => {
-      var p = new Promise(resolve => {
+      var p = new Promise<string>(resolve => {
           setTimeout(resolve, 20, "promised");
         }),
-        [state, setState] = createState({});
+        [state, setState] = createState({ data: null });
       createEffect(() => p.then(v => setState("data", v)));
       await p;
       expect(state.data).toBe("promised");
@@ -308,7 +341,7 @@ describe("Tracking Forced State changes", () => {
         executionCount++;
       });
 
-      setState(force("user", "firstName", "John"));
+      setState("user", force({ firstName: "John" }));
     });
   });
 });

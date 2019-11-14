@@ -224,8 +224,8 @@ export function map<T, U>(mapFn: (v: T, i: number) => U, fallback?: () => U) {
 }
 
 export function reduce<T, U>(
-  fn: (memo: U | undefined, value: T, i: number) => U,
-  seed?: U
+  fn: (memo: U, value: T, i: number) => U,
+  seed: U
 ) {
   return (list: () => T[]) => () => {
     let newList = list() || [],

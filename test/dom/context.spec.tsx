@@ -1,5 +1,5 @@
-import { createContext, useContext } from "../../dist";
-import { render } from "../../dist/dom";
+import { createContext, useContext } from "../../src";
+import { render, Show } from "../../src/dom";
 
 describe("Testing Context", () => {
   const ThemeContext = createContext("light");
@@ -30,7 +30,7 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect(div.firstChild.innerHTML).toBe("dark");
+    expect((div.firstChild as HTMLDivElement).innerHTML).toBe("dark");
     div.innerHTML = "";
   });
 
@@ -43,7 +43,7 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect(div.firstChild.innerHTML).toBe("dark");
+    expect((div.firstChild as HTMLDivElement).innerHTML).toBe("dark");
     div.innerHTML = "";
   });
 
@@ -57,7 +57,7 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect(div.firstChild.nextSibling.innerHTML).toBe("dark");
+    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
     div.innerHTML = "";
   });
 
@@ -71,7 +71,7 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect(div.firstChild.nextSibling.innerHTML).toBe("dark");
+    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
     div.innerHTML = "";
   });
 
@@ -86,7 +86,7 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect(div.firstChild.nextSibling.innerHTML).toBe("dark");
+    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
     div.innerHTML = "";
   });
 
@@ -101,7 +101,7 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect(div.firstChild.nextSibling.innerHTML).toBe("dark");
+    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
     div.innerHTML = "";
   });
 });

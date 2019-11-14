@@ -1,7 +1,8 @@
-import { createRoot, createSignal } from "../../dist/index";
+import { createRoot, createSignal } from "../../src";
+import { Show } from "../../src/dom";
 
 describe("Testing an only child show control flow", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>
@@ -32,7 +33,7 @@ describe("Testing an only child show control flow", () => {
 });
 
 describe("Testing an only child show control flow with DOM children", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>
@@ -54,9 +55,9 @@ describe("Testing an only child show control flow with DOM children", () => {
 
   test("Toggle show control flow", () => {
     setCount(7);
-    expect(div.firstChild.innerHTML).toBe("7");
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     setCount(5);
-    expect(div.firstChild.innerHTML).toBe("5");
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     setCount(2);
     expect(div.innerHTML).toBe("");
   });
@@ -65,7 +66,7 @@ describe("Testing an only child show control flow with DOM children", () => {
 });
 
 describe("Testing an only child show control flow with DOM children and fallback", () => {
-  let div, disposer;
+  let div: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>
@@ -86,11 +87,11 @@ describe("Testing an only child show control flow with DOM children and fallback
 
   test("Toggle show control flow", () => {
     setCount(7);
-    expect(div.firstChild.innerHTML).toBe("7");
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     setCount(5);
-    expect(div.firstChild.innerHTML).toBe("5");
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     setCount(2);
-    expect(div.firstChild.innerHTML).toBe("Too Low");
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("Too Low");
   });
 
   test("dispose", () => disposer());
