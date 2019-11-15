@@ -45,10 +45,18 @@ type StatePathPart =
 
 // do up to depth of 8
 type StatePath =
-  | [StatePathPart, NestedStateSetter<unknown>]
-  | [StatePathPart, StatePathPart, NestedStateSetter<unknown>]
-  | [StatePathPart, StatePathPart, StatePathPart, NestedStateSetter<unknown>]
+  | [string, NestedStateSetter<unknown>]
+  | [string, StatePathPart, NestedStateSetter<unknown>]
+  | [string, StatePathPart, StatePathPart, NestedStateSetter<unknown>]
   | [
+      string,
+      StatePathPart,
+      StatePathPart,
+      StatePathPart,
+      NestedStateSetter<unknown>
+    ]
+  | [
+      string,
       StatePathPart,
       StatePathPart,
       StatePathPart,
@@ -56,6 +64,7 @@ type StatePath =
       NestedStateSetter<unknown>
     ]
   | [
+      string,
       StatePathPart,
       StatePathPart,
       StatePathPart,
@@ -64,16 +73,7 @@ type StatePath =
       NestedStateSetter<unknown>
     ]
   | [
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      NestedStateSetter<unknown>
-    ]
-  | [
-      StatePathPart,
+      string,
       StatePathPart,
       StatePathPart,
       StatePathPart,

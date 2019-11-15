@@ -65,16 +65,21 @@ describe("Simple setState modes", () => {
     expect(state.data.ending).toBe(2);
   });
 
-  test("Test Top Level Array", () => {
-    const [todos, setTodos] = createState([
+  test("Test Array", () => {
+    const [state, setState] = createState({
+      todos: [
         { id: 1, title: "Go To Work", done: true },
         { id: 2, title: "Eat Lunch", done: false }
-      ]);
-    setTodos(1, {done: true});
-    setTodos([...todos, {id: 3, title: "Go Home", done: false}])
-    expect(Array.isArray(todos)).toBe(true);
-    expect(todos[1].done).toBe(true);
-    expect(todos[2].title).toBe("Go Home");
+      ]
+    });
+    setState("todos", 1, { done: true });
+    setState("todos", [
+      ...state.todos,
+      { id: 3, title: "Go Home", done: false }
+    ]);
+    expect(Array.isArray(state.todos)).toBe(true);
+    expect(state.todos[1].done).toBe(true);
+    expect(state.todos[2].title).toBe("Go Home");
   });
 });
 
@@ -113,18 +118,20 @@ describe("setState Mutations", () => {
     expect(state.data.starting).toBe(3);
     expect(state.data.ending).toBe(6);
   });
-  test("Test Top Level Array Mutation", () => {
-    const [todos, setTodos] = createState([
+  test("Test Array Mutation", () => {
+    const [state, setState] = createState({
+      todos: [
         { id: 1, title: "Go To Work", done: true },
         { id: 2, title: "Eat Lunch", done: false }
-      ]);
-    setTodos(s => {
-      s[1].done = true;
-      s.push({id: 3, title: "Go Home", done: false})
+      ]
     });
-    expect(Array.isArray(todos)).toBe(true);
-    expect(todos[1].done).toBe(true);
-    expect(todos[2].title).toBe("Go Home");
+    setState(s => {
+      s.todos[1].done = true;
+      s.todos.push({ id: 3, title: "Go Home", done: false });
+    });
+    expect(Array.isArray(state.todos)).toBe(true);
+    expect(state.todos[1].done).toBe(true);
+    expect(state.todos[2].title).toBe("Go Home");
   });
 });
 
