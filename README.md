@@ -250,6 +250,7 @@ Remember you still need to install the library separately for these to work.
 
 ## Articles
 
+- [Designing SolidJS: Components](https://medium.com/@ryansolid/designing-solidjs-components-8f1ebb88d78b?source=friends_link&sk=cac89d1679d8be2c7bf2b303fabd153c) Exploring Solid's "Vanishing" Components
 - [Designing SolidJS: Reactivity](https://medium.com/@ryansolid/designing-solidjs-reactivity-75180a4c74b4?source=friends_link&sk=dbb9dd46a2e902c199ad3d5c7aeb1566) Finding the right reactivity model for Solid.
 - [Designing SolidJS: Dualities](https://medium.com/@ryansolid/designing-solidjs-dualities-69ee4c08aa03?source=friends_link&sk=161ddd70db4fca50d6f33b6d53056d36) How exploring opposites can help us redefine the whole problem space.
 - [How we wrote the Fastest JavaScript UI Frameworks](https://medium.com/@ryansolid/how-we-wrote-the-fastest-javascript-ui-frameworks-a96f2636431e) How Solid topped the JS Framework Benchmark.
