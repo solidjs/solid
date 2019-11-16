@@ -22,6 +22,15 @@ describe("State immutablity", () => {
     delete state.name;
     expect(state.name).toBe("John");
   });
+
+  test("Immutable state is not mutable even inside setter", () => {
+    const [state, setState] = createState({ name: "John" });
+    expect(state.name).toBe("John");
+    setState(() => {
+      state.name = "Jake";
+    });
+    expect(state.name).toBe("John");
+  });
 });
 
 describe("Simple setState modes", () => {

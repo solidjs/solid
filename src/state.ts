@@ -2,8 +2,6 @@ import { isListening, DataNode, freeze } from "./signal";
 const SNODE = Symbol("solid-node"),
   SPROXY = Symbol("solid-proxy");
 
-let inTransaction = false;
-
 type StateNode = {
   [SNODE]?: any;
   [SPROXY]?: any;
@@ -30,7 +28,10 @@ export type Wrapped<T> = {
 type StateAtom = string | number | boolean | symbol | null | undefined | any[];
 type StateSetter<T> =
   | Partial<T>
-  | ((prevState: Wrapped<T>, traversed?: (string | number)[]) => Partial<T> | void);
+  | ((
+      prevState: Wrapped<T>,
+      traversed?: (string | number)[]
+    ) => Partial<T> | void);
 type NestedStateSetter<T> =
   | StateSetter<T>
   | StateAtom
@@ -144,13 +145,29 @@ const proxyTraps = {
     return wrappable ? wrap(value) : value;
   },
 
+  set() {
+    return true;
+  },
+
+  deleteProperty() {
+    return true;
+  }
+};
+
+const setterTraps = {
+  get(target: StateNode, property: string | number): any {
+    if (property === "_state") return target;
+    const value = target[property as string | number];
+    return isWrappable(value) ? new Proxy(value, setterTraps) : value;
+  },
+
   set(target: StateNode, property: string | number, value: any) {
-    if (inTransaction) setProperty(target, property, unwrap(value));
+    setProperty(target, property, unwrap(value));
     return true;
   },
 
   deleteProperty(target: StateNode, property: string | number) {
-    if (inTransaction) setProperty(target, property, undefined);
+    setProperty(target, property, undefined);
     return true;
   }
 };
@@ -161,12 +178,11 @@ export function setProperty(
   value: any,
   force?: boolean
 ) {
-  let unwrappedValue = unwrap(value);
-  if (!force && state[property] === unwrappedValue) return;
+  if (!force && state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
-  if (unwrappedValue === void 0) {
+  if (value === void 0) {
     delete state[property];
-  } else state[property] = unwrappedValue;
+  } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.next();
@@ -193,9 +209,10 @@ function updatePath(
   if (path.length === 1) {
     let value = path[0];
     if (typeof value === "function") {
-      const wrapped = wrap(current);
+      const wrapped = new Proxy(current, setterTraps);
       value = value(wrapped, traversed);
       if (value === wrapped || value === undefined) return;
+      value = unwrap(value);
     }
     mergeState(current, value);
     return;
@@ -224,18 +241,21 @@ function updatePath(
     }
   } else if (path.length === 1) {
     let value = path[0];
+    const currentPart = current[part];
     if (typeof value === "function") {
-      const currentPart = current[part],
-        wrapped = isWrappable(currentPart) ? wrap(currentPart) : currentPart;
+      const wrapped = isWrappable(currentPart)
+        ? new Proxy(currentPart, setterTraps)
+        : currentPart;
       value = value(wrapped, traversed.concat([part]));
       if (value === wrapped || value === undefined) return;
+      value = unwrap(value);
     }
     if (
-      isWrappable(current[part]) &&
+      isWrappable(currentPart) &&
       isWrappable(value) &&
       !Array.isArray(value)
     ) {
-      mergeState(current[part], value);
+      mergeState(currentPart, value);
     } else setProperty(current, part, value);
   } else updatePath(current[part], path, traversed.concat([part]));
 }
@@ -251,11 +271,7 @@ export function createState<T extends StateNode>(
   const unwrappedState = unwrap<T>(state || {});
   const wrappedState = wrap<T>(unwrappedState);
   function setState(...args: any[]): void {
-    freeze(() => {
-      inTransaction = true;
-      updatePath(unwrappedState, args)
-      inTransaction = false;
-    });
+    freeze(() => updatePath(unwrappedState, args));
   }
 
   return [wrappedState, setState];
