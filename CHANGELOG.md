@@ -1,9 +1,17 @@
 # Changelog
 
+## 0.14.0 - 2019-11-16
+v0.14.0 brings changes to the render runtime and `setState` API
+
+* Adds diffing to batched computations to improve update performance
+* Supports support for mutable(TypeScript safe) `setState` API inspired by Immer. Function setters in Solid now pass a mutable version of state. Modifying will schedule updates. This form must not return a value. It can still be used immutably simply by returning the new value.
+* Changes how `force` and `reconcile` helpers work. They can now be used on nested paths.
+* Removes support for multi-path `setState`.
+
 ## 0.13.0 - 2019-10-27
 v0.13.0 contains large changes to the reactive system and compiler.
 
-The main update is to simplify reactivity by removing computation recycling. While this was a useful feature to avoid unnecessary computation nodes, Solid now uses batching as a different approach to get similar results. Most templating libraries can offer breakneck update speeds without fine grained updates. The real cost of these top down approaches is the need to redo structural reconcilliation. The current approach is that different computations will be created for each:
+The main update is to simplify reactivity by removing computation recycling. While this was a useful feature to avoid unnecessary computation nodes, Solid now uses batching as a different approach to get similar results. Most templating libraries can offer breakneck update speeds without fine grained updates. The real cost of these top down approaches is the need to redo structural reconciliation. The current approach is that different computations will be created for each:
 * Dynamic insert expression (any expression between tags)
 * Spread operator
 * JSX template entry point(Top level tag, Fragment, or Component Children)
