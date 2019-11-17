@@ -212,9 +212,8 @@ function updatePath(
       const wrapped = new Proxy(current, setterTraps);
       value = value(wrapped, traversed);
       if (value === wrapped || value === undefined) return;
-      value = unwrap(value);
     }
-    mergeState(current, value);
+    mergeState(current, unwrap(value));
     return;
   }
 
@@ -248,8 +247,8 @@ function updatePath(
         : currentPart;
       value = value(wrapped, traversed.concat([part]));
       if (value === wrapped || value === undefined) return;
-      value = unwrap(value);
     }
+    value = unwrap(value);
     if (
       isWrappable(currentPart) &&
       isWrappable(value) &&
