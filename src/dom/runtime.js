@@ -39,13 +39,15 @@ export function clearDelegatedEvents() {
   eventRegistry.clear();
 }
 
-export function classList(node, value) {
+export function classList(node, value, prev) {
   const classKeys = Object.keys(value);
-  for (let i = 0; i < classKeys.length; i++) {
+  for (let i = 0, len = classKeys.length; i < len; i++) {
     const key = classKeys[i],
+      classValue = value[key],
       classNames = key.split(/\s+/);
-    for (let j = 0; j < classNames.length; j++)
-      node.classList.toggle(classNames[j], value[key]);
+    if (prev && prev[key] === classValue) continue;
+    for (let j = 0, nameLen = classNames.length; j < nameLen; j++)
+      node.classList.toggle(classNames[j], classValue);
   }
 }
 

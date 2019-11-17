@@ -15,7 +15,11 @@ export function createComponent(
 export function delegateEvents(eventNames: string[]): void;
 export function clearDelegatedEvents(): void;
 export function spread(node: Element, accessor: any, isSVG: Boolean): void;
-export function classList(node: Element, value: { [k: string]: boolean }): void;
+export function classList(
+  node: Element,
+  value: { [k: string]: boolean },
+  prev?: { [k: string]: boolean }
+): void;
 export function currentContext(): any;
 export function isSSR(): boolean;
 export function startSSR(): void;
