@@ -123,6 +123,7 @@ export function reconcile<T>(
   const { merge, key = "id" } = options;
   return state => {
     state = unwrap(state);
+    if (!isWrappable(state)) return value;
     applyState(value, { state }, "state", merge, key);
   };
 }

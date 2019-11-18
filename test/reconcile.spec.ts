@@ -22,6 +22,14 @@ describe("setState with reconcile", () => {
     expect(state.data.user.lastName).toBeUndefined();
   });
 
+  test("Reconcile a simple object on a nested path with no prev state", () => {
+    var [state, setState] = createState<{user?: {firstName: string, middleName: string}}>({});
+    expect(state.user).toBeUndefined();
+    setState("user", reconcile({ firstName: "Jake", middleName: "R" }));
+    expect(state.user.firstName).toBe("Jake");
+    expect(state.user.middleName).toBe("R");
+  });
+
   test("Reconcile reorder a keyed array", () => {
     const JOHN = { id: 1, firstName: "John", lastName: "Snow" },
       NED = { id: 2, firstName: "Ned", lastName: "Stark" },

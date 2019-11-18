@@ -278,5 +278,8 @@ export function createState<T extends StateNode>(
 
 // force state merge change even if value hasn't changed
 export function force<T>(value: T | Wrapped<T>): (state: Wrapped<T>) => void {
-  return state => mergeState(unwrap(state), value, true);
+  return state => {
+    if (!isWrappable(state)) return value;
+    mergeState(unwrap(state), value, true);
+  }
 }
