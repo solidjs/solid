@@ -26,8 +26,8 @@ describe("setState with reconcile", () => {
     var [state, setState] = createState<{user?: {firstName: string, middleName: string}}>({});
     expect(state.user).toBeUndefined();
     setState("user", reconcile({ firstName: "Jake", middleName: "R" }));
-    expect(state.user.firstName).toBe("Jake");
-    expect(state.user.middleName).toBe("R");
+    expect(state.user!.firstName).toBe("Jake");
+    expect(state.user!.middleName).toBe("R");
   });
 
   test("Reconcile reorder a keyed array", () => {
