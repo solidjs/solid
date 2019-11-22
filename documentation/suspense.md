@@ -28,28 +28,82 @@ function Deferred(props) {
 </>;
 ```
 
-## Placeholders
+## Placeholders & Transitions
 
-But what if we don't control when the asynchronous action returns and we need to deal with potentially multiple asynchronous actions. This is where Suspense comes in. It inverts the control, so that the child can manage its asynchronous needs and the parent just sets the rules of how to display the fallback content that is shown as these processes complete. Unlike conditional control flow (like the `Deferred` component above) the children get to run and execute their asynchronous actions triggering Suspense rather than pushing the responsibility on the parent. Suspense consists of 3 states:
+But what if we don't control when the asynchronous action returns and we need to deal with potentially multiple asynchronous actions. This is where Suspense comes in. It inverts the control, so that the child can manage its asynchronous needs and the parent just sets the rules of how to display the fallback content that is shown as these processes complete. Unlike conditional control flow (like the `Deferred` component above) the children are not blocked and get execute their asynchronous actions triggering Suspense rather than pushing the responsibility on the parent. Suspense consists of 3 states:
 
 - normal - This is when no asynchronous actions are being processed and the system is working as normal.
-- suspended - This state is entered once asynchronous actions have started but before the delay has run out to show fallback content. In this state the previous content will continue to be visible.
+- suspended - This state is entered once asynchronous actions have started but before a delay has run out to show fallback content. In this state the previous content will continue to be visible.
 - fallback - This is the fallback content (like a loading spinner) to show in place of the loading if the asynchronous actions have not completed by the time the delay has run out.
 
-The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. To use Suspense you need to use the `Suspense` Component. To allow downstream control flow to listen into Suspense state to properly handle delays, use the `awaitSuspense` transform.
+Consider the simple case of switching between 3 tabs which have asynchronous loaded tabs. To use Suspense you need to use the `Suspense` Component to wrap the asynchronous activity.
 
 ```jsx
-import { Suspense, awaitSuspense } from "solid-js/dom";
+import { createState, Suspense } from "solid-js/dom";
 
-// delay fallback content for 300ms
-<Suspense fallback={<LoadingSpinner />} maxDuration={300}>
-  {/* suspense aware switch control flow */}
-  <Switch transform={awaitSuspense}>
-    <Match when={state.activeTab === 1}>...</Match>
-    <Match when={state.activeTab === 2}>...</Match>
-    <Match when={state.activeTab === 3}>...</Match>
-  </Switch>
-</Suspense>;
+function App() {
+  const [state, setState] = createState({ activeTab: 1 });
+
+  return (
+    <>
+      <ul>
+        <li onClick={() => setState({ activeTab: 1 })}>Tab1</li>
+        <li onClick={() => setState({ activeTab: 2 })}>Tab2</li>
+        <li onClick={() => setState({ activeTab: 3 })}>Tab3</li>
+      </ul>
+      <Suspense fallback={<LoadingSpinner />}>
+        <Switch>
+          <Match when={state.activeTab === 1}>...</Match>
+          <Match when={state.activeTab === 2}>...</Match>
+          <Match when={state.activeTab === 3}>...</Match>
+        </Switch>
+      </Suspense>
+    </>
+  );
+}
+```
+
+In this case if the tab hasn't loaded you will see a `LoadingSpinner` and as you switch you will see another `LoadingSpinner` as it moves in and out of suspended state.
+
+The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. In addtion to allow downstream control flow to listen into Suspense state to properly handle delays, use the `awaitSuspense` transform.
+
+```jsx
+import {
+  createState,
+  Suspense,
+  awaitSuspense,
+  useTransition
+} from "solid-js/dom";
+
+function App() {
+  const [state, setState] = createState({ activeTab: 1 }),
+    // delay showing fallback for up to 500ms
+    [startTransition, isPending] = useTransition({ timeoutMs: 500 });
+
+  return (
+    <>
+      <ul disabled={isPending()}>
+        <li onClick={() => startTransition(() => setState({ activeTab: 1 }))}>
+          Tab1
+        </li>
+        <li onClick={() => startTransition(() => setState({ activeTab: 2 }))}>
+          Tab2
+        </li>
+        <li onClick={() => startTransition(() => setState({ activeTab: 3 }))}>
+          Tab3
+        </li>
+      </ul>
+      <Suspense fallback={<LoadingSpinner />}>
+        {/* suspense aware switch control flow */}
+        <Switch transform={awaitSuspense}>
+          <Match when={state.activeTab === 1}>...</Match>
+          <Match when={state.activeTab === 2}>...</Match>
+          <Match when={state.activeTab === 3}>...</Match>
+        </Switch>
+      </Suspense>
+    </>
+  );
+}
 ```
 
 > **For React Users:** Given the nature of Solid's Reactive system, the throw a promise approach React uses doesn't make sense here. React just re-runs that part of the tree again, whereas Solid cannot pickup from where it left off. Instead Solid's Suspense mechanism ties into the Context API. Like React it is the closest Suspense Component that handles the Suspense state.
@@ -83,41 +137,52 @@ const ComponentB = lazy(() => import("./ComponentB"));
 const ComponentC = lazy(() => import("./ComponentC"));
 
 const App = () => {
-  const [state, setState] = createState({ activeTab: 1 })
+  const [state, setState] = createState({ activeTab: 1 });
 
-  return <Suspense fallback={<LoadingSpinner />} maxDuration={300}>
-    <Switch transform={awaitSuspense}>
-      <Match when={state.activeTab === 1}>
-        <ComponentA />
-      </Match>
-      <Match when={state.activeTab === 2}>
-        <ComponentB />
-      </Match>
-      <Match when={state.activeTab === 3}>
-        <ComponentC />
-      </Match>
-    </Switch>
-  </Suspense>
+  return (
+    <Suspense fallback={<LoadingSpinner />} maxDuration={300}>
+      <Switch transform={awaitSuspense}>
+        <Match when={state.activeTab === 1}>
+          <ComponentA />
+        </Match>
+        <Match when={state.activeTab === 2}>
+          <ComponentB />
+        </Match>
+        <Match when={state.activeTab === 3}>
+          <ComponentC />
+        </Match>
+      </Switch>
+    </Suspense>
+  );
 };
 ```
 
 ## Data Loading
 
-The other supported use of Suspense currently is a more general promise resolver, `loadResource`. `loadResource` accepts either a promise or a reactive function expression that returns a promise and returns a state object with properties:
-* data - the resolved data from the promise
-* error - the error from the promise rejection
-* loading - a boolean indicator to whether the promise is currently executing
+The other supported use of Suspense currently is a more general promise resolver, `loadResource`. `loadResource` accepts reactive function expression that returns a promise and returns a state object with properties:
+
+- data - the resolved data from the promise
+- error - the error from the promise rejection
+- loading - a boolean indicator to whether the promise is currently executing
+- reload - a function to retry the request after ms;
+- failedAttempts - count of consecutive failed requests;
 
 `loadResource` can be used independent of Suspense if desired. The reactive form is where the power of this method resides, as you can retrigger promise execution on reactive updates, and there is built in promise cancellation. In example below as the `userId` prop updates the API will be queried.
 
 ```jsx
-import { createState, loadResource } from "solid-js";
+import { loadResource, createEffect } from "solid-js";
 
 const fetchUser = id =>
   fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
 
 export default const UserPanel = props => {
   const result = loadResource(() => props.userId && fetchUser(props.userId));
+  // retry up to 3 times with linear backoff
+  createEffect(() => {
+    if (result.error && result.failedAttempts <= 3) {
+      result.reload(result.failedAttempts * 500);
+    }
+  })
 
   return <div>
     <Switch>
@@ -135,6 +200,42 @@ export default const UserPanel = props => {
   </div>
 }
 ```
+
 This examples handles the different states. However, you could have Suspense handle the loading state for you instead by wrapping with the `Suspense` Component.
 
-> **For React Users:** At the time of writing this React has not settled how their resource API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
+> **For React Users:** At the time of writing this React has not settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
+
+## Render as you Fetch
+
+It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is inacted when a child of a Suspense Component accesses the `data` property on the resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
+
+```jsx
+const resource = loadResource(() => /* fetch users & posts */);
+
+function ProfilePage() {
+  return (
+    <Suspense fallback={<h1>Loading profile...</h1>}>
+      <ProfileDetails />
+      <Suspense fallback={<h1>Loading posts...</h1>}>
+        <ProfileTimeline />
+      </Suspense>
+    </Suspense>
+  );
+}
+
+function ProfileDetails() {
+  // Try to read user info, although it might not have loaded yet
+  return <h1>{resource.data.user.name}</h1>;
+}
+
+function ProfileTimeline() {
+  // Try to read posts, although they might not have loaded yet
+  return (
+    <ul>
+      <For each={resource.data.posts}>{post => (
+        <li key={post.id}>{post.text}</li>
+      )}</For>
+    </ul>
+  );
+}
+```

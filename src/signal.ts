@@ -235,7 +235,7 @@ type ComputationNode<T> = {
   log: Log | null;
   context: any;
   owned: ComputationNode<any>[] | null;
-  cleanups: (((final: boolean) => void)[]) | null;
+  cleanups: ((final: boolean) => void)[] | null;
 };
 
 function createComputationNode<T>(
@@ -377,7 +377,8 @@ function lookup(owner: ComputationNode<any> | null, key: symbol | string): any {
 }
 
 function resolveChildren(children: any): any {
-  if (typeof children === "function") return createMemo(children);
+  if (typeof children === "function")
+    return createMemo(() => resolveChildren(children()));
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {

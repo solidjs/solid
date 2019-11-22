@@ -1,22 +1,49 @@
-import { lazy, createSignal, createEffect, loadResource } from "../../src";
+import {
+  lazy,
+  createSignal,
+  createEffect,
+  loadResource,
+  sample,
+  Resource,
+  useTransition
+} from "../../src";
 import { render, Suspense } from "../../src/dom";
 
 describe("Testing a context suspend control flow", () => {
   let div = document.createElement("div"),
     disposer: () => void,
     resolvers: Function[] = [],
-    [triggered, trigger] = createSignal(false);
-  const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
-    ChildComponent = (props: {greeting: string}) => {
+    [triggered, trigger] = createSignal(false),
+    reloader: (delay: number) => void;
+  const LazyComponent = lazy<typeof ChildComponent>(
+      () => new Promise(r => resolvers.push(r))
+    ),
+    ChildComponent = (props: { greeting: string }) => {
+      let result: Resource<unknown>;
       createEffect(
-        () => triggered() && loadResource(new Promise(r => setTimeout(r, 300)))
+        () =>
+          triggered() &&
+          (result = loadResource(() => new Promise(r => setTimeout(r, 300)))) &&
+          sample(() => result.data)
       );
       return props.greeting;
     },
+    ChildComponent2 = () => {
+      let result: Resource<string> = loadResource(
+        () => new Promise(r => setTimeout(() => r("Finally"), 300))
+      );
+      reloader = result.reload;
+      return <>{result.data}</>;
+    },
     Component = () => (
-      <Suspense fallback={"Loading"} maxDuration={100}>
+      <Suspense fallback={"Loading"}>
         <LazyComponent greeting={"Hi, "} />
         <LazyComponent greeting={"Jo"} />
+      </Suspense>
+    ),
+    Component2 = () => (
+      <Suspense fallback={"Loading"}>
+        <ChildComponent2 />
       </Suspense>
     );
 
@@ -34,7 +61,8 @@ describe("Testing a context suspend control flow", () => {
   });
 
   test("Toggle with delayed fallback", done => {
-    trigger(true);
+    const [start] = useTransition({ timeoutMs: 100 });
+    start(() => trigger(true));
     expect(div.innerHTML).toBe("Hi, Jo");
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo");
@@ -45,6 +73,25 @@ describe("Testing a context suspend control flow", () => {
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo");
       done();
+    }, 400);
+  });
+
+  test("dispose", () => {
+    div.innerHTML = "";
+    disposer();
+  });
+
+  test("multi trigger resource", done => {
+    disposer = render(Component2, div);
+    expect(div.innerHTML).toBe("Loading");
+    setTimeout(() => {
+      expect(div.innerHTML).toBe("Finally");
+      reloader(0);
+      expect(div.innerHTML).toBe("Loading");
+      setTimeout(() => {
+        expect(div.innerHTML).toBe("Finally");
+        done();
+      }, 400);
     }, 400);
   });
 

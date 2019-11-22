@@ -8,7 +8,6 @@ import {
 } from "../index.js";
 
 export function Suspense(props: {
-  maxDuration?: number;
   fallback: any;
   children: any;
 }) {
@@ -20,11 +19,11 @@ export function Suspense(props: {
       increment: () => {
         if (++counter === 1) {
           if (!store.initializing) {
-            if (props.maxDuration) {
+            if (SuspenseContext.transition) {
               state = "suspended";
               t = setTimeout(
                 () => ((state = "fallback"), next()),
-                props.maxDuration
+                SuspenseContext.transition.timeoutMs
               );
             } else state = "fallback";
             next();

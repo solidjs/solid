@@ -4,55 +4,146 @@ import {
   useContext,
   sample,
   onCleanup,
-  createMemo
+  freeze,
+  createMemo,
+  createSignal,
+  Context
 } from "./signal";
-import { createState, Wrapped } from "./state";
 
 // Suspense Context
-export const SuspenseContext = createContext({ state: () => "running" });
+type SuspenseConfig = { timeoutMs: number };
+export const SuspenseContext: Context & {
+  transition?: {
+    timeoutMs: number;
+    register: (p: Promise<any>) => void;
+  };
+} = createContext({ state: () => "running" });
 
 interface ComponentType<T> {
-  (props: T): any
+  (props: T): any;
 }
 
 // lazy load a function component asynchronously
-export function lazy<T extends ComponentType<any>>(fn: () => Promise<{ default: T }>): T {
+export function lazy<T extends ComponentType<any>>(
+  fn: () => Promise<{ default: T }>
+): T {
   return ((props: any) => {
-    const result = loadResource(fn().then(mod => mod.default));
-    let Comp: T | Wrapped<T> | undefined;
-    return createMemo<T>(
-      () => (Comp = result.data) && sample(() => (Comp as T)(props))
-    );
+    const result = loadResource<T>(() => fn().then(mod => mod.default));
+    let Comp: T | undefined;
+    return createMemo(() => (Comp = result.data) && sample(() => Comp!(props)));
   }) as T;
 }
 
+export interface Resource<T> {
+  readonly data: T | undefined;
+  readonly error: any;
+  readonly loading: boolean;
+  readonly failedAttempts: number;
+  reload: (delay?: number) => void;
+}
 // load any async resource
-export type ResourceState<T> = { loading: Boolean; data?: T; error?: any };
-export function loadResource<T>(fn: () => Promise<T>): Wrapped<ResourceState<T>>;
-export function loadResource<T>(p: Promise<T>): Wrapped<ResourceState<T>>;
-export function loadResource<T>(resource: any): Wrapped<ResourceState<T>> {
-  const { increment, decrement } = useContext(SuspenseContext);
-  const [state, setState] = createState<ResourceState<T>>({ loading: false });
+export function loadResource<T>(fn: () => Promise<T> | undefined): Resource<T> {
+  const [data, setData] = createSignal<T | undefined>(),
+    [error, setError] = createSignal<any>(),
+    [loading, setLoading] = createSignal(false),
+    [trackPromise, triggerPromise] = createSignal(),
+    [trackReload, triggerReload] = createSignal();
 
-  function doRequest(p: Promise<T>, ref?: { cancelled: Boolean }) {
-    setState({ loading: true });
-    increment && increment();
-    p.then(
-      (data: T) => !(ref && ref.cancelled) && setState({ data, loading: false })
-    )
-      .catch((error: any) => setState({ error, loading: false }))
-      .finally(() => decrement && decrement());
+  let pr: Promise<T> | undefined,
+    failedAttempts = 0,
+    delay: number | undefined = 0;
+
+  function doRequest(ref?: { cancelled: Boolean }) {
+    if (ref && ref.cancelled) return;
+    pr!
+      .then((data: T) => {
+        !(ref && ref.cancelled) &&
+          freeze(() => {
+            failedAttempts = 0;
+            pr = undefined;
+            setData(data);
+            setLoading(false);
+          });
+      })
+      .catch((error: any) => {
+        !(ref && ref.cancelled) &&
+          freeze(() => {
+            failedAttempts++;
+            pr = undefined;
+            setError(error);
+            setLoading(false);
+          });
+      });
+    SuspenseContext.transition && SuspenseContext.transition.register(pr!);
   }
 
-  if (typeof resource === "function") {
-    createEffect(() => {
-      let ref = { cancelled: false },
-        res = resource();
-      if (!res) return setState({ data: undefined, loading: false });
-      doRequest(res, ref);
-      onCleanup(() => (ref.cancelled = true));
-    });
-  } else doRequest(resource);
+  createEffect(() => {
+    let ref = { cancelled: false };
+    pr = fn();
 
-  return state;
+    if (!pr) {
+      freeze(() => {
+        failedAttempts = 0;
+        setData(undefined);
+        setLoading(false);
+      });
+      return;
+    }
+
+    trackReload();
+    setLoading(true);
+    triggerPromise(undefined);
+    if (delay) {
+      setTimeout(() => doRequest(ref), delay);
+      delay = undefined;
+    } else doRequest(ref);
+    onCleanup(() => (ref.cancelled = true));
+  });
+
+  return {
+    get data() {
+      const { increment, decrement } = useContext(SuspenseContext);
+      trackPromise();
+      if (pr && increment) {
+        increment();
+        pr.then(() => decrement());
+      }
+      return data();
+    },
+    get error() {
+      return error();
+    },
+    get loading() {
+      return loading();
+    },
+    get failedAttempts() {
+      return failedAttempts;
+    },
+    reload: ms => {
+      delay = ms;
+      triggerReload(undefined);
+    }
+  };
+}
+
+export function useTransition(
+  config: SuspenseConfig
+): [(fn: () => any) => void, () => boolean] {
+  const [pending, setPending] = createSignal(false);
+  return [
+    (fn: () => any) => {
+      let count = 0;
+      const prevTransition = SuspenseContext.transition;
+      SuspenseContext.transition = {
+        timeoutMs: config.timeoutMs,
+        register(p) {
+          if (count++ === 0) setPending(true);
+          p.finally(() => --count <= 0 && setPending(false));
+        }
+      };
+      fn();
+      SuspenseContext.transition = prevTransition;
+    },
+    pending
+  ];
 }
