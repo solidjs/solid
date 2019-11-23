@@ -82,7 +82,7 @@ const [state, setState] = createState({
 
 ### awaitSuspense
 
-This transform directive informs control flow to suspend with the current Suspense state. Branching changes are deferred are held on Suspense is resolved for the For, Show, With, and Switch control flows.
+This transform directive informs control flow to suspend with the current Suspense state. Branching changes are deferred are held on Suspense is resolved for the For, Show, and Switch control flows.
 
 ```jsx
 <Suspense fallback={<Loader />} maxDuration={500}>
