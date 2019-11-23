@@ -166,6 +166,7 @@ function eventHandler(e) {
 
 function spreadExpression(node, props, prevProps = {}, isSVG) {
   let info;
+  const nextProps = Object.assign({}, props);
   for (const prop in props) {
     const value = props[prop];
     if (value === prevProps[prop]) continue;
@@ -186,7 +187,8 @@ function spreadExpression(node, props, prevProps = {}, isSVG) {
     } else if (prop === 'events') {
       for (const eventName in value) node.addEventListener(eventName, value[eventName]);
     } else if (prop === 'children') {
-      insertExpression(node, value, prevProps[prop]);
+      // may be normalized so keep returned value
+      nextProps[prop] = insertExpression(node, value, prevProps[prop]);
     } else if (info = Attributes[prop]) {
       if (info.type === 'attribute') {
         node.setAttribute(prop, value);
@@ -198,7 +200,7 @@ function spreadExpression(node, props, prevProps = {}, isSVG) {
       } else node.setAttribute(prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`), value);
     } else node[prop] = value;
   }
-  return Object.assign({}, props);
+  return nextProps;
 }
 
 function normalizeIncomingArray(normalized, array) {
