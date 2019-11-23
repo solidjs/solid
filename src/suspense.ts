@@ -30,12 +30,12 @@ export function lazy<T extends ComponentType<any>>(
   return ((props: any) => {
     const result = loadResource<T>(() => fn().then(mod => mod.default));
     let Comp: T | undefined;
-    return createMemo(() => (Comp = result.data) && sample(() => Comp!(props)));
+    return createMemo(() => (Comp = result.value) && sample(() => Comp!(props)));
   }) as T;
 }
 
 export interface Resource<T> {
-  readonly data: T | undefined;
+  readonly value: T | undefined;
   readonly error: any;
   readonly loading: boolean;
   readonly failedAttempts: number;
@@ -43,7 +43,7 @@ export interface Resource<T> {
 }
 // load any async resource
 export function loadResource<T>(fn: () => Promise<T> | undefined): Resource<T> {
-  const [data, setData] = createSignal<T | undefined>(),
+  const [value, setValue] = createSignal<T | undefined>(),
     [error, setError] = createSignal<any>(),
     [loading, setLoading] = createSignal(false),
     [trackPromise, triggerPromise] = createSignal(),
@@ -56,12 +56,12 @@ export function loadResource<T>(fn: () => Promise<T> | undefined): Resource<T> {
   function doRequest(ref?: { cancelled: Boolean }) {
     if (ref && ref.cancelled) return;
     pr!
-      .then((data: T) => {
+      .then((value: T) => {
         !(ref && ref.cancelled) &&
           freeze(() => {
             failedAttempts = 0;
             pr = undefined;
-            setData(data);
+            setValue(value);
             setLoading(false);
           });
       })
@@ -84,7 +84,7 @@ export function loadResource<T>(fn: () => Promise<T> | undefined): Resource<T> {
     if (!pr) {
       freeze(() => {
         failedAttempts = 0;
-        setData(undefined);
+        setValue(undefined);
         setLoading(false);
       });
       return;
@@ -101,14 +101,14 @@ export function loadResource<T>(fn: () => Promise<T> | undefined): Resource<T> {
   });
 
   return {
-    get data() {
+    get value() {
       const { increment, decrement } = useContext(SuspenseContext);
       trackPromise();
       if (pr && increment) {
         increment();
         pr.then(() => decrement());
       }
-      return data();
+      return value();
     },
     get error() {
       return error();

@@ -18,11 +18,11 @@ describe("Simulate a dynamic fetch", () => {
       trigger = setId;
       result = loadResource(() => fetcher(id()));
     });
-    expect(result.data).toBeUndefined();
+    expect(result.value).toBeUndefined();
     expect(result.loading).toBe(true);
     resolve("John");
     await Promise.resolve();
-    expect(result.data).toBe("John");
+    expect(result.value).toBe("John");
     expect(result.loading).toBe(false);
     done();
   });
@@ -36,7 +36,7 @@ describe("Simulate a dynamic fetch", () => {
     resolve2("Jake");
     resolve1("Jo");
     await Promise.resolve();
-    expect(result.data).toBe("Jake");
+    expect(result.value).toBe("Jake");
     expect(result.loading).toBe(false);
     result.reload(200);
     expect(result.loading).toBe(true);
@@ -44,7 +44,7 @@ describe("Simulate a dynamic fetch", () => {
       const resolve3 = resolve;
       resolve3("Jack");
       await Promise.resolve();
-      expect(result.data).toBe("Jack");
+      expect(result.value).toBe("Jack");
       expect(result.loading).toBe(false);
       done();
     }, 300);
@@ -65,7 +65,7 @@ describe("Simulate a dynamic fetch", () => {
   test("no promise", () => {
     trigger(0);
     expect(result.loading).toBe(false);
-    expect(result.data).toBeUndefined();
+    expect(result.value).toBeUndefined();
     expect(result.failedAttempts).toBe(0);
   })
 });

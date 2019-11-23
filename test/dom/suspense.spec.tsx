@@ -24,7 +24,7 @@ describe("Testing a context suspend control flow", () => {
         () =>
           triggered() &&
           (result = loadResource(() => new Promise(r => setTimeout(r, 300)))) &&
-          sample(() => result.data)
+          sample(() => result.value)
       );
       return props.greeting;
     },
@@ -33,7 +33,7 @@ describe("Testing a context suspend control flow", () => {
         () => new Promise(r => setTimeout(() => r("Finally"), 300))
       );
       reloader = result.reload;
-      return <>{result.data}</>;
+      return <>{result.value}</>;
     },
     Component = () => (
       <Suspense fallback={"Loading"}>

@@ -37,7 +37,7 @@ export function hydrate(
 }
 
 export function wrapCondition(fn: () => boolean): () => boolean {
-  return createMemo(fn, undefined, equalFn);
+  return createMemo(() => !!fn(), undefined, equalFn);
 }
 
 export function For<T, U>(props: {
@@ -65,7 +65,7 @@ export function Show<T>(props: {
   children: T;
 }) {
   const useFallback = "fallback" in props,
-    condition = createMemo(() => props.when, undefined, equalFn),
+    condition = createMemo(() => !!props.when, undefined, equalFn),
     mapped = createMemo(() =>
       condition()
         ? sample(() => props.children)
@@ -128,7 +128,10 @@ export function Portal(props: {
       return marker.parentNode;
     }
   });
-  insert(renderRoot, sample(() => props.children));
+  insert(
+    renderRoot,
+    sample(() => props.children)
+  );
   mount.appendChild(container);
   props.ref && props.ref(container);
   onCleanup(() => mount.removeChild(container));

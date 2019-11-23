@@ -39,7 +39,8 @@ But what if we don't control when the asynchronous action returns and we need to
 Consider the simple case of switching between 3 tabs which have asynchronous loaded tabs. To use Suspense you need to use the `Suspense` Component to wrap the asynchronous activity.
 
 ```jsx
-import { createState, Suspense } from "solid-js/dom";
+import { createState } from "solid-js";
+import { Suspense } from "solid-js/dom";
 
 function App() {
   const [state, setState] = createState({ activeTab: 1 });
@@ -65,15 +66,11 @@ function App() {
 
 In this case if the tab hasn't loaded you will see a `LoadingSpinner` and as you switch you will see another `LoadingSpinner` as it moves in and out of suspended state.
 
-The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. In addtion to allow downstream control flow to listen into Suspense state to properly handle delays, use the `awaitSuspense` transform.
+The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. In addtion to allow downstream control flow to listen into Suspense state to properly handle delays, use the `awaitSuspense` transform. When control flow is suspended it continues to show the current branch while rendering the next off screen. It is important to note that once suspense has triggered the onscreen content within this flow will no longer update.
 
 ```jsx
-import {
-  createState,
-  Suspense,
-  awaitSuspense,
-  useTransition
-} from "solid-js/dom";
+import { createState, useTransition } from "solid-js";
+import { Suspense, awaitSuspense } from "solid-js/dom";
 
 function App() {
   const [state, setState] = createState({ activeTab: 1 }),
@@ -161,7 +158,7 @@ const App = () => {
 
 The other supported use of Suspense currently is a more general promise resolver, `loadResource`. `loadResource` accepts reactive function expression that returns a promise and returns a state object with properties:
 
-- data - the resolved data from the promise
+- value - the resolved data from the promise
 - error - the error from the promise rejection
 - loading - a boolean indicator to whether the promise is currently executing
 - reload - a function to retry the request after ms;
@@ -188,12 +185,12 @@ export default const UserPanel = props => {
     <Switch>
       <Match when={result.loading}>Loading...</Match>
       <Match when={result.error}>Error: {result.error}</Match>
-      <Match when={result.data}>
-        <h1>{result.data.name}</h1>
+      <Match when={result.value}>
+        <h1>{result.value.name}</h1>
         <ul>
-          <li>Height: {result.data.height}</li>
-          <li>Mass: {result.data.mass}</li>
-          <li>Birth Year: {result.data.birth_year}</li>
+          <li>Height: {result.value.height}</li>
+          <li>Mass: {result.value.mass}</li>
+          <li>Birth Year: {result.value.birth_year}</li>
         </ul>
       </Match>
     </Switch>
@@ -207,7 +204,7 @@ This examples handles the different states. However, you could have Suspense han
 
 ## Render as you Fetch
 
-It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is inacted when a child of a Suspense Component accesses the `data` property on the resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
+It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is inacted when a child of a Suspense Component accesses the `value` property on the resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
 
 ```jsx
 const resource = loadResource(() => /* fetch users & posts */);
@@ -225,14 +222,14 @@ function ProfilePage() {
 
 function ProfileDetails() {
   // Try to read user info, although it might not have loaded yet
-  return <h1>{resource.data.user.name}</h1>;
+  return <h1>{resource.value.user.name}</h1>;
 }
 
 function ProfileTimeline() {
   // Try to read posts, although they might not have loaded yet
   return (
     <ul>
-      <For each={resource.data.posts}>{post => (
+      <For each={resource.value.posts}>{post => (
         <li key={post.id}>{post.text}</li>
       )}</For>
     </ul>

@@ -49,7 +49,7 @@ While you could use a map function for loops they aren't optimized. While perhap
 </ul>
 ```
 
-_Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic strings use ternary operator._
+_Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic expressions use boolean or ternary operator._
 
 The library also includes a couple transform directives that can be applied to the For control flow.
 
@@ -82,7 +82,7 @@ const [state, setState] = createState({
 
 ### awaitSuspense
 
-This transform directive informs control flow to suspend with the current Suspense state. Branching changes are deferred are held on Suspense is resolved for the For, Show, and Switch control flows.
+This transform directive informs control flow to suspend with the current Suspense state. Branching changes are deferred are held on Suspense is resolved for the For, Show, With, and Switch control flows.
 
 ```jsx
 <Suspense fallback={<Loader />} maxDuration={500}>
