@@ -20,6 +20,10 @@ Creates a new signal that can be used for reactive tracking. By default signals 
 
 Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. Memos only notify dependents when returned value changes. You can also set a custom comparator.
 
+### `createDeferred(prev => <code>, options: { timeoutMs: number }): getValueFn`
+
+Creates memo that only notifies downstream changes when the browser is idle. `timeoutMS` is the maximum time to wait before forcing the update.
+
 ### `createDependentEffect(() => <code>, dependencies, defer): void`
 
 Creates a new effect that explicitly tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
@@ -52,9 +56,9 @@ Hook to grab context to allow for deep passing of props with hierarchal resoluti
 
 Used to lazy load components to allow for things like code splitting and Suspense.
 
-### `loadResource(<Promise> | () => <Promise>): getValueFn`
+### `loadResource(() => <Promise>): { value, error, loading, failedAttempts, reload }`
 
-Creates a memo that updates when promise is resolved. If a function is provided it tracks dependency changes to retrigger. This works with the Suspend control flow.
+Creates a memo that updates when promise is resolved. It tracks dependency changes to retrigger. This works with the Suspend control flow.
 
 ### `setDefaults(props, defaultProps): void`
 

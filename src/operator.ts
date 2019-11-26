@@ -1,4 +1,4 @@
-import { onCleanup, createRoot, sample } from "./signal";
+import { onCleanup, createRoot, sample, createDeferred } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 
@@ -85,8 +85,25 @@ export function pipe(...fns: Array<Operator<any, any>>): Operator<any, any> {
 }
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
-export function map<T, U>(mapFn: (v: T, i: number) => U, fallback?: () => U) {
-  return (list: () => T[]) => {
+export function map<T, U>(
+  mapFn: (v: T, i: number) => U,
+  options?: { fallback?: () => U }
+): (list: () => T[]) => () => U[];
+export function map<T, U>(
+  list: () => T[],
+  mapFn: (v: T, i: number) => U,
+  options?: { fallback?: () => U }
+): () => U[];
+export function map<T, U>(list: any, mapFn: any, options?: any): any {
+  if (typeof mapFn !== "function") {
+    options = mapFn || {};
+    mapFn = list;
+    return map;
+  }
+  options || (options = {});
+  return map(list);
+
+  function map(list: () => T[]) {
     let items = [] as (T | typeof FALLBACK)[],
       mapped = [] as U[],
       disposers = [] as (() => void)[],
@@ -119,11 +136,11 @@ export function map<T, U>(mapFn: (v: T, i: number) => U, fallback?: () => U) {
             mapped = [];
             len = 0;
           }
-          if (fallback) {
+          if (options.fallback) {
             items = [FALLBACK];
             mapped[0] = createRoot(disposer => {
               disposers[0] = disposer;
-              return fallback();
+              return options.fallback();
             });
             len = 1;
           }
@@ -220,21 +237,48 @@ export function map<T, U>(mapFn: (v: T, i: number) => U, fallback?: () => U) {
         return mapFn(newItems[j], j);
       }
     };
-  };
+  }
 }
 
 export function reduce<T, U>(
   fn: (memo: U, value: T, i: number) => U,
   seed: U
-) {
-  return (list: () => T[]) => () => {
-    let newList = list() || [],
-      result = seed;
-    return sample(() => {
-      for (let i = 0; i < newList.length; i++) {
-        result = fn(result, newList[i], i);
-      }
-      return result;
-    });
-  };
+): (list: () => T[]) => () => U;
+export function reduce<T, U>(
+  list: () => T[],
+  fn: (memo: U, value: T, i: number) => U,
+  seed: U
+): () => U;
+export function reduce<T, U>(list: any, fn: any, seed?: any): any {
+  if (arguments.length < 3) {
+    seed = fn;
+    fn = list;
+    return reducer;
+  }
+  return reducer(list);
+
+  function reducer(list: () => T[]) {
+    return () => {
+      let newList = list() || [],
+        result = seed;
+      return sample(() => {
+        for (let i = 0; i < newList.length; i++) {
+          result = fn(result, newList[i], i);
+        }
+        return result;
+      });
+    };
+  }
+}
+
+export function defer<T>(options?: {
+  timeoutMs: number;
+}): (fn: () => T) => () => T;
+export function defer<T>(fn: () => T, options: { timeoutMs: number }): () => T;
+export function defer<T>(fn: any, options?: any): any {
+  if (typeof fn === "function") {
+    return createDeferred(fn, options);
+  }
+  options = fn;
+  return (signal: () => T) => createDeferred(signal, options);
 }

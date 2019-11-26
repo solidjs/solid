@@ -101,19 +101,26 @@ const useReducer = (reducer, init) => {
 
 ## Operators
 
-Solid provides a couple simple operators to help construct more complicated behaviors. They are in Functional Programming form, where they are functions that return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with 3 basic ones:
+Solid provides a couple simple operators to help construct more complicated behaviors. They work both as standalone and curried Functional Programming form, where they return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with 4 basic ones:
 
 ### `pipe(...operators): (signal) => any`
 
-The pipe operator is used to combine other operators.
+The pipe operator is used to combine other operators in curried form.
 
-### `map(iterator: (item, index) => any, fallback: () => any): (signal) => any[]`
+### `map(() => any[], iterator: (item, index) => any, options: { fallback: () => any }): () => any[]`
+### `map(iterator: (item, index) => any, options: { fallback: () => any }): (signal) => () => any[]`
 
 Memoized array map operator with optional fallback. This operator does not re-map items if already in the list.
 
-### `reduce(accumulator: (memo, item, index) => any, seed): (signal) => any`
+### `reduce(() => any, accumulator: (memo, item, index) => any, seed): () => any`
+### `reduce(accumulator: (memo, item, index) => any, seed):  (signal) => () => any`
 
 Array reduce operator useful for combining or filtering lists.
+
+### `defer(() => any, options: { timeoutMs }): () => any`
+### `defer(options: { timeoutMs }): (signal) => () => any`
+
+Only propagates change when browser is not busy. `timeoutMs` is the maximum time before it forces update.
 
 ## Observables
 

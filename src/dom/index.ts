@@ -43,25 +43,24 @@ export function wrapCondition(fn: () => boolean): () => boolean {
 export function For<T, U>(props: {
   each: T[];
   fallback?: any;
-  transform?: (mapped: () => U[], source: () => T[]) => () => U[];
+  transform?: (mapped: () => U[]) => () => U[];
   children: (item: T, index: number) => U;
 }) {
-  const mapped = createMemo(
-    map<T, U>(
-      props.children,
-      "fallback" in props ? () => props.fallback : undefined
-    )(() => props.each)
-  );
-  return props.transform ? props.transform(mapped, () => props.each) : mapped;
+  const fallback = "fallback" in props && { fallback: () => props.fallback },
+    mapped = createMemo(
+      map<T, U>(
+        () => props.each,
+        props.children,
+        fallback ? fallback : undefined
+      )
+    );
+  return props.transform ? props.transform(mapped) : mapped;
 }
 
 export function Show<T>(props: {
   when: boolean;
   fallback?: T;
-  transform?: (
-    mapped: () => T | undefined,
-    source: () => boolean
-  ) => () => T | undefined;
+  transform?: (mapped: () => T | undefined) => () => T | undefined;
   children: T;
 }) {
   const useFallback = "fallback" in props,
@@ -73,12 +72,12 @@ export function Show<T>(props: {
         ? sample(() => props.fallback)
         : undefined
     );
-  return props.transform ? props.transform(mapped, condition) : mapped;
+  return props.transform ? props.transform(mapped) : mapped;
 }
 
 export function Switch<T>(props: {
   fallback?: T;
-  transform?: (mapped: () => T, source: () => number) => () => T;
+  transform?: (mapped: () => T) => () => T;
   children: any;
 }) {
   let conditions = props.children;
@@ -100,7 +99,7 @@ export function Switch<T>(props: {
         index < 0 ? useFallback && props.fallback : conditions[index].children
       );
     });
-  return props.transform ? props.transform(mapped, evalConditions) : mapped;
+  return props.transform ? props.transform(mapped) : mapped;
 }
 
 type MatchProps = { when: boolean; children: any };

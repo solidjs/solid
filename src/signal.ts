@@ -2,6 +2,36 @@
 // Comparator memos from VSJolund fork https://github.com/VSjolund/vs-bind
 
 // Public interface
+export function createRoot<T>(
+  fn: (dispose: () => void) => T,
+  detachedOwner?: ComputationNode<any>
+): T {
+  detachedOwner && (Owner = detachedOwner);
+  let owner = Owner,
+    listener = Listener,
+    root = fn.length === 0 ? UNOWNED : createComputationNode(null!, null),
+    result: T = undefined!,
+    disposer = function _dispose() {
+      if (RunningClock !== null) {
+        RootClock.disposes.add(root);
+      } else {
+        dispose(root);
+      }
+    };
+
+  Owner = root;
+  Listener = null;
+
+  try {
+    result = fn(disposer);
+  } finally {
+    Listener = listener;
+    Owner = owner;
+  }
+
+  return result;
+}
+
 export function createSignal<T>(
   value?: T,
   comparator?: (v: T, p: T) => boolean
@@ -76,34 +106,28 @@ export function createMemo<T>(
   };
 }
 
-export function createRoot<T>(
-  fn: (dispose: () => void) => T,
-  detachedOwner?: ComputationNode<any>
-): T {
-  detachedOwner && (Owner = detachedOwner);
-  let owner = Owner,
-    listener = Listener,
-    root = fn.length === 0 ? UNOWNED : createComputationNode(null!, null),
-    result: T = undefined!,
-    disposer = function _dispose() {
-      if (RunningClock !== null) {
-        RootClock.disposes.add(root);
-      } else {
-        dispose(root);
-      }
-    };
+const schedule = window.requestIdleCallback
+    ? requestIdleCallback
+    : requestAnimationFrame,
+  cancel = window.cancelIdleCallback
+    ? cancelIdleCallback
+    : cancelAnimationFrame;
 
-  Owner = root;
-  Listener = null;
+export function createDeferred<T>(
+  fn: (prev: T | undefined) => T,
+  options?: { timeoutMs: number }
+) {
+  let handle: number;
+  const [v, setV] = createSignal<T>(),
+    timeout = options && options.timeoutMs;
+  createEffect<T>(prev => {
+    const value = fn(prev);
+    cancel(handle);
+    handle = schedule(() => setV(value), timeout ? { timeout } : undefined);
+    return value;
+  });
 
-  try {
-    result = fn(disposer);
-  } finally {
-    Listener = listener;
-    Owner = owner;
-  }
-
-  return result;
+  return v;
 }
 
 export function freeze<T>(fn: () => T): T {

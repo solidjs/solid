@@ -2,6 +2,7 @@ import {
   pipe,
   map,
   reduce,
+  defer,
   createSignal,
   createMemo,
   createRoot
@@ -44,6 +45,16 @@ describe("Reduce operator", () => {
   test("simple addition", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
+        r = createMemo(reduce(s, (m: number, v: number) => m + v, 0));
+      expect(r()).toBe(10);
+      set([3, 4, 5]);
+      expect(r()).toBe(12);
+    });
+  });
+
+  test("simple addition curried", () => {
+    createRoot(() => {
+      const [s, set] = createSignal([1, 2, 3, 4]),
         sum = reduce((m: number, v: number) => m + v, 0),
         r = createMemo(sum(s));
       expect(r()).toBe(10);
@@ -71,6 +82,16 @@ describe("Map operator", () => {
   test("simple map", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
+        r = createMemo(map(s, (v: number) => v * 2));
+      expect(r()).toEqual([2, 4, 6, 8]);
+      set([3, 4, 5]);
+      expect(r()).toEqual([6, 8, 10]);
+    });
+  });
+
+  test("simple map curried", () => {
+    createRoot(() => {
+      const [s, set] = createSignal([1, 2, 3, 4]),
         double = map((v: number) => v * 2),
         r = createMemo(double(s));
       expect(r()).toEqual([2, 4, 6, 8]);
@@ -82,16 +103,46 @@ describe("Map operator", () => {
   test("show fallback", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        double = map<number, number | string>(
-          v => v * 2,
-          () => "Empty"
-        ),
+        double = map<number, number | string>(v => v * 2, {
+          fallback: () => "Empty"
+        }),
         r = createMemo(double(s));
       expect(r()).toEqual([2, 4, 6, 8]);
       set([]);
       expect(r()).toEqual(["Empty"]);
       set([3, 4, 5]);
       expect(r()).toEqual([6, 8, 10]);
+    });
+  });
+});
+
+describe("Defer operator", () => {
+  test("simple defer", done => {
+    createRoot(() => {
+      const [s, set] = createSignal(),
+        r = createMemo(defer(s, { timeoutMs: 100 }));
+      expect(r()).not.toBeDefined();
+      set("Hi");
+      expect(r()).not.toBeDefined();
+      setTimeout(() => {
+        expect(r()).toBe("Hi");
+        done();
+      }, 50);
+    });
+  });
+
+  test("simple defer curried", done => {
+    createRoot(() => {
+      const [s, set] = createSignal(),
+        defered = defer({ timeoutMs: 100 }),
+        r = createMemo(defered(s));
+      expect(r()).not.toBeDefined();
+      set("Hi");
+      expect(r()).not.toBeDefined();
+      setTimeout(() => {
+        expect(r()).toBe("Hi");
+        done();
+      }, 50);
     });
   });
 });
