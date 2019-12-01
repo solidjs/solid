@@ -103,7 +103,7 @@ function App() {
 }
 ```
 
-> **For React Users:** Given the nature of Solid's Reactive system, the throw a promise approach React uses doesn't make sense here. React just re-runs that part of the tree again, whereas Solid cannot pickup from where it left off. Instead Solid's Suspense mechanism ties into the Context API. Like React it is the closest Suspense Component that handles the Suspense state.
+> **For React Users:** Given the nature of Solid's Reactive system, the throw a promise approach React uses doesn't make sense here. React just re-runs that part of the tree again, whereas Solid cannot pickup from where it left off. Instead Solid's Suspense mechanism ties into the Context API. Like React it is the closest Suspense Component that handles the Suspense state. However, unlike React when in transition there is no way to update control flow suspended blocks, there is no equivalent to `useDeferedValue`. Either the value updates immediately or it is a new branch being rendered offscreen. In practice this is hardly noticeable difference as the parts of the screen not inside are unaffected, and generally when something is exiting the page it is intentional the end user doesn't interact with it.
 
 ## Code Splitting
 
@@ -200,14 +200,15 @@ export default const UserPanel = props => {
 
 This examples handles the different states. However, you could have Suspense handle the loading state for you instead by wrapping with the `Suspense` Component.
 
-> **For React Users:** At the time of writing this React has not settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
+> **For React Users:** At the time of writing this React has not completely settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
 
 ## Render as you Fetch
 
 It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is inacted when a child of a Suspense Component accesses the `value` property on the resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
 
 ```jsx
-const resource = loadResource(() => /* fetch users & posts */);
+// start loading data before any part of the page is executed.
+const resource = loadResource(() => /* fetch user & posts */);
 
 function ProfilePage() {
   return (
@@ -235,4 +236,32 @@ function ProfileTimeline() {
     </ul>
   );
 }
+
+render(ProfilePage, document.body);
 ```
+
+## Coordinating Suspense Components with SuspenseList (Experimental)
+
+Sometimes you have multiple `Suspense` Components you wish to coordinate. Sure you could put everything under a single `Suspense` but that limits us to a single loading behavior. A single fallback state and everything always needs to wait until the last thing is loaded. Instead we introduce the `SuspenseList` Component to coordinate. Consider:
+
+```jsx
+function ProfilePage() {
+  return (
+    <>
+      <ProfileDetails />
+      <Suspense fallback={<h1>Loading posts...</h1>}>
+        <ProfileTimeline />
+      </Suspense>
+      <Suspense fallback={<h2>Loading fun facts...</h2>}>
+        <ProfileTrivia resource={resource} />
+      </Suspense>
+    </>
+  );
+}
+```
+
+If we wrap this with a `SuspenseList` configured with `revealOrder` of `forwards` they will render in the order they appear in the tree regardless of the order they load. This reduces page jumping around. You can set `revealOrder` to `backwards` and `together` as well, which reverse this order, or wait for all Suspense Components to load respectively. In addition there is a `tail` option that can be set to `hidden` or `collapsed`. This overrides the default behavior of showing all fallbacks, with either showing none or showing the next one in the direction set by `revealOrder`.
+
+A `SuspenseList` can contain other `SuspenseList`'s to create flowing tables or grids etc.
+
+> **For React Users:** Again this works a bit different than its React counterpart as it uses the Context API. In so nesting Suspense Components are perfectly fine. However, do not put them under dynamic areas like control flows as order is based on execution so conditional rendering can cause unpredictable behavior. Also unlike the current Suspense implication even if you are not seeing the "next" Suspense element they are all evaluated immediately on render. This unblocking behavior allows further downstream evaluation that currently does not happen in React.

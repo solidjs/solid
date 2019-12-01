@@ -1,6 +1,6 @@
 import { isListening, DataNode, freeze } from "./signal";
-const SNODE = Symbol("solid-node"),
-  SPROXY = Symbol("solid-proxy");
+const SNODE = Symbol("state-node"),
+  SPROXY = Symbol("state-proxy");
 
 type StateNode = {
   [SNODE]?: any;
