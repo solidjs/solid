@@ -251,6 +251,7 @@ Remember you still need to install the library separately for these to work.
 
 ## Articles
 
+- [Designing SolidJS: JSX](https://medium.com/@ryansolid/designing-solidjs-jsx-50ee2b791d4c?source=friends_link&sk=ef3d7ada15b50a6b5b7f5aee2cb8f952) How is it that the syntax born of the Virtual DOM is also secretly the best syntax for Reactive UI libraries?
 - [Designing SolidJS: Immutability](https://medium.com/javascript-in-plain-english/designing-solidjs-immutability-f1e46fe9f321?source=friends_link&sk=912e32c63353ff0e084630bf3b63a8b1) Can Reactive State Management be both Immutable and also the most performant?
 - [Designing SolidJS: Components](https://medium.com/@ryansolid/designing-solidjs-components-8f1ebb88d78b?source=friends_link&sk=cac89d1679d8be2c7bf2b303fabd153c) Exploring Solid's "Vanishing" Components
 - [Designing SolidJS: Reactivity](https://medium.com/@ryansolid/designing-solidjs-reactivity-75180a4c74b4?source=friends_link&sk=dbb9dd46a2e902c199ad3d5c7aeb1566) Finding the right reactivity model for Solid.
