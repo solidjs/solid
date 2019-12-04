@@ -7,7 +7,7 @@
 [![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
 [![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=social)](https://www.reddit.com/r/solidjs/)
 
-Solid is yet another declarative Javascript library for creating user interfaces. It does not use a Virtual DOM. Instead it opts to compile its templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
+Solid is a declarative Javascript library for creating user interfaces. It does not use a Virtual DOM. Instead it opts to compile its templates down to real DOM nodes and wrap updates in fine grained computations. This way when your state updates only the code that depends on it runs.
 
 ### Key Features
 
@@ -82,7 +82,7 @@ Or you can install the dependencies in your own project. To use Solid with JSX (
 
 Solid's data management is built off a set of flexible reactive primitives. Similar to React Hooks except instead of whitelisting change for an owning Component they independentally are soley responsible for all the updates.
 
-Solid's State primitive is arguably its most powerful and distinctive one. Through the use of proxies and explicit setters it gives the control of an immutable interface and the performance of a mutable one. Note only Plain Objects and Arrays are deeply wrapped. To get started set and update state with an object.
+Solid's State primitive is arguably its most powerful and distinctive one. Through the use of proxies and explicit setters it gives the control of an immutable interface and the performance of a mutable one. The setters support a variety of forms, but to get started set and update state with an object.
 
 ```jsx
 import { createState, onCleanup } from "solid-js";
@@ -101,61 +101,11 @@ const CountingComponent = () => {
 };
 ```
 
-You can also deep set along a path:
+Where the magic happens is with computations(effects and memos) which automatically track dependencies.
 
 ```js
-const [state, setState] = createState({
-  user: {
-    firstName: 'John'
-    lastName: 'Smith'
-  }
-});
+const [state, setState] = createState({ user: { firstName: "Jake", lastName: "Smith" }})
 
-setState('user', {firstName: 'Jake', middleName: 'Reese'});
-```
-
-This takes the form similar to [ImmutableJS](https://github.com/immutable-js/immutable-js)'s setIn for leaving all mutation control at the top level state object. Paths support ranges and filter functions to produce compact declarative updates:
-
-```js
-const [state, setState] = createState({
-  todos: [{
-    title: "Learn SolidJS"
-    completed: false
-  }, /* ... */]
-});
-
-// updated only the todos that aren't completed
-setState('todos', t => !t.completed, { completed: true });
-```
-
-Keep in mind that when setting an object `setState` shallow merges instead of replace. This way top level or nested is consistent.
-
-But what about TypeScript? You can also deeply set state in a type safe way inspired by [Immer](https://github.com/immerjs/immer). By using functions the immutability is temporarily revoked and you can either mutate the data returning nothing, or set a new value by returning it:
-
-```js
-const [state, setState] = createState({
-  user: {
-    firstName: 'John'
-    lastName: 'Smith'
-  }
-});
-
-setState(s => {
-  s.user.firstName = "Jacob";
-  s.user.middleName = "Jeremiah";
-})
-```
-
-And you can also nest function setters along a path as well:
-
-```js
-const [state, setState] = createState({ counter: 0 });
-setState("counter", c => c + 1);
-```
-
-But where the magic happens is with computations(effects and memos) which automatically track dependencies.
-
-```js
 createEffect(() =>
   setState({
     displayName: `${state.user.firstName} ${state.user.lastName}`
@@ -163,11 +113,13 @@ createEffect(() =>
 );
 
 console.log(state.displayName); // Jake Smith
+setState('user', {firstName: "Jacob" });
+console.log(state.displayName); // Jacob Smith
 ```
 
-Whenever any dependency changes the State value will update immediately. However, each `setState` statement will notify subscribers synchronously with all changes applied. This means you can depend on the value being set on the next line and know that additional work has not been done.
+Whenever any dependency changes the State value will update immediately. Each `setState` statement will notify subscribers synchronously with all changes applied. This means you can depend on the value being set on the next line.
 
-Solid State also exposes a reconcile method used with setState that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo(GraphQL), or RxJS.
+Solid State also exposes a reconcile method used with `setState` that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo(GraphQL), or RxJS.
 
 ```js
 const unsubscribe = store.subscribe(({ todos }) => (

@@ -20,11 +20,11 @@ const [state, setState] = createState({ firstName: 'John', lastName: 'Miller' })
 setState({ firstName: 'Johnny', middleName: 'Lee' })
 // ({ firstName: 'Johnny', middleName: 'Lee', lastName: 'Miller' })
 
-setState(state => { preferredName: state.firstName, lastName: 'Milner' });
+setState(state => ({ preferredName: state.firstName, lastName: 'Milner' }));
 // ({ firstName: 'Johnny', preferredName: 'Johnny', middleName: 'Lee', lastName: 'Milner' })
 ```
 
-The function form is not terribly useful top level given Solid's synchronous nature. However, setState also supports nested setting where you can indicate the path to the change. When nested the state you are updating may be other non Object values. Objects are still merged but other values (including Arrays) are replaced.
+setState also supports nested setting where you can indicate the path to the change. When nested the state you are updating may be other non Object values. Objects are still merged but other values (including Arrays) are replaced.
 
 ```js
 const [state, setState] = createState({
@@ -86,7 +86,7 @@ setState('todos', todo => todo.completed, 'task', t => t + '!')
 //   ]
 // }
 
-setState('todos', {}, todo => { marked: true, completed: !todo.completed })
+setState('todos', {}, todo => ({ marked: true, completed: !todo.completed }))
 // {
 //   todos: [
 //     { task: 'Finish work', completed: true, marked: true }
@@ -96,7 +96,7 @@ setState('todos', {}, todo => { marked: true, completed: !todo.completed })
 // }
 ```
 
-Additionally you can do multiple sets in a single call by passing an array of paths and changes.
+Additionally supports a batched mutable form when the setter does not return a value. This allows TypeScript safe nested updates.
 
 ```js
 const [state, setState] = createState({
@@ -107,10 +107,10 @@ const [state, setState] = createState({
   ]
 });
 
-setState(
-  ['counter', c => c * 3],
-  ['list', 1, 'title', t => t + '!']
-);
+setState(s => {
+  s.counter = s.counter * 3;
+  s.list[1].title += '!';
+});
 // {
 //   counter: 6,
 //   list: [
