@@ -176,17 +176,20 @@ export function isListening() {
 }
 
 // context API
-export interface Context {
+export interface Context<T = any> {
   id: symbol;
-  Provider: (props: any) => any;
-  defaultValue: unknown;
+  Provider: (props: { value: T; children: any }) => any;
+  defaultValue: T;
 }
-export function createContext(defaultValue?: unknown): Context {
+
+export function createContext<T = any>(): Context<T | undefined>;
+export function createContext<T = any>(defaultValue: T): Context<T>;
+export function createContext(defaultValue?: any): Context<any> {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
 }
 
-export function useContext(context: Context) {
+export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
