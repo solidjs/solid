@@ -17,7 +17,10 @@ type SuspenseListRegistryItem = {
   showFallback: (v: boolean) => void;
 };
 
-const SuspenseListContext = createContext();
+type SuspenseListContextType = {
+  register: (state: () => SuspenseState) => [() => boolean, () => boolean];
+};
+const SuspenseListContext = createContext<SuspenseListContextType>();
 const equalFn = <T>(a: T, b: T) => a === b;
 
 export function SuspenseList(props: {
@@ -33,7 +36,7 @@ export function SuspenseList(props: {
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) {
-    const [state, stateSetter] = createSignal("running", equalFn);
+    const [state, stateSetter] = createSignal<SuspenseState>("running", equalFn);
     suspenseSetter = stateSetter;
     [showContent, showFallback] = listContext.register(state);
   }

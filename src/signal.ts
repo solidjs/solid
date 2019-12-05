@@ -176,15 +176,13 @@ export function isListening() {
 }
 
 // context API
-export interface Context<T = any> {
+export interface Context<T> {
   id: symbol;
   Provider: (props: { value: T; children: any }) => any;
-  defaultValue: T;
+  defaultValue?: T;
 }
 
-export function createContext<T = any>(): Context<T | undefined>;
-export function createContext<T = any>(defaultValue: T): Context<T>;
-export function createContext(defaultValue?: any): Context<any> {
+export function createContext<T>(defaultValue?: T): Context<T> {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
 }

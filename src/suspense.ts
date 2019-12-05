@@ -11,13 +11,20 @@ import {
 } from "./signal";
 
 // Suspense Context
+type SuspenseState = "running" | "suspended" | "fallback";
+type SuspenseContextType = {
+  increment?: () => void;
+  decrement?: () => void;
+  state: () => SuspenseState;
+  initializing?: boolean;
+}
 type SuspenseConfig = { timeoutMs: number };
-export const SuspenseContext: Context & {
+export const SuspenseContext: Context<SuspenseContextType> & {
   transition?: {
     timeoutMs: number;
     register: (p: Promise<any>) => void;
   };
-} = createContext({ state: () => "running" });
+} = createContext<SuspenseContextType>({ state: () => "running" });
 
 interface ComponentType<T> {
   (props: T): any;
@@ -106,7 +113,7 @@ export function loadResource<T>(fn: () => Promise<T> | undefined): Resource<T> {
       trackPromise();
       if (pr && increment) {
         increment();
-        pr.then(() => decrement());
+        pr.then(() => decrement!());
       }
       return value();
     },
