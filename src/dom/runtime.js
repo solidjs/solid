@@ -166,41 +166,55 @@ function eventHandler(e) {
 
 function spreadExpression(node, props, prevProps = {}, isSVG) {
   let info;
-  const nextProps = Object.assign({}, props);
-  for (const prop in props) {
-    const value = props[prop];
-    if (value === prevProps[prop]) continue;
-    if (prop === 'style') {
-      Object.assign(node.style, value);
-    } else if (prop === 'classList') {
-      classList(node, value);
-    // really only for forwarding from Components, can't forward normal ref
-    } else if (prop === 'ref' || prop === 'forwardRef') {
-      value(node);
-    } else if (prop.slice(0, 2) === 'on') {
-      const lc = prop.toLowerCase();
-      if (lc !== prop && !NonComposedEvents.has(lc.slice(2))) {
-        const name = lc.slice(2);
-        node[`__${name}`] = value;
-        delegateEvents([name]);
-      } else node[lc] = value;
-    } else if (prop === 'events') {
-      for (const eventName in value) node.addEventListener(eventName, value[eventName]);
-    } else if (prop === 'children') {
-      // may be normalized so keep returned value
-      nextProps[prop] = insertExpression(node, value, prevProps[prop]);
-    } else if (info = Attributes[prop]) {
-      if (info.type === 'attribute') {
-        node.setAttribute(prop, value);
-      } else node[info.alias] = value;
-    } else if (isSVG) {
-      if (info = SVGAttributes[prop]) {
-        if (info.alias) node.setAttribute(info.alias, value);
-        else node.setAttribute(prop, value);
-      } else node.setAttribute(prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`), value);
-    } else node[prop] = value;
+  if ("children" in props) {
+    wrap(() =>
+      (prevProps.children = insertExpression(
+        node,
+        props.children,
+        prevProps.children
+      ))
+    );
   }
-  return nextProps;
+  wrap(() => {
+    for (const prop in props) {
+      if (prop === "children") continue;
+      const value = props[prop];
+      if (value === prevProps[prop]) continue;
+      if (prop === "style") {
+        Object.assign(node.style, value);
+      } else if (prop === "classList") {
+        classList(node, value, prevProps[prop]);
+        // really only for forwarding from Components, can't forward normal ref
+      } else if (prop === "ref" || prop === "forwardRef") {
+        value(node);
+      } else if (prop.slice(0, 2) === "on") {
+        const lc = prop.toLowerCase();
+        if (lc !== prop && !NonComposedEvents.has(lc.slice(2))) {
+          const name = lc.slice(2);
+          node[`__${name}`] = value;
+          delegateEvents([name]);
+        } else node[lc] = value;
+      } else if (prop === "events") {
+        for (const eventName in value)
+          node.addEventListener(eventName, value[eventName]);
+      } else if ((info = Attributes[prop])) {
+        if (info.type === "attribute") {
+          node.setAttribute(prop, value);
+        } else node[info.alias] = value;
+      } else if (isSVG) {
+        if ((info = SVGAttributes[prop])) {
+          if (info.alias) node.setAttribute(info.alias, value);
+          else node.setAttribute(prop, value);
+        } else
+          node.setAttribute(
+            prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`),
+            value
+          );
+      } else node[prop] = value;
+      prevProps[prop] = value;
+    }
+  });
+  return prevProps;
 }
 
 function normalizeIncomingArray(normalized, array) {
