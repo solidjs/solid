@@ -8,7 +8,6 @@ type StateNode = {
   [k: string]: any;
   [k: number]: any;
 };
-type Partial<T> = { [P in keyof T]?: Partial<T[P]> };
 
 // well-known symbols need special treatment until https://github.com/microsoft/TypeScript/issues/24622 is implemented.
 type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
@@ -25,17 +24,12 @@ export type Wrapped<T> = {
 } & AddSymbolToPrimitive<T> &
   AddCallable<T>;
 
-type StateAtom = string | number | boolean | symbol | null | undefined | any[];
 type StateSetter<T> =
   | Partial<T>
   | ((
       prevState: Wrapped<T>,
       traversed?: (string | number)[]
     ) => Partial<T> | void);
-type NestedStateSetter<T> =
-  | StateSetter<T>
-  | StateAtom
-  | ((prevState: StateAtom, traversed?: (string | number)[]) => StateAtom);
 type StatePathRange = { from?: number; to?: number; by?: number };
 type StatePathPart =
   | string
@@ -45,43 +39,43 @@ type StatePathPart =
   | ((item: any, index: number) => boolean);
 
 // do up to depth of 8
-type StatePath =
-  | [string, NestedStateSetter<unknown>]
-  | [string, StatePathPart, NestedStateSetter<unknown>]
-  | [string, StatePathPart, StatePathPart, NestedStateSetter<unknown>]
+type StatePath<T> =
+  | [keyof T, StateSetter<unknown>]
+  | [keyof T, StatePathPart, StateSetter<unknown>]
+  | [keyof T, StatePathPart, StatePathPart, StateSetter<unknown>]
   | [
-      string,
+      keyof T,
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<unknown>
+      StateSetter<unknown>
     ]
   | [
-      string,
+      keyof T,
       StatePathPart,
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<unknown>
+      StateSetter<unknown>
     ]
   | [
-      string,
+      keyof T,
       StatePathPart,
       StatePathPart,
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<unknown>
+      StateSetter<unknown>
     ]
   | [
-      string,
+      keyof T,
       StatePathPart,
       StatePathPart,
       StatePathPart,
       StatePathPart,
       StatePathPart,
       StatePathPart,
-      NestedStateSetter<unknown>
+      StateSetter<unknown>
     ];
 function wrap<T extends StateNode>(value: T): Wrapped<T> {
   return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps));
@@ -261,7 +255,7 @@ function updatePath(
 
 interface SetStateFunction<T> {
   (update: StateSetter<T>): void;
-  (...path: StatePath): void;
+  (...path: StatePath<T>): void;
 }
 
 export function createState<T extends StateNode>(

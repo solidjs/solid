@@ -35,7 +35,7 @@ describe("State immutablity", () => {
 
 describe("Simple setState modes", () => {
   test("Simple Key Value", () => {
-    const [state, setState] = createState({ key: null });
+    const [state, setState] = createState({ key: "" });
     setState("key", "value");
     expect(state.key).toBe("value");
   });
@@ -281,7 +281,7 @@ describe("Handling functions in state", () => {
 
   test("Track function change", () => {
     createRoot(() => {
-      var [state, setState] = createState({ fn: () => 1 }),
+      var [state, setState] = createState<{ fn: () => number }>({ fn: () => 1 }),
         getValue = createMemo(() => state.fn());
       setState({ fn: () => 2 });
       expect(getValue()).toBe(2);
@@ -293,7 +293,7 @@ describe("Setting state from Effects", () => {
   test("Setting state from signal", () => {
     createRoot(() => {
       var [getData, setData] = createSignal("init"),
-        [state, setState] = createState({ data: null });
+        [state, setState] = createState({ data: "" });
       createEffect(() => setState("data", getData()));
       setData("signal");
       expect(state.data).toBe("signal");
@@ -305,7 +305,7 @@ describe("Setting state from Effects", () => {
       var p = new Promise<string>(resolve => {
           setTimeout(resolve, 20, "promised");
         }),
-        [state, setState] = createState({ data: null });
+        [state, setState] = createState({ data: "" });
       createEffect(() => p.then(v => setState("data", v)));
       await p;
       expect(state.data).toBe("promised");
