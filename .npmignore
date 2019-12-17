@@ -9,3 +9,4 @@ coverage/
 .editorconfig
 .travis.yml
 tsconfig.json
+tsconfig.test.json
