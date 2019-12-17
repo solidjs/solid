@@ -2,6 +2,7 @@ export {
   createRoot,
   createSignal,
   createEffect,
+  createDeferred,
   createDependentEffect,
   createMemo,
   isListening,
