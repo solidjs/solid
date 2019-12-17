@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0 - 2019-12-16
+A lot fixes and new features:
+* Suspense improvements: `SuspenseList`, `useTransition`, trigger on read. Update API, and added `reload` and retry capability. Removed need for `awaitSuspense` by making `Show` and `Switch` control flows `Susepnse` aware.
+* Sample all Components. No more fear of nesting Components in JSX expressions. Top level in a Component will always be inert now.
+* Support for safe boolean and logical operators. This allows for the same optimization as the `Show` control flow for simple inline JSX conditionals like `<div>{state.count > 5 && <MyComp />}</div>`.
+* Removed `transform` from control flow. `selectWhen` and `selectEach` have been updated to more generalized `select` and `selectAll`, used off `forwardRef`.
+* Support for non-curried operator forms. All operators now support an accessor first form as well as the functional curried form. Ex `map(() => state.list, item => item)`
+* Fix issues with spreading over `children` props.
+* Better Type Definitions.
+
 ## 0.14.0 - 2019-11-16
 v0.14.0 brings changes to the render runtime and `setState` API
 

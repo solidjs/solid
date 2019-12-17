@@ -13,7 +13,7 @@ export {
   getContextOwner
 } from "./signal";
 
-export { createState, unwrap, force, mutate } from "./state";
+export { createState, unwrap, force } from "./state";
 
 export { reconcile } from "./reconcile";
 
