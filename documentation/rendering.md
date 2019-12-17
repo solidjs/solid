@@ -51,11 +51,11 @@ While you could use a map function for loops they aren't optimized. While perhap
 
 _Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic expressions use boolean or ternary operator._
 
-The library also includes a couple transform directives that can be applied to the For control flow.
+The library also includes a couple directives that can be applied with `forwardRef`.
 
-### selectWhen(signal, handler)
+### select(signal, handler, walker)
 
-### selectEach(signal, handler)
+### selectAll(signal, handler, walker)
 
 These trigger on the signal to indicate the selected model/s and calls the handler function with associated element, and a boolean to indicate whether the model is selected or not. If the handler is a string instead of a function the default behavior is to toggle a class with the string name.
 
@@ -68,37 +68,16 @@ const [state, setState] = createState({
 })
 
 /* .... */
-
-<For
-  each={state.list}
-  transform={selectEach(
-    () => state.selected,
-    (node, selected) => node.classList.toggle('selected', selected)
-  )}
->{ item =>
-  <div model={item} onClick={select} />
-}</For>
+<div forwardRef={selectAll(
+  () => state.selected,
+  (node, selected) => node.classList.toggle('selected', selected)
+)}>
+  <For each={state.list}>{ item =>
+    <div model={item} onClick={select} />
+  }</For>
+</div>
 ```
-
-### awaitSuspense
-
-This transform directive informs control flow to suspend with the current Suspense state. Branching changes are deferred are held on Suspense is resolved for the For, Show, and Switch control flows.
-
-```jsx
-<Suspense fallback={<Loader />} maxDuration={500}>
-  <Switch transform={awaitSuspense}>
-    <Match when={state.tab === 0}>
-      <AsyncChild page="Uno" />
-    </Match>
-    <Match when={state.tab === 1}>
-      <AsyncChild page="Dos" />
-    </Match>
-    <Match when={state.tab === 2}>
-      <AsyncChild page="Tres" />
-    </Match>
-  </Switch>
-</Suspense>
-```
+Solid exports a simple depth based walker function `walkDOM(depth)` that can be used as the 3rd argument and will walk to the provided depth.
 
 ## Refs
 

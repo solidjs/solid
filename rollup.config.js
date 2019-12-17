@@ -1,5 +1,6 @@
 import nodeResolve from "rollup-plugin-node-resolve";
 import babel from "rollup-plugin-babel";
+import cleanup from "rollup-plugin-cleanup";
 
 const plugins = [
   nodeResolve({
@@ -10,6 +11,9 @@ const plugins = [
     exclude: "node_modules/**",
     babelrc: false,
     presets: ["@babel/preset-typescript"]
+  }),
+  cleanup({
+    extensions: [".js", ".ts"]
   })
 ];
 

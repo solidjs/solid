@@ -66,11 +66,11 @@ function App() {
 
 In this case if the tab hasn't loaded you will see a `LoadingSpinner` and as you switch you will see another `LoadingSpinner` as it moves in and out of suspended state.
 
-The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. In addtion to allow downstream control flow to listen into Suspense state to properly handle delays, use the `awaitSuspense` transform. When control flow is suspended it continues to show the current branch while rendering the next off screen. It is important to note that once suspense has triggered the onscreen content within this flow will no longer update.
+The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. When control flow is suspended it continues to show the current branch while rendering the next off screen. It is important to note that once suspense has triggered the onscreen content within this flow will no longer update.
 
 ```jsx
 import { createState, useTransition } from "solid-js";
-import { Suspense, awaitSuspense } from "solid-js/dom";
+import { Suspense } from "solid-js/dom";
 
 function App() {
   const [state, setState] = createState({ activeTab: 1 }),
@@ -92,7 +92,7 @@ function App() {
       </ul>
       <Suspense fallback={<LoadingSpinner />}>
         {/* suspense aware switch control flow */}
-        <Switch transform={awaitSuspense}>
+        <Switch>
           <Match when={state.activeTab === 1}>...</Match>
           <Match when={state.activeTab === 2}>...</Match>
           <Match when={state.activeTab === 3}>...</Match>
@@ -127,7 +127,7 @@ function MyComponent() {
 There are lots of potential patterns for code splitting, but routing is a good start. For instance taking the example from the previous section, we can defer loading our Component to when the corresponding tab becomes active:
 
 ```jsx
-import { Suspense, awaitSuspense } from "solid-js/dom";
+import { Suspense } from "solid-js/dom";
 
 const ComponentA = lazy(() => import("./ComponentA"));
 const ComponentB = lazy(() => import("./ComponentB"));
@@ -138,7 +138,7 @@ const App = () => {
 
   return (
     <Suspense fallback={<LoadingSpinner />} maxDuration={300}>
-      <Switch transform={awaitSuspense}>
+      <Switch>
         <Match when={state.activeTab === 1}>
           <ComponentA />
         </Match>

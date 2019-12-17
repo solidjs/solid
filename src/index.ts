@@ -6,7 +6,6 @@ export {
   createMemo,
   isListening,
   onCleanup,
-  afterEffects,
   sample,
   freeze,
   createContext,
@@ -14,10 +13,11 @@ export {
   getContextOwner
 } from "./signal";
 
-export { createState, unwrap, force } from "./state";
+export { createState, unwrap, force, mutate } from "./state";
 
 export { reconcile } from "./reconcile";
 
 export * from "./operator";
 export * from "./component";
 export * from "./suspense";
+export * from "./scheduler";

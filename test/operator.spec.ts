@@ -120,21 +120,21 @@ describe("Defer operator", () => {
   test("simple defer", done => {
     createRoot(() => {
       const [s, set] = createSignal(),
-        r = createMemo(defer(s, { timeoutMs: 100 }));
+        r = createMemo(defer(s, { timeoutMs: 20 }));
       expect(r()).not.toBeDefined();
       set("Hi");
       expect(r()).not.toBeDefined();
       setTimeout(() => {
         expect(r()).toBe("Hi");
         done();
-      }, 50);
+      }, 100);
     });
   });
 
   test("simple defer curried", done => {
     createRoot(() => {
       const [s, set] = createSignal(),
-        defered = defer({ timeoutMs: 100 }),
+        defered = defer({ timeoutMs: 20 }),
         r = createMemo(defered(s));
       expect(r()).not.toBeDefined();
       set("Hi");
@@ -142,7 +142,7 @@ describe("Defer operator", () => {
       setTimeout(() => {
         expect(r()).toBe("Hi");
         done();
-      }, 50);
+      }, 100);
     });
   });
 });

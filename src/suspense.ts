@@ -15,16 +15,16 @@ type SuspenseState = "running" | "suspended" | "fallback";
 type SuspenseContextType = {
   increment?: () => void;
   decrement?: () => void;
-  state: () => SuspenseState;
+  state?: () => SuspenseState;
   initializing?: boolean;
-}
+};
 type SuspenseConfig = { timeoutMs: number };
 export const SuspenseContext: Context<SuspenseContextType> & {
   transition?: {
     timeoutMs: number;
     register: (p: Promise<any>) => void;
   };
-} = createContext<SuspenseContextType>({ state: () => "running" });
+} = createContext<SuspenseContextType>({});
 
 interface ComponentType<T> {
   (props: T): any;
@@ -37,7 +37,9 @@ export function lazy<T extends ComponentType<any>>(
   return ((props: any) => {
     const result = loadResource<T>(() => fn().then(mod => mod.default));
     let Comp: T | undefined;
-    return createMemo(() => (Comp = result.value) && sample(() => Comp!(props)));
+    return createMemo(
+      () => (Comp = result.value) && sample(() => Comp!(props))
+    );
   }) as T;
 }
 
@@ -153,4 +155,12 @@ export function useTransition(
     },
     pending
   ];
+}
+
+export function awaitSuspense<T>(fn: () => T) {
+  const { state } = useContext(SuspenseContext);
+  let cached: T;
+  return state
+    ? () => (state() === "suspended" ? cached : (cached = fn()))
+    : fn;
 }

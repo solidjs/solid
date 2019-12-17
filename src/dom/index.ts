@@ -1,8 +1,15 @@
 export * from "./runtime";
 export * from "./Suspense";
-export * from "./transform";
+export * from "./directives";
 import { insert, hydration, startSSR } from "./runtime";
-import { createRoot, createMemo, onCleanup, sample, map } from "../index.js";
+import {
+  createRoot,
+  createMemo,
+  onCleanup,
+  sample,
+  map,
+  awaitSuspense
+} from "../index.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment;
 
@@ -17,6 +24,7 @@ export function render(code: () => any, element: MountableElement): () => void {
   return disposer!;
 }
 
+/* istanbul ignore next */
 export function renderSSR(
   code: () => any,
   element: MountableElement
@@ -25,6 +33,7 @@ export function renderSSR(
   return render(code, element);
 }
 
+/* istanbul ignore next */
 export function hydrate(
   code: () => any,
   element: MountableElement
@@ -43,43 +52,29 @@ export function wrapCondition<T>(fn: () => T): () => T {
 export function For<T, U>(props: {
   each: T[];
   fallback?: any;
-  transform?: (mapped: () => U[]) => () => U[];
   children: (item: T, index: number) => U;
 }) {
-  const fallback = "fallback" in props && { fallback: () => props.fallback },
-    mapped = createMemo(
-      map<T, U>(
-        () => props.each,
-        props.children,
-        fallback ? fallback : undefined
-      )
-    );
-  return props.transform ? props.transform(mapped) : mapped;
+  const fallback = "fallback" in props && { fallback: () => props.fallback };
+  return createMemo(
+    map<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
+  );
 }
 
-export function Show<T>(props: {
-  when: boolean;
-  fallback?: T;
-  transform?: (mapped: () => T | undefined) => () => T | undefined;
-  children: T;
-}) {
+export function Show<T>(props: { when: boolean; fallback?: T; children: T }) {
   const useFallback = "fallback" in props,
-    condition = createMemo(() => !!props.when, undefined, equalFn),
-    mapped = createMemo(() =>
+    condition = createMemo(() => !!props.when, undefined, equalFn);
+  return awaitSuspense(
+    createMemo(() =>
       condition()
         ? sample(() => props.children)
         : useFallback
         ? sample(() => props.fallback)
         : undefined
-    );
-  return props.transform ? props.transform(mapped) : mapped;
+    )
+  );
 }
 
-export function Switch<T>(props: {
-  fallback?: T;
-  transform?: (mapped: () => T) => () => T;
-  children: any;
-}) {
+export function Switch<T>(props: { fallback?: T; children: any }) {
   let conditions = props.children;
   Array.isArray(conditions) || (conditions = [conditions]);
   const useFallback = "fallback" in props,
@@ -92,14 +87,15 @@ export function Switch<T>(props: {
       },
       undefined,
       equalFn
-    ),
-    mapped = createMemo(() => {
+    );
+  return awaitSuspense(
+    createMemo(() => {
       const index = evalConditions();
       return sample(() =>
         index < 0 ? useFallback && props.fallback : conditions[index].children
       );
-    });
-  return props.transform ? props.transform(mapped) : mapped;
+    })
+  );
 }
 
 type MatchProps = { when: boolean; children: any };

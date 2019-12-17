@@ -43,13 +43,7 @@ type StatePath<T> =
   | [keyof T, StateSetter<unknown>]
   | [keyof T, StatePathPart, StateSetter<unknown>]
   | [keyof T, StatePathPart, StatePathPart, StateSetter<unknown>]
-  | [
-      keyof T,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StateSetter<unknown>
-    ]
+  | [keyof T, StatePathPart, StatePathPart, StatePathPart, StateSetter<unknown>]
   | [
       keyof T,
       StatePathPart,
@@ -174,7 +168,7 @@ export function setProperty(
 ) {
   if (!force && state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
-  if (value === void 0) {
+  if (value === undefined) {
     delete state[property];
   } else state[property] = value;
   let nodes = getDataNodes(state),
@@ -200,57 +194,60 @@ function updatePath(
   path: any[],
   traversed: (number | string)[] = []
 ) {
-  if (path.length === 1) {
-    let value = path[0];
-    if (typeof value === "function") {
-      const wrapped = new Proxy(current, setterTraps);
-      value = value(wrapped, traversed);
-      if (value === wrapped || value === undefined) return;
-    }
-    mergeState(current, unwrap(value));
-    return;
-  }
+  let part,
+    next = current;
+  if (path.length > 1) {
+    part = path.shift();
+    const partType = typeof part,
+      isArray = Array.isArray(current);
 
-  const part = path.shift(),
-    partType = typeof part,
-    isArray = Array.isArray(current);
-
-  if (Array.isArray(part)) {
-    // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
-    for (let i = 0; i < part.length; i++) {
-      updatePath(current, [part[i]].concat(path), traversed.concat([part[i]]));
-    }
-  } else if (isArray && partType === "function") {
-    // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
-    for (let i = 0; i < current.length; i++) {
-      if (part(current[i], i))
+    if (Array.isArray(part)) {
+      // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
+      for (let i = 0; i < part.length; i++) {
+        updatePath(
+          current,
+          [part[i]].concat(path),
+          traversed.concat([part[i]])
+        );
+      }
+      return;
+    } else if (isArray && partType === "function") {
+      // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
+      for (let i = 0; i < current.length; i++) {
+        if (part(current[i], i))
+          updatePath(current, [i].concat(path), traversed.concat([i]));
+      }
+      return;
+    } else if (isArray && partType === "object") {
+      // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
+      const { from = 0, to = current.length - 1, by = 1 } = part;
+      for (let i = from; i <= to; i += by) {
         updatePath(current, [i].concat(path), traversed.concat([i]));
+      }
+      return;
+    } else if (path.length > 1) {
+      updatePath(current[part], path, traversed.concat([part]));
+      return;
     }
-  } else if (isArray && partType === "object") {
-    // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
-    const { from = 0, to = current.length - 1, by = 1 } = part;
-    for (let i = from; i <= to; i += by) {
-      updatePath(current, [i].concat(path), traversed.concat([i]));
-    }
-  } else if (path.length === 1) {
-    let value = path[0];
-    const currentPart = current[part];
-    if (typeof value === "function") {
-      const wrapped = isWrappable(currentPart)
-        ? new Proxy(currentPart, setterTraps)
-        : currentPart;
-      value = value(wrapped, traversed.concat([part]));
-      if (value === wrapped || value === undefined) return;
-    }
-    value = unwrap(value);
-    if (
-      isWrappable(currentPart) &&
-      isWrappable(value) &&
-      !Array.isArray(value)
-    ) {
-      mergeState(currentPart, value);
-    } else setProperty(current, part, value);
-  } else updatePath(current[part], path, traversed.concat([part]));
+    next = current[part];
+    traversed = traversed.concat([part]);
+  }
+  let value = path[0];
+  if (typeof value === "function") {
+    const wrapped =
+      part === undefined || isWrappable(next)
+        ? new Proxy(next, setterTraps)
+        : next;
+    value = value(wrapped, traversed);
+    if (value === wrapped || value === undefined) return;
+  }
+  value = unwrap(value);
+  if (
+    part === undefined ||
+    (isWrappable(next) && isWrappable(value) && !Array.isArray(value))
+  ) {
+    mergeState(next, value);
+  } else setProperty(current, part, value);
 }
 
 interface SetStateFunction<T> {
@@ -275,5 +272,5 @@ export function force<T>(value: T | Wrapped<T>): (state: Wrapped<T>) => void {
   return state => {
     if (!isWrappable(state)) return value;
     mergeState(unwrap(state), value, true);
-  }
+  };
 }

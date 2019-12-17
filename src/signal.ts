@@ -1,5 +1,6 @@
 // Modified version of S.js[https://github.com/adamhaile/S] by Adam Haile
 // Comparator memos from VSJolund fork https://github.com/VSjolund/vs-bind
+import { requestCallback, Task } from "./scheduler";
 
 // Public interface
 export function createRoot<T>(
@@ -106,28 +107,22 @@ export function createMemo<T>(
   };
 }
 
-const schedule = window.requestIdleCallback
-    ? requestIdleCallback
-    : requestAnimationFrame,
-  cancel = window.cancelIdleCallback
-    ? cancelIdleCallback
-    : cancelAnimationFrame;
-
 export function createDeferred<T>(
-  fn: (prev: T | undefined) => T,
+  fn: () => T,
   options?: { timeoutMs: number }
 ) {
-  let handle: number;
-  const [v, setV] = createSignal<T>(),
-    timeout = options && options.timeoutMs;
-  createEffect<T>(prev => {
-    const value = fn(prev);
-    cancel(handle);
-    handle = schedule(() => setV(value), timeout ? { timeout } : undefined);
-    return value;
+  let t: Task,
+    timeout = options ? options.timeoutMs : undefined;
+  const [delayed, setDelayed] = createSignal(fn());
+  createEffect(() => {
+    fn();
+    if (!t || !t.fn)
+      t = requestCallback(
+        () => setDelayed(fn()),
+        timeout !== undefined ? { timeout } : undefined
+      );
   });
-
-  return v;
+  return delayed;
 }
 
 export function freeze<T>(fn: () => T): T {
@@ -165,10 +160,6 @@ export function onCleanup(fn: (final: boolean) => void): void {
     console.warn("cleanups created without a root or parent will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
-}
-
-export function afterEffects(fn: () => void): void {
-  Promise.resolve().then(fn);
 }
 
 export function isListening() {
