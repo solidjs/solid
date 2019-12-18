@@ -80,7 +80,7 @@ export function selectAll<T>(
         newElements = new Set<Element>();
       let node: (Element & { model?: T }) | null = ref.firstElementChild;
       while (node) {
-        if (node.model && models.has(node.model)) newElements.add(node);
+        if (node.model !== undefined && models.has(node.model)) newElements.add(node);
         node = (iterator && iterator(node)) || node!.nextElementSibling;
       }
       for (let removal of elements)
