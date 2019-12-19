@@ -1,3 +1,4 @@
+ @@ -1,153 +1,155 @@
 # State
 
 State is the core work horse of Solid. It represents the local data, the output all the asynchronous interaction as a simple to read javascript object. While fine grained observable itself it is has a minimal API footprint and in most cases be treated like a normal object when reading, supporting destructuring and native methods. However you are dealing with proxy objects that automatically tracked as dependencies of memoization and effects and upon changing will force evaluation.
@@ -96,13 +97,7 @@ setState('todos', {}, todo => ({ marked: true, completed: !todo.completed }))
 // }
 ```
 
-## Modifiers
-
-This library also provides of state setter modifiers which can optionally be included to provide different behavior when setting state.
-
-### `mutate(fn: (state) => void)`
-
-Supports a batched mutable form when the setter does not return a value. This allows TypeScript safe nested updates.
+Additionally supports a batched mutable form when the setter does not return a value. This allows TypeScript safe nested updates.
 
 ```js
 const [state, setState] = createState({
@@ -113,10 +108,10 @@ const [state, setState] = createState({
   ]
 });
 
-setState(mutate(s => {
+setState(s => {
   s.counter = s.counter * 3;
   s.list[1].title += '!';
-}));
+});
 // {
 //   counter: 6,
 //   list: [
@@ -125,6 +120,10 @@ setState(mutate(s => {
 //   ]
 // }
 ```
+
+## Modifiers
+
+This library also provides of state setter modifiers which can optionally be included to provide different behavior when setting state.
 
 ### `force(changes)`
 
@@ -142,7 +141,7 @@ This can be used to do deep diffs by applying the changes from a new State value
 setState("users", reconcile(store.get("users")));
 ```
 
-Optional second arg lets you configure the diff algorithm with an options object:
+If you pass as array you can configure the diff algorithm with an options object:
 
 ```js
 setState('users', reconcile(

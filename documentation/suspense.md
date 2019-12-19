@@ -91,7 +91,6 @@ function App() {
         </li>
       </ul>
       <Suspense fallback={<LoadingSpinner />}>
-        {/* suspense aware switch control flow */}
         <Switch>
           <Match when={state.activeTab === 1}>...</Match>
           <Match when={state.activeTab === 2}>...</Match>

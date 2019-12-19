@@ -1,3 +1,4 @@
+ @@ -1,139 +1,118 @@
 # JSX Rendering
 
 Rendering involves precompilation of JSX templates into optimized native js code. The JSX code constructs:
@@ -51,11 +52,11 @@ While you could use a map function for loops they aren't optimized. While perhap
 
 _Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic expressions use boolean or ternary operator._
 
-The library also includes a couple directives that can be applied with `forwardRef`.
+The library also includes a couple transform directives that can be applied to the For control flow.
 
-### select(signal, handler, walker)
+### selectWhen(signal, handler)
 
-### selectAll(signal, handler, walker)
+### selectEach(signal, handler)
 
 These trigger on the signal to indicate the selected model/s and calls the handler function with associated element, and a boolean to indicate whether the model is selected or not. If the handler is a string instead of a function the default behavior is to toggle a class with the string name.
 
@@ -68,16 +69,17 @@ const [state, setState] = createState({
 })
 
 /* .... */
-<div forwardRef={selectAll(
-  () => state.selected,
-  (node, selected) => node.classList.toggle('selected', selected)
-)}>
-  <For each={state.list}>{ item =>
-    <div model={item} onClick={select} />
-  }</For>
-</div>
+
+<For
+  each={state.list}
+  transform={selectEach(
+    () => state.selected,
+    (node, selected) => node.classList.toggle('selected', selected)
+  )}
+>{ item =>
+  <div model={item} onClick={select} />
+}</For>
 ```
-Solid exports a simple depth based walker function `walkDOM(depth)` that can be used as the 3rd argument and will walk to the provided depth.
 
 ## Refs
 
