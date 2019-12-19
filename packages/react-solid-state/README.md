@@ -1,7 +1,7 @@
 # React Solid State
 
-[![Build Status](https://img.shields.io/travis/com/ryansolid/react-solid-state.svg?style=flat)](https://travis-ci.com/ryansolid/react-solid-state)
-[![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/react-solid-state.svg?style=flat)](https://coveralls.io/github/ryansolid/react-solid-state?branch=master)
+[![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
+[![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/react-solid-state.svg?style=flat)](https://www.npmjs.com/package/react-solid-state)
 ![](https://img.shields.io/david/ryansolid/react-solid-state.svg?style=flat)
 
