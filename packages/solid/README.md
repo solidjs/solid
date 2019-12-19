@@ -1,4 +1,4 @@
-## <img src="assets/logo.png" alt="drawing" width="500"/><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The Deceptively Simple User Interface Library
+## <img src="https://github.com/ryansolid/solid/blob/master/assets/logo.png" alt="drawing" width="500"/><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The Deceptively Simple User Interface Library
 
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
