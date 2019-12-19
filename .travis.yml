@@ -1,10 +1,20 @@
 language: node_js
-node_js: '10'
+node_js: '12'
 cache: npm
 jobs:
   include:
+    - stage: Bootstrap
+      script:
+        - npm run bootstrap
+        - npm run build
+      artifacts:
+        paths:
+          - "*/dist"
+          - "*/lib"
+          - "*/types"
+        expire_in: 1 day
+
     - stage: Produce Coverage
       node_js: '12'
       script:
-        - npm run build && jest --coverage && cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage
-        - npm run test:types
+        - npm run test:coverage

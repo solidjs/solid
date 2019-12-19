@@ -1,0 +1,31 @@
+{
+  "name": "solid-js",
+  "description": "A declarative JavaScript library for building user interfaces.",
+  "version": "0.15.2",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "homepage": "https://github.com/ryansolid/solid#readme",
+  "main": "lib/index.js",
+  "module": "dist/index.js",
+  "types": "types/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "dom",
+    "h",
+    "html",
+    "lib",
+    "types"
+  ],
+  "scripts": {
+    "prebuild": "rimraf dist/* lib/* types/* && dom-expressions",
+    "build": "npm-run-all -cnl build:*",
+    "build:js": "rollup -c",
+    "build:types": "tsc && ncp ./src/dom/runtime.d.ts ./types/dom/runtime.d.ts",
+    "bench": "node --allow-natives-syntax bench/bench.js",
+    "prepublishOnly": "rimraf README.md && ncp ../../README.md ./README.md && npm run build",
+    "test": "jest && npm run test:types",
+    "test:coverage": "jest --coverage && npm run test:types",
+    "test:types": "tsc --project tsconfig.test.json"
+  }
+}

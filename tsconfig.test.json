@@ -9,9 +9,7 @@
     "typeRoots": [
       "./node_modules/babel-plugin-jsx-dom-expressions",
       "./node_modules/@types"
-    ],
+    ]
   },
-  "include": [
-    "test/**/*"
-  ]
+  "exclude": ["node_modules"]
 }

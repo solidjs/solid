@@ -153,15 +153,15 @@ Remember you still need to install the library separately for these to work.
 
 ## Documentation
 
-- [State](https://github.com/ryansolid/solid/blob/master/documentation/state.md)
-- [Signals](https://github.com/ryansolid/solid/blob/master/documentation/signals.md)
-- [JSX Rendering](https://github.com/ryansolid/solid/blob/master/documentation/rendering.md)
-- [Components](https://github.com/ryansolid/solid/blob/master/documentation/components.md)
-- [Context](https://github.com/ryansolid/solid/blob/master/documentation/context.md)
-- [Suspense](https://github.com/ryansolid/solid/blob/master/documentation/suspense.md)
-- [API](https://github.com/ryansolid/solid/blob/master/documentation/api.md)
-- [Comparison with other Libraries](https://github.com/ryansolid/solid/blob/master/documentation/comparison.md)
-- [Storybook](https://github.com/ryansolid/solid/blob/master/documentation/storybook.md)
+- [State](../master/documentation/state.md)
+- [Signals](../master/documentation/signals.md)
+- [JSX Rendering](../master/documentation/rendering.md)
+- [Components](../master/documentation/components.md)
+- [Context](../master/documentation/context.md)
+- [Suspense](../master/documentation/suspense.md)
+- [API](../master/documentation/api.md)
+- [Comparison with other Libraries](../master/documentation/comparison.md)
+- [Storybook](../master/documentation/storybook.md)
 
 ## Examples
 
@@ -189,7 +189,7 @@ Remember you still need to install the library separately for these to work.
 
 ## Related Projects
 
-- [Solid Element](https://github.com/ryansolid/solid/blob/master/packages/solid-element)
+- [Solid Element](https://github.com/ryansolid/solid-element)
   Extensions to Solid.js that add a Web Component wrapper and Hot Module Replacement.
 - [DOM Expressions](https://github.com/ryansolid/dom-expressions)
   The renderer behind Solid.js that enables lightning fast fine grained performance.
@@ -199,7 +199,7 @@ Remember you still need to install the library separately for these to work.
   Tagged Template Literal API for DOM Expressions.
 - [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions)
   HyperScript API for DOM Expressions.
-- [React Solid State](https://github.com/ryansolid/solid/blob/master/packages/react-solid-state)
+- [React Solid State](https://github.com/ryansolid/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Articles
