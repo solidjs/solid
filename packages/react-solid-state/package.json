@@ -16,7 +16,8 @@
     "build": "rollup -c",
     "prepublishOnly": "npm run build",
     "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
   },
   "dependencies": {
     "solid-js": "~0.15.0"

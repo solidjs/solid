@@ -26,6 +26,7 @@
     "prepublishOnly": "rimraf README.md && ncp ../../README.md ./README.md && npm run build",
     "test": "jest && npm run test:types",
     "test:coverage": "jest --coverage && npm run test:types",
-    "test:types": "tsc --project tsconfig.test.json"
+    "test:types": "tsc --project tsconfig.test.json",
+    "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
   }
 }

@@ -21,7 +21,8 @@
     "test": "lerna run test --concurrency=1 --stream",
     "test:coverage": "lerna run test:coverage --parallel",
     "build": "lerna run build --concurrency=1 --stream",
-    "publish:release": "lerna publish --force-publish=* --no-push --no-git-tag-version"
+    "publish:release": "lerna publish --force-publish=* --no-push --no-git-tag-version",
+    "report:coverage": "lerna run report:coverage --parallel"
   },
   "devDependencies": {
     "@babel/core": "7.7.5",

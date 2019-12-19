@@ -6,14 +6,11 @@ jobs:
     - stage: Bootstrap
       script:
         - npm run build
+        - npm run test:coverage
+        - npm run report:coverage
       artifacts:
         paths:
           - "*/dist"
           - "*/lib"
           - "*/types"
         expire_in: 1 day
-
-    - stage: Produce Coverage
-      node_js: '12'
-      script:
-        - npm run test:coverage
