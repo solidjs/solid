@@ -1,0 +1,35 @@
+{
+  "name": "react-solid-state",
+  "description": "Auto tracking state management for modern React",
+  "version": "0.2.10",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "homepage": "https://github.com/ryansolid/solid/blob/master/packages/react-solid-state#readme",
+  "main": "lib/react-solid-state.js",
+  "module": "src/index.js",
+  "files": [
+    "lib",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "prepublishOnly": "npm run build",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
+  },
+  "dependencies": {
+    "solid-js": "~0.15.0"
+  },
+  "peerDependencies": {
+    "react": "^16.8.2",
+    "react-dom": "^16.8.2"
+  },
+  "devDependencies": {
+    "@babel/preset-react": "^7.7.4",
+    "react": "^16.11.0",
+    "react-dom": "^16.11.0",
+    "react-testing-library": "^7.0.1"
+  }
+}

@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "outDir": "types",
     "emitDeclarationOnly": true,
     "declaration": true,
     "target": "esnext",
@@ -9,7 +8,5 @@
     "moduleResolution": "node",
     "strict": true
   },
-  "include": [
-    "src/**/*"
-  ]
+  "exclude": ["node_modules", "**/*.spec.ts"]
 }
