@@ -3,7 +3,7 @@ node_js: '12'
 cache: npm
 jobs:
   include:
-    - stage: Bootstrap
+    - stage: test
       script:
         - npm run build
         - npm run test:coverage
