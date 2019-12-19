@@ -27,6 +27,24 @@ function Deferred(props) {
   </Deferred>
 </>;
 ```
+Solid does include a scheduler similar to React's Concurrent Mode scheduler which allows work to be scheduled in idle frames. The easiest way to leverage it is to use `createDeferred` which creates a memo that will only be read as the cpu is available.
+
+```jsx
+function App() {
+  const [text, setText] = createSignal("hello");
+  const deferredText = createDeferred(text, { timeoutMs: 2000 });
+
+  return (
+    <div className="App">
+      {/* Keep passing the current text to the input */}
+      <input value={text()} onChange={handleChange} />
+      ...
+      {/* But the list is allowed to "lag behind" when necessary */}
+      <MySlowList text={deferredText()} />
+    </div>
+  );
+ }
+```
 
 ## Placeholders & Transitions
 
@@ -102,7 +120,7 @@ function App() {
 }
 ```
 
-> **For React Users:** Given the nature of Solid's Reactive system, the throw a promise approach React uses doesn't make sense here. React just re-runs that part of the tree again, whereas Solid cannot pickup from where it left off. Instead Solid's Suspense mechanism ties into the Context API. Like React it is the closest Suspense Component that handles the Suspense state. However, unlike React when in transition there is no way to update control flow suspended blocks, there is no equivalent to `useDeferedValue`. Either the value updates immediately or it is a new branch being rendered offscreen. In practice this is hardly noticeable difference as the parts of the screen not inside are unaffected, and generally when something is exiting the page it is intentional the end user doesn't interact with it.
+> **For React Users:** Given the nature of Solid's Reactive system, the throw a promise approach React uses doesn't make sense here. React just re-runs that part of the tree again, whereas Solid cannot pickup from where it left off. Instead Solid's Suspense mechanism ties into the Context API. Like React it is the closest Suspense Component that handles the Suspense state. However, unlike React when in transition there is no way to update control flow suspended blocks. Either the value updates immediately or it is a new branch being rendered offscreen. In practice this is hardly noticeable difference as the parts of the screen not inside are unaffected, and generally when something is exiting the page it is intentional the end user doesn't interact with it.
 
 ## Code Splitting
 
