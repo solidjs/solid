@@ -5,7 +5,6 @@ jobs:
   include:
     - stage: Bootstrap
       script:
-        - npm run bootstrap
         - npm run build
       artifacts:
         paths:
