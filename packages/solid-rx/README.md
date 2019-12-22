@@ -63,7 +63,7 @@ const ForWithSelection = (props) => {
 }</ForWithSelection>
 ```
 
-## WHy?
+## Why?
 
 Truthfully nothing in this package is necessary. Solid's auto dependency tracking computations do not need to take a formal functional programming approach to be expressive and succint. If anything this can make simple expressions more complicated. Compare:
 

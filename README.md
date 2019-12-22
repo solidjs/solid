@@ -191,6 +191,8 @@ Remember you still need to install the library separately for these to work.
 
 - [Solid Element](https://github.com/ryansolid/solid/blob/master/packages/solid-element)
   Extensions to Solid.js that add a Web Component wrapper and Hot Module Replacement.
+- [Solid RX](https://github.com/ryansolid/solid/blob/master/packages/solid-rx)
+  Functional Reactive Programming extensions to Solid.js.
 - [DOM Expressions](https://github.com/ryansolid/dom-expressions)
   The renderer behind Solid.js that enables lightning fast fine grained performance.
 - [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
