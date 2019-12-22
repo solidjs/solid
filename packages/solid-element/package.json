@@ -7,11 +7,11 @@
   "homepage": "https://github.com/ryansolid/solid/blob/master/packages/solid-element#readme",
   "main": "lib/solid-element.js",
   "module": "dist/solid-element.js",
+  "types": "types/index.d.ts",
   "files": [
     "dist",
     "lib",
-    "types/index.d.ts",
-    "README.md"
+    "types/index.d.ts"
   ],
   "sideEffects": "false",
   "scripts": {

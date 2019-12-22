@@ -1,4 +1,3 @@
- @@ -1,139 +1,118 @@
 # JSX Rendering
 
 Rendering involves precompilation of JSX templates into optimized native js code. The JSX code constructs:
@@ -51,35 +50,6 @@ While you could use a map function for loops they aren't optimized. While perhap
 ```
 
 _Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic expressions use boolean or ternary operator._
-
-The library also includes a couple transform directives that can be applied to the For control flow.
-
-### selectWhen(signal, handler)
-
-### selectEach(signal, handler)
-
-These trigger on the signal to indicate the selected model/s and calls the handler function with associated element, and a boolean to indicate whether the model is selected or not. If the handler is a string instead of a function the default behavior is to toggle a class with the string name.
-
-These directives also require setting a model on the child element in order to identify the node.
-
-```js
-const [state, setState] = createState({
-  list: [ /* ... */ ],
-  selected: [ /* ... */]
-})
-
-/* .... */
-
-<For
-  each={state.list}
-  transform={selectEach(
-    () => state.selected,
-    (node, selected) => node.classList.toggle('selected', selected)
-  )}
->{ item =>
-  <div model={item} onClick={select} />
-}</For>
-```
 
 ## Refs
 

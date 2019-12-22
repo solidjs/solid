@@ -1,19 +1,17 @@
 export * from "./runtime";
 export * from "./Suspense";
-export * from "./transform";
 import { insert, hydration, startSSR } from "./runtime";
 import {
   createRoot,
   createMemo,
   onCleanup,
   sample,
-  map,
-  awaitSuspense
+  mapArray,
+  awaitSuspense,
+  equalFn
 } from "../index.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment;
-
-const equalFn = <T>(a: T, b: T) => a === b;
 
 export function render(code: () => any, element: MountableElement): () => void {
   let disposer: () => void;
@@ -58,7 +56,7 @@ export function For<T, U>(props: {
   const fallback = "fallback" in props && { fallback: () => props.fallback },
     mapped = awaitSuspense(
       createMemo(
-        map<T, U>(
+        mapArray<T, U>(
           () => props.each,
           props.children,
           fallback ? fallback : undefined

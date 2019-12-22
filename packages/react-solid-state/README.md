@@ -3,7 +3,7 @@
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/react-solid-state.svg?style=flat)](https://www.npmjs.com/package/react-solid-state)
-![](https://img.shields.io/david/ryansolid/react-solid-state.svg?style=flat)
+![](https://img.shields.io/librariesio/release/npm/react-solid-state)
 
 This is a local state swap for React using [Solid.js](https://github.com/ryansolid/solid). Instead of worry about when your components should update you can use declarative data. This makes use of the new React Hooks API. However it differs in a few really key ways:
 - Dependencies are automatically tracked. While there is an option to set explicit dependencies it is isn't necessary.

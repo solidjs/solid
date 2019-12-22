@@ -11,14 +11,15 @@ export {
   freeze,
   createContext,
   useContext,
-  getContextOwner
+  getContextOwner,
+  equalFn
 } from "./signal";
 
 export { createState, unwrap, force } from "./state";
 
 export { reconcile } from "./reconcile";
 
-export * from "./operator";
+export * from "./array";
 export * from "./component";
 export * from "./suspense";
 export * from "./scheduler";

@@ -17,6 +17,6 @@ export default {
     file: 'dist//solid-element.js',
     format: 'es'
   }],
-  external: ['solid-js', 'solid-js/dom', 's-js', 'component-register'],
+  external: ['solid-js', 'solid-js/dom', 'component-register'],
   plugins
 };

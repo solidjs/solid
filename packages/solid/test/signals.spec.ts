@@ -2,6 +2,7 @@ import {
   createRoot,
   createSignal,
   createEffect,
+  createDeferred,
   createDependentEffect,
   createMemo,
   freeze,
@@ -60,7 +61,7 @@ describe("Update signals", () => {
     expect(value()).toBe(10);
   });
   test("Create Signal with comparator and set equivalent value", () => {
-    const [value, setValue] = createSignal(5, (a, b) => a > b);
+    const [value, setValue] = createSignal(5, (a, b) => b > a);
     setValue(3);
     expect(value()).toBe(5);
   });
@@ -161,6 +162,22 @@ describe("onCleanup", () => {
     expect(temp).toBeUndefined();
     disposer!();
     expect(temp).toBe("disposed");
+  });
+});
+
+describe("createDeferred", () => {
+  test("simple defer", done => {
+    createRoot(() => {
+      const [s, set] = createSignal(),
+        r = createDeferred(s, { timeoutMs: 20 });
+      expect(r()).not.toBeDefined();
+      set("Hi");
+      expect(r()).not.toBeDefined();
+      setTimeout(() => {
+        expect(r()).toBe("Hi");
+        done();
+      }, 100);
+    });
   });
 });
 

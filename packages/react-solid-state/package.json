@@ -9,15 +9,13 @@
   "module": "src/index.js",
   "files": [
     "lib",
-    "src",
-    "README.md"
+    "src"
   ],
   "scripts": {
     "build": "rollup -c",
     "prepublishOnly": "npm run build",
     "test": "jest",
-    "test:coverage": "jest --coverage",
-    "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "solid-js": "^0.15.3"

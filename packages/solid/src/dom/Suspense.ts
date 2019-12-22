@@ -7,7 +7,8 @@ import {
   afterEffects,
   createEffect,
   createContext,
-  useContext
+  useContext,
+  equalFn
 } from "../index.js";
 
 type SuspenseState = "running" | "suspended" | "fallback";
@@ -21,7 +22,6 @@ type SuspenseListContextType = {
   register: (state: () => SuspenseState) => [() => boolean, () => boolean];
 };
 const SuspenseListContext = createContext<SuspenseListContextType>();
-const equalFn = <T>(a: T, b: T) => a === b;
 
 export function SuspenseList(props: {
   children: any;

@@ -2,6 +2,8 @@
 // Comparator memos from VSJolund fork https://github.com/VSjolund/vs-bind
 import { requestCallback, Task } from "./scheduler";
 
+export const equalFn = <T>(a: T, b: T) => a === b;
+
 // Public interface
 export function createRoot<T>(
   fn: (dispose: () => void) => T,
@@ -35,14 +37,14 @@ export function createRoot<T>(
 
 export function createSignal<T>(
   value?: T,
-  comparator?: (v: T, p: T) => boolean
+  areEqual?: (prev: T, next: T) => boolean
 ): [() => T, (v: T) => void] {
   const d = new DataNode(value);
   let setter;
-  if (comparator) {
+  if (areEqual) {
     let age = -1;
     setter = (v: T) => {
-      if (!comparator(value!, v)) {
+      if (!areEqual(v, value!)) {
         const time = RootClock.time;
         if (time === age) {
           throw new Error(
@@ -85,10 +87,10 @@ export function createDependentEffect<T>(
 export function createMemo<T>(
   fn: (v: T | undefined) => T,
   value?: T,
-  comparator?: (a: T, b: T) => boolean
+  areEqual?: (prev: T, next: T) => boolean
 ): () => T {
   var node = createComputationNode(fn, value);
-  node.comparator = comparator || null;
+  node.comparator = areEqual || null;
   return () => {
     if (Listener !== null) {
       const state = node!.state;

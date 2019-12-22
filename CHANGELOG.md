@@ -3,6 +3,7 @@
 ## 0.15.0 - 2019-12-16
 A lot fixes and new features:
 * Suspense improvements: `SuspenseList`, `useTransition`, trigger on read. Update API, and added `reload` and retry capability. Removed need for `awaitSuspense` by making `Show` and `Switch` control flows `Suspense` aware.
+* Deprecate `selectWhen` and `selectEach`.
 * Sample all Components. No more fear of nesting Components in JSX expressions. Top level in a Component will always be inert now.
 * Support for safe boolean and logical operators. This allows for the same optimization as the `Show` control flow for simple inline JSX conditionals like `<div>{state.count > 5 && <MyComp />}</div>`.
 * Support for non-curried operator forms. All operators now support an accessor first form as well as the functional curried form. Ex `map(() => state.list, item => item)`

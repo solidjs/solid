@@ -1,100 +1,18 @@
-import { onCleanup, createRoot, sample, createDeferred } from "./signal";
+import { onCleanup, createRoot, sample } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 
-type Operator<T, U> = (seq: () => T) => () => U;
-
-export function pipe<T>(): Operator<T, T>;
-export function pipe<T, A>(fn1: Operator<T, A>): Operator<T, A>;
-export function pipe<T, A, B>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>
-): Operator<T, B>;
-export function pipe<T, A, B, C>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>
-): Operator<T, C>;
-export function pipe<T, A, B, C, D>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>,
-  fn4: Operator<C, D>
-): Operator<T, D>;
-export function pipe<T, A, B, C, D, E>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>,
-  fn4: Operator<C, D>,
-  fn5: Operator<D, E>
-): Operator<T, E>;
-export function pipe<T, A, B, C, D, E, F>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>,
-  fn4: Operator<C, D>,
-  fn5: Operator<D, E>,
-  fn6: Operator<E, F>
-): Operator<T, F>;
-export function pipe<T, A, B, C, D, E, F, G>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>,
-  fn4: Operator<C, D>,
-  fn5: Operator<D, E>,
-  fn6: Operator<E, F>,
-  fn7: Operator<F, G>
-): Operator<T, G>;
-export function pipe<T, A, B, C, D, E, F, G, H>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>,
-  fn4: Operator<C, D>,
-  fn5: Operator<D, E>,
-  fn6: Operator<E, F>,
-  fn7: Operator<F, G>,
-  fn8: Operator<G, H>
-): Operator<T, H>;
-export function pipe<T, A, B, C, D, E, F, G, H, I>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>,
-  fn4: Operator<C, D>,
-  fn5: Operator<D, E>,
-  fn6: Operator<E, F>,
-  fn7: Operator<F, G>,
-  fn8: Operator<G, H>,
-  fn9: Operator<H, I>
-): Operator<T, I>;
-export function pipe<T, A, B, C, D, E, F, G, H, I>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>,
-  fn3: Operator<B, C>,
-  fn4: Operator<C, D>,
-  fn5: Operator<D, E>,
-  fn6: Operator<E, F>,
-  fn7: Operator<F, G>,
-  fn8: Operator<G, H>,
-  fn9: Operator<H, I>,
-  ...fns: Operator<any, any>[]
-): Operator<T, {}>;
-export function pipe(...fns: Array<Operator<any, any>>): Operator<any, any> {
-  if (!fns) return i => i;
-  if (fns.length === 1) return fns[0];
-  return input => fns.reduce((prev, fn) => fn(prev), input);
-}
-
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
-export function map<T, U>(
+export function mapArray<T, U>(
   mapFn: (v: T, i: number) => U,
   options?: { fallback?: () => U }
 ): (list: () => T[]) => () => U[];
-export function map<T, U>(
+export function mapArray<T, U>(
   list: () => T[],
   mapFn: (v: T, i: number) => U,
   options?: { fallback?: () => U }
 ): () => U[];
-export function map<T, U>(list: any, mapFn: any, options?: any): any {
+export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
   if (typeof mapFn !== "function") {
     options = mapFn || {};
     mapFn = list;
@@ -240,16 +158,16 @@ export function map<T, U>(list: any, mapFn: any, options?: any): any {
   }
 }
 
-export function reduce<T, U>(
+export function reduceArray<T, U>(
   fn: (memo: U, value: T, i: number) => U,
   seed: U
 ): (list: () => T[]) => () => U;
-export function reduce<T, U>(
+export function reduceArray<T, U>(
   list: () => T[],
   fn: (memo: U, value: T, i: number) => U,
   seed: U
 ): () => U;
-export function reduce<T, U>(list: any, fn: any, seed?: any): any {
+export function reduceArray<T, U>(list: any, fn: any, seed?: any): any {
   if (arguments.length < 3) {
     seed = fn;
     fn = list;
@@ -269,16 +187,4 @@ export function reduce<T, U>(list: any, fn: any, seed?: any): any {
       });
     };
   }
-}
-
-export function defer<T>(options?: {
-  timeoutMs: number;
-}): (fn: () => T) => () => T;
-export function defer<T>(fn: () => T, options: { timeoutMs: number }): () => T;
-export function defer<T>(fn: any, options?: any): any {
-  if (typeof fn === "function") {
-    return createDeferred(fn, options);
-  }
-  options = fn;
-  return (signal: () => T) => createDeferred(signal, options);
 }

@@ -1,7 +1,7 @@
 # Solid Element
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![NPM Version](https://img.shields.io/npm/v/solid-element.svg?style=flat)](https://www.npmjs.com/package/solid-element)
-![](https://img.shields.io/david/ryansolid/solid-element.svg?style=flat)
+![](https://img.shields.io/librariesio/release/npm/solid-element)
 ![](https://img.shields.io/npm/dt/solid-element.svg?style=flat)
 [![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
 
