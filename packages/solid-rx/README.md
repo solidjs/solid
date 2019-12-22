@@ -32,13 +32,22 @@ These can also be useful for use with control flow. The transform property expos
 
 ```jsx
 function selectClass(selected, className) {
+  let signal;
   return pipe(
+    // stash original list signal for later
+    s => signal = s,
+    // wrap selection in accessor function and merge since map operators are not tracked
+    // find selected element
     mergeMap(list => () => list.find(el => el.model === selected())),
+    // group prev value with current
     pairwise(),
+    // tap value for side effect of setting `className`
     tap(([prevEl, el]) => {
       prevEl && (prevEl.className = "");
       el && (el.className = className);
-    })
+    }),
+    // return original signal
+    () => signal
   );
 }
 
