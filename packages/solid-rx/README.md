@@ -3,6 +3,7 @@
 Functional Reactive Extensions for Solid.js. This package contains a number of operators intended to be use with Solid's `createMemo` and `createEffect` to create reactive transformations.
 
 Example:
+
 ```js
 import { createSignal, createMemo, createEffect } from "solid-js";
 import { pipe, tap, map, filter } from "solid-rx";
@@ -24,7 +25,7 @@ setNumber(1);
 setNumber(2);
 // 2
 // transformed 4
-setNumber(3)
+setNumber(3);
 // 3
 ```
 
@@ -33,43 +34,51 @@ These can also be useful for use with control flow. The transform property expos
 ```jsx
 function selectClass(selected, className) {
   let signal;
-  return pipe(
-    // stash original list signal for later
-    s => signal = s,
-    // wrap selection in accessor function and merge since map operators are not tracked
-    // find selected element
-    mergeMap(list => () => list.find(el => el.model === selected())),
-    // group prev value with current
-    pairwise(),
-    // tap value for side effect of setting `className`
-    tap(([prevEl, el]) => {
-      prevEl && (prevEl.className = "");
-      el && (el.className = className);
-    }),
-    // return original signal
-    () => signal
-  );
+  return list => {
+    createEffect(
+      transform(
+        list,
+        // wrap selection in accessor function and merge since map operators are not tracked
+        // find selected element
+        mergeMap(list => () => list.find(el => el.model === selected())),
+        // group prev value with current
+        pairwise(),
+        // tap value for side effect of setting `className`
+        tap(([prevEl, el]) => {
+          prevEl && (prevEl.className = "");
+          el && (el.className = className);
+        })
+      )
+    );
+    // return the original signal
+    return list;
+  };
 }
 
 const applyClass = selectClass(() => state.selected, "active");
-return <For each={state.list} transform={applyClass}>{
-  row => <div model={row.id}>{row.description}</div>
-}</For>
+return (
+  <For each={state.list} transform={applyClass}>
+    {row => <div model={row.id}>{row.description}</div>}
+  </For>
+);
 ```
 
 This can be very powerful especially when combined with as a HOC(Higher Order Component):
+
 ```jsx
-const ForWithSelection = (props) => {
+const ForWithSelection = props => {
   const applyClass = selectClass(() => props.selected, "active");
-  return <For each={props.each} transform={applyClass}>{
-    props.children
-  }</For>
-}
+  return (
+    <For each={props.each} transform={applyClass}>
+      {props.children}
+    </For>
+  );
+};
 
 // in a component somewhere:
-<ForWithSelection each={state.list} selected={state.selected}>{
-  row => <div model={row.id}>{row.description}</div>
-}</ForWithSelection>
+<ForWithSelection each={state.list} selected={state.selected}>
+  {row => <div model={row.id}>{row.description}</div>}
+</ForWithSelection>;
 ```
 
 ## Why?
