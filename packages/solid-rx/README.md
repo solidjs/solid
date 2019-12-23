@@ -1,4 +1,9 @@
 # `solid-rx`
+[![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
+[![NPM Version](https://img.shields.io/npm/v/solid-rx.svg?style=flat)](https://www.npmjs.com/package/solid-rx)
+![](https://img.shields.io/librariesio/release/npm/solid-rx)
+![](https://img.shields.io/npm/dt/solid-rx.svg?style=flat)
+[![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
 
 Functional Reactive Extensions for Solid.js. This package contains a number of operators intended to be use with Solid's `createMemo` and `createEffect` to create reactive transformations.
 
@@ -100,8 +105,56 @@ createEffect(() => {
 })
 ```
 
-Obviously map and tap could have been combined in the functional example, but the point still stands. The reason you look at a library like this is that sometimes more complicated problems can easier be modelled as a transformation stream, and that this approach is very composable allowing constructing patterns for code reuse.
+Obviously `map` and `tap` could have been combined in the functional example, but the point still stands. The reason you look at a library like this is that sometimes more complicated problems can easier be modelled as a transformation stream, and that this approach is very composable allowing constructing patterns for code reuse.
 
-## Documentation
+# Documentation
 
-...Coming
+## Utilities
+
+### `from(setter => dispose) => signal`
+This operator is useful to create signals from any sort of data structure. You pass in a function that provides a setter. Use the setter to set any value to pass to the signal, from various sources like events, promises, observables, timers etc...
+
+### `pipe(...operators) => sourceSignal => outSignal`
+### `transform(sourceSignal, ...operators) => outSignal`
+
+Tbese operators are responsible for chaining together transformations. The only difference is piped if curried and used for composition, whereas transform includes the source as an argument.
+
+### `observable(signal) => Observable`
+
+Connects a signal to a TC39 observable. Whenever the signal is updated the change will be propagated to the observable. This observable can be used with libraries like RxJS which unlock a whole number of operators and functionality. Going the opposite direction is just passing a signal setter to the observable subscribe method.
+
+## Operators
+
+All operators support curried and non-curried (signal passed as first argument) forms. Curried form is what is listed here.
+
+### `delay(timeMs: number)`
+
+Delay value propagation by the given time in milliseconds.
+
+### `defer({ timeoutMs: number })`
+
+Defers propagation until CPU is idle unless optional timeout has expired.
+
+### `map(v => any)`
+
+Map value to another value.
+
+### `mergeMap(v => signal | () => any)`
+
+Project inside signal or accessor function to output signal.
+
+### `tap(v => void)`
+
+Does not affect value propagation. Useful for side effects or debugging.
+
+### `pairwise()`
+
+Combines previous value with current value as an array.
+
+### `scan((accumulator, value) => result, seed)`
+
+Accumulators the result of each value propagation and feeds it to the next.
+
+### `filter(v => boolean)`
+
+Propagate value change if condition is true.

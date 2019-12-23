@@ -23,7 +23,7 @@
     "build:js": "rollup -c",
     "build:types": "tsc && ncp ./src/dom/runtime.d.ts ./types/dom/runtime.d.ts",
     "bench": "node --allow-natives-syntax bench/bench.js",
-    "prepublishOnly": "rimraf README.md && ncp ../../README.md ./README.md && npm run build",
+    "prepublishOnly": "npm run build",
     "test": "jest && npm run test:types",
     "test:coverage": "jest --coverage && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json",
