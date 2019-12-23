@@ -19,7 +19,6 @@
   },
   "scripts": {
     "build": "rollup -c && tsc",
-    "prepublishOnly": "npm run build",
     "test": "jest",
     "test:coverage": "jest --coverage"
   },

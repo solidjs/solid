@@ -15,8 +15,7 @@
   ],
   "sideEffects": "false",
   "scripts": {
-    "build": "rollup -c && tsc",
-    "prepublishOnly": "npm run build"
+    "build": "rollup -c && tsc"
   },
   "dependencies": {
     "component-register": "~0.6.18",
