@@ -33,7 +33,6 @@ These can also be useful for use with control flow. The transform property expos
 
 ```jsx
 function selectClass(selected, className) {
-  let signal;
   return list => {
     createEffect(
       transform(
