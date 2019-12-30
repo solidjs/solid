@@ -60,20 +60,28 @@ dispatch({ type: "LIST/ADD", payload: { id: 1, title: "New Value" } });
 
 That being said there are plenty of reasons to use actual Redux.
 
+## Cleanup
+
+While Solid does not have Component lifecyles in the traditional sense, it still needs to handle cleaning up subscriptions. The way Solid works is that each part of the graph is owned by it's parent context. In so all commputations must be created as part of a root. This detail is generally taken care of for you as the `render` method contains a `createRoot` call. But it can be called directly for cases where it makes sense.
+
+Once inside a context whenever the context is re-evaluated or disposed of itself, all children computations will be disposed. In addition you can register a `onCleanup` method that will execute as part of this disposal cycle.
+
+Note: _Solid's graph is synchronously executed so any starting point that isn't caused by a reactive update (perhaps an asynchronous entry) should start from its own root. There are other ways to handle asynchronicity as shown in the [Suspense Docs](./supense.md)_
+
 ## Rendering
 
 You can also use signals directly. As an example, the following will show a count of ticking seconds:
 
 ```jsx
-import { createRoot, createSignal } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
+import { render } from "solid-js/dom";
 
-createRoot(() => {
-  const [getSeconds, setSeconds] = createSignal(0);
-  div = <div>Number of seconds elapsed: {getSeconds()}</div>;
-
-  setInterval(() => setSeconds(getSeconds() + 1), 1000);
-  document.body.appendChild(div);
-});
+render(() => {
+  const [seconds, setSeconds] = createSignal(0),
+    handler = setInterval(() => setSeconds(seconds() + 1), 1000);
+  onCleanup(() => clearInterval(handler));
+  return <div>Number of seconds elapsed: {seconds()}</div>;
+}, document.body);
 ```
 
 ## Composition
@@ -101,31 +109,18 @@ const useReducer = (reducer, init) => {
 
 ## Operators
 
-Solid provides a couple simple operators to help construct more complicated behaviors. They work both as standalone and curried Functional Programming form, where they return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with 4 basic ones:
-
-### `pipe(...operators): (signal) => any`
-
-The pipe operator is used to combine other operators in curried form.
+Solid provides a couple simple operators to help construct more complicated behaviors. They work both as standalone and curried Functional Programming form, where they return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with 2 basic array ones:
 
 ### `map(() => any[], iterator: (item, index) => any, options: { fallback: () => any }): () => any[]`
+
 ### `map(iterator: (item, index) => any, options: { fallback: () => any }): (signal) => () => any[]`
 
 Memoized array map operator with optional fallback. This operator does not re-map items if already in the list.
 
 ### `reduce(() => any, accumulator: (memo, item, index) => any, seed): () => any`
-### `reduce(accumulator: (memo, item, index) => any, seed):  (signal) => () => any`
+
+### `reduce(accumulator: (memo, item, index) => any, seed): (signal) => () => any`
 
 Array reduce operator useful for combining or filtering lists.
 
-### `defer(() => any, options: { timeoutMs }): () => any`
-### `defer(options: { timeoutMs }): (signal) => () => any`
-
-Only propagates change when browser is not busy. `timeoutMs` is the maximum time before it forces update.
-
-## Observables
-
-Signals and Observable are similar concepts that can work together but there are a few key differences. Observables are as defined by the [TC39 Proposal](https://github.com/tc39/proposal-observable). These are a standard way of representing streams, and follow a few key conventions. Mostly that they are cold, unicast, and push-based by default. What this means is that they do not do anything until subscribed to at which point they create the source, and do so for each subscription. So if you had an Observable from a DOM Event, subscribing would add an event listener for each function you pass. In so being unicast they aren't managing a list of subscribers. Finally being push you don't ask for the latest value, they tell you.
-
-Observables track next value, errors, and completion. This is very useful for tracking discreet events over time. Signals are much simpler. They are hot and multicast in nature and while capable of pushing values over time aren't aware of it themselves. They are simple and synchronous. They don't complete, they exist or they don't exist.
-
-Observables can work well with Signals as being a source that feeds data into them. Like State, Observables are another tool that allow more control in a specific aspect of your application. Where State is valuable for reconciling multiple Signals together into a serializable structure to keep managing Component or Store code simple, Observables are useful for transforming Async data pipelines like handling Data Communication services.
+The `solid-rx` package contains more operators that can be used with Solid.

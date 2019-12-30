@@ -69,7 +69,7 @@ describe("Simple setState modes", () => {
 
   test("Nested state function merge", () => {
     const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
-    setState("data", (d: { starting: number }) => ({ ending: d.starting + 1 }));
+    setState("data", d => ({ ending: d.starting + 1 }));
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
@@ -103,7 +103,7 @@ describe("setState Mutations", () => {
   });
   test("Nested Level Mutation", () => {
     const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
-    setState("data", (s: { starting: number; ending: number }) => {
+    setState("data", s => {
       s.ending = s.starting + 1;
     });
     expect(state.data.starting).toBe(1);
@@ -281,7 +281,9 @@ describe("Handling functions in state", () => {
 
   test("Track function change", () => {
     createRoot(() => {
-      var [state, setState] = createState<{ fn: () => number }>({ fn: () => 1 }),
+      var [state, setState] = createState<{ fn: () => number }>({
+          fn: () => 1
+        }),
         getValue = createMemo(() => state.fn());
       setState({ fn: () => 2 });
       expect(getValue()).toBe(2);

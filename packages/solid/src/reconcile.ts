@@ -1,4 +1,4 @@
-import { setProperty, unwrap, isWrappable } from "./state";
+import { setProperty, unwrap, isWrappable, Wrapped, NotWrappable } from "./state";
 
 type ReconcileOptions = {
   key?: string | null;
@@ -117,9 +117,9 @@ function applyState(
 
 // Diff method for setState
 export function reconcile<T>(
-  value: T,
+  value: T | Wrapped<T>,
   options: ReconcileOptions = {}
-): (state: T) => void {
+): (state: T extends NotWrappable ? T : Wrapped<T>) => void {
   const { merge, key = "id" } = options;
   return state => {
     state = unwrap(state);

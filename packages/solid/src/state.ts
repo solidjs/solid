@@ -17,6 +17,7 @@ type AddCallable<T> = T extends { (...x: any[]): infer V }
   ? { (...x: Parameters<T>): V }
   : {};
 
+export type NotWrappable = string | number | boolean | Function | null;
 export type Wrapped<T> = {
   [P in keyof T]: T[P] extends object ? Wrapped<T[P]> : T[P];
 } & {
@@ -27,7 +28,7 @@ export type Wrapped<T> = {
 type StateSetter<T> =
   | Partial<T>
   | ((
-      prevState: Wrapped<T>,
+      prevState: T extends NotWrappable ? T : Wrapped<T>,
       traversed?: (string | number)[]
     ) => Partial<T> | void);
 type StatePathRange = { from?: number; to?: number; by?: number };
@@ -40,7 +41,6 @@ type StatePathPart =
 
 // do up to depth of 8
 type StatePath<T> =
-  | [keyof T, StateSetter<unknown>]
   | [keyof T, StatePathPart, StateSetter<unknown>]
   | [keyof T, StatePathPart, StatePathPart, StateSetter<unknown>]
   | [keyof T, StatePathPart, StatePathPart, StatePathPart, StateSetter<unknown>]
@@ -207,7 +207,7 @@ function updatePath(
         updatePath(
           current,
           [part[i]].concat(path),
-          traversed.concat([part[i]])
+          [part[i]].concat(traversed)
         );
       }
       return;
@@ -215,22 +215,22 @@ function updatePath(
       // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
       for (let i = 0; i < current.length; i++) {
         if (part(current[i], i))
-          updatePath(current, [i].concat(path), traversed.concat([i]));
+          updatePath(current, [i].concat(path), ([i] as (number|string)[]).concat(traversed));
       }
       return;
     } else if (isArray && partType === "object") {
       // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
       const { from = 0, to = current.length - 1, by = 1 } = part;
       for (let i = from; i <= to; i += by) {
-        updatePath(current, [i].concat(path), traversed.concat([i]));
+        updatePath(current, [i].concat(path), ([i] as (number|string)[]).concat(traversed));
       }
       return;
     } else if (path.length > 1) {
-      updatePath(current[part], path, traversed.concat([part]));
+      updatePath(current[part], path, [part].concat(traversed));
       return;
     }
     next = current[part];
-    traversed = traversed.concat([part]);
+    traversed = [part].concat(traversed);
   }
   let value = path[0];
   if (typeof value === "function") {
@@ -252,6 +252,7 @@ function updatePath(
 
 interface SetStateFunction<T> {
   (update: StateSetter<T>): void;
+  <A extends keyof T>(part: A, update: StateSetter<T[A]>): void;
   (...path: StatePath<T>): void;
 }
 
@@ -268,7 +269,7 @@ export function createState<T extends StateNode>(
 }
 
 // force state merge change even if value hasn't changed
-export function force<T>(value: T | Wrapped<T>): (state: Wrapped<T>) => void {
+export function force<T>(value: T | Wrapped<T>): (state: T extends NotWrappable ? T : Wrapped<T>) => void {
   return state => {
     if (!isWrappable(state)) return value;
     mergeState(unwrap(state), value, true);

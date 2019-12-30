@@ -159,7 +159,7 @@ export function sample<T>(fn: () => T): T {
 
 export function onCleanup(fn: (final: boolean) => void): void {
   if (Owner === null)
-    console.warn("cleanups created without a root or parent will never be run");
+    console.warn("cleanups created outside a `createRoot` or `render` will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
 }
@@ -287,7 +287,7 @@ function createComputationNode<T>(
 
   if (owner === null)
     console.warn(
-      "computations created without a root or parent will never be disposed"
+      "computations created outside a `createRoot` or `render` will never be disposed"
     );
 
   Owner = Listener = node;
