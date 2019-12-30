@@ -65,12 +65,12 @@ Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef
 "presets": [["solid", { "generate": "ssr" }]]
 ```
 
-2. Use `renderSSR` entry:
+2. Use `renderToString` entry:
 
 ```jsx
-import { renderSSR } from "solid-js/dom";
+import { renderToString } from "solid-js/dom";
 
-renderSSR(() => <App />, document.getElementById("main"));
+const HTMLString = renderToString(() => <App />);
 ```
 
 ### To rehydrate on the client:

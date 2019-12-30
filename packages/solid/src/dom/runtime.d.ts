@@ -1,6 +1,6 @@
 export function template(html: string, isSVG?: boolean): Element;
 export function wrap<T>(fn: (prev?: T) => T): any;
-export function wrapCondition(fn: () => boolean): () => boolean;
+export function wrapCondition(fn: () => any): () => any;
 export function insert(
   parent: Element | Document | ShadowRoot | DocumentFragment,
   accessor: any,
@@ -21,8 +21,8 @@ export function classList(
   prev?: { [k: string]: boolean }
 ): void;
 export function currentContext(): any;
-export function isSSR(): boolean;
-export function startSSR(): void;
+export function isSynchronous(): boolean;
+export function renderToString(fn: () => any): string;
 export function hydration(
   fn: () => unknown,
   node: Element | Document | ShadowRoot | DocumentFragment

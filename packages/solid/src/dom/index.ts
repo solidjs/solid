@@ -1,6 +1,6 @@
 export * from "./runtime";
 export * from "./Suspense";
-import { insert, hydration, startSSR } from "./runtime";
+import { insert, hydration, renderToString as rTS } from "./runtime";
 import {
   createRoot,
   createMemo,
@@ -23,12 +23,10 @@ export function render(code: () => any, element: MountableElement): () => void {
 }
 
 /* istanbul ignore next */
-export function renderSSR(
-  code: () => any,
-  element: MountableElement
-): () => void {
-  startSSR();
-  return render(code, element);
+export function renderToString(
+  code: () => any
+): string {
+  return createRoot(() => rTS(code))
 }
 
 /* istanbul ignore next */

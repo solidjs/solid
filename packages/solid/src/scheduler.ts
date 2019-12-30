@@ -10,6 +10,11 @@ export interface Task {
   expirationTime: number;
 }
 
+// experimental new feature proposal stuff
+type NavigatorScheduling = Navigator & {
+  scheduling: { isInputPending: () => boolean };
+};
+
 let taskIdCounter = 1,
   isCallbackScheduled = false,
   isPerformingWork = false,
@@ -25,82 +30,79 @@ let taskIdCounter = 1,
     | null = null;
 
 const maxSigned31BitInt = 1073741823;
-/* istanbul ignore if */
-if (window && window.MessageChannel) {
-  const channel = new MessageChannel(),
-    port = channel.port2;
-  scheduleCallback = () => port.postMessage(null);
-  channel.port1.onmessage = () => {
-    if (scheduledCallback !== null) {
-      const currentTime = performance.now();
-      deadline = currentTime + yieldInterval;
-      const hasTimeRemaining = true;
-      try {
-        const hasMoreWork = scheduledCallback(hasTimeRemaining, currentTime);
-        if (!hasMoreWork) {
-          scheduledCallback = null;
-        } else port.postMessage(null);
-      } catch (error) {
-        // If a scheduler task throws, exit the current browser task so the
-        // error can be observed.
-        port.postMessage(null);
-        throw error;
-      }
-    }
-  };
-} else {
-  let _callback: ((t: boolean, i: number) => boolean) | null;
-  scheduleCallback = () => {
-    if (!_callback) {
-      _callback = scheduledCallback!;
-      setTimeout(() => {
+/* istanbul ignore next */
+function setupScheduler() {
+  if (window && window.MessageChannel) {
+    const channel = new MessageChannel(),
+      port = channel.port2;
+    scheduleCallback = () => port.postMessage(null);
+    channel.port1.onmessage = () => {
+      if (scheduledCallback !== null) {
         const currentTime = performance.now();
         deadline = currentTime + yieldInterval;
-        const hasMoreWork = _callback!(true, currentTime);
-        _callback = null;
-        if (hasMoreWork) scheduleCallback!()
-      }, 0);
-    }
-  };
-}
-
-// experimental new feature proposal stuff
-type NavigatorScheduling = Navigator & {
-  scheduling: { isInputPending: () => boolean };
-};
-/* istanbul ignore if */
-if (
-  navigator &&
-  (navigator as NavigatorScheduling).scheduling &&
-  (navigator as NavigatorScheduling).scheduling.isInputPending
-) {
-  const scheduling = (navigator as NavigatorScheduling).scheduling;
-  shouldYieldToHost = () => {
-    const currentTime = performance.now();
-    if (currentTime >= deadline) {
-      // There's no time left. We may want to yield control of the main
-      // thread, so the browser can perform high priority tasks. The main ones
-      // are painting and user input. If there's a pending paint or a pending
-      // input, then we should yield. But if there's neither, then we can
-      // yield less often while remaining responsive. We'll eventually yield
-      // regardless, since there could be a pending paint that wasn't
-      // accompanied by a call to `requestPaint`, or other main thread tasks
-      // like network events.
-      if (scheduling.isInputPending()) {
-        return true;
+        const hasTimeRemaining = true;
+        try {
+          const hasMoreWork = scheduledCallback(hasTimeRemaining, currentTime);
+          if (!hasMoreWork) {
+            scheduledCallback = null;
+          } else port.postMessage(null);
+        } catch (error) {
+          // If a scheduler task throws, exit the current browser task so the
+          // error can be observed.
+          port.postMessage(null);
+          throw error;
+        }
       }
-      // There's no pending input. Only yield if we've reached the max
-      // yield interval.
-      return currentTime >= maxYieldInterval;
-    } else {
-      // There's still time left in the frame.
-      return false;
-    }
-  };
-} else {
-  // `isInputPending` is not available. Since we have no way of knowing if
-  // there's pending input, always yield at the end of the frame.
-  shouldYieldToHost = () => performance.now() >= deadline;
+    };
+  } else {
+    let _callback: ((t: boolean, i: number) => boolean) | null;
+    scheduleCallback = () => {
+      if (!_callback) {
+        _callback = scheduledCallback!;
+        setTimeout(() => {
+          const currentTime = performance.now();
+          deadline = currentTime + yieldInterval;
+          const hasMoreWork = _callback!(true, currentTime);
+          _callback = null;
+          if (hasMoreWork) scheduleCallback!();
+        }, 0);
+      }
+    };
+  }
+
+  if (
+    navigator &&
+    (navigator as NavigatorScheduling).scheduling &&
+    (navigator as NavigatorScheduling).scheduling.isInputPending
+  ) {
+    const scheduling = (navigator as NavigatorScheduling).scheduling;
+    shouldYieldToHost = () => {
+      const currentTime = performance.now();
+      if (currentTime >= deadline) {
+        // There's no time left. We may want to yield control of the main
+        // thread, so the browser can perform high priority tasks. The main ones
+        // are painting and user input. If there's a pending paint or a pending
+        // input, then we should yield. But if there's neither, then we can
+        // yield less often while remaining responsive. We'll eventually yield
+        // regardless, since there could be a pending paint that wasn't
+        // accompanied by a call to `requestPaint`, or other main thread tasks
+        // like network events.
+        if (scheduling.isInputPending()) {
+          return true;
+        }
+        // There's no pending input. Only yield if we've reached the max
+        // yield interval.
+        return currentTime >= maxYieldInterval;
+      } else {
+        // There's still time left in the frame.
+        return false;
+      }
+    };
+  } else {
+    // `isInputPending` is not available. Since we have no way of knowing if
+    // there's pending input, always yield at the end of the frame.
+    shouldYieldToHost = () => performance.now() >= deadline;
+  }
 }
 
 function enqueue(taskQueue: Task[], task: Task) {
@@ -124,6 +126,7 @@ export function requestCallback(
   fn: () => void,
   options?: { timeout: number }
 ): Task {
+  if (!scheduleCallback) setupScheduler();
   let startTime = performance.now(),
     timeout = maxSigned31BitInt;
 

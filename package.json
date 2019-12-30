@@ -1,7 +1,7 @@
 {
   "name": "solid-build",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.15.3",
+  "version": "0.15.4",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -25,15 +25,15 @@
     "report:coverage": "lerna run report:coverage --parallel"
   },
   "devDependencies": {
-    "@babel/core": "7.7.5",
-    "@babel/preset-env": "7.7.6",
+    "@babel/core": "7.7.7",
+    "@babel/preset-env": "7.7.7",
     "@babel/preset-typescript": "^7.7.4",
     "@types/jest": "^24.0.23",
     "@types/requestidlecallback": "^0.3.1",
     "babel-jest": "^24.9.0",
     "babel-plugin-jsx-dom-expressions": "~0.14.10",
     "coveralls": "^3.0.9",
-    "dom-expressions": "0.14.6",
+    "dom-expressions": "0.14.9",
     "hyper-dom-expressions": "~0.14.0",
     "jest": "~24.9.0",
     "jest-ts-webcompat-resolver": "^1.0.0",
@@ -46,6 +46,6 @@
     "rollup-plugin-babel": "^4.3.3",
     "rollup-plugin-cleanup": "^3.1.1",
     "rollup-plugin-node-resolve": "^5.2.0",
-    "typescript": "^3.7.3"
+    "typescript": "^3.7.4"
   }
 }

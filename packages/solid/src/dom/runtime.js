@@ -71,18 +71,21 @@ export function insert(parent, accessor, marker, initial) {
 // SSR
 let hydrateRegistry = null,
   hydrateKey = 0,
-  SSR = false;
+  synchronous = false;
 
-export function isSSR() { return SSR; }
-export function startSSR() {
+export function isSynchronous() { return synchronous; }
+export function renderToString(code) {
   hydrateKey = 0;
-  SSR = true;
+  synchronous = true;
+  const container = document.createElement("div");
+  insert(container, code());
+  synchronous = false;
+  return container.innerHTML;
 }
 
 export function hydration(code, root) {
   hydrateRegistry = new Map();
   hydrateKey = 0;
-  SSR = false;
   const iterator = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
     acceptNode: node => node.hasAttribute('_hk') && NodeFilter.FILTER_ACCEPT
   });
@@ -96,7 +99,7 @@ export function hydration(code, root) {
 export function getNextElement(template) {
   if (!hydrateRegistry) {
     const el = template.cloneNode(true);
-    if (SSR) el.setAttribute('_hk', `${hydrateKey++}`);
+    if (synchronous) el.setAttribute('_hk', `${hydrateKey++}`);
     return el;
   }
   return hydrateRegistry.get(`${hydrateKey++}`);
