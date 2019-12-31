@@ -70,17 +70,19 @@ export function insert(parent, accessor, marker, initial) {
 
 // SSR
 let hydrateRegistry = null,
-  hydrateKey = 0,
-  synchronous = false;
-
-export function isSynchronous() { return synchronous; }
-export function renderToString(code) {
   hydrateKey = 0;
-  synchronous = true;
+
+export function renderToString(code, options = {}) {
+  options = { timeoutMs: 10000, ...options }
+  hydrateKey = 0;
   const container = document.createElement("div");
-  insert(container, code());
-  synchronous = false;
-  return container.innerHTML;
+  return new Promise(resolve => {
+    setTimeout(() => resolve(container.innerHTML), options.timeoutMs);
+    if (!code.length) {
+      insert(container, code());
+      resolve(container.innerHTML);
+    } else insert(container, code(() => resolve(container.innerHTML)));
+  });
 }
 
 export function hydration(code, root) {
@@ -96,10 +98,10 @@ export function hydration(code, root) {
   hydrateRegistry = null;
 }
 
-export function getNextElement(template) {
+export function getNextElement(template, isSSR) {
   if (!hydrateRegistry) {
     const el = template.cloneNode(true);
-    if (synchronous) el.setAttribute('_hk', `${hydrateKey++}`);
+    if (isSSR) el.setAttribute('_hk', `${hydrateKey++}`);
     return el;
   }
   return hydrateRegistry.get(`${hydrateKey++}`);

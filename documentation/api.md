@@ -56,7 +56,7 @@ Hook to grab context to allow for deep passing of props with hierarchal resoluti
 
 Used to lazy load components to allow for things like code splitting and Suspense.
 
-### `loadResource(() => <Promise>): { value, error, loading, failedAttempts, reload }`
+### `load(() => <Promise>, value => void, (error, failedAttempts) => boolean | undefined): [loading, reload]`
 
 Creates a memo that updates when promise is resolved. It tracks dependency changes to retrigger. This works with the Suspend control flow.
 

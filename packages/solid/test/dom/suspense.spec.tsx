@@ -2,9 +2,10 @@ import {
   lazy,
   createSignal,
   createEffect,
-  loadResource,
+  createResource,
+  createResourceState,
+  load,
   sample,
-  Resource,
   useTransition
 } from "../../src";
 import { render, Suspense, SuspenseList } from "../../src/dom";
@@ -14,26 +15,31 @@ describe("Testing a Suspense", () => {
     disposer: () => void,
     resolvers: Function[] = [],
     [triggered, trigger] = createSignal(false),
-    reloader: (delay: number) => void;
+    reloader: () => void;
   const LazyComponent = lazy<typeof ChildComponent>(
       () => new Promise(r => resolvers.push(r))
     ),
     ChildComponent = (props: { greeting: string }) => {
-      let result: Resource<unknown>;
+      let [value, setValue] = createResource<string>();
       createEffect(
         () =>
           triggered() &&
-          (result = loadResource(() => new Promise(r => setTimeout(r, 300)))) &&
-          sample(() => result.value)
+          load<string>(
+            () => new Promise(r => setTimeout(() => r("Hey"), 300)),
+            setValue
+          ) &&
+          sample(value)
       );
       return props.greeting;
     },
     ChildComponent2 = () => {
-      let result: Resource<string> = loadResource(
-        () => new Promise(r => setTimeout(() => r("Finally"), 300))
-      );
-      reloader = result.reload;
-      return <>{result.value}</>;
+      let [value, setValue] = createResource<string>(),
+        [, reload] = load<string>(
+          () => new Promise(r => setTimeout(() => r("Finally"), 300)),
+          setValue
+        );
+      reloader = () => (setValue(undefined), reload());
+      return <>{value}</>;
     },
     Component = () => (
       <Suspense fallback="Loading">
@@ -61,7 +67,7 @@ describe("Testing a Suspense", () => {
   });
 
   test("Toggle with delayed fallback", done => {
-    const [start] = useTransition({ timeoutMs: 100 });
+    const [, start] = useTransition({ timeoutMs: 100 });
     start(() => trigger(true));
     expect(div.innerHTML).toBe("Hi, Jo");
     setTimeout(() => {
@@ -86,7 +92,7 @@ describe("Testing a Suspense", () => {
     expect(div.innerHTML).toBe("Loading");
     setTimeout(() => {
       expect(div.innerHTML).toBe("Finally");
-      reloader(0);
+      reloader();
       expect(div.innerHTML).toBe("Loading");
       setTimeout(() => {
         expect(div.innerHTML).toBe("Finally");
@@ -98,6 +104,41 @@ describe("Testing a Suspense", () => {
   test("dispose", () => disposer());
 });
 
+describe("Testing Suspense with State", () => {
+  let div = document.createElement("div"),
+    disposer: () => void,
+    reloader: () => void;
+  const ChildComponent = (props: { name: string }) => {
+      const [state, setState] = createResourceState<{ greeting?: string }>({ greeting: undefined }),
+        [loading, reload] = load<{ greeting: string }>(
+            () => new Promise(r => setTimeout(() => r({ greeting: "Hey" }), 300)),
+            v => v && setState(v)
+          );
+      reloader = () => (setState({ greeting: undefined }), reload());
+      return <>{!loading() && `${state.greeting}, ${props.name}`}</>;
+    },
+    Component = () => (
+      <Suspense fallback="Loading">
+        <ChildComponent name="Jo!" />
+        <ChildComponent name="Jacob!" />
+      </Suspense>
+    );
+
+  test("Create suspend control flow", done => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("Loading");
+    setTimeout(() => {
+      expect(div.innerHTML).toBe("Hey, Jo!Hey, Jacob!");
+      done();
+    }, 400);
+  });
+
+  test("dispose", () => {
+    div.innerHTML = "";
+    disposer();
+  });
+});
+
 describe("SuspenseList", () => {
   const promiseFactory = (time: number, v: string) => {
       return new Promise<string>(r => {
@@ -107,16 +148,19 @@ describe("SuspenseList", () => {
       });
     },
     A = () => {
-      const r = loadResource(() => promiseFactory(200, "A"));
-      return <div>{r.value}</div>;
+      const [value, setValue] = createResource<string>();
+      load(() => promiseFactory(200, "A"), setValue);
+      return <div>{value}</div>;
     },
     B = () => {
-      const r = loadResource(() => promiseFactory(100, "B"));
-      return <div>{r.value}</div>;
+      const [value, setValue] = createResource<string>();
+      load(() => promiseFactory(100, "B"), setValue);
+      return <div>{value}</div>;
     },
     C = () => {
-      const r = loadResource(() => promiseFactory(300, "C"));
-      return <div>{r.value}</div>;
+      const [value, setValue] = createResource<string>();
+      load(() => promiseFactory(300, "C"), setValue);
+      return <div>{value}</div>;
     };
 
   test("revealOrder together", done => {
@@ -339,12 +383,18 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+    expect(div.innerHTML).toBe(
+      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+    );
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+      );
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+      );
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -373,12 +423,18 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+    expect(div.innerHTML).toBe(
+      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+    );
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+      );
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>A</div><div>B</div><div>Loading 3</div>"
+      );
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");

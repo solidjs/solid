@@ -70,7 +70,7 @@ Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef
 ```jsx
 import { renderToString } from "solid-js/dom";
 
-const HTMLString = renderToString(() => <App />);
+const HTMLString = await renderToString(() => <App />);
 ```
 
 ### To rehydrate on the client:

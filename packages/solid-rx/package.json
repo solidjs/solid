@@ -26,7 +26,7 @@
     "url": "https://github.com/ryansolid/solid/issues"
   },
   "peerDependencies": {
-    "solid-js": "~0.15.3"
+    "solid-js": "^0.15.5"
   },
   "devDependencies": {
     "solid-js": "^0.15.5"

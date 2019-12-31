@@ -1,8 +1,8 @@
 import { isListening, DataNode, freeze } from "./signal";
-const SNODE = Symbol("state-node"),
+export const SNODE = Symbol("state-node"),
   SPROXY = Symbol("state-proxy");
 
-type StateNode = {
+export type StateNode = {
   [SNODE]?: any;
   [SPROXY]?: any;
   [k: string]: any;
@@ -71,8 +71,8 @@ type StatePath<T> =
       StatePathPart,
       StateSetter<unknown>
     ];
-function wrap<T extends StateNode>(value: T): Wrapped<T> {
-  return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps));
+export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): Wrapped<T> {
+  return value[SPROXY] || (value[SPROXY] = new Proxy(value, traps || proxyTraps));
 }
 
 export function isWrappable(obj: any) {
@@ -105,7 +105,7 @@ export function unwrap<T extends StateNode>(item: any): T {
   return item;
 }
 
-function getDataNodes(target: StateNode) {
+export function getDataNodes(target: StateNode) {
   let nodes = target[SNODE];
   if (!nodes) target[SNODE] = nodes = {};
   return nodes;
@@ -173,8 +173,8 @@ export function setProperty(
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && node.next();
-  notify && (node = nodes._) && node.next();
+  (node = nodes[property]) && node.next(value);
+  notify && (node = nodes._) && node.next(value);
 }
 
 function mergeState(
@@ -189,7 +189,7 @@ function mergeState(
   }
 }
 
-function updatePath(
+export function updatePath(
   current: StateNode,
   path: any[],
   traversed: (number | string)[] = []
@@ -250,7 +250,7 @@ function updatePath(
   } else setProperty(current, part, value);
 }
 
-interface SetStateFunction<T> {
+export interface SetStateFunction<T> {
   (update: StateSetter<T>): void;
   <A extends keyof T>(part: A, update: StateSetter<T[A]>): void;
   (...path: StatePath<T>): void;

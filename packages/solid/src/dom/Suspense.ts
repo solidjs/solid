@@ -36,7 +36,10 @@ export function SuspenseList(props: {
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) {
-    const [state, stateSetter] = createSignal<SuspenseState>("running", equalFn);
+    const [state, stateSetter] = createSignal<SuspenseState>(
+      "running",
+      equalFn
+    );
     suspenseSetter = stateSetter;
     [showContent, showFallback] = listContext.register(state);
   }
@@ -103,7 +106,8 @@ export function Suspense(props: { fallback: any; children: any }) {
     t: NodeJS.Timeout,
     state: SuspenseState = "running",
     showContent: () => boolean,
-    showFallback: () => boolean;
+    showFallback: () => boolean,
+    transition: typeof SuspenseContext["transition"];
   const [get, next] = createSignal<void>(),
     store = {
       increment: () => {
@@ -111,6 +115,8 @@ export function Suspense(props: { fallback: any; children: any }) {
           if (!store.initializing) {
             if (SuspenseContext.transition) {
               state = "suspended";
+              !transition &&
+                (transition = SuspenseContext.transition).increment();
               t = setTimeout(
                 () => ((state = "fallback"), next()),
                 SuspenseContext.transition.timeoutMs
@@ -118,6 +124,7 @@ export function Suspense(props: { fallback: any; children: any }) {
             } else state = "fallback";
             next();
           } else state = "fallback";
+          SuspenseContext.increment!();
         }
       },
       decrement: () => {
@@ -125,7 +132,10 @@ export function Suspense(props: { fallback: any; children: any }) {
           t && clearTimeout(t);
           if (state !== "running") {
             state = "running";
+            transition && transition.decrement();
+            transition = undefined;
             next();
+            SuspenseContext.decrement!();
           }
         }
       },
