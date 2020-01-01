@@ -28,7 +28,7 @@ export function render(code: () => any, element: MountableElement): () => void {
 export function renderToString(
   code: () => any,
   options: {
-    timeoutMs?: number
+    timeoutMs?: number;
   }
 ): Promise<string> {
   return createRoot(dispose =>
@@ -36,12 +36,12 @@ export function renderToString(
       const rendered = code();
       createEffect(() => {
         if (!SuspenseContext.active!()) {
-          done!();
           dispose();
+          done!();
         }
       });
       return rendered;
-    })
+    }, options)
   );
 }
 

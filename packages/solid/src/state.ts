@@ -174,7 +174,7 @@ export function setProperty(
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.next(value);
-  notify && (node = nodes._) && node.next(value);
+  notify && (node = nodes._) && node.next();
 }
 
 function mergeState(

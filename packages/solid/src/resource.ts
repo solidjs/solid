@@ -8,6 +8,7 @@ import {
   createMemo,
   createSignal,
   isListening,
+  DataNode,
   Context
 } from "./signal";
 
@@ -77,11 +78,11 @@ export function createResource<T>(): [
     },
     (value: T | undefined) => {
       freeze(() => {
+        set(value);
         if (value !== undefined) {
           for (let c of contexts.keys()) c.decrement!();
           contexts.clear();
         }
-        set(value);
       });
     }
   ];
@@ -107,7 +108,7 @@ const resourceTraps = {
     ) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createResourceNode());
+        node = nodes._ || (nodes._ = new DataNode());
         node.current();
       }
       nodes = getDataNodes(target);
@@ -214,7 +215,10 @@ export function useTransition(
         increment,
         decrement
       };
+      // get around root disposal by starting pending state
+      increment();
       fn();
+      decrement();
       SuspenseContext.transition = prevTransition;
     }
   ];
