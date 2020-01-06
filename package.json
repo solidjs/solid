@@ -31,7 +31,7 @@
     "@types/jest": "^24.0.23",
     "@types/requestidlecallback": "^0.3.1",
     "babel-jest": "^24.9.0",
-    "babel-plugin-jsx-dom-expressions": "~0.14.12",
+    "babel-plugin-jsx-dom-expressions": "~0.14.14",
     "coveralls": "^3.0.9",
     "dom-expressions": "0.14.11",
     "hyper-dom-expressions": "~0.14.0",
