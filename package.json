@@ -33,7 +33,7 @@
     "babel-jest": "^24.9.0",
     "babel-plugin-jsx-dom-expressions": "~0.14.12",
     "coveralls": "^3.0.9",
-    "dom-expressions": "0.14.10",
+    "dom-expressions": "0.14.11",
     "hyper-dom-expressions": "~0.14.0",
     "jest": "~24.9.0",
     "jest-ts-webcompat-resolver": "^1.0.0",

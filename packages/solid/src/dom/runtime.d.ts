@@ -27,9 +27,12 @@ export function renderToString(
     timeoutMs?: number;
   }
 ): Promise<string>;
-export function hydration(
+export function hydrate(
   fn: () => unknown,
   node: Element | Document | ShadowRoot | DocumentFragment
 ): void;
-export function getNextElement(template: HTMLTemplateElement): Node;
+export function getNextElement(
+  template: HTMLTemplateElement,
+  isSSR: boolean
+): Node;
 export function getNextMarker(start: Node): [Node, Array<Node>];

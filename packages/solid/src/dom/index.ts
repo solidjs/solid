@@ -1,6 +1,6 @@
 export * from "./runtime";
 export * from "./Suspense";
-import { insert, hydration, renderToString as rTS } from "./runtime";
+import { insert, hydrate as hydr, renderToString as rTS } from "./runtime";
 import {
   createRoot,
   createEffect,
@@ -51,7 +51,7 @@ export function hydrate(
   element: MountableElement
 ): () => void {
   let disposer: () => void;
-  hydration(() => {
+  hydr(() => {
     disposer = render(code, element);
   }, element);
   return disposer!;

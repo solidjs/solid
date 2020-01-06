@@ -25,6 +25,8 @@ import {
   Wrapped
 } from "./state";
 
+import { runtimeConfig, setHydrateContext, nextHydrateContext } from "./shared";
+
 // Suspense Context
 type SuspenseState = "running" | "suspended" | "fallback";
 type SuspenseContextType = {
@@ -148,10 +150,14 @@ export function lazy<T extends ComponentType<any>>(
   fn: () => Promise<{ default: T }>
 ): T {
   return ((props: any) => {
-    const [s, r] = createResource<T>();
+    const hydrating = runtimeConfig.hydrate && runtimeConfig.hydrate.registry,
+      ctx = nextHydrateContext(),
+      [s, r] = hydrating ? createSignal<T>() : createResource<T>();
     fn().then(mod => r(mod.default));
     let Comp: T | undefined;
-    return createMemo(() => (Comp = s()) && sample(() => Comp!(props)));
+    return createMemo(
+      () => (Comp = s()) && sample(() => (setHydrateContext(ctx), Comp!(props)))
+    );
   }) as T;
 }
 

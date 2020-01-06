@@ -1,9 +1,10 @@
 import { Attributes, SVGAttributes, NonComposedEvents } from 'dom-expressions';
-import { createEffect as wrap, sample as ignore, getContextOwner as currentContext } from '../index.js';
+import { createEffect as wrap, sample as ignore, getContextOwner as currentContext, runtimeConfig as sharedConfig } from '../index.js';
 
 
 
 const eventRegistry = new Set();
+const config = sharedConfig;
 
 export { wrap, currentContext };
 
@@ -69,12 +70,9 @@ export function insert(parent, accessor, marker, initial) {
 }
 
 // SSR
-let hydrateRegistry = null,
-  hydrateKey = 0;
-
 export function renderToString(code, options = {}) {
   options = { timeoutMs: 10000, ...options }
-  hydrateKey = 0;
+  config.hydrate = { id: '', count: 0 };
   const container = document.createElement("div");
   return new Promise(resolve => {
     setTimeout(() => resolve(container.innerHTML), options.timeoutMs);
@@ -85,33 +83,33 @@ export function renderToString(code, options = {}) {
   });
 }
 
-export function hydration(code, root) {
-  hydrateRegistry = new Map();
-  hydrateKey = 0;
-  const iterator = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-    acceptNode: node => node.hasAttribute('_hk') && NodeFilter.FILTER_ACCEPT
-  });
-  let node;
-  while (node = iterator.nextNode()) hydrateRegistry.set(node.getAttribute('_hk'), node);
-
+export function hydrate(code, root) {
+  config.hydrate = { id: '', count: 0, registry: new Map() };
+  const templates = root.querySelectorAll(`*[_hk]`);
+  for (let i = 0; i < templates.length; i++) {
+    const node = templates[i];
+    config.hydrate.registry.set(node.getAttribute('_hk'), node);
+  }
   code();
-  hydrateRegistry = null;
+  delete config.hydrate;
 }
 
 export function getNextElement(template, isSSR) {
-  if (!hydrateRegistry) {
+  const hydrate = config.hydrate;
+  if (!hydrate || !hydrate.registry) {
     const el = template.cloneNode(true);
-    if (isSSR) el.setAttribute('_hk', `${hydrateKey++}`);
+    if (isSSR && hydrate)
+      el.setAttribute('_hk', `${hydrate.id}:${hydrate.count++}`);
     return el;
   }
-  return hydrateRegistry.get(`${hydrateKey++}`);
+  return hydrate.registry.get(`${hydrate.id}:${hydrate.count++}`);
 }
 
 export function getNextMarker(start) {
   let end = start,
     count = 0,
     current = [];
-  if (hydrateRegistry) {
+  if (config.hydrate && config.hydrate.registry) {
     while (end) {
       if (end.nodeType === 8) {
         const v = end.nodeValue;
@@ -290,6 +288,7 @@ function insertExpression(parent, value, current, marker) {
 
   } else if (Array.isArray(value)) {
     const array = normalizeIncomingArray([], value);
+    if (config.hydrate && config.hydrate.registry) return current;
     if (array.length === 0) {
       current = cleanChildren(parent, current, marker);
       if (multi) return current;
@@ -306,6 +305,7 @@ function insertExpression(parent, value, current, marker) {
     }
     current = array;
   } else if (value instanceof Node) {
+    if (config.hydrate && config.hydrate.registry) return current;
     if (Array.isArray(current)) {
       if (multi) return current = cleanChildren(parent, current, marker, value);
       cleanChildren(parent, current, null, value);

@@ -71,7 +71,7 @@ export function createDependentEffect<T>(
 ) {
   const resolved = Array.isArray(deps) ? callAll(deps) : deps;
   defer = !!defer;
-  createEffect<T>((value: T | undefined) => {
+  createComputationNode<T>(value => {
     const listener = Listener;
     resolved();
     if (defer) defer = false;
@@ -115,16 +115,16 @@ export function createDeferred<T>(
 ) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const [delayed, setDelayed] = createSignal(fn());
+  const [deferred, setDeferred] = createSignal(fn());
   createEffect(() => {
     fn();
     if (!t || !t.fn)
       t = requestCallback(
-        () => setDelayed(fn()),
+        () => setDeferred(fn()),
         timeout !== undefined ? { timeout } : undefined
       );
   });
-  return delayed;
+  return deferred;
 }
 
 export function freeze<T>(fn: () => T): T {

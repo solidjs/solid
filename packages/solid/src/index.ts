@@ -23,3 +23,4 @@ export * from "./array";
 export * from "./component";
 export * from "./resource";
 export * from "./scheduler";
+export { runtimeConfig } from "./shared";
