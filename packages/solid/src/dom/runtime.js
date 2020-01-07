@@ -96,13 +96,14 @@ export function hydrate(code, root) {
 
 export function getNextElement(template, isSSR) {
   const hydrate = config.hydrate;
-  if (!hydrate || !hydrate.registry) {
+  let node;
+  if (!hydrate || !hydrate.registry || !(node = hydrate.registry.get(`${hydrate.id}:${hydrate.count++}`))) {
     const el = template.cloneNode(true);
     if (isSSR && hydrate)
       el.setAttribute('_hk', `${hydrate.id}:${hydrate.count++}`);
     return el;
   }
-  return hydrate.registry.get(`${hydrate.id}:${hydrate.count++}`);
+  return node;
 }
 
 export function getNextMarker(start) {
@@ -124,6 +125,19 @@ export function getNextMarker(start) {
     }
   }
   return [end, current];
+}
+
+export function runHydrationEvents(id) {
+  if (window && window._$HYDRATION) {
+    const { completed, events } = window._$HYDRATION;
+    completed.add(id);
+    while (events.length) {
+      const [id, e] = events[0];
+      if (!completed.has(id)) return;
+      eventHandler(e);
+      events.shift();
+    }
+  }
 }
 
 // Internal Functions
@@ -282,6 +296,7 @@ function insertExpression(parent, value, current, marker) {
       } else current = parent.textContent = value;
     }
   } else if (value == null || t === 'boolean') {
+    if (config.hydrate && config.hydrate.registry) return current;
     current = cleanChildren(parent, current, marker);
   } else if (t === 'function') {
     wrap(() => current = insertExpression(parent, value(), current, marker));
@@ -305,7 +320,6 @@ function insertExpression(parent, value, current, marker) {
     }
     current = array;
   } else if (value instanceof Node) {
-    if (config.hydrate && config.hydrate.registry) return current;
     if (Array.isArray(current)) {
       if (multi) return current = cleanChildren(parent, current, marker, value);
       cleanChildren(parent, current, null, value);
