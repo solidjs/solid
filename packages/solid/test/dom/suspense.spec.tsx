@@ -109,7 +109,7 @@ describe("Testing Suspense with State", () => {
     disposer: () => void,
     reloader: () => void;
   const ChildComponent = (props: { name: string }) => {
-      const [state, setState] = createResourceState<{ greeting?: string }>({ greeting: undefined }),
+      const [state, setState] = createResourceState<{ greeting?: string }>(["greeting"]),
         [loading, reload] = load<{ greeting: string }>(
             () => new Promise(r => setTimeout(() => r({ greeting: "Hey" }), 300)),
             v => v && setState(v)

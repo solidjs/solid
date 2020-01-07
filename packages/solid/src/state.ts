@@ -1,5 +1,5 @@
 import { isListening, DataNode, freeze } from "./signal";
-export const SNODE = Symbol("state-node"),
+const SNODE = Symbol("state-node"),
   SPROXY = Symbol("state-proxy");
 
 export type StateNode = {
@@ -71,8 +71,8 @@ type StatePath<T> =
       StatePathPart,
       StateSetter<unknown>
     ];
-export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): Wrapped<T> {
-  return value[SPROXY] || (value[SPROXY] = new Proxy(value, traps || proxyTraps));
+function wrap<T extends StateNode>(value: T): Wrapped<T> {
+  return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps));
 }
 
 export function isWrappable(obj: any) {
@@ -189,7 +189,7 @@ function mergeState(
   }
 }
 
-export function updatePath(
+function updatePath(
   current: StateNode,
   path: any[],
   traversed: (number | string)[] = []

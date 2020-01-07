@@ -7,22 +7,15 @@ import {
   freeze,
   createMemo,
   createSignal,
-  isListening,
-  DataNode,
   Context
 } from "./signal";
 
 import {
-  updatePath,
-  wrap,
-  unwrap,
-  isWrappable,
   getDataNodes,
-  SNODE,
-  SPROXY,
   StateNode,
   SetStateFunction,
-  Wrapped
+  Wrapped,
+  createState
 } from "./state";
 
 import { runtimeConfig, setHydrateContext, nextHydrateContext } from "./shared";
@@ -68,6 +61,11 @@ export function createResource<T>(): [
 ] {
   const [s, set] = createSignal<T | undefined>(),
     contexts = new Set<SuspenseContextType>();
+  function cleanContexts() {
+    for (let c of contexts.keys()) c.decrement!();
+    contexts.clear();
+  }
+  onCleanup(cleanContexts);
   return [
     () => {
       const c = useContext(SuspenseContext),
@@ -81,10 +79,7 @@ export function createResource<T>(): [
     (value: T | undefined) => {
       freeze(() => {
         set(value);
-        if (value !== undefined) {
-          for (let c of contexts.keys()) c.decrement!();
-          contexts.clear();
-        }
+        value !== undefined && cleanContexts();
       });
     }
   ];
@@ -98,47 +93,13 @@ function createResourceNode() {
   };
 }
 
-const resourceTraps = {
-  get(target: StateNode, property: string | number | symbol) {
-    if (property === "_state") return target;
-    if (property === SPROXY || property === SNODE) return;
-    const value = target[property as string | number],
-      wrappable = isWrappable(value);
-    if (
-      isListening() &&
-      (typeof value !== "function" || target.hasOwnProperty(property))
-    ) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = new DataNode());
-        node.current();
-      }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createResourceNode());
-      node.current();
-    }
-    return wrappable ? wrap(value) : value;
-  },
-
-  set() {
-    return true;
-  },
-
-  deleteProperty() {
-    return true;
-  }
-};
-
 export function createResourceState<T extends StateNode>(
-  state: T | Wrapped<T>
+  keys: (keyof T)[]
 ): [Wrapped<T>, SetStateFunction<T>] {
-  const unwrappedState = unwrap<T>(state || {});
-  const wrappedState = wrap<T>(unwrappedState, resourceTraps);
-  function setState(...args: any[]): void {
-    freeze(() => updatePath(unwrappedState, args));
-  }
-
-  return [wrappedState, setState];
+  const target = {} as T;
+  const nodes = getDataNodes(target);
+  for (let i = 0; i < keys.length; i++) nodes[keys[i]] = createResourceNode();
+  return createState(target);
 }
 
 interface ComponentType<T> {
