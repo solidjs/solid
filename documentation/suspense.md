@@ -222,7 +222,7 @@ It is important to note that Suspense is tracked based on data requirements of t
 
 ```jsx
 // start loading data before any part of the page is executed.
-const [state, setState] = createResourceState()
+const [state, setState] = createResourceState(["user", "posts"])
 load(() => /* fetch user & posts */, setState);
 
 function ProfilePage() {
