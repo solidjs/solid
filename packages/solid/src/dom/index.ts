@@ -65,7 +65,7 @@ export function For<T, U>(props: {
   each: T[];
   fallback?: any;
   transform?: (mapped: () => U[]) => () => U[];
-  children: (item: T, index: number) => U;
+  children: (item: T) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback },
     mapped = awaitSuspense(

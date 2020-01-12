@@ -122,15 +122,7 @@ setState(s => {
 
 ## Modifiers
 
-This library also provides of state setter modifiers which can optionally be included to provide different behavior when setting state.
-
-### `force(changes)`
-
-By default state only updates on value change. To get typical signal like behavior on a change you can force update using the force modifier.
-
-```js
-setState(force({ name: "John" }));
-```
+This library also provides a state setter modifiers which can optionally be included to provide different behavior when setting state.
 
 ### `reconcile(value, options)`
 

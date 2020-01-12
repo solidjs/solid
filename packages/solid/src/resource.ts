@@ -1,21 +1,29 @@
 import {
-  createEffect,
   createContext,
   useContext,
   sample,
-  onCleanup,
   freeze,
   createMemo,
   createSignal,
-  Context
+  isListening,
+  Context,
+  DataNode,
+  equalFn
 } from "./signal";
 
 import {
+  updatePath,
+  wrap,
+  unwrap,
+  isWrappable,
+  NotWrappable,
   getDataNodes,
+  SNODE,
+  SPROXY,
   StateNode,
   SetStateFunction,
   Wrapped,
-  createState
+  setProperty
 } from "./state";
 
 import { runtimeConfig, setHydrateContext, nextHydrateContext } from "./shared";
@@ -31,12 +39,13 @@ type SuspenseContextType = {
 type SuspenseConfig = { timeoutMs: number };
 
 function createActivityTracker(): [() => boolean, () => void, () => void] {
-  let count = 0;
-  const [active, setActive] = createSignal(false);
+  let count = 0,
+    active = false;
+  const [read, trigger] = createSignal<void>();
   return [
-    active,
-    () => count++ === 0 && setActive(true),
-    () => --count <= 0 && setActive(false)
+    () => (read(), active),
+    () => count++ === 0 && ((active = true), trigger()),
+    () => --count <= 0 && ((active = false), trigger())
   ];
 }
 
@@ -55,51 +64,158 @@ SuspenseContext.active = active;
 SuspenseContext.increment = increment;
 SuspenseContext.decrement = decrement;
 
+function generatePlaceholderPromise<T>(
+  isCancelled: (p: Promise<T>) => boolean
+) {
+  let p: Promise<T>;
+  return (p = new Promise<T>((res, rej) =>
+    setTimeout(
+      () => (
+        !isCancelled(p) &&
+          console.warn("Load not started for read resource by next task"),
+        rej()
+      )
+    )
+  ));
+}
+
 export function createResource<T>(): [
   () => T | undefined,
-  (v: T | undefined) => void
+  (p?: Promise<T>) => () => boolean
 ] {
   const [s, set] = createSignal<T | undefined>(),
+    [trackPromise, triggerPromise] = createSignal<void>(),
+    [loading, setLoading] = createSignal(false, equalFn),
     contexts = new Set<SuspenseContextType>();
-  function cleanContexts() {
-    for (let c of contexts.keys()) c.decrement!();
-    contexts.clear();
+  let resolved = false,
+    pr: Promise<T> | undefined;
+
+  function loadEnd(v: T | undefined) {
+    pr = undefined;
+    resolved = true;
+    freeze(() => {
+      set(v);
+      setLoading(false);
+      for (let c of contexts.keys()) c.decrement!();
+      contexts.clear();
+    });
   }
-  onCleanup(cleanContexts);
-  return [
-    () => {
-      const c = useContext(SuspenseContext),
-        v = s();
-      if (v === undefined && c.increment && !contexts.has(c)) {
-        c.increment();
-        contexts.add(c);
+
+  function read() {
+    const c = useContext(SuspenseContext);
+    if (!resolved && !pr) {
+      load(generatePlaceholderPromise((p: Promise<T>) => p === pr));
+    }
+    trackPromise();
+    if (pr && c.increment && !contexts.has(c)) {
+      c.increment();
+      contexts.add(c);
+    }
+    return s();
+  }
+  function load(p: Promise<T> | T | undefined) {
+    const running = !!pr;
+    if (p == null || typeof p !== "object" || !("then" in p)) {
+      pr = undefined;
+      loadEnd(p);
+    } else {
+      pr = p;
+      if (!running) {
+        setLoading(true);
+        triggerPromise();
       }
-      return v;
-    },
-    (value: T | undefined) => {
-      freeze(() => {
-        set(value);
-        value !== undefined && cleanContexts();
+      p.then(v => {
+        if (pr !== p) return;
+        loadEnd(v);
+      }).catch(() => {
+        if (pr !== p) return;
+        loadEnd(undefined);
       });
     }
-  ];
+
+    return loading;
+  }
+  return [read, load];
 }
 
 function createResourceNode() {
-  const [current, next] = createResource();
+  // maintain setState capability by using normal data node as well
+  const node = new DataNode(),
+    [read, load] = createResource();
   return {
-    current,
-    next
+    current: () => (read(), node.current()),
+    next: node.next,
+    load
   };
 }
 
+const resourceTraps = {
+  get(target: StateNode, property: string | number | symbol) {
+    if (property === "_state") return target;
+    if (property === SPROXY || property === SNODE) return;
+    const value = target[property as string | number],
+      wrappable = isWrappable(value);
+    if (
+      isListening() &&
+      (typeof value !== "function" || target.hasOwnProperty(property))
+    ) {
+      let nodes, node;
+      if (wrappable && (nodes = getDataNodes(value))) {
+        node = nodes._ || (nodes._ = new DataNode());
+        node.current();
+      }
+      nodes = getDataNodes(target);
+      node = nodes[property] || (nodes[property] = createResourceNode());
+      node.current();
+    }
+    return wrappable ? wrap(value) : value;
+  },
+
+  set() {
+    return true;
+  },
+
+  deleteProperty() {
+    return true;
+  }
+};
+
+type LoadStateFunction<T> = {
+  <A extends keyof T>(
+    key: A,
+    promise: Promise<T[A]>,
+    reconcilerFn?: (v: Partial<T>) => (state: Wrapped<T>) => void
+  ): () => boolean;
+};
+
 export function createResourceState<T extends StateNode>(
-  keys: (keyof T)[]
-): [Wrapped<T>, SetStateFunction<T>] {
-  const target = {} as T;
-  const nodes = getDataNodes(target);
-  for (let i = 0; i < keys.length; i++) nodes[keys[i]] = createResourceNode();
-  return createState(target);
+  state: T | Wrapped<T>
+): [Wrapped<T>, LoadStateFunction<T>, SetStateFunction<T>] {
+  const unwrappedState = unwrap<T>(state || {});
+  const wrappedState = wrap<T>(unwrappedState, resourceTraps);
+  function setState(...args: any[]): void {
+    freeze(() => updatePath(unwrappedState, args));
+  }
+  function loadState(
+    k: keyof T,
+    p: Promise<T[keyof T]>,
+    r?:  (v: Partial<T>) => (state: Wrapped<T>) => void
+  ) {
+    const nodes = getDataNodes(unwrappedState),
+      node = nodes[k] || (nodes[k] = createResourceNode());
+    return node.load(
+      p.then(
+        v => (
+          r
+            ? r({[k]: v} as Partial<T>)(wrappedState)
+            : setProperty(unwrappedState, k as string | number, v),
+          v
+        )
+      )
+    );
+  }
+
+  return [wrappedState, loadState, setState];
 }
 
 interface ComponentType<T> {
@@ -112,61 +228,20 @@ export function lazy<T extends ComponentType<any>>(
 ): T {
   return ((props: any) => {
     const hydrating = runtimeConfig.hydrate && runtimeConfig.hydrate.registry,
-      ctx = nextHydrateContext(),
-      [s, r] = hydrating ? createSignal<T>() : createResource<T>();
-    fn().then(mod => r(mod.default));
+      ctx = nextHydrateContext();
+    let s: () => T | undefined, r: (v: T) => void, p;
+    if (hydrating) {
+      [s, r] = createSignal<T>();
+      fn().then(mod => r(mod.default));
+    } else {
+      [s, p] = createResource<T>();
+      p(fn().then(mod => mod.default));
+    }
     let Comp: T | undefined;
     return createMemo(
       () => (Comp = s()) && sample(() => (setHydrateContext(ctx), Comp!(props)))
     );
   }) as T;
-}
-
-// load any async resource
-export function load<T>(
-  fn: () => Promise<T> | undefined,
-  resolve: (v: T | undefined) => void,
-  reject?: (e: any, failedAttempts: number) => boolean | void
-): [() => boolean, () => void] {
-  const [loading, setLoading] = createSignal(false),
-    [trackReload, triggerReload] = createSignal<void>();
-
-  let pr: Promise<T> | undefined,
-    failedAttempts = 0;
-
-  createEffect(() => {
-    let ref = { cancelled: false };
-    pr = fn();
-
-    if (!pr || typeof pr.then !== "function") {
-      freeze(() => {
-        failedAttempts = 0;
-        resolve(pr as T | undefined);
-        setLoading(false);
-      });
-      return;
-    }
-
-    trackReload();
-    setLoading(true);
-    pr.then((value: T) => {
-      !(ref && ref.cancelled) &&
-        freeze(() => {
-          failedAttempts = 0;
-          resolve(value);
-          setLoading(false);
-        });
-    }).catch((error: any) => {
-      !(ref && ref.cancelled) &&
-        freeze(() => {
-          const loading = (reject && reject(error, ++failedAttempts)) === true;
-          !loading && setLoading(loading);
-        });
-    });
-    onCleanup(() => (ref.cancelled = true));
-  });
-
-  return [loading, triggerReload as () => void];
 }
 
 export function useTransition(

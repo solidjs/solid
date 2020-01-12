@@ -52,10 +52,10 @@ export function classList(node, value, prev) {
   }
 }
 
-export function spread(node, accessor, isSVG) {
+export function spread(node, accessor, isSVG, skipChildren) {
   if (typeof accessor === 'function') {
-    wrap(current => spreadExpression(node, accessor(), current, isSVG));
-  } else spreadExpression(node, accessor, undefined, isSVG);
+    wrap(current => spreadExpression(node, accessor(), current, isSVG, skipChildren));
+  } else spreadExpression(node, accessor, undefined, isSVG, skipChildren);
 }
 
 export function insert(parent, accessor, marker, initial) {
@@ -96,13 +96,14 @@ export function hydrate(code, root) {
 
 export function getNextElement(template, isSSR) {
   const hydrate = config.hydrate;
-  let node;
-  if (!hydrate || !hydrate.registry || !(node = hydrate.registry.get(`${hydrate.id}:${hydrate.count++}`))) {
+  let node, key;
+  if (!hydrate || !hydrate.registry || !(node = hydrate.registry.get(key = `${hydrate.id}:${hydrate.count++}`))) {
     const el = template.cloneNode(true);
     if (isSSR && hydrate)
       el.setAttribute('_hk', `${hydrate.id}:${hydrate.count++}`);
     return el;
   }
+  if (window && window._$HYDRATION) window._$HYDRATION.completed.add(key);
   return node;
 }
 
@@ -130,7 +131,6 @@ export function getNextMarker(start) {
 export function runHydrationEvents(id) {
   if (window && window._$HYDRATION) {
     const { completed, events } = window._$HYDRATION;
-    completed.add(id);
     while (events.length) {
       const [id, e] = events[0];
       if (!completed.has(id)) return;
@@ -181,9 +181,9 @@ function eventHandler(e) {
   }
 }
 
-function spreadExpression(node, props, prevProps = {}, isSVG) {
+function spreadExpression(node, props, prevProps = {}, isSVG, skipChildren) {
   let info;
-  if ("children" in props) {
+  if (!skipChildren && "children" in props) {
     wrap(() =>
       (prevProps.children = insertExpression(
         node,

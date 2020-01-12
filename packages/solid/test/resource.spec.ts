@@ -1,15 +1,13 @@
-import { createRoot, createSignal, load } from "../src";
+import { createRoot, createSignal, createResource, createEffect } from "../src";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: number) => void,
     loading: () => boolean,
-    reload: () => void,
-    value: string | undefined,
-    error: String,
-    failedAttempts: number;
-  function fetcher(id: number) {
+    load: (v: Promise<string> | undefined) => () => boolean,
+    value: () => string | undefined;
+  function fetcher(id: number): Promise<string> | undefined {
     return !!id
       ? new Promise<string>((r, f) => {
           resolve = r;
@@ -21,21 +19,17 @@ describe("Simulate a dynamic fetch", () => {
   test("initial async resource", async done => {
     createRoot(() => {
       const [id, setId] = createSignal(1);
+      [value, load] = createResource<string>();
       trigger = setId;
-      [loading, reload] = load(
-        () => fetcher(id()),
-        v => (value = v),
-        (e, f) => {
-          error = e;
-          failedAttempts = f;
-        }
-      );
+      createEffect(() => {
+        loading = load(fetcher(id()));
+      })
     });
-    expect(value).toBeUndefined();
+    expect(value()).toBeUndefined();
     expect(loading()).toBe(true);
     resolve("John");
     await Promise.resolve();
-    expect(value).toBe("John");
+    expect(value()).toBe("John");
     expect(loading()).toBe(false);
     done();
   });
@@ -49,18 +43,9 @@ describe("Simulate a dynamic fetch", () => {
     resolve2("Jake");
     resolve1("Jo");
     await Promise.resolve();
-    expect(value).toBe("Jake");
+    expect(value()).toBe("Jake");
     expect(loading()).toBe(false);
-    reload();
-    expect(loading()).toBe(true);
-    setTimeout(async () => {
-      const resolve3 = resolve;
-      resolve3("Jack");
-      await Promise.resolve();
-      expect(value).toBe("Jack");
-      expect(loading()).toBe(false);
-      done();
-    });
+    done();
   });
 
   test("promise rejection", async done => {
@@ -70,26 +55,22 @@ describe("Simulate a dynamic fetch", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(loading()).toBe(false);
-    expect(error).toBe("Because I said so");
-    expect(failedAttempts).toBe(1);
     done();
   });
 
   test("no promise", () => {
     trigger(0);
     expect(loading()).toBe(false);
-    expect(value).toBeUndefined();
+    expect(value()).toBeUndefined();
   });
 });
 
 describe("using Context with no root", () => {
   test("loads default value", () => {
     expect(() => {
+      const [, load] = createResource<string>();
       let resolve: (v: string) => void;
-      load(
-        () => new Promise(r => (resolve = r)),
-        v => {}
-      );
+      load(new Promise(r => (resolve = r)));
       resolve!("Hi");
     }).not.toThrow();
   });

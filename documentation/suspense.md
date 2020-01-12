@@ -174,37 +174,30 @@ const App = () => {
 
 ## Data Loading
 
-Solid ships with a general promise resolver, `load`. `load` accepts reactive function expression that returns a promise, and handler functions for success and failure cases. While not necessary to use with Solid or Suspense the power of this method resides in its reactivity, as you can retrigger promise execution on reactive updates, and there is built in promise cancellation. In example below as the `userId` prop updates the API will be queried.
+Solid ships with two resource containers to handle async loading. One is a signal created by `createResource` and the other a state object created by `createResourceState`.
 
 ```jsx
-import { load, createState } from "solid-js";
+import { createResource } from "solid-js";
 
 const fetchUser = id =>
   fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
 
 export default const UserPanel = props => {
-  const [state, setState] = createState(),
-    [loading, reload] = load(
-      () => props.userId && fetchUser(props.userId),
-      value => setState({value}),
-      (error, failedAttempts) => {
-        // retry up to 3 times with linear backoff
-        if (error && failedAttempts <= 3) {
-          setTimeout(reload, failedAttempts * 500);
-          return true;
-        }
-      }
-    );
+  let [user, load] = createResource(),
+    isLoading;
+  createEffect(() => {
+    isLoading = load(() => props.userId && fetchUser(props.userId));
+  })
 
   return <div>
     <Switch fallback={"Failed to load User"}>
-      <Match when={loading()}>Loading...</Match>
-      <Match when={state.value}>
-        <h1>{state.value.name}</h1>
+      <Match when={isLoading()}>Loading...</Match>
+      <Match when={user()}>
+        <h1>{user().name}</h1>
         <ul>
-          <li>Height: {state.value.height}</li>
-          <li>Mass: {state.value.mass}</li>
-          <li>Birth Year: {state.value.birthYear}</li>
+          <li>Height: {user().height}</li>
+          <li>Mass: {user().mass}</li>
+          <li>Birth Year: {user().birthYear}</li>
         </ul>
       </Match>
     </Switch>
@@ -212,7 +205,36 @@ export default const UserPanel = props => {
 }
 ```
 
-This examples handles the different loading states. However, you can expand this example to use Suspense instead by wrapping with the `Suspense` Component, and writing to a Resource. A Resource is a special Signal or State Object that triggers Suspense on read when the value is not present.
+```jsx
+import { createResourceState } from "solid-js";
+
+const fetchUser = id =>
+  fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
+
+export default const UserPanel = props => {
+  let [user, load] = createResourceState(),
+    isLoading;
+  createEffect(() => {
+    isLoading = load("user", () => props.userId && fetchUser(props.userId));
+  })
+
+  return <div>
+    <Switch fallback={"Failed to load User"}>
+      <Match when={isLoading()}>Loading...</Match>
+      <Match when={state.user}>
+        <h1>{state.user.name}</h1>
+        <ul>
+          <li>Height: {state.user.height}</li>
+          <li>Mass: {state.user.mass}</li>
+          <li>Birth Year: {state.user.birthYear}</li>
+        </ul>
+      </Match>
+    </Switch>
+  </div>
+}
+```
+
+These examples handle the different loading states. However, you can expand this example to use Suspense instead by wrapping with the `Suspense` Component.
 
 > **For React Users:** At the time of writing this React has not completely settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
 
@@ -222,8 +244,9 @@ It is important to note that Suspense is tracked based on data requirements of t
 
 ```jsx
 // start loading data before any part of the page is executed.
-const [state, setState] = createResourceState(["user", "posts"])
-load(() => /* fetch user & posts */, setState);
+const [state, load] = createResourceState()
+load("user",  /* fetch user*/);
+load("posts", /* fetch posts*/);
 
 function ProfilePage() {
   return (
