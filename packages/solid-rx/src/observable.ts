@@ -1,7 +1,7 @@
 import { createDependentEffect } from "solid-js";
 
 const SymbolCopy = Symbol as any;
-const $$observable = Symbol.observable || (SymbolCopy.observable = Symbol("observable"))
+const $$observable = SymbolCopy.observable || (SymbolCopy.observable = Symbol("observable"))
 
 type ObservableObserver<T> = ((v: T) => void) | {
   next: (v: T) => void;
