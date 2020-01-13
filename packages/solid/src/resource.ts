@@ -183,7 +183,7 @@ const resourceTraps = {
 type LoadStateFunction<T> = {
   <A extends keyof T>(
     key: A,
-    promise: Promise<T[A]>,
+    promise?: Promise<T[A]> | T[A],
     reconcilerFn?: (v: Partial<T>) => (state: Wrapped<T>) => void
   ): () => boolean;
 };
@@ -198,20 +198,19 @@ export function createResourceState<T extends StateNode>(
   }
   function loadState(
     k: keyof T,
-    p: Promise<T[keyof T]>,
-    r?:  (v: Partial<T>) => (state: Wrapped<T>) => void
+    p?: Promise<T[keyof T]> | T[keyof T],
+    r?: (v: Partial<T>) => (state: Wrapped<T>) => void
   ) {
     const nodes = getDataNodes(unwrappedState),
-      node = nodes[k] || (nodes[k] = createResourceNode());
+      node = nodes[k] || (nodes[k] = createResourceNode()),
+      resolver = (v?: T[keyof T]) => (
+        r
+          ? setState(r({ [k]: v } as Partial<T>))
+          : setProperty(unwrappedState, k as string | number, v),
+        v
+      );
     return node.load(
-      p.then(
-        v => (
-          r
-            ? r({[k]: v} as Partial<T>)(wrappedState)
-            : setProperty(unwrappedState, k as string | number, v),
-          v
-        )
-      )
+      p && typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p)
     );
   }
 
