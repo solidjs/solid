@@ -17,7 +17,7 @@ Solid is a declarative Javascript library for creating user interfaces. It does 
   - Function Components with no need for lifecycle methods or specialized configuration objects.
   - Render once mental model.
 - Fast! Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
-- Supports modern features like JSX, Fragments, Context, Portals, Suspense, SSR, and Asynchronous Rendering.
+- Supports modern features like JSX, Fragments, Context, Portals, Suspense, SSR, Error Boundaries and Asynchronous Rendering.
 - Built on TypeScript.
 - Webcomponent friendly
   - Implicit event delegation with Shadow DOM Retargeting
