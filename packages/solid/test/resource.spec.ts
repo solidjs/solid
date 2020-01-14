@@ -3,7 +3,8 @@ import {
   createSignal,
   createResource,
   createResourceState,
-  createEffect
+  createEffect,
+  onError
 } from "../src";
 
 describe("Simulate a dynamic fetch", () => {
@@ -12,7 +13,8 @@ describe("Simulate a dynamic fetch", () => {
     trigger: (v: number) => void,
     loading: () => boolean,
     load: (v: Promise<string> | undefined) => () => boolean,
-    value: () => string | undefined;
+    value: () => string | undefined,
+    error: string;
   function fetcher(id: number): Promise<string> | undefined {
     return !!id
       ? new Promise<string>((r, f) => {
@@ -27,9 +29,11 @@ describe("Simulate a dynamic fetch", () => {
       const [id, setId] = createSignal(1);
       [value, load] = createResource<string>();
       trigger = setId;
+      onError(e => (error = e));
       createEffect(() => {
         loading = load(fetcher(id()));
       });
+      createEffect(value);
     });
     expect(value()).toBeUndefined();
     expect(loading()).toBe(true);
@@ -59,7 +63,7 @@ describe("Simulate a dynamic fetch", () => {
     expect(loading()).toBe(true);
     reject("Because I said so");
     await Promise.resolve();
-    await Promise.resolve();
+    expect(error).toBe("Because I said so");
     expect(loading()).toBe(false);
     done();
   });
@@ -75,12 +79,11 @@ describe("Simulate a dynamic fetch with state", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: number) => void,
-    loading: () => boolean,
+    loading: { [k: number]: boolean },
     load: (
-      k: number,
-      v: Promise<string> | string | undefined,
+      v: { [k: number]: Promise<string> | string },
       r?: (v: any) => (state: any) => void
-    ) => () => boolean,
+    ) => { [k: number]: boolean },
     setUsers: Function,
     users: any;
   function fetcher(): Promise<string> {
@@ -99,23 +102,23 @@ describe("Simulate a dynamic fetch with state", () => {
       trigger = setId;
       createEffect(() => {
         const i = id();
-        if (i === 5) return (loading = load(5, "Jordan"));
-        loading = load(i, fetcher());
+        if (i === 5) return (loading = load({ 5: "Jordan" }));
+        loading = load({ [i]: fetcher() });
       });
     });
     expect(users[1]).toBeUndefined();
-    expect(loading()).toBe(true);
+    expect(loading[1]).toBe(true);
     resolve("John");
     await Promise.resolve();
     await Promise.resolve();
     expect(users[1]).toBe("John");
-    expect(loading()).toBe(false);
+    expect(loading[1]).toBe(false);
     done();
   });
 
   test("test multiple loads", async done => {
     trigger(2);
-    expect(loading()).toBe(true);
+    expect(loading[2]).toBe(true);
     const resolve1 = resolve;
     trigger(3);
     const resolve2 = resolve;
@@ -124,24 +127,23 @@ describe("Simulate a dynamic fetch with state", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(users[3]).toBe("Jake");
-    expect(loading()).toBe(false);
+    expect(loading[3]).toBe(false);
     done();
   });
 
   test("promise rejection", async done => {
     trigger(4);
-    expect(loading()).toBe(true);
+    expect(loading[4]).toBe(true);
     reject("Because I said so");
     await Promise.resolve();
     await Promise.resolve();
-    await Promise.resolve();
-    expect(loading()).toBe(false);
+    expect(loading[4]).toBe(false);
     done();
   });
 
   test("direct value", () => {
     trigger(5);
-    expect(loading()).toBe(false);
+    expect(loading[5]).toBe(false);
     expect(users[5]).toBe("Jordan");
   });
 
@@ -154,7 +156,7 @@ describe("Simulate a dynamic fetch with state", () => {
     const reconcile = (v: any) => (state: any) => {
       state[6] = v[6] + "l";
     };
-    load(6, new Promise(r => r("Jerry")), reconcile);
+    load({ 6: new Promise(r => r("Jerry")) }, reconcile);
     await Promise.resolve();
     await Promise.resolve();
     expect(users[6]).toBe("Jerryl");
@@ -162,7 +164,7 @@ describe("Simulate a dynamic fetch with state", () => {
   });
 });
 
-describe("using Context with no root", () => {
+describe("using Resource with no root", () => {
   test("loads default value", () => {
     expect(() => {
       const [, load] = createResource<string>();

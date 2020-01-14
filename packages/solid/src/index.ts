@@ -7,6 +7,7 @@ export {
   createMemo,
   isListening,
   onCleanup,
+  onError,
   sample,
   freeze,
   createContext,

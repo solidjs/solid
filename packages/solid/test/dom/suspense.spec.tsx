@@ -74,7 +74,7 @@ describe("Testing Suspense with State", () => {
     disposer: () => void;
   const ChildComponent = (props: { name: string }) => {
       const [state, load] = createResourceState({ greeting: "" });
-      load("greeting", new Promise(r => setTimeout(() => r("Hey"), 300)));
+      load({ greeting: new Promise(r => setTimeout(() => r("Hey"), 300)) });
       return <>{`${state.greeting}, ${props.name}`}</>;
     },
     Component = () => (

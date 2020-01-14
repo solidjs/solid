@@ -7,8 +7,7 @@ import {
   createSignal,
   isListening,
   Context,
-  DataNode,
-  equalFn
+  DataNode
 } from "./signal";
 
 import {
@@ -16,7 +15,6 @@ import {
   wrap,
   unwrap,
   isWrappable,
-  NotWrappable,
   getDataNodes,
   SNODE,
   SPROXY,
@@ -85,24 +83,27 @@ export function createResource<T>(): [
 ] {
   const [s, set] = createSignal<T | undefined>(),
     [trackPromise, triggerPromise] = createSignal<void>(),
-    [loading, setLoading] = createSignal(false, equalFn),
+    [loading, setLoading] = createSignal(false),
     contexts = new Set<SuspenseContextType>();
   let resolved = false,
+    error: any = null,
     pr: Promise<T> | undefined;
 
-  function loadEnd(v: T | undefined) {
+  function loadEnd(v: T | undefined, wasRunning: boolean) {
     pr = undefined;
     resolved = true;
     freeze(() => {
       set(v);
-      setLoading(false);
+      wasRunning && setLoading(false);
       for (let c of contexts.keys()) c.decrement!();
       contexts.clear();
     });
   }
 
   function read() {
-    const c = useContext(SuspenseContext);
+    const c = useContext(SuspenseContext),
+      v = s();
+    if (error) throw error;
     if (!resolved && !pr) {
       load(generatePlaceholderPromise((p: Promise<T>) => p === pr));
     }
@@ -111,26 +112,31 @@ export function createResource<T>(): [
       c.increment();
       contexts.add(c);
     }
-    return s();
+    return v;
   }
   function load(p: Promise<T> | T | undefined) {
     const running = !!pr;
+    error = null;
     if (p == null || typeof p !== "object" || !("then" in p)) {
       pr = undefined;
-      loadEnd(p);
+      loadEnd(p, running);
     } else {
       pr = p;
       if (!running) {
         setLoading(true);
         triggerPromise();
       }
-      p.then(v => {
-        if (pr !== p) return;
-        loadEnd(v);
-      }).catch(() => {
-        if (pr !== p) return;
-        loadEnd(undefined);
-      });
+      p.then(
+        v => {
+          if (pr !== p) return;
+          loadEnd(v, true);
+        },
+        err => {
+          if (pr !== p) return;
+          error = err;
+          loadEnd(undefined, true);
+        }
+      );
     }
 
     return loading;
@@ -181,40 +187,48 @@ const resourceTraps = {
 };
 
 type LoadStateFunction<T> = {
-  <A extends keyof T>(
-    key: A,
-    promise?: Promise<T[A]> | T[A],
+  (
+    v: { [P in keyof T]: Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: Wrapped<T>) => void
-  ): () => boolean;
+  ): { [P in keyof T]: boolean };
 };
 
 export function createResourceState<T extends StateNode>(
   state: T | Wrapped<T>
 ): [Wrapped<T>, LoadStateFunction<T>, SetStateFunction<T>] {
-  const unwrappedState = unwrap<T>(state || {});
-  const wrappedState = wrap<T>(unwrappedState, resourceTraps);
+  const unwrappedState = unwrap<T>(state || {}),
+    wrappedState = wrap<T>(unwrappedState, resourceTraps),
+    loading = {};
   function setState(...args: any[]): void {
     freeze(() => updatePath(unwrappedState, args));
   }
   function loadState(
-    k: keyof T,
-    p?: Promise<T[keyof T]> | T[keyof T],
+    v: { [P in keyof T]: Promise<T[P]> | T[P] },
     r?: (v: Partial<T>) => (state: Wrapped<T>) => void
   ) {
     const nodes = getDataNodes(unwrappedState),
-      node = nodes[k] || (nodes[k] = createResourceNode()),
-      resolver = (v?: T[keyof T]) => (
-        r
-          ? setState(r({ [k]: v } as Partial<T>))
-          : setProperty(unwrappedState, k as string | number, v),
-        v
-      );
-    return node.load(
-      p && typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p)
-    );
+      keys = Object.keys(v);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i],
+        p = v[k],
+        node = nodes[k] || (nodes[k] = createResourceNode()),
+        resolver = (v?: T[keyof T]) => (
+          r
+            ? setState(r({ [k]: v } as Partial<T>))
+            : setProperty(unwrappedState, k as string | number, v),
+          v
+        ),
+        l = node.load(
+          p && typeof p === "object" && "then" in p
+            ? p.then(resolver)
+            : resolver(p)
+        );
+      !(k in loading) && Object.defineProperty(loading, k, { get() { return l(); } })
+    }
+    return loading;
   }
 
-  return [wrappedState, loadState, setState];
+  return [wrappedState, loadState as LoadStateFunction<T>, setState];
 }
 
 interface ComponentType<T> {

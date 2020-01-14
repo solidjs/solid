@@ -3,6 +3,7 @@
 import { requestCallback, Task } from "./scheduler";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
+const ERROR = Symbol("error");
 
 // Public interface
 export function createRoot<T>(
@@ -27,6 +28,10 @@ export function createRoot<T>(
 
   try {
     result = fn(disposer);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
   } finally {
     Listener = listener;
     Owner = owner;
@@ -159,16 +164,28 @@ export function sample<T>(fn: () => T): T {
 
 export function onCleanup(fn: (final: boolean) => void): void {
   if (Owner === null)
-    console.warn("cleanups created outside a `createRoot` or `render` will never be run");
+    console.warn(
+      "cleanups created outside a `createRoot` or `render` will never be run"
+    );
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
+}
+
+export function onError(fn: (err: any) => void): void {
+  if (Owner === null)
+    console.warn(
+      "error handlers created outside a `createRoot` or `render` will never be run"
+    );
+  else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
+  else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
+  else Owner.context[ERROR].push(fn);
 }
 
 export function isListening() {
   return Listener !== null;
 }
 
-// context API
+// Context API
 export interface Context<T> {
   id: symbol;
   Provider: (props: { value: T; children: any }) => any;
@@ -472,6 +489,10 @@ function event() {
   RootClock.time++;
   try {
     run(RootClock);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
   } finally {
     RunningClock = Listener = null;
     Owner = owner;
@@ -490,6 +511,10 @@ function toplevelComputation<T>(node: ComputationNode<any>) {
       RootClock.time++;
       run(RootClock);
     }
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
   } finally {
     RunningClock = Owner = Listener = null;
   }
@@ -699,6 +724,7 @@ function cleanupNode(node: ComputationNode<any>, final: boolean) {
     }
     node.cleanups = null;
   }
+  node.context = null;
 
   if (owned !== null) {
     for (i = 0; i < owned.length; i++) {

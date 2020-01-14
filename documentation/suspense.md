@@ -186,7 +186,7 @@ export default const UserPanel = props => {
   let [user, load] = createResource(),
     isLoading;
   createEffect(() => {
-    isLoading = load(() => props.userId && fetchUser(props.userId));
+    isLoading = load(props.userId && fetchUser(props.userId));
   })
 
   return <div>
@@ -213,14 +213,14 @@ const fetchUser = id =>
 
 export default const UserPanel = props => {
   let [user, load] = createResourceState(),
-    isLoading;
+    loading;
   createEffect(() => {
-    isLoading = load("user", () => props.userId && fetchUser(props.userId));
+    loading = load({ user: props.userId && fetchUser(props.userId) });
   })
 
   return <div>
     <Switch fallback={"Failed to load User"}>
-      <Match when={isLoading()}>Loading...</Match>
+      <Match when={loading.user}>Loading...</Match>
       <Match when={state.user}>
         <h1>{state.user.name}</h1>
         <ul>
@@ -245,8 +245,7 @@ It is important to note that Suspense is tracked based on data requirements of t
 ```jsx
 // start loading data before any part of the page is executed.
 const [state, load] = createResourceState()
-load("user",  /* fetch user*/);
-load("posts", /* fetch posts*/);
+load({user: fetchUser(), posts: fetchPosts()});
 
 function ProfilePage() {
   return (
