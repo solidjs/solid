@@ -375,8 +375,15 @@ class Queue<T> {
   run(fn: (item: T) => void) {
     let items = this.items;
     for (let i = 0; i < this.count; i++) {
-      fn(items[i]!);
-      items[i] = null!;
+      try {
+        const item = items[i];
+        items[i] = null!;
+        fn(item!);
+      } catch (err) {
+        const fns = lookup(Owner, ERROR);
+        if (!fns) throw err;
+        fns.forEach((f: (err: any) => void) => f(err));
+      }
     }
     this.count = 0;
   }
@@ -489,10 +496,6 @@ function event() {
   RootClock.time++;
   try {
     run(RootClock);
-  } catch (err) {
-    const fns = lookup(Owner, ERROR);
-    if (!fns) throw err;
-    fns.forEach((f: (err: any) => void) => f(err));
   } finally {
     RunningClock = Listener = null;
     Owner = owner;
