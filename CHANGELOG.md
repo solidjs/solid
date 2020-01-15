@@ -1,4 +1,11 @@
 # Changelog
+## 0.16.0 - 2020-01-14
+Big changes to core experimental features:
+* New resource API `createResource` and `createResourceState` to replace `loadResource`. These are built to prioritize read capabilities and simplify implementation.
+* Support for Async SSR `renderToString` now returns a promise. Uses Suspense to know when it is done.
+* Progressive Hydration with code splitting support. Ability to track events and replay as hydration completes to reduce "uncanny valley". Components can be lazily loaded even during hydration. **No support for async data on hydration yet**, so render it from server and load into state synchronously.
+* New error boundary api with `onError`. If an error occurs in context or child context the nearest handler/s will be called.
+* Deprecating the `force` `setState` modifier as it is confusing.
 
 ## 0.15.0 - 2019-12-16
 A lot fixes and new features:

@@ -77,15 +77,15 @@ function generatePlaceholderPromise<T>(
   ));
 }
 
-export function createResource<T>(): [
+export function createResource<T>(value?: T): [
   () => T | undefined,
   (p?: Promise<T>) => () => boolean
 ] {
-  const [s, set] = createSignal<T | undefined>(),
+  const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
     [loading, setLoading] = createSignal(false),
     contexts = new Set<SuspenseContextType>();
-  let resolved = false,
+  let resolved = value !== undefined,
     error: any = null,
     pr: Promise<T> | undefined;
 
@@ -144,10 +144,10 @@ export function createResource<T>(): [
   return [read, load];
 }
 
-function createResourceNode() {
+function createResourceNode(v: any) {
   // maintain setState capability by using normal data node as well
   const node = new DataNode(),
-    [read, load] = createResource();
+    [read, load] = createResource(v);
   return {
     current: () => (read(), node.current()),
     next: node.next,
@@ -171,7 +171,7 @@ const resourceTraps = {
         node.current();
       }
       nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createResourceNode());
+      node = nodes[property] || (nodes[property] = createResourceNode(value));
       node.current();
     }
     return wrappable ? wrap(value) : value;
@@ -211,7 +211,7 @@ export function createResourceState<T extends StateNode>(
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i],
         p = v[k],
-        node = nodes[k] || (nodes[k] = createResourceNode()),
+        node = nodes[k] || (nodes[k] = createResourceNode(unwrappedState[k])),
         resolver = (v?: T[keyof T]) => (
           r
             ? setState(r({ [k]: v } as Partial<T>))
