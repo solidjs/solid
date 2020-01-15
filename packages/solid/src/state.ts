@@ -1,8 +1,8 @@
 import { isListening, DataNode, freeze } from "./signal";
-const SNODE = Symbol("state-node"),
+export const SNODE = Symbol("state-node"),
   SPROXY = Symbol("state-proxy");
 
-type StateNode = {
+export type StateNode = {
   [SNODE]?: any;
   [SPROXY]?: any;
   [k: string]: any;
@@ -71,8 +71,13 @@ type StatePath<T> =
       StatePathPart,
       StateSetter<unknown>
     ];
-function wrap<T extends StateNode>(value: T): Wrapped<T> {
-  return value[SPROXY] || (value[SPROXY] = new Proxy(value, proxyTraps));
+export function wrap<T extends StateNode>(
+  value: T,
+  traps?: ProxyHandler<T>
+): Wrapped<T> {
+  return (
+    value[SPROXY] || (value[SPROXY] = new Proxy(value, traps || proxyTraps))
+  );
 }
 
 export function isWrappable(obj: any) {
@@ -105,7 +110,7 @@ export function unwrap<T extends StateNode>(item: any): T {
   return item;
 }
 
-function getDataNodes(target: StateNode) {
+export function getDataNodes(target: StateNode) {
   let nodes = target[SNODE];
   if (!nodes) target[SNODE] = nodes = {};
   return nodes;
@@ -189,7 +194,7 @@ function mergeState(
   }
 }
 
-function updatePath(
+export function updatePath(
   current: StateNode,
   path: any[],
   traversed: (number | string)[] = []
@@ -215,14 +220,22 @@ function updatePath(
       // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
       for (let i = 0; i < current.length; i++) {
         if (part(current[i], i))
-          updatePath(current, [i].concat(path), ([i] as (number|string)[]).concat(traversed));
+          updatePath(
+            current,
+            [i].concat(path),
+            ([i] as (number | string)[]).concat(traversed)
+          );
       }
       return;
     } else if (isArray && partType === "object") {
       // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
       const { from = 0, to = current.length - 1, by = 1 } = part;
       for (let i = from; i <= to; i += by) {
-        updatePath(current, [i].concat(path), ([i] as (number|string)[]).concat(traversed));
+        updatePath(
+          current,
+          [i].concat(path),
+          ([i] as (number | string)[]).concat(traversed)
+        );
       }
       return;
     } else if (path.length > 1) {
@@ -250,7 +263,7 @@ function updatePath(
   } else setProperty(current, part, value);
 }
 
-interface SetStateFunction<T> {
+export interface SetStateFunction<T> {
   (update: StateSetter<T>): void;
   <A extends keyof T>(part: A, update: StateSetter<T[A]>): void;
   (...path: StatePath<T>): void;
@@ -269,7 +282,9 @@ export function createState<T extends StateNode>(
 }
 
 // force state merge change even if value hasn't changed
-export function force<T>(value: T | Wrapped<T>): (state: T extends NotWrappable ? T : Wrapped<T>) => void {
+export function force<T>(
+  value: T | Wrapped<T>
+): (state: T extends NotWrappable ? T : Wrapped<T>) => void {
   return state => {
     if (!isWrappable(state)) return value;
     mergeState(unwrap(state), value, true);

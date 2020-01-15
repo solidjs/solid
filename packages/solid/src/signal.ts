@@ -3,6 +3,7 @@
 import { requestCallback, Task } from "./scheduler";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
+const ERROR = Symbol("error");
 
 // Public interface
 export function createRoot<T>(
@@ -27,6 +28,10 @@ export function createRoot<T>(
 
   try {
     result = fn(disposer);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
   } finally {
     Listener = listener;
     Owner = owner;
@@ -71,7 +76,7 @@ export function createDependentEffect<T>(
 ) {
   const resolved = Array.isArray(deps) ? callAll(deps) : deps;
   defer = !!defer;
-  createEffect<T>((value: T | undefined) => {
+  createComputationNode<T>(value => {
     const listener = Listener;
     resolved();
     if (defer) defer = false;
@@ -115,16 +120,16 @@ export function createDeferred<T>(
 ) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const [delayed, setDelayed] = createSignal(fn());
+  const [deferred, setDeferred] = createSignal(fn());
   createEffect(() => {
     fn();
     if (!t || !t.fn)
       t = requestCallback(
-        () => setDelayed(fn()),
+        () => setDeferred(fn()),
         timeout !== undefined ? { timeout } : undefined
       );
   });
-  return delayed;
+  return deferred;
 }
 
 export function freeze<T>(fn: () => T): T {
@@ -159,16 +164,28 @@ export function sample<T>(fn: () => T): T {
 
 export function onCleanup(fn: (final: boolean) => void): void {
   if (Owner === null)
-    console.warn("cleanups created outside a `createRoot` or `render` will never be run");
+    console.warn(
+      "cleanups created outside a `createRoot` or `render` will never be run"
+    );
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
+}
+
+export function onError(fn: (err: any) => void): void {
+  if (Owner === null)
+    console.warn(
+      "error handlers created outside a `createRoot` or `render` will never be run"
+    );
+  else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
+  else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
+  else Owner.context[ERROR].push(fn);
 }
 
 export function isListening() {
   return Listener !== null;
 }
 
-// context API
+// Context API
 export interface Context<T> {
   id: symbol;
   Provider: (props: { value: T; children: any }) => any;
@@ -358,8 +375,15 @@ class Queue<T> {
   run(fn: (item: T) => void) {
     let items = this.items;
     for (let i = 0; i < this.count; i++) {
-      fn(items[i]!);
-      items[i] = null!;
+      try {
+        const item = items[i];
+        items[i] = null!;
+        fn(item!);
+      } catch (err) {
+        const fns = lookup(Owner, ERROR);
+        if (!fns) throw err;
+        fns.forEach((f: (err: any) => void) => f(err));
+      }
     }
     this.count = 0;
   }
@@ -490,6 +514,10 @@ function toplevelComputation<T>(node: ComputationNode<any>) {
       RootClock.time++;
       run(RootClock);
     }
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
   } finally {
     RunningClock = Owner = Listener = null;
   }
@@ -699,6 +727,7 @@ function cleanupNode(node: ComputationNode<any>, final: boolean) {
     }
     node.cleanups = null;
   }
+  node.context = null;
 
   if (owned !== null) {
     for (i = 0; i < owned.length; i++) {

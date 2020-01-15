@@ -30,7 +30,11 @@ Creates a new effect that explicitly tracks dependencies. The 2nd optional argum
 
 ### `onCleanup((final: boolean) => <code>)`
 
-Registers a cleanup method that performs that executes on disposal or recalculation of the current context.
+Registers a cleanup methodthat executes on disposal or recalculation of the current context.
+
+### `onError((err: any) => <code>)`
+
+Registers a error handler method that executes when child context errors. Only nearest context error handlers execute. Rethrow to trigger up the line.
 
 ### `afterEffects(() => <code>)`
 
@@ -56,7 +60,7 @@ Hook to grab context to allow for deep passing of props with hierarchal resoluti
 
 Used to lazy load components to allow for things like code splitting and Suspense.
 
-### `loadResource(() => <Promise>): { value, error, loading, failedAttempts, reload }`
+### `load(() => <Promise>, value => void, (error, failedAttempts) => boolean | undefined): [loading, reload]`
 
 Creates a memo that updates when promise is resolved. It tracks dependency changes to retrigger. This works with the Suspend control flow.
 

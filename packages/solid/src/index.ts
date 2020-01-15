@@ -7,6 +7,7 @@ export {
   createMemo,
   isListening,
   onCleanup,
+  onError,
   sample,
   freeze,
   createContext,
@@ -21,5 +22,6 @@ export { reconcile } from "./reconcile";
 
 export * from "./array";
 export * from "./component";
-export * from "./suspense";
+export * from "./resource";
 export * from "./scheduler";
+export { runtimeConfig } from "./shared";

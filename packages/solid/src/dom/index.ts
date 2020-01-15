@@ -1,13 +1,15 @@
 export * from "./runtime";
 export * from "./Suspense";
-import { insert, hydration, renderToString as rTS } from "./runtime";
+import { insert, hydrate as hydr, renderToString as rTS } from "./runtime";
 import {
   createRoot,
+  createEffect,
   createMemo,
   onCleanup,
   sample,
   mapArray,
   awaitSuspense,
+  SuspenseContext,
   equalFn
 } from "../index.js";
 
@@ -24,9 +26,23 @@ export function render(code: () => any, element: MountableElement): () => void {
 
 /* istanbul ignore next */
 export function renderToString(
-  code: () => any
-): string {
-  return createRoot(() => rTS(code))
+  code: () => any,
+  options: {
+    timeoutMs?: number;
+  }
+): Promise<string> {
+  return createRoot(dispose =>
+    rTS(done => {
+      const rendered = code();
+      createEffect(() => {
+        if (!SuspenseContext.active!()) {
+          dispose();
+          done!();
+        }
+      });
+      return rendered;
+    }, options)
+  );
 }
 
 /* istanbul ignore next */
@@ -35,7 +51,7 @@ export function hydrate(
   element: MountableElement
 ): () => void {
   let disposer: () => void;
-  hydration(() => {
+  hydr(() => {
     disposer = render(code, element);
   }, element);
   return disposer!;
@@ -49,7 +65,7 @@ export function For<T, U>(props: {
   each: T[];
   fallback?: any;
   transform?: (mapped: () => U[]) => () => U[];
-  children: (item: T, index: number) => U;
+  children: (item: T) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback },
     mapped = awaitSuspense(

@@ -2,9 +2,9 @@ import {
   lazy,
   createSignal,
   createEffect,
-  loadResource,
+  createResource,
+  createResourceState,
   sample,
-  Resource,
   useTransition
 } from "../../src";
 import { render, Suspense, SuspenseList } from "../../src/dom";
@@ -13,37 +13,24 @@ describe("Testing a Suspense", () => {
   let div = document.createElement("div"),
     disposer: () => void,
     resolvers: Function[] = [],
-    [triggered, trigger] = createSignal(false),
-    reloader: (delay: number) => void;
+    [triggered, trigger] = createSignal(false);
   const LazyComponent = lazy<typeof ChildComponent>(
       () => new Promise(r => resolvers.push(r))
     ),
     ChildComponent = (props: { greeting: string }) => {
-      let result: Resource<unknown>;
+      let [value, load] = createResource<string>();
       createEffect(
         () =>
           triggered() &&
-          (result = loadResource(() => new Promise(r => setTimeout(r, 300)))) &&
-          sample(() => result.value)
+          load(new Promise(r => setTimeout(() => r("Hey"), 300))) &&
+          sample(value)
       );
       return props.greeting;
-    },
-    ChildComponent2 = () => {
-      let result: Resource<string> = loadResource(
-        () => new Promise(r => setTimeout(() => r("Finally"), 300))
-      );
-      reloader = result.reload;
-      return <>{result.value}</>;
     },
     Component = () => (
       <Suspense fallback="Loading">
         <LazyComponent greeting="Hi, " />
         <LazyComponent greeting="Jo" />
-      </Suspense>
-    ),
-    Component2 = () => (
-      <Suspense fallback="Loading">
-        <ChildComponent2 />
       </Suspense>
     );
 
@@ -61,7 +48,7 @@ describe("Testing a Suspense", () => {
   });
 
   test("Toggle with delayed fallback", done => {
-    const [start] = useTransition({ timeoutMs: 100 });
+    const [, start] = useTransition({ timeoutMs: 100 });
     start(() => trigger(true));
     expect(div.innerHTML).toBe("Hi, Jo");
     setTimeout(() => {
@@ -80,22 +67,36 @@ describe("Testing a Suspense", () => {
     div.innerHTML = "";
     disposer();
   });
+});
 
-  test("multi trigger resource", done => {
-    disposer = render(Component2, div);
+describe("Testing Suspense with State", () => {
+  let div = document.createElement("div"),
+    disposer: () => void;
+  const ChildComponent = (props: { name: string }) => {
+      const [state, load] = createResourceState({ greeting: "" });
+      load({ greeting: new Promise(r => setTimeout(() => r("Hey"), 300)) });
+      return <>{`${state.greeting}, ${props.name}`}</>;
+    },
+    Component = () => (
+      <Suspense fallback="Loading">
+        <ChildComponent name="Jo!" />
+        <ChildComponent name="Jacob!" />
+      </Suspense>
+    );
+
+  test("Create suspend control flow", done => {
+    disposer = render(Component, div);
     expect(div.innerHTML).toBe("Loading");
     setTimeout(() => {
-      expect(div.innerHTML).toBe("Finally");
-      reloader(0);
-      expect(div.innerHTML).toBe("Loading");
-      setTimeout(() => {
-        expect(div.innerHTML).toBe("Finally");
-        done();
-      }, 400);
+      expect(div.innerHTML).toBe("Hey, Jo!Hey, Jacob!");
+      done();
     }, 400);
   });
 
-  test("dispose", () => disposer());
+  test("dispose", () => {
+    div.innerHTML = "";
+    disposer();
+  });
 });
 
 describe("SuspenseList", () => {
@@ -107,16 +108,19 @@ describe("SuspenseList", () => {
       });
     },
     A = () => {
-      const r = loadResource(() => promiseFactory(200, "A"));
-      return <div>{r.value}</div>;
+      const [value, load] = createResource<string>();
+      load(promiseFactory(200, "A"));
+      return <div>{value}</div>;
     },
     B = () => {
-      const r = loadResource(() => promiseFactory(100, "B"));
-      return <div>{r.value}</div>;
+      const [value, load] = createResource<string>();
+      load(promiseFactory(100, "B"));
+      return <div>{value}</div>;
     },
     C = () => {
-      const r = loadResource(() => promiseFactory(300, "C"));
-      return <div>{r.value}</div>;
+      const [value, load] = createResource<string>();
+      load(promiseFactory(300, "C"));
+      return <div>{value}</div>;
     };
 
   test("revealOrder together", done => {
@@ -339,12 +343,18 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+    expect(div.innerHTML).toBe(
+      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+    );
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+      );
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+      );
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -373,12 +383,18 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+    expect(div.innerHTML).toBe(
+      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+    );
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
+      );
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
+      expect(div.innerHTML).toBe(
+        "<div>A</div><div>B</div><div>Loading 3</div>"
+      );
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");

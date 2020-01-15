@@ -1,9 +1,10 @@
 import { Attributes, SVGAttributes, NonComposedEvents } from 'dom-expressions';
-import { createEffect as wrap, sample as ignore, getContextOwner as currentContext } from '../index.js';
+import { createEffect as wrap, sample as ignore, getContextOwner as currentContext, runtimeConfig as sharedConfig } from '../index.js';
 
 
 
 const eventRegistry = new Set();
+const config = sharedConfig;
 
 export { wrap, currentContext };
 
@@ -51,10 +52,10 @@ export function classList(node, value, prev) {
   }
 }
 
-export function spread(node, accessor, isSVG) {
+export function spread(node, accessor, isSVG, skipChildren) {
   if (typeof accessor === 'function') {
-    wrap(current => spreadExpression(node, accessor(), current, isSVG));
-  } else spreadExpression(node, accessor, undefined, isSVG);
+    wrap(current => spreadExpression(node, accessor(), current, isSVG, skipChildren));
+  } else spreadExpression(node, accessor, undefined, isSVG, skipChildren);
 }
 
 export function insert(parent, accessor, marker, initial) {
@@ -69,47 +70,48 @@ export function insert(parent, accessor, marker, initial) {
 }
 
 // SSR
-let hydrateRegistry = null,
-  hydrateKey = 0,
-  synchronous = false;
-
-export function isSynchronous() { return synchronous; }
-export function renderToString(code) {
-  hydrateKey = 0;
-  synchronous = true;
+export function renderToString(code, options = {}) {
+  options = { timeoutMs: 10000, ...options }
+  config.hydrate = { id: '', count: 0 };
   const container = document.createElement("div");
-  insert(container, code());
-  synchronous = false;
-  return container.innerHTML;
-}
-
-export function hydration(code, root) {
-  hydrateRegistry = new Map();
-  hydrateKey = 0;
-  const iterator = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-    acceptNode: node => node.hasAttribute('_hk') && NodeFilter.FILTER_ACCEPT
+  return new Promise(resolve => {
+    setTimeout(() => resolve(container.innerHTML), options.timeoutMs);
+    if (!code.length) {
+      insert(container, code());
+      resolve(container.innerHTML);
+    } else insert(container, code(() => resolve(container.innerHTML)));
   });
-  let node;
-  while (node = iterator.nextNode()) hydrateRegistry.set(node.getAttribute('_hk'), node);
-
-  code();
-  hydrateRegistry = null;
 }
 
-export function getNextElement(template) {
-  if (!hydrateRegistry) {
+export function hydrate(code, root) {
+  config.hydrate = { id: '', count: 0, registry: new Map() };
+  const templates = root.querySelectorAll(`*[_hk]`);
+  for (let i = 0; i < templates.length; i++) {
+    const node = templates[i];
+    config.hydrate.registry.set(node.getAttribute('_hk'), node);
+  }
+  code();
+  delete config.hydrate;
+}
+
+export function getNextElement(template, isSSR) {
+  const hydrate = config.hydrate;
+  let node, key;
+  if (!hydrate || !hydrate.registry || !(node = hydrate.registry.get(key = `${hydrate.id}:${hydrate.count++}`))) {
     const el = template.cloneNode(true);
-    if (synchronous) el.setAttribute('_hk', `${hydrateKey++}`);
+    if (isSSR && hydrate)
+      el.setAttribute('_hk', `${hydrate.id}:${hydrate.count++}`);
     return el;
   }
-  return hydrateRegistry.get(`${hydrateKey++}`);
+  if (window && window._$HYDRATION) window._$HYDRATION.completed.add(key);
+  return node;
 }
 
 export function getNextMarker(start) {
   let end = start,
     count = 0,
     current = [];
-  if (hydrateRegistry) {
+  if (config.hydrate && config.hydrate.registry) {
     while (end) {
       if (end.nodeType === 8) {
         const v = end.nodeValue;
@@ -124,6 +126,18 @@ export function getNextMarker(start) {
     }
   }
   return [end, current];
+}
+
+export function runHydrationEvents(id) {
+  if (window && window._$HYDRATION) {
+    const { completed, events } = window._$HYDRATION;
+    while (events.length) {
+      const [id, e] = events[0];
+      if (!completed.has(id)) return;
+      eventHandler(e);
+      events.shift();
+    }
+  }
 }
 
 // Internal Functions
@@ -167,9 +181,9 @@ function eventHandler(e) {
   }
 }
 
-function spreadExpression(node, props, prevProps = {}, isSVG) {
+function spreadExpression(node, props, prevProps = {}, isSVG, skipChildren) {
   let info;
-  if ("children" in props) {
+  if (!skipChildren && "children" in props) {
     wrap(() =>
       (prevProps.children = insertExpression(
         node,
@@ -282,12 +296,14 @@ function insertExpression(parent, value, current, marker) {
       } else current = parent.textContent = value;
     }
   } else if (value == null || t === 'boolean') {
+    if (config.hydrate && config.hydrate.registry) return current;
     current = cleanChildren(parent, current, marker);
   } else if (t === 'function') {
     wrap(() => current = insertExpression(parent, value(), current, marker));
 
   } else if (Array.isArray(value)) {
     const array = normalizeIncomingArray([], value);
+    if (config.hydrate && config.hydrate.registry) return current;
     if (array.length === 0) {
       current = cleanChildren(parent, current, marker);
       if (multi) return current;

@@ -8,7 +8,8 @@ import {
   freeze,
   sample,
   onCleanup,
-  afterEffects
+  afterEffects,
+  onError
 } from "../src";
 
 describe("Create signals", () => {
@@ -162,6 +163,122 @@ describe("onCleanup", () => {
     expect(temp).toBeUndefined();
     disposer!();
     expect(temp).toBe("disposed");
+  });
+});
+
+describe("onError", () => {
+  test("No Handler", () => {
+    expect(() =>
+      createRoot(() => {
+        throw "fail";
+      })
+    ).toThrow("fail");
+  });
+  test("Top level", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        onError(() => (errored = true));
+        throw "fail";
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
+
+  test("In initial effect", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        createEffect(() => {
+          onError(() => (errored = true));
+          throw "fail";
+        });
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
+
+  test("With multiple error handlers", () => {
+    let errored = false;
+    let errored2 = false;
+    expect(() =>
+      createRoot(() => {
+        createEffect(() => {
+          onError(() => (errored = true));
+          onError(() => (errored2 = true));
+          throw "fail";
+        });
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+    expect(errored2).toBe(true);
+  });
+
+  test("In update effect", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        const [s, set] = createSignal(0);
+        createEffect(() => {
+          const v = s();
+          onError(() => (errored = true));
+          if (v) throw "fail";
+        });
+        set(1);
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
+
+  test("In initial nested effect", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        createEffect(() => {
+          createEffect(() => {
+            onError(() => (errored = true));
+            throw "fail";
+          });
+        });
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
+
+  test("In nested update effect", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        const [s, set] = createSignal(0);
+        createEffect(() => {
+          createEffect(() => {
+            const v = s();
+            onError(() => (errored = true));
+            if (v) throw "fail";
+          });
+        });
+        set(1);
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
+
+  test("In nested update effect different levels", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        const [s, set] = createSignal(0);
+        createEffect(() => {
+          onError(() => (errored = true));
+          createEffect(() => {
+            const v = s();
+            if (v) throw "fail";
+          });
+        });
+        set(1);
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
   });
 });
 

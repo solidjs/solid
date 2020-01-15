@@ -27,6 +27,7 @@ function Deferred(props) {
   </Deferred>
 </>;
 ```
+
 Solid does include a scheduler similar to React's Concurrent Mode scheduler which allows work to be scheduled in idle frames. The easiest way to leverage it is to use `createDeferred` which creates a memo that will only be read as the cpu is available.
 
 ```jsx
@@ -43,7 +44,7 @@ function App() {
       <MySlowList text={deferredText()} />
     </div>
   );
- }
+}
 ```
 
 ## Placeholders & Transitions
@@ -93,7 +94,7 @@ import { Suspense } from "solid-js/dom";
 function App() {
   const [state, setState] = createState({ activeTab: 1 }),
     // delay showing fallback for up to 500ms
-    [startTransition, isPending] = useTransition({ timeoutMs: 500 });
+    [isPending, startTransition] = useTransition({ timeoutMs: 500 });
 
   return (
     <>
@@ -173,41 +174,30 @@ const App = () => {
 
 ## Data Loading
 
-The other supported use of Suspense currently is a more general promise resolver, `loadResource`. `loadResource` accepts reactive function expression that returns a promise and returns a state object with properties:
-
-- value - the resolved data from the promise
-- error - the error from the promise rejection
-- loading - a boolean indicator to whether the promise is currently executing
-- reload - a function to retry the request after ms;
-- failedAttempts - count of consecutive failed requests;
-
-`loadResource` can be used independent of Suspense if desired. The reactive form is where the power of this method resides, as you can retrigger promise execution on reactive updates, and there is built in promise cancellation. In example below as the `userId` prop updates the API will be queried.
+Solid ships with two resource containers to handle async loading. One is a signal created by `createResource` and the other a state object created by `createResourceState`.
 
 ```jsx
-import { loadResource, createEffect } from "solid-js";
+import { createResource } from "solid-js";
 
 const fetchUser = id =>
   fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
 
 export default const UserPanel = props => {
-  const result = loadResource(() => props.userId && fetchUser(props.userId));
-  // retry up to 3 times with linear backoff
+  let [user, load] = createResource(),
+    isLoading;
   createEffect(() => {
-    if (result.error && result.failedAttempts <= 3) {
-      result.reload(result.failedAttempts * 500);
-    }
+    isLoading = load(props.userId && fetchUser(props.userId));
   })
 
   return <div>
-    <Switch>
-      <Match when={result.loading}>Loading...</Match>
-      <Match when={result.error}>Error: {result.error}</Match>
-      <Match when={result.value}>
-        <h1>{result.value.name}</h1>
+    <Switch fallback={"Failed to load User"}>
+      <Match when={isLoading()}>Loading...</Match>
+      <Match when={user()}>
+        <h1>{user().name}</h1>
         <ul>
-          <li>Height: {result.value.height}</li>
-          <li>Mass: {result.value.mass}</li>
-          <li>Birth Year: {result.value.birth_year}</li>
+          <li>Height: {user().height}</li>
+          <li>Mass: {user().mass}</li>
+          <li>Birth Year: {user().birthYear}</li>
         </ul>
       </Match>
     </Switch>
@@ -215,17 +205,47 @@ export default const UserPanel = props => {
 }
 ```
 
-This examples handles the different states. However, you could have Suspense handle the loading state for you instead by wrapping with the `Suspense` Component.
+```jsx
+import { createResourceState } from "solid-js";
+
+const fetchUser = id =>
+  fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
+
+export default const UserPanel = props => {
+  let [user, load] = createResourceState(),
+    loading;
+  createEffect(() => {
+    loading = load({ user: props.userId && fetchUser(props.userId) });
+  })
+
+  return <div>
+    <Switch fallback={"Failed to load User"}>
+      <Match when={loading.user}>Loading...</Match>
+      <Match when={state.user}>
+        <h1>{state.user.name}</h1>
+        <ul>
+          <li>Height: {state.user.height}</li>
+          <li>Mass: {state.user.mass}</li>
+          <li>Birth Year: {state.user.birthYear}</li>
+        </ul>
+      </Match>
+    </Switch>
+  </div>
+}
+```
+
+These examples handle the different loading states. However, you can expand this example to use Suspense instead by wrapping with the `Suspense` Component.
 
 > **For React Users:** At the time of writing this React has not completely settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
 
 ## Render as you Fetch
 
-It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is inacted when a child of a Suspense Component accesses the `value` property on the resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
+It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is inacted when a child of a Suspense Component accesses a Resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
 
 ```jsx
 // start loading data before any part of the page is executed.
-const resource = loadResource(() => /* fetch user & posts */);
+const [state, load] = createResourceState()
+load({user: fetchUser(), posts: fetchPosts()});
 
 function ProfilePage() {
   return (
@@ -240,14 +260,14 @@ function ProfilePage() {
 
 function ProfileDetails() {
   // Try to read user info, although it might not have loaded yet
-  return <h1>{resource.value.user.name}</h1>;
+  return <h1>{state.user && state.user.name}</h1>;
 }
 
 function ProfileTimeline() {
   // Try to read posts, although they might not have loaded yet
   return (
     <ul>
-      <For each={resource.value.posts}>{post => (
+      <For each={state.posts}>{post => (
         <li key={post.id}>{post.text}</li>
       )}</For>
     </ul>
@@ -262,15 +282,15 @@ render(ProfilePage, document.body);
 Sometimes you have multiple `Suspense` Components you wish to coordinate. Sure you could put everything under a single `Suspense` but that limits us to a single loading behavior. A single fallback state and everything always needs to wait until the last thing is loaded. Instead we introduce the `SuspenseList` Component to coordinate. Consider:
 
 ```jsx
-function ProfilePage() {
+function ProfilePage(props) {
   return (
     <>
       <ProfileDetails />
       <Suspense fallback={<h1>Loading posts...</h1>}>
-        <ProfileTimeline />
+        <ProfileTimeline feed={props.feed} />
       </Suspense>
       <Suspense fallback={<h2>Loading fun facts...</h2>}>
-        <ProfileTrivia resource={resource} />
+        <ProfileTrivia facts={props.facts} />
       </Suspense>
     </>
   );

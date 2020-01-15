@@ -6,7 +6,7 @@ describe("Observable operator", () => {
     createRoot(() => {
       let out: string;
       const [s, set] = createSignal("Hi"),
-        obsv$ = observable(s);
+        obsv$ = observable<string>(s);
 
       obsv$.subscribe({ next: v => (out = v) });
       expect(out).toBe("Hi");
