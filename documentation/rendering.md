@@ -14,6 +14,12 @@ More documentation is available at: [babel-plugin-jsx-dom-expressions](https://g
 
 Static attributes are created as part of the html template together. Expressions fixed and dynamic are applied afterwards in JSX binding order. While this is fine for most DOM elements there are some like input elements with `type='range'` where order matters. Keep this in mind when binding elements.
 
+### Note on forms
+
+Solid expects the UI to reflect its state. This means updating state on form actions. Failing to do so can cause unexpected behavior as setting state to the same value will not trigger an update even if the DOM value has diverged. In general it is recommended you handle forms in this "controlled" manner.
+
+In some cases it might make sense to manage the form state outside of Solid via refs. These "uncontrolled" forms can also work. Just be conscious of the difference as mixing approaches can lead to unexpected results.
+
 ## Entry
 
 The easiest way to mount Solid is to import render from 'solid-js/dom'. `render` takes a function as the first argument and the mounting container for the second and returns a disposal method. This `render` automatically creates the reactive root and handles rendering into the mount container. Solid assumes full control of the mount container so use an element with no children.
