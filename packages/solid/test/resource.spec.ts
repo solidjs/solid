@@ -162,6 +162,20 @@ describe("Simulate a dynamic fetch with state", () => {
     expect(users[6]).toBe("Jerryl");
     done();
   });
+
+  test("setState tracked", () => {
+    createRoot(() => {
+      let runs = 0;
+      createEffect(() => {
+        users[7]
+        runs++
+      })
+      expect(runs).toBe(1);
+      setUsers({7: "Jimbo"});
+      expect(users[7]).toBe("Jimbo");
+      expect(runs).toBe(2);
+    })
+  });
 });
 
 describe("using Resource with no root", () => {

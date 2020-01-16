@@ -150,7 +150,7 @@ function createResourceNode(v: any) {
     [read, load] = createResource(v);
   return {
     current: () => (read(), node.current()),
-    next: node.next,
+    next: node.next.bind(node),
     load
   };
 }
