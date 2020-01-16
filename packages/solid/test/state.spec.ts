@@ -82,10 +82,7 @@ describe("Simple setState modes", () => {
       ]
     });
     setState("todos", 1, { done: true });
-    setState("todos", [
-      ...state.todos,
-      { id: 3, title: "Go Home", done: false }
-    ]);
+    setState("todos", [...state.todos, { id: 3, title: "Go Home", done: false }]);
     expect(Array.isArray(state.todos)).toBe(true);
     expect(state.todos[1].done).toBe(true);
     expect(state.todos[2].title).toBe("Go Home");

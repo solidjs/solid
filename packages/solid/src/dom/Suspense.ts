@@ -36,10 +36,7 @@ export function SuspenseList(props: {
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) {
-    const [state, stateSetter] = createSignal<SuspenseState>(
-      "running",
-      equalFn
-    );
+    const [state, stateSetter] = createSignal<SuspenseState>("running", equalFn);
     suspenseSetter = stateSetter;
     [showContent, showFallback] = listContext.register(state);
   }
@@ -115,8 +112,7 @@ export function Suspense(props: { fallback: any; children: any }) {
           if (!store.initializing) {
             if (SuspenseContext.transition) {
               state = "suspended";
-              !transition &&
-                (transition = SuspenseContext.transition).increment();
+              !transition && (transition = SuspenseContext.transition).increment();
               t = setTimeout(
                 () => ((state = "fallback"), next()),
                 SuspenseContext.transition.timeoutMs
@@ -148,8 +144,7 @@ export function Suspense(props: { fallback: any; children: any }) {
 
   // SuspenseList support
   const listContext = useContext(SuspenseListContext);
-  if (listContext)
-    [showContent, showFallback] = listContext.register(store.state);
+  if (listContext) [showContent, showFallback] = listContext.register(store.state);
 
   return createComponent(
     SuspenseContext.Provider,

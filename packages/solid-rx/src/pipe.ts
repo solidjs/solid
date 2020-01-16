@@ -2,10 +2,7 @@ type Operator<T, U> = (seq: () => T) => () => U;
 
 export function pipe<T>(): Operator<T, T>;
 export function pipe<T, A>(fn1: Operator<T, A>): Operator<T, A>;
-export function pipe<T, A, B>(
-  fn1: Operator<T, A>,
-  fn2: Operator<A, B>
-): Operator<T, B>;
+export function pipe<T, A, B>(fn1: Operator<T, A>, fn2: Operator<A, B>): Operator<T, B>;
 export function pipe<T, A, B, C>(
   fn1: Operator<T, A>,
   fn2: Operator<A, B>,

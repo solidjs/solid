@@ -50,10 +50,7 @@ function customElement<T>(
     ComponentType = props as ComponentType<T>;
     props = {} as PropsDefinitionInput<T>;
   }
-  return register<T>(
-    tag,
-    props as PropsDefinitionInput<T>
-  )(withSolid(ComponentType!));
+  return register<T>(tag, props as PropsDefinitionInput<T>)(withSolid(ComponentType!));
 }
 
 export { withSolid, customElement };

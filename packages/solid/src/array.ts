@@ -27,8 +27,7 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
       disposers = [] as (() => void)[],
       len = 0;
     onCleanup(() => {
-      for (let i = 0, length = disposers.length; i < length; i++)
-        disposers[i]();
+      for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
     });
     return () => {
       let newItems = list() || [],

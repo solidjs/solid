@@ -1,10 +1,4 @@
-import {
-  mapArray,
-  reduceArray,
-  createSignal,
-  createMemo,
-  createRoot
-} from "../src";
+import { mapArray, reduceArray, createSignal, createMemo, createRoot } from "../src";
 
 describe("Reduce operator", () => {
   test("simple addition", () => {
@@ -31,10 +25,7 @@ describe("Reduce operator", () => {
   test("filter list", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        filterOdd = reduceArray(
-          (m: number[], v: number) => (v % 2 ? [...m, v] : m),
-          []
-        ),
+        filterOdd = reduceArray((m: number[], v: number) => (v % 2 ? [...m, v] : m), []),
         r = createMemo(filterOdd(s));
       expect(r()).toEqual([1, 3]);
       set([3, 4, 5]);

@@ -15,10 +15,11 @@ describe("From operator", () => {
 
   test("from interval", done => {
     createRoot(dispose => {
-      let i = 0, disposed = false;
+      let i = 0,
+        disposed = false;
       const signal = from<number>(set => {
         const n = setInterval(() => set(++i), 20);
-        return () => (disposed = true, clearInterval(n));
+        return () => ((disposed = true), clearInterval(n));
       });
       expect(signal()).toBeUndefined();
       expect(disposed).toBe(false);
@@ -26,7 +27,7 @@ describe("From operator", () => {
       setTimeout(() => expect(signal()).toBe(2), 55);
       setTimeout(() => {
         expect(signal()).toBe(3);
-        dispose()
+        dispose();
         expect(disposed).toBe(true);
         done();
       }, 75);

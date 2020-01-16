@@ -10,7 +10,7 @@ describe("Testing a simple Portal", () => {
     disposer = render(Component, div);
     expect(div.innerHTML).toBe("");
     expect((testMount.firstChild as HTMLDivElement).innerHTML).toBe("Hi");
-    expect((testMount.firstChild as HTMLDivElement & {host: HTMLElement}).host).toBe(div);
+    expect((testMount.firstChild as HTMLDivElement & { host: HTMLElement }).host).toBe(div);
   });
 
   test("dispose", () => disposer());

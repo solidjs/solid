@@ -14,28 +14,19 @@ function applyState(
 ) {
   let previous = parent[property];
   if (target === previous) return;
-  if (
-    !isWrappable(target) ||
-    !isWrappable(previous) ||
-    (key && target[key] !== previous[key])
-  ) {
+  if (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key])) {
     target !== previous && setProperty(parent, property, target);
     return;
   }
 
   if (Array.isArray(target)) {
-    if (
-      target.length &&
-      previous.length &&
-      (!merge || (key && target[0][key] != null))
-    ) {
+    if (target.length && previous.length && (!merge || (key && target[0][key] != null))) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
       // common prefix
       for (
         start = 0, end = Math.min(previous.length, target.length);
         start < end &&
-        (previous[start] === target[start] ||
-          (key && previous[start][key] === target[start][key]));
+        (previous[start] === target[start] || (key && previous[start][key] === target[start][key]));
         start++
       ) {
         applyState(target[start], previous, start, merge, key);
@@ -48,8 +39,7 @@ function applyState(
         end = previous.length - 1, newEnd = target.length - 1;
         end >= start &&
         newEnd >= start &&
-        (previous[end] === target[newEnd] ||
-          (key && previous[end][key] === target[newEnd][key]));
+        (previous[end] === target[newEnd] || (key && previous[end][key] === target[newEnd][key]));
         end--, newEnd--
       ) {
         temp[newEnd] = previous[end];
@@ -62,8 +52,7 @@ function applyState(
           setProperty(previous, j, temp[j]);
           applyState(target[j], previous, j, merge, key);
         }
-        if (previous.length > target.length)
-          setProperty(previous, "length", target.length);
+        if (previous.length > target.length) setProperty(previous, "length", target.length);
         return;
       }
 
@@ -99,8 +88,7 @@ function applyState(
         applyState(target[i], previous, i, merge, key);
       }
     }
-    if (previous.length > target.length)
-      setProperty(previous, "length", target.length);
+    if (previous.length > target.length) setProperty(previous, "length", target.length);
     return;
   }
 
@@ -110,8 +98,7 @@ function applyState(
   }
   const previousKeys = Object.keys(previous);
   for (let i = 0, len = previousKeys.length; i < len; i++) {
-    if (target[previousKeys[i]] === undefined)
-      setProperty(previous, previousKeys[i], undefined);
+    if (target[previousKeys[i]] === undefined) setProperty(previous, previousKeys[i], undefined);
   }
 }
 

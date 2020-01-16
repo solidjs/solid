@@ -9,10 +9,10 @@ export function map<T, U>(input: any, fn?: (v: T) => U): any {
   }
   return map(input);
 
-  function map(input: () => T){
+  function map(input: () => T) {
     return () => {
       const value = input();
       return sample(() => fn!(value));
-    }
+    };
   }
 }

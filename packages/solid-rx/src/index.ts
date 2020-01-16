@@ -9,4 +9,4 @@ export { pairwise } from "./pairwise";
 export { pipe } from "./pipe";
 export { scan } from "./scan";
 export { tap } from "./tap";
-export { transform } from "./transform"
+export { transform } from "./transform";

@@ -25,9 +25,7 @@ let taskIdCounter = 1,
   deadline = 0,
   maxYieldInterval = 300,
   scheduleCallback: (() => void) | null = null,
-  scheduledCallback:
-    | ((hasTimeRemaining: boolean, initialTime: number) => boolean)
-    | null = null;
+  scheduledCallback: ((hasTimeRemaining: boolean, initialTime: number) => boolean) | null = null;
 
 const maxSigned31BitInt = 1073741823;
 /* istanbul ignore next */
@@ -122,10 +120,7 @@ function enqueue(taskQueue: Task[], task: Task) {
   taskQueue.splice(findIndex(), 0, task);
 }
 
-export function requestCallback(
-  fn: () => void,
-  options?: { timeout: number }
-): Task {
+export function requestCallback(fn: () => void, options?: { timeout: number }): Task {
   if (!scheduleCallback) setupScheduler();
   let startTime = performance.now(),
     timeout = maxSigned31BitInt;
@@ -169,10 +164,7 @@ function workLoop(hasTimeRemaining: boolean, initialTime: number) {
   let currentTime = initialTime;
   currentTask = taskQueue[0] || null;
   while (currentTask !== null) {
-    if (
-      currentTask.expirationTime > currentTime &&
-      (!hasTimeRemaining || shouldYieldToHost!())
-    ) {
+    if (currentTask.expirationTime > currentTime && (!hasTimeRemaining || shouldYieldToHost!())) {
       // This currentTask hasn't expired, and we've reached the deadline.
       break;
     }

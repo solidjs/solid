@@ -10,10 +10,10 @@ export function scan<T, U>(input: any, fn: any, seed?: U): any {
   }
   return scan(input);
 
-  function scan(input: () => T){
+  function scan(input: () => T) {
     return () => {
       const value = input();
-      return sample(() => seed = fn(seed, value));
-    }
+      return sample(() => (seed = fn(seed, value)));
+    };
   }
 }

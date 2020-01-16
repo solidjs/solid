@@ -14,6 +14,6 @@ export function tap<T>(input: any, fn?: any): any {
       const value = input();
       sample(() => fn(value));
       return value;
-    }
+    };
   }
 }

@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createMemo } from "solid-js";
-import { delay } from "../src"
+import { delay } from "../src";
 
 describe("Delay operator", () => {
   test("simple delay", done => {

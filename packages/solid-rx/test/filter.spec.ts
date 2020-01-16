@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createMemo, createEffect } from "solid-js";
-import { filter } from "../src"
+import { filter } from "../src";
 
 describe("Filter operator", () => {
   test("simple filter", () => {
@@ -10,7 +10,7 @@ describe("Filter operator", () => {
       createEffect(() => {
         r();
         executions++;
-      })
+      });
       expect(r()).toBe(0);
       expect(executions).toBe(1);
       set(1);
@@ -37,7 +37,7 @@ describe("Filter operator", () => {
       createEffect(() => {
         r();
         executions++;
-      })
+      });
       expect(r()).toBe(0);
       expect(executions).toBe(1);
       set(1);

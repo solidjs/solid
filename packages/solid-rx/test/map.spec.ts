@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createMemo } from "solid-js";
-import { map } from "../src"
+import { map } from "../src";
 
 describe("Map operator", () => {
   test("simple map", () => {

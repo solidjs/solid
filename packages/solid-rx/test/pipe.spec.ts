@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createMemo } from "solid-js";
-import { pipe } from "../src"
+import { pipe } from "../src";
 
 describe("Pipe operator", () => {
   const multiply = (m: number) => (s: () => number) => () => s() * m;

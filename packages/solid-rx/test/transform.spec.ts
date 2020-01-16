@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createMemo } from "solid-js";
-import { transform } from "../src"
+import { transform } from "../src";
 
 describe("Transform operator", () => {
   const multiply = (m: number) => (s: () => number) => () => s() * m;

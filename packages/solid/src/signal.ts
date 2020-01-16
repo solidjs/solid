@@ -52,9 +52,7 @@ export function createSignal<T>(
       if (!areEqual(v, value!)) {
         const time = RootClock.time;
         if (time === age) {
-          throw new Error(
-            `Conflicting value update: ${v} is not the same as ${value}`
-          );
+          throw new Error(`Conflicting value update: ${v} is not the same as ${value}`);
         }
         age = time;
         value = v;
@@ -114,20 +112,14 @@ export function createMemo<T>(
   };
 }
 
-export function createDeferred<T>(
-  fn: () => T,
-  options?: { timeoutMs: number }
-) {
+export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
   const [deferred, setDeferred] = createSignal(fn());
   createEffect(() => {
     fn();
     if (!t || !t.fn)
-      t = requestCallback(
-        () => setDeferred(fn()),
-        timeout !== undefined ? { timeout } : undefined
-      );
+      t = requestCallback(() => setDeferred(fn()), timeout !== undefined ? { timeout } : undefined);
   });
   return deferred;
 }
@@ -164,18 +156,14 @@ export function sample<T>(fn: () => T): T {
 
 export function onCleanup(fn: (final: boolean) => void): void {
   if (Owner === null)
-    console.warn(
-      "cleanups created outside a `createRoot` or `render` will never be run"
-    );
+    console.warn("cleanups created outside a `createRoot` or `render` will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
 }
 
 export function onError(fn: (err: any) => void): void {
   if (Owner === null)
-    console.warn(
-      "error handlers created outside a `createRoot` or `render` will never be run"
-    );
+    console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
   else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
   else Owner.context[ERROR].push(fn);
@@ -230,9 +218,7 @@ export class DataNode {
       if (this.pending !== NOTPENDING) {
         // value has already been set once, check for conflicts
         if (value !== this.pending) {
-          throw new Error(
-            "conflicting changes: " + value + " !== " + this.pending
-          );
+          throw new Error("conflicting changes: " + value + " !== " + this.pending);
         }
       } else {
         // add to list of changes
@@ -273,10 +259,7 @@ type ComputationNode<T> = {
   cleanups: ((final: boolean) => void)[] | null;
 };
 
-function createComputationNode<T>(
-  fn: (v: T | undefined) => T,
-  value?: T
-): ComputationNode<T> {
+function createComputationNode<T>(fn: (v: T | undefined) => T, value?: T): ComputationNode<T> {
   const node: ComputationNode<T> = {
     fn,
     value,
@@ -303,9 +286,7 @@ function createComputationNode<T>(
     listener = Listener;
 
   if (owner === null)
-    console.warn(
-      "computations created outside a `createRoot` or `render` will never be disposed"
-    );
+    console.warn("computations created outside a `createRoot` or `render` will never be disposed");
 
   Owner = Listener = node;
 
@@ -412,22 +393,17 @@ function callAll(ss: (() => any)[]) {
 
 function lookup(owner: ComputationNode<any> | null, key: symbol | string): any {
   return (
-    owner &&
-    ((owner.context && owner.context[key]) ||
-      (owner.owner && lookup(owner.owner, key)))
+    owner && ((owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key)))
   );
 }
 
 function resolveChildren(children: any): any {
-  if (typeof children === "function")
-    return createMemo(() => resolveChildren(children()));
+  if (typeof children === "function") return createMemo(() => resolveChildren(children()));
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
       let result = resolveChildren(children[i]);
-      Array.isArray(result)
-        ? results.push.apply(results, result)
-        : results.push(result);
+      Array.isArray(result) ? results.push.apply(results, result) : results.push(result);
     }
     return results;
   }
@@ -448,8 +424,7 @@ function createProvider(id: symbol) {
 function logRead(from: Log) {
   let to = Listener!,
     fromslot: number,
-    toslot =
-      to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
+    toslot = to.source1 === null ? -1 : to.sources === null ? 0 : to.sources.length;
 
   if (from.node1 === null) {
     from.node1 = to;
@@ -530,11 +505,7 @@ function run(clock: Clock) {
   clock.disposes.reset();
 
   // for each batch ...
-  while (
-    clock.changes.count !== 0 ||
-    clock.updates.count !== 0 ||
-    clock.disposes.count !== 0
-  ) {
+  while (clock.changes.count !== 0 || clock.updates.count !== 0 || clock.disposes.count !== 0) {
     if (count > 0)
       // don't tick on first run, or else we expire already scheduled updates
       clock.time++;
@@ -640,11 +611,7 @@ function setDownstreamState(node: ComputationNode<any>, pending: boolean) {
   }
 }
 
-function markDownstreamComputations(
-  node: ComputationNode<any>,
-  onchange: boolean,
-  dirty: boolean
-) {
+function markDownstreamComputations(node: ComputationNode<any>, onchange: boolean, dirty: boolean) {
   const owned = node.owned;
   if (owned !== null) {
     const pending = onchange && !dirty;
@@ -652,17 +619,11 @@ function markDownstreamComputations(
   }
   const log = node.log;
   if (log !== null) {
-    setComputationState(
-      log,
-      dirty ? pendingStateStale : onchange ? statePending : stateStale
-    );
+    setComputationState(log, dirty ? pendingStateStale : onchange ? statePending : stateStale);
   }
 }
 
-function setComputationState(
-  log: Log,
-  stateFn: (v: ComputationNode<any>) => void
-) {
+function setComputationState(log: Log, stateFn: (v: ComputationNode<any>) => void) {
   const node1 = log.node1,
     nodes = log.nodes;
   if (node1 !== null) stateFn(node1);
@@ -673,11 +634,7 @@ function setComputationState(
   }
 }
 
-function markForDisposal(
-  children: ComputationNode<any>[],
-  pending: boolean,
-  time: number
-) {
+function markForDisposal(children: ComputationNode<any>[], pending: boolean, time: number) {
   for (let i = 0, ln = children.length; i < ln; i++) {
     const child = children[i];
     if (child !== null) {

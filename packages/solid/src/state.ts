@@ -13,9 +13,7 @@ export type StateNode = {
 type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
   ? { [Symbol.toPrimitive]: V }
   : {};
-type AddCallable<T> = T extends { (...x: any[]): infer V }
-  ? { (...x: Parameters<T>): V }
-  : {};
+type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
 
 export type NotWrappable = string | number | boolean | Function | null;
 export type Wrapped<T> = {
@@ -44,14 +42,7 @@ type StatePath<T> =
   | [keyof T, StatePathPart, StateSetter<unknown>]
   | [keyof T, StatePathPart, StatePathPart, StateSetter<unknown>]
   | [keyof T, StatePathPart, StatePathPart, StatePathPart, StateSetter<unknown>]
-  | [
-      keyof T,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StateSetter<unknown>
-    ]
+  | [keyof T, StatePathPart, StatePathPart, StatePathPart, StatePathPart, StateSetter<unknown>]
   | [
       keyof T,
       StatePathPart,
@@ -71,13 +62,8 @@ type StatePath<T> =
       StatePathPart,
       StateSetter<unknown>
     ];
-export function wrap<T extends StateNode>(
-  value: T,
-  traps?: ProxyHandler<T>
-): Wrapped<T> {
-  return (
-    value[SPROXY] || (value[SPROXY] = new Proxy(value, traps || proxyTraps))
-  );
+export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): Wrapped<T> {
+  return value[SPROXY] || (value[SPROXY] = new Proxy(value, traps || proxyTraps));
 }
 
 export function isWrappable(obj: any) {
@@ -122,10 +108,7 @@ const proxyTraps = {
     if (property === SPROXY || property === SNODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
-    if (
-      isListening() &&
-      (typeof value !== "function" || target.hasOwnProperty(property))
-    ) {
+    if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = new DataNode());
@@ -182,11 +165,7 @@ export function setProperty(
   notify && (node = nodes._) && node.next();
 }
 
-function mergeState(
-  state: StateNode,
-  value: Partial<StateNode>,
-  force?: boolean
-) {
+function mergeState(state: StateNode, value: Partial<StateNode>, force?: boolean) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
@@ -194,11 +173,7 @@ function mergeState(
   }
 }
 
-export function updatePath(
-  current: StateNode,
-  path: any[],
-  traversed: (number | string)[] = []
-) {
+export function updatePath(current: StateNode, path: any[], traversed: (number | string)[] = []) {
   let part,
     next = current;
   if (path.length > 1) {
@@ -209,33 +184,21 @@ export function updatePath(
     if (Array.isArray(part)) {
       // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
       for (let i = 0; i < part.length; i++) {
-        updatePath(
-          current,
-          [part[i]].concat(path),
-          [part[i]].concat(traversed)
-        );
+        updatePath(current, [part[i]].concat(path), [part[i]].concat(traversed));
       }
       return;
     } else if (isArray && partType === "function") {
       // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
       for (let i = 0; i < current.length; i++) {
         if (part(current[i], i))
-          updatePath(
-            current,
-            [i].concat(path),
-            ([i] as (number | string)[]).concat(traversed)
-          );
+          updatePath(current, [i].concat(path), ([i] as (number | string)[]).concat(traversed));
       }
       return;
     } else if (isArray && partType === "object") {
       // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
       const { from = 0, to = current.length - 1, by = 1 } = part;
       for (let i = from; i <= to; i += by) {
-        updatePath(
-          current,
-          [i].concat(path),
-          ([i] as (number | string)[]).concat(traversed)
-        );
+        updatePath(current, [i].concat(path), ([i] as (number | string)[]).concat(traversed));
       }
       return;
     } else if (path.length > 1) {
@@ -247,18 +210,12 @@ export function updatePath(
   }
   let value = path[0];
   if (typeof value === "function") {
-    const wrapped =
-      part === undefined || isWrappable(next)
-        ? new Proxy(next, setterTraps)
-        : next;
+    const wrapped = part === undefined || isWrappable(next) ? new Proxy(next, setterTraps) : next;
     value = value(wrapped, traversed);
     if (value === wrapped || value === undefined) return;
   }
   value = unwrap(value);
-  if (
-    part === undefined ||
-    (isWrappable(next) && isWrappable(value) && !Array.isArray(value))
-  ) {
+  if (part === undefined || (isWrappable(next) && isWrappable(value) && !Array.isArray(value))) {
     mergeState(next, value);
   } else setProperty(current, part, value);
 }

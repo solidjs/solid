@@ -23,7 +23,7 @@ describe("setState with reconcile", () => {
   });
 
   test("Reconcile a simple object on a nested path with no prev state", () => {
-    var [state, setState] = createState<{user?: {firstName: string, middleName: string}}>({});
+    var [state, setState] = createState<{ user?: { firstName: string; middleName: string } }>({});
     expect(state.user).toBeUndefined();
     setState("user", reconcile({ firstName: "Jake", middleName: "R" }));
     expect(state.user!.firstName).toBe("Jake");

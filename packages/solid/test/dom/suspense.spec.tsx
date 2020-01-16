@@ -14,16 +14,12 @@ describe("Testing a Suspense", () => {
     disposer: () => void,
     resolvers: Function[] = [],
     [triggered, trigger] = createSignal(false);
-  const LazyComponent = lazy<typeof ChildComponent>(
-      () => new Promise(r => resolvers.push(r))
-    ),
+  const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
       let [value, load] = createResource<string>();
       createEffect(
         () =>
-          triggered() &&
-          load(new Promise(r => setTimeout(() => r("Hey"), 300))) &&
-          sample(value)
+          triggered() && load(new Promise(r => setTimeout(() => r("Hey"), 300))) && sample(value)
       );
       return props.greeting;
     },
@@ -139,18 +135,12 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe(
-      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-    );
+    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -175,18 +165,12 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe(
-      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-    );
+    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>A</div><div>B</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -241,18 +225,12 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe(
-      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-    );
+    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>A</div><div>B</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -282,9 +260,7 @@ describe("SuspenseList", () => {
       expect(div.innerHTML).toBe("<div>Loading 1</div>");
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>A</div><div>B</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -343,18 +319,12 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe(
-      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-    );
+    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -383,18 +353,12 @@ describe("SuspenseList", () => {
         </SuspenseList>
       );
     const dispose = render(Comp, div);
-    expect(div.innerHTML).toBe(
-      "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-    );
+    expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
     }, 110);
     setTimeout(() => {
-      expect(div.innerHTML).toBe(
-        "<div>A</div><div>B</div><div>Loading 3</div>"
-      );
+      expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
     }, 210);
     setTimeout(() => {
       expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");

@@ -96,9 +96,7 @@ describe("Simulate a dynamic fetch with state", () => {
   test("initial async resource", async done => {
     createRoot(() => {
       const [id, setId] = createSignal(1);
-      [users, load, setUsers] = createResourceState<{ [id: number]: string }>(
-        {}
-      );
+      [users, load, setUsers] = createResourceState<{ [id: number]: string }>({});
       trigger = setId;
       createEffect(() => {
         const i = id();
@@ -167,14 +165,14 @@ describe("Simulate a dynamic fetch with state", () => {
     createRoot(() => {
       let runs = 0;
       createEffect(() => {
-        users[7]
-        runs++
-      })
+        users[7];
+        runs++;
+      });
       expect(runs).toBe(1);
-      setUsers({7: "Jimbo"});
+      setUsers({ 7: "Jimbo" });
       expect(users[7]).toBe("Jimbo");
       expect(runs).toBe(2);
-    })
+    });
   });
 });
 

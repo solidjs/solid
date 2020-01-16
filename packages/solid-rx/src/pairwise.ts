@@ -10,6 +10,6 @@ export function pairwise<T>(input?: any): any {
         result = [prevValue, value];
       prevValue = value;
       return result;
-    }
+    };
   }
 }

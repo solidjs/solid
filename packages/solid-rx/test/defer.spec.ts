@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createMemo } from "solid-js";
-import { defer } from "../src"
+import { defer } from "../src";
 
 describe("Defer operator", () => {
   test("simple defer", done => {

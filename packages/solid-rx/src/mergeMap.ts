@@ -17,6 +17,6 @@ export function mergeMap<T, U>(input: any, fn?: (v: T) => () => U): any {
     return () => {
       const m = mapped();
       return m ? m() : undefined;
-    }
+    };
   }
 }

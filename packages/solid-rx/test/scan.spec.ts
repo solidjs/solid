@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createMemo } from "solid-js";
-import { scan } from "../src"
+import { scan } from "../src";
 
 describe("Scan operator", () => {
   test("simple scan", () => {

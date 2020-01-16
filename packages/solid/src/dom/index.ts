@@ -46,10 +46,7 @@ export function renderToString(
 }
 
 /* istanbul ignore next */
-export function hydrate(
-  code: () => any,
-  element: MountableElement
-): () => void {
+export function hydrate(code: () => any, element: MountableElement): () => void {
   let disposer: () => void;
   hydr(() => {
     disposer = render(code, element);
@@ -69,13 +66,7 @@ export function For<T, U>(props: {
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback },
     mapped = awaitSuspense(
-      createMemo(
-        mapArray<T, U>(
-          () => props.each,
-          props.children,
-          fallback ? fallback : undefined
-        )
-      )
+      createMemo(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined))
     );
   return props.transform ? props.transform(mapped) : mapped;
 }
@@ -145,9 +136,7 @@ export function Portal(props: {
     marker = document.createTextNode(""),
     mount = props.mount || document.body,
     renderRoot =
-      useShadow && container.attachShadow
-        ? container.attachShadow({ mode: "open" })
-        : container;
+      useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
 
   Object.defineProperty(container, "host", {
     get() {

@@ -62,25 +62,20 @@ SuspenseContext.active = active;
 SuspenseContext.increment = increment;
 SuspenseContext.decrement = decrement;
 
-function generatePlaceholderPromise<T>(
-  isCancelled: (p: Promise<T>) => boolean
-) {
+function generatePlaceholderPromise<T>(isCancelled: (p: Promise<T>) => boolean) {
   let p: Promise<T>;
   return (p = new Promise<T>((res, rej) =>
     setTimeout(
       () => (
-        !isCancelled(p) &&
-          console.warn("Load not started for read resource by next task"),
-        rej()
+        !isCancelled(p) && console.warn("Load not started for read resource by next task"), rej()
       )
     )
   ));
 }
 
-export function createResource<T>(value?: T): [
-  () => T | undefined,
-  (p?: Promise<T>) => () => boolean
-] {
+export function createResource<T>(
+  value?: T
+): [() => T | undefined, (p?: Promise<T>) => () => boolean] {
   const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
     [loading, setLoading] = createSignal(false),
@@ -161,10 +156,7 @@ const resourceTraps = {
     if (property === SPROXY || property === SNODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
-    if (
-      isListening() &&
-      (typeof value !== "function" || target.hasOwnProperty(property))
-    ) {
+    if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = new DataNode());
@@ -218,12 +210,13 @@ export function createResourceState<T extends StateNode>(
             : setProperty(unwrappedState, k as string | number, v),
           v
         ),
-        l = node.load(
-          p && typeof p === "object" && "then" in p
-            ? p.then(resolver)
-            : resolver(p)
-        );
-      !(k in loading) && Object.defineProperty(loading, k, { get() { return l(); } })
+        l = node.load(p && typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p));
+      !(k in loading) &&
+        Object.defineProperty(loading, k, {
+          get() {
+            return l();
+          }
+        });
     }
     return loading;
   }
@@ -236,9 +229,7 @@ interface ComponentType<T> {
 }
 
 // lazy load a function component asynchronously
-export function lazy<T extends ComponentType<any>>(
-  fn: () => Promise<{ default: T }>
-): T {
+export function lazy<T extends ComponentType<any>>(fn: () => Promise<{ default: T }>): T {
   return ((props: any) => {
     const hydrating = runtimeConfig.hydrate && runtimeConfig.hydrate.registry,
       ctx = nextHydrateContext();
@@ -251,15 +242,11 @@ export function lazy<T extends ComponentType<any>>(
       p(fn().then(mod => mod.default));
     }
     let Comp: T | undefined;
-    return createMemo(
-      () => (Comp = s()) && sample(() => (setHydrateContext(ctx), Comp!(props)))
-    );
+    return createMemo(() => (Comp = s()) && sample(() => (setHydrateContext(ctx), Comp!(props))));
   }) as T;
 }
 
-export function useTransition(
-  config: SuspenseConfig
-): [() => boolean, (fn: () => any) => void] {
+export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () => any) => void] {
   const [pending, increment, decrement] = createActivityTracker();
   return [
     pending,
@@ -282,7 +269,5 @@ export function useTransition(
 export function awaitSuspense<T>(fn: () => T) {
   const { state } = useContext(SuspenseContext);
   let cached: T;
-  return state
-    ? () => (state() === "suspended" ? cached : (cached = fn()))
-    : fn;
+  return state ? () => (state() === "suspended" ? cached : (cached = fn())) : fn;
 }
