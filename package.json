@@ -25,13 +25,12 @@
     "report:coverage": "lerna run report:coverage --parallel"
   },
   "devDependencies": {
-    "@babel/core": "7.8.0",
-    "@babel/preset-env": "7.8.0",
-    "@babel/preset-typescript": "^7.8.0",
-    "@types/jest": "^24.0.23",
-    "@types/requestidlecallback": "^0.3.1",
+    "@babel/core": "7.8.3",
+    "@babel/preset-env": "7.8.3",
+    "@babel/preset-typescript": "^7.8.3",
+    "@types/jest": "^24.9.0",
     "babel-jest": "^24.9.0",
-    "babel-plugin-jsx-dom-expressions": "~0.15.1",
+    "babel-plugin-jsx-dom-expressions": "~0.15.2",
     "coveralls": "^3.0.9",
     "dom-expressions": "0.15.0",
     "hyper-dom-expressions": "~0.15.0",
@@ -46,6 +45,6 @@
     "rollup-plugin-babel": "^4.3.3",
     "rollup-plugin-cleanup": "^3.1.1",
     "rollup-plugin-node-resolve": "^5.2.0",
-    "typescript": "^3.7.4"
+    "typescript": "^3.7.5"
   }
 }
