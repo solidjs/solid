@@ -119,11 +119,8 @@ export function createResource<T>(
       pr = p;
       if (!loading) {
         loading = true;
-        freeze(() => {
-          triggerLoading();
-          triggerPromise();
-        });
-      }
+        triggerLoading();
+      } else triggerPromise();
       p.then(
         v => {
           if (pr !== p) return;
