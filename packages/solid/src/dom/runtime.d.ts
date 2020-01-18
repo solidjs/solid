@@ -41,3 +41,4 @@ export function getNextElement(
   isSSR: boolean
 ): Node;
 export function getNextMarker(start: Node): [Node, Array<Node>];
+export function generateHydrationEventsScript(eventNames: string[]): string;

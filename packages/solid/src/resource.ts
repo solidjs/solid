@@ -78,18 +78,19 @@ export function createResource<T>(
 ): [() => T | undefined, (p?: Promise<T>) => () => boolean] {
   const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
-    [loading, setLoading] = createSignal(false),
+    [trackLoading, triggerLoading] = createSignal<void>(),
     contexts = new Set<SuspenseContextType>();
   let resolved = value !== undefined,
+    loading = false,
     error: any = null,
     pr: Promise<T> | undefined;
 
-  function loadEnd(v: T | undefined, wasRunning: boolean) {
+  function loadEnd(v: T | undefined) {
     pr = undefined;
     resolved = true;
     freeze(() => {
       set(v);
-      wasRunning && setLoading(false);
+      loading && ((loading = false), triggerLoading());
       for (let c of contexts.keys()) c.decrement!();
       contexts.clear();
     });
@@ -110,31 +111,33 @@ export function createResource<T>(
     return v;
   }
   function load(p: Promise<T> | T | undefined) {
-    const running = !!pr;
     error = null;
     if (p == null || typeof p !== "object" || !("then" in p)) {
       pr = undefined;
-      loadEnd(p, running);
+      loadEnd(p);
     } else {
       pr = p;
-      if (!running) {
-        setLoading(true);
-        triggerPromise();
+      if (!loading) {
+        loading = true;
+        freeze(() => {
+          triggerLoading();
+          triggerPromise();
+        });
       }
       p.then(
         v => {
           if (pr !== p) return;
-          loadEnd(v, true);
+          loadEnd(v);
         },
         err => {
           if (pr !== p) return;
           error = err;
-          loadEnd(undefined, true);
+          loadEnd(undefined);
         }
       );
     }
 
-    return loading;
+    return () => (trackLoading(), loading);
   }
   return [read, load];
 }

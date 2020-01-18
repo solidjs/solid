@@ -140,6 +140,12 @@ export function runHydrationEvents(id) {
   }
 }
 
+export function generateHydrationEventsScript(eventNames) {
+  return `!function(){function t(t){const e=function t(e){return e&&(e.getAttribute("_hk")||t(e.host&&e.host instanceof Node?e.host:e.parentNode))}(t.composedPath&&t.composedPath()[0]||t.target);e&&!window._$HYDRATION.completed.has(e)&&window._$HYDRATION.events.push([e,t])}window._$HYDRATION={events:[],completed:new Set},["${eventNames.join(
+    '","'
+  )}"].forEach(e=>document.addEventListener(e,t))}();`;
+}
+
 // Internal Functions
 function dynamicProp(props, key) {
   const src = props[key];
