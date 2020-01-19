@@ -54,6 +54,8 @@ export function hydrate(code: () => any, element: MountableElement): () => void 
   return disposer!;
 }
 
+export { createMemo as wrapMemo }
+
 export function wrapCondition<T>(fn: () => T): () => T {
   return createMemo(fn, undefined, equalFn);
 }

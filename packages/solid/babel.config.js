@@ -12,6 +12,7 @@ module.exports = {
             moduleName: "../../src/dom/index",
             contextToCustomElements: true,
             wrapConditionals: true,
+            wrapFragments: true,
             builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal"]
           }
         ]

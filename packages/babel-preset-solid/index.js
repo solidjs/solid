@@ -11,6 +11,7 @@ module.exports = function(context, options = {}) {
           delegateEvents: true,
           contextToCustomElements: true,
           wrapConditionals: true,
+          wrapFragments: true,
           generate: options.generate || "dom"
         }
       ]
