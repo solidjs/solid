@@ -62,9 +62,7 @@ export function insert(parent, accessor, marker, initial) {
   if (marker !== undefined && !initial) initial = [];
   if (typeof accessor === 'function')
     wrap((current = initial) => insertExpression(parent, accessor(), current, marker));
-  else if (Array.isArray(accessor) && checkDynamicArray(accessor)) {
-    wrap((current = initial) => insertExpression(parent, accessor, current, marker));
-  } else {
+  else {
     return insertExpression(parent, accessor, initial, marker);
   }
 }
@@ -240,7 +238,8 @@ function spreadExpression(node, props, prevProps = {}, isSVG, skipChildren) {
   return prevProps;
 }
 
-function normalizeIncomingArray(normalized, array) {
+function normalizeIncomingArray(normalized, array, unwrap) {
+  let dynamic = false;
   for (let i = 0, len = array.length; i < len; i++) {
     let item = array[i], t;
     if (item instanceof Node) {
@@ -248,15 +247,20 @@ function normalizeIncomingArray(normalized, array) {
     } else if (item == null || item === true || item === false) { // matches null, undefined, true or false
       // skip
     } else if (Array.isArray(item)) {
-      normalizeIncomingArray(normalized, item);
+      dynamic = dynamic || normalizeIncomingArray(normalized, item);
     } else if ((t = typeof item) === 'string') {
       normalized.push(document.createTextNode(item));
     } else if (t === 'function') {
-      const idx = item();
-      normalizeIncomingArray(normalized, Array.isArray(idx) ? idx : [idx]);
+      if (unwrap) {
+        const idx = item();
+        dynamic = dynamic || normalizeIncomingArray(normalized, Array.isArray(idx) ? idx : [idx]);
+      } else {
+        normalized.push(item);
+        dynamic = true;
+      }
     } else normalized.push(document.createTextNode(item.toString()));
   }
-  return normalized;
+  return dynamic;
 }
 
 function appendNodes(parent, array, marker) {
@@ -273,15 +277,7 @@ function cleanChildren(parent, current, marker, replacement) {
   return [node];
 }
 
-function checkDynamicArray(array) {
-  for (let i = 0, len = array.length; i < len; i++) {
-    const item = array[i];
-    if (Array.isArray(item) && checkDynamicArray(item) || typeof item === 'function') return true;
-  }
-  return false;
-}
-
-function insertExpression(parent, value, current, marker) {
+function insertExpression(parent, value, current, marker, unwrapArray) {
 
   if (value === current) return current;
   const t = typeof value,
@@ -308,7 +304,11 @@ function insertExpression(parent, value, current, marker) {
     wrap(() => current = insertExpression(parent, value(), current, marker));
 
   } else if (Array.isArray(value)) {
-    const array = normalizeIncomingArray([], value);
+    const array = [];
+    if (normalizeIncomingArray(array, value, unwrapArray)) {
+      wrap(() => current = insertExpression(parent, array, current, marker, true));
+      return current;
+    };
     if (config.hydrate && config.hydrate.registry) return current;
     if (array.length === 0) {
       current = cleanChildren(parent, current, marker);
