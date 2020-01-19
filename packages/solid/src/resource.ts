@@ -80,14 +80,12 @@ export function createResource<T>(
     [trackPromise, triggerPromise] = createSignal<void>(),
     [trackLoading, triggerLoading] = createSignal<void>(),
     contexts = new Set<SuspenseContextType>();
-  let resolved = value !== undefined,
-    loading = false,
+  let loading = value === undefined,
     error: any = null,
     pr: Promise<T> | undefined;
 
   function loadEnd(v: T | undefined) {
     pr = undefined;
-    resolved = true;
     freeze(() => {
       set(v);
       loading && ((loading = false), triggerLoading());
@@ -100,7 +98,7 @@ export function createResource<T>(
     const c = useContext(SuspenseContext),
       v = s();
     if (error) throw error;
-    if (!resolved && !pr) {
+    if (loading && !pr) {
       load(generatePlaceholderPromise((p: Promise<T>) => p === pr));
     }
     trackPromise();
@@ -119,8 +117,11 @@ export function createResource<T>(
       pr = p;
       if (!loading) {
         loading = true;
-        triggerLoading();
-      } else triggerPromise();
+        freeze(() => {
+          triggerLoading();
+          triggerPromise();
+        })
+      }
       p.then(
         v => {
           if (pr !== p) return;
