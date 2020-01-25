@@ -247,13 +247,13 @@ function normalizeIncomingArray(normalized, array, unwrap) {
     } else if (item == null || item === true || item === false) { // matches null, undefined, true or false
       // skip
     } else if (Array.isArray(item)) {
-      dynamic = dynamic || normalizeIncomingArray(normalized, item);
+      dynamic = normalizeIncomingArray(normalized, item) || dynamic;
     } else if ((t = typeof item) === 'string') {
       normalized.push(document.createTextNode(item));
     } else if (t === 'function') {
       if (unwrap) {
         const idx = item();
-        dynamic = dynamic || normalizeIncomingArray(normalized, Array.isArray(idx) ? idx : [idx]);
+        dynamic = normalizeIncomingArray(normalized, Array.isArray(idx) ? idx : [idx]) || dynamic;
       } else {
         normalized.push(item);
         dynamic = true;
@@ -278,7 +278,7 @@ function cleanChildren(parent, current, marker, replacement) {
 }
 
 function insertExpression(parent, value, current, marker, unwrapArray) {
-
+  if (typeof current === "function") current = current();
   if (value === current) return current;
   const t = typeof value,
     multi = marker !== undefined;
@@ -302,12 +302,12 @@ function insertExpression(parent, value, current, marker, unwrapArray) {
     current = cleanChildren(parent, current, marker);
   } else if (t === 'function') {
     wrap(() => current = insertExpression(parent, value(), current, marker));
-
+    return () => current;
   } else if (Array.isArray(value)) {
     const array = [];
     if (normalizeIncomingArray(array, value, unwrapArray)) {
       wrap(() => current = insertExpression(parent, array, current, marker, true));
-      return current;
+      return () => current;
     };
     if (config.hydrate && config.hydrate.registry) return current;
     if (array.length === 0) {

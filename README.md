@@ -190,7 +190,7 @@ Remember you still need to install the library separately for these to work.
 ## Related Projects
 
 - [Solid Element](https://github.com/ryansolid/solid/blob/master/packages/solid-element)
-  Extensions to Solid.js that add a Web Component wrapper and Hot Module Replacement.
+  Extensions to Solid.js that add a Web Component wrapper.
 - [Solid RX](https://github.com/ryansolid/solid/blob/master/packages/solid-rx)
   Functional Reactive Programming extensions to Solid.js.
 - [DOM Expressions](https://github.com/ryansolid/dom-expressions)
@@ -201,6 +201,8 @@ Remember you still need to install the library separately for these to work.
   Tagged Template Literal API for DOM Expressions.
 - [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions)
   HyperScript API for DOM Expressions.
+- [Solid Hot Loader](https://github.com/ryansolid/solid-hot-loader)
+  Webpack Loader for HMR for Solid Components.
 - [React Solid State](https://github.com/ryansolid/solid/blob/master/packages/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
 
