@@ -5,15 +5,14 @@ module.exports = function(context, options = {}) {
     plugins: [
       [
         jsxTransform,
-        {
+        Object.assign({
           moduleName: "solid-js/dom",
           builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal"],
           delegateEvents: true,
           contextToCustomElements: true,
           wrapConditionals: true,
-          wrapFragments: true,
-          generate: options.generate || "dom"
-        }
+          generate: "dom"
+        }, options)
       ]
     ]
   };
