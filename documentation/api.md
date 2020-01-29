@@ -28,6 +28,14 @@ Creates memo that only notifies downstream changes when the browser is idle. `ti
 
 Creates a new effect that explicitly tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
 
+### `createResource(initialValue): [getValueFn, loadFn]`
+
+Creates a new resource signal that can hold a async resource. Resources when read while loading trigger Suspense. The `loadFn` takes a promise whose resolved value is set in the resource.
+
+### `createResourceState(initialValue): [state, loadState, setState]`
+
+Creates a new Resource State object. Similar to normal state except each immediate property is a resource.
+
 ### `onCleanup((final: boolean) => <code>)`
 
 Registers a cleanup methodthat executes on disposal or recalculation of the current context.
@@ -60,10 +68,10 @@ Hook to grab context to allow for deep passing of props with hierarchal resoluti
 
 Used to lazy load components to allow for things like code splitting and Suspense.
 
-### `load(() => <Promise>, value => void, (error, failedAttempts) => boolean | undefined): [loading, reload]`
-
-Creates a memo that updates when promise is resolved. It tracks dependency changes to retrigger. This works with the Suspend control flow.
-
 ### `setDefaults(props, defaultProps): void`
 
 Sets default props for function components in case caller doesn't provide them.
+
+### `cloneProps(props): newProps`
+
+Clones the props object including reactive properties.
