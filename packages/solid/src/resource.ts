@@ -6,6 +6,7 @@ import {
   createMemo,
   createSignal,
   isListening,
+  afterEffects,
   Context,
   DataNode
 } from "./signal";
@@ -262,7 +263,7 @@ export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () =
       increment();
       fn();
       decrement();
-      SuspenseContext.transition = prevTransition;
+      afterEffects(() => SuspenseContext.transition = prevTransition);
     }
   ];
 }

@@ -1,10 +1,8 @@
-import { insert, createComponent } from "./runtime";
+import { createComponent } from "./runtime";
 import {
-  createRoot,
   createSignal,
   sample,
   SuspenseContext,
-  afterEffects,
   createEffect,
   createContext,
   useContext,
@@ -171,14 +169,6 @@ export function Suspense(props: { fallback: any; children: any }) {
           dispose = null;
           if ((value === "running" && visibleContent) || value === "suspended")
             return [marker, rendered];
-
-          afterEffects(() => {
-            if (value !== "fallback") return;
-            createRoot(disposer => {
-              dispose = disposer;
-              insert(doc.body, rendered);
-            });
-          });
           if (!visibleFallback) return [marker];
           return [marker, props.fallback];
         };

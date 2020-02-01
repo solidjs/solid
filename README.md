@@ -22,7 +22,6 @@ Solid is a declarative Javascript library for creating user interfaces. It does 
 - Webcomponent friendly
   - Implicit event delegation with Shadow DOM Retargeting
   - Shadow DOM Portals
-  - Custom Element friendly Suspense flow
 - Transparent debugging: a `<div>` is just a div.
 
 ## The Gist

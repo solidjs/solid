@@ -13,7 +13,8 @@ export {
   createContext,
   useContext,
   getContextOwner,
-  equalFn
+  equalFn,
+  afterEffects
 } from "./signal";
 
 export { createState, unwrap, force } from "./state";

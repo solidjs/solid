@@ -299,16 +299,40 @@ describe("createDeferred", () => {
 });
 
 describe("Trigger afterEffects", () => {
-  test("Queue up and execute in order", async done => {
+  test("Queue up and execute in order", () => {
     let result = "";
     createRoot(() => {
       afterEffects(() => (result += "Hello, "));
       afterEffects(() => (result += "John "));
       afterEffects(() => (result += "Smith!"));
+      expect(result).toBe("");
     });
-    expect(result).toBe("");
-    await Promise.resolve();
     expect(result).toBe("Hello, John Smith!");
-    done();
+  });
+
+  test("Test when frozen", () => {
+    let result = "";
+    createRoot(() => {
+      freeze(() => {
+        afterEffects(() => (result += "Hello, "));
+        afterEffects(() => (result += "John "));
+        expect(result).toBe("");
+      });
+      afterEffects(() => (result += "Smith!"));
+      expect(result).toBe("Hello, John");
+    });
+    expect(result).toBe("Hello, John Smith!");
+  });
+
+  test('Queue up and execute in reverse order when nested', () => {
+    let result = ''
+    createRoot(() => {
+      afterEffects(() => result += 'Smith!');
+      createEffect(() => {
+        afterEffects(() => result += 'John ');
+        createEffect(() => afterEffects(() => result += 'Hello, '))
+      })
+    });
+    expect(result).toBe('Hello, John Smith!');
   });
 });

@@ -1,7 +1,3 @@
-export function afterEffects(fn: () => void): void {
-  Promise.resolve().then(fn);
-}
-
 // Basic port modification of Reacts Scheduler: https://github.com/facebook/react/tree/master/packages/scheduler
 export interface Task {
   id: number;
