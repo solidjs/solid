@@ -30,7 +30,7 @@
     "@babel/preset-typescript": "^7.8.3",
     "@types/jest": "^24.9.0",
     "babel-jest": "^24.9.0",
-    "babel-plugin-jsx-dom-expressions": "~0.15.5",
+    "babel-plugin-jsx-dom-expressions": "~0.15.6",
     "coveralls": "^3.0.9",
     "dom-expressions": "0.15.4",
     "hyper-dom-expressions": "~0.15.0",
