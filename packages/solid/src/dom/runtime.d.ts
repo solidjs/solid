@@ -1,5 +1,5 @@
 export function template(html: string, isSVG?: boolean): Element;
-export function wrap<T>(fn: (prev?: T) => T): any;
+export function wrap<T>(fn: (prev?: T) => T, init?: T): any;
 export function wrapCondition(fn: () => any): () => any;
 export function insert(
   parent: Element | Document | ShadowRoot | DocumentFragment,

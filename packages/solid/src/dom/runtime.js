@@ -61,7 +61,7 @@ export function spread(node, accessor, isSVG, skipChildren) {
 export function insert(parent, accessor, marker, initial) {
   if (marker !== undefined && !initial) initial = [];
   if (typeof accessor !== 'function') return insertExpression(parent, accessor, initial, marker);
-  wrap((current = initial) => insertExpression(parent, accessor(), current, marker));
+  wrap(current => insertExpression(parent, accessor(), current, marker), initial);
 }
 
 // SSR
