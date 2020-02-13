@@ -99,15 +99,9 @@ function App() {
   return (
     <>
       <ul disabled={isPending()}>
-        <li onClick={() => startTransition(() => setState({ activeTab: 1 }))}>
-          Tab1
-        </li>
-        <li onClick={() => startTransition(() => setState({ activeTab: 2 }))}>
-          Tab2
-        </li>
-        <li onClick={() => startTransition(() => setState({ activeTab: 3 }))}>
-          Tab3
-        </li>
+        <li onClick={() => startTransition(() => setState({ activeTab: 1 }))}>Tab1</li>
+        <li onClick={() => startTransition(() => setState({ activeTab: 2 }))}>Tab2</li>
+        <li onClick={() => startTransition(() => setState({ activeTab: 3 }))}>Tab3</li>
       </ul>
       <Suspense fallback={<LoadingSpinner />}>
         <Switch>
@@ -244,8 +238,8 @@ It is important to note that Suspense is tracked based on data requirements of t
 
 ```jsx
 // start loading data before any part of the page is executed.
-const [state, load] = createResourceState()
-load({user: fetchUser(), posts: fetchPosts()});
+const [state, load] = createResourceState();
+load({ user: fetchUser(), posts: fetchPosts() });
 
 function ProfilePage() {
   return (
@@ -267,9 +261,7 @@ function ProfileTimeline() {
   // Try to read posts, although they might not have loaded yet
   return (
     <ul>
-      <For each={state.posts}>{post => (
-        <li key={post.id}>{post.text}</li>
-      )}</For>
+      <For each={state.posts}>{post => <li key={post.id}>{post.text}</li>}</For>
     </ul>
   );
 }
@@ -300,5 +292,17 @@ function ProfilePage(props) {
 If we wrap this with a `SuspenseList` configured with `revealOrder` of `forwards` they will render in the order they appear in the tree regardless of the order they load. This reduces page jumping around. You can set `revealOrder` to `backwards` and `together` as well, which reverse this order, or wait for all Suspense Components to load respectively. In addition there is a `tail` option that can be set to `hidden` or `collapsed`. This overrides the default behavior of showing all fallbacks, with either showing none or showing the next one in the direction set by `revealOrder`.
 
 A `SuspenseList` can contain other `SuspenseList`'s to create flowing tables or grids etc.
+
+```jsx
+<SuspenseList revealOrder="forwards" tail="collapsed">
+  <ProfileDetails />
+  <Suspense fallback={<h1>Loading posts...</h1>}>
+    <ProfileTimeline feed={props.feed} />
+  </Suspense>
+  <Suspense fallback={<h2>Loading fun facts...</h2>}>
+    <ProfileTrivia facts={props.facts} />
+  </Suspense>
+</SuspenseList>
+```
 
 > **For React Users:** Again this works a bit different than its React counterpart as it uses the Context API. In so nesting Suspense Components are perfectly fine. However, do not put them under dynamic areas like control flows as order is based on execution so conditional rendering can cause unpredictable behavior. Also unlike the current Suspense implication even if you are not seeing the "next" Suspense element they are all evaluated immediately on render. This unblocking behavior allows further downstream evaluation that currently does not happen in React.

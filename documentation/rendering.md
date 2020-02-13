@@ -38,7 +38,7 @@ If you need to use non-lowercase or hyphenated event names use the events bindin
 
 ## Control Flow
 
-While you could use a map function for loops they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods. Currently 'For', 'Show', 'Switch/Match', 'Suspense', 'SuspenseList', and 'Portal' are supported.
+While you could use a map function for loops they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods.
 
 ```jsx
 <ul>
@@ -53,6 +53,67 @@ While you could use a map function for loops they aren't optimized. While perhap
     )}
   </For>
 </ul>
+```
+
+Control flows can be imported from `solid-js/dom` but as a convenience the compiler will automatically import them.
+
+### For
+
+```jsx
+<For each={state.list} fallback={<div>Loading...</div>}>
+  {item => <div>{item}</div>}
+</For>
+```
+
+### Show
+
+```jsx
+<Show when={state.count > 0} fallback={<div>Loading...</div>}>
+  <div>My Content</div>
+</Show>
+```
+
+### Switch
+
+```jsx
+<Switch fallback={<div>Not Found</div>}>
+  <Match when={state.route === "home"}>
+    <Home />
+  </Match>
+  <Match when={state.route === "settings"}>
+    <Settings />
+  </Match>
+</Switch>
+```
+
+### Portal
+
+```jsx
+<Portal mount={document.getElementById("modal")}>
+  <div>My Content</div>
+</Portal>
+```
+
+### Suspense
+
+```jsx
+<Suspense fallback={<div>Loading...</div>}>
+  <AsyncComponent />
+</Suspense>
+```
+
+### SuspenseList
+
+```jsx
+<SuspenseList revealOrder="forwards" tail="collapsed">
+  <ProfileDetails user={resource.user} />
+  <Suspense fallback={<h2>Loading posts...</h2>}>
+    <ProfileTimeline posts={resource.posts} />
+  </Suspense>
+  <Suspense fallback={<h2>Loading fun facts...</h2>}>
+    <ProfileTrivia trivia={resource.trivia} />
+  </Suspense>
+</SuspenseList>
 ```
 
 _Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic expressions use boolean or ternary operator._
