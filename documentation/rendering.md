@@ -73,7 +73,7 @@ Control flows can be imported from `solid-js/dom` but as a convenience the compi
 </Show>
 ```
 
-### Switch
+### Switch/Match
 
 ```jsx
 <Switch fallback={<div>Not Found</div>}>
