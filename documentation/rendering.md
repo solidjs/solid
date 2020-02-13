@@ -122,6 +122,46 @@ _Note these are designed to handle more complex scenarios like Component inserti
 
 Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef` which calls a callback `(ref) => void` with the reference. To support forwarded properties on spreads, both `ref` and `forwardRef` are called as functions.
 
+### `ref`
+```jsx
+function MyComp() {
+  let myDiv;
+  setTimeout(() => console.log(myDiv.clientWidth));
+  return <div ref={myDiv} />
+}
+```
+On a native intrinsic element as the element executes the provided variable will be assigned. This form usually is used in combination with `setTimeout` (same timing as React's `useEffect`) or `afterEffects`(same timing as React's `useLayoutEffect`) to do work after the component has mounted. Like do a DOM measurement or attach DOM plugins etc...
+
+When applied to a Component it acts similarly but also passes a prop in that is a function that is expected to be called with a ref to forward the ref (more on this in the next section):
+```jsx
+function App() {
+  let myDiv;
+  setTimeout(() => console.log(myDiv.clientWidth));
+  return <MyComp ref={myDiv} />
+}
+```
+
+### `forwardRef`
+This form expects a function like React's callback refs. Original use case is like described above:
+```jsx
+function MyComp(props) {
+  return <div forwardRef={props.ref} />
+}
+
+function App() {
+  let myDiv;
+  setTimeout(() => console.log(myDiv.clientWidth));
+  return <MyComp ref={myDiv} />
+}
+```
+You can also apply `forwardRef` on a Component:
+```jsx
+function App() {
+  return <MyComp forwardRef={ref => console.log(ref.clientWidth)} />
+}
+```
+This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `forwardRef` up a Component chain as you wish.
+
 ## Server Side Rendering (Experimental)
 
 ### To use SSR on the server:
