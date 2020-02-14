@@ -1,0 +1,34 @@
+{
+  "name": "solid-ssr-env",
+  "description": "Patches node to work with Solid's SSR",
+  "version": "0.0.1",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryansolid/solid/solid-ssr"
+  },
+  "main": "index.js",
+  "files": [
+    "index.js"
+  ],
+  "scripts": {
+    "build:example": "rollup -c example/rollup.config.js",
+    "start:example": "node example/lib/index.js"
+  },
+  "dependencies": {
+    "basichtml": "1.1.2"
+  },
+  "peerDependencies": {
+    "solid-js": "0.16.x"
+  },
+  "devDependencies": {
+    "@babel/core": "7.8.3",
+    "babel-preset-solid": "0.16.7",
+    "rollup": "^1.31.0",
+    "@rollup/plugin-commonjs": "11.0.2",
+    "@rollup/plugin-node-resolve": "7.1.1",
+    "@rollup/plugin-json": "4.0.2",
+    "rollup-plugin-babel": "4.3.3"
+  }
+}

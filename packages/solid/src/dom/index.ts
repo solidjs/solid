@@ -36,8 +36,10 @@ export function renderToString(
       const rendered = code();
       createEffect(() => {
         if (!SuspenseContext.active!()) {
-          dispose();
-          done!();
+          Promise.resolve().then(() => {
+            dispose();
+            done!();
+          });
         }
       });
       return rendered;

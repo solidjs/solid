@@ -63,17 +63,6 @@ SuspenseContext.active = active;
 SuspenseContext.increment = increment;
 SuspenseContext.decrement = decrement;
 
-function generatePlaceholderPromise<T>(isCancelled: (p: Promise<T>) => boolean) {
-  let p: Promise<T>;
-  return (p = new Promise<T>((res, rej) =>
-    setTimeout(
-      () => (
-        !isCancelled(p) && console.warn("Load not started for read resource by next task"), rej()
-      )
-    )
-  ));
-}
-
 export function createResource<T>(
   value?: T
 ): [() => T | undefined, (p?: Promise<T>) => () => boolean] {
@@ -81,7 +70,7 @@ export function createResource<T>(
     [trackPromise, triggerPromise] = createSignal<void>(),
     [trackLoading, triggerLoading] = createSignal<void>(),
     contexts = new Set<SuspenseContextType>();
-  let loading = value === undefined,
+  let loading = false,
     error: any = null,
     pr: Promise<T> | undefined;
 
@@ -99,9 +88,6 @@ export function createResource<T>(
     const c = useContext(SuspenseContext),
       v = s();
     if (error) throw error;
-    if (loading && !pr) {
-      load(generatePlaceholderPromise((p: Promise<T>) => p === pr));
-    }
     trackPromise();
     if (pr && c.increment && !contexts.has(c)) {
       c.increment();

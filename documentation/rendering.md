@@ -166,13 +166,19 @@ This just passes the function through as `props.ref` again and work similar to t
 
 ### To use SSR on the server:
 
-1. Configure babel-preset-solid with generate option 'ssr'
+1. Install `solid-js`, `solid-preset-solid`, and `solid-ssr-env`.
+
+2. Configure babel-preset-solid with generate option 'ssr'
 
 ```json
 "presets": [["solid", { "generate": "ssr" }]]
 ```
+3. Patch node environment at top of program:
+```js
+require("solid-ssr-env");
+```
 
-2. Use `renderToString` entry:
+4. Use `renderToString` entry:
 
 ```jsx
 import { renderToString } from "solid-js/dom";
