@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "basichtml": "1.1.2",
-    "jest-environment-node": "^23.4.0"
+    "jest-environment-node": "^25.1.0"
   },
   "devDependencies": {
     "solid-js": "*",
