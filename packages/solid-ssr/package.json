@@ -1,5 +1,5 @@
 {
-  "name": "solid-ssr-env",
+  "name": "solid-ssr",
   "description": "Patches node to work with Solid's SSR",
   "version": "0.0.1",
   "author": "Ryan Carniato",
@@ -8,18 +8,23 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid/solid-ssr"
   },
-  "main": "index.js",
   "files": [
-    "index.js"
+    "register.js",
+    "jest.js"
   ],
   "scripts": {
     "build:example": "rollup -c example/rollup.config.js",
     "start:example": "node example/lib/index.js"
   },
   "dependencies": {
-    "basichtml": "1.1.2"
+    "basichtml": "1.1.2",
+    "jest-environment-node": "^23.4.0"
+  },
+  "devDependencies": {
+    "solid-js": "*",
+    "babel-preset-solid": "*"
   },
   "peerDependencies": {
-    "solid-js": "0.16.x"
+    "solid-js": "^0.16.7"
   }
 }

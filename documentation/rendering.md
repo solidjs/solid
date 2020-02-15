@@ -164,40 +164,4 @@ This just passes the function through as `props.ref` again and work similar to t
 
 ## Server Side Rendering (Experimental)
 
-### To use SSR on the server:
-
-1. Install `solid-js`, `solid-preset-solid`, and `solid-ssr-env`.
-
-2. Configure babel-preset-solid with generate option 'ssr'
-
-```json
-"presets": [["solid", { "generate": "ssr" }]]
-```
-3. Patch node environment at top of program:
-```js
-require("solid-ssr-env");
-```
-
-4. Use `renderToString` entry:
-
-```jsx
-import { renderToString } from "solid-js/dom";
-
-const HTMLString = await renderToString(() => <App />);
-```
-
-### To rehydrate on the client:
-
-1. Configure babel-preset-solid with generate option 'hydrate'
-
-```json
-"presets": [["solid", { "generate": "hydrate" }]]
-```
-
-2. Use `hydrate` entry:
-
-```jsx
-import { hydrate } from "solid-js/dom";
-
-hydrate(() => <App />, document.getElementById("main"));
-```
+See [solid-ssr](https://github.com/ryansolid/solid/blob/master/packages/solid-ssr)
