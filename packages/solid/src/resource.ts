@@ -168,7 +168,7 @@ const resourceTraps = {
 
 type LoadStateFunction<T> = {
   (
-    v: { [P in keyof T]: Promise<T[P]> | T[P] },
+    v: { [P in keyof T]?: Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: Wrapped<T>) => void
   ): { [P in keyof T]: boolean };
 };
@@ -183,7 +183,7 @@ export function createResourceState<T extends StateNode>(
     freeze(() => updatePath(unwrappedState, args));
   }
   function loadState(
-    v: { [P in keyof T]: Promise<T[P]> | T[P] },
+    v: { [P in keyof T]?: Promise<T[P]> | T[P] },
     r?: (v: Partial<T>) => (state: Wrapped<T>) => void
   ) {
     const nodes = getDataNodes(unwrappedState),
