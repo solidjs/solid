@@ -179,12 +179,13 @@ Remember you still need to install the library separately for these to work.
 - [Simple Todos Template Literals](https://codesandbox.io/s/jpm68z1q33) Simple Todos using Lit DOM Expressions
 - [Simple Todos HyperScript](https://codesandbox.io/s/0vmjlmq94v) Simple Todos using Hyper DOM Expressions
 - [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
-- [Hacker News App](https://github.com/ryansolid/solid-hackernews-app) Small application to showcase Solid and Solid Element
-- [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid Element
+- [Real World Demo](https://github.com/ryansolid/solid-realworld) Real World Demo for Solid
+- [Hacker News App](https://github.com/ryansolid/solid-hackernews-app) Small application to showcase Solid Element
 - [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
+- [Sierpinski's Triangle Demo](https://github.com/ryansolid/solid-sierpinski-triangle-demo) Solid implementation of the React Fiber demo.
+- [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid Element
 - [UIBench Benchmark](https://github.com/ryansolid/solid-uibench) a benchmark tests a variety of UI scenarios.
 - [DBMon Benchmark](https://github.com/ryansolid/solid-dbmon) A benchmark testing ability of libraries to render unoptimized data.
-- [Sierpinski's Triangle Demo](https://github.com/ryansolid/solid-sierpinski-triangle-demo) Solid implementation of the React Fiber demo.
 
 ## Related Projects
 
