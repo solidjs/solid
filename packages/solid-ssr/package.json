@@ -17,7 +17,7 @@
     "start:example": "node example/lib/index.js"
   },
   "dependencies": {
-    "basichtml": "1.1.2",
+    "basichtml": "~2.0.2",
     "jest-environment-node": "^25.1.0"
   },
   "devDependencies": {

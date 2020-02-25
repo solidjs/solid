@@ -33,7 +33,7 @@ export function createRoot<T>(
     if (!fns) throw err;
     fns.forEach((f: (err: any) => void) => f(err));
   } finally {
-    Owner && afterNode(Owner);
+    RootClock.afters.run(f => f());
     Listener = listener;
     Owner = owner;
   }
@@ -156,9 +156,8 @@ export function sample<T>(fn: () => T): T {
 }
 
 export function afterEffects(fn: () => void): void {
-  if (Owner === null) fn(); // ran immediately
-  else if (Owner.afters === null) Owner.afters = [fn];
-  else Owner.afters.push(fn);
+  if (RunningClock !== null) RunningClock.afters.add(fn);
+  else RootClock.afters.add(fn);
 }
 
 export function onCleanup(fn: (final: boolean) => void): void {
@@ -264,7 +263,6 @@ type ComputationNode<T> = {
   context: any;
   owned: ComputationNode<any>[] | null;
   cleanups: ((final: boolean) => void)[] | null;
-  afters: ((() => void)[]) | null;
 };
 
 function createComputationNode<T>(fn: (v: T | undefined) => T, value?: T): ComputationNode<T> {
@@ -285,8 +283,7 @@ function createComputationNode<T>(fn: (v: T | undefined) => T, value?: T): Compu
     owned: null,
     log: null,
     context: null,
-    cleanups: null,
-    afters: null
+    cleanups: null
   };
 
   if (fn === null) return node;
@@ -301,10 +298,7 @@ function createComputationNode<T>(fn: (v: T | undefined) => T, value?: T): Compu
 
   if (RunningClock === null) {
     toplevelComputation(node);
-  } else {
-    node.value = node.fn!(node.value!);
-    afterNode(node);
-  }
+  } else node.value = node.fn!(node.value!);
 
   if (owner && owner !== UNOWNED) {
     if (owner.owned === null) owner.owned = [node];
@@ -321,13 +315,15 @@ type Clock = {
   changes: Queue<DataNode>;
   updates: Queue<ComputationNode<any>>;
   disposes: Queue<ComputationNode<any>>;
+  afters: Queue<() => void>;
 };
 function createClock() {
   return {
     time: 0,
     changes: new Queue<DataNode>(), // batched changes to data nodes
     updates: new Queue<ComputationNode<any>>(), // computations to update
-    disposes: new Queue<ComputationNode<any>>() // disposals to run after current batch of updates finishes
+    disposes: new Queue<ComputationNode<any>>(), // disposals to run after current batch of updates finishes
+    afters: new Queue<() => void>()
   };
 }
 
@@ -482,7 +478,6 @@ function event() {
   try {
     run(RootClock);
   } finally {
-    Owner && afterNode(Owner);
     RunningClock = Listener = null;
     Owner = owner;
   }
@@ -505,7 +500,6 @@ function toplevelComputation<T>(node: ComputationNode<any>) {
     if (!fns) throw err;
     fns.forEach((f: (err: any) => void) => f(err));
   } finally {
-    Owner && afterNode(Owner);
     RunningClock = Owner = Listener = null;
   }
 }
@@ -531,6 +525,7 @@ function run(clock: Clock) {
       throw new Error("Runaway clock detected");
     }
   }
+  clock.afters.run(f => f());
 
   RunningClock = running;
 }
@@ -735,14 +730,6 @@ function cleanupSource(source: Log, slot: number) {
         last.sourceslots![lastslot] = slot;
       }
     }
-  }
-}
-
-function afterNode(node: ComputationNode<any>) {
-  const afters = node.afters;
-  if (afters !== null) {
-    for (let i = 0; i < afters!.length; i++) afters![i]();
-    node.afters = null;
   }
 }
 

@@ -324,14 +324,15 @@ describe("Trigger afterEffects", () => {
     expect(result).toBe("Hello, John Smith!");
   });
 
-  test('Queue up and execute in reverse order when nested', () => {
+  test('Queue up and execute when nested', () => {
     let result = ''
     createRoot(() => {
-      afterEffects(() => result += 'Smith!');
+      afterEffects(() => result += 'Hello, ');
       createEffect(() => {
         afterEffects(() => result += 'John ');
-        createEffect(() => afterEffects(() => result += 'Hello, '))
+        createEffect(() => afterEffects(() => result += 'Smith!'))
       })
+      expect(result).toBe("");
     });
     expect(result).toBe('Hello, John Smith!');
   });
