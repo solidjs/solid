@@ -165,6 +165,7 @@ Remember you still need to install the library separately for these to work.
 ## Examples
 
 - [Counter](https://codesandbox.io/s/8no2n9k94l) Simple Counter
+- [SCSS Counter](https://codesandbox.io/s/scss-solid-counter-nr6we) Simple Counter with SCSS styling
 - [Simple Todos](https://codesandbox.io/s/lrm786ojqz) Todos with LocalStorage persistence
 - [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'switch' control flow for simple routing
 - [Scoreboard](https://codesandbox.io/s/solid-scoreboard-sjpje) Make use of hooks to do some simple transitions
