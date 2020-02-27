@@ -194,7 +194,7 @@ export function createResourceState<T extends StateNode>(
         node = nodes[k] || (nodes[k] = createResourceNode(unwrappedState[k])),
         resolver = (v?: T[keyof T]) => (
           r
-            ? setState(r({ [k]: v } as Partial<T>))
+            ? setState(k, r(v as Partial<T>))
             : setProperty(unwrappedState, k as string | number, v),
           v
         ),

@@ -96,7 +96,7 @@ describe("Simulate a dynamic fetch with state", () => {
   test("initial async resource", async done => {
     createRoot(() => {
       const [id, setId] = createSignal(1);
-      [users, load, setUsers] = createResourceState<{ [id: number]: string }>({});
+      [users, load, setUsers] = createResourceState<{ [id: number]: string }>({ 6: "Rio" });
       trigger = setId;
       createEffect(() => {
         const i = id();
@@ -151,13 +151,11 @@ describe("Simulate a dynamic fetch with state", () => {
   });
 
   test("custom reconciler", async done => {
-    const reconcile = (v: any) => (state: any) => {
-      state[6] = v[6] + "l";
-    };
+    const reconcile = (v: string) => (state: string) => `${state} ${v}`;
     load({ 6: new Promise(r => r("Jerry")) }, reconcile);
     await Promise.resolve();
     await Promise.resolve();
-    expect(users[6]).toBe("Jerryl");
+    expect(users[6]).toBe("Rio Jerry");
     done();
   });
 
