@@ -1,7 +1,7 @@
 {
   "name": "solid-ssr",
   "description": "Patches node to work with Solid's SSR",
-  "version": "0.16.9",
+  "version": "0.16.10",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "babel-preset-solid": "^0.16.8",
-    "solid-js": "^0.16.9"
+    "solid-js": "^0.16.10"
   },
   "peerDependencies": {
     "solid-js": "^0.16.7"
