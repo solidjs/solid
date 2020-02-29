@@ -1,6 +1,8 @@
+import "./custom-header";
+
 export default () => (
   <>
-    <h1>Solid SSR</h1>
+    <custom-header title="Solid SSR" />
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 300 300"

@@ -15,17 +15,34 @@ This project is still early days. Server rendering is Async and supports Suspens
 ```json
 "presets": [["solid", { "generate": "ssr" }]]
 ```
-3. Patch node environment at top of program:
+
+3. Set up server application:
 ```js
-require("solid-ssr/register");
+const createSSR = require("solid-ssr");
+const render = createSSR({ path: /* path to client entry*/ })
+
+// under request handler
+app.get("/someurl", (req, res) => {
+  const html = await render(req);
+  res.send(html);
+})
+
+
 ```
 
-4. Use `renderToString` entry:
+4. Use `renderToString` in client entry for SSR:
 
 ```jsx
+// top of entry file, must be imported before any components
+import { client } from "solid-ssr/client"
 import { renderToString } from "solid-js/dom";
 
-const HTMLString = await renderToString(() => <App />);
+client(async (req) => {
+  // pull url off request to handle routing
+  const { url } = req;
+  const string = await renderToString(() => <App />);
+  return render(string);
+});
 ```
 
 ### To rehydrate on the client:

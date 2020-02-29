@@ -66,15 +66,18 @@ export function insert(parent, accessor, marker, initial) {
 
 // SSR
 export function renderToString(code, options = {}) {
-  options = { timeoutMs: 10000, ...options }
+  options = { timeoutMs: 30000, ...options }
   config.hydrate = { id: '', count: 0 };
   const container = document.createElement("div");
-  return new Promise(resolve => {
-    setTimeout(() => resolve(container.innerHTML), options.timeoutMs);
-    if (!code.length) {
-      insert(container, code());
+  document.body.appendChild(container);
+  return new Promise((resolve, reject) => {
+    setTimeout(() => reject("renderToString timed out"), options.timeoutMs);
+    function render(rendered) {
+      insert(container, rendered);
       resolve(container.innerHTML);
-    } else insert(container, code(() => resolve(container.innerHTML)));
+      document.body.removeChild(container);
+    }
+    !code.length ? render(code()) : code(render);
   });
 }
 

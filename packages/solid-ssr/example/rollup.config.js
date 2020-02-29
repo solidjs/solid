@@ -13,13 +13,13 @@ const plugins = [
 ];
 
 export default {
-  input: "example/src/index.js",
+  input: "example/app/index.js",
   output: [
     {
       file: "example/lib/index.js",
       format: "cjs"
     }
   ],
-  external: ["solid-js", "solid-js/dom", "../../register"],
+  external: ["solid-js", "solid-js/dom", "../../client"],
   plugins
 };

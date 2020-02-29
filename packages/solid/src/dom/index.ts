@@ -36,13 +36,10 @@ export function renderToString(
       const rendered = code();
       createEffect(() => {
         if (!SuspenseContext.active!()) {
-          Promise.resolve().then(() => {
-            dispose();
-            done!();
-          });
+          dispose();
+          done!(rendered);
         }
       });
-      return rendered;
     }, options)
   );
 }
