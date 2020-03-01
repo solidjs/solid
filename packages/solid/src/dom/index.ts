@@ -13,7 +13,7 @@ import {
   equalFn
 } from "../index.js";
 
-type MountableElement = Element | Document | ShadowRoot | DocumentFragment;
+type MountableElement = Node;
 
 export function render(code: () => any, element: MountableElement): () => void {
   let disposer: () => void;
