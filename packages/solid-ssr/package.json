@@ -13,7 +13,10 @@
   "files": [
     "server.js",
     "index.js",
-    "jest.js"
+    "jest.js",
+    "server.d.ts",
+    "index.d.ts",
+    "jest.d.ts"
   ],
   "scripts": {
     "build:example": "rollup -c example/rollup.config.js",
