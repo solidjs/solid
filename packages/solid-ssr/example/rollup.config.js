@@ -1,25 +1,36 @@
 import nodeResolve from "@rollup/plugin-node-resolve";
 import common from "@rollup/plugin-commonjs";
-import json from "@rollup/plugin-json";
 import babel from "rollup-plugin-babel";
 
-const plugins = [
-  nodeResolve(),
-  babel({
-    presets: [["solid", { generate: "ssr" }]]
-  }),
-  common(),
-  json(),
-];
-
-export default {
-  input: "example/app/index.js",
+export default [{
+  input: "example/src/server.js",
   output: [
     {
-      file: "example/lib/index.js",
+      dir: "example/lib",
       format: "cjs"
     }
   ],
-  external: ["solid-js", "solid-js/dom", "../../client"],
-  plugins
-};
+  external: ["solid-js", "solid-js/dom", "../.."],
+  plugins:  [
+    nodeResolve({ preferBuiltins: true }),
+    babel({
+      presets: [["solid", { generate: "ssr" }]]
+    }),
+    common()
+  ]
+}, {
+  input: "example/src/index.js",
+  output: [
+    {
+      dir: "example/public/js",
+      format: "esm"
+    }
+  ],
+  plugins:  [
+    nodeResolve(),
+    babel({
+      presets: [["solid", { generate: "hydrate" }]]
+    }),
+    common()
+  ]
+}];

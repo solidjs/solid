@@ -1,6 +1,6 @@
-import client from "../../client";
+import ssr from "../..";
 import { renderToString, generateHydrationEventsScript } from "solid-js/dom";
-import Page from "./Page";
+import App from "./components/App";
 const lang = "en";
 
 function render(body) {
@@ -9,13 +9,16 @@ function render(body) {
       <title>🔥 Solid SSR 🔥</title>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="stylesheet" href="/styles.css" />
       <script>${generateHydrationEventsScript(["click", "blur", "input"])}</script>
     </head>
-    <body>${body}</body>
+    <body><div id="app">${body}</div></body>
+    <script type="module" src="/js/index.js"></script>
   </html>`;
 }
 
-client(async (req) => {
-  const string = await renderToString(Page);
+// entry point for server render
+ssr(async req => {
+  const string = await renderToString(() => <App url={req.url} />);
   return render(string);
-})
+});

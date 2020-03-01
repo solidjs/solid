@@ -8,11 +8,11 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid/solid-ssr"
   },
-  "main": "server.js",
-  "types": "server.d.ts",
+  "main": "index.js",
+  "types": "index.d.ts",
   "files": [
     "server.js",
-    "register.js",
+    "index.js",
     "jest.js"
   ],
   "scripts": {
@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "babel-preset-solid": "^0.16.8",
+    "express": "^4.17.1",
     "solid-js": "^0.16.11"
   },
   "peerDependencies": {

@@ -60,7 +60,7 @@ class ForkBalancer {
   };
 }
 
-module.exports = function createSSR(options) {
+module.exports = function createServer(options) {
   const forkBalancer = new ForkBalancer(options);
   return async function render(req) {
     const { string } = await forkBalancer.getFromRenderer({

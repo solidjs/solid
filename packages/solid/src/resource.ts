@@ -107,7 +107,7 @@ export function createResource<T>(
         freeze(() => {
           triggerLoading();
           triggerPromise();
-        })
+        });
       }
       p.then(
         v => {
@@ -230,7 +230,18 @@ export function lazy<T extends ComponentType<any>>(fn: () => Promise<{ default: 
       p(fn().then(mod => mod.default));
     }
     let Comp: T | undefined;
-    return createMemo(() => (Comp = s()) && sample(() => (setHydrateContext(ctx), Comp!(props))));
+    return createMemo(
+      () =>
+        (Comp = s()) &&
+        sample(() => {
+          if (!ctx) return Comp!(props);
+          const h = runtimeConfig.hydrate;
+          setHydrateContext(ctx);
+          const r = Comp!(props);
+          !h && setHydrateContext();
+          return r;
+        })
+    );
   }) as T;
 }
 
@@ -249,7 +260,7 @@ export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () =
       increment();
       fn();
       decrement();
-      afterEffects(() => SuspenseContext.transition = prevTransition);
+      afterEffects(() => (SuspenseContext.transition = prevTransition));
     }
   ];
 }

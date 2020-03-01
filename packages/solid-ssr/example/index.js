@@ -1,15 +1,22 @@
-const path = require("path")
-const ssr = require("../server")
+const express = require("express");
+const path = require("path");
+const createSSR = require("../server");
 
-const render = ssr({ path: path.resolve(__dirname, 'lib') })
+const render = createSSR({ path: path.resolve(__dirname, "lib/server.js") });
+const app = express();
+const port = 8080;
 
-console.log("http://localhost:8080/");
-require("http")
-  .createServer(async (req, res) => {
-    if (req.url === '/') {
-      const html = await render(req);
-      res.writeHead(200, { "content-type": "text/html;charset=utf-8" });
-      res.end(html);
-    }
-  })
-  .listen(8080);
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("*", async (req, res) => {
+  let html;
+  try {
+    html = await render(req);
+  } catch (err) {
+    console.log(err);
+  } finally {
+    res.send(html);
+  }
+});
+
+app.listen(port, () => console.log(`Example app listening on port ${port}!`));

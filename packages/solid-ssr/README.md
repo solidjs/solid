@@ -1,10 +1,8 @@
 # `solid-ssr`
 
-This library patches node environment to enable Solid's SSR. Import `solid-ssr/register` at the top of your application. Also provides `solid-ssr/jest` which is a jest environment to render solid.
+This library sets up node compatible middleware to handle Solid's SSR. It uses JSDOM and isolated processes to handle environment injection. See instructions below. Also provides `solid-ssr/jest` which is a Jest environment to render Solid when testing (probably unnecessary at this point).
 
-See example folder. Runs on http://localhost:8080/
-
-This project is still early days. Server rendering is Async and supports Suspense including lazy components. However, client side hydration only supports lazy components. Any Suspense triggering during rehydration will cause loading states to be entered again.
+This project is still in progress. Server rendering is Async and supports Suspense including lazy components. However, client side hydration only supports lazy components. Any Suspense triggering due to data fetching during rehydration will cause loading states to be entered again. Similarly while Web Components are support, the Shadow DOM isn't yet.
 
 ### To use SSR on the server:
 
@@ -18,32 +16,31 @@ This project is still early days. Server rendering is Async and supports Suspens
 
 3. Set up server application:
 ```js
-const createSSR = require("solid-ssr");
-const render = createSSR({ path: /* path to client entry*/ })
+const createServer = require("solid-ssr/server");
+const render = createServer({ path: /* path to client entry*/ })
 
 // under request handler
-app.get("/someurl", (req, res) => {
+app.get("*", (req, res) => {
   const html = await render(req);
   res.send(html);
 })
-
-
 ```
 
 4. Use `renderToString` in client entry for SSR:
 
 ```jsx
 // top of entry file, must be imported before any components
-import { client } from "solid-ssr/client"
+import ssr from "solid-ssr"
 import { renderToString } from "solid-js/dom";
 
-client(async (req) => {
+ssr(async (req) => {
   // pull url off request to handle routing
   const { url } = req;
   const string = await renderToString(() => <App />);
   return render(string);
 });
 ```
+> Remember to mark all of "solid-js", "solid-js/dom", "solid-ssr" as externals as no need to bundle these for server rendering entry.
 
 ### To rehydrate on the client:
 
@@ -60,3 +57,13 @@ import { hydrate } from "solid-js/dom";
 
 hydrate(() => <App />, document.getElementById("main"));
 ```
+
+### Example
+
+See example folder. Runs on http://localhost:8080/.
+```
+lerna run build:example --stream
+lerna run start:example --stream
+```
+
+Demos Async server side rendering with routing using Lazy Components and Suspense. Notice how the browser skips any initial loading state as it is prerendered. `useTransition` smooths loading of other tabs when navigating suspending the current content for 250ms before showing any fallback. The example also includes progressive hydration although there are currently no input fields to show it off. It captures input events before hydration is complete and replays them as it hydrates when safe to, to minimize uncanny valley.
