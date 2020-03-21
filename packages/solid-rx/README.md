@@ -34,7 +34,7 @@ setNumber(3);
 // 3
 ```
 
-These can also be useful for use with control flow. The transform property exposes the ability to pass in an transformation operator. For example if you wished to delegate applying a class to any row with a model property that matched the current selection (without adding the selected state to the model):
+These can also be useful for use with control flow. For example if you wished to delegate applying a class to any row with a model property that matched the current selection (without adding the selected state to the model):
 
 ```jsx
 function selectClass(selected, className) {
@@ -59,24 +59,9 @@ function selectClass(selected, className) {
   };
 }
 
-const applyClass = selectClass(() => state.selected, "active");
-return (
-  <For each={state.list} transform={applyClass}>
-    {row => <div model={row.id}>{row.description}</div>}
-  </For>
-);
-```
-
-This can be very powerful especially when combined with as a HOC(Higher Order Component):
-
-```jsx
 const ForWithSelection = props => {
   const applyClass = selectClass(() => props.selected, "active");
-  return (
-    <For each={props.each} transform={applyClass}>
-      {props.children}
-    </For>
-  );
+  return applyClass(<For each={props.each}>{props.children}</For>);
 };
 
 // in a component somewhere:
@@ -112,9 +97,11 @@ Obviously `map` and `tap` could have been combined in the functional example, bu
 ## Utilities
 
 ### `from(setter => dispose) => signal`
+
 This operator is useful to create signals from any sort of data structure. You pass in a function that provides a setter. Use the setter to set any value to pass to the signal, from various sources like events, promises, observables, timers etc...
 
 ### `pipe(...operators) => sourceSignal => outSignal`
+
 ### `transform(sourceSignal, ...operators) => outSignal`
 
 Tbese operators are responsible for chaining together transformations. The only difference is piped if curried and used for composition, whereas transform includes the source as an argument.

@@ -7,8 +7,7 @@ import {
   createSignal,
   isListening,
   afterEffects,
-  Context,
-  DataNode
+  Context
 } from "./signal";
 
 import {
@@ -38,13 +37,13 @@ type SuspenseContextType = {
 type SuspenseConfig = { timeoutMs: number };
 
 function createActivityTracker(): [() => boolean, () => void, () => void] {
-  let count = 0,
-    active = false;
-  const [read, trigger] = createSignal<void>();
+  let count = 0;
+  const [read, trigger] = createSignal(false);
+
   return [
-    () => (read(), active),
-    () => count++ === 0 && ((active = true), trigger()),
-    () => --count <= 0 && ((active = false), trigger())
+    read,
+    () => count++ === 0 && trigger(true),
+    () => --count <= 0 && trigger(false)
   ];
 }
 
@@ -90,7 +89,7 @@ export function createResource<T>(
     if (error) throw error;
     trackPromise();
     if (pr && c.increment && !contexts.has(c)) {
-      c.increment();
+      c.increment!();
       contexts.add(c);
     }
     return v;
@@ -129,13 +128,13 @@ export function createResource<T>(
 
 function createResourceNode(v: any) {
   // maintain setState capability by using normal data node as well
-  const node = new DataNode(),
+  const node = createSignal(),
     [read, load] = createResource(v);
-  return {
-    current: () => (read(), node.current()),
-    next: node.next.bind(node),
+  return [
+    () => (read(), node[0]()),
+    node[1],
     load
-  };
+  ];
 }
 
 const resourceTraps = {
@@ -147,12 +146,12 @@ const resourceTraps = {
     if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = new DataNode());
-        node.current();
+        node = nodes._ || (nodes._ = createSignal());
+        node[0]();
       }
       nodes = getDataNodes(target);
       node = nodes[property] || (nodes[property] = createResourceNode(value));
-      node.current();
+      node[0]();
     }
     return wrappable ? wrap(value) : value;
   },
@@ -198,7 +197,7 @@ export function createResourceState<T extends StateNode>(
             : setProperty(unwrappedState, k as string | number, v),
           v
         ),
-        l = node.load(p && typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p));
+        l = node[2](p && typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p));
       !(k in loading) &&
         Object.defineProperty(loading, k, {
           get() {

@@ -99,44 +99,36 @@ export function SuspenseList(props: {
 export function Suspense(props: { fallback: any; children: any }) {
   let counter = 0,
     t: NodeJS.Timeout,
-    state: SuspenseState = "running",
     showContent: () => boolean,
     showFallback: () => boolean,
     transition: typeof SuspenseContext["transition"];
-  const [get, next] = createSignal<void>(),
+  const [state, nextState] = createSignal<SuspenseState>("running", equalFn),
     store = {
       increment: () => {
         if (++counter === 1) {
           if (!store.initializing) {
             if (SuspenseContext.transition) {
-              state = "suspended";
               !transition && (transition = SuspenseContext.transition).increment();
               t = setTimeout(
-                () => ((state = "fallback"), next()),
+                () => nextState("fallback"),
                 SuspenseContext.transition.timeoutMs
               );
-            } else state = "fallback";
-            next();
-          } else state = "fallback";
+              nextState("suspended");
+            } else nextState("fallback");
+          } else nextState("fallback");
           SuspenseContext.increment!();
         }
       },
       decrement: () => {
         if (--counter === 0) {
           t && clearTimeout(t);
-          if (state !== "running") {
-            state = "running";
-            transition && transition.decrement();
-            transition = undefined;
-            next();
-            SuspenseContext.decrement!();
-          }
+          transition && transition.decrement();
+          transition = undefined;
+          nextState("running");
+          SuspenseContext.decrement!();
         }
       },
-      state: () => {
-        get();
-        return state;
-      },
+      state,
       initializing: true
     };
 
@@ -149,7 +141,6 @@ export function Suspense(props: { fallback: any; children: any }) {
     {
       value: store,
       children: () => {
-        let dispose: (() => void) | null;
         const rendered = sample(() => props.children),
           marker = document.createTextNode(""),
           doc = document.implementation.createHTMLDocument();
@@ -165,8 +156,6 @@ export function Suspense(props: { fallback: any; children: any }) {
             visibleContent = showContent ? showContent() : true,
             visibleFallback = showFallback ? showFallback() : true;
           if (store.initializing) store.initializing = false;
-          dispose && dispose();
-          dispose = null;
           if ((value === "running" && visibleContent) || value === "suspended")
             return [marker, rendered];
           if (!visibleFallback) return [marker];

@@ -1,4 +1,4 @@
-import { isListening, DataNode, freeze } from "./signal";
+import { isListening, createSignal, freeze } from "./signal";
 export const SNODE = Symbol("state-node"),
   SPROXY = Symbol("state-proxy");
 
@@ -111,12 +111,12 @@ const proxyTraps = {
     if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = new DataNode());
-        node.current();
+        node = nodes._ || (nodes._ = createSignal());
+        node[0]();
       }
       nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = new DataNode());
-      node.current();
+      node = nodes[property] || (nodes[property] = createSignal());
+      node[0]();
     }
     return wrappable ? wrap(value) : value;
   },
@@ -161,8 +161,8 @@ export function setProperty(
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && node.next();
-  notify && (node = nodes._) && node.next();
+  (node = nodes[property]) && node[1]();
+  notify && (node = nodes._) && node[1]();
 }
 
 function mergeState(state: StateNode, value: Partial<StateNode>, force?: boolean) {
