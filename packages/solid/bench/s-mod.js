@@ -1,9 +1,9 @@
 // Modified version of S.js[https://github.com/adamhaile/S] by Adam Haile
 // Comparator memos from VSJolund fork https://github.com/VSjolund/vs-bind
-export const equalFn = (a, b) => a === b;
+const equalFn = (a, b) => a === b;
 const ERROR = Symbol("error");
 // Public interface
-export function createRoot(fn, detachedOwner) {
+function createRoot(fn, detachedOwner) {
   detachedOwner && (Owner = detachedOwner);
   let owner = Owner,
     listener = Listener,
@@ -31,7 +31,7 @@ export function createRoot(fn, detachedOwner) {
   }
   return result;
 }
-export function createSignal(value, areEqual) {
+function createSignal(value, areEqual) {
   const d = new DataNode(value);
   let setter;
   if (areEqual) {
@@ -50,10 +50,10 @@ export function createSignal(value, areEqual) {
   } else setter = d.next.bind(d);
   return [d.current.bind(d), setter];
 }
-export function createEffect(fn, value) {
+function createEffect(fn, value) {
   createComputationNode(fn, value);
 }
-export function createDependentEffect(fn, deps, defer) {
+function createDependentEffect(fn, deps, defer) {
   const resolved = Array.isArray(deps) ? callAll(deps) : deps;
   defer = !!defer;
   createComputationNode(value => {
@@ -68,7 +68,7 @@ export function createDependentEffect(fn, deps, defer) {
     return value;
   });
 }
-export function createMemo(fn, value, areEqual) {
+function createMemo(fn, value, areEqual) {
   var node = createComputationNode(fn, value);
   node.comparator = areEqual || null;
   return () => {
@@ -88,7 +88,7 @@ export function createMemo(fn, value, areEqual) {
     return node.value;
   };
 }
-export function freeze(fn) {
+function freeze(fn) {
   let result = undefined;
   if (RunningClock !== null) result = fn();
   else {
@@ -103,7 +103,7 @@ export function freeze(fn) {
   }
   return result;
 }
-export function sample(fn) {
+function sample(fn) {
   let result,
     listener = Listener;
   Listener = null;
@@ -111,39 +111,39 @@ export function sample(fn) {
   Listener = listener;
   return result;
 }
-export function afterEffects(fn) {
+function afterEffects(fn) {
   if (RunningClock !== null) RunningClock.afters.add(fn);
   else RootClock.afters.add(fn);
 }
-export function onCleanup(fn) {
+function onCleanup(fn) {
   if (Owner === null)
     console.warn("cleanups created outside a `createRoot` or `render` will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
 }
-export function onError(fn) {
+function onError(fn) {
   if (Owner === null)
     console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
   else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
   else Owner.context[ERROR].push(fn);
 }
-export function isListening() {
+function isListening() {
   return Listener !== null;
 }
-export function createContext(defaultValue) {
+function createContext(defaultValue) {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
 }
-export function useContext(context) {
+function useContext(context) {
   return lookup(Owner, context.id) || context.defaultValue;
 }
-export function getContextOwner() {
+function getContextOwner() {
   return Owner;
 }
 // Internal implementation
 /// Graph classes and operations
-export class DataNode {
+class DataNode {
   constructor(value) {
     this.value = value;
     this.pending = NOTPENDING;
@@ -594,4 +594,8 @@ function dispose(node) {
   node.dependents = null;
   cleanupNode(node, true);
   resetComputation(node, 31);
+}
+
+module.exports = {
+  createRoot, createEffect, createSignal
 }

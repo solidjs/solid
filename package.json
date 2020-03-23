@@ -36,7 +36,6 @@
     "hyper-dom-expressions": "beta",
     "jest": "~25.1.0",
     "jest-ts-webcompat-resolver": "^1.0.0",
-    "jsdom": "^16.2.1",
     "lerna": "^3.20.2",
     "lit-dom-expressions": "beta",
     "ncp": "2.0.0",

@@ -1,11 +1,11 @@
-const { JSDOM } = require("jsdom");
+const { init, Node, customElements, HTMLElement } = require("basichtml");
 
-const { window } = new JSDOM("");
+const { document, window } = init({});
 global.window = window;
-global.document = window.document;
-global.Node = window.Node;
-global.customElements = window.customElements;
-global.HTMLElement = window.HTMLElement;
+global.document = document;
+global.Node = Node;
+global.customElements = customElements;
+global.HTMLElement = HTMLElement;
 
 module.exports = async function handler(code) {
   process.on('message', async params => {

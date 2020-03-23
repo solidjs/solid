@@ -209,7 +209,7 @@ function readSignal(this: Signal<any> | Memo<any>) {
       : lookDownstream(this as Memo<any>);
     Updates = updates;
   }
-  if (Listener && (!this.observers || this.observers.indexOf(Listener) === -1)) {
+  if (Listener) {
     const sSlot = this.observers ? this.observers.length : 0;
     if (!Listener.sources) {
       Listener.sources = [this];

@@ -6,7 +6,8 @@ import {
   createEffect,
   createContext,
   useContext,
-  equalFn
+  equalFn,
+  afterEffects
 } from "../index.js";
 
 type SuspenseState = "running" | "suspended" | "fallback";
@@ -109,10 +110,7 @@ export function Suspense(props: { fallback: any; children: any }) {
           if (!store.initializing) {
             if (SuspenseContext.transition) {
               !transition && (transition = SuspenseContext.transition).increment();
-              t = setTimeout(
-                () => nextState("fallback"),
-                SuspenseContext.transition.timeoutMs
-              );
+              t = setTimeout(() => nextState("fallback"), SuspenseContext.transition.timeoutMs);
               nextState("suspended");
             } else nextState("fallback");
           } else nextState("fallback");
@@ -125,7 +123,7 @@ export function Suspense(props: { fallback: any; children: any }) {
           transition && transition.decrement();
           transition = undefined;
           nextState("running");
-          SuspenseContext.decrement!();
+          afterEffects(() => SuspenseContext.decrement!());
         }
       },
       state,
@@ -141,25 +139,16 @@ export function Suspense(props: { fallback: any; children: any }) {
     {
       value: store,
       children: () => {
-        const rendered = sample(() => props.children),
-          marker = document.createTextNode(""),
-          doc = document.implementation.createHTMLDocument();
-
-        Object.defineProperty(doc.body, "host", {
-          get() {
-            return marker && marker.parentNode;
-          }
-        });
+        const rendered = sample(() => props.children);
 
         return () => {
           const value = store.state(),
             visibleContent = showContent ? showContent() : true,
             visibleFallback = showFallback ? showFallback() : true;
           if (store.initializing) store.initializing = false;
-          if ((value === "running" && visibleContent) || value === "suspended")
-            return [marker, rendered];
-          if (!visibleFallback) return [marker];
-          return [marker, props.fallback];
+          if ((value === "running" && visibleContent) || value === "suspended") return rendered;
+          if (!visibleFallback) return;
+          return props.fallback;
         };
       }
     },
