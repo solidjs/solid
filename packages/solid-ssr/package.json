@@ -19,7 +19,8 @@
   ],
   "scripts": {
     "build:example": "rollup -c example/rollup.config.js",
-    "start:example": "node example/index.js"
+    "start:example": "node example/index.js",
+    "export:example": "node example/export.js"
   },
   "dependencies": {
     "jest-environment-node": "^25.1.0",
