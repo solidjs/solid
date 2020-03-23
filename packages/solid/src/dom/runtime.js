@@ -8,10 +8,10 @@ const config = sharedConfig;
 
 export { wrap, currentContext };
 
-export function template(html, isSVG) {
+export function template(html, check, isSVG) {
   const t = document.createElement('template');
   t.innerHTML = html;
-  if (t.innerHTML !== html) console.warn(`Template html does not match input:\n${t.innerHTML}\n\n${html}`);
+  if (check && t.innerHTML.split("<").length - 1 !== check) console.warn(`Template html does not match input:\n${t.innerHTML}\n\n${html}`);
   let node = t.content.firstChild;
   if (isSVG) node = node.firstChild;
   return node;
