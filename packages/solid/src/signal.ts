@@ -302,11 +302,15 @@ function runUpdates(fn: () => void) {
   ExecCount++;
   try {
     fn();
-    for (let i = 0; i < Updates!.length; i += 1) runTop(Updates![i]);
-  } catch (err) {
-    const fns = lookup(Owner, ERROR);
-    if (!fns) throw err;
-    fns.forEach((f: (err: any) => void) => f(err));
+    for (let i = 0; i < Updates!.length; i += 1) {
+      try {
+        runTop(Updates![i]);
+      } catch (err) {
+        const fns = lookup(Owner, ERROR);
+        if (!fns) throw err;
+        fns.forEach((f: (err: any) => void) => f(err));
+      }
+    }
   } finally {
     Updates = null;
     while (Afters.length) Afters.shift()!();
