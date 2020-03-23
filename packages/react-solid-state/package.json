@@ -1,7 +1,7 @@
 {
   "name": "react-solid-state",
   "description": "Auto tracking state management for modern React",
-  "version": "0.17.0-beta.0",
+  "version": "0.17.0-beta.1",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/ryansolid/solid/blob/master/packages/react-solid-state#readme",
@@ -17,7 +17,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "solid-js": "^0.17.0-beta.0"
+    "solid-js": "^0.17.0-beta.1"
   },
   "peerDependencies": {
     "react": "^16.8.2",
