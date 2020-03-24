@@ -14,8 +14,10 @@
     "server.js",
     "index.js",
     "jest.js",
+    "static.js",
     "server.d.ts",
-    "index.d.ts"
+    "index.d.ts",
+    "static.d.ts"
   ],
   "scripts": {
     "build:example": "rollup -c example/rollup.config.js",

@@ -6,7 +6,7 @@ const server = createSSR({ path: path.resolve(__dirname, "lib/server.js") });
 const app = express();
 const port = 8080;
 
-app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
+app.use(express.static(path.join(__dirname, "public")));
 
 app.get("*", async (req, res) => {
   let html;
