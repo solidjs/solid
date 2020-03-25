@@ -1,26 +1,26 @@
 Solid
 
-createDataSignals: 37
-createComputations0to1: 14
-createComputations1to1: 57
-createComputations2to1: 49
-createComputations4to1: 31
-createComputations1000to1: 18
-createComputations1to2: 122
-createComputations1to4: 105
-createComputations1to8: 113
-createComputations1to1000: 131
-create total: 675
+createDataSignals: 40
+createComputations0to1: 11
+createComputations1to1: 64
+createComputations2to1: 53
+createComputations4to1: 34
+createComputations1000to1: 19
+createComputations1to2: 135
+createComputations1to4: 119
+createComputations1to8: 123
+createComputations1to1000: 110
+create total: 708
 ---
-updateComputations1to1: 65
-updateComputations2to1: 46
-updateComputations4to1: 36
-updateComputations1000to1: 46
-updateComputations1to2: 5
+updateComputations1to1: 70
+updateComputations2to1: 48
+updateComputations4to1: 34
+updateComputations1000to1: 48
+updateComputations1to2: 6
 updateComputations1to4: 4
 updateComputations1to1000: 2
-update total: 204
-total: 879
+update total: 211
+total: 920
 
 S-mod
 

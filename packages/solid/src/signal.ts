@@ -343,13 +343,14 @@ function cleanNode(node: Owner) {
   if ((node as Computation<any>).sources) {
     while ((node as Computation<any>).sources!.length) {
       const source = (node as Computation<any>).sources!.pop()!,
-        index = (node as Computation<any>).sourceSlots!.pop()!;
-      if (source.observers && source.observers.length) {
-        const n = source.observers.pop()!,
+        index = (node as Computation<any>).sourceSlots!.pop()!,
+        obs = source.observers;
+      if (obs && obs.length) {
+        const n = obs.pop()!,
           s = source.observerSlots!.pop()!;
-        if (n !== node) {
+        if (index < obs.length) {
           n.sourceSlots![s] = index;
-          source.observers[index] = n;
+          obs[index] = n;
           source.observerSlots![index] = s;
         }
       }
