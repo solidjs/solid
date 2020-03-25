@@ -16,8 +16,9 @@ import {
   unwrap,
   isWrappable,
   getDataNodes,
-  SNODE,
-  SPROXY,
+  $RAW,
+  $NODE,
+  $PROXY,
   StateNode,
   SetStateFunction,
   Wrapped,
@@ -139,8 +140,8 @@ function createResourceNode(v: any) {
 
 const resourceTraps = {
   get(target: StateNode, property: string | number | symbol) {
-    if (property === "_state") return target;
-    if (property === SPROXY || property === SNODE) return;
+    if (property === $RAW) return target;
+    if (property === $PROXY || property === $NODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
     if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
