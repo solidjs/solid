@@ -7,7 +7,7 @@ const ERROR = Symbol("error");
 const NOTPENDING = {};
 const STALE = 1;
 const PENDING = 2;
-const UNOWNED: Owner = { owned: null, cleanups: null, context: null, owner: null }
+const UNOWNED: Owner = { owned: null, cleanups: null, context: null, owner: null };
 let Owner: Owner | null = null;
 let Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
@@ -25,7 +25,7 @@ interface Signal<T> {
 
 interface Owner {
   owned: Computation<any>[] | null;
-  cleanups: ((final?: boolean) => void)[] | null;
+  cleanups: (() => void)[] | null;
   owner?: Owner | null;
   context: any | null;
 }
@@ -160,7 +160,7 @@ export function afterEffects(fn: () => void): void {
   Afters.push(fn);
 }
 
-export function onCleanup(fn: (final?: boolean) => void) {
+export function onCleanup(fn: () => void) {
   if (Owner === null)
     console.warn("cleanups created outside a `createRoot` or `render` will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
@@ -338,7 +338,7 @@ function markUpstream(node: Memo<any>) {
   }
 }
 
-function cleanNode(node: Owner, final?: boolean) {
+function cleanNode(node: Owner) {
   let i;
   if ((node as Computation<any>).sources) {
     while ((node as Computation<any>).sources!.length) {
@@ -358,12 +358,12 @@ function cleanNode(node: Owner, final?: boolean) {
   }
 
   if (node.owned) {
-    for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i], true);
+    for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
     node.owned = null;
   }
 
   if (node.cleanups) {
-    for (i = 0; i < node.cleanups.length; i++) node.cleanups[i](final);
+    for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
     node.cleanups = null;
   }
 }
