@@ -5,7 +5,8 @@ import {
   createEffect,
   createMemo,
   unwrap,
-  force
+  force,
+  $RAW
 } from "../src";
 
 describe("State immutablity", () => {
@@ -193,7 +194,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data.user.firstName).toBe("John");
     expect(s.data.user.lastName).toBe("Snow");
     // check if proxy still
-    expect(s.data.user._state).toBeUndefined();
+    expect(s.data.user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen array", () => {
     var [state] = createState({
@@ -203,7 +204,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
     // check if proxy still
-    expect(s.data[0].user._state).toBeUndefined();
+    expect(s.data[0].user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen state array", () => {
     var [state] = createState({
@@ -213,7 +214,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
     // check if proxy still
-    expect(s.data[0].user._state).toBeUndefined();
+    expect(s.data[0].user[$RAW]).toBeUndefined();
   });
 });
 

@@ -1,4 +1,22 @@
 # Changelog
+## 0.17.0 - 2020-03-??
+A lot of consolidation in preparation for release candidate
+* Big refactor of core reactive system and render list reconciler
+  * Significantly smaller reducing core by atleast 3kb minified
+* Better handling of nested reactive nodes in Fragments
+* Update SSR mechanisms, added progressive event hydration, created repo for SSR environment (`solid-ssr`)
+* `@once` compiler hint to statically bind values
+* Better wrapping hueristics for booleans and ternaries in JSX
+
+Breaking Changes
+* Removed `transform` prop from control flow. Idiomatic approach is to make a HOC for transformations of this nature.
+* Removed selectWhen/selectEach control flow transforms.
+* Changed event system
+  * `on____` prop to stop differentiating on case. Super confusing.Instead will try to delegate unless unable. Made TypeScript all CamelCase (although technically both forms behave identically)
+  * Removed `model` event delegation approach. Instead to create bound event use array: `onClick={[handler, row.id]}`. Inspired by Inferno's `linkEvent` helper.
+  * Renamed `events` prop to `on` prop
+  * Added `onCapture` prop for capture events
+
 ## 0.16.0 - 2020-01-14
 Big changes to experimental features:
 * New resource API `createResource` and `createResourceState` to replace `loadResource`. These are built to prioritize read capabilities and simplify implementation.

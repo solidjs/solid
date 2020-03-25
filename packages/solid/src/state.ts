@@ -1,10 +1,11 @@
-import { isListening, DataNode, freeze } from "./signal";
-export const SNODE = Symbol("state-node"),
-  SPROXY = Symbol("state-proxy");
+import { isListening, createSignal, freeze } from "./signal";
+export const $RAW = Symbol("state-raw"),
+  $NODE = Symbol("state-node"),
+  $PROXY = Symbol("state-proxy");
 
 export type StateNode = {
-  [SNODE]?: any;
-  [SPROXY]?: any;
+  [$NODE]?: any;
+  [$PROXY]?: any;
   [k: string]: any;
   [k: number]: any;
 };
@@ -19,7 +20,7 @@ export type NotWrappable = string | number | boolean | Function | null;
 export type Wrapped<T> = {
   [P in keyof T]: T[P] extends object ? Wrapped<T[P]> : T[P];
 } & {
-  _state?: T;
+  [$RAW]?: T;
 } & AddSymbolToPrimitive<T> &
   AddCallable<T>;
 
@@ -63,7 +64,7 @@ type StatePath<T> =
       StateSetter<unknown>
     ];
 export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): Wrapped<T> {
-  return value[SPROXY] || (value[SPROXY] = new Proxy(value, traps || proxyTraps));
+  return value[$PROXY] || (value[$PROXY] = new Proxy(value, traps || proxyTraps));
 }
 
 export function isWrappable(obj: any) {
@@ -76,7 +77,7 @@ export function isWrappable(obj: any) {
 
 export function unwrap<T extends StateNode>(item: any): T {
   let result, unwrapped, v;
-  if ((result = item != null && item._state)) return result;
+  if ((result = item != null && item[$RAW])) return result;
   if (!isWrappable(item)) return item;
 
   if (Array.isArray(item)) {
@@ -97,26 +98,26 @@ export function unwrap<T extends StateNode>(item: any): T {
 }
 
 export function getDataNodes(target: StateNode) {
-  let nodes = target[SNODE];
-  if (!nodes) target[SNODE] = nodes = {};
+  let nodes = target[$NODE];
+  if (!nodes) target[$NODE] = nodes = {};
   return nodes;
 }
 
 const proxyTraps = {
   get(target: StateNode, property: string | number | symbol) {
-    if (property === "_state") return target;
-    if (property === SPROXY || property === SNODE) return;
+    if (property === $RAW) return target;
+    if (property === $PROXY || property === $NODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
     if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = new DataNode());
-        node.current();
+        node = nodes._ || (nodes._ = createSignal());
+        node[0]();
       }
       nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = new DataNode());
-      node.current();
+      node = nodes[property] || (nodes[property] = createSignal());
+      node[0]();
     }
     return wrappable ? wrap(value) : value;
   },
@@ -131,8 +132,8 @@ const proxyTraps = {
 };
 
 const setterTraps = {
-  get(target: StateNode, property: string | number): any {
-    if (property === "_state") return target;
+  get(target: StateNode, property: string | number | symbol): any {
+    if (property === $RAW) return target;
     const value = target[property as string | number];
     return isWrappable(value) ? new Proxy(value, setterTraps) : value;
   },
@@ -161,8 +162,8 @@ export function setProperty(
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && node.next();
-  notify && (node = nodes._) && node.next();
+  (node = nodes[property]) && node[1]();
+  notify && (node = nodes._) && node[1]();
 }
 
 function mergeState(state: StateNode, value: Partial<StateNode>, force?: boolean) {

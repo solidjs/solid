@@ -36,7 +36,7 @@ Creates a new resource signal that can hold a async resource. Resources when rea
 
 Creates a new Resource State object. Similar to normal state except each immediate property is a resource.
 
-### `onCleanup((final: boolean) => <code>)`
+### `onCleanup(() => <code>)`
 
 Registers a cleanup methodthat executes on disposal or recalculation of the current context.
 

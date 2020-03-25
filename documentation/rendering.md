@@ -8,7 +8,7 @@ Rendering involves precompilation of JSX templates into optimized native js code
 
 This approach both is more performant and produces less code then creating each element one by one with document.createElement.
 
-More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
+More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions)
 
 ### Note on attribute binding order
 
@@ -32,9 +32,25 @@ render(() => <App />, document.getElementById("main"));
 
 ## Events
 
-on**\_** properties get added (addEventListener) as event handlers on the element. Camel Case events will be delegated by default and the second argument will be the model property or (nearest parent's). Use all lowercase for directly bound native events.
+`on_____` handlers are event handlers expecting a function. The compiler will delegate events where possible (Events that can be composed and bubble) else it will fall back to Level 1 spec "on**\_**" events.
 
-If you need to use non-lowercase or hyphenated event names use the events binding.
+If you wish to bind a value to your delegated event pass an array handler instead and the second argument will be passed to your event handler as the first argument (the event will be second). This can improve performance in large lists.
+
+```jsx
+function handler(itemId, e) {/*...*/}
+
+<ul>
+  <For each={state.list}>{item => <li onClick={[handler, item.id]} />}</For>
+</ul>
+```
+
+This delegation solution works with Web Components and the Shadow DOM as well if the events are composed. That limits the list to custom events and most UA UI events like onClick, onKeyUp, onKeyDown, onDblClick, onInput, onMouseDown, onMouseUp, etc..
+
+To allow for casing to work all custom events should follow the all lowercase convention of native events. If you want to use different event convention (or use Level 3 Events "addEventListener") use the "on" or "onCapture" binding.
+
+```jsx
+<div on={{ "Weird-Event": e => alert(e.detail) }} />
+```
 
 ## Control Flow
 
@@ -123,43 +139,51 @@ _Note these are designed to handle more complex scenarios like Component inserti
 Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef` which calls a callback `(ref) => void` with the reference. To support forwarded properties on spreads, both `ref` and `forwardRef` are called as functions.
 
 ### `ref`
+
 ```jsx
 function MyComp() {
   let myDiv;
   setTimeout(() => console.log(myDiv.clientWidth));
-  return <div ref={myDiv} />
+  return <div ref={myDiv} />;
 }
 ```
+
 On a native intrinsic element as the element executes the provided variable will be assigned. This form usually is used in combination with `setTimeout` (same timing as React's `useEffect`) or `afterEffects`(same timing as React's `useLayoutEffect`) to do work after the component has mounted. Like do a DOM measurement or attach DOM plugins etc...
 
 When applied to a Component it acts similarly but also passes a prop in that is a function that is expected to be called with a ref to forward the ref (more on this in the next section):
+
 ```jsx
 function App() {
   let myDiv;
   setTimeout(() => console.log(myDiv.clientWidth));
-  return <MyComp ref={myDiv} />
+  return <MyComp ref={myDiv} />;
 }
 ```
 
 ### `forwardRef`
+
 This form expects a function like React's callback refs. Original use case is like described above:
+
 ```jsx
 function MyComp(props) {
-  return <div forwardRef={props.ref} />
+  return <div forwardRef={props.ref} />;
 }
 
 function App() {
   let myDiv;
   setTimeout(() => console.log(myDiv.clientWidth));
-  return <MyComp ref={myDiv} />
+  return <MyComp ref={myDiv} />;
 }
 ```
+
 You can also apply `forwardRef` on a Component:
+
 ```jsx
 function App() {
-  return <MyComp forwardRef={ref => console.log(ref.clientWidth)} />
+  return <MyComp forwardRef={ref => console.log(ref.clientWidth)} />;
 }
 ```
+
 This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `forwardRef` up a Component chain as you wish.
 
 ## Server Side Rendering (Experimental)

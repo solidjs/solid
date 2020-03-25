@@ -62,18 +62,9 @@ describe("Update signals", () => {
     expect(value()).toBe(10);
   });
   test("Create Signal with comparator and set equivalent value", () => {
-    const [value, setValue] = createSignal(5, (a, b) => b > a);
+    const [value, setValue] = createSignal(5, (a, b) => a > b);
     setValue(3);
     expect(value()).toBe(5);
-  });
-  test("Create Signal with comparator and force synchronicity error", () => {
-    const [value, setValue] = createSignal(5, (a, b) => a === b);
-    expect(() =>
-      freeze(() => {
-        setValue(10);
-        setValue(5);
-      })
-    ).toThrow();
   });
   test("Create and trigger a Memo", () => {
     createRoot(() => {
@@ -319,7 +310,7 @@ describe("Trigger afterEffects", () => {
         expect(result).toBe("");
       });
       afterEffects(() => (result += "Smith!"));
-      expect(result).toBe("Hello, John");
+      expect(result).toBe("Hello, John ");
     });
     expect(result).toBe("Hello, John Smith!");
   });

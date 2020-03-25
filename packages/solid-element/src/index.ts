@@ -24,9 +24,10 @@ function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
       );
       element.addReleaseCallback(() => dispose());
 
+      const comp = (ComponentType as FunctionComponent<T>)(props as T, options);
       return insert(
-        element.renderRoot(),
-        (ComponentType as FunctionComponent<T>)(props as T, options)
+        element.renderRoot,
+        comp
       );
     }, (element.assignedSlot && element.assignedSlot._context) || element._context);
   };

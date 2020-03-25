@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createEffect } = require('../lib/index');
+const { createRoot, createSignal, createEffect } = require("../lib");
 
 var now = typeof process === 'undefined' ? browserNow : nodeNow;
 

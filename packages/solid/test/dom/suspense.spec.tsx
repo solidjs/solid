@@ -9,7 +9,7 @@ import {
 } from "../../src";
 import { render, Suspense, SuspenseList } from "../../src/dom";
 
-describe("Testing a Suspense", () => {
+describe("Testing Suspense", () => {
   let div = document.createElement("div"),
     disposer: () => void,
     resolvers: Function[] = [],
@@ -30,12 +30,12 @@ describe("Testing a Suspense", () => {
       </Suspense>
     );
 
-  test("Create suspend control flow", () => {
+  test("Create Suspense control flow", () => {
     disposer = render(Component, div);
     expect(div.innerHTML).toBe("Loading");
   });
 
-  test("Toggle suspend control flow", done => {
+  test("Toggle Suspense control flow", done => {
     for (const r of resolvers) r({ default: ChildComponent });
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo");
@@ -80,7 +80,7 @@ describe("Testing Suspense with State", () => {
       </Suspense>
     );
 
-  test("Create suspend control flow", done => {
+  test("Create Suspense control flow", done => {
     disposer = render(Component, div);
     expect(div.innerHTML).toBe("Loading");
     setTimeout(() => {

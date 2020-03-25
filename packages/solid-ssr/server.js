@@ -1,6 +1,6 @@
 const { fork } = require("child_process");
 
-class ForkBalancer {
+class Pool {
   constructor({ path = "", forks = 2, maxRAM = 250, args = [], requestLimit = 100 }) {
     this.activeFork = 0;
     this.forks = forks;
@@ -15,10 +15,11 @@ class ForkBalancer {
   getFromRenderer(req) {
     const { resolvers, maxRAM, activeFork, restartFork, renderers, requestLimit } = this;
     const renderer = renderers[activeFork];
+    this.next();
 
     return new Promise(function(resolve, reject) {
       try {
-        renderer.once("message", (res) => {
+        renderer.once("message", res => {
           resolvers.delete(req.url);
           resolve(res);
 
@@ -40,7 +41,7 @@ class ForkBalancer {
   createFork() {
     const { path, args } = this;
     return fork(path, args);
-  };
+  }
 
   restartFork() {
     const { activeFork, renderers, next, createFork } = this;
@@ -48,7 +49,7 @@ class ForkBalancer {
     next();
     renderer.kill();
     this.renderers[activeFork] = createFork();
-  };
+  }
 
   next() {
     const { activeFork, forks } = this;
@@ -57,15 +58,22 @@ class ForkBalancer {
     } else {
       this.activeFork++;
     }
-  };
+  }
 }
 
 module.exports = function createServer(options) {
-  const forkBalancer = new ForkBalancer(options);
-  return async function render(req) {
-    const { string } = await forkBalancer.getFromRenderer({
-      url: req.url, cookies: req.cookies, headers: req.headers
-    });
-    return string;
-  }
-}
+  const pool = new Pool(options);
+  return {
+    async render(req) {
+      const { string } = await pool.getFromRenderer({
+        url: req.url,
+        cookies: req.cookies,
+        headers: req.headers
+      });
+      return string;
+    },
+    terminate() {
+      pool.renderers.forEach(p => p.kill());
+    }
+  };
+};

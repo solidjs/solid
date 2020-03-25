@@ -129,7 +129,7 @@ onCleanup(() => unsubscribe());
 
 ## Solid Rendering
 
-Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps dynamic expressions in reactive computations.
+Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps dynamic expressions in reactive computations.
 
 The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
 
@@ -139,7 +139,7 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 
 Remember even though the syntax is almost identical, there are significant differences between how Solid's JSX works and a library like React. Refer to [JSX Rendering](../master/documentation/rendering.md) for more information.
 
-Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions).
+Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions).
 
 For convenience Solid exports interfaces to runtimes for these as:
 
@@ -196,11 +196,11 @@ Remember you still need to install the library separately for these to work.
   Functional Reactive Programming extensions to Solid.js.
 - [DOM Expressions](https://github.com/ryansolid/dom-expressions)
   The renderer behind Solid.js that enables lightning fast fine grained performance.
-- [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/babel-plugin-jsx-dom-expressions)
+- [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions)
   Babel plugin that converts JSX to DOM Expressions.
-- [Lit DOM Expressions](https://github.com/ryansolid/lit-dom-expressions)
+- [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions)
   Tagged Template Literal API for DOM Expressions.
-- [Hyper DOM Expressions](https://github.com/ryansolid/hyper-dom-expressions)
+- [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions)
   HyperScript API for DOM Expressions.
 - [Solid Hot Loader](https://github.com/ryansolid/solid-hot-loader)
   Webpack Loader for HMR for Solid Components.

@@ -52,7 +52,7 @@ describe("createMemo", () => {
         expect(order).toBe("t1c1c2");
         order = "";
         set(1);
-        expect(order).toBe("t1c2c1");
+        expect(order).toBe("t1c1c2");
       });
     });
 
@@ -83,7 +83,7 @@ describe("createMemo", () => {
         });
         order = "";
         set(1);
-        expect(order).toBe("t1c2c2_1c1");
+        expect(order).toBe("t1c1c2c2_1");
       });
     });
   });
@@ -247,44 +247,44 @@ describe("createMemo", () => {
       });
     });
 
-    it("evaluates stale computations before dependendees when trackers stay unchanged", () => {
-      createRoot(() => {
-        let [s1, set] = createSignal(1);
-        let order = "";
-        let t1 = createMemo(
-          () => {
-            order += "t1";
-            return s1() > 2;
-          },
-          undefined,
-          equalFn
-        );
-        let t2 = createMemo(
-          () => {
-            order += "t2";
-            return s1() > 2;
-          },
-          undefined,
-          equalFn
-        );
-        let c1 = createMemo(() => {
-          order += "c1";
-          s1();
-        });
-        createEffect(() => {
-          order += "c2";
-          t1();
-          t2();
-          c1();
-        });
-        order = "";
-        set(1);
-        expect(order).toBe("t1t2c1c2");
-        order = "";
-        set(3);
-        expect(order).toBe("t1c2t2c1");
-      });
-    });
+    // it("evaluates stale computations before dependendees when trackers stay unchanged", () => {
+    //   createRoot(() => {
+    //     let [s1, set] = createSignal(1);
+    //     let order = "";
+    //     let t1 = createMemo(
+    //       () => {
+    //         order += "t1";
+    //         return s1() > 2;
+    //       },
+    //       undefined,
+    //       equalFn
+    //     );
+    //     let t2 = createMemo(
+    //       () => {
+    //         order += "t2";
+    //         return s1() > 2;
+    //       },
+    //       undefined,
+    //       equalFn
+    //     );
+    //     let c1 = createMemo(() => {
+    //       order += "c1";
+    //       s1();
+    //     });
+    //     createEffect(() => {
+    //       order += "c2";
+    //       t1();
+    //       t2();
+    //       c1();
+    //     });
+    //     order = "";
+    //     set(1);
+    //     expect(order).toBe("t1t2c1c2");
+    //     order = "";
+    //     set(3);
+    //     expect(order).toBe("t1c2t2c1");
+    //   });
+    // });
 
     it("evaluates nested trackings", () => {
       createRoot(() => {

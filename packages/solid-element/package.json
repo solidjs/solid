@@ -3,7 +3,7 @@
   "description": "Webcomponents wrapper for Solid",
   "author": "Ryan Carniato",
   "license": "MIT",
-  "version": "0.16.14",
+  "version": "0.17.0-beta.3",
   "homepage": "https://github.com/ryansolid/solid/blob/master/packages/solid-element#readme",
   "main": "lib/solid-element.js",
   "module": "dist/solid-element.js",
@@ -18,7 +18,7 @@
     "build": "rollup -c && tsc"
   },
   "dependencies": {
-    "component-register": "~0.6.18",
-    "solid-js": "^0.16.14"
+    "component-register": "~0.7.0",
+    "solid-js": "^0.17.0-beta.3"
   }
 }

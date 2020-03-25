@@ -1,0 +1,119 @@
+Solid
+
+createDataSignals: 37
+createComputations0to1: 14
+createComputations1to1: 57
+createComputations2to1: 49
+createComputations4to1: 31
+createComputations1000to1: 18
+createComputations1to2: 122
+createComputations1to4: 105
+createComputations1to8: 113
+createComputations1to1000: 131
+create total: 675
+---
+updateComputations1to1: 65
+updateComputations2to1: 46
+updateComputations4to1: 36
+updateComputations1000to1: 46
+updateComputations1to2: 5
+updateComputations1to4: 4
+updateComputations1to1000: 2
+update total: 204
+total: 879
+
+S-mod
+
+createDataSignals: 38
+createComputations0to1: 12
+createComputations1to1: 48
+createComputations2to1: 51
+createComputations4to1: 46
+createComputations1000to1: 16
+createComputations1to2: 107
+createComputations1to4: 107
+createComputations1to8: 105
+createComputations1to1000: 82
+create total: 612
+---
+updateComputations1to1: 67
+updateComputations2to1: 47
+updateComputations4to1: 28
+updateComputations1000to1: 34
+updateComputations1to2: 5
+updateComputations1to4: 6
+updateComputations1to1000: 3
+update total: 191
+total: 803
+
+Sinuous-mod
+
+createDataSignals: 59
+createComputations0to1: 100
+createComputations1to1: 135
+createComputations2to1: 87
+createComputations4to1: 56
+createComputations1000to1: 126
+createComputations1to2: 185
+createComputations1to4: 143
+createComputations1to8: 127
+createComputations1to1000: 140
+create total: 1158
+---
+updateComputations1to1: 225
+updateComputations2to1: 140
+updateComputations4to1: 96
+updateComputations1000to1: 146
+updateComputations1to2: 7
+updateComputations1to4: 4
+updateComputations1to1000: 4
+update total: 624
+total: 1782
+
+Sinuous
+
+createDataSignals: 89
+createComputations0to1: 197
+createComputations1to1: 212
+createComputations2to1: 146
+createComputations4to1: 88
+createComputations1000to1: 108
+createComputations1to2: 204
+createComputations1to4: 228
+createComputations1to8: 211
+createComputations1to1000: 209
+create total: 1693
+---
+updateComputations1to1: 313
+updateComputations2to1: 209
+updateComputations4to1: 128
+updateComputations1000to1: 145
+updateComputations1to2: 284
+updateComputations1to4: 255
+updateComputations1to1000: 226
+update total: 1559
+total: 3252
+
+RVal Mod
+
+createDataSignals: 55
+createComputations0to1: 76
+createComputations1to1: 237
+createComputations2to1: 144
+createComputations4to1: 92
+createComputations1000to1: 33
+createComputations1to2: 299
+createComputations1to4: 300
+createComputations1to8: 282
+createComputations1to1000: 254
+create total: 1772
+---
+updateComputations1to1: 477
+updateComputations2to1: 278
+updateComputations4to1: 178
+updateComputations1000to1: 196
+updateComputations1to2: 27
+updateComputations1to4: 14
+updateComputations1to1000: 5
+update total: 1174
+total: 2946

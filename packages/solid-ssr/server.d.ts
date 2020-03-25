@@ -1,4 +1,4 @@
-export function createSSR(options: {
+export default function createSSR(options: {
   path: string;
   forks: number;
   maxRAM: number;
