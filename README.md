@@ -17,6 +17,7 @@ Solid is a declarative Javascript library for creating user interfaces. It does 
   - Function Components with no need for lifecycle methods or specialized configuration objects.
   - Render once mental model.
 - Fast! Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
+- Small! Completely tree-shakeable Solid's compiler will only include parts of the library you use.
 - Supports modern features like JSX, Fragments, Context, Portals, Suspense, SSR, Error Boundaries and Asynchronous Rendering.
 - Built on TypeScript.
 - Webcomponent friendly
@@ -78,6 +79,29 @@ Or you can install the dependencies in your own project. To use Solid with JSX (
 > npm install solid-js babel-preset-solid
 ```
 
+## Solid Rendering
+
+Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps dynamic expressions in reactive computations.
+
+The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
+
+```js
+"presets": ["solid"]
+```
+
+Remember even though the syntax is almost identical, there are significant differences between how Solid's JSX works and a library like React. Refer to [JSX Rendering](../master/documentation/rendering.md) for more information.
+
+Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions).
+
+For convenience Solid exports interfaces to runtimes for these as:
+
+```js
+import h from "solid-js/h";
+import html from "solid-js/html";
+```
+
+Remember you still need to install the library separately for these to work.
+
 ## Solid State
 
 Solid's data management is built off a set of flexible reactive primitives. Similar to React Hooks except instead of whitelisting change for an owning Component they independentally are soley responsible for all the updates.
@@ -128,28 +152,7 @@ const unsubscribe = store.subscribe(({ todos }) => (
 onCleanup(() => unsubscribe());
 ```
 
-## Solid Rendering
-
-Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps dynamic expressions in reactive computations.
-
-The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
-
-```js
-"presets": ["solid"]
-```
-
-Remember even though the syntax is almost identical, there are significant differences between how Solid's JSX works and a library like React. Refer to [JSX Rendering](../master/documentation/rendering.md) for more information.
-
-Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions).
-
-For convenience Solid exports interfaces to runtimes for these as:
-
-```js
-import h from "solid-js/h";
-import html from "solid-js/html";
-```
-
-Remember you still need to install the library separately for these to work.
+Check out the Documentation and Examples below to get more familiar with Solid.
 
 ## Documentation
 
@@ -210,8 +213,8 @@ Remember you still need to install the library separately for these to work.
 
 ## Articles
 
-- [A Solid RealWorld Demo Comparison of JavaScript Frameworks](https://levelup.gitconnected.com/a-solid-realworld-demo-comparison-8c3363448fd8)
-- [Designing SolidJS: Abstraction](https://levelup.gitconnected.com/designing-solidjs-abstraction-66d8c63fa7d1?source=friends_link&sk=9cc520bbba3d97872a78081a8ab7b259)
+- [A Solid RealWorld Demo Comparison of JavaScript Frameworks](https://levelup.gitconnected.com/a-solid-realworld-demo-comparison-8c3363448fd8) How does Solid perform in a larger application?
+- [Designing SolidJS: Abstraction](https://levelup.gitconnected.com/designing-solidjs-abstraction-66d8c63fa7d1?source=friends_link&sk=9cc520bbba3d97872a78081a8ab7b259) Understanding both the power and cost of abstraction.
 - [Designing SolidJS: Suspense](https://itnext.io/designing-solidjs-suspense-f4e92c625cb5?source=friends_link&sk=f06f93d28632daba59048ed3d6d6b0a5) React isn't the only library that stops time.
 - [Designing SolidJS: JSX](https://medium.com/@ryansolid/designing-solidjs-jsx-50ee2b791d4c?source=friends_link&sk=ef3d7ada15b50a6b5b7f5aee2cb8f952) How is it that the syntax born of the Virtual DOM is also secretly the best syntax for Reactive UI libraries?
 - [Designing SolidJS: Immutability](https://medium.com/javascript-in-plain-english/designing-solidjs-immutability-f1e46fe9f321?source=friends_link&sk=912e32c63353ff0e084630bf3b63a8b1) Can Reactive State Management be both Immutable and also the most performant?
