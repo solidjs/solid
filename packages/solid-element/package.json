@@ -18,7 +18,7 @@
     "build": "rollup -c && tsc"
   },
   "dependencies": {
-    "component-register": "~0.7.0",
+    "component-register": "~0.8.0",
     "solid-js": "^0.17.1"
   }
 }
