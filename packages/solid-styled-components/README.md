@@ -138,7 +138,7 @@ glob`
 `;
 ```
 
-### Theme
+### `Theme`
 You can set a Theme Provider (remember to use state or signals if you want it to be reactive)
 
 ```jsx

@@ -196,8 +196,12 @@ Check out the Documentation and Examples below to get more familiar with Solid.
 
 - [Solid Element](https://github.com/ryansolid/solid/blob/master/packages/solid-element)
   Extensions to Solid.js that add a Web Component wrapper.
+- [Solid Styled Components](https://github.com/ryansolid/solid/blob/master/packages/solid-styled-components)
+  Styled Components for Solid using 1kb library Goober.
+- [Solid Styled JSX](https://github.com/ryansolid/solid/blob/master/packages/solid-styled-jsx)
+  Wrapper for using Solid with Zeit's Styled JSX.
 - [Solid RX](https://github.com/ryansolid/solid/blob/master/packages/solid-rx)
-  Functional Reactive Programming extensions to Solid.js.
+  Functional Reactive Programming extensions for SolidJS.
 - [DOM Expressions](https://github.com/ryansolid/dom-expressions)
   The renderer behind Solid.js that enables lightning fast fine grained performance.
 - [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions)
