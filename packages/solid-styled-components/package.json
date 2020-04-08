@@ -1,0 +1,35 @@
+{
+  "name": "solid-styled-components",
+  "description": "Solid wrapper for Styled JSX",
+  "version": "0.17.2",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryansolid/solid/solid-styled-jsx"
+  },
+  "main": "lib/solid-styled-components.js",
+  "module": "dist/solid-styled-components.js",
+  "types": "types/index.d.ts",
+  "files": [
+    "dist",
+    "lib",
+    "types/index.d.ts"
+  ],
+  "sideEffects": "false",
+  "scripts": {
+    "build": "rollup -c && tsc",
+    "test": "jest && npm run test:types",
+    "test:types": "tsc --project tsconfig.test.json"
+  },
+  "dependencies": {
+    "goober": "1.7.1",
+    "csstype": "^2.6.2"
+  },
+  "peerDependencies": {
+    "solid-js": "^0.17.2"
+  },
+  "devDependencies": {
+    "solid-js": "^0.17.2"
+  }
+}

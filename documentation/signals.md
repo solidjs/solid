@@ -109,18 +109,10 @@ const useReducer = (reducer, init) => {
 
 ## Operators
 
-Solid provides a couple simple operators to help construct more complicated behaviors. They work both as standalone and curried Functional Programming form, where they return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with 2 basic array ones:
+Solid provides a couple simple operators to help construct more complicated behaviors. They work both as standalone and curried Functional Programming form, where they return a function that takes the input accessor. They are not computations themselves and are designed to be passed into `createMemo`. The possibilities of operators are endless. Solid only ships with a base array mapping one:
 
-### `map(() => any[], iterator: (item, index) => any, options: { fallback: () => any }): () => any[]`
+### `mapArray(() => any[], iterator: (item, index) => any, options: { fallback: () => any }): () => any[]`
 
-### `map(iterator: (item, index) => any, options: { fallback: () => any }): (signal) => () => any[]`
-
-Memoized array map operator with optional fallback. This operator does not re-map items if already in the list.
-
-### `reduce(() => any, accumulator: (memo, item, index) => any, seed): () => any`
-
-### `reduce(accumulator: (memo, item, index) => any, seed): (signal) => () => any`
-
-Array reduce operator useful for combining or filtering lists.
+### `mapArray(iterator: (item, index) => any, options: { fallback: () => any }): (signal) => () => any[]`
 
 The `solid-rx` package contains more operators that can be used with Solid.

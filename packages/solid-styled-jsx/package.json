@@ -1,0 +1,28 @@
+{
+  "name": "solid-styled-jsx",
+  "description": "Solid wrapper for Styled JSX",
+  "version": "0.17.2",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryansolid/solid/solid-styled-jsx"
+  },
+  "main": "style.js",
+  "types": "style.d.ts",
+  "files": [
+    "style.js",
+    "style.d.ts",
+    "preset.js"
+  ],
+  "dependencies": {
+    "babel-plugin-transform-rename-import": "^2.3.0"
+  },
+  "peerDependencies": {
+    "styled-jsx": "^3.2.5",
+    "solid-js": "^0.17.2"
+  },
+  "devDependencies": {
+    "solid-js": "^0.17.2"
+  }
+}
