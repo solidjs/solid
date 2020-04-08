@@ -1,7 +1,7 @@
 {
   "name": "solid-styled-components",
   "description": "Solid wrapper for Styled JSX",
-  "version": "0.17.2",
+  "version": "0.17.3",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -23,8 +23,8 @@
     "test:types": "tsc --project tsconfig.test.json"
   },
   "dependencies": {
-    "goober": "1.7.1",
-    "csstype": "^2.6.2"
+    "csstype": "^2.6.2",
+    "goober": "1.7.1"
   },
   "peerDependencies": {
     "solid-js": "^0.17.2"
