@@ -5,7 +5,7 @@
 ![](https://img.shields.io/npm/dt/solid-styled-jsx.svg?style=flat)
 [![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
 
-This library is a wrapper to allow you to use Solid with Zeit's [styled-jsx](https://github.com/zeit/styled-jsx). It accomplishes this by using a babel transform to change the Style JSX element import to use Solid's version. From there simply add the preset `solid-styled-jsx/preset` to your babel config after `babel-preset-solid` and you are good to go.
+This library is a wrapper to allow you to use Solid with Zeit's [styled-jsx](https://github.com/zeit/styled-jsx). It accomplishes this by using a babel transform to change the Style JSX element import to use Solid's version. From there simply add the plugin `solid-styled-jsx/babel` to your babel config and you are good to go. The plugin accepts the same options as it's `styled-jsx/babel` counterpart.
 
 ## Gist
 

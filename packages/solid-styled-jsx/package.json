@@ -13,7 +13,7 @@
   "files": [
     "style.js",
     "style.d.ts",
-    "preset.js"
+    "babel.js"
   ],
   "dependencies": {
     "babel-plugin-transform-rename-import": "^2.3.0"
