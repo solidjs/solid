@@ -1,5 +1,4 @@
-## <img src="https://raw.githubusercontent.com/ryansolid/solid/master/assets/logo.png" alt="Solid" width="500"/><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The Deceptively Simple User Interface Library
-
+## <img src="https://raw.githubusercontent.com/ryansolid/solid/master/assets/logo.png" alt="Solid" width="500"/><br>
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
@@ -174,7 +173,8 @@ Check out the Documentation and Examples below to get more familiar with Solid.
 - [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'switch' control flow for simple routing
 - [Scoreboard](https://codesandbox.io/s/solid-scoreboard-sjpje) Make use of hooks to do some simple transitions
 - [Form Validation](https://codesandbox.io/s/solid-form-validation-2cdti) HTML 5 validators with custom async validation
-- [Styled Components](https://codesandbox.io/s/solid-emotion-slz4d) A simple example of creating Styled Components with Emotion JS.
+- [Styled Components](https://codesandbox.io/s/solid-styled-components-yv2t1) A simple example of creating Styled Components.
+- [Styled JSX](https://codesandbox.io/s/solid-styled-jsx-xgx6b) A simple example of using Styled JSX with Solid.
 - [Counter Context](https://codesandbox.io/s/counter-context-gur76) Implement a global store with Context API
 - [Async Resource](https://codesandbox.io/s/2o4wmxj9zy) Ajax requests to SWAPI with Promise cancellation
 - [Suspense](https://codesandbox.io/s/5v67oym224) Various Async loading with Solid's Suspend control flow
@@ -196,8 +196,12 @@ Check out the Documentation and Examples below to get more familiar with Solid.
 
 - [Solid Element](https://github.com/ryansolid/solid/blob/master/packages/solid-element)
   Extensions to Solid.js that add a Web Component wrapper.
+- [Solid Styled Components](https://github.com/ryansolid/solid/blob/master/packages/solid-styled-components)
+  Styled Components for Solid using 1kb library Goober.
+- [Solid Styled JSX](https://github.com/ryansolid/solid/blob/master/packages/solid-styled-jsx)
+  Wrapper for using Solid with Zeit's Styled JSX.
 - [Solid RX](https://github.com/ryansolid/solid/blob/master/packages/solid-rx)
-  Functional Reactive Programming extensions to Solid.js.
+  Functional Reactive Programming extensions for SolidJS.
 - [DOM Expressions](https://github.com/ryansolid/dom-expressions)
   The renderer behind Solid.js that enables lightning fast fine grained performance.
 - [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions)
