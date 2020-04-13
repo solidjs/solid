@@ -25,7 +25,7 @@
     "export:example": "node example/export.js"
   },
   "dependencies": {
-    "basichtml": "2.2.1",
+    "basichtml": "^2.2.5",
     "jest-environment-node": "^25.1.0"
   },
   "devDependencies": {
