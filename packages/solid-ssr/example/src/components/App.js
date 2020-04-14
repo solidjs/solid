@@ -10,8 +10,8 @@ const App = RouteHOC(() => {
   return (
     <>
       <ul class="inline">
-        <li classList={{ selected: matches("home") }}>
-          <Link path="home">Home</Link>
+        <li classList={{ selected: matches("index") }}>
+          <Link path="">Home</Link>
         </li>
         <li classList={{ selected: matches("profile") }}>
           <Link path="profile">Profile</Link>
@@ -23,7 +23,7 @@ const App = RouteHOC(() => {
       <div class="tab">
         <Suspense fallback="Loading...">
           <Switch>
-            <Match when={matches("home")}>
+            <Match when={matches("index")}>
               <Home />
             </Match>
             <Match when={matches("profile")}>
