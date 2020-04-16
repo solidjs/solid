@@ -154,6 +154,7 @@ onCleanup(() => unsubscribe());
 Read these two introductory articles by [@aftzl](https://github.com/atfzl):
 
 [Understanding Solid: Reactivity Basics](https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk)
+
 [Understanding Solid: JSX](https://dev.to/atfzl/understanding-solid-jsx-584p)
 
 And check out the Documentation, Examples, and Articles below to get more familiar with Solid.
