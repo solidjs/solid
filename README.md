@@ -151,7 +151,11 @@ const unsubscribe = store.subscribe(({ todos }) => (
 onCleanup(() => unsubscribe());
 ```
 
-Check out the Documentation and Examples below to get more familiar with Solid.
+Read these two introductory articles by @aftzl:
+(Understanding Solid: Reactivity Basics)[https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk]
+(Understanding Solid: JSX)[https://dev.to/atfzl/understanding-solid-jsx-584p]
+
+And check out the Documentation, Examples, and Articles below to get more familiar with Solid.
 
 ## Documentation
 
@@ -215,8 +219,9 @@ Check out the Documentation and Examples below to get more familiar with Solid.
 - [React Solid State](https://github.com/ryansolid/solid/blob/master/packages/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
 
-## Articles
+## Latest Articles
 
+- [Thinking Granular: How is SolidJS so Performant?](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) An end to end look at what makes SolidJS so fast.
 - [A Solid RealWorld Demo Comparison of JavaScript Frameworks](https://levelup.gitconnected.com/a-solid-realworld-demo-comparison-8c3363448fd8) How does Solid perform in a larger application?
 - [Designing SolidJS: Abstraction](https://levelup.gitconnected.com/designing-solidjs-abstraction-66d8c63fa7d1?source=friends_link&sk=9cc520bbba3d97872a78081a8ab7b259) Understanding both the power and cost of abstraction.
 - [Designing SolidJS: Suspense](https://itnext.io/designing-solidjs-suspense-f4e92c625cb5?source=friends_link&sk=f06f93d28632daba59048ed3d6d6b0a5) React isn't the only library that stops time.
