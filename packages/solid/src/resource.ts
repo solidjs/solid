@@ -166,7 +166,7 @@ const resourceTraps = {
   }
 };
 
-type LoadStateFunction<T> = {
+export interface LoadStateFunction<T> {
   (
     v: { [P in keyof T]?: Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: Wrapped<T>) => void

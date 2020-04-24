@@ -6,6 +6,7 @@ import {
   createEffect,
   onError
 } from "../src";
+import { SetStateFunction } from "../types/state";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
@@ -84,7 +85,7 @@ describe("Simulate a dynamic fetch with state", () => {
       v: { [k: number]: Promise<string> | string },
       r?: (v: any) => (state: any) => void
     ) => { [k: number]: boolean },
-    setUsers: Function,
+    setUsers: SetStateFunction<{ [id: number]: string }>,
     users: any;
   function fetcher(): Promise<string> {
     return new Promise<string>((r, f) => {
@@ -146,7 +147,7 @@ describe("Simulate a dynamic fetch with state", () => {
   });
 
   test("setState", () => {
-    setUsers("5", "Jordy");
+    setUsers(5, "Jordy");
     expect(users[5]).toBe("Jordy");
   });
 

@@ -4,7 +4,7 @@ describe("Map operator", () => {
   test("simple mapArray", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),
-        r = createMemo(mapArray(s, (v: number) => v * 2));
+        r = createMemo(mapArray(s, v => v * 2));
       expect(r()).toEqual([2, 4, 6, 8]);
       set([3, 4, 5]);
       expect(r()).toEqual([6, 8, 10]);

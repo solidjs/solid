@@ -145,7 +145,7 @@ describe("setState Mutations", () => {
 describe("Array setState modes", () => {
   test("Update Specific", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", [1, 3], (r: number) => r * 2);
+    setState("rows", [1, 3], r => r * 2);
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(3);
@@ -156,8 +156,8 @@ describe("Array setState modes", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
     setState(
       "rows",
-      (r: number, i: number) => !!(i % 2),
-      (r: number) => r * 2
+      (r, i) => !!(i % 2),
+      r => r * 2
     );
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
@@ -167,7 +167,7 @@ describe("Array setState modes", () => {
   });
   test("Update traversal range", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", { from: 1, to: 4, by: 2 }, (r: number) => r * 2);
+    setState("rows", { from: 1, to: 4, by: 2 }, r => r * 2);
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(3);
@@ -176,7 +176,7 @@ describe("Array setState modes", () => {
   });
   test("Update traversal range defaults", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", {}, (r: number) => r * 2);
+    setState("rows", {}, r => r * 2);
     expect(state.rows[0]).toBe(2);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(6);
