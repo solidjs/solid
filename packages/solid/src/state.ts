@@ -24,45 +24,6 @@ export type Wrapped<T> = {
 } & AddSymbolToPrimitive<T> &
   AddCallable<T>;
 
-type StateSetter<T> =
-  | Partial<T>
-  | ((
-      prevState: T extends NotWrappable ? T : Wrapped<T>,
-      traversed?: (string | number)[]
-    ) => Partial<T> | void);
-type StatePathRange = { from?: number; to?: number; by?: number };
-type StatePathPart =
-  | string
-  | number
-  | (string | number)[]
-  | StatePathRange
-  | ((item: any, index: number) => boolean);
-
-// do up to depth of 8
-type StatePath<T> =
-  | [keyof T, StatePathPart, StateSetter<unknown>]
-  | [keyof T, StatePathPart, StatePathPart, StateSetter<unknown>]
-  | [keyof T, StatePathPart, StatePathPart, StatePathPart, StateSetter<unknown>]
-  | [keyof T, StatePathPart, StatePathPart, StatePathPart, StatePathPart, StateSetter<unknown>]
-  | [
-      keyof T,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StateSetter<unknown>
-    ]
-  | [
-      keyof T,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StatePathPart,
-      StateSetter<unknown>
-    ];
 export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): Wrapped<T> {
   return value[$PROXY] || (value[$PROXY] = new Proxy(value, traps || proxyTraps));
 }
@@ -221,10 +182,97 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
   } else setProperty(current, part, value);
 }
 
+type StateSetter<T> =
+  | Partial<T>
+  | ((
+    prevState: T extends NotWrappable ? T : Wrapped<T>,
+    traversed?: (string | number)[]
+  ) => Partial<T> | void);
+type StatePathRange = { from?: number; to?: number; by?: number };
+
+type ArrayFilterFn<T> = (item: T extends any[] ? T[number] : never, index: number) => boolean;
+
+type Part<T> =
+  keyof T
+  | Array<keyof T>
+  | StatePathRange
+  | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
+
+type Next<T, K> =
+  K extends keyof T ? T[K] :
+  K extends Array<keyof T> ? T[K[number]] :
+  T extends any[] ? (
+    K extends StatePathRange ? T[number] :
+    K extends ArrayFilterFn<T> ? T[number] :
+    never
+  ) :
+  never;
+
 export interface SetStateFunction<T> {
-  (update: StateSetter<T>): void;
-  <A extends keyof T>(part: A, update: StateSetter<T[A]>): void;
-  (...path: StatePath<T>): void;
+  <
+    Setter extends StateSetter<T>
+    >(...args: [Setter]): void;
+  <
+    K1 extends Part<T>,
+    Setter extends StateSetter<Next<T, K1>>
+    >(...args: [K1, Setter]): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<Next<T, K1>>,
+    Setter extends StateSetter<Next<Next<T, K1>, K2>>
+    >(...args: [K1, K2, Setter]): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<Next<T, K1>>,
+    K3 extends Part<Next<Next<T, K1>, K2>>,
+    Setter extends StateSetter<Next<Next<Next<T, K1>, K2>, K3>>
+    >(...args: [K1, K2, K3, Setter]): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<Next<T, K1>>,
+    K3 extends Part<Next<Next<T, K1>, K2>>,
+    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
+    Setter extends StateSetter<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>
+    >(...args: [K1, K2, K3, K4, Setter]): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<Next<T, K1>>,
+    K3 extends Part<Next<Next<T, K1>, K2>>,
+    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
+    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
+    Setter extends StateSetter<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
+    >(...args: [K1, K2, K3, K4, K5, Setter]): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<Next<T, K1>>,
+    K3 extends Part<Next<Next<T, K1>, K2>>,
+    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
+    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
+    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
+    Setter extends StateSetter<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>
+    >(...args: [K1, K2, K3, K4, K5, K6, Setter]): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<Next<T, K1>>,
+    K3 extends Part<Next<Next<T, K1>, K2>>,
+    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
+    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
+    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
+    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
+    Setter extends StateSetter<Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>>
+    >(...args: [K1, K2, K3, K4, K5, K6, K7, Setter]): void;
+
+  // and here we give up on being accurate after 8 args
+  <
+    K1 extends Part<T>,
+    K2 extends Part<Next<T, K1>>,
+    K3 extends Part<Next<Next<T, K1>, K2>>,
+    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
+    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
+    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
+    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
+    K8 extends Part<Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>>,
+    >(...args: [K1, K2, K3, K4, K5, K6, K7, K8, ...(Part<any> | StateSetter<any>)[]]): void;
 }
 
 export function createState<T extends StateNode>(
