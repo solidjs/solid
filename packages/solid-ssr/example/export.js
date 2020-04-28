@@ -1,7 +1,8 @@
-const path = require("path")
+const path = require("path");
+const source = require("./lib/server");
 const ssg = require("../static");
 
 ssg(path.resolve(__dirname, "dist"), {
-  source: path.resolve(__dirname, "lib/server.js"),
+  source,
   pages: ["index", "profile", "settings"]
 });

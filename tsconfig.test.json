@@ -5,11 +5,7 @@
     "moduleResolution": "node",
     "strict": true,
     "lib": ["dom", "es2015", "dom.iterable"],
-    "jsx": "preserve",
-    "typeRoots": [
-      "./node_modules/babel-plugin-jsx-dom-expressions/",
-      "./node_modules/@types"
-    ]
+    "jsx": "preserve"
   },
   "exclude": ["node_modules"]
 }

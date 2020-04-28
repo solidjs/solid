@@ -1,67 +1,18 @@
-export * from "./runtime";
+export * from "dom-expressions/src/runtime";
 export * from "./Suspense";
-import { insert, hydrate as hydr, renderToString as rTS } from "./runtime";
+import { insert } from "dom-expressions/src/runtime";
 import {
-  createRoot,
-  createEffect,
   createMemo,
   onCleanup,
   sample,
   mapArray,
-  awaitSuspense,
-  SuspenseContext,
+  suspend,
   equalFn
 } from "../index.js";
 
-type MountableElement = Node;
-
-export function render(code: () => any, element: MountableElement): () => void {
-  let disposer: () => void;
-  createRoot(dispose => {
-    disposer = dispose;
-    insert(element, code());
-  });
-  return disposer!;
-}
-
-/* istanbul ignore next */
-export function renderToString(
-  code: () => any,
-  options: {
-    timeoutMs?: number;
-  }
-): Promise<string> {
-  return createRoot(dispose =>
-    rTS(done => {
-      const rendered = code();
-      createEffect(() => {
-        if (!SuspenseContext.active!()) {
-          dispose();
-          done!(rendered);
-        }
-      });
-    }, options)
-  );
-}
-
-/* istanbul ignore next */
-export function hydrate(code: () => any, element: MountableElement): () => void {
-  let disposer: () => void;
-  hydr(() => {
-    disposer = render(code, element);
-  }, element);
-  return disposer!;
-}
-
-export { createMemo as wrapMemo }
-
-export function wrapCondition<T>(fn: () => T): () => T {
-  return createMemo(fn, undefined, equalFn);
-}
-
 export function For<T, U>(props: { each: T[]; fallback?: any; children: (item: T) => U }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return awaitSuspense(
+  return suspend(
     createMemo(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined))
   );
 }
@@ -69,7 +20,7 @@ export function For<T, U>(props: { each: T[]; fallback?: any; children: (item: T
 export function Show<T>(props: { when: boolean; fallback?: T; children: T }) {
   const useFallback = "fallback" in props,
     condition = createMemo(() => !!props.when, undefined, equalFn);
-  return awaitSuspense(
+  return suspend(
     createMemo(() =>
       condition()
         ? sample(() => props.children)
@@ -94,7 +45,7 @@ export function Switch<T>(props: { fallback?: T; children: any }) {
       undefined,
       equalFn
     );
-  return awaitSuspense(
+  return suspend(
     createMemo(() => {
       const index = evalConditions();
       return sample(() => (index < 0 ? useFallback && props.fallback : conditions[index].children));
@@ -108,7 +59,7 @@ export function Match(props: MatchProps) {
 }
 
 export function Portal(props: {
-  mount?: MountableElement;
+  mount?: Node;
   useShadow?: boolean;
   ref?: (e: HTMLDivElement) => void;
   children: any;

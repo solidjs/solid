@@ -8,25 +8,14 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid/solid-ssr"
   },
-  "main": "index.js",
-  "types": "index.d.ts",
   "files": [
-    "server.js",
-    "index.js",
-    "jest.js",
     "static.js",
-    "server.d.ts",
-    "index.d.ts",
     "static.d.ts"
   ],
   "scripts": {
     "build:example": "rollup -c example/rollup.config.js",
     "start:example": "node example/index.js",
     "export:example": "node example/export.js"
-  },
-  "dependencies": {
-    "basichtml": "^2.2.5",
-    "jest-environment-node": "^25.1.0"
   },
   "devDependencies": {
     "babel-preset-solid": "^0.17.0",

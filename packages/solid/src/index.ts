@@ -26,3 +26,6 @@ export * from "./component";
 export * from "./resource";
 export * from "./scheduler";
 export { runtimeConfig } from "./shared";
+
+// jsx types
+import "./jsx"

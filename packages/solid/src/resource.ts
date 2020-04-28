@@ -1,5 +1,6 @@
 import {
   createContext,
+  createEffect,
   useContext,
   sample,
   freeze,
@@ -62,6 +63,13 @@ const [active, increment, decrement] = createActivityTracker();
 SuspenseContext.active = active;
 SuspenseContext.increment = increment;
 SuspenseContext.decrement = decrement;
+
+export function awaitSuspense(fn: () => any) {
+  return new Promise(resolve => {
+    const res = fn();
+    createEffect(() => !SuspenseContext.active!() && resolve(res));
+  });
+}
 
 export function createResource<T>(
   value?: T
@@ -265,7 +273,7 @@ export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () =
   ];
 }
 
-export function awaitSuspense<T>(fn: () => T) {
+export function suspend<T>(fn: () => T) {
   const { state } = useContext(SuspenseContext);
   let cached: T;
   return state ? () => (state() === "suspended" ? cached : (cached = fn())) : fn;

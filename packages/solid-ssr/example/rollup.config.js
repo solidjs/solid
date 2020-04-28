@@ -14,7 +14,7 @@ export default [{
   plugins:  [
     nodeResolve({ preferBuiltins: true }),
     babel({
-      presets: [["solid", { generate: "ssr" }]]
+      presets: [["solid", { generate: "ssr", hydratable: true }]]
     }),
     common()
   ]
@@ -29,7 +29,7 @@ export default [{
   plugins:  [
     nodeResolve(),
     babel({
-      presets: [["solid", { generate: "hydrate" }]]
+      presets: [["solid", { generate: "dom", hydratable: true }]]
     }),
     common()
   ]

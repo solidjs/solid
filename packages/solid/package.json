@@ -18,10 +18,10 @@
     "types"
   ],
   "scripts": {
-    "prebuild": "rimraf dist/* lib/* types/* && dom-expressions",
+    "prebuild": "rimraf dist/* lib/* types/* && ncp ../../node_modules/dom-expressions/src/jsx.ts ./src/jsx.ts",
     "build": "npm-run-all -cnl build:*",
     "build:js": "rollup -c",
-    "build:types": "tsc && ncp ./src/dom/runtime.d.ts ./types/dom/runtime.d.ts",
+    "build:types": "tsc",
     "bench": "node --allow-natives-syntax bench/bench.js",
     "test": "jest && npm run test:types",
     "test:coverage": "jest --coverage && npm run test:types",

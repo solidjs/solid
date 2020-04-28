@@ -1,4 +1,4 @@
-import { createComponent } from "./runtime";
+import { createComponent } from "dom-expressions/src/runtime";
 import {
   createSignal,
   sample,

@@ -10,7 +10,14 @@ const plugins = [
     extensions: [".js", ".ts"],
     exclude: "node_modules/**",
     babelrc: false,
-    presets: ["@babel/preset-typescript"]
+    presets: ["@babel/preset-typescript"],
+    plugins: [[
+      "babel-plugin-transform-rename-import",
+      {
+        original: "rxcore",
+        replacement: "../../../packages/solid/src/dom/core"
+      }
+    ]]
   }),
   cleanup({
     extensions: [".js", ".ts"]

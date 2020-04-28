@@ -136,7 +136,7 @@ _Note these are designed to handle more complex scenarios like Component inserti
 
 ## Refs
 
-Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef` which calls a callback `(ref) => void` with the reference. To support forwarded properties on spreads, both `ref` and `forwardRef` are called as functions.
+Refs come in 2 flavours. `ref` which directly assigns the value, and which calls a callback `(ref) => void` with the reference.
 
 ### `ref`
 
@@ -160,13 +160,11 @@ function App() {
 }
 ```
 
-### `forwardRef`
-
-This form expects a function like React's callback refs. Original use case is like described above:
+Callback form expects a function like React's callback refs. Original use case is like described above:
 
 ```jsx
 function MyComp(props) {
-  return <div forwardRef={props.ref} />;
+  return <div ref={props.ref} />;
 }
 
 function App() {
@@ -176,15 +174,15 @@ function App() {
 }
 ```
 
-You can also apply `forwardRef` on a Component:
+You can also apply `ref` on a Component:
 
 ```jsx
 function App() {
-  return <MyComp forwardRef={ref => console.log(ref.clientWidth)} />;
+  return <MyComp ref={ref => console.log(ref.clientWidth)} />;
 }
 ```
 
-This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `forwardRef` up a Component chain as you wish.
+This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `ref` up a Component chain as you wish.
 
 ## Server Side Rendering (Experimental)
 
