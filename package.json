@@ -44,6 +44,7 @@
     "rollup": "^2.1.0",
     "rollup-plugin-babel": "^4.4.0",
     "rollup-plugin-cleanup": "^3.1.1",
+    "rollup-plugin-copy": "^3.3.0",
     "typescript": "~3.8.3"
   }
 }

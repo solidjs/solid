@@ -18,7 +18,7 @@
     "types"
   ],
   "scripts": {
-    "prebuild": "rimraf dist/* lib/* types/* && ncp ../../node_modules/dom-expressions/src/jsx.ts ./src/jsx.ts",
+    "prebuild": "rimraf dist/* lib/* types/*",
     "build": "npm-run-all -cnl build:*",
     "build:js": "rollup -c",
     "build:types": "tsc",

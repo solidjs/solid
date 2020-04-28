@@ -1,6 +1,6 @@
-export * from "dom-expressions/src/runtime";
+export * from "./runtime";
 export * from "./Suspense";
-import { insert } from "dom-expressions/src/runtime";
+import { insert } from "./runtime";
 import { createMemo, onCleanup, sample, mapArray, suspend, equalFn, Component } from "../index.js";
 
 export function For<T, U extends JSX.Element>(props: {

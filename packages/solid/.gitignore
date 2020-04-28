@@ -1,0 +1,5 @@
+src/dom/reconcile.*
+src/dom/constants.*
+src/dom/runtime.*
+src/dom/utils.*
+src/jsx.ts
