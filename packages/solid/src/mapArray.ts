@@ -5,12 +5,12 @@ const FALLBACK = Symbol("fallback");
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function mapArray<T, U>(
   mapFn: (v: T, i: number) => U,
-  options?: { fallback?: () => U }
+  options?: { fallback?: () => any }
 ): (list: () => T[]) => () => U[];
 export function mapArray<T, U>(
   list: () => T[],
   mapFn: (v: T, i: number) => U,
-  options?: { fallback?: () => U }
+  options?: { fallback?: () => any }
 ): () => U[];
 export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
   if (typeof mapFn !== "function") {

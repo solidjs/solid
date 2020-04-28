@@ -1,23 +1,20 @@
 export * from "dom-expressions/src/runtime";
 export * from "./Suspense";
 import { insert } from "dom-expressions/src/runtime";
-import {
-  createMemo,
-  onCleanup,
-  sample,
-  mapArray,
-  suspend,
-  equalFn
-} from "../index.js";
+import { createMemo, onCleanup, sample, mapArray, suspend, equalFn, Component } from "../index.js";
 
-export function For<T, U>(props: { each: T[]; fallback?: any; children: (item: T) => U }) {
+export function For<T, U extends JSX.Element>(props: {
+  each: T[];
+  fallback?: JSX.Element;
+  children: (item: T) => U;
+}) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return suspend(
     createMemo(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined))
   );
 }
 
-export function Show<T>(props: { when: boolean; fallback?: T; children: T }) {
+export function Show(props: { when: boolean; fallback?: JSX.Element; children: JSX.Element }) {
   const useFallback = "fallback" in props,
     condition = createMemo(() => !!props.when, undefined, equalFn);
   return suspend(
@@ -31,8 +28,8 @@ export function Show<T>(props: { when: boolean; fallback?: T; children: T }) {
   );
 }
 
-export function Switch<T>(props: { fallback?: T; children: any }) {
-  let conditions = props.children;
+export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }) {
+  let conditions = props.children as unknown as MatchProps[];
   Array.isArray(conditions) || (conditions = [conditions]);
   const useFallback = "fallback" in props,
     evalConditions = createMemo(
@@ -53,16 +50,16 @@ export function Switch<T>(props: { fallback?: T; children: any }) {
   );
 }
 
-type MatchProps = { when: boolean; children: any };
+type MatchProps = { when: boolean; children: JSX.Element };
 export function Match(props: MatchProps) {
-  return props;
+  return props as unknown as JSX.Element;
 }
 
 export function Portal(props: {
   mount?: Node;
   useShadow?: boolean;
   ref?: (e: HTMLDivElement) => void;
-  children: any;
+  children: JSX.Element;
 }) {
   const { useShadow } = props,
     container = document.createElement("div"),

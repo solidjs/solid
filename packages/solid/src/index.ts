@@ -17,7 +17,8 @@ export {
   afterEffects
 } from "./signal";
 
-export { createState, unwrap, force, $RAW } from "./state";
+export { createState, unwrap, $RAW } from "./state";
+export type { SetStateFunction, Wrapped, NotWrappable } from "./state";
 
 export { reconcile } from "./reconcile";
 

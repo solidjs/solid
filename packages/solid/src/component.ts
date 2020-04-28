@@ -1,3 +1,6 @@
+type PropsWithChildren<P> = P & { children?: JSX.Element };
+export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element
+
 export function setDefaults<T>(props: T, defaultProps: T) {
   const propKeys = Object.keys(defaultProps) as (keyof T)[];
   for (let i = 0; i < propKeys.length; i++) {

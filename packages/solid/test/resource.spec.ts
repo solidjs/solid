@@ -4,9 +4,9 @@ import {
   createResource,
   createResourceState,
   createEffect,
-  onError
+  onError,
+  SetStateFunction
 } from "../src";
-import { SetStateFunction } from "../types/state";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,

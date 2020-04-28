@@ -14,8 +14,7 @@ declare global {
       | string
       | number
       | boolean
-      | undefined
-      | unknown;
+      | undefined;
 
     interface ArrayElement extends Array<Element> {}
     interface FunctionElement {
@@ -27,14 +26,6 @@ declare global {
     interface ElementChildrenAttribute {
       children: {};
     }
-
-    type Child = Element | string | number | boolean | null | undefined;
-    type Children =
-      | Child
-      | Child[]
-      | (Child | Child[])[]
-      | (() => Child)
-      | (() => Child[]);
 
     interface EventHandler<T, E extends Event> {
       (e: E & { currentTarget: T; target: T }): void;
@@ -64,7 +55,7 @@ declare global {
 
     // https://github.com/ryansolid/babel-plugin-jsx-dom-expressions#oneventname
     interface DOMAttributes<T> extends CustomAttributes<T> {
-      children?: Children;
+      children?: Element;
       innerHTML?: string;
       innerText?: string;
       textContent?: string;
