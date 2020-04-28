@@ -10,7 +10,7 @@ module.exports = {
           "babel-plugin-transform-rename-import",
           {
             original: "rxcore",
-            replacement: "../../../packages/solid/src/dom/core"
+            replacement: "./core"
           }
         ],
         [
