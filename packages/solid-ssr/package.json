@@ -8,8 +8,15 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid/solid-ssr"
   },
+  "main": "index.js",
+  "types": "index.d.ts",
   "files": [
+    "server.js",
+    "index.js",
+    "jest.js",
     "static.js",
+    "server.d.ts",
+    "index.d.ts",
     "static.d.ts"
   ],
   "scripts": {

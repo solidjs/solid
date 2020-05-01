@@ -13,30 +13,34 @@ This project is still in progress. Server rendering is Async and supports Suspen
 ```json
 "presets": [["solid", { "generate": "ssr", "hydratable": true }]]
 ```
-> Remember to mark all of "solid-js", "solid-js/dom", "solid-ssr" as externals as no need to bundle these for server rendering entry.
 
-3. Use `renderToString` in server entry for SSR:
-
-```jsx
-import { renderToString } from "solid-js/dom";
-
-export default async (req) => {
-  // pull url off request to handle routing
-  const html = await renderToString(() => <App url={req.url} />);
-  return `<html><body>${html}</body></html>`;
-});
-```
-
-4. Set up express application:
+3. Set up server application:
 ```js
-const render = require("./lib/server"); // your server entry
+const createServer = require("solid-ssr/server");
+const server = createServer({ path: /* path to client entry*/ })
 
 // under request handler
 app.get("*", (req, res) => {
-  const html = await render(req);
+  const html = await server.render(req);
   res.send(html);
 })
 ```
+
+4. Use `renderToString` in client entry for SSR:
+
+```jsx
+// top of entry file, must be imported before any components
+import ssr from "solid-ssr"
+import { renderToString } from "solid-js/dom";
+
+ssr(async (req) => {
+  // pull url off request to handle routing
+  const { url } = req;
+  const string = await renderToString(() => <App />);
+  return render(string);
+});
+```
+> Remember to mark all of "solid-js", "solid-js/dom", "solid-ssr" as externals as no need to bundle these for server rendering entry.
 
 ### To rehydrate on the client:
 
@@ -55,14 +59,29 @@ hydrate(() => <App />, document.getElementById("main"));
 ```
 
 ### Static site generation:
-Point to server entry and call pages.
+1. Use `renderToString` in client entry for SSR:
+
+```jsx
+// top of entry file, must be imported before any components
+import ssr from "solid-ssr"
+import { renderToString } from "solid-js/dom";
+
+ssr(async (req) => {
+  // pull url off request to handle routing
+  const { url } = req;
+  const string = await renderToString(() => <App />);
+  return render(string);
+});
+```
+
+2. Point to file from static export file
 
 ```js
 const path = require("path")
 const ssg = require("solid-ssr/static");
 
 ssg(path.resolve(__dirname, "dist"), {
-  source: require("lib/server.js"),
+  source: path.resolve(__dirname, "lib/server.js"),
   pages: ["index", "profile", "settings"]
 });
 ```

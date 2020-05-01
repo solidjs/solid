@@ -1,8 +1,6 @@
+import ssr from "../..";
 import { renderToString, generateHydrationEventsScript } from "solid-js/dom";
 import App from "./components/App";
-
-global.window = { isSSR: true };
-
 const lang = "en";
 
 function render(body) {
@@ -20,7 +18,7 @@ function render(body) {
 }
 
 // entry point for server render
-export default async req => {
+ssr(async req => {
   const string = await renderToString(() => <App url={req.url} />);
   return render(string);
-};
+});
