@@ -292,7 +292,7 @@ function createComputation<T>(fn: (v?: T) => T, init?: T) {
 
 function runTop(node: Computation<any> | null) {
   let top = node!.state === STALE && node;
-  while ((node = node!.owner as Computation<any>)) node.state === STALE && (top = node);
+  while (node!.fn && (node = node!.owner as Computation<any>)) node.state === STALE && (top = node);
   top && updateComputation(top);
 }
 

@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "csstype": "^2.6.2",
-    "goober": "1.7.1"
+    "goober": "1.8.0"
   },
   "peerDependencies": {
     "solid-js": "^0.17.2"

@@ -135,6 +135,53 @@ export function insert(parent, accessor, marker, initial) {
   effect(current => insertExpression(parent, accessor(), current, marker), initial);
 }
 
+export function assign(node, props, isSVG, skipChildren, prevProps={} ) {
+  let info;
+  for (const prop in props) {
+    if (prop === "children") {
+      if (!skipChildren) insertExpression(node, props.children);
+      continue;
+    }
+    const value = props[prop];
+    if (value === prevProps[prop]) continue;
+    if (prop === "style") {
+      style(node, value, prevProps[prop]);
+    } else if (prop === "classList") {
+      classList(node, value, prevProps[prop]);
+    } else if (prop === "ref") {
+      value(node);
+    } else if (prop === "on") {
+      for (const eventName in value) node.addEventListener(eventName, value[eventName]);
+    } else if (prop === "onCapture") {
+      for (const eventName in value) node.addEventListener(eventName, value[eventName], true);
+    } else if (prop.slice(0, 2) === "on") {
+      const lc = prop.toLowerCase();
+      if (!NonComposedEvents.has(lc.slice(2))) {
+        const name = lc.slice(2);
+        if (Array.isArray(value)) {
+          node[`__${name}`] = value[0];
+          node[`__${name}Data`] = value[1];
+        } else node[`__${name}`] = value;
+        delegateEvents([name]);
+      } else node[lc] = value;
+    } else if ((info = Attributes[prop])) {
+      if (info.type === "attribute") {
+        node.setAttribute(prop, value);
+      } else node[info.alias] = value;
+    } else if (isSVG || prop.indexOf("-") > -1) {
+      if ((info = SVGAttributes[prop])) {
+        if (info.alias) node.setAttribute(info.alias, value);
+        else node.setAttribute(prop, value);
+      } else
+        node.setAttribute(
+          prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`),
+          value
+        );
+    } else node[prop] = value;
+    prevProps[prop] = value;
+  }
+}
+
 // SSR
 export function ssr(template, ...nodes) {
   const rNodes = [];
@@ -196,6 +243,19 @@ export function ssrSpread(props, isSVG) {
     }
     return result;
   };
+}
+
+const escaped = {
+	'"': '&quot;',
+	"'": '&#39;',
+	'&': '&amp;',
+	'<': '&lt;',
+	'>': '&gt;'
+};
+
+export function escape(html) {
+  if (typeof html !== "string") return html;
+	return String(html).replace(/["'&<>]/g, match => escaped[match]);
 }
 
 // Hydrate
@@ -291,48 +351,7 @@ function spreadExpression(node, props, prevProps = {}, isSVG, skipChildren) {
   if (!skipChildren && "children" in props) {
     effect(() => (prevProps.children = insertExpression(node, props.children, prevProps.children)));
   }
-  effect(() => {
-    for (const prop in props) {
-      if (prop === "children") continue;
-      const value = props[prop];
-      if (value === prevProps[prop]) continue;
-      if (prop === "style") {
-        style(node, value, prevProps[prop]);
-      } else if (prop === "classList") {
-        classList(node, value, prevProps[prop]);
-      } else if (prop === "ref") {
-        value(node);
-      } else if (prop === "on") {
-        for (const eventName in value) node.addEventListener(eventName, value[eventName]);
-      } else if (prop === "onCapture") {
-        for (const eventName in value) node.addEventListener(eventName, value[eventName], true);
-      } else if (prop.slice(0, 2) === "on") {
-        const lc = prop.toLowerCase();
-        if (!NonComposedEvents.has(lc.slice(2))) {
-          const name = lc.slice(2);
-          if (Array.isArray(value)) {
-            node[`__${name}`] = value[0];
-            node[`__${name}Data`] = value[1];
-          } else node[`__${name}`] = value;
-          delegateEvents([name]);
-        } else node[lc] = value;
-      } else if ((info = Attributes[prop])) {
-        if (info.type === "attribute") {
-          node.setAttribute(prop, value);
-        } else node[info.alias] = value;
-      } else if (isSVG || prop.indexOf("-") > -1) {
-        if ((info = SVGAttributes[prop])) {
-          if (info.alias) node.setAttribute(info.alias, value);
-          else node.setAttribute(prop, value);
-        } else
-          node.setAttribute(
-            prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`),
-            value
-          );
-      } else node[prop] = value;
-      prevProps[prop] = value;
-    }
-  });
+  effect(() => assign(node, props, isSVG, true, prevProps));
   return prevProps;
 }
 

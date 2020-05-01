@@ -18,7 +18,7 @@ export {
 } from "./signal";
 
 export { createState, unwrap, $RAW } from "./state";
-export type { SetStateFunction, Wrapped, NotWrappable } from "./state";
+export type { State, SetStateFunction } from "./state";
 
 export { reconcile } from "./reconcile";
 

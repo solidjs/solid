@@ -3,7 +3,7 @@ import { styled, ThemeProvider } from "../src/index";
 
 describe("Simple Styled", () => {
   test("Creates component properly", () => {
-    const Div = styled<Partial<{ bold: boolean; border: number; color: string }>>("div")`
+    const Div = styled("div")<{ bold: boolean; border: number; color: string }>`
       color: steelblue;
       font-size: 32px;
       padding: 5px;
@@ -14,7 +14,7 @@ describe("Simple Styled", () => {
 
     createRoot(() => {
       const v = (
-        <Div className="test" bold={true} border={1} color="whitesmoke">
+        <Div aria-label="button" onClick={() => {}} className="test" bold={true} border={1} color="whitesmoke">
           Testera
         </Div>
       );
@@ -22,7 +22,7 @@ describe("Simple Styled", () => {
   });
 
   test("Test Theming", () => {
-    const Div = styled<Partial<{ bold: boolean; border: number; color: string }>>("div")`
+    const Div = styled("div")<{ bold: boolean; border: number; color: string }>`
       color: steelblue;
       font-size: 32px;
       padding: 5px;

@@ -30,6 +30,7 @@ export function createComponent(Comp: (props: any) => any, props: any, dynamicKe
 export function delegateEvents(eventNames: string[]): void;
 export function clearDelegatedEvents(): void;
 export function spread(node: Element, accessor: any, isSVG?: Boolean, skipChildren?: Boolean): void;
+export function assign(node: Element, props: any, isSVG?: Boolean, skipChildren?: Boolean): void;
 export function classList(
   node: Element,
   value: { [k: string]: boolean },
@@ -46,6 +47,7 @@ export function ssr(template: TemplateStringsArray, ...nodes: any[]): () => stri
 export function ssrClassList(value: { [k: string]: boolean }): string;
 export function ssrStyle(value: { [k: string]: string }): string;
 export function ssrSpread(accessor: any, isSVG: boolean, skipChildren: boolean): () => string;
+export function escape(html: string): string;
 
 export function getHydrationKey(): string;
 export function getNextElement(template: HTMLTemplateElement, isSSR: boolean): Node;

@@ -22,7 +22,7 @@ import {
   $PROXY,
   StateNode,
   SetStateFunction,
-  Wrapped,
+  State,
   setProperty
 } from "./state";
 
@@ -177,13 +177,13 @@ const resourceTraps = {
 export interface LoadStateFunction<T> {
   (
     v: { [P in keyof T]?: Promise<T[P]> | T[P] },
-    reconcilerFn?: (v: Partial<T>) => (state: Wrapped<T>) => void
+    reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
   ): { [P in keyof T]: boolean };
 };
 
 export function createResourceState<T extends StateNode>(
-  state: T | Wrapped<T>
-): [Wrapped<T>, LoadStateFunction<T>, SetStateFunction<T>] {
+  state: T | State<T>
+): [State<T>, LoadStateFunction<T>, SetStateFunction<T>] {
   const unwrappedState = unwrap<T>(state || {}),
     wrappedState = wrap<T>(unwrappedState, resourceTraps),
     loading = {};
@@ -192,7 +192,7 @@ export function createResourceState<T extends StateNode>(
   }
   function loadState(
     v: { [P in keyof T]?: Promise<T[P]> | T[P] },
-    r?: (v: Partial<T>) => (state: Wrapped<T>) => void
+    r?: (v: Partial<T>) => (state: State<T>) => void
   ) {
     const nodes = getDataNodes(unwrappedState),
       keys = Object.keys(v);
