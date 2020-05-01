@@ -1,7 +1,7 @@
 export * from "./runtime";
 export * from "./Suspense";
 import { insert } from "./runtime";
-import { createMemo, onCleanup, sample, mapArray, suspend, equalFn, Component } from "../index.js";
+import { createMemo, onCleanup, sample, mapArray, suspend, equalFn } from "../index.js";
 
 export function For<T, U extends JSX.Element>(props: {
   each: T[];
