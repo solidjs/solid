@@ -13,7 +13,6 @@
   "files": [
     "server.js",
     "index.js",
-    "jest.js",
     "static.js",
     "server.d.ts",
     "index.d.ts",
