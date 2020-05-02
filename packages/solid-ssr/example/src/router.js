@@ -9,7 +9,7 @@ function RouteHOC(Comp) {
       ),
       matches = (match) => match === (location() || "index"),
       [, start] = useTransition({ timeoutMs: 250 });
-    window.onpopstate = () => setLocation(window.location.pathname.slice(1));
+    !window.isSSR && (window.onpopstate = () => setLocation(window.location.pathname.slice(1)));
 
     return (
       <RouterContext.Provider

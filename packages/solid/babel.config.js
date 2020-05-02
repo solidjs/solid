@@ -7,6 +7,13 @@ module.exports = {
       ],
       plugins: [
         [
+          "babel-plugin-transform-rename-import",
+          {
+            original: "rxcore",
+            replacement: "./core"
+          }
+        ],
+        [
           "babel-plugin-jsx-dom-expressions",
           {
             moduleName: "../../src/dom/index",

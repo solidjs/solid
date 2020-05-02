@@ -1,6 +1,6 @@
 # `solid-ssr`
 
-This library sets up node compatible middleware to handle Solid's SSR. It uses JSDOM and isolated processes to handle environment injection. See instructions below. Also provides `solid-ssr/jest` which is a Jest environment to render Solid when testing (probably unnecessary at this point).
+This library provides tools to help with SSR. So far it's a simple Static Generator.
 
 This project is still in progress. Server rendering is Async and supports Suspense including lazy components. However, client side hydration only supports lazy components. Any Suspense triggering due to data fetching during rehydration will cause loading states to be entered again. Similarly while Web Components are support, the Shadow DOM isn't yet.
 
@@ -11,7 +11,7 @@ This project is still in progress. Server rendering is Async and supports Suspen
 2. Configure babel-preset-solid with generate option 'ssr'
 
 ```json
-"presets": [["solid", { "generate": "ssr" }]]
+"presets": [["solid", { "generate": "ssr", "hydratable": true }]]
 ```
 
 3. Set up server application:
@@ -47,7 +47,7 @@ ssr(async (req) => {
 1. Configure babel-preset-solid with generate option 'hydrate'
 
 ```json
-"presets": [["solid", { "generate": "hydrate" }]]
+"presets": [["solid", { "generate": "dom", "hydratable": true }]]
 ```
 
 2. Use `hydrate` entry:
@@ -82,7 +82,7 @@ const ssg = require("solid-ssr/static");
 
 ssg(path.resolve(__dirname, "dist"), {
   source: path.resolve(__dirname, "lib/server.js"),
-  pages: ["/", "/profile", "/settings"]
+  pages: ["index", "profile", "settings"]
 });
 ```
 

@@ -1,6 +1,6 @@
 # Context
 
-Solid has Context API for dependency injection which comprises of createContext, Provider control flow, and useContext. createContext lets you create the Context Object. When Solid renders a component that subscribes to this Context object it will read the current context value from the closest matching Provider above it in the tree. If there is not provider above it will use the default value.
+Solid has Context API for dependency injection which comprises of `createContext`, `Provider` control flow, and `useContext`. `createContext` lets you create the Context Object. When Solid renders a component that subscribes to this Context object it will read the current context value from the closest matching Provider above it in the tree. If there is not provider above it will use the default value.
 
 Example below using Solid's own state mechanism to create a global store that wraps the whole app. Notice that the `Nested` component can access the counter without it being passed down via Props. While you could arguably use a singleton, this pattern gives clear ownership and allows hierarchical store contexts. You could use stores in this case for common data concerns that could appear multiple times on the same page like pagination, scrolling, etc, and have child components that know how to interact with their associated stores. This is a very powerful pattern as you compose patterns that wrap Solid's primitives and Context to create reusable injectable multi component driving modules.
 

@@ -1,3 +1,4 @@
+import copy from "rollup-plugin-copy";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "rollup-plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
@@ -10,7 +11,16 @@ const plugins = [
     extensions: [".js", ".ts"],
     exclude: "node_modules/**",
     babelrc: false,
-    presets: ["@babel/preset-typescript"]
+    presets: ["@babel/preset-typescript"],
+    plugins: [
+      [
+        "babel-plugin-transform-rename-import",
+        {
+          original: "rxcore",
+          replacement: "./core"
+        }
+      ]
+    ]
   }),
   cleanup({
     extensions: [".js", ".ts"]
@@ -30,7 +40,11 @@ export default [
         format: "es"
       }
     ],
-    plugins
+    plugins: [
+      copy({
+        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/" }]
+      })
+    ].concat(plugins)
   },
   {
     input: "src/dom/index.ts",
@@ -45,7 +59,20 @@ export default [
       }
     ],
     external: ["../index.js"],
-    plugins: plugins
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: [
+              "../../node_modules/dom-expressions/src/*.js",
+              "../../node_modules/dom-expressions/src/*.d.ts"
+            ],
+            dest: "./src/dom"
+          },
+          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/dom/" }
+        ]
+      })
+    ].concat(plugins)
   },
   {
     input: "src/dom/html.ts",

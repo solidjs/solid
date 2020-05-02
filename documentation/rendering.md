@@ -1,4 +1,10 @@
-# JSX Rendering
+# Rendering
+
+Solid supports templating in 3 forms JSX, Tagged Template Literals, and Solid's HyperScript variant. Although JSX is the predominate form. Why? JSX is a great DSL made for compilation. It has clear syntax, supports TypeScript, works with Babel, supports other tooling like Code Syntax Highlighting and Prettier. It was only pragmatic to use a tool that basically gives you that all for free. As a compiled solution it provides great DX. Why struggle with custom Syntax DSLs when you can use one so widely supported?
+
+Still there is some confusion as to what JSX is and is not. JSX is an XML-like syntax extension to EcmaScript (https://facebook.github.io/jsx/). It is not a language or runtime. Those can be refered to as HyperScript. So while Solid's JSX and might resemble React it by no means works like React and there should be no illusions that a JSX library will just work with Solid. Afterall, there are no JSX libraries, as they all work without JSX, only HyperScript or React ones.
+
+## JSX Compilation
 
 Rendering involves precompilation of JSX templates into optimized native js code. The JSX code constructs:
 
@@ -32,9 +38,9 @@ render(() => <App />, document.getElementById("main"));
 
 ## Events
 
-`on_____` handlers are event handlers expecting a function. The compiler will delegate events where possible (Events that can be composed and bubble) else it will fall back to Level 1 spec "on**\_**" events.
+`on_____` handlers are event handlers expecting a function. The compiler will delegate events where possible (Events that can be composed and bubble) else it will fall back to Level 1 spec "on_____" events.
 
-If you wish to bind a value to your delegated event pass an array handler instead and the second argument will be passed to your event handler as the first argument (the event will be second). This can improve performance in large lists.
+If you wish to bind a value to events pass an array handler instead and the second argument will be passed to your event handler as the first argument (the event will be second). This can improve performance in large lists when the event is delegated.
 
 ```jsx
 function handler(itemId, e) {/*...*/}
@@ -136,7 +142,7 @@ _Note these are designed to handle more complex scenarios like Component inserti
 
 ## Refs
 
-Refs come in 2 flavours. `ref` which directly assigns the value, and `forwardRef` which calls a callback `(ref) => void` with the reference. To support forwarded properties on spreads, both `ref` and `forwardRef` are called as functions.
+Refs come in 2 flavours. `ref` which directly assigns the value, and which calls a callback `(ref) => void` with the reference.
 
 ### `ref`
 
@@ -160,13 +166,11 @@ function App() {
 }
 ```
 
-### `forwardRef`
-
-This form expects a function like React's callback refs. Original use case is like described above:
+Callback form expects a function like React's callback refs. Original use case is like described above:
 
 ```jsx
 function MyComp(props) {
-  return <div forwardRef={props.ref} />;
+  return <div ref={props.ref} />;
 }
 
 function App() {
@@ -176,15 +180,15 @@ function App() {
 }
 ```
 
-You can also apply `forwardRef` on a Component:
+You can also apply `ref` on a Component:
 
 ```jsx
 function App() {
-  return <MyComp forwardRef={ref => console.log(ref.clientWidth)} />;
+  return <MyComp ref={ref => console.log(ref.clientWidth)} />;
 }
 ```
 
-This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `forwardRef` up a Component chain as you wish.
+This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `ref` up a Component chain as you wish.
 
 ## Server Side Rendering (Experimental)
 

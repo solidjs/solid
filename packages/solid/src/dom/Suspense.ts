@@ -23,7 +23,7 @@ type SuspenseListContextType = {
 const SuspenseListContext = createContext<SuspenseListContextType>();
 
 export function SuspenseList(props: {
-  children: any;
+  children: JSX.Element;
   revealOrder: "forwards" | "backwards" | "together";
   tail?: "collapsed" | "hidden";
 }) {
@@ -97,7 +97,7 @@ export function SuspenseList(props: {
   return comp;
 }
 
-export function Suspense(props: { fallback: any; children: any }) {
+export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }) {
   let counter = 0,
     t: NodeJS.Timeout,
     showContent: () => boolean,

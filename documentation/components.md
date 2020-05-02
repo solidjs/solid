@@ -53,9 +53,9 @@ const DynamicComponent = ({ name }) => <div>{ name() }</div>
 
 Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array.
 
-## LifeCycle
+## Lifecycle
 
-Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components. Instead of lifecycles you can use Solid's primitives to express powerful dynamic behaviour.
+Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components. Instead of lifecycles in Solid are tied to the lifecycle of the reactive system.
 
 ## Web Components
 

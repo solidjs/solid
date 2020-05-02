@@ -1,28 +1,79 @@
-import { Attributes, SVGAttributes, NonComposedEvents } from 'dom-expressions';
-import { createEffect as wrap, sample as ignore, getContextOwner as currentContext, runtimeConfig as sharedConfig } from '../index.js';
+import { Attributes, SVGAttributes, NonComposedEvents } from "./constants";
+import { dynamicProperty, cleanChildren, appendNodes, normalizeIncomingArray } from "./utils";
+import reconcileArrays from "./reconcile";
+import core from "rxcore";
 
+const eventRegistry = new Set(),
+  { config = {}, root, effect, memo, ignore, currentContext, createComponent: cc } = core,
+  createComponent =
+    cc ||
+    ((Comp, props, dynamicKeys) => {
+      if (dynamicKeys) {
+        for (let i = 0; i < dynamicKeys.length; i++) dynamicProperty(props, dynamicKeys[i]);
+      }
+      return ignore(() => Comp(props));
+    });
 
+export { effect, memo, createComponent, currentContext };
 
-const eventRegistry = new Set();
-const config = sharedConfig;
+export function render(code, element) {
+  let disposer;
+  root(dispose => {
+    disposer = dispose;
+    insert(element, code());
+  });
+  return disposer;
+}
 
-export { wrap, currentContext };
+export function renderToString(code, options = {}) {
+  options = { timeoutMs: 30000, ...options };
+  config.hydrate = { id: "", count: 0 };
+  return root(async () => {
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject("renderToString timed out"), options.timeoutMs)
+    );
+    const rendered = await Promise.race([code(), timeout]);
+    return resolveSSRNode(rendered);
+  });
+}
+
+export function renderDOMToString(code, options = {}) {
+  options = { timeoutMs: 30000, ...options };
+  config.hydrate = { id: "", count: 0 };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  return root(async d1 => {
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject("renderDOMToString timed out"), options.timeoutMs)
+    );
+    const rendered = await Promise.race([code(), timeout]);
+    root(d2 => (insert(container, rendered), d1(), d2()));
+    const html = container.innerHTML;
+    document.body.removeChild(container);
+    return html;
+  });
+}
+
+export function hydrate(code, element) {
+  config.hydrate = { id: "", count: 0, registry: new Map() };
+  const templates = element.querySelectorAll(`*[_hk]`);
+  for (let i = 0; i < templates.length; i++) {
+    const node = templates[i];
+    config.hydrate.registry.set(node.getAttribute("_hk"), node);
+  }
+  const dispose = render(code, element);
+  delete config.hydrate;
+  return dispose;
+}
 
 export function template(html, check, isSVG) {
-  const t = document.createElement('template');
+  const t = document.createElement("template");
   t.innerHTML = html;
-  if (check && t.innerHTML.split("<").length - 1 !== check) console.warn(`Template html does not match input:\n${t.innerHTML}\n\n${html}`);
+  if (check && t.innerHTML.split("<").length - 1 !== check)
+    console.warn(`Template html does not match input:\n${t.innerHTML}\n\n${html}`);
   let node = t.content.firstChild;
   if (isSVG) node = node.firstChild;
   return node;
-}
-
-export function createComponent(Comp, props, dynamicKeys) {
-  if (dynamicKeys) {
-    for (let i = 0; i < dynamicKeys.length; i++) dynamicProp(props, dynamicKeys[i]);
-  }
-
-  return ignore(() => Comp(props));
 }
 
 export function delegateEvents(eventNames) {
@@ -46,59 +97,179 @@ export function classList(node, value, prev) {
     const key = classKeys[i],
       classValue = !!value[key],
       classNames = key.split(/\s+/);
-    if (!key || prev && prev[key] === classValue) continue;
+    if (!key || (prev && prev[key] === classValue)) continue;
     for (let j = 0, nameLen = classNames.length; j < nameLen; j++)
       node.classList.toggle(classNames[j], classValue);
   }
+  return value;
+}
+
+export function style(node, value, prev) {
+  const nodeStyle = node.style;
+  if (typeof value === "string") return (nodeStyle.cssText = value);
+
+  let v, s;
+  if (prev != null && typeof prev !== "string") {
+    for (s in value) {
+      v = value[s];
+      v !== prev[s] && nodeStyle.setProperty(s, v);
+    }
+    for (s in prev) {
+      value[s] == null && nodeStyle.removeProperty(s);
+    }
+  } else {
+    for (s in value) nodeStyle.setProperty(s, value[s]);
+  }
+  return value;
 }
 
 export function spread(node, accessor, isSVG, skipChildren) {
-  if (typeof accessor === 'function') {
-    wrap(current => spreadExpression(node, accessor(), current, isSVG, skipChildren));
+  if (typeof accessor === "function") {
+    effect(current => spreadExpression(node, accessor(), current, isSVG, skipChildren));
   } else spreadExpression(node, accessor, undefined, isSVG, skipChildren);
 }
 
 export function insert(parent, accessor, marker, initial) {
   if (marker !== undefined && !initial) initial = [];
-  if (typeof accessor !== 'function') return insertExpression(parent, accessor, initial, marker);
-  wrap(current => insertExpression(parent, accessor(), current, marker), initial);
+  if (typeof accessor !== "function") return insertExpression(parent, accessor, initial, marker);
+  effect(current => insertExpression(parent, accessor(), current, marker), initial);
+}
+
+export function assign(node, props, isSVG, skipChildren, prevProps={} ) {
+  let info;
+  for (const prop in props) {
+    if (prop === "children") {
+      if (!skipChildren) insertExpression(node, props.children);
+      continue;
+    }
+    const value = props[prop];
+    if (value === prevProps[prop]) continue;
+    if (prop === "style") {
+      style(node, value, prevProps[prop]);
+    } else if (prop === "classList") {
+      classList(node, value, prevProps[prop]);
+    } else if (prop === "ref") {
+      value(node);
+    } else if (prop === "on") {
+      for (const eventName in value) node.addEventListener(eventName, value[eventName]);
+    } else if (prop === "onCapture") {
+      for (const eventName in value) node.addEventListener(eventName, value[eventName], true);
+    } else if (prop.slice(0, 2) === "on") {
+      const lc = prop.toLowerCase();
+      if (!NonComposedEvents.has(lc.slice(2))) {
+        const name = lc.slice(2);
+        if (Array.isArray(value)) {
+          node[`__${name}`] = value[0];
+          node[`__${name}Data`] = value[1];
+        } else node[`__${name}`] = value;
+        delegateEvents([name]);
+      } else node[lc] = value;
+    } else if ((info = Attributes[prop])) {
+      if (info.type === "attribute") {
+        node.setAttribute(prop, value);
+      } else node[info.alias] = value;
+    } else if (isSVG || prop.indexOf("-") > -1) {
+      if ((info = SVGAttributes[prop])) {
+        if (info.alias) node.setAttribute(info.alias, value);
+        else node.setAttribute(prop, value);
+      } else
+        node.setAttribute(
+          prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`),
+          value
+        );
+    } else node[prop] = value;
+    prevProps[prop] = value;
+  }
 }
 
 // SSR
-export function renderToString(code, options = {}) {
-  options = { timeoutMs: 30000, ...options }
-  config.hydrate = { id: '', count: 0 };
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  return new Promise((resolve, reject) => {
-    setTimeout(() => reject("renderToString timed out"), options.timeoutMs);
-    function render(rendered) {
-      insert(container, rendered);
-      resolve(container.innerHTML);
-      document.body.removeChild(container);
-    }
-    !code.length ? render(code()) : code(render);
-  });
+export function ssr(template, ...nodes) {
+  const rNodes = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (typeof nodes[i] === "function" && !nodes[i].isTemplate) {
+      rNodes.push(memo(() => resolveSSRNode(nodes[i]())));
+    } else rNodes.push(nodes[i]);
+  }
+  const t = () =>
+    template.reduce((result, part, index) => {
+      result += part;
+      const node = rNodes[index];
+      if (node !== undefined) result += resolveSSRNode(node);
+      return result;
+    }, "");
+  t.isTemplate = true;
+  return t;
 }
 
-export function hydrate(code, root) {
-  config.hydrate = { id: '', count: 0, registry: new Map() };
-  const templates = root.querySelectorAll(`*[_hk]`);
-  for (let i = 0; i < templates.length; i++) {
-    const node = templates[i];
-    config.hydrate.registry.set(node.getAttribute('_hk'), node);
+export function ssrClassList(value) {
+  let classKeys = Object.keys(value),
+    result = "";
+  for (let i = 0, len = classKeys.length; i < len; i++) {
+    const key = classKeys[i],
+      classValue = !!value[key];
+    if (!key || !classValue) continue;
+    i && (result += " ");
+    result += key;
   }
-  code();
-  delete config.hydrate;
+  return result;
+}
+
+export function ssrStyle(value) {
+  if (typeof value === "string") return value;
+  let result = "";
+  for (const s in value) result += `${s}: ${value[s]};`;
+  return result;
+}
+
+export function ssrSpread(props, isSVG) {
+  return () => {
+    if (typeof props === "function") props = props();
+    // TODO: figure out how to handle props.children
+    const keys = Object.keys(props);
+    let result = "";
+    for (let i = 0; i < keys.length; i++) {
+      const prop = keys[i];
+      if (prop === "children") continue;
+      const value = props[prop];
+      if (prop === "style") {
+        result += `style="${ssrStyle(value)}"`;
+      } else if (prop === "classList") {
+        result += `class="${ssrClassList(value)}"`;
+      } else {
+        const key = toSSRAttribute(prop, isSVG);
+        result += `${key}="${value}"`;
+      }
+      if (i !== keys.length - 1) result += " ";
+    }
+    return result;
+  };
+}
+
+const escaped = {
+	'"': '&quot;',
+	"'": '&#39;',
+	'&': '&amp;',
+	'<': '&lt;',
+	'>': '&gt;'
+};
+
+export function escape(html) {
+  if (typeof html !== "string") return html;
+	return String(html).replace(/["'&<>]/g, match => escaped[match]);
+}
+
+// Hydrate
+export function getHydrationKey() {
+  const hydrate = config.hydrate;
+  return `${hydrate.id}:${hydrate.count++}`;
 }
 
 export function getNextElement(template, isSSR) {
   const hydrate = config.hydrate;
   let node, key;
-  if (!hydrate || !hydrate.registry || !(node = hydrate.registry.get(key = `${hydrate.id}:${hydrate.count++}`))) {
+  if (!hydrate || !hydrate.registry || !(node = hydrate.registry.get((key = getHydrationKey())))) {
     const el = template.cloneNode(true);
-    if (isSSR && hydrate)
-      el.setAttribute('_hk', `${hydrate.id}:${hydrate.count++}`);
+    if (isSSR && hydrate) el.setAttribute("_hk", getHydrationKey());
     return el;
   }
   if (window && window._$HYDRATION) window._$HYDRATION.completed.add(key);
@@ -145,138 +316,43 @@ export function generateHydrationEventsScript(eventNames) {
 }
 
 // Internal Functions
-function dynamicProp(props, key) {
-  const src = props[key];
-  Object.defineProperty(props, key, {
-    get() { return src(); },
-    enumerable: true
-  });
-}
-
 function eventHandler(e) {
-  const key =  `__${e.type}`;
+  const key = `__${e.type}`;
   let node = (e.composedPath && e.composedPath()[0]) || e.target;
   // reverse Shadow DOM retargetting
   if (e.target !== node) {
-    Object.defineProperty(e, 'target', {
+    Object.defineProperty(e, "target", {
       configurable: true,
       value: node
-    })
+    });
   }
 
   // simulate currentTarget
-  Object.defineProperty(e, 'currentTarget', {
+  Object.defineProperty(e, "currentTarget", {
     configurable: true,
-    get() { return node; }
-  })
+    get() {
+      return node;
+    }
+  });
 
   while (node !== null) {
     const handler = node[key];
     if (handler) {
       const data = node[`${key}Data`];
-      data ? handler(data, e): handler(e);
+      data ? handler(data, e) : handler(e);
       if (e.cancelBubble) return;
     }
-    node = (node.host && node.host instanceof Node) ? node.host : node.parentNode;
+    node = node.host && node.host instanceof Node ? node.host : node.parentNode;
   }
 }
 
 function spreadExpression(node, props, prevProps = {}, isSVG, skipChildren) {
   let info;
   if (!skipChildren && "children" in props) {
-    wrap(() =>
-      (prevProps.children = insertExpression(
-        node,
-        props.children,
-        prevProps.children
-      ))
-    );
+    effect(() => (prevProps.children = insertExpression(node, props.children, prevProps.children)));
   }
-  wrap(() => {
-    for (const prop in props) {
-      if (prop === "children") continue;
-      const value = props[prop];
-      if (value === prevProps[prop]) continue;
-      if (prop === "style") {
-        Object.assign(node.style, value);
-      } else if (prop === "classList") {
-        classList(node, value, prevProps[prop]);
-        // really only for forwarding from Components, can't forward normal ref
-      } else if (prop === "ref" || prop === "forwardRef") {
-        value(node);
-      } else if (prop === "on") {
-        for (const eventName in value)
-          node.addEventListener(eventName, value[eventName]);
-      } else if (prop === "onCapture") {
-        for (const eventName in value)
-          node.addEventListener(eventName, value[eventName], true);
-      } else if (prop.slice(0, 2) === "on") {
-        const lc = prop.toLowerCase();
-        if (!NonComposedEvents.has(lc.slice(2))) {
-          const name = lc.slice(2);
-          if (Array.isArray(value)) {
-            node[`__${name}`] = value[0];
-            node[`__${name}Data`] = value[1];
-          } else node[`__${name}`] = value;
-          delegateEvents([name]);
-        } else node[lc] = value;
-      } else if ((info = Attributes[prop])) {
-        if (info.type === "attribute") {
-          node.setAttribute(prop, value);
-        } else node[info.alias] = value;
-      } else if (isSVG) {
-        if ((info = SVGAttributes[prop])) {
-          if (info.alias) node.setAttribute(info.alias, value);
-          else node.setAttribute(prop, value);
-        } else
-          node.setAttribute(
-            prop.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`),
-            value
-          );
-      } else node[prop] = value;
-      prevProps[prop] = value;
-    }
-  });
+  effect(() => assign(node, props, isSVG, true, prevProps));
   return prevProps;
-}
-
-function normalizeIncomingArray(normalized, array, unwrap) {
-  let dynamic = false;
-  for (let i = 0, len = array.length; i < len; i++) {
-    let item = array[i], t;
-    if (item instanceof Node) {
-      normalized.push(item);
-    } else if (item == null || item === true || item === false) { // matches null, undefined, true or false
-      // skip
-    } else if (Array.isArray(item)) {
-      dynamic = normalizeIncomingArray(normalized, item) || dynamic;
-    } else if ((t = typeof item) === 'string') {
-      normalized.push(document.createTextNode(item));
-    } else if (t === 'function') {
-      if (unwrap) {
-        const idx = item();
-        dynamic = normalizeIncomingArray(normalized, Array.isArray(idx) ? idx : [idx]) || dynamic;
-      } else {
-        normalized.push(item);
-        dynamic = true;
-      }
-    } else normalized.push(document.createTextNode(item.toString()));
-  }
-  return dynamic;
-}
-
-function appendNodes(parent, array, marker) {
-  for (let i = 0, len = array.length; i < len; i++) parent.insertBefore(array[i], marker);
-}
-
-function cleanChildren(parent, current, marker, replacement) {
-  if (marker === undefined) return parent.textContent = '';
-  const node = (replacement || document.createTextNode(''));
-  if (current.length) {
-    node !== current[0] && parent.replaceChild(node, current[0]);
-    for (let i = current.length - 1; i > 0; i--) parent.removeChild(current[i]);
-  } else parent.insertBefore(node, marker);
-  return [node];
 }
 
 function insertExpression(parent, value, current, marker, unwrapArray) {
@@ -286,31 +362,31 @@ function insertExpression(parent, value, current, marker, unwrapArray) {
     multi = marker !== undefined;
   parent = (multi && current[0] && current[0].parentNode) || parent;
 
-  if (t === 'string' || t === 'number') {
-    if (t === 'number') value = value.toString();
+  if (t === "string" || t === "number") {
+    if (t === "number") value = value.toString();
     if (multi) {
       let node = current[0];
       if (node && node.nodeType === 3) {
         node.data = value;
       } else node = document.createTextNode(value);
-      current = cleanChildren(parent, current, marker, node)
+      current = cleanChildren(parent, current, marker, node);
     } else {
-      if (current !== '' && typeof current === 'string') {
+      if (current !== "" && typeof current === "string") {
         current = parent.firstChild.data = value;
       } else current = parent.textContent = value;
     }
-  } else if (value == null || t === 'boolean') {
+  } else if (value == null || t === "boolean") {
     if (config.hydrate && config.hydrate.registry) return current;
     current = cleanChildren(parent, current, marker);
-  } else if (t === 'function') {
-    wrap(() => current = insertExpression(parent, value(), current, marker));
+  } else if (t === "function") {
+    effect(() => (current = insertExpression(parent, value(), current, marker)));
     return () => current;
   } else if (Array.isArray(value)) {
     const array = [];
     if (normalizeIncomingArray(array, value, unwrapArray)) {
-      wrap(() => current = insertExpression(parent, array, current, marker, true));
+      effect(() => (current = insertExpression(parent, array, current, marker, true)));
       return () => current;
-    };
+    }
     if (config.hydrate && config.hydrate.registry) return current;
     if (array.length === 0) {
       current = cleanChildren(parent, current, marker);
@@ -320,7 +396,7 @@ function insertExpression(parent, value, current, marker, unwrapArray) {
         if (current.length === 0) {
           appendNodes(parent, array, marker);
         } else reconcileArrays(parent, current, array);
-      } else if (current == null || current === '') {
+      } else if (current == null || current === "") {
         appendNodes(parent, array);
       } else {
         reconcileArrays(parent, (multi && current) || [parent.firstChild], array);
@@ -329,9 +405,9 @@ function insertExpression(parent, value, current, marker, unwrapArray) {
     current = array;
   } else if (value instanceof Node) {
     if (Array.isArray(current)) {
-      if (multi) return current = cleanChildren(parent, current, marker, value);
+      if (multi) return (current = cleanChildren(parent, current, marker, value));
       cleanChildren(parent, current, null, value);
-    } else if (current == null || current === '') {
+    } else if (current == null || current === "") {
       parent.appendChild(value);
     } else parent.replaceChild(value, parent.firstChild);
     current = value;
@@ -340,85 +416,22 @@ function insertExpression(parent, value, current, marker, unwrapArray) {
   return current;
 }
 
-/*
-Slightly modified version of: https://github.com/WebReflection/udomdiff/blob/master/index.js
-*/
-function reconcileArrays(parentNode, a, b) {
-  let bLength = b.length,
-    aEnd = a.length,
-    bEnd = bLength,
-    aStart = 0,
-    bStart = 0,
-    after = a[aEnd - 1].nextSibling,
-    map = null;
-
-  while (aStart < aEnd || bStart < bEnd) {
-    // append
-    if (aEnd === aStart) {
-      const node =
-        bEnd < bLength
-          ? bStart
-            ? b[bStart - 1].nextSibling
-            : b[bEnd - bStart]
-          : after;
-
-      while (bStart < bEnd) parentNode.insertBefore(b[bStart++], node);
-    // remove
-    } else if (bEnd === bStart) {
-      while (aStart < aEnd) {
-        if (!map || !map.has(a[aStart])) parentNode.removeChild(a[aStart]);
-        aStart++;
-      }
-    // common prefix
-    } else if (a[aStart] === b[bStart]) {
-      aStart++;
-      bStart++;
-    // common suffix
-    } else if (a[aEnd - 1] === b[bEnd - 1]) {
-      aEnd--;
-      bEnd--;
-    // swap forward
-    } else if (aEnd - aStart === 1 && bEnd - bStart === 1) {
-      if (map && map.has(a[aStart])) {
-        parentNode.insertBefore(b[bStart], bEnd < bLength ? b[bEnd] : after);
-      } else parentNode.replaceChild(b[bStart], a[aStart]);
-      break;
-    // swap backward
-    } else if (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]) {
-      const node = a[--aEnd].nextSibling;
-      parentNode.insertBefore(b[bStart++], a[aStart++].nextSibling);
-      parentNode.insertBefore(b[--bEnd], node);
-
-      a[aEnd] = b[bEnd];
-    // fallback to map
-    } else {
-      if (!map) {
-        map = new Map();
-        let i = bStart;
-
-        while (i < bEnd) map.set(b[i], i++);
-      }
-
-      if (map.has(a[aStart])) {
-        const index = map.get(a[aStart]);
-
-        if (bStart < index && index < bEnd) {
-          let i = aStart,
-            sequence = 1;
-
-          while (++i < aEnd && i < bEnd) {
-            if (!map.has(a[i]) || map.get(a[i]) !== index + sequence) break;
-            sequence++;
-          }
-
-          if (sequence > index - bStart) {
-            const node = a[aStart];
-            while (bStart < index) parentNode.insertBefore(b[bStart++], node);
-          } else parentNode.replaceChild(b[bStart++], a[aStart++]);
-        } else aStart++;
-      } else parentNode.removeChild(a[aStart++]);
-    }
+function toSSRAttribute(key, isSVG) {
+  if (isSVG) {
+    const attr = SVGAttributes[key];
+    if (attr) {
+      if (attr.alias) key = attr.alias;
+    } else key = key.replace(/([A-Z])/g, g => `-${g[0].toLowerCase()}`);
+  } else {
+    const attr = SVGAttributes[key];
+    if (attr && attr.alias) key = attr.alias;
+    key = key.toLowerCase();
   }
+  return key;
+}
 
-  return b;
+function resolveSSRNode(node) {
+  if (Array.isArray(node)) return node.map(resolveSSRNode).join("");
+  if (typeof node === "function") node = resolveSSRNode(node());
+  return typeof node === "string" ? node : JSON.stringify(node);
 }

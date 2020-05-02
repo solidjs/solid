@@ -162,9 +162,10 @@ And check out the Documentation, Examples, and Articles below to get more famili
 ## Documentation
 
 - [State](https://github.com/ryansolid/solid/blob/master/documentation/state.md)
-- [Signals](https://github.com/ryansolid/solid/blob/master/documentation/signals.md)
+- [Reactivity](https://github.com/ryansolid/solid/blob/master/documentation/reactivity.md)
 - [JSX Rendering](https://github.com/ryansolid/solid/blob/master/documentation/rendering.md)
 - [Components](https://github.com/ryansolid/solid/blob/master/documentation/components.md)
+- [Styling](https://github.com/ryansolid/solid/blob/master/documentation/styling.md)
 - [Context](https://github.com/ryansolid/solid/blob/master/documentation/context.md)
 - [Suspense](https://github.com/ryansolid/solid/blob/master/documentation/suspense.md)
 - [API](https://github.com/ryansolid/solid/blob/master/documentation/api.md)

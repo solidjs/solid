@@ -17,14 +17,14 @@ type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
 type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
 
 export type NotWrappable = string | number | boolean | Function | null;
-export type Wrapped<T> = {
-  [P in keyof T]: T[P] extends object ? Wrapped<T[P]> : T[P];
+export type State<T> = {
+  [P in keyof T]: T[P] extends object ? State<T[P]> : T[P];
 } & {
   [$RAW]?: T;
 } & AddSymbolToPrimitive<T> &
   AddCallable<T>;
 
-export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): Wrapped<T> {
+export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): State<T> {
   return value[$PROXY] || (value[$PROXY] = new Proxy(value, traps || proxyTraps));
 }
 
@@ -185,7 +185,7 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
 type StateSetter<T> =
   | Partial<T>
   | ((
-      prevState: T extends NotWrappable ? T : Wrapped<T>,
+      prevState: T extends NotWrappable ? T : State<T>,
       traversed?: (string | number)[]
     ) => Partial<T> | void);
 type StatePathRange = { from?: number; to?: number; by?: number };
@@ -285,8 +285,8 @@ export interface SetStateFunction<T> {
 }
 
 export function createState<T extends StateNode>(
-  state: T | Wrapped<T>
-): [Wrapped<T>, SetStateFunction<T>] {
+  state: T | State<T>
+): [State<T>, SetStateFunction<T>] {
   const unwrappedState = unwrap<T>(state || {});
   const wrappedState = wrap<T>(unwrappedState);
   function setState(...args: any[]): void {
@@ -294,14 +294,4 @@ export function createState<T extends StateNode>(
   }
 
   return [wrappedState, setState];
-}
-
-// DEPRECATED: force state merge change even if value hasn't changed
-export function force<T>(
-  value: T | Wrapped<T>
-): (state: T extends NotWrappable ? T : Wrapped<T>) => void {
-  return state => {
-    if (!isWrappable(state)) return value;
-    mergeState(unwrap(state), value, true);
-  };
 }

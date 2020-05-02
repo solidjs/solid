@@ -23,9 +23,9 @@ type StyledTemplateArgs<T> = [
   ...Array<string | number | ((props: T) => CSSAttribute | string | number | undefined)>
 ];
 
-export function styled<T = {}>(tag: string | ((props: any) => any)) {
-  return (...args: StyledTemplateArgs<T & { theme?: any }>) => {
-    return (props: T & { className?: string; children?: any; theme?: any }) => {
+export function styled<T extends keyof JSX.IntrinsicElements>(tag: T | ((props: any) => any)) {
+  return <P>(...args: StyledTemplateArgs<P & { theme?: any }>) => {
+    return (props: P  & JSX.IntrinsicElements[T] & { theme?: any }): JSX.Element => {
       const newProps = cloneProps(props);
       props.theme = useContext(ThemeContext);
       Object.defineProperty(newProps, "className", {
