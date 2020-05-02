@@ -8,7 +8,7 @@ This library owes its existence to Knockout. Modernizing its model for fine grai
 
 Knockout's bindings are just strings in HTML which are walked over at runtime. They depend on cloning context($parent etc...). Whereas Solid uses JSX or Tagged Template Literals for templating opting for an in JavaScript API.
 
-The biggest difference might be that Solid uses SRP which ensures synchronicity of changes whereas Knockout has deferUpdates which uses a deferred microtask queue.
+The biggest difference might be that Solid's approach to batching changes which ensures synchronicity whereas Knockout has deferUpdates which uses a deferred microtask queue.
 
 ## React
 
@@ -20,7 +20,7 @@ However, as much as Solid aligns with React's design philosophy, it works signif
 
 Svelte pioneered the precompiled disappearing framework that Solid also employs to a certain degree. Both libraries are truly reactive and can produce really small execution code bundles although Svelte is the winner here for small demos. Solid requires a bit more explicitness in its declarations and relying less on implicit analysis from the compiler, but that is part of what gives Solid superior performance. Solid also keeps more in the runtime which scales better in larger apps. Solid's RealWorld demo implementation is 25% smaller than Svelte's.
 
-Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding. In constrast Solid deliberately embraces CQRS and immutable interface. Solid uses proxies to track dependencies but very consciously blocks setters, considering 2 way binding and direct mutation a dangerous anti-pattern in terms of large scale solutions. Instead Solid has adopted expressive setters(influenced by ImmutableJS and Falcor) to give flexibility of plain objects, with greater brevity, and significantly more control. With functional template composition, in many cases Solid allows developers to write even less code than Svelte.
+Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding. In constrast Solid focuses on the data flow by deliberately embraces CQRS and immutable interface. With functional template composition, in many cases Solid allows developers to write even less code than Svelte.
 
 Svelte still represents pushing the boundaries of precompilation where Solid is a bit more conservative offering HyperScript and Tagged Template Literal options in addition to the compiled JSX. But we feel Solid really takes the best of both worlds.
 
@@ -34,9 +34,7 @@ The biggest difference is that while these libraries do not use the Virtual DOM 
 
 Solid is not particularly influenced by Vue, but they are relatable. They both use Proxies in their Reactive system, but that is where the similarities end. Vue's fine grained dependency detection just feeds into a less fine-grained Virtual DOM and Component system whereas Solid keeps its granularity right down to its direct DOM updates.
 
-Vue works off configuration objects where Solid uses a more functional approach instead opting for composeable primitives. Vue credits its configuration as an easy learning curve, but we feel having a few simple primitives actually reduces mental overhead in a similar way. Where configuration objects or lifecycles require learning and remember how they apply(like a checklist), Solid's primitives are not unlike understanding what Array.map does. Once you have the tool you can do the job.
-
-Vue also is setup for direct mutation and 2 way binding, which helps keep the code small. However, Solid's functional approach often leads to less setup than Vue's configuration objects.
+Vue values easiness where Solid values transparency. Although Vue's new direction with Vue 3 aligns more with the approach Solid takes. These libraries might align more over time depending on how they continue to evolve.
 
 ## RxJS
 

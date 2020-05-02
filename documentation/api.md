@@ -6,7 +6,7 @@ Creates a new State object and setState pair that can be used to maintain your c
 
 ### `createSignal(initialValue, comparatorFn): [getValueFn, setValueFn]`
 
-This is the smallest and most primitive reactive atom used to track a singl value. By default signals always notify on setting a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `createEffect(prev => <code>, initialValue): void`
 

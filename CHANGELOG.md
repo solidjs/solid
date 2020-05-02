@@ -1,5 +1,12 @@
 # Changelog
-## 0.17.0 - 2020-03-??
+## 0.18.0 - 2020-05-01
+A lot of bug fixes, and introduction of string based SSR.
+Breaking Changes:
+* Removal of `forwardRef`. Value and function handled by just `ref`.
+* Change to how TypeScript is managed. Brought all JSX types inside the repo, and improved Component typing.
+* Changed default renderer in `solid-ssr` to string renderer.
+
+## 0.17.0 - 2020-03-24
 A lot of consolidation in preparation for release candidate
 * Big refactor of core reactive system and render list reconciler
   * Significantly smaller reducing core by atleast 3kb minified

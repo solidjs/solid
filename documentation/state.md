@@ -1,8 +1,8 @@
 # State
 
-State is the core work horse of Solid. It represents the local data, the output all the asynchronous interaction as a simple to read javascript object. While fine grained observable itself it is has a minimal API footprint and in most cases be treated like a normal object when reading, supporting destructuring and native methods. However you are dealing with proxy objects that automatically tracked as dependencies of memoization and effects and upon changing will force evaluation.
+State is a core work horse of Solid. It is composed of many on demand reactive signals through a proxy object. The advantage is that it is automatically reactive and resembles data structures you may already have. It removes the classic issues with fine-grained reactivity around mapping reactive structures and serializing JSON. And as a structure itself it can be diffed allowing interaction with immutable data and snapshots.
 
-While this state concept is heavily borrowed from React and it's API from ImmutableJS, there is a key difference in the role it plays here. In React you keep things simple in your state and the whole library is about reconciling DOM rendering. Here you can almost view the State object as the target, the thing that is diffed and maintained. The DOM rendering is actually quite simple to the point the compiled source exposes the vast majority of the DOM manipulations, where you can easily drop a breakpoint. So change detection being nested and focusing on interaction with other change mechanisms are key.
+While this state concept is heavily borrowed from React and it's API from ImmutableJS, there is a key difference in the role it plays here. In React you keep things simple in your state and the whole library is about reconciling DOM rendering. Here you can almost view the State object as the target, the thing that is diffed and maintained. The DOM rendering is actually quite simple to the point the compiled source exposes the vast majority of the DOM manipulations, where you can easily drop a breakpoint.
 
 ### `createState(object)`
 
@@ -96,7 +96,7 @@ setState('todos', {}, todo => ({ marked: true, completed: !todo.completed }))
 // }
 ```
 
-Additionally supports a batched mutable form when the setter does not return a value. This allows TypeScript safe nested updates.
+Additionally supports a batched mutable form when the setter does not return a value..
 
 ```js
 const [state, setState] = createState({

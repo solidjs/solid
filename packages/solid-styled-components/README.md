@@ -25,7 +25,7 @@ const Btn = styled("button")`
 
 #### Tagged Templates
 
-```js
+```jsx
 import { styled } from "solid-styled-components";
 
 const Btn = styled("button")`
@@ -37,7 +37,7 @@ const Btn = styled("button")`
 
 #### Function returns a string
 
-```js
+```jsx
 import { styled } from "solid-styled-components";
 
 const Btn = styled("button")(
@@ -51,7 +51,7 @@ const Btn = styled("button")(
 
 #### Style Object
 
-```js
+```jsx
 import { styled } from "solid-styled-components";
 
 const Btn = styled("button")(props => ({
