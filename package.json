@@ -31,7 +31,7 @@
     "@types/jest": "^25.1.4",
     "babel-jest": "^25.1.0",
     "babel-plugin-jsx-dom-expressions": "~0.18.0",
-    "coveralls": "^3.0.11",
+    "coveralls": "^3.1.0",
     "dom-expressions": "0.18.0",
     "hyper-dom-expressions": "0.18.0",
     "jest": "~25.1.0",
