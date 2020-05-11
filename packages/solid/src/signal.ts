@@ -230,11 +230,11 @@ function readSignal(this: Signal<any> | Memo<any>) {
 }
 
 function writeSignal(this: Signal<any> | Memo<any>, value: any) {
-  if (this.comparator && this.comparator(this.value, value)) return;
+  if (this.comparator && this.comparator(this.value, value)) return value;
   if (Pending) {
     if (this.pending === NOTPENDING) Pending.push(this);
     this.pending = value;
-    return;
+    return value;
   }
   this.value = value;
   if (this.observers && (!Updates || this.observers.length)) {
@@ -248,6 +248,7 @@ function writeSignal(this: Signal<any> | Memo<any>, value: any) {
       }
     });
   }
+  return value;
 }
 
 function updateComputation(node: Computation<any>) {
