@@ -577,6 +577,10 @@ declare global {
       value?: string | string[] | number;
     }
 
+    interface HTMLSlotElementAttributes<T = HTMLSlotElement> extends HTMLAttributes<T> {
+      name?: string;
+    }
+
     interface SourceHTMLAttributes<T> extends HTMLAttributes<T> {
       media?: string;
       sizes?: string;
@@ -963,6 +967,7 @@ declare global {
       script: ScriptHTMLAttributes<HTMLElement>;
       section: HTMLAttributes<HTMLElement>;
       select: SelectHTMLAttributes<HTMLSelectElement>;
+      slot: HTMLSlotElementAttributes;
       small: HTMLAttributes<HTMLElement>;
       source: SourceHTMLAttributes<HTMLSourceElement>;
       span: HTMLAttributes<HTMLSpanElement>;
