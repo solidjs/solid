@@ -59,7 +59,7 @@ SuspenseContext.increment = increment;
 SuspenseContext.decrement = decrement;
 
 export function awaitSuspense(fn: () => any) {
-  return new Promise(resolve => {
+  return () => new Promise(resolve => {
     const res = fn();
     createEffect(() => !SuspenseContext.active!() && resolve(res));
   });

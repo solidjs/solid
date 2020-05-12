@@ -40,6 +40,22 @@ ssr(async (req) => {
   return render(string);
 });
 ```
+
+If you want to async render wrap in `awaitSuspense`.
+```jsx
+// top of entry file, must be imported before any components
+import ssr from "solid-ssr"
+import { awaitSuspense } from "solid-js";
+import { renderToString } from "solid-js/dom";
+
+ssr(async (req) => {
+  // pull url off request to handle routing
+  const { url } = req;
+  const string = await renderToString(awaitSuspense(() => <App />));
+  return render(string);
+});
+```
+
 > Remember to mark all of "solid-js", "solid-js/dom", "solid-ssr" as externals as no need to bundle these for server rendering entry.
 
 ### To rehydrate on the client:
