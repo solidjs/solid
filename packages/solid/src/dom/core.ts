@@ -3,20 +3,15 @@ import {
   createEffect,
   createMemo,
   equalFn,
-  runtimeConfig,
-  sample,
+  createComponent,
   getContextOwner
 } from "../index.js";
 
 // reactive injection for dom-expressions
-export default {
-  config: runtimeConfig,
-  currentContext: getContextOwner,
-  root: createRoot,
-  ignore: sample,
-  effect: createEffect,
-  memo: (fn: () => any, equal: boolean) => {
-    if (!equal) return createMemo(fn);
-    return createMemo(fn, undefined, equalFn);
-  }
-};
+function memo(fn: () => any, equal: boolean) {
+  if(typeof fn !== "function") return fn;
+  if (!equal) return createMemo(fn);
+  return createMemo(fn, undefined, equalFn);
+}
+
+export { getContextOwner as currentContext, createComponent, createRoot as root, createEffect as effect, memo }

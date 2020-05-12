@@ -17,7 +17,7 @@ const plugins = [
         "babel-plugin-transform-rename-import",
         {
           original: "rxcore",
-          replacement: "./core"
+          replacement: "../../../packages/solid/src/dom/core"
         }
       ]
     ]
@@ -42,7 +42,7 @@ export default [
     ],
     plugins: [
       copy({
-        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/" }]
+        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/rendering" }]
       })
     ].concat(plugins)
   },
@@ -63,10 +63,7 @@ export default [
       copy({
         targets: [
           {
-            src: [
-              "../../node_modules/dom-expressions/src/*.js",
-              "../../node_modules/dom-expressions/src/*.d.ts"
-            ],
+            src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
             dest: "./src/dom"
           },
           { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/dom/" }

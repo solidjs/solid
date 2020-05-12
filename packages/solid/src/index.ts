@@ -15,18 +15,13 @@ export {
   getContextOwner,
   equalFn,
   afterEffects
-} from "./signal";
+} from "./reactive/signal";
 
-export { createState, unwrap, $RAW } from "./state";
-export type { State, SetStateFunction } from "./state";
+export { createState, unwrap, $RAW } from "./reactive/state";
+export type { State, SetStateFunction } from "./reactive/state";
 
-export { reconcile } from "./reconcile";
+export { reconcile } from "./reactive/reconcile";
 
-export * from "./mapArray";
-export * from "./component";
-export * from "./resource";
-export * from "./scheduler";
-export { runtimeConfig } from "./shared";
-
-// jsx types
-import "./jsx"
+export * from "./reactive/scheduler";
+export * from "./reactive/mapArray";
+export * from "./rendering";

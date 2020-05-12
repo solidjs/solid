@@ -10,7 +10,7 @@ module.exports = {
           "babel-plugin-transform-rename-import",
           {
             original: "rxcore",
-            replacement: "./core"
+            replacement: "../../../packages/solid/src/dom/core"
           }
         ],
         [
@@ -19,7 +19,6 @@ module.exports = {
             moduleName: "../../src/dom/index",
             contextToCustomElements: true,
             wrapConditionals: true,
-            wrapFragments: true,
             builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal"]
           }
         ]

@@ -26,6 +26,7 @@ export default [{
       format: "esm"
     }
   ],
+  preserveEntrySignatures: false,
   plugins:  [
     nodeResolve(),
     babel({

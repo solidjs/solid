@@ -9,7 +9,7 @@ import {
   isListening,
   afterEffects,
   Context
-} from "./signal";
+} from "../reactive/signal";
 
 import {
   updatePath,
@@ -24,9 +24,7 @@ import {
   SetStateFunction,
   State,
   setProperty
-} from "./state";
-
-import { runtimeConfig, setHydrateContext, nextHydrateContext } from "./shared";
+} from "../reactive/state";
 
 // Suspense Context
 type SuspenseState = "running" | "suspended" | "fallback";
@@ -42,11 +40,7 @@ function createActivityTracker(): [() => boolean, () => void, () => void] {
   let count = 0;
   const [read, trigger] = createSignal(false);
 
-  return [
-    read,
-    () => count++ === 0 && trigger(true),
-    () => --count <= 0 && trigger(false)
-  ];
+  return [read, () => count++ === 0 && trigger(true), () => --count <= 0 && trigger(false)];
 }
 
 export const SuspenseContext: Context<SuspenseContextType> & {
@@ -139,11 +133,7 @@ function createResourceNode(v: any) {
   // maintain setState capability by using normal data node as well
   const node = createSignal(),
     [read, load] = createResource(v);
-  return [
-    () => (read(), node[0]()),
-    node[1],
-    load
-  ];
+  return [() => (read(), node[0]()), node[1], load];
 }
 
 const resourceTraps = {
@@ -179,7 +169,7 @@ export interface LoadStateFunction<T> {
     v: { [P in keyof T]?: Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
   ): { [P in keyof T]: boolean };
-};
+}
 
 export function createResourceState<T extends StateNode>(
   state: T | State<T>
@@ -227,7 +217,7 @@ interface ComponentType<T> {
 // lazy load a function component asynchronously
 export function lazy<T extends ComponentType<any>>(fn: () => Promise<{ default: T }>): T {
   return ((props: any) => {
-    const hydrating = runtimeConfig.hydrate && runtimeConfig.hydrate.registry,
+    const hydrating = globalThis._$HYDRATION.context && globalThis._$HYDRATION.context.registry,
       ctx = nextHydrateContext();
     let s: () => T | undefined, r: (v: T) => void, p;
     if (hydrating) {
@@ -238,18 +228,16 @@ export function lazy<T extends ComponentType<any>>(fn: () => Promise<{ default: 
       p(fn().then(mod => mod.default));
     }
     let Comp: T | undefined;
-    return createMemo(
-      () =>
-        (Comp = s()) &&
-        sample(() => {
-          if (!ctx) return Comp!(props);
-          const h = runtimeConfig.hydrate;
-          setHydrateContext(ctx);
-          const r = Comp!(props);
-          !h && setHydrateContext();
-          return r;
-        })
-    );
+    return () =>
+      (Comp = s()) &&
+      sample(() => {
+        if (!ctx) return Comp!(props);
+        const h = globalThis._$HYDRATION.context;
+        setHydrateContext(ctx);
+        const r = Comp!(props);
+        !h && setHydrateContext();
+        return r;
+      });
   }) as T;
 }
 
@@ -276,5 +264,36 @@ export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () =
 export function suspend<T>(fn: () => T) {
   const { state } = useContext(SuspenseContext);
   let cached: T;
-  return state ? () => (state() === "suspended" ? cached : (cached = fn())) : fn;
+  return state
+    ? ((fn = createMemo(fn)), () => (state() === "suspended" ? cached : (cached = fn())))
+    : fn;
+}
+
+type HydrationContext = {
+  id: string;
+  count: number;
+  registry?: Map<string, Element>;
+};
+
+type GlobalHydration = {
+  context?: HydrationContext;
+};
+
+declare global {
+  var _$HYDRATION: GlobalHydration;
+}
+
+function setHydrateContext(context?: HydrationContext): void {
+  globalThis._$HYDRATION.context = context;
+}
+
+function nextHydrateContext(): HydrationContext | undefined {
+  const hydration = globalThis._$HYDRATION;
+  return hydration && hydration.context
+    ? {
+        id: `${hydration.context.id}.${hydration.context.count++}`,
+        count: 0,
+        registry: hydration.context.registry
+      }
+    : undefined;
 }

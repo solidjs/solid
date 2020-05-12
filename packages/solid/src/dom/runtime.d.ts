@@ -19,7 +19,7 @@ export function hydrate(
 
 export function template(html: string, count: number, isSVG?: boolean): Element;
 export function effect<T>(fn: (prev?: T) => T, init?: T): any;
-export function memo(fn: () => any, equal: boolean): () => any;
+export function memo<T>(fn: () => T, equal: boolean): () => T;
 export function insert(
   parent: MountableElement,
   accessor: any,

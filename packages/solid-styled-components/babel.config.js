@@ -12,7 +12,6 @@ module.exports = {
             moduleName: "solid-js/dom",
             contextToCustomElements: true,
             wrapConditionals: true,
-            wrapFragments: true,
             builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal"]
           }
         ]

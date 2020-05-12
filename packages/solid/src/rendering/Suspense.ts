@@ -1,14 +1,14 @@
-import { createComponent } from "./runtime";
+import { createComponent } from "./component";
 import {
   createSignal,
   sample,
-  SuspenseContext,
   createEffect,
   createContext,
   useContext,
   equalFn,
   afterEffects
-} from "../index.js";
+} from "../reactive/signal";
+import { SuspenseContext } from "./resource";
 
 type SuspenseState = "running" | "suspended" | "fallback";
 type SuspenseListRegistryItem = {
