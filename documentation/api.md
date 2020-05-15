@@ -79,3 +79,7 @@ Sets default props for function components in case caller doesn't provide them.
 ### `cloneProps(props): newProps`
 
 Clones the props object including reactive properties.
+
+### `splitProps(props, ...keyArrays): [...splitProps]`
+
+Splits the props object including reactive properties.

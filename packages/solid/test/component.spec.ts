@@ -1,4 +1,4 @@
-import { setDefaults, cloneProps } from "../src";
+import { createComponent, setDefaults, cloneProps, splitProps } from "../src";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -6,6 +6,21 @@ type SimplePropTypes = {
   c?: string | null;
   d?: string | null;
 };
+
+const Comp = (props: { greeting: string; name: string }) => `${props.greeting} ${props.name}`;
+
+const Comp2 = (props: { greeting: string; name: string }) => {
+  const [p, q] = splitProps(props, ["greeting"]);
+  return `${p.greeting} ${q.name}`;
+}
+
+describe("CreateComponent", () => {
+  test("create simple component", () => {
+    const out = createComponent(Comp, { greeting: "Hi", name: () => "dynamic" }, ["name"]);
+    expect(out).toBe("Hi dynamic");
+  });
+});
+
 describe("Set Default Props", () => {
   test("simple set", () => {
     const props: SimplePropTypes = {
@@ -28,13 +43,13 @@ describe("Clone Props", () => {
   test("simple set", () => {
     let reactive = false;
     const props: SimplePropTypes = {
-        get a() {
-          reactive = true;
-          return "ji";
-        },
-        b: null,
-        c: "j"
-      };
+      get a() {
+        reactive = true;
+        return "ji";
+      },
+      b: null,
+      c: "j"
+    };
     const newProps = cloneProps(props);
     expect(reactive).toBe(false);
     expect(newProps.a).toBe("ji");
@@ -43,4 +58,11 @@ describe("Clone Props", () => {
     expect(newProps.c).toBe("j");
     expect(newProps.d).toBe(undefined);
   });
+});
+
+describe("Split Props", () => {
+  test("Split in two", () => {
+    const out = createComponent(Comp2, { greeting: "Hi", name: () => "dynamic" }, ["name"]);
+    expect(out).toBe("Hi dynamic");
+  })
 });
