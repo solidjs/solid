@@ -44,17 +44,21 @@ describe("Testing Suspense", () => {
   });
 
   test("Toggle with delayed fallback", done => {
-    const [, start] = useTransition({ timeoutMs: 100 });
+    const [pending, start] = useTransition({ timeoutMs: 100 });
     start(() => trigger(true));
     expect(div.innerHTML).toBe("Hi, Jo");
+    expect(pending()).toBe(true);
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo");
+      expect(pending()).toBe(true);
     });
     setTimeout(() => {
       expect(div.innerHTML).toBe("Loading");
+      expect(pending()).toBe(true);
     }, 200);
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo");
+      expect(pending()).toBe(false);
       done();
     }, 400);
   });

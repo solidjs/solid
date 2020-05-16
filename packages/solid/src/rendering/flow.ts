@@ -1,7 +1,6 @@
-
 import { createMemo, sample, equalFn } from "../reactive/signal";
-import { mapArray } from "../reactive/mapArray"
-import { suspend } from "./resource"
+import { mapArray } from "../reactive/mapArray";
+import { suspend } from "./resource";
 
 export function For<T, U extends JSX.Element>(props: {
   each: T[];
@@ -12,16 +11,24 @@ export function For<T, U extends JSX.Element>(props: {
   return suspend(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
 }
 
-export function Show(props: { when: unknown; fallback?: JSX.Element; children: JSX.Element }) {
+export function Show(props: {
+  when: unknown;
+  fallback?: JSX.Element;
+  children: JSX.Element | ((item: any) => JSX.Element);
+}) {
   const useFallback = "fallback" in props,
-    condition = createMemo(() => !!props.when, undefined, equalFn);
-  return suspend(() =>
-    condition()
-      ? sample(() => props.children)
+    callFn = typeof Object.getOwnPropertyDescriptor(props, "children")!.value === "function",
+    condition = createMemo(() => props.when, undefined, equalFn);
+  return suspend(() => {
+    const c = condition();
+    return c
+      ? callFn
+        ? sample(() => (props.children as (item: any) => JSX.Element)(c))
+        : props.children
       : useFallback
-      ? sample(() => props.fallback)
-      : undefined
-  );
+      ? props.fallback
+      : undefined;
+  }) as () => JSX.Element;
 }
 
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }) {
@@ -40,7 +47,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
     );
   return suspend(() => {
     const index = evalConditions();
-    return sample(() => (index < 0 ? useFallback && props.fallback : conditions[index].children));
+    return index < 0 ? useFallback && props.fallback : conditions[index].children;
   });
 }
 

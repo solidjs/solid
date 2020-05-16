@@ -23,8 +23,7 @@ describe("Testing an only child show control flow", () => {
     setCount(7);
     expect(div.innerHTML).toBe("7");
     setCount(5);
-    // direct children are inert, dynamic expression serves to lazy evaluate
-    expect(div.innerHTML).toBe("7");
+    expect(div.innerHTML).toBe("5");
     setCount(2);
     expect(div.innerHTML).toBe("");
   });
@@ -60,6 +59,43 @@ describe("Testing an only child show control flow with DOM children", () => {
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     setCount(2);
     expect(div.innerHTML).toBe("");
+  });
+
+  test("dispose", () => disposer());
+});
+
+describe("Testing an only child show control flow with keyed function", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [data, setData] = createSignal();
+  const Component = () => (
+    <div ref={div}>
+      <Show when={data()}>
+        {({count}) => (
+          <>
+            <span>{count}</span>
+            <span>counted</span>
+          </>
+        )}
+      </Show>
+    </div>
+  );
+
+  test("Create show control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("");
+  });
+
+  test("Toggle show control flow", () => {
+    setData({count: 7});
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
+    setData({count: 5});
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
+    setData({count: 2});
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("2");
   });
 
   test("dispose", () => disposer());

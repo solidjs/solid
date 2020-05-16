@@ -77,7 +77,7 @@ While you could use a map function for loops they aren't optimized. While perhap
 </ul>
 ```
 
-Control flows can be imported from `solid-js/dom` but as a convenience the compiler will automatically import them.
+Control flows can be imported from `solid-js` but as a convenience the compiler will automatically import them.
 
 ### For
 
@@ -89,9 +89,17 @@ Control flows can be imported from `solid-js/dom` but as a convenience the compi
 
 ### Show
 
+Conditionally control content (make sure `when` is boolean):
 ```jsx
 <Show when={state.count > 0} fallback={<div>Loading...</div>}>
   <div>My Content</div>
+</Show>
+```
+
+Or as a way of keying blocks:
+```jsx
+<Show when={state.user} fallback={<div>Loading...</div>}>
+  {user => <div>{user.firstName}</div>}
 </Show>
 ```
 
@@ -106,14 +114,6 @@ Control flows can be imported from `solid-js/dom` but as a convenience the compi
     <Settings />
   </Match>
 </Switch>
-```
-
-### Portal
-
-```jsx
-<Portal mount={document.getElementById("modal")}>
-  <div>My Content</div>
-</Portal>
 ```
 
 ### Suspense
@@ -138,7 +138,16 @@ Control flows can be imported from `solid-js/dom` but as a convenience the compi
 </SuspenseList>
 ```
 
-_Note these are designed to handle more complex scenarios like Component insertions. Child expressions are inert unless you return a function. For simple dynamic expressions use boolean or ternary operator._
+Also available from `solid-js/dom`:
+### Portal
+
+```jsx
+<Portal mount={document.getElementById("modal")}>
+  <div>My Content</div>
+</Portal>
+```
+
+_Note these are designed to handle more complex scenarios like Component insertions. For simple dynamic expressions use boolean or ternary operator._
 
 ## Refs
 
