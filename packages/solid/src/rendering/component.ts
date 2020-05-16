@@ -50,7 +50,7 @@ export function splitProps<T extends object, K1 extends keyof T>(
 export function splitProps<T extends object, K1 extends keyof T, K2 extends keyof T>(
   props: T,
   ...keys: [K1[], K2[]]
-): [Pick<T, K1>, Pick<T, K2>, Omit<T, K1 & K2>];
+): [Pick<T, K1>, Pick<T, K2>, Omit<T, K1 | K2>];
 export function splitProps<
   T extends object,
   K1 extends keyof T,
@@ -59,7 +59,7 @@ export function splitProps<
 >(
   props: T,
   ...keys: [K1[], K2[], K3[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Omit<T, K1 & K2 & K3>];
+): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Omit<T, K1 | K2 | K3>];
 export function splitProps<
   T extends object,
   K1 extends keyof T,
@@ -69,7 +69,7 @@ export function splitProps<
 >(
   props: T,
   ...keys: [K1[], K2[], K3[], K4[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Pick<T, K4>, Omit<T, K1 & K2 & K3 & K4>];
+): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Pick<T, K4>, Omit<T, K1 | K2 | K3 | K4>];
 export function splitProps<
   T extends object,
   K1 extends keyof T,
@@ -86,7 +86,7 @@ export function splitProps<
   Pick<T, K3>,
   Pick<T, K4>,
   Pick<T, K5>,
-  Omit<T, K1 & K2 & K3 & K4 & K5>
+  Omit<T, K1 | K2 | K3 | K4 | K5>
 ];
 export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
   const descriptors = Object.getOwnPropertyDescriptors(props),
