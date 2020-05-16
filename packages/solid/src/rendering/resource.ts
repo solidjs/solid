@@ -26,6 +26,8 @@ import {
   setProperty
 } from "../reactive/state";
 
+import { Component } from "./component"
+
 // Suspense Context
 type SuspenseState = "running" | "suspended" | "fallback";
 type SuspenseContextType = {
@@ -210,12 +212,8 @@ export function createResourceState<T extends StateNode>(
   return [wrappedState, loadState as LoadStateFunction<T>, setState];
 }
 
-interface ComponentType<T> {
-  (props: T): any;
-}
-
 // lazy load a function component asynchronously
-export function lazy<T extends ComponentType<any>>(fn: () => Promise<{ default: T }>): T {
+export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
   return ((props: any) => {
     const hydrating = globalThis._$HYDRATION.context && globalThis._$HYDRATION.context.registry,
       ctx = nextHydrateContext();

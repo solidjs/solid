@@ -43,14 +43,61 @@ export function cloneProps<T>(props: T): T {
   return clone as T;
 }
 
+export function splitProps<T extends object, K1 extends keyof T>(
+  props: T,
+  ...keys: [K1[]]
+): [Pick<T, K1>, Omit<T, K1>];
+export function splitProps<T extends object, K1 extends keyof T, K2 extends keyof T>(
+  props: T,
+  ...keys: [K1[], K2[]]
+): [Pick<T, K1>, Pick<T, K2>, Omit<T, K1 & K2>];
+export function splitProps<
+  T extends object,
+  K1 extends keyof T,
+  K2 extends keyof T,
+  K3 extends keyof T
+>(
+  props: T,
+  ...keys: [K1[], K2[], K3[]]
+): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Omit<T, K1 & K2 & K3>];
+export function splitProps<
+  T extends object,
+  K1 extends keyof T,
+  K2 extends keyof T,
+  K3 extends keyof T,
+  K4 extends keyof T
+>(
+  props: T,
+  ...keys: [K1[], K2[], K3[], K4[]]
+): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Pick<T, K4>, Omit<T, K1 & K2 & K3 & K4>];
+export function splitProps<
+  T extends object,
+  K1 extends keyof T,
+  K2 extends keyof T,
+  K3 extends keyof T,
+  K4 extends keyof T,
+  K5 extends keyof T
+>(
+  props: T,
+  ...keys: [K1[], K2[], K3[], K4[], K5[]]
+): [
+  Pick<T, K1>,
+  Pick<T, K2>,
+  Pick<T, K3>,
+  Pick<T, K4>,
+  Pick<T, K5>,
+  Omit<T, K1 & K2 & K3 & K4 & K5>
+];
 export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
   const descriptors = Object.getOwnPropertyDescriptors(props),
     split = (k: (keyof T)[]) => {
       const clone: Partial<T> = {};
       for (let i = 0; i < k.length; i++) {
         const key = k[i];
-        Object.defineProperty(clone, key, descriptors[key]);
-        delete descriptors[key];
+        if (descriptors[key]) {
+          Object.defineProperty(clone, key, descriptors[key]);
+          delete descriptors[key];
+        }
       }
       return clone;
     };

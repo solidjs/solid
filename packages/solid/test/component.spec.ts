@@ -9,8 +9,8 @@ type SimplePropTypes = {
 
 const Comp = (props: { greeting: string; name: string }) => `${props.greeting} ${props.name}`;
 
-const Comp2 = (props: { greeting: string; name: string }) => {
-  const [p, q] = splitProps(props, ["greeting"]);
+const Comp2 = (props: { greeting: string; name: string, optional?: string }) => {
+  const [p, q] = splitProps(props, ["greeting", "optional"]);
   return `${p.greeting} ${q.name}`;
 }
 
