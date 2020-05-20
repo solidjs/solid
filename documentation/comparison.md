@@ -20,7 +20,7 @@ However, as much as Solid aligns with React's design philosophy, it works signif
 
 Svelte pioneered the precompiled disappearing framework that Solid also employs to a certain degree. Both libraries are truly reactive and can produce really small execution code bundles although Svelte is the winner here for small demos. Solid requires a bit more explicitness in its declarations and relying less on implicit analysis from the compiler, but that is part of what gives Solid superior performance. Solid also keeps more in the runtime which scales better in larger apps. Solid's RealWorld demo implementation is 25% smaller than Svelte's.
 
-Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding. In constrast Solid focuses on the data flow by deliberately embraces CQRS and immutable interface. With functional template composition, in many cases Solid allows developers to write even less code than Svelte.
+Both libraries aim to help their developers write less code but approach it completely differently. Svelte 3 focuses on the optimization of the ease of dealing with localized change focusing on plain object interaction and 2 way binding. In constrast Solid focuses on the data flow by deliberately embraces CQRS and immutable interface. With functional template composition, in many cases Solid allows developers to write even less code than Svelte although Svelte's template syntax is definitely terser.
 
 Svelte still represents pushing the boundaries of precompilation where Solid is a bit more conservative offering HyperScript and Tagged Template Literal options in addition to the compiled JSX. But we feel Solid really takes the best of both worlds.
 
@@ -35,6 +35,10 @@ The biggest difference is that while these libraries do not use the Virtual DOM 
 Solid is not particularly influenced by Vue, but they are relatable. They both use Proxies in their Reactive system, but that is where the similarities end. Vue's fine grained dependency detection just feeds into a less fine-grained Virtual DOM and Component system whereas Solid keeps its granularity right down to its direct DOM updates.
 
 Vue values easiness where Solid values transparency. Although Vue's new direction with Vue 3 aligns more with the approach Solid takes. These libraries might align more over time depending on how they continue to evolve.
+
+## S.js
+
+This library had the greatest influence on Solid's reactive design. Solid used S.js internally for a couple years until the feature set lead to them diverging. S.js is a JavaScript implementation of S-Expressions and is one of the most efficient reactive libraries to date. It models everything off synchronous time steps like a digital circuit and ensures consistency without having to do many of the more complicated mechanisms found in libraries like MobX. Solid's reactivity in the end is a sort of hybrid between S and MobX. Which gives it greater performance than most reactive libraries (Knockout, MobX, Vue) while retaining the ease of mental model for the developer. S.js ultimately is still the more performant reactive library although the difference is hardly noticeable in all but the most grueling synthetic benchmarks. 
 
 ## RxJS
 
