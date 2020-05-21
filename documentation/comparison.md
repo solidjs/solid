@@ -38,7 +38,7 @@ Vue values easiness where Solid values transparency. Although Vue's new directio
 
 ## S.js
 
-This library had the greatest influence on Solid's reactive design. Solid used S.js internally for a couple years until the feature set lead to them diverging. S.js is a JavaScript implementation of S-Expressions and is one of the most efficient reactive libraries to date. It models everything off synchronous time steps like a digital circuit and ensures consistency without having to do many of the more complicated mechanisms found in libraries like MobX. Solid's reactivity in the end is a sort of hybrid between S and MobX. Which gives it greater performance than most reactive libraries (Knockout, MobX, Vue) while retaining the ease of mental model for the developer. S.js ultimately is still the more performant reactive library although the difference is hardly noticeable in all but the most grueling synthetic benchmarks. 
+This library had the greatest influence on Solid's reactive design. Solid used S.js internally for a couple years until the feature set lead to them diverging. S.js is one of the most efficient reactive libraries to date. It models everything off synchronous time steps like a digital circuit and ensures consistency without having to do many of the more complicated mechanisms found in libraries like MobX. Solid's reactivity in the end is a sort of hybrid between S and MobX. Which gives it greater performance than most reactive libraries (Knockout, MobX, Vue) while retaining the ease of mental model for the developer. S.js ultimately is still the more performant reactive library although the difference is hardly noticeable in all but the most grueling synthetic benchmarks. 
 
 ## RxJS
 
