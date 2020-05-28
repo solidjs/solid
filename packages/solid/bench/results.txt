@@ -22,7 +22,7 @@ updateComputations1to1000: 2
 update total: 211
 total: 920
 
-S-mod
+S.js
 
 createDataSignals: 38
 createComputations0to1: 12
@@ -46,29 +46,29 @@ updateComputations1to1000: 3
 update total: 191
 total: 803
 
-Sinuous-mod
+@vue/reactivity
 
-createDataSignals: 59
-createComputations0to1: 100
-createComputations1to1: 135
-createComputations2to1: 87
-createComputations4to1: 56
-createComputations1000to1: 126
-createComputations1to2: 185
-createComputations1to4: 143
-createComputations1to8: 127
-createComputations1to1000: 140
-create total: 1158
+createDataSignals: 163
+createComputations0to1: 23
+createComputations1to1: 302
+createComputations2to1: 211
+createComputations4to1: 168
+createComputations1000to1: 131
+createComputations1to2: 200
+createComputations1to4: 236
+createComputations1to8: 145
+createComputations1to1000: 199
+create total: 1778
 ---
-updateComputations1to1: 225
-updateComputations2to1: 140
-updateComputations4to1: 96
-updateComputations1000to1: 146
-updateComputations1to2: 7
-updateComputations1to4: 4
-updateComputations1to1000: 4
-update total: 624
-total: 1782
+updateComputations1to1: 396
+updateComputations2to1: 244
+updateComputations4to1: 161
+updateComputations1000to1: 293
+updateComputations1to2: 11
+updateComputations1to4: 7
+updateComputations1to1000: 5
+update total: 1117
+total: 2895
 
 Sinuous
 
@@ -93,6 +93,30 @@ updateComputations1to4: 255
 updateComputations1to1000: 226
 update total: 1559
 total: 3252
+
+Sinuous-mod
+
+createDataSignals: 59
+createComputations0to1: 100
+createComputations1to1: 135
+createComputations2to1: 87
+createComputations4to1: 56
+createComputations1000to1: 126
+createComputations1to2: 185
+createComputations1to4: 143
+createComputations1to8: 127
+createComputations1to1000: 140
+create total: 1158
+---
+updateComputations1to1: 225
+updateComputations2to1: 140
+updateComputations4to1: 96
+updateComputations1000to1: 146
+updateComputations1to2: 7
+updateComputations1to4: 4
+updateComputations1to1000: 4
+update total: 624
+total: 1782
 
 RVal Mod
 
