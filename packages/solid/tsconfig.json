@@ -1,6 +1,5 @@
 {
   "extends": "../../tsconfig.json",
-  "jsxFactory": "solid",
   "compilerOptions": {
     "outDir": "./types"
   },

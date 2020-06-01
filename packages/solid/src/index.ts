@@ -23,5 +23,5 @@ export type { State, SetStateFunction } from "./reactive/state";
 export { reconcile } from "./reactive/reconcile";
 
 export * from "./reactive/scheduler";
-export * from "./reactive/mapArray";
+export * from "./reactive/array";
 export * from "./rendering";

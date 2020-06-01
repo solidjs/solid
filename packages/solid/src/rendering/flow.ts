@@ -1,14 +1,24 @@
 import { createMemo, sample, equalFn } from "../reactive/signal";
-import { mapArray } from "../reactive/mapArray";
+import { mapArray, indexArray } from "../reactive/array";
 import { suspend } from "./resource";
 
 export function For<T, U extends JSX.Element>(props: {
   each: T[];
   fallback?: JSX.Element;
-  children: (item: T) => U;
+  children: (item: T, index: () => number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return suspend(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
+}
+
+// non-keyed
+export function Index<T, U extends JSX.Element>(props: {
+  each: T[];
+  fallback?: JSX.Element;
+  children: (item: () => T, index: number) => U;
+}) {
+  const fallback = "fallback" in props && { fallback: () => props.fallback };
+  return suspend(indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
 }
 
 export function Show(props: {

@@ -7,7 +7,7 @@ declare global {
    */
 
   namespace JSX {
-    type Element = Node | ArrayElement | FunctionElement | string | number | boolean | undefined;
+    type Element = Node | ArrayElement | FunctionElement | string | number | boolean | null | undefined;
 
     interface ArrayElement extends Array<Element> {}
     interface FunctionElement {

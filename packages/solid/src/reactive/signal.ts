@@ -66,7 +66,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 export function createSignal<T>(
   value?: T,
   areEqual?: (prev: T, next: T) => boolean
-): [() => T, (v: T) => void] {
+): [() => T, (v: T) => T] {
   const s: Signal<T> = {
     value,
     observers: null,

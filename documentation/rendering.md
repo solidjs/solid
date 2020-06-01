@@ -81,9 +81,17 @@ Control flows can be imported from `solid-js` but as a convenience the compiler 
 
 ### For
 
+Keyed list iteration:
 ```jsx
 <For each={state.list} fallback={<div>Loading...</div>}>
   {item => <div>{item}</div>}
+</For>
+```
+
+Optional second argument is an index signal:
+```jsx
+<For each={state.list} fallback={<div>Loading...</div>}>
+  {(item, index) => <div>#{index()} {item}</div>}
 </For>
 ```
 
@@ -136,6 +144,24 @@ Or as a way of keying blocks:
     <ProfileTrivia trivia={resource.trivia} />
   </Suspense>
 </SuspenseList>
+```
+
+### Index
+
+> **Note:** You should never use this unless you know exactly what you are doing. Use `<For />` instead. Non-keyed or keyed by index is a dangerous anti-pattern that should never be used. It can mangle DOM state breaking(or incurring extra cost) in CSS animations/transisions, Rich DOM elements, Web Components, and DOM level plugins. With Solid you do not need an explicit key so there is no excuse. This exists just for integration with poorly designed benchmarks and libraries which default to this behavior.
+
+Non-Keyed list iteration (rows keyed to index). Item is a signal:
+```jsx
+<Index each={state.list} fallback={<div>Loading...</div>}>
+  {item => <div>{item()}</div>}
+</Index>
+```
+
+Optional second argument is an index number:
+```jsx
+<Index each={state.list} fallback={<div>Loading...</div>}>
+  {(item, index) => <div>#{index} {item()}</div>}
+</Index>
 ```
 
 Also available from `solid-js/dom`:

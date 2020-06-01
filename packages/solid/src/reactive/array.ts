@@ -1,15 +1,15 @@
-import { onCleanup, createRoot, sample } from "./signal";
+import { onCleanup, createRoot, sample, createSignal, equalFn } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function mapArray<T, U>(
-  mapFn: (v: T, i: number) => U,
+  mapFn: (v: T, i: () => number) => U,
   options?: { fallback?: () => any }
 ): (list: () => T[]) => () => U[];
 export function mapArray<T, U>(
   list: () => T[],
-  mapFn: (v: T, i: number) => U,
+  mapFn: (v: T, i: () => number) => U,
   options?: { fallback?: () => any }
 ): () => U[];
 export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
@@ -22,10 +22,12 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
   return map(list);
 
   function map(list: () => T[]) {
-    let items = [] as (T | typeof FALLBACK)[],
-      mapped = [] as U[],
-      disposers = [] as (() => void)[],
-      len = 0;
+    let items: (T | typeof FALLBACK)[] = [],
+      mapped: U[] = [],
+      disposers: (() => void)[] = [],
+      len = 0,
+      indexes: ((v: number) => number)[] | null = mapFn.length > 1 ? [] : null;
+
     onCleanup(() => {
       for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
     });
@@ -39,6 +41,7 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
           newIndicesNext: number[],
           temp: U[],
           tempdisposers: (() => void)[],
+          tempIndexes: ((v: number) => number)[],
           start: number,
           end: number,
           newEnd: number,
@@ -52,6 +55,7 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
             items = [];
             mapped = [];
             len = 0;
+            indexes && (indexes = []);
           }
           if (options.fallback) {
             items = [FALLBACK];
@@ -72,6 +76,7 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
         } else {
           temp = new Array(newLen);
           tempdisposers = new Array(newLen);
+          indexes && (tempIndexes = new Array(newLen));
 
           // skip common prefix
           for (
@@ -88,6 +93,7 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
           ) {
             temp[newEnd] = mapped[end];
             tempdisposers[newEnd] = disposers[end];
+            indexes && (tempIndexes![newEnd] = indexes[end]);
           }
 
           // remove any remaining nodes and we're done
@@ -97,6 +103,10 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
             if (rLen > 0) {
               mapped.splice(start, rLen);
               disposers.splice(start, rLen);
+              if (indexes) {
+                indexes.splice(start, rLen);
+                for (j = start; j < newLen; j++) indexes[j](j);
+              }
             }
             items = newItems.slice(0);
             len = newLen;
@@ -109,6 +119,10 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
             for (; j < newLen; j++) {
               mapped[j] = temp[j];
               disposers[j] = tempdisposers[j];
+              if (indexes) {
+                indexes[j] = tempIndexes![j];
+                indexes[j](j);
+              }
             }
             items = newItems.slice(0);
             len = newLen;
@@ -131,6 +145,7 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
             if (j !== undefined && j !== -1) {
               temp[j] = mapped[i];
               tempdisposers[j] = disposers[i];
+              indexes && (tempIndexes![j] = indexes[i]);
               j = newIndicesNext[j];
               newIndices.set(item, j);
             } else disposers[i]();
@@ -140,6 +155,10 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
             if (j in temp) {
               mapped[j] = temp[j];
               disposers[j] = tempdisposers[j];
+              if (indexes) {
+                indexes[j] = tempIndexes![j];
+                indexes[j](j);
+              }
             } else mapped[j] = createRoot(mapper);
           }
           // 3) in case the new set is shorter than the old, set the length of the mapped array
@@ -151,7 +170,95 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
       });
       function mapper(disposer: () => void) {
         disposers[j] = disposer;
-        return mapFn(newItems[j], j);
+        if (indexes) {
+          const [s, set] = createSignal(j, equalFn);
+          indexes[j] = set;
+          return mapFn(newItems[j], s);
+        }
+        return mapFn(newItems[j]);
+      }
+    };
+  }
+}
+
+export function indexArray<T, U>(
+  mapFn: (v: () => T, i: number) => U,
+  options?: { fallback?: () => any }
+): (list: () => T[]) => () => U[];
+export function indexArray<T, U>(
+  list: () => T[],
+  mapFn: (v: () => T, i: number) => U,
+  options?: { fallback?: () => any }
+): () => U[];
+export function indexArray<T, U>(list: any, mapFn: any, options?: any): any {
+  if (typeof mapFn !== "function") {
+    options = mapFn || {};
+    mapFn = list;
+    return map;
+  }
+  options || (options = {});
+  return map(list);
+
+  function map(list: () => T[]) {
+    let items: (T | typeof FALLBACK)[] = [],
+      mapped: U[] = [],
+      disposers: (() => void)[] = [],
+      signals: ((v: T) => T)[] = [],
+      len = 0,
+      i: number;
+
+    onCleanup(() => {
+      for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
+    });
+    return () => {
+      const newItems = list() || [];
+      return sample(() => {
+        if (newItems.length === 0) {
+          if (len !== 0) {
+            for (i = 0; i < len; i++) disposers[i]();
+            disposers = [];
+            items = [];
+            mapped = [];
+            len = 0;
+            signals = [];
+          }
+          if (options.fallback) {
+            items = [FALLBACK];
+            mapped[0] = createRoot(disposer => {
+              disposers[0] = disposer;
+              return options.fallback();
+            });
+            len = 1;
+          }
+          return mapped;
+        }
+        if (items[0] === FALLBACK) {
+          disposers[0]();
+          disposers = [];
+          items = [];
+          mapped = [];
+          len = 0;
+        }
+
+        for (i = 0; i < newItems.length; i++) {
+          if (i < items.length && items[i] !== newItems[i]) {
+            signals[i](newItems[i]);
+          } else if (i >= items.length) {
+            mapped[i] = createRoot(mapper);
+          }
+        }
+        for (; i < items.length; i++) {
+          disposers[i]();
+        }
+        len = mapped.length = signals.length = disposers.length = newItems.length;
+        items = newItems.slice(0);
+        return mapped;
+      });
+      function mapper(disposer: () => void) {
+        disposers[i] = disposer;
+        const [s, set] = createSignal(newItems[i]);
+        signals[i] = set;
+        return mapFn(s, i);
       }
     };
   }

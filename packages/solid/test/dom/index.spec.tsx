@@ -1,5 +1,5 @@
 import { createRoot, createSignal } from "../../src";
-import { insert, For } from "../../src/dom";
+import { insert, Index } from "../../src/dom";
 
 describe("Testing an only child each control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -10,7 +10,7 @@ describe("Testing an only child each control flow", () => {
   const [list, setList] = createSignal([n1, n2, n3, n4]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()}>{item => item}</For>
+      <Index each={list()}>{item => item}</Index>
     </div>
   );
 
@@ -93,7 +93,7 @@ describe("Testing an multi child each control flow", () => {
     n3 = "c",
     n4 = "d";
   const [list, setList] = createSignal([n1, n2, n3, n4]);
-  const Component = () => <For each={list()}>{item => item}</For>;
+  const Component = () => <Index each={list()}>{item => item}</Index>;
   let disposer: () => void;
 
   function apply(array: string[]) {
@@ -176,14 +176,14 @@ describe("Testing an only child each control flow with fragment children", () =>
   const [list, setList] = createSignal([n1, n2, n3, n4]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()}>
+      <Index each={list()}>
         {item => (
           <>
             {item}
             {item}
           </>
         )}
-      </For>
+      </Index>
     </div>
   );
 
@@ -267,7 +267,7 @@ describe("Testing an only child each control flow with array children", () => {
   const [list, setList] = createSignal([n1, n2, n3, n4]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()}>{item => [item, item]}</For>
+      <Index each={list()}>{item => [item, item]}</Index>
     </div>
   );
 
@@ -351,9 +351,9 @@ describe("Testing each control flow with fallback", () => {
   const [list, setList] = createSignal<string[]>([]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()} fallback={"Empty"}>
+      <Index each={list()} fallback={"Empty"}>
         {item => item}
-      </For>
+      </Index>
     </div>
   );
 
@@ -381,7 +381,7 @@ describe("Testing each that maps to undefined", () => {
   const [list, setList] = createSignal<string[]>([]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()}>{item => undefined}</For>
+      <Index each={list()}>{item => undefined}</Index>
     </div>
   );
 
@@ -409,7 +409,7 @@ describe("Testing each with indexes", () => {
   const [list, setList] = createSignal<string[]>([]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()} fallback={"Hi"}>{(item, i) => <span>{item + i()}</span>}</For>
+      <Index each={list()}>{(item, i) => <span>{item() + i}</span>}</Index>
     </div>
   );
 
@@ -418,7 +418,7 @@ describe("Testing each with indexes", () => {
       disposer = dispose;
       <Component />;
     });
-    expect(div.innerHTML).toBe("Hi");
+    expect(div.innerHTML).toBe("");
     setList([n1, n2, n3, n4]);
     expect(div.innerHTML).toBe("<span>a0</span><span>b1</span><span>c2</span><span>d3</span>");
     setList([n2, n3, n4, n1]);
@@ -428,9 +428,7 @@ describe("Testing each with indexes", () => {
     setList([n3, n2, n4, n1]);
     expect(div.innerHTML).toBe("<span>c0</span><span>b1</span><span>d2</span><span>a3</span>");
     setList([]);
-    expect(div.innerHTML).toBe("Hi");
-    setList([n1]);
-    expect(div.innerHTML).toBe("<span>a0</span>");
+    expect(div.innerHTML).toBe("");
   });
 
   test("dispose", () => disposer());

@@ -3,7 +3,7 @@ import { insert } from "./runtime";
 import { onCleanup, sample } from "../index.js";
 
 export * from "./runtime";
-export { For, Match, Show, Suspense, SuspenseList, Switch } from "../index.js"
+export { For, Match, Show, Suspense, SuspenseList, Switch, Index } from "../index.js"
 
 export function Portal(props: {
   mount?: Node;
