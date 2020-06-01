@@ -224,6 +224,7 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Latest Articles
 
+- [Why SolidJS: Do We Really Need Another JS UI Library](https://dev.to/ryansolid/why-solidjs-do-we-need-another-js-ui-library-1mdc) Summary of the journey so far.
 - [Thinking Granular: How is SolidJS so Performant?](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) An end to end look at what makes SolidJS so fast.
 - [A Solid RealWorld Demo Comparison of JavaScript Frameworks](https://levelup.gitconnected.com/a-solid-realworld-demo-comparison-8c3363448fd8) How does Solid perform in a larger application?
 - [Designing SolidJS: Abstraction](https://levelup.gitconnected.com/designing-solidjs-abstraction-66d8c63fa7d1?source=friends_link&sk=9cc520bbba3d97872a78081a8ab7b259) Understanding both the power and cost of abstraction.
