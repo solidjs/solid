@@ -273,7 +273,7 @@ function updateComputations1000to1(n, sources) {
 }
 
 function updateComputations1to2(n, sources) {
-  var [set1, get1] = sources[0];
+  var [get1, set1] = sources[0];
   createEffect(function () { return get1(); });
   createEffect(function () { return get1(); });
   for (var i = 0; i < n / 2; i++) {
@@ -282,7 +282,7 @@ function updateComputations1to2(n, sources) {
 }
 
 function updateComputations1to4(n, sources) {
-  var [set1, get1] = sources[0];
+  var [get1, set1] = sources[0];
   createEffect(function () { return get1(); });
   createEffect(function () { return get1(); });
   createEffect(function () { return get1(); });
@@ -293,7 +293,7 @@ function updateComputations1to4(n, sources) {
 }
 
 function updateComputations1to1000(n, sources) {
-  var [set1, get1] = sources[0];
+  var [get1, set1] = sources[0];
   for (var i = 0; i < 1000; i++) {
     createEffect(function () { return get1(); });
   }
