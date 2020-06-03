@@ -62,15 +62,19 @@ That `_el$` is a real div element and `props.name`, `Taylor` in this case, is ap
 
 ## Installation
 
+> _`npm init solid <project-type> <project-name>` is available with npm 6+._
+
 You can get started with a simple app with the CLI with by running:
 
 ```sh
 > npm init solid app my-app
 ```
 
-Use `app-ts` for a TypeScript starter.
+Or for a TypeScript starter:
 
-_`npm init solid <project-type> <project-name>` is available with npm 6+._
+```sh
+> npm init solid app-ts my-app
+```
 
 Or you can install the dependencies in your own project. To use Solid with JSX (recommended) run:
 
