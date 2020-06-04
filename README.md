@@ -258,4 +258,4 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Status
 
-Solid is mostly feature complete for its v1.0.0 release. The next releases will be mostly bug fixes API tweaks on the road to stability.
+Solid is mostly feature complete for its v1.0.0 release. The next releases will be mostly bug fixes and API tweaks on the road to stability.

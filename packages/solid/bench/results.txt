@@ -1,26 +1,26 @@
 Solid
 
-createDataSignals: 18
-createComputations0to1: 13
-createComputations1to1: 64
-createComputations2to1: 66
-createComputations4to1: 43
-createComputations1000to1: 23
-createComputations1to2: 142
-createComputations1to4: 136
-createComputations1to8: 129
-createComputations1to1000: 125
-create total: 759
+createDataSignals: 16
+createComputations0to1: 12
+createComputations1to1: 74
+createComputations2to1: 67
+createComputations4to1: 37
+createComputations1000to1: 18
+createComputations1to2: 147
+createComputations1to4: 127
+createComputations1to8: 134
+createComputations1to1000: 116
+create total: 750
 ---
-updateComputations1to1: 80
+updateComputations1to1: 79
 updateComputations2to1: 52
-updateComputations4to1: 35
-updateComputations1000to1: 46
-updateComputations1to2: 81
-updateComputations1to4: 74
-updateComputations1to1000: 62
-update total: 430
-total: 1189
+updateComputations4to1: 33
+updateComputations1000to1: 41
+updateComputations1to2: 79
+updateComputations1to4: 73
+updateComputations1to1000: 61
+update total: 419
+total: 1169
 
 S.js
 

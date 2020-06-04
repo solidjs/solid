@@ -58,9 +58,11 @@ render(
 );
 ```
 
-That `_el$` is a real div element and `props.name`, `Taylor` in this case, is appended to it's child nodes. Notice that `props.name` is wrapped in a function. That is because that is the only part of this component that will ever execute again. Even if a name is updated from the outside only that one expression will be re-evaluated. The compiler optimizes initial render and the runtime optimizes updates. It's the best of both worlds.
+That `_el$` is a real div element and `props.name`, `Taylor` in this case, is appended to its child nodes. Notice that `props.name` is wrapped in a function. That is because that is the only part of this component that will ever execute again. Even if a name is updated from the outside only that one expression will be re-evaluated. The compiler optimizes initial render and the runtime optimizes updates. It's the best of both worlds.
 
 ## Installation
+
+> _`npm init solid <project-type> <project-name>` is available with npm 6+._
 
 You can get started with a simple app with the CLI with by running:
 
@@ -68,9 +70,11 @@ You can get started with a simple app with the CLI with by running:
 > npm init solid app my-app
 ```
 
-Use `app-ts` for a TypeScript starter.
+Or for a TypeScript starter:
 
-_`npm init solid <project-type> <project-name>` is available with npm 6+._
+```sh
+> npm init solid app-ts my-app
+```
 
 Or you can install the dependencies in your own project. To use Solid with JSX (recommended) run:
 
@@ -224,7 +228,8 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Latest Articles
 
-- [Why SolidJS: Do We Really Need Another JS UI Library](https://dev.to/ryansolid/why-solidjs-do-we-need-another-js-ui-library-1mdc) Summary of the journey so far.
+- [Exploring Reactivity Patterns in 2020](https://indepth.dev/exploring-the-state-of-reactivity-patterns-in-2020/) What's the latest trend in the frontend?
+- [Why SolidJS: Do We Really Need Another JS UI Library](https://dev.to/ryansolid/why-solidjs-do-we-need-another-js-ui-library-1mdc) Ryan's personal journey creating SolidJS.
 - [Thinking Granular: How is SolidJS so Performant?](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) An end to end look at what makes SolidJS so fast.
 - [Introducing the SolidJS UI Library](https://dev.to/ryansolid/introducing-the-solidjs-ui-library-4mck) Top 5 reasons to consider learning about SolidJS.
 - [A Solid RealWorld Demo Comparison of JavaScript Frameworks](https://levelup.gitconnected.com/a-solid-realworld-demo-comparison-8c3363448fd8) How does Solid perform in a larger application?
@@ -253,4 +258,4 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Status
 
-Solid is mostly feature complete for its v1.0.0 release. The next releases will be mostly bug fixes API tweaks on the road to stability.
+Solid is mostly feature complete for its v1.0.0 release. The next releases will be mostly bug fixes and API tweaks on the road to stability.
