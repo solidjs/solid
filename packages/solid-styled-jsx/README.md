@@ -8,6 +8,7 @@
 This library is a wrapper to allow you to use Solid with Zeit's [styled-jsx](https://github.com/zeit/styled-jsx). It accomplishes this by using a babel transform to change the Style JSX element import to use Solid's version. From there simply add the plugin `solid-styled-jsx/babel` to your babel config and you are good to go. The plugin accepts the same options as it's `styled-jsx/babel` counterpart.
 
 **Note: SSR not supported yet**
+**Note: Does not work with Create Solid App**
 
 ## Typescript
 
