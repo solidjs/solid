@@ -6,7 +6,7 @@ This project is still in progress. Server rendering is Async and supports Suspen
 
 ### To use SSR on the server:
 
-1. Install `solid-js`, `solid-preset-solid`, and `solid-ssr`.
+1. Install `solid-js`, `babel-preset-solid`, and `solid-ssr`.
 
 2. Configure babel-preset-solid with generate option 'ssr'
 
