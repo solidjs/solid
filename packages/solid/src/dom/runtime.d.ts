@@ -1,17 +1,17 @@
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 export function render(code: () => any, element: MountableElement): () => void
-export function renderToString(
-  fn: (done?: (rendered: any) => void) => any,
+export function renderToString<T>(
+  fn: () => T,
   options?: {
     timeoutMs?: number;
   }
-): Promise<string>;
-export function renderDOMToString(
-  fn: (done?: (rendered: any) => void) => any,
+): T extends Promise<any> ? Promise<string> : string;
+export function renderDOMToString<T>(
+  fn: () => T,
   options?: {
     timeoutMs?: number;
   }
-): Promise<string>;
+): T extends Promise<any> ? Promise<string> : string;
 export function hydrate(
   fn: () => unknown,
   node: MountableElement
@@ -43,7 +43,7 @@ export function style(
 ): void;
 export function currentContext(): any;
 
-export function ssr(template: TemplateStringsArray, ...nodes: any[]): () => string;
+export function ssr(template: string[], ...nodes: any[]): () => string;
 export function ssrClassList(value: { [k: string]: boolean }): string;
 export function ssrStyle(value: { [k: string]: string }): string;
 export function ssrSpread(accessor: any, isSVG: boolean, skipChildren: boolean): () => string;
