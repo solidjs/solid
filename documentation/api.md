@@ -14,7 +14,7 @@ Creates a new effect that automatically tracks dependencies. 2nd argument is the
 
 ### `createMemo(prev => <code>, initialValue, comparatorFn): getValueFn`
 
-Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. Memos only notify dependents when returned value changes. You can also set a custom comparator.
+Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `onCleanup(() => <code>)`
 
