@@ -256,6 +256,10 @@ And check out the Documentation, Examples, and Articles below to get more famili
 - [Part 2: Web Components as Containers](https://medium.com/@ryansolid/b-y-o-f-part-2-web-components-as-containers-85e04a7d96e9)
 - [Part 1: Writing a JS Framework in 2018](https://medium.com/@ryansolid/b-y-o-f-part-1-writing-a-js-framework-in-2018-b02a41026929)
 
+## Browser Support
+
+The last 2 versions of modern evergreen browsers and Node LTS.
+
 ## Status
 
 Solid is mostly feature complete for its v1.0.0 release. The next releases will be mostly bug fixes and API tweaks on the road to stability.
