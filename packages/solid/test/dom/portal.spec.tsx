@@ -31,6 +31,7 @@ describe("Testing a Portal with Synthetic Events", () => {
   test("Create portal control flow", () => {
     disposer = render(Component, div);
     expect(div.innerHTML).toBe("");
+    expect(testElem).toBe(checkElem.firstChild);
   });
 
   test("Test portal element clicked", () => {
