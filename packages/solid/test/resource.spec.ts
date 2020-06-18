@@ -5,16 +5,16 @@ import {
   createResourceState,
   createEffect,
   onError,
-  SetStateFunction
+  SetStateFunction,
+  Resource
 } from "../src";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: number) => void,
-    loading: () => boolean,
-    load: (v: Promise<string> | undefined) => () => boolean,
-    value: () => string | undefined,
+    load: (v: Promise<string> | undefined) => void,
+    value: Resource<string>,
     error: string;
   function fetcher(id: number): Promise<string> | undefined {
     return !!id
@@ -31,23 +31,21 @@ describe("Simulate a dynamic fetch", () => {
       [value, load] = createResource<string>();
       trigger = setId;
       onError(e => (error = e));
-      createEffect(() => {
-        loading = load(fetcher(id()));
-      });
+      createEffect(() => load(fetcher(id())));
       createEffect(value);
     });
     expect(value()).toBeUndefined();
-    expect(loading()).toBe(true);
+    expect(value.loading).toBe(true);
     resolve("John");
     await Promise.resolve();
     expect(value()).toBe("John");
-    expect(loading()).toBe(false);
+    expect(value.loading).toBe(false);
     done();
   });
 
   test("test out of order", async done => {
     trigger(2);
-    expect(loading()).toBe(true);
+    expect(value.loading).toBe(true);
     const resolve1 = resolve;
     trigger(3);
     const resolve2 = resolve;
@@ -55,23 +53,23 @@ describe("Simulate a dynamic fetch", () => {
     resolve1("Jo");
     await Promise.resolve();
     expect(value()).toBe("Jake");
-    expect(loading()).toBe(false);
+    expect(value.loading).toBe(false);
     done();
   });
 
   test("promise rejection", async done => {
     trigger(4);
-    expect(loading()).toBe(true);
+    expect(value.loading).toBe(true);
     reject("Because I said so");
     await Promise.resolve();
     expect(error).toBe("Because I said so");
-    expect(loading()).toBe(false);
+    expect(value.loading).toBe(false);
     done();
   });
 
   test("no promise", () => {
     trigger(0);
-    expect(loading()).toBe(false);
+    expect(value.loading).toBe(false);
     expect(value()).toBeUndefined();
   });
 });
@@ -80,11 +78,10 @@ describe("Simulate a dynamic fetch with state", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: number) => void,
-    loading: { [k: number]: boolean },
     load: (
       v: { [k: number]: Promise<string> | string },
       r?: (v: any) => (state: any) => void
-    ) => { [k: number]: boolean },
+    ) => void,
     setUsers: SetStateFunction<{ [id: number]: string }>,
     users: any;
   function fetcher(): Promise<string> {
@@ -101,23 +98,23 @@ describe("Simulate a dynamic fetch with state", () => {
       trigger = setId;
       createEffect(() => {
         const i = id();
-        if (i === 5) return (loading = load({ 5: "Jordan" }));
-        loading = load({ [i]: fetcher() });
+        if (i === 5) return load({ 5: "Jordan" });
+        load({ [i]: fetcher() });
       });
     });
     expect(users[1]).toBeUndefined();
-    expect(loading[1]).toBe(true);
+    expect(users.loading[1]).toBe(true);
     resolve("John");
     await Promise.resolve();
     await Promise.resolve();
     expect(users[1]).toBe("John");
-    expect(loading[1]).toBe(false);
+    expect(users.loading[1]).toBe(false);
     done();
   });
 
   test("test multiple loads", async done => {
     trigger(2);
-    expect(loading[2]).toBe(true);
+    expect(users.loading[2]).toBe(true);
     const resolve1 = resolve;
     trigger(3);
     const resolve2 = resolve;
@@ -126,23 +123,23 @@ describe("Simulate a dynamic fetch with state", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(users[3]).toBe("Jake");
-    expect(loading[3]).toBe(false);
+    expect(users.loading[3]).toBe(false);
     done();
   });
 
   test("promise rejection", async done => {
     trigger(4);
-    expect(loading[4]).toBe(true);
+    expect(users.loading[4]).toBe(true);
     reject("Because I said so");
     await Promise.resolve();
     await Promise.resolve();
-    expect(loading[4]).toBe(false);
+    expect(users.loading[4]).toBe(false);
     done();
   });
 
   test("direct value", () => {
     trigger(5);
-    expect(loading[5]).toBe(false);
+    expect(users.loading[5]).toBe(false);
     expect(users[5]).toBe("Jordan");
   });
 

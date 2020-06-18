@@ -19,7 +19,8 @@ describe("Testing Suspense", () => {
       let [value, load] = createResource<string>();
       createEffect(
         () =>
-          triggered() && load(new Promise(r => setTimeout(() => r("Hey"), 300))) && sample(value)
+          triggered() &&
+          (load(new Promise(r => setTimeout(() => r("Hey"), 300))), sample(value))
       );
       return props.greeting;
     },
@@ -110,17 +111,17 @@ describe("SuspenseList", () => {
     A = () => {
       const [value, load] = createResource<string>();
       load(promiseFactory(200, "A"));
-      return <div>{value}</div>;
+      return <div>{value()}</div>;
     },
     B = () => {
       const [value, load] = createResource<string>();
       load(promiseFactory(100, "B"));
-      return <div>{value}</div>;
+      return <div>{value()}</div>;
     },
     C = () => {
       const [value, load] = createResource<string>();
       load(promiseFactory(300, "C"));
-      return <div>{value}</div>;
+      return <div>{value()}</div>;
     };
 
   test("revealOrder together", done => {

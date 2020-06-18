@@ -26,7 +26,7 @@ import {
   setProperty
 } from "../reactive/state";
 
-import { Component } from "./component"
+import { Component } from "./component";
 
 // Suspense Context
 type SuspenseState = "running" | "suspended" | "fallback";
@@ -61,15 +61,19 @@ SuspenseContext.increment = increment;
 SuspenseContext.decrement = decrement;
 
 export function awaitSuspense(fn: () => any) {
-  return () => new Promise(resolve => {
-    const res = fn();
-    createEffect(() => !SuspenseContext.active!() && resolve(res));
-  });
+  return () =>
+    new Promise(resolve => {
+      const res = fn();
+      createEffect(() => !SuspenseContext.active!() && resolve(res));
+    });
 }
 
-export function createResource<T>(
-  value?: T
-): [() => T | undefined, (p?: Promise<T>) => () => boolean] {
+export interface Resource<T> {
+  (): T | undefined;
+  loading: boolean;
+}
+
+export function createResource<T>(value?: T): [Resource<T>, (p?: Promise<T>) => void] {
   const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
     [trackLoading, triggerLoading] = createSignal<void>(),
@@ -104,6 +108,7 @@ export function createResource<T>(
     if (p == null || typeof p !== "object" || !("then" in p)) {
       pr = undefined;
       loadEnd(p);
+      return p;
     } else {
       pr = p;
       if (!loading) {
@@ -113,35 +118,47 @@ export function createResource<T>(
           triggerPromise();
         });
       }
-      p.then(
-        v => {
-          if (pr !== p) return;
-          loadEnd(v);
-        },
-        err => {
-          if (pr !== p) return;
-          error = err;
-          loadEnd(undefined);
-        }
+      return p.then(
+        v => (pr === p && loadEnd(v), s()),
+        err => (pr === p && ((error = err), loadEnd(undefined)), s())
       );
     }
-
-    return () => (trackLoading(), loading);
   }
-  return [read, load];
+  Object.defineProperty(read, "loading", {
+    get() {
+      return trackLoading(), loading;
+    }
+  });
+  return [read as Resource<T>, load];
 }
 
 function createResourceNode(v: any) {
   // maintain setState capability by using normal data node as well
   const node = createSignal(),
-    [read, load] = createResource(v);
-  return [() => (read(), node[0]()), node[1], load];
+    [r, load] = createResource(v);
+  return [() => (r(), node[0]()), node[1], load, () => r.loading];
 }
+
+const loadingTraps = {
+  get(nodes: any, property: string | number) {
+    const node = nodes[property] || (nodes[property] = createResourceNode(undefined));
+    return node[3]();
+  },
+
+  set() {
+    return true;
+  },
+
+  deleteProperty() {
+    return true;
+  }
+};
 
 const resourceTraps = {
   get(target: StateNode, property: string | number | symbol) {
     if (property === $RAW) return target;
     if (property === $PROXY || property === $NODE) return;
+    if (property === "loading") return new Proxy(getDataNodes(target), loadingTraps);
     const value = target[property as string | number],
       wrappable = isWrappable(value);
     if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
@@ -170,15 +187,21 @@ export interface LoadStateFunction<T> {
   (
     v: { [P in keyof T]?: Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
-  ): { [P in keyof T]: boolean };
+  ): void;
 }
 
 export function createResourceState<T extends StateNode>(
   state: T | State<T>
-): [State<T>, LoadStateFunction<T>, SetStateFunction<T>] {
+): [
+  State<T & { loading: { [P in keyof T]: boolean } }>,
+  LoadStateFunction<T>,
+  SetStateFunction<T>
+] {
   const unwrappedState = unwrap<T>(state || {}),
-    wrappedState = wrap<T>(unwrappedState, resourceTraps),
-    loading = {};
+    wrappedState = wrap<T & { loading: { [P in keyof T]: boolean } }>(
+      unwrappedState as any,
+      resourceTraps
+    );
   function setState(...args: any[]): void {
     freeze(() => updatePath(unwrappedState, args));
   }
@@ -190,7 +213,6 @@ export function createResourceState<T extends StateNode>(
       keys = Object.keys(v);
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i],
-        p = v[k],
         node = nodes[k] || (nodes[k] = createResourceNode(unwrappedState[k])),
         resolver = (v?: T[keyof T]) => (
           r
@@ -198,15 +220,9 @@ export function createResourceState<T extends StateNode>(
             : setProperty(unwrappedState, k as string | number, v),
           v
         ),
-        l = node[2](p && typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p));
-      !(k in loading) &&
-        Object.defineProperty(loading, k, {
-          get() {
-            return l();
-          }
-        });
+        p = node[2](v[k]);
+      typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p);
     }
-    return loading;
   }
 
   return [wrappedState, loadState as LoadStateFunction<T>, setState];

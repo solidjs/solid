@@ -12,7 +12,7 @@ describe("Testing a single match switch control flow", () => {
     </div>
   );
 
-  test("Create when control flow", () => {
+  test("Create Switch control flow", () => {
     createRoot(dispose => {
       disposer = dispose;
       <Component />;
@@ -21,7 +21,7 @@ describe("Testing a single match switch control flow", () => {
     expect(div.innerHTML).toBe("fallback");
   });
 
-  test("Toggle when control flow", () => {
+  test("Toggle Switch control flow", () => {
     setCount(1);
     expect(div.innerHTML).toBe("1");
     setCount(3);
@@ -31,7 +31,7 @@ describe("Testing a single match switch control flow", () => {
   test("dispose", () => disposer());
 });
 
-describe("Testing an only child when control flow", () => {
+describe("Testing an only child Switch control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
@@ -44,7 +44,7 @@ describe("Testing an only child when control flow", () => {
     </div>
   );
 
-  test("Create when control flow", () => {
+  test("Create Switch control flow", () => {
     createRoot(dispose => {
       disposer = dispose;
       <Component />;
@@ -53,7 +53,7 @@ describe("Testing an only child when control flow", () => {
     expect(div.innerHTML).toBe("fallback");
   });
 
-  test("Toggle when control flow", () => {
+  test("Toggle Switch control flow", () => {
     setCount(1);
     expect(div.innerHTML).toBe("1");
     setCount(4);
@@ -62,6 +62,44 @@ describe("Testing an only child when control flow", () => {
     expect(div.innerHTML).toBe("3");
     setCount(9);
     expect(div.innerHTML).toBe("fallback");
+  });
+
+  test("dispose", () => disposer());
+});
+
+describe("Testing function handler Switch control flow", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [a, setA] = createSignal(0),
+    [b, setB] = createSignal(0),
+    [c, setC] = createSignal(0);
+  const Component = () => (
+    <div ref={div}>
+      <Switch fallback={"fallback"}>
+        <Match when={a()}>{a => a}</Match>
+        <Match when={b()}>{b => b}</Match>
+        <Match when={c()}>{c => c}</Match>
+      </Switch>
+    </div>
+  );
+
+  test("Create Switch control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("fallback");
+  });
+
+  test("Toggle Switch control flow", () => {
+    setC(1);
+    expect(div.innerHTML).toBe("1");
+    setB(2);
+    expect(div.innerHTML).toBe("2");
+    setA(3);
+    expect(div.innerHTML).toBe("3");
+    setA(0);
+    expect(div.innerHTML).toBe("2");
   });
 
   test("dispose", () => disposer());

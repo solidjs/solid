@@ -168,7 +168,9 @@ const App = () => {
 
 ## Data Loading
 
-Solid ships with two resource containers to handle async loading. One is a signal created by `createResource` and the other a state object created by `createResourceState`.
+Solid ships with two resource containers to handle async loading. One is a signal created by `createResource` and the other a state object created by `createResourceState`. The signal is a simple reactive atom so it's reactivity is not deeply nested. Whereas state deeply nests reactive properties.
+
+Both have trackable `loading` property. On the signal it's a boolean. On the state object it is an object with a boolean per key.
 
 ```jsx
 import { createResource } from "solid-js";
@@ -177,23 +179,20 @@ const fetchUser = id =>
   fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
 
 export default const UserPanel = props => {
-  let [user, load] = createResource(),
-    isLoading;
-  createEffect(() => {
-    isLoading = load(props.userId && fetchUser(props.userId));
-  })
+  let [user, load] = createResource();
+  load(fetchUser(props.userId)));
 
   return <div>
     <Switch fallback={"Failed to load User"}>
-      <Match when={isLoading()}>Loading...</Match>
-      <Match when={user()}>
-        <h1>{user().name}</h1>
+      <Match when={user.loading}>Loading...</Match>
+      <Match when={user()}>{ ({ name, height, mass, birthYear }) =>
+        <h1>{name}</h1>
         <ul>
-          <li>Height: {user().height}</li>
-          <li>Mass: {user().mass}</li>
-          <li>Birth Year: {user().birthYear}</li>
+          <li>Height: {height}</li>
+          <li>Mass: {mass}</li>
+          <li>Birth Year: {birthYear}</li>
         </ul>
-      </Match>
+      }</Match>
     </Switch>
   </div>
 }
@@ -206,23 +205,20 @@ const fetchUser = id =>
   fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
 
 export default const UserPanel = props => {
-  let [user, load] = createResourceState(),
-    loading;
-  createEffect(() => {
-    loading = load({ user: props.userId && fetchUser(props.userId) });
-  })
+  let [state, load] = createResourceState();
+  load({ user: fetchUser(props.userId) });
 
   return <div>
     <Switch fallback={"Failed to load User"}>
-      <Match when={loading.user}>Loading...</Match>
-      <Match when={state.user}>
-        <h1>{state.user.name}</h1>
+      <Match when={state.loading.user}>Loading...</Match>
+      <Match when={state.user}>{ user =>
+        <h1>{user.name}</h1>
         <ul>
-          <li>Height: {state.user.height}</li>
-          <li>Mass: {state.user.mass}</li>
-          <li>Birth Year: {state.user.birthYear}</li>
+          <li>Height: {user.height}</li>
+          <li>Mass: {user.mass}</li>
+          <li>Birth Year: {user.birthYear}</li>
         </ul>
-      </Match>
+      }</Match>
     </Switch>
   </div>
 }
