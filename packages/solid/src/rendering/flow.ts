@@ -1,6 +1,7 @@
 import { createMemo, sample, equalFn } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import { suspend } from "./resource";
+import { Component, splitProps } from "./component";
 
 export function For<T, U extends JSX.Element>(props: {
   each: T[];
@@ -70,4 +71,14 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
 type MatchProps = { when: unknown; children: JSX.Element | ((item: any) => JSX.Element) };
 export function Match(props: MatchProps) {
   return (props as unknown) as JSX.Element;
+}
+
+// use the version from solid-js/dom to support intrinsic elements writing for future considerations
+/* istanbul ignore next */
+export function Dynamic<T>(props: T & { component?: Component<T> }) {
+  const [p, others] = splitProps(props, ["component"]);
+  return () => {
+    const comp = p.component;
+    return comp && sample(() => comp(others as any));
+  };
 }

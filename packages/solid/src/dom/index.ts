@@ -1,14 +1,12 @@
-
-import { insert } from "./runtime";
-import { onCleanup, sample } from "../index.js";
+import { insert, spread } from "./runtime";
+import { onCleanup, sample, splitProps, Component } from "../index.js";
 
 export * from "./runtime";
-export { For, Match, Show, Suspense, SuspenseList, Switch, Index } from "../index.js"
+export { For, Match, Show, Suspense, SuspenseList, Switch, Index } from "../index.js";
 
 export function Portal(props: {
   mount?: Node;
   useShadow?: boolean;
-  ref?: (e: HTMLDivElement) => void;
   children: JSX.Element;
 }) {
   const { useShadow } = props,
@@ -28,7 +26,26 @@ export function Portal(props: {
     sample(() => props.children)
   );
   mount.appendChild(container);
-  props.ref && props.ref(container);
+  (props as any).ref && (props as any).ref(container);
   onCleanup(() => mount.removeChild(container));
   return marker;
+}
+
+export function Dynamic<T>(
+  props: T & { component?: Component<T> | keyof JSX.IntrinsicElements }
+): () => JSX.Element {
+  const [p, others] = splitProps(props, ["component"]);
+  return () => {
+    const comp = p.component,
+      t = typeof comp;
+
+    if (comp) {
+      if (t === "function") return sample(() => (comp as Function)(others as any));
+      else if (t === "string") {
+        const el = document.createElement(comp as string);
+        spread(el, others);
+        return el;
+      }
+    }
+  };
 }

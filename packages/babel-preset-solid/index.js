@@ -7,7 +7,7 @@ module.exports = function(context, options = {}) {
         jsxTransform,
         Object.assign({
           moduleName: "solid-js/dom",
-          builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal", "Index"],
+          builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal", "Index", "Dynamic"],
           delegateEvents: true,
           contextToCustomElements: true,
           wrapConditionals: true,

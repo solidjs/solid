@@ -19,10 +19,11 @@ describe("Testing a simple Portal", () => {
 describe("Testing a Portal with Synthetic Events", () => {
   let div = document.createElement("div"),
     disposer: () => void,
+    checkElem: HTMLDivElement,
     testElem: HTMLDivElement,
     clicked = false;
   const Component = () => (
-    <Portal>
+    <Portal ref={checkElem}>
       <div ref={testElem} onClick={e => (clicked = true)} />
     </Portal>
   );

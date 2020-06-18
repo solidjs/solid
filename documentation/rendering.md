@@ -77,7 +77,7 @@ While you could use a map function for loops they aren't optimized. While perhap
 </ul>
 ```
 
-Control flows can be imported from `solid-js` but as a convenience the compiler will automatically import them.
+Control flows can be imported from `solid-js` but as a convenience the compiler will automatically import them from `solid-js/dom`.
 
 ### For
 
@@ -110,6 +110,8 @@ Or as a way of keying blocks:
   {user => <div>{user.firstName}</div>}
 </Show>
 ```
+
+_Note Show is designed to handle more complex scenarios like Component insertions. For simple dynamic expressions use boolean or ternary operator._
 
 ### Switch/Match
 
@@ -165,15 +167,24 @@ Optional second argument is an index number:
 ```
 
 Also available from `solid-js/dom`:
+
+### Dynamic
+
+This component lets you insert an arbitrary Component or tag and passes the props through to it.
+
+```jsx
+<Dynamic component={state.component} someProp={state.something} />
+```
+
 ### Portal
+
+This inserts the element in the mount node. Useful for inserting Modals outside of the page layout. Events still propagate through the Component Hierarchy.
 
 ```jsx
 <Portal mount={document.getElementById("modal")}>
   <div>My Content</div>
 </Portal>
 ```
-
-_Note these are designed to handle more complex scenarios like Component insertions. For simple dynamic expressions use boolean or ternary operator._
 
 ## Refs
 
