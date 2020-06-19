@@ -31,6 +31,7 @@ export function delegateEvents(eventNames: string[]): void;
 export function clearDelegatedEvents(): void;
 export function spread(node: Element, accessor: any, isSVG?: Boolean, skipChildren?: Boolean): void;
 export function assign(node: Element, props: any, isSVG?: Boolean, skipChildren?: Boolean): void;
+export function setAttribute(node : Element, name : string, value : any): void;
 export function classList(
   node: Element,
   value: { [k: string]: boolean },
