@@ -64,6 +64,15 @@ describe("Testing an only child Switch control flow", () => {
     expect(div.innerHTML).toBe("fallback");
   });
 
+  test("doesn't re-render on same option", () => {
+    setCount(4);
+    expect(div.innerHTML).toBe("2");
+    const c = div.firstChild;
+    setCount(4);
+    expect(div.innerHTML).toBe("2");
+    expect(div.firstChild).toBe(c);
+  })
+
   test("dispose", () => disposer());
 });
 
