@@ -24,10 +24,10 @@ export function Index<T, U extends JSX.Element>(props: {
   );
 }
 
-export function Show(props: {
-  when: unknown;
+export function Show<T>(props: {
+  when: T | false;
   fallback?: JSX.Element;
-  children: JSX.Element | ((item: any) => JSX.Element);
+  children: JSX.Element | ((item: T) => JSX.Element);
 }) {
   const childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value,
     callFn = typeof childDesc === "function" && childDesc.length,
@@ -36,7 +36,7 @@ export function Show(props: {
     const c = condition();
     return c
       ? callFn
-        ? sample(() => (props.children as (item: any) => JSX.Element)(c))
+        ? sample(() => (props.children as (item: T) => JSX.Element)(c))
         : props.children
       : props.fallback;
   }) as () => JSX.Element;
@@ -64,7 +64,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
   });
 }
 
-type MatchProps<T> = { when: T; children: JSX.Element | ((item: T) => JSX.Element) };
+type MatchProps<T> = { when: T | false; children: JSX.Element | ((item: T) => JSX.Element) };
 export function Match<T>(props: MatchProps<T>) {
   return (props as unknown) as JSX.Element;
 }

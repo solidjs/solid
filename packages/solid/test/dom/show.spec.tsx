@@ -66,7 +66,7 @@ describe("Testing an only child show control flow with DOM children", () => {
 
 describe("Testing an only child show control flow with keyed function", () => {
   let div: HTMLDivElement, disposer: () => void;
-  const [data, setData] = createSignal();
+  const [data, setData] = createSignal<{ count: number }>();
   const Component = () => (
     <div ref={div}>
       <Show when={data()}>
