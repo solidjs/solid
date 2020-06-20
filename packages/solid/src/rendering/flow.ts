@@ -29,8 +29,7 @@ export function Show(props: {
   fallback?: JSX.Element;
   children: JSX.Element | ((item: any) => JSX.Element);
 }) {
-  const useFallback = "fallback" in props,
-    childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value,
+  const childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value,
     callFn = typeof childDesc === "function" && childDesc.length,
     condition = createMemo(() => props.when, undefined, equalFn);
   return suspend(() => {
@@ -39,17 +38,14 @@ export function Show(props: {
       ? callFn
         ? sample(() => (props.children as (item: any) => JSX.Element)(c))
         : props.children
-      : useFallback
-      ? props.fallback
-      : undefined;
+      : props.fallback;
   }) as () => JSX.Element;
 }
 
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }) {
-  let conditions = (props.children as unknown) as MatchProps[];
+  let conditions = (props.children as unknown) as MatchProps<unknown>[];
   Array.isArray(conditions) || (conditions = [conditions]);
-  const useFallback = "fallback" in props,
-    evalConditions = createMemo<[number, any?]>(
+  const evalConditions = createMemo<[number, unknown?]>(
       () => {
         for (let i = 0; i < conditions.length; i++) {
           const c = conditions[i].when;
@@ -58,18 +54,18 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
         return [-1];
       },
       undefined,
-      equalFn
+      (a, b) => a && a[0] === b[0] && a[1] === b[1]
     );
   return suspend(() => {
     const [index, when] = evalConditions();
-    if (index < 0) return useFallback && props.fallback;
+    if (index < 0) return props.fallback;
     const c = conditions[index].children;
     return typeof c === "function" && c.length ? c(when) : (c as JSX.Element);
   });
 }
 
-type MatchProps = { when: unknown; children: JSX.Element | ((item: any) => JSX.Element) };
-export function Match(props: MatchProps) {
+type MatchProps<T> = { when: T; children: JSX.Element | ((item: T) => JSX.Element) };
+export function Match<T>(props: MatchProps<T>) {
   return (props as unknown) as JSX.Element;
 }
 
