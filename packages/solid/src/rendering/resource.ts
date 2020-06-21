@@ -73,7 +73,7 @@ export interface Resource<T> {
   loading: boolean;
 }
 
-export function createResource<T>(value?: T): [Resource<T>, (p?: Promise<T>) => void] {
+export function createResource<T>(value?: T): [Resource<T>, (p?: Promise<T> | T) => void] {
   const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
     [trackLoading, triggerLoading] = createSignal<void>(),
@@ -232,15 +232,11 @@ export function createResourceState<T extends StateNode>(
 export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
   return ((props: any) => {
     const hydrating = globalThis._$HYDRATION.context && globalThis._$HYDRATION.context.registry,
-      ctx = nextHydrateContext();
-    let s: () => T | undefined, r: (v: T) => void, p;
-    if (hydrating) {
-      [s, r] = createSignal<T>();
-      fn().then(mod => r(mod.default));
-    } else {
+      ctx = nextHydrateContext(),
       [s, p] = createResource<T>();
-      p(fn().then(mod => mod.default));
-    }
+    if (hydrating) {
+      fn().then(mod => p(mod.default));
+    } else p(fn().then(mod => mod.default));
     let Comp: T | undefined;
     return () =>
       (Comp = s()) &&
