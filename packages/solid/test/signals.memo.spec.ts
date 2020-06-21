@@ -1,4 +1,4 @@
-import { createRoot, createSignal, createEffect, createMemo, equalFn } from "../src";
+import { createRoot, createSignal, createEffect, createMemo } from "../src";
 
 describe("createMemo", () => {
   describe("executing propagating", () => {
@@ -12,7 +12,7 @@ describe("createMemo", () => {
             return s1();
           },
           undefined,
-          equalFn
+          true
         );
         createEffect(() => {
           order += "c1";
@@ -38,7 +38,7 @@ describe("createMemo", () => {
             return s1() === 0;
           },
           undefined,
-          equalFn
+          true
         );
         createEffect(() => {
           order += "c1";
@@ -67,7 +67,7 @@ describe("createMemo", () => {
             return s1() === 0;
           },
           undefined,
-          equalFn
+          true
         );
         createEffect(() => {
           order += "c1";
@@ -106,7 +106,7 @@ describe("createMemo", () => {
           return i() ? t() : e();
         },
         undefined,
-        equalFn
+        true
       );
       fevals = 0;
     }
@@ -159,7 +159,7 @@ describe("createMemo", () => {
               return a() + 1;
             },
             undefined,
-            equalFn
+            true
           ),
           c = createMemo(
             () => {
@@ -171,14 +171,14 @@ describe("createMemo", () => {
               return e();
             },
             undefined,
-            equalFn
+            true
           ),
           d = createMemo(
             () => {
               return a();
             },
             undefined,
-            equalFn
+            true
           ),
           e = createMemo(
             () => {
@@ -186,7 +186,7 @@ describe("createMemo", () => {
               return d() + 10;
             },
             undefined,
-            equalFn
+            true
           );
 
         expect(order).toBe("bcd");
@@ -221,8 +221,8 @@ describe("createMemo", () => {
                    c3
              [PN,PN,STL,void]
         */
-        let t1 = createMemo(() => s1() > 0, undefined, equalFn);
-        let t2 = createMemo(() => s1() > 0, undefined, equalFn);
+        let t1 = createMemo(() => s1() > 0, undefined, true);
+        let t2 = createMemo(() => s1() > 0, undefined, true);
         let c1 = createMemo(() => s1());
         let t3 = createMemo(
           () => {
@@ -231,7 +231,7 @@ describe("createMemo", () => {
             return a && b;
           },
           undefined,
-          equalFn
+          true
         );
         createEffect(() => {
           t1();
@@ -257,7 +257,7 @@ describe("createMemo", () => {
     //         return s1() > 2;
     //       },
     //       undefined,
-    //       equalFn
+    //       true
     //     );
     //     let t2 = createMemo(
     //       () => {
@@ -265,7 +265,7 @@ describe("createMemo", () => {
     //         return s1() > 2;
     //       },
     //       undefined,
-    //       equalFn
+    //       true
     //     );
     //     let c1 = createMemo(() => {
     //       order += "c1";
@@ -294,11 +294,11 @@ describe("createMemo", () => {
         let c1: () => number;
         createMemo(
           () => {
-            c1 = createMemo(() => s2(), undefined, equalFn);
+            c1 = createMemo(() => s2(), undefined, true);
             return s1();
           },
           undefined,
-          equalFn
+          true
         );
         createEffect(() => {
           count++;
@@ -319,7 +319,7 @@ describe("createMemo", () => {
             return s1();
           },
           undefined,
-          equalFn
+          true
         );
         let t2 = createMemo(
           () => {
@@ -327,7 +327,7 @@ describe("createMemo", () => {
             return s1();
           },
           undefined,
-          equalFn
+          true
         );
         createEffect(() => {
           t1();
@@ -357,7 +357,7 @@ describe("createMemo", () => {
             return s1() < 3;
           },
           undefined,
-          equalFn
+          true
         );
         let t2 = createMemo(
           () => {
@@ -365,7 +365,7 @@ describe("createMemo", () => {
             return t1();
           },
           undefined,
-          equalFn
+          true
         );
         c2 = createMemo(() => {
           order += "c2";
@@ -390,7 +390,7 @@ describe("createMemo", () => {
             return s1();
           },
           undefined,
-          equalFn
+          true
         );
         let c1 = createMemo(() => {
           order += "c1";
@@ -422,7 +422,7 @@ describe("createMemo", () => {
               return set(d() + 1);
             },
             undefined,
-            equalFn
+            true
           );
         }).toThrow();
       });
@@ -432,9 +432,9 @@ describe("createMemo", () => {
       createRoot(() => {
         let i = 2;
         var [d, set] = createSignal(1),
-          f1 = createMemo(() => d(), undefined, equalFn),
-          f2 = createMemo(() => f1(), undefined, equalFn),
-          f3 = createMemo(() => f2(), undefined, equalFn);
+          f1 = createMemo(() => d(), undefined, true),
+          f2 = createMemo(() => f1(), undefined, true),
+          f3 = createMemo(() => f2(), undefined, true);
 
         expect(() => {
           createMemo(
@@ -443,7 +443,7 @@ describe("createMemo", () => {
               set(i++);
             },
             undefined,
-            equalFn
+            true
           );
         }).toThrow();
       });

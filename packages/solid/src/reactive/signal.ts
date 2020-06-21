@@ -65,14 +65,14 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 
 export function createSignal<T>(
   value?: T,
-  areEqual?: (prev: T, next: T) => boolean
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
 ): [() => T, (v: T) => T] {
   const s: Signal<T> = {
     value,
     observers: null,
     observerSlots: null,
     pending: NOTPENDING,
-    comparator: areEqual
+    comparator: areEqual ? typeof areEqual === "function" ? areEqual : equalFn : undefined
   };
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
@@ -104,13 +104,13 @@ export function createDependentEffect<T>(
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: T,
-  areEqual?: (prev: T, next: T) => boolean
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
 ): () => T {
   const c: Partial<Memo<T>> = createComputation<T>(fn, value);
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
-  c.comparator = areEqual;
+  c.comparator = areEqual ? typeof areEqual === "function" ? areEqual : equalFn : undefined;
   updateComputation(c as Computation<T>);
   return readSignal.bind(c as Memo<T>);
 }

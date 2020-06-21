@@ -1,4 +1,4 @@
-import { createMemo, sample, equalFn } from "../reactive/signal";
+import { createMemo, sample } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import { suspend } from "./resource";
 import { Component, splitProps } from "./component";
@@ -31,7 +31,7 @@ export function Show<T>(props: {
 }) {
   const childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value,
     callFn = typeof childDesc === "function" && childDesc.length,
-    condition = createMemo(() => props.when, undefined, equalFn);
+    condition = createMemo(() => props.when, undefined, true);
   return suspend(() => {
     const c = condition();
     return c
@@ -60,11 +60,11 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
     const [index, when] = evalConditions();
     if (index < 0) return props.fallback;
     const c = conditions[index].children;
-    return typeof c === "function" && c.length ? c(when) : (c as JSX.Element);
+    return typeof c === "function" && c.length ? sample(() => c(when)) : (c as JSX.Element);
   });
 }
 
-type MatchProps<T> = { when: T | false; children: JSX.Element | ((item: T) => JSX.Element) };
+type MatchProps<T> = { when: T | null | undefined | false; children: JSX.Element | ((item: T) => JSX.Element) };
 export function Match<T>(props: MatchProps<T>) {
   return (props as unknown) as JSX.Element;
 }

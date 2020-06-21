@@ -1,4 +1,5 @@
 ## <img src="https://raw.githubusercontent.com/ryansolid/solid/master/assets/logo.png" alt="Solid" width="500"/><br>
+
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
@@ -26,15 +27,13 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 - Transparent debugging: a `<div>` is just a div.
 
 ## The Gist
+
 ```jsx
 import { render } from "solid-js/dom";
 
 const HelloMessage = props => <div>Hello {props.name}</div>;
 
-render(
-  () => <HelloMessage name="Taylor" />,
-  document.getElementById("hello-example")
-);
+render(() => <HelloMessage name="Taylor" />, document.getElementById("hello-example"));
 ```
 
 A Simple Component is just a function that accepts properties. Solid uses a `render` function to create the reactive mount point of your application.
@@ -82,10 +81,6 @@ Or you can install the dependencies in your own project. To use Solid with JSX (
 > npm install solid-js babel-preset-solid
 ```
 
-## Solid Rendering
-
-Solid's rendering is done by the [DOM Expressions](https://github.com/ryansolid/dom-expressions) library. This library provides a generic optimized runtime for fine grained libraries like Solid with the opportunity to use a number of different Rendering APIs. The best option is to use JSX pre-compilation with [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions) to give the smallest code size, cleanest syntax, and most performant code. The compiler converts JSX to native DOM element instructions and wraps dynamic expressions in reactive computations.
-
 The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
 
 ```js
@@ -94,68 +89,58 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 
 Remember even though the syntax is almost identical, there are significant differences between how Solid's JSX works and a library like React. Refer to [JSX Rendering](../master/documentation/rendering.md) for more information.
 
-## No Compilation?
+## Reactivity
 
-Alternatively in non-compiled environments for a small sacrifice in performance and developer experience, you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions).
+Solid's data management is built off a set of flexible reactive primitives. Similar to React Hooks except instead of whitelisting change for an owning Component they independentally are soley responsible for all the updates. Dependencies are automatically tracked when you access your reactive values in your Effects and View code.
 
-For convenience Solid exports interfaces to runtimes for these as:
+Solid has a number of reactive primitives but the main 2 are Signals, and State. Ultimately you will need to understand both to write effective Solid code. Signals hold simple values that you view as atomic immutable cells much like React's `useState`. The difference is the value is wrapped as a function so we can track access for reactivity. These are ideal for simple component state or when creating data streams.
 
-```js
-import h from "solid-js/h";
-import html from "solid-js/html";
+```jsx
+import { createSignal, onCleanup } from "solid-js";
+import { render } from "solid-js/dom";
+
+const App = () => {
+  const [count, setCount] = createSignal(0),
+    timer = setInterval(() => setCount(count() + 1), 1000);
+  onCleanup(() => clearInterval(timer));
+
+  return <div>{count()}</div>;
+};
+
+render(() => <App />, document.getElementById("app"));
 ```
 
-Remember you still need to install the library separately for these to work.
+No Hook rules, or concern about closures because your Component only runs once.
 
-## Solid State
+Solid's state object are deeply nested reactive data trees useful for global stores, model caches, and 3rd party immutable data interopt. They have a much more powerful setter that allows to specify nested changes and use value and function forms for updates.
 
-Solid's data management is built off a set of flexible reactive primitives. Similar to React Hooks except instead of whitelisting change for an owning Component they independentally are soley responsible for all the updates.
-
-Solid's State primitive is arguably its most powerful and distinctive one. Through the use of proxies and explicit setters it gives the control of an immutable interface and the performance of a mutable one. The setters support a variety of forms, but to get started set and update state with an object.
+They can be used in Components as well and is the go to choice when data gets more complicated (nested).
 
 ```jsx
 import { createState, onCleanup } from "solid-js";
+import { render } from "solid-js/dom";
 
-const CountingComponent = () => {
-  const [state, setState] = createState({ counter: 0 });
+const App = () => {
+  const [state, setState] = createState({
+    user: {
+      firstName: "John",
+      lastName: "Smith"
+    }
+  });
 
-  const interval = setInterval(
-    () => setState({ counter: state.counter + 1 }),
-    1000
+  return (
+    <div
+      onClick={() => setState("user", "lastName", l => l + "!")}
+    >{state.user.firstName} {state.user.lastName}</div>
   );
-
-  onCleanup(() => clearInterval(interval));
-
-  return <div>{state.counter}</div>;
 };
+
+render(() => <App />, document.getElementById("app"));
 ```
 
-Where the magic happens is with computations(effects and memos) which automatically track dependencies.
+Remember if you destructure or spread a state object reactivity is lost. However, unlike Vue we don't separate our `setup` from our view code so there is little concern about transforming or transfering these reactive atoms around. Just access the properties where you need them.
 
-```js
-const [state, setState] = createState({ user: { firstName: "Jake", lastName: "Smith" }})
-
-createEffect(() =>
-  setState({
-    displayName: `${state.user.firstName} ${state.user.lastName}`
-  })
-);
-
-console.log(state.displayName); // Jake Smith
-setState('user', {firstName: "Jacob" });
-console.log(state.displayName); // Jacob Smith
-```
-
-Whenever any dependency changes the State value will update immediately. Each `setState` statement will notify subscribers synchronously with all changes applied. This means you can depend on the value being set on the next line.
-
-Solid State also exposes a reconcile method used with `setState` that does deep diffing to allow for automatic efficient interopt with immutable store technologies like Redux, Apollo(GraphQL), or RxJS.
-
-```js
-const unsubscribe = store.subscribe(({ todos }) => (
-  setState('todos', reconcile(todos)));
-);
-onCleanup(() => unsubscribe());
-```
+With Solid State and Context API you really don't need 3rd party global stores. These proxies are optimized part of the reactive system and lend to creating controlled unidirectional patterns.
 
 Read these two introductory articles by [@aftzl](https://github.com/atfzl):
 
@@ -167,8 +152,8 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Documentation
 
-- [State](https://github.com/ryansolid/solid/blob/master/documentation/state.md)
 - [Reactivity](https://github.com/ryansolid/solid/blob/master/documentation/reactivity.md)
+- [State](https://github.com/ryansolid/solid/blob/master/documentation/state.md)
 - [JSX Rendering](https://github.com/ryansolid/solid/blob/master/documentation/rendering.md)
 - [Components](https://github.com/ryansolid/solid/blob/master/documentation/components.md)
 - [Styling](https://github.com/ryansolid/solid/blob/master/documentation/styling.md)
@@ -257,6 +242,19 @@ And check out the Documentation, Examples, and Articles below to get more famili
 - [Part 3: Change Management in JavaScript Frameworks](https://medium.com/@ryansolid/b-y-o-f-part-3-change-management-in-javascript-frameworks-6af6e436f63c)
 - [Part 2: Web Components as Containers](https://medium.com/@ryansolid/b-y-o-f-part-2-web-components-as-containers-85e04a7d96e9)
 - [Part 1: Writing a JS Framework in 2018](https://medium.com/@ryansolid/b-y-o-f-part-1-writing-a-js-framework-in-2018-b02a41026929)
+
+## No Compilation?
+
+Dislike JSX? Don't mind doing manual work to wrap expressions, worse performance, and having larger bundle sizes? Alternatively in non-compiled environments you can use Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions).
+
+For convenience Solid exports interfaces to runtimes for these as:
+
+```js
+import h from "solid-js/h";
+import html from "solid-js/html";
+```
+
+Remember you still need the corresponding DOM Expressons library for these to work.
 
 ## Browser Support
 

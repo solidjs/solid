@@ -2,7 +2,7 @@
 
 State is a core work horse of Solid. It is composed of many on demand reactive signals through a proxy object. The advantage is that it is automatically reactive and resembles data structures you may already have. It removes the classic issues with fine-grained reactivity around mapping reactive structures and serializing JSON. And as a structure itself it can be diffed allowing interaction with immutable data and snapshots.
 
-While this state concept is heavily borrowed from React and it's API from ImmutableJS, there is a key difference in the role it plays here. In React you keep things simple in your state and the whole library is about reconciling DOM rendering. Here you can almost view the State object as the target, the thing that is diffed and maintained. The DOM rendering is actually quite simple to the point the compiled source exposes the vast majority of the DOM manipulations, where you can easily drop a breakpoint.
+Through the use of proxies and explicit setters it gives the control of an immutable interface and the performance of a mutable one. The setters support a variety of forms, but to get started set and update state with an object.
 
 ### `createState(object)`
 
@@ -126,10 +126,13 @@ This library also provides a state setter modifiers which can optionally be incl
 
 ### `reconcile(value, options)`
 
-This can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
+This can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores like Redux, Apollo(GraphQL), or RxJS to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
 
 ```js
-setState("users", reconcile(store.get("users")));
+const unsubscribe = store.subscribe(({ todos }) => (
+  setState('todos', reconcile(todos)));
+);
+onCleanup(() => unsubscribe());
 ```
 
 If you pass as array you can configure the diff algorithm with an options object:

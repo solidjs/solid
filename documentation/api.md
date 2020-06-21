@@ -4,17 +4,17 @@
 
 Creates a new State object and setState pair that can be used to maintain your componenents state. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
 
-### `createSignal(initialValue, comparatorFn): [getValueFn, setValueFn]`
+### `createSignal(initialValue, boolean | comparatorFn): [getValueFn, setValueFn]`
 
-This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. You can have it only notify on changes is you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `createEffect(prev => <code>, initialValue): void`
 
 Creates a new effect that automatically tracks dependencies. 2nd argument is the initial value.
 
-### `createMemo(prev => <code>, initialValue, comparatorFn): getValueFn`
+### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
 
-Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. However a comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes is you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `onCleanup(() => <code>)`
 

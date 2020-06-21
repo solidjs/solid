@@ -1,4 +1,4 @@
-import { onCleanup, createRoot, sample, createSignal, equalFn } from "./signal";
+import { onCleanup, createRoot, sample, createSignal } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 
@@ -171,7 +171,7 @@ export function mapArray<T, U>(list: any, mapFn: any, options?: any): any {
       function mapper(disposer: () => void) {
         disposers[j] = disposer;
         if (indexes) {
-          const [s, set] = createSignal(j, equalFn);
+          const [s, set] = createSignal(j, true);
           indexes[j] = set;
           return mapFn(newItems[j], s);
         }

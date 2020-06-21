@@ -5,7 +5,6 @@ import {
   createEffect,
   createContext,
   useContext,
-  equalFn,
   afterEffects
 } from "../reactive/signal";
 import { SuspenseContext } from "./resource";
@@ -35,7 +34,7 @@ export function SuspenseList(props: {
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) {
-    const [state, stateSetter] = createSignal<SuspenseState>("running", equalFn);
+    const [state, stateSetter] = createSignal<SuspenseState>("running", true);
     suspenseSetter = stateSetter;
     [showContent, showFallback] = listContext.register(state);
   }
@@ -46,8 +45,8 @@ export function SuspenseList(props: {
       {
         value: {
           register: (state: () => SuspenseState) => {
-            const [showingContent, showContent] = createSignal(false, equalFn),
-              [showingFallback, showFallback] = createSignal(false, equalFn);
+            const [showingContent, showContent] = createSignal(false, true),
+              [showingFallback, showFallback] = createSignal(false, true);
             registry[index++] = { state, showContent, showFallback };
             return [showingContent, showingFallback];
           }
@@ -103,7 +102,7 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
     showContent: () => boolean,
     showFallback: () => boolean,
     transition: typeof SuspenseContext["transition"];
-  const [state, nextState] = createSignal<SuspenseState>("running", equalFn),
+  const [state, nextState] = createSignal<SuspenseState>("running", true),
     store = {
       increment: () => {
         if (++counter === 1) {
