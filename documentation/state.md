@@ -126,16 +126,23 @@ This library also provides a state setter modifiers which can optionally be incl
 
 ### `reconcile(value, options)`
 
-This can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores like Redux, Apollo(GraphQL), or RxJS to ensure the least amount of mutations to your state. It can also be used to replace the all keys on the base state object if no path is provided as it does both positive and negative diff.
+`setState` on it's own does a replace(or shallow merge). This only triggers the reactivity at that point that the change occurs. But what if that data is larger and we do not know what has changed? It can be inefficient to trigger everything starting from that higher level point.
+
+`reconcile` can be used to do deep diffs by applying the changes from a new State value. This is useful when pulling in immutable data trees from stores like Redux, Apollo(GraphQL), RxJS or any large data snapshot(maybe from the server) to ensure the least amount of mutations to your state. That instead of replacing the whole value, we should attempt to update only what has changed.
+
+By default `reconcile` will try to use referential equality and failing that will fall back to using a key property in the data to match items in the new input value. The new input state can be any shape and `reconcile` will deeply diff it for changes.
+
+However `reconcile` is configurable to change that key or aggressively merge every field. This pushes all change to the leaves which is non-keyed, but could be useful for certain situations.
 
 ```js
+// subscribing to an observable
 const unsubscribe = store.subscribe(({ todos }) => (
   setState('todos', reconcile(todos)));
 );
 onCleanup(() => unsubscribe());
 ```
 
-If you pass as array you can configure the diff algorithm with an options object:
+The second parameter are options to configure the diff algorithm:
 
 ```js
 setState('users', reconcile(
