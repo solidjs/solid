@@ -215,6 +215,7 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Latest Articles
 
+- [SolidJS: Reactivity to Rendering](https://indepth.dev/solidjs-reactivity-to-rendering/) Building Solid's reactive renderer from the ground up
 - [Exploring Reactivity Patterns in 2020](https://indepth.dev/exploring-the-state-of-reactivity-patterns-in-2020/) What's the latest trend in the frontend?
 - [Why SolidJS: Do We Really Need Another JS UI Library](https://dev.to/ryansolid/why-solidjs-do-we-need-another-js-ui-library-1mdc) Ryan's personal journey creating SolidJS.
 - [Thinking Granular: How is SolidJS so Performant?](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) An end to end look at what makes SolidJS so fast.
