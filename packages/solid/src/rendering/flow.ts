@@ -31,31 +31,35 @@ export function Show<T>(props: {
 }) {
   const childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value,
     callFn = typeof childDesc === "function" && childDesc.length,
-    condition = createMemo(() => props.when, undefined, true);
+    condition = createMemo<T | boolean>(
+      callFn ? () => props.when : () => !!props.when,
+      undefined,
+      true
+    );
   return suspend(() => {
     const c = condition();
     return c
       ? callFn
-        ? sample(() => (props.children as (item: T) => JSX.Element)(c))
+        ? sample(() => (props.children as (item: T) => JSX.Element)(c as T))
         : props.children
       : props.fallback;
   }) as () => JSX.Element;
 }
 
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }) {
-  let conditions = (props.children as unknown) as MatchProps<unknown>[];
+  let conditions = (props.children as unknown) as (MatchProps<unknown> & { keyed: boolean })[];
   Array.isArray(conditions) || (conditions = [conditions]);
   const evalConditions = createMemo<[number, unknown?]>(
-      () => {
-        for (let i = 0; i < conditions.length; i++) {
-          const c = conditions[i].when;
-          if (c) return [i, c];
-        }
-        return [-1];
-      },
-      undefined,
-      (a, b) => a && a[0] === b[0] && a[1] === b[1]
-    );
+    () => {
+      for (let i = 0; i < conditions.length; i++) {
+        const c = conditions[i].when;
+        if (c) return [i, conditions[i].keyed ? c : !!c];
+      }
+      return [-1];
+    },
+    undefined,
+    (a, b) => a && a[0] === b[0] && a[1] === b[1]
+  );
   return suspend(() => {
     const [index, when] = evalConditions();
     if (index < 0) return props.fallback;
@@ -64,8 +68,14 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
   });
 }
 
-type MatchProps<T> = { when: T | null | undefined | false; children: JSX.Element | ((item: T) => JSX.Element) };
+type MatchProps<T> = {
+  when: T | false;
+  children: JSX.Element | ((item: T) => JSX.Element);
+};
 export function Match<T>(props: MatchProps<T>) {
+  const childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value;
+  (props as MatchProps<T> & { keyed: boolean }).keyed =
+    typeof childDesc === "function" && childDesc.length;
   return (props as unknown) as JSX.Element;
 }
 
