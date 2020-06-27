@@ -47,7 +47,7 @@ const _tmpl$ = template(`<div>Hello </div>`);
 
 const HelloMessage = props => {
   const _el$ = _tmpl$.cloneNode(true);
-  insert(_el$, () => props.name, null);
+  insert(_el$, () => props.name);
   return _el$;
 };
 
@@ -91,9 +91,11 @@ Remember even though the syntax is almost identical, there are significant diffe
 
 ## Reactivity
 
-Solid's data management is built off a set of flexible reactive primitives. Similar to React Hooks except instead of whitelisting change for an owning Component they independentally are soley responsible for all the updates. Dependencies are automatically tracked when you access your reactive values in your Effects and View code.
+Solid's data management is built off a set of flexible reactive primitives are responsible for all the updates. It takes a very similar approach to MobX or Vue except it never trades its granularity for a VDOM. Dependencies are automatically tracked when you access your reactive values in your Effects and JSX View code.
 
-Solid has a number of reactive primitives but the main 2 are Signals, and State. Ultimately you will need to understand both to write effective Solid code. Signals hold simple values that you view as atomic immutable cells much like React's `useState`. The difference is the value is wrapped as a function so we can track access for reactivity. These are ideal for simple component state or when creating data streams.
+Solid has a number of reactive primitives but the main 2 are Signals, and State. Ultimately you will need to understand both to write effective Solid code.
+
+Signals hold simple values that you view as atomic immutable cells that consist of a getter and setter. These are ideal for simple local component values. They are called signals as they act as tiny streams that wire your application together.
 
 ```jsx
 import { createSignal, onCleanup } from "solid-js";
@@ -110,7 +112,7 @@ const App = () => {
 render(() => <App />, document.getElementById("app"));
 ```
 
-No Hook rules, or concern about closures because your Component only runs once.
+> **For React Users:** This looks like React Hooks, but it is very different. There are no Hook rules, or concern about stale closures because your Component only runs once. It is only the "Hooks" that re-execute. So they always have the latest.
 
 Solid's state object are deeply nested reactive data trees useful for global stores, model caches, and 3rd party immutable data interopt. They have a much more powerful setter that allows to specify nested changes and use value and function forms for updates.
 
