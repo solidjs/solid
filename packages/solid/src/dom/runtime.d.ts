@@ -1,5 +1,5 @@
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
-export function render(code: () => any, element: MountableElement): () => void
+export function render(code: () => any, element: MountableElement): () => void;
 export function renderToString<T>(
   fn: () => T,
   options?: {
@@ -12,10 +12,7 @@ export function renderDOMToString<T>(
     timeoutMs?: number;
   }
 ): T extends Promise<any> ? Promise<string> : string;
-export function hydrate(
-  fn: () => unknown,
-  node: MountableElement
-): void;
+export function hydrate(fn: () => unknown, node: MountableElement): void;
 
 export function template(html: string, count: number, isSVG?: boolean): Element;
 export function effect<T>(fn: (prev?: T) => T, init?: T): any;
@@ -31,7 +28,7 @@ export function delegateEvents(eventNames: string[]): void;
 export function clearDelegatedEvents(): void;
 export function spread(node: Element, accessor: any, isSVG?: Boolean, skipChildren?: Boolean): void;
 export function assign(node: Element, props: any, isSVG?: Boolean, skipChildren?: Boolean): void;
-export function setAttribute(node : Element, name : string, value : any): void;
+export function setAttribute(node: Element, name: string, value: any): void;
 export function classList(
   node: Element,
   value: { [k: string]: boolean },
@@ -44,7 +41,7 @@ export function style(
 ): void;
 export function currentContext(): any;
 
-export function ssr(template: string[], ...nodes: any[]): () => string;
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string | (() => string) };
 export function ssrClassList(value: { [k: string]: boolean }): string;
 export function ssrStyle(value: { [k: string]: string }): string;
 export function ssrSpread(accessor: any, isSVG: boolean, skipChildren: boolean): () => string;
