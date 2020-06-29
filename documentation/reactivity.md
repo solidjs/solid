@@ -40,7 +40,7 @@ There are 2 main computations used by Solid: Effects which produce side effects,
 import { createSignal, createEffect, createMemo } from "solid-js";
 
 const [count, setCount] = createSignal(1),
-  doubleCount = createMemo(() => count() / 2)
+  doubleCount = createMemo(() => count() * 2)
 createEffect(() => console.log(doubleCount()));
 setCount(count() + 1);
 
@@ -56,7 +56,7 @@ Keep in mind memos are only necessary if you wish to prevent re-evaluation when 
 import { createSignal, createEffect } from "solid-js";
 
 const [count, setCount] = createSignal(1),
-  doubleCount = () => count() / 2
+  doubleCount = () => count() * 2
 // No memo still works
 createEffect(() => console.log(doubleCount()));
 setCount(count() + 1);
