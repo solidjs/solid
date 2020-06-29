@@ -262,7 +262,7 @@ function ProfileTimeline() {
   );
 }
 
-render(ProfilePage, document.body);
+render(ProfilePage, document.getElementById("app"));
 ```
 
 ## Coordinating Suspense Components with SuspenseList (Experimental)

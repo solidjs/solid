@@ -160,7 +160,7 @@ render(
       <SomeText>some text</SomeText>
     </ThemeProvider>
   ),
-  document.body
+  document.getElementById("app")
 );
 ```
 The library provides a `useTheme` hook if you wish to use it elsewhere like in you `css` functions.
