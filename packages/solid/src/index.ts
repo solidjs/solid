@@ -20,7 +20,7 @@ export {
 export { createState, unwrap, $RAW } from "./reactive/state";
 export type { State, SetStateFunction } from "./reactive/state";
 
-export { reconcile } from "./reactive/reconcile";
+export { reconcile, produce } from "./reactive/stateModifiers";
 
 export * from "./reactive/scheduler";
 export * from "./reactive/array";

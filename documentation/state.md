@@ -96,7 +96,13 @@ setState('todos', {}, todo => ({ marked: true, completed: !todo.completed }))
 // }
 ```
 
-Additionally supports a batched mutable form when the setter does not return a value..
+## Modifiers
+
+This library also provides a state setter modifiers which can optionally be included to provide different behavior when setting state.
+
+### `produce(state => void)`
+
+Solid supports a ImmerJS style mutable form with the produce modifier.
 
 ```js
 const [state, setState] = createState({
@@ -107,10 +113,10 @@ const [state, setState] = createState({
   ]
 });
 
-setState(s => {
+setState(produce(s => {
   s.counter = s.counter * 3;
   s.list[1].title += '!';
-});
+}));
 // {
 //   counter: 6,
 //   list: [
@@ -119,10 +125,6 @@ setState(s => {
 //   ]
 // }
 ```
-
-## Modifiers
-
-This library also provides a state setter modifiers which can optionally be included to provide different behavior when setting state.
 
 ### `reconcile(value, options)`
 

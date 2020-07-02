@@ -25,8 +25,7 @@ export function createComponent<T>(
   if (dynamicKeys) {
     for (let i = 0; i < dynamicKeys.length; i++) dynamicProperty(props, dynamicKeys[i] as string);
   }
-  const c = sample(() => Comp(props as T));
-  return typeof c === "function" ? createMemo(c) : c;
+  return sample(() => Comp(props as T));
 }
 
 export function setDefaults<T>(props: T, defaultProps: T) {

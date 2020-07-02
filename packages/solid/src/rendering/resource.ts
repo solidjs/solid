@@ -238,16 +238,18 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
       fn().then(mod => p(mod.default));
     } else p(fn().then(mod => mod.default));
     let Comp: T | undefined;
-    return () =>
-      (Comp = s()) &&
-      sample(() => {
-        if (!ctx) return Comp!(props);
-        const h = globalThis._$HYDRATION.context;
-        setHydrateContext(ctx);
-        const r = Comp!(props);
-        !h && setHydrateContext();
-        return r;
-      });
+    return createMemo(
+      () =>
+        (Comp = s()) &&
+        sample(() => {
+          if (!ctx) return Comp!(props);
+          const h = globalThis._$HYDRATION.context;
+          setHydrateContext(ctx);
+          const r = Comp!(props);
+          !h && setHydrateContext();
+          return r;
+        })
+    );
   }) as T;
 }
 
@@ -272,11 +274,10 @@ export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () =
 }
 
 export function suspend<T>(fn: () => T) {
-  const { state } = useContext(SuspenseContext);
+  const { state } = useContext(SuspenseContext),
+    wrapped = createMemo(fn);
   let cached: T;
-  return state
-    ? ((fn = createMemo(fn)), () => (state() === "suspended" ? cached : (cached = fn())))
-    : fn;
+  return state ? createMemo(() => (state() === "suspended" ? cached : (cached = wrapped()))) : wrapped;
 }
 
 type HydrationContext = {

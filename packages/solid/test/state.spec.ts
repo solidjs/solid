@@ -33,6 +33,20 @@ describe("State immutablity", () => {
   });
 });
 
+describe("State Getters", () => {
+  test("Testing an update from state", () => {
+    const [state, setState] = createState({
+      name: "John",
+      get greeting(): string {
+        return `Hi, ${state.name}`;
+      }
+    });
+    expect(state.greeting).toBe("Hi, John");
+    setState({ name: "Jake" });
+    expect(state.greeting).toBe("Hi, Jake");
+  });
+});
+
 describe("Simple setState modes", () => {
   test("Simple Key Value", () => {
     const [state, setState] = createState({ key: "" });
@@ -83,58 +97,6 @@ describe("Simple setState modes", () => {
     });
     setState("todos", 1, { done: true });
     setState("todos", [...state.todos, { id: 3, title: "Go Home", done: false }]);
-    expect(Array.isArray(state.todos)).toBe(true);
-    expect(state.todos[1].done).toBe(true);
-    expect(state.todos[2].title).toBe("Go Home");
-  });
-});
-
-describe("setState Mutations", () => {
-  test("Top Level Mutation", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
-    setState(s => {
-      s.data.ending = s.data.starting + 1;
-    });
-    expect(state.data.starting).toBe(1);
-    expect(state.data.ending).toBe(2);
-  });
-  test("Nested Level Mutation", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
-    setState("data", s => {
-      s.ending = s.starting + 1;
-    });
-    expect(state.data.starting).toBe(1);
-    expect(state.data.ending).toBe(2);
-  });
-  test("Top Level Deletion", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
-    setState(s => {
-      delete s.data.ending;
-    });
-    expect(state.data.starting).toBe(1);
-    expect(state.data.ending).not.toBeDefined();
-  });
-  test("Top Level Object Mutation", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } }),
-      next = { starting: 3, ending: 6 };
-    setState(s => {
-      s.data = next;
-    });
-    expect(unwrap(state.data)).toBe(next);
-    expect(state.data.starting).toBe(3);
-    expect(state.data.ending).toBe(6);
-  });
-  test("Test Array Mutation", () => {
-    const [state, setState] = createState({
-      todos: [
-        { id: 1, title: "Go To Work", done: true },
-        { id: 2, title: "Eat Lunch", done: false }
-      ]
-    });
-    setState(s => {
-      s.todos[1].done = true;
-      s.todos.push({ id: 3, title: "Go Home", done: false });
-    });
     expect(Array.isArray(state.todos)).toBe(true);
     expect(state.todos[1].done).toBe(true);
     expect(state.todos[2].title).toBe("Go Home");

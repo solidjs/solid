@@ -1,4 +1,4 @@
-import { setProperty, unwrap, isWrappable, State, NotWrappable } from "./state";
+import { setProperty, unwrap, isWrappable, State, NotWrappable, StateNode, $RAW } from "./state";
 
 type ReconcileOptions = {
   key?: string | null;
@@ -106,11 +106,39 @@ function applyState(
 export function reconcile<T>(
   value: T | State<T>,
   options: ReconcileOptions = {}
-): (state: T extends NotWrappable ? T : State<T>) => void {
+): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T> {
   const { merge, key = "id" } = options;
   return state => {
-    state = unwrap(state);
-    if (!isWrappable(state)) return value;
+    if (!isWrappable(state)) return value as T extends NotWrappable ? T : State<T>;
     applyState(value, { state }, "state", merge, key);
+    return state;
+  };
+}
+
+const setterTraps = {
+  get(target: StateNode, property: string | number | symbol): any {
+    if (property === $RAW) return target;
+    const value = target[property as string | number];
+    return isWrappable(value) ? new Proxy(value, setterTraps) : value;
+  },
+
+  set(target: StateNode, property: string | number, value: any) {
+    setProperty(target, property, unwrap(value));
+    return true;
+  },
+
+  deleteProperty(target: StateNode, property: string | number) {
+    setProperty(target, property, undefined);
+    return true;
+  }
+};
+
+// Immer style mutation style
+export function produce<T>(
+  fn: (state: T) => void
+): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T> {
+  return state => {
+    if (isWrappable(state)) fn((new Proxy(state as object, setterTraps) as unknown) as T);
+    return state;
   };
 }

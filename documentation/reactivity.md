@@ -119,12 +119,8 @@ const useReducer = (reducer, init) => {
 };
 ```
 
-## Operators
+## Operators and FRP
 
-Solid provides a couple simple operators to help construct more complicated behaviors. They work both as standalone and curried Functional Programming form, where they return a function that takes the input accessor. They are not computations themselves and are designed to be passed into a computation. The possibilities of operators are endless. Solid only ships with a base array mapping one:
+Solid signals can also be used as a basis for streams and work as powerful primitives to compose complicated transformations. Operators are the key to composing these behaviors. They are not computations themselves and are designed to be passed into a computation. The possibilities of operators are endless.
 
-### `mapArray(() => any[], iterator: (item, index) => any, options: { fallback: () => any }): () => any[]`
-
-### `mapArray(iterator: (item, index) => any, options: { fallback: () => any }): (signal) => () => any[]`
-
-The `solid-rx` package contains more operators that can be used with Solid.
+The `solid-rx` package contains operators that can be used with Solid.

@@ -1,5 +1,5 @@
 import { insert, spread } from "./runtime";
-import { onCleanup, sample, splitProps, Component } from "../index.js";
+import { onCleanup, sample, splitProps, Component, suspend } from "../index.js";
 
 export * from "./runtime";
 export { For, Match, Show, Suspense, SuspenseList, Switch, Index } from "../index.js";
@@ -35,7 +35,7 @@ export function Dynamic<T>(
   props: T & { component?: Component<T> | keyof JSX.IntrinsicElements }
 ): () => JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
-  return () => {
+  return suspend(() => {
     const comp = p.component,
       t = typeof comp;
 
@@ -47,5 +47,5 @@ export function Dynamic<T>(
         return el;
       }
     }
-  };
+  });
 }

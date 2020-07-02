@@ -81,10 +81,10 @@ So if you wish to release something on the Component being destroyed, simply wra
 const Ticker = () => {
   const [state, setState] = createState({ count: 0 }),
     t = setInterval(() => setState({ count: state.count + 1 }), 1000);
-    
+
   // remove interval when Component destroyed:
   onCleanup(() => clearInterval(t));
-  
+
   return <div>{state.count}</div>
 }
 ```

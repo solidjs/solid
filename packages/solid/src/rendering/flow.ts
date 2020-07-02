@@ -3,13 +3,31 @@ import { mapArray, indexArray } from "../reactive/array";
 import { suspend } from "./resource";
 import { Component, splitProps } from "./component";
 
+function simpleMap(
+  props: { each: any[]; children: Function; fallback?: JSX.Element },
+  wrap: (fn: Function, item: any, i: number) => JSX.Element
+): JSX.Element {
+  const list = props.each || [],
+    len = list.length,
+    fn = props.children;
+  if (len) {
+    const mapped = new Array(len);
+    for (let i = 0; i < len; i++) mapped[i] = wrap(fn, list[i], i);
+    return mapped;
+  }
+  return props.fallback;
+}
+
 export function For<T, U extends JSX.Element>(props: {
   each: T[];
   fallback?: JSX.Element;
   children: (item: T, index: () => number) => U;
 }) {
-  const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return suspend(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
+  const fallback = "fallback" in props && { fallback: () => props.fallback },
+    nonDynamicDesc = Object.getOwnPropertyDescriptor(props, "each")!.value;
+  return nonDynamicDesc && typeof nonDynamicDesc !== "function"
+    ? simpleMap(props, (fn, item, i) => fn(item, () => i))
+    : suspend(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
 }
 
 // non-keyed
@@ -18,10 +36,11 @@ export function Index<T, U extends JSX.Element>(props: {
   fallback?: JSX.Element;
   children: (item: () => T, index: number) => U;
 }) {
-  const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return suspend(
-    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  );
+  const fallback = "fallback" in props && { fallback: () => props.fallback },
+    nonDynamicDesc = Object.getOwnPropertyDescriptor(props, "each")!.value;
+  return nonDynamicDesc && typeof nonDynamicDesc !== "function"
+    ? simpleMap(props, (fn, item, i) => fn(() => item, i))
+    : suspend(indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
 }
 
 export function Show<T>(props: {
@@ -83,8 +102,8 @@ export function Match<T>(props: MatchProps<T>) {
 /* istanbul ignore next */
 export function Dynamic<T>(props: T & { component?: Component<T> }) {
   const [p, others] = splitProps(props, ["component"]);
-  return () => {
+  return suspend(() => {
     const comp = p.component;
     return comp && sample(() => comp(others as any));
-  };
+  });
 }

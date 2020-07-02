@@ -1,14 +1,158 @@
-import { isListening, createSignal, freeze } from "./signal";
-export const $RAW = Symbol("state-raw"),
-  $NODE = Symbol("state-node"),
-  $PROXY = Symbol("state-proxy");
+export const equalFn = <T>(a: T, b: T) => a === b;
+const ERROR = Symbol("error");
 
-export type StateNode = {
-  [$NODE]?: any;
-  [$PROXY]?: any;
-  [k: string]: any;
-  [k: number]: any;
-};
+const UNOWNED: Owner = { context: null, owner: null };
+let Owner: Owner | null = null;
+
+interface Owner {
+  owner: Owner | null;
+  context: any | null;
+}
+
+export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Owner): T {
+  detachedOwner && (Owner = detachedOwner);
+  const owner = Owner,
+    root: Owner = fn.length === 0 ? UNOWNED : { context: null, owner };
+  Owner = root;
+  let result: T;
+  try {
+    result = fn(() => {});
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
+  } finally {
+    Owner = owner;
+  }
+  return result!;
+}
+
+export function createSignal<T>(
+  value?: T,
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
+): [() => T, (v: T) => T] {
+  return [() => value as T, (v: T) => (value = v)];
+}
+
+export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
+  Owner = { owner: Owner, context: null };
+  fn(value);
+  Owner = Owner.owner;
+}
+
+export function createDependentEffect<T>(
+  fn: (v?: T) => T,
+  deps: (() => any) | (() => any)[],
+  defer?: boolean
+) {
+  if (!defer) {
+    Owner = { owner: Owner, context: null };
+    fn();
+    Owner = Owner.owner;
+  }
+}
+
+export function createMemo<T>(
+  fn: (v?: T) => T,
+  value?: T,
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
+): () => T {
+  Owner = { owner: Owner, context: null };
+  const v = fn(value);
+  Owner = Owner.owner;
+  return () => v;
+}
+
+export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) {
+  return fn;
+}
+
+export function freeze<T>(fn: () => T): T {
+  return fn();
+}
+
+export function sample<T>(fn: () => T): T {
+  return fn();
+}
+
+export function afterEffects(fn: () => void): void {}
+
+export function onCleanup(fn: () => void) {}
+
+export function onError(fn: (err: any) => void): void {
+  if (Owner === null)
+    console.warn("error handlers created outside a `createRoot` or `render` will never be run");
+  else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
+  else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
+  else Owner.context[ERROR].push(fn);
+}
+
+export function isListening() {
+  return false;
+}
+
+// Context API
+export interface Context<T> {
+  id: symbol;
+  Provider: (props: { value: T; children: any }) => any;
+  defaultValue?: T;
+}
+
+export function createContext<T>(defaultValue?: T): Context<T> {
+  const id = Symbol("context");
+  return { id, Provider: createProvider(id), defaultValue };
+}
+
+export function useContext<T>(context: Context<T>): T {
+  return lookup(Owner, context.id) || context.defaultValue;
+}
+
+export function getContextOwner() {
+  return Owner;
+}
+
+function lookup(owner: Owner | null, key: symbol | string): any {
+  return (
+    owner && ((owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key)))
+  );
+}
+
+function resolveChildren(children: any): any {
+  if (typeof children === "function") return resolveChildren(children());
+  if (Array.isArray(children)) {
+    const results: any[] = [];
+    for (let i = 0; i < children.length; i++) {
+      let result = resolveChildren(children[i]);
+      Array.isArray(result) ? results.push.apply(results, result) : results.push(result);
+    }
+    return results;
+  }
+  return children;
+}
+
+function createProvider(id: symbol) {
+  return function provider(props: { value: unknown; children: any }) {
+    let rendered;
+    createEffect(() => {
+      Owner!.context = { [id]: props.value };
+      rendered = resolveChildren(props.children);
+    });
+    return rendered;
+  };
+}
+
+export interface Task {
+  id: number;
+  fn: ((didTimeout: boolean) => void) | null;
+  startTime: number;
+  expirationTime: number;
+}
+export function requestCallback(fn: () => void, options?: { timeout: number }): Task {
+  return { id: 0, fn: () => {}, startTime: 0, expirationTime: 0 };
+}
+export function cancelCallback(task: Task) {}
+
+export const $RAW = Symbol("state-raw");
 
 // well-known symbols need special treatment until https://github.com/microsoft/TypeScript/issues/24622 is implemented.
 type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
@@ -16,17 +160,13 @@ type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
   : {};
 type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
 
-export type NotWrappable = string | number | boolean | Function | null;
+type NotWrappable = string | number | boolean | Function | null;
 export type State<T> = {
   [P in keyof T]: T[P] extends object ? State<T[P]> : T[P];
 } & {
   [$RAW]?: T;
 } & AddSymbolToPrimitive<T> &
   AddCallable<T>;
-
-export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): State<T> {
-  return value[$PROXY] || (value[$PROXY] = new Proxy(value, traps || proxyTraps));
-}
 
 export function isWrappable(obj: any) {
   return (
@@ -36,83 +176,18 @@ export function isWrappable(obj: any) {
   );
 }
 
-export function unwrap<T extends StateNode>(item: any, skipGetters?: boolean): T {
-  let result, unwrapped, v, prop;
-  if ((result = item != null && item[$RAW])) return result;
-  if (!isWrappable(item)) return item;
-
-  if (Array.isArray(item)) {
-    if (Object.isFrozen(item)) item = item.slice(0);
-    for (let i = 0, l = item.length; i < l; i++) {
-      v = item[i];
-      if ((unwrapped = unwrap(v, skipGetters)) !== v) item[i] = unwrapped;
-    }
-  } else {
-    if (Object.isFrozen(item)) item = Object.assign({}, item);
-    let keys = Object.keys(item),
-      desc = skipGetters && Object.getOwnPropertyDescriptors(item);
-    for (let i = 0, l = keys.length; i < l; i++) {
-      prop = keys[i];
-      if (skipGetters && (desc as any)[prop].get) continue;
-      v = item[prop];
-      if ((unwrapped = unwrap(v, skipGetters)) !== v) item[prop] = unwrapped;
-    }
-  }
+export function unwrap<T>(item: any): T {
   return item;
 }
 
-export function getDataNodes(target: StateNode) {
-  let nodes = target[$NODE];
-  if (!nodes) target[$NODE] = nodes = {};
-  return nodes;
-}
-
-const proxyTraps = {
-  get(target: StateNode, property: string | number | symbol) {
-    if (property === $RAW) return target;
-    if (property === $PROXY || property === $NODE) return;
-    const value = target[property as string | number],
-      wrappable = isWrappable(value);
-    if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createSignal());
-        node[0]();
-      }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createSignal());
-      node[0]();
-    }
-    return wrappable ? wrap(value) : value;
-  },
-
-  set() {
-    return true;
-  },
-
-  deleteProperty() {
-    return true;
-  }
-};
-
-export function setProperty(
-  state: StateNode,
-  property: string | number,
-  value: any,
-  force?: boolean
-) {
+export function setProperty(state: any, property: string | number, value: any, force?: boolean) {
   if (!force && state[property] === value) return;
-  const notify = Array.isArray(state) || !(property in state);
   if (value === undefined) {
     delete state[property];
   } else state[property] = value;
-  let nodes = getDataNodes(state),
-    node;
-  (node = nodes[property]) && node[1]();
-  notify && (node = nodes._) && node[1]();
 }
 
-function mergeState(state: StateNode, value: Partial<StateNode>, force?: boolean) {
+function mergeState(state: any, value: any, force?: boolean) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
@@ -120,7 +195,7 @@ function mergeState(state: StateNode, value: Partial<StateNode>, force?: boolean
   }
 }
 
-export function updatePath(current: StateNode, path: any[], traversed: (number | string)[] = []) {
+export function updatePath(current: any, path: any[], traversed: (number | string)[] = []) {
   let part,
     next = current;
   if (path.length > 1) {
@@ -161,7 +236,6 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
     if (value === next) return;
   }
   if (part === undefined && value == undefined) return;
-  value = unwrap(value);
   if (part === undefined || (isWrappable(next) && isWrappable(value) && !Array.isArray(value))) {
     mergeState(next, value);
   } else setProperty(current, part, value);
@@ -269,14 +343,47 @@ export interface SetStateFunction<T> {
   ): void;
 }
 
-export function createState<T extends StateNode>(
-  state: T | State<T>
-): [State<T>, SetStateFunction<T>] {
-  const unwrappedState = unwrap<T>(state || {}, true);
-  const wrappedState = wrap(unwrappedState);
+export function createState<T>(state: T | State<T>): [State<T>, SetStateFunction<T>] {
   function setState(...args: any[]): void {
-    freeze(() => updatePath(unwrappedState, args));
+    updatePath(state, args);
   }
+  return [state as State<T>, setState];
+}
 
-  return [wrappedState, setState];
+type ReconcileOptions = {
+  key?: string | null;
+  merge?: boolean;
+};
+
+// Diff method for setState
+export function reconcile<T>(
+  value: T | State<T>,
+  options: ReconcileOptions = {}
+): (state: T extends NotWrappable ? T : State<T>) => void {
+  return state => {
+    if (!isWrappable(state)) return value;
+    const targetKeys = Object.keys(value) as (keyof T)[];
+    for (let i = 0, len = targetKeys.length; i < len; i++) {
+      const key = targetKeys[i];
+      setProperty(state, key as string, value[key]);
+    }
+    const previousKeys = Object.keys(state) as (keyof T)[];
+    for (let i = 0, len = previousKeys.length; i < len; i++) {
+      if (value[previousKeys[i]] === undefined)
+        setProperty(state, previousKeys[i] as string, undefined);
+    }
+  };
+}
+
+export function mapArray<T, U>(
+  list: () => T[],
+  mapFn: (v: T, i: () => number) => U,
+  options: { fallback?: () => any } = {}
+): () => U[] {
+  const items = list();
+  let s: U[] = [];
+  if (items.length) {
+    for (let i = 0, len = items.length; i < len; i++) s.push(mapFn(items[i], () => i));
+  } else if (options.fallback) s = [options.fallback()];
+  return () => s;
 }
