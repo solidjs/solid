@@ -126,14 +126,15 @@ const App = () => {
   const [state, setState] = createState({
     user: {
       firstName: "John",
-      lastName: "Smith"
+      lastName: "Smith",
+      get fullName() { return `${state.firstName} ${state.lastName}`; }
     }
   });
 
   return (
     <div
       onClick={() => setState("user", "lastName", l => l + "!")}
-    >{state.user.firstName} {state.user.lastName}</div>
+    >{state.user.fullName}</div>
   );
 };
 
