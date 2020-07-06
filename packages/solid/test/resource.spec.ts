@@ -1,28 +1,30 @@
 import {
   createRoot,
   createSignal,
+  createState,
   createResource,
   createResourceState,
   createEffect,
   onError,
   SetStateFunction,
-  Resource
+  Resource,
+  State
 } from "../src";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: number) => void,
-    load: (v: Promise<string> | undefined) => void,
+    load: (v?: () => Promise<string>) => void,
+    i: number,
     value: Resource<string>,
     error: string;
-  function fetcher(id: number): Promise<string> | undefined {
-    return !!id
-      ? new Promise<string>((r, f) => {
-          resolve = r;
-          reject = f;
-        })
-      : undefined;
+  function fetcher(id: number) {
+    return () =>
+      new Promise<string>((r, f) => {
+        resolve = r;
+        reject = f;
+      });
   }
 
   test("initial async resource", async done => {
@@ -31,7 +33,7 @@ describe("Simulate a dynamic fetch", () => {
       [value, load] = createResource<string>();
       trigger = setId;
       onError(e => (error = e));
-      createEffect(() => load(fetcher(id())));
+      createEffect(() => load((i = id()) ? fetcher(i) : undefined));
       createEffect(value);
     });
     expect(value()).toBeUndefined();
@@ -79,11 +81,11 @@ describe("Simulate a dynamic fetch with state", () => {
     reject: (r: string) => void,
     trigger: (v: number) => void,
     load: (
-      v: { [k: number]: Promise<string> | string },
+      v: { [k: number]: (() => Promise<string>) | string },
       r?: (v: any) => (state: any) => void
     ) => void,
     setUsers: SetStateFunction<{ [id: number]: string }>,
-    users: any;
+    users: State<{ [id: number]: string; loading: { [id: number]: boolean } }>;
   function fetcher(): Promise<string> {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -96,11 +98,7 @@ describe("Simulate a dynamic fetch with state", () => {
       const [id, setId] = createSignal(1);
       [users, load, setUsers] = createResourceState<{ [id: number]: string }>({ 6: "Rio" });
       trigger = setId;
-      createEffect(() => {
-        const i = id();
-        if (i === 5) return load({ 5: "Jordan" });
-        load({ [i]: fetcher() });
-      });
+      createEffect(() => load({[id()]: fetcher}));
     });
     expect(users[1]).toBeUndefined();
     expect(users.loading[1]).toBe(true);
@@ -137,12 +135,6 @@ describe("Simulate a dynamic fetch with state", () => {
     done();
   });
 
-  test("direct value", () => {
-    trigger(5);
-    expect(users.loading[5]).toBe(false);
-    expect(users[5]).toBe("Jordan");
-  });
-
   test("setState", () => {
     setUsers(5, "Jordy");
     expect(users[5]).toBe("Jordy");
@@ -150,7 +142,7 @@ describe("Simulate a dynamic fetch with state", () => {
 
   test("custom reconciler", async done => {
     const reconcile = (v: string) => (state: string) => `${state} ${v}`;
-    load({ 6: new Promise(r => r("Jerry")) }, reconcile);
+    load({ 6: () => new Promise(r => r("Jerry")) }, reconcile);
     await Promise.resolve();
     await Promise.resolve();
     expect(users[6]).toBe("Rio Jerry");
@@ -177,7 +169,7 @@ describe("using Resource with no root", () => {
     expect(() => {
       const [, load] = createResource<string>();
       let resolve: (v: string) => void;
-      load(new Promise(r => (resolve = r)));
+      load(() => new Promise(r => (resolve = r)));
       resolve!("Hi");
     }).not.toThrow();
   });

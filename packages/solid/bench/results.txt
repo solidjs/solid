@@ -1,143 +1,143 @@
 Solid
 
-createDataSignals: 16
-createComputations0to1: 12
-createComputations1to1: 74
-createComputations2to1: 67
-createComputations4to1: 37
+createDataSignals: 41
+createComputations0to1: 10
+createComputations1to1: 58
+createComputations2to1: 61
+createComputations4to1: 35
 createComputations1000to1: 18
-createComputations1to2: 147
-createComputations1to4: 127
-createComputations1to8: 134
-createComputations1to1000: 116
-create total: 750
+createComputations1to2: 128
+createComputations1to4: 118
+createComputations1to8: 121
+createComputations1to1000: 112
+create total: 701
 ---
-updateComputations1to1: 79
-updateComputations2to1: 52
+updateComputations1to1: 73
+updateComputations2to1: 48
 updateComputations4to1: 33
-updateComputations1000to1: 41
-updateComputations1to2: 79
-updateComputations1to4: 73
-updateComputations1to1000: 61
-update total: 419
-total: 1169
+updateComputations1000to1: 42
+updateComputations1to2: 76
+updateComputations1to4: 69
+updateComputations1to1000: 57
+update total: 399
+total: 1100
 
 S.js
 
-createDataSignals: 34
+createDataSignals: 26
 createComputations0to1: 12
-createComputations1to1: 53
-createComputations2to1: 21
-createComputations4to1: 49
-createComputations1000to1: 17
-createComputations1to2: 136
-createComputations1to4: 109
-createComputations1to8: 109
-createComputations1to1000: 85
-create total: 623
+createComputations1to1: 45
+createComputations2to1: 19
+createComputations4to1: 45
+createComputations1000to1: 16
+createComputations1to2: 128
+createComputations1to4: 97
+createComputations1to8: 106
+createComputations1to1000: 81
+create total: 576
 ---
-updateComputations1to1: 72
-updateComputations2to1: 58
-updateComputations4to1: 35
-updateComputations1000to1: 32
-updateComputations1to2: 98
-updateComputations1to4: 77
-updateComputations1to1000: 54
-update total: 427
-total: 1050
+updateComputations1to1: 67
+updateComputations2to1: 49
+updateComputations4to1: 33
+updateComputations1000to1: 33
+updateComputations1to2: 91
+updateComputations1to4: 72
+updateComputations1to1000: 50
+update total: 395
+total: 971
 
 @vue/reactivity
 
-createDataSignals: 181
-createComputations0to1: 23
-createComputations1to1: 282
-createComputations2to1: 211
-createComputations4to1: 192
-createComputations1000to1: 178
-createComputations1to2: 281
-createComputations1to4: 349
-createComputations1to8: 204
-createComputations1to1000: 291
-create total: 2193
+createDataSignals: 151
+createComputations0to1: 24
+createComputations1to1: 289
+createComputations2to1: 195
+createComputations4to1: 139
+createComputations1000to1: 138
+createComputations1to2: 185
+createComputations1to4: 222
+createComputations1to8: 156
+createComputations1to1000: 267
+create total: 1766
 ---
-updateComputations1to1: 541
-updateComputations2to1: 353
-updateComputations4to1: 225
-updateComputations1000to1: 372
-updateComputations1to2: 303
-updateComputations1to4: 265
-updateComputations1to1000: 235
-update total: 2295
-total: 4488
+updateComputations1to1: 509
+updateComputations2to1: 346
+updateComputations4to1: 182
+updateComputations1000to1: 303
+updateComputations1to2: 307
+updateComputations1to4: 248
+updateComputations1to1000: 230
+update total: 2124
+total: 3890
 
 Sinuous
 
-createDataSignals: 99
+createDataSignals: 89
 createComputations0to1: 211
-createComputations1to1: 245
-createComputations2to1: 164
-createComputations4to1: 92
-createComputations1000to1: 118
-createComputations1to2: 251
-createComputations1to4: 266
-createComputations1to8: 326
-createComputations1to1000: 330
-create total: 2100
+createComputations1to1: 237
+createComputations2to1: 169
+createComputations4to1: 90
+createComputations1000to1: 119
+createComputations1to2: 215
+createComputations1to4: 256
+createComputations1to8: 257
+createComputations1to1000: 231
+create total: 1872
 ---
-updateComputations1to1: 435
-updateComputations2to1: 309
-updateComputations4to1: 164
-updateComputations1000to1: 216
-updateComputations1to2: 357
-updateComputations1to4: 311
-updateComputations1to1000: 337
-update total: 2129
-total: 4230
+updateComputations1to1: 323
+updateComputations2to1: 215
+updateComputations4to1: 134
+updateComputations1000to1: 154
+updateComputations1to2: 267
+updateComputations1to4: 238
+updateComputations1to1000: 243
+update total: 1573
+total: 3446
 
 Sinuous-mod
 
-createDataSignals: 51
-createComputations0to1: 103
-createComputations1to1: 140
+createDataSignals: 79
+createComputations0to1: 114
+createComputations1to1: 117
 createComputations2to1: 85
-createComputations4to1: 84
-createComputations1000to1: 139
-createComputations1to2: 234
-createComputations1to4: 168
-createComputations1to8: 147
-createComputations1to1000: 168
-create total: 1319
+createComputations4to1: 60
+createComputations1000to1: 131
+createComputations1to2: 254
+createComputations1to4: 154
+createComputations1to8: 136
+createComputations1to1000: 154
+create total: 1284
 ---
-updateComputations1to1: 252
-updateComputations2to1: 151
-updateComputations4to1: 108
-updateComputations1000to1: 157
-updateComputations1to2: 198
-updateComputations1to4: 224
-updateComputations1to1000: 263
-update total: 1353
-total: 2673
+updateComputations1to1: 228
+updateComputations2to1: 145
+updateComputations4to1: 100
+updateComputations1000to1: 153
+updateComputations1to2: 182
+updateComputations1to4: 162
+updateComputations1to1000: 152
+update total: 1122
+total: 2407
 
 RVal Mod
 
-createDataSignals: 60
-createComputations0to1: 81
-createComputations1to1: 290
-createComputations2to1: 157
-createComputations4to1: 104
-createComputations1000to1: 45
-createComputations1to2: 340
-createComputations1to4: 344
-createComputations1to8: 322
-createComputations1to1000: 416
-create total: 2160
+createDataSignals: 59
+createComputations0to1: 84
+createComputations1to1: 261
+createComputations2to1: 143
+createComputations4to1: 98
+createComputations1000to1: 38
+createComputations1to2: 323
+createComputations1to4: 339
+createComputations1to8: 296
+createComputations1to1000: 259
+create total: 1899
 ---
-updateComputations1to1: 836
-updateComputations2to1: 393
-updateComputations4to1: 214
-updateComputations1000to1: 226
-updateComputations1to2: 520
-updateComputations1to4: 489
-updateComputations1to1000: 521
-update total: 3200
-total: 5360
+updateComputations1to1: 514
+updateComputations2to1: 321
+updateComputations4to1: 183
+updateComputations1000to1: 205
+updateComputations1to2: 459
+updateComputations1to4: 445
+updateComputations1to1000: 431
+update total: 2559
+total: 4458

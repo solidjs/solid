@@ -1,4 +1,4 @@
-import { sample, createMemo } from "../reactive/signal";
+import { sample } from "../reactive/signal";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
@@ -28,39 +28,30 @@ export function createComponent<T>(
   return sample(() => Comp(props as T));
 }
 
-export function setDefaults<T>(props: T, defaultProps: T) {
-  const propKeys = Object.keys(defaultProps) as (keyof T)[];
-  for (let i = 0; i < propKeys.length; i++) {
-    const key = propKeys[i];
-    !(key in props) && (props[key] = defaultProps[key]);
+export function assign<T, U>(target: T, source: U): T & U;
+export function assign<T, U, V>(target: T, source1: U, source2: V): T & U & V;
+export function assign<T, U, V, W>(target: T, source1: U, source2: V, source3: W): T & U & V & W;
+export function assign(target: any, ...sources: any): any {
+  for (let i = 0; i < sources.length; i++) {
+    const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
+    Object.defineProperties(target, descriptors);
   }
+  return target;
 }
 
-export function cloneProps<T>(props: T): T {
-  const clone = {},
-    descriptors = Object.getOwnPropertyDescriptors(props);
-  Object.defineProperties(clone, descriptors);
-  return clone as T;
-}
-
-export function splitProps<T extends object, K1 extends keyof T>(
+export function split<T extends object, K1 extends keyof T>(
   props: T,
   ...keys: [K1[]]
 ): [Pick<T, K1>, Omit<T, K1>];
-export function splitProps<T extends object, K1 extends keyof T, K2 extends keyof T>(
+export function split<T extends object, K1 extends keyof T, K2 extends keyof T>(
   props: T,
   ...keys: [K1[], K2[]]
 ): [Pick<T, K1>, Pick<T, K2>, Omit<T, K1 | K2>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T
->(
+export function split<T extends object, K1 extends keyof T, K2 extends keyof T, K3 extends keyof T>(
   props: T,
   ...keys: [K1[], K2[], K3[]]
 ): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Omit<T, K1 | K2 | K3>];
-export function splitProps<
+export function split<
   T extends object,
   K1 extends keyof T,
   K2 extends keyof T,
@@ -70,7 +61,7 @@ export function splitProps<
   props: T,
   ...keys: [K1[], K2[], K3[], K4[]]
 ): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Pick<T, K4>, Omit<T, K1 | K2 | K3 | K4>];
-export function splitProps<
+export function split<
   T extends object,
   K1 extends keyof T,
   K2 extends keyof T,
@@ -88,7 +79,7 @@ export function splitProps<
   Pick<T, K5>,
   Omit<T, K1 | K2 | K3 | K4 | K5>
 ];
-export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
+export function split<T>(props: T, ...keys: [(keyof T)[]]) {
   const descriptors = Object.getOwnPropertyDescriptors(props),
     split = (k: (keyof T)[]) => {
       const clone: Partial<T> = {};

@@ -1,5 +1,5 @@
 import { css, CSSAttribute } from "goober";
-import { cloneProps, createContext, useContext } from "solid-js";
+import { assign, createContext, useContext } from "solid-js";
 import { spread, createComponent } from "solid-js/dom";
 
 export { css, glob, extractCss } from "goober";
@@ -26,7 +26,7 @@ type StyledTemplateArgs<T> = [
 export function styled<T extends keyof JSX.IntrinsicElements>(tag: T | ((props: any) => any)) {
   return <P>(...args: StyledTemplateArgs<P & { theme?: any }>) => {
     return (props: P  & JSX.IntrinsicElements[T] & { theme?: any }): JSX.Element => {
-      const newProps = cloneProps(props);
+      const newProps = assign({}, props);
       props.theme = useContext(ThemeContext);
       Object.defineProperty(newProps, "className", {
         get() {

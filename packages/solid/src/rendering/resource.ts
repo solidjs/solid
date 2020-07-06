@@ -73,7 +73,7 @@ export interface Resource<T> {
   loading: boolean;
 }
 
-export function createResource<T>(value?: T): [Resource<T>, (p?: Promise<T> | T) => void] {
+export function createResource<T>(value?: T): [Resource<T>, (fn?: (() => Promise<T>) | T) => void] {
   const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
     [trackLoading, triggerLoading] = createSignal<void>(),
@@ -103,14 +103,15 @@ export function createResource<T>(value?: T): [Resource<T>, (p?: Promise<T> | T)
     }
     return v;
   }
-  function load(p: Promise<T> | T | undefined) {
+  function load(fn?: (() => Promise<T>) | T) {
     error = null;
-    if (p == null || typeof p !== "object" || !("then" in p)) {
+    if (fn == null || typeof fn !== "function") {
       pr = undefined;
-      loadEnd(p);
-      return p;
+      loadEnd(fn);
+      return fn;
     } else {
-      pr = p;
+      let p: Promise<T>;
+      pr = p = (fn as () => Promise<T>)();
       if (!loading) {
         loading = true;
         freeze(() => {
@@ -185,7 +186,7 @@ const resourceTraps = {
 
 export interface LoadStateFunction<T> {
   (
-    v: { [P in keyof T]?: Promise<T[P]> | T[P] },
+    v: { [P in keyof T]?: (() => Promise<T[P]>) | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
   ): void;
 }
@@ -206,7 +207,7 @@ export function createResourceState<T extends StateNode>(
     freeze(() => updatePath(unwrappedState, args));
   }
   function loadState(
-    v: { [P in keyof T]?: Promise<T[P]> | T[P] },
+    v: { [P in keyof T]?: (() => Promise<T[P]>) | T[P] },
     r?: (v: Partial<T>) => (state: State<T>) => void
   ) {
     const nodes = getDataNodes(unwrappedState),
@@ -236,7 +237,7 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
       [s, p] = createResource<T>();
     if (hydrating) {
       fn().then(mod => p(mod.default));
-    } else p(fn().then(mod => mod.default));
+    } else p(() => fn().then(mod => mod.default));
     let Comp: T | undefined;
     return createMemo(
       () =>

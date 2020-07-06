@@ -52,9 +52,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   try {
     result = fn(() => cleanNode(root));
   } catch (err) {
-    const fns = lookup(Owner, ERROR);
-    if (!fns) throw err;
-    fns.forEach((f: (err: any) => void) => f(err));
+    handleError(err);
   } finally {
     while (Afters.length) Afters.shift()!();
     Listener = listener;
@@ -72,13 +70,17 @@ export function createSignal<T>(
     observers: null,
     observerSlots: null,
     pending: NOTPENDING,
-    comparator: areEqual ? typeof areEqual === "function" ? areEqual : equalFn : undefined
+    comparator: areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined
   };
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
-  updateComputation(createComputation(fn, value));
+  try {
+    updateComputation(createComputation(fn, value));
+  } catch (err) {
+    handleError(err);
+  }
 }
 
 export function createDependentEffect<T>(
@@ -110,8 +112,12 @@ export function createMemo<T>(
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
-  c.comparator = areEqual ? typeof areEqual === "function" ? areEqual : equalFn : undefined;
-  updateComputation(c as Computation<T>);
+  c.comparator = areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined;
+  try {
+    updateComputation(c as Computation<T>);
+  } catch (err) {
+    handleError(err);
+  }
   return readSignal.bind(c as Memo<T>);
 }
 
@@ -307,9 +313,7 @@ function runUpdates(fn: () => void) {
       try {
         runTop(Updates![i]);
       } catch (err) {
-        const fns = lookup(Owner, ERROR);
-        if (!fns) throw err;
-        fns.forEach((f: (err: any) => void) => f(err));
+        handleError(err);
       }
     }
   } finally {
@@ -368,6 +372,12 @@ function cleanNode(node: Owner) {
     for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
     node.cleanups = null;
   }
+}
+
+function handleError(err: any) {
+  const fns = lookup(Owner, ERROR);
+  if (!fns) throw err;
+  fns.forEach((f: (err: any) => void) => f(err));
 }
 
 function callAll(ss: (() => any)[]) {

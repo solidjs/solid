@@ -1,6 +1,5 @@
 import { createRoot, createSignal, Component } from "../../src";
 import { Dynamic } from "../../src/dom";
-import { setMaxListeners } from "process";
 
 describe("Testing Dynamic control flow", () => {
   let div: HTMLDivElement, disposer: () => void;

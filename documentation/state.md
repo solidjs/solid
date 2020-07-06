@@ -1,12 +1,23 @@
 # State
 
-State is a core work horse of Solid. It is composed of many on demand reactive signals through a proxy object. The advantage is that it is automatically reactive and resembles data structures you may already have. It removes the classic issues with fine-grained reactivity around mapping reactive structures and serializing JSON. And as a structure itself it can be diffed allowing interaction with immutable data and snapshots.
+State is a core work horse of Solid. It is composed of many on demand reactive Signals through a proxy object. It is deeply nested reactivity, and lazily creates Signals on demand.
+
+The advantage is that it is automatically reactive and resembles data structures you may already have. It removes the classic issues with fine-grained reactivity around mapping reactive structures and serializing JSON. And as a structure itself it can be diffed allowing interaction with immutable data and snapshots.
 
 Through the use of proxies and explicit setters it gives the control of an immutable interface and the performance of a mutable one. The setters support a variety of forms, but to get started set and update state with an object.
 
 ### `createState(object)`
 
 Initializes with object value and returns an array where the first index is the state object and the second is the setState method.
+
+Initial state consists of a tree of values, including getters that can define derived values:
+```jsx
+const [state, setState] = createState({
+  firstName: 'John',
+  lastName: 'Miller',
+  get fullName() { return `${state.firstName} ${state.lastName}`; }
+});
+```
 
 ### `setState(changes)`
 

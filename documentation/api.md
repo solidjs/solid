@@ -72,14 +72,10 @@ Registers a method that will run after the current execution process is complete
 
 Used to lazy load components to allow for things like code splitting and Suspense.
 
-### `setDefaults(props, defaultProps): void`
+### `assign(target, ...sources): target`
 
-Sets default props for function components in case caller doesn't provide them.
+A reactive object `assign` method. Useful for setting default props for components in case caller doesn't provide them. Or cloning the props object including reactive properties.
 
-### `cloneProps(props): newProps`
+### `split(props, ...keyArrays): [...splitProps]`
 
-Clones the props object including reactive properties.
-
-### `splitProps(props, ...keyArrays): [...splitProps]`
-
-Splits the props object including reactive properties.
+Splits a reactive object by keys while maintaining reactivity.

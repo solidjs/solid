@@ -19,8 +19,7 @@ describe("Testing Suspense", () => {
       let [value, load] = createResource<string>();
       createEffect(
         () =>
-          triggered() &&
-          (load(new Promise(r => setTimeout(() => r("Hey"), 300))), sample(value))
+          triggered() && (load(() => new Promise(r => setTimeout(() => r("Hey"), 300))), sample(value))
       );
       return props.greeting;
     },
@@ -74,8 +73,8 @@ describe("Testing Suspense with State", () => {
   let div = document.createElement("div"),
     disposer: () => void;
   const ChildComponent = (props: { name: string }) => {
-      const [state, load] = createResourceState({ greeting: "" });
-      load({ greeting: new Promise(r => setTimeout(() => r("Hey"), 300)) });
+    const [state, load] = createResourceState({ greeting: "" });
+    load({ greeting: () => new Promise(r => setTimeout(() => r("Hey"), 300)) });
       return <>{`${state.greeting}, ${props.name}`}</>;
     },
     Component = () => (
@@ -102,7 +101,7 @@ describe("Testing Suspense with State", () => {
 
 describe("SuspenseList", () => {
   const promiseFactory = (time: number, v: string) => {
-      return new Promise<string>(r => {
+      return () => new Promise<string>(r => {
         setTimeout(() => {
           r(v);
         }, time);

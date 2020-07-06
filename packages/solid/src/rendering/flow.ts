@@ -1,7 +1,7 @@
-import { createMemo, sample } from "../reactive/signal";
+import { createMemo, sample, createSignal, onError } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import { suspend } from "./resource";
-import { Component, splitProps } from "./component";
+import { Component, split } from "./component";
 
 function simpleMap(
   props: { each: any[]; children: Function; fallback?: JSX.Element },
@@ -94,14 +94,32 @@ type MatchProps<T> = {
 export function Match<T>(props: MatchProps<T>) {
   const childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value;
   (props as MatchProps<T> & { keyed: boolean }).keyed =
-    typeof childDesc === "function" && childDesc.length;
+    typeof childDesc === "function" && !!childDesc.length;
   return (props as unknown) as JSX.Element;
+}
+
+export function ErrorBoundary(props: {
+  fallback: JSX.Element | ((err: any) => JSX.Element);
+  children: JSX.Element;
+}) {
+  const [errored, setErrored] = createSignal(),
+    fallbackDesc = Object.getOwnPropertyDescriptor(props, "fallback")!.value,
+    callFn = typeof fallbackDesc === "function" && !!fallbackDesc.length;
+  onError(setErrored);
+  let e: any;
+  return createMemo(() =>
+    (e = errored()) != null
+      ? callFn
+        ? sample(() => (props.fallback as (err: any) => JSX.Element)(e))
+        : props.fallback
+      : props.children
+  ) as () => JSX.Element;
 }
 
 // use the version from solid-js/dom to support intrinsic elements writing for future considerations
 /* istanbul ignore next */
 export function Dynamic<T>(props: T & { component?: Component<T> }) {
-  const [p, others] = splitProps(props, ["component"]);
+  const [p, others] = split(props, ["component"]);
   return suspend(() => {
     const comp = p.component;
     return comp && sample(() => comp(others as any));

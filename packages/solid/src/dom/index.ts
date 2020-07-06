@@ -1,14 +1,19 @@
 import { insert, spread } from "./runtime";
-import { onCleanup, sample, splitProps, Component, suspend } from "../index.js";
+import { onCleanup, sample, split, Component, suspend } from "../index.js";
 
 export * from "./runtime";
-export { For, Match, Show, Suspense, SuspenseList, Switch, Index } from "../index.js";
+export {
+  For,
+  Show,
+  Suspense,
+  SuspenseList,
+  Switch,
+  Match,
+  Index,
+  ErrorBoundary
+} from "../index.js";
 
-export function Portal(props: {
-  mount?: Node;
-  useShadow?: boolean;
-  children: JSX.Element;
-}) {
+export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
   const { useShadow } = props,
     container = document.createElement("div"),
     marker = document.createTextNode(""),
@@ -34,7 +39,7 @@ export function Portal(props: {
 export function Dynamic<T>(
   props: T & { component?: Component<T> | keyof JSX.IntrinsicElements }
 ): () => JSX.Element {
-  const [p, others] = splitProps(props, ["component"]);
+  const [p, others] = split(props, ["component"]);
   return suspend(() => {
     const comp = p.component,
       t = typeof comp;

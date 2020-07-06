@@ -1,4 +1,4 @@
-import { createComponent, setDefaults, cloneProps, splitProps } from "../src";
+import { createComponent, assign, split } from "../src";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -10,7 +10,7 @@ type SimplePropTypes = {
 const Comp = (props: { greeting: string; name: string }) => `${props.greeting} ${props.name}`;
 
 const Comp2 = (props: { greeting: string; name: string, optional?: string }) => {
-  const [p, q] = splitProps(props, ["greeting", "optional"]);
+  const [p, q] = split(props, ["greeting", "optional"]);
   return `${p.greeting} ${q.name}`;
 }
 
@@ -23,15 +23,15 @@ describe("CreateComponent", () => {
 
 describe("Set Default Props", () => {
   test("simple set", () => {
-    const props: SimplePropTypes = {
+    let props: SimplePropTypes = {
         get a() {
           return "ji";
         },
         b: null,
         c: "j"
       },
-      defaultProps: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
-    setDefaults(props, defaultProps);
+      defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
+    props = assign(defaults, props);
     expect(props.a).toBe("ji");
     expect(props.b).toBe(null);
     expect(props.c).toBe("j");
@@ -50,7 +50,7 @@ describe("Clone Props", () => {
       b: null,
       c: "j"
     };
-    const newProps = cloneProps(props);
+    const newProps = assign({}, props);
     expect(reactive).toBe(false);
     expect(newProps.a).toBe("ji");
     expect(reactive).toBe(true);

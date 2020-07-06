@@ -175,8 +175,9 @@ Both have trackable `loading` property. On the signal it's a boolean. On the sta
 ```jsx
 import { createResource } from "solid-js";
 
+// notice returns a function that returns a promise
 const fetchUser = id =>
-  fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
+  () => fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
 
 export default const UserPanel = props => {
   let [user, load] = createResource();
@@ -201,8 +202,10 @@ export default const UserPanel = props => {
 ```jsx
 import { createResourceState } from "solid-js";
 
+
+// notice returns a function that returns a promise
 const fetchUser = id =>
-  fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
+  () => fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
 
 export default const UserPanel = props => {
   let [state, load] = createResourceState();
@@ -250,7 +253,7 @@ function ProfilePage() {
 
 function ProfileDetails() {
   // Try to read user info, although it might not have loaded yet
-  return <h1>{state.user && state.user.name}</h1>;
+  return <h1>{state.user?.name}</h1>;
 }
 
 function ProfileTimeline() {
