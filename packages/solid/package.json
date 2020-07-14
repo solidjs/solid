@@ -27,8 +27,5 @@
     "test:coverage": "jest --coverage && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json",
     "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
-  },
-  "optionalDependencies": {
-    "babel-preset-solid": "^0.18.13"
   }
 }
