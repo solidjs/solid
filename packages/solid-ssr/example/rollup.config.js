@@ -1,6 +1,6 @@
 import nodeResolve from "@rollup/plugin-node-resolve";
 import common from "@rollup/plugin-commonjs";
-import babel from "rollup-plugin-babel";
+import babel from "@rollup/plugin-babel";
 
 export default [{
   input: "example/src/server.js",
