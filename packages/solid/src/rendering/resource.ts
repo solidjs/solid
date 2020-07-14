@@ -73,7 +73,9 @@ export interface Resource<T> {
   loading: boolean;
 }
 
-export function createResource<T>(value?: T): [Resource<T>, (fn?: (() => Promise<T>) | T) => void] {
+export function createResource<T>(
+  value?: T
+): [Resource<T>, (fn: (() => Promise<T>) | T, options?: { force?: boolean }) => void] {
   const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
     [trackLoading, triggerLoading] = createSignal<void>(),
@@ -103,27 +105,32 @@ export function createResource<T>(value?: T): [Resource<T>, (fn?: (() => Promise
     }
     return v;
   }
-  function load(fn?: (() => Promise<T>) | T) {
+  function load(fn: (() => Promise<T>) | T, options: { force?: boolean } = {}) {
     error = null;
     if (fn == null || typeof fn !== "function") {
       pr = undefined;
       loadEnd(fn);
       return fn;
-    } else {
-      let p: Promise<T>;
-      pr = p = (fn as () => Promise<T>)();
-      if (!loading) {
-        loading = true;
-        freeze(() => {
-          triggerLoading();
-          triggerPromise();
-        });
-      }
-      return p.then(
-        v => (pr === p && loadEnd(v), s()),
-        err => (pr === p && ((error = err), loadEnd(undefined)), s())
-      );
     }
+    const hydrating =
+      globalThis._$HYDRATION &&
+      globalThis._$HYDRATION.context &&
+      !!globalThis._$HYDRATION.context.registry;
+    if (!options.force && hydrating) return;
+
+    let p: Promise<T>;
+    pr = p = (fn as () => Promise<T>)();
+    if (!loading) {
+      loading = true;
+      freeze(() => {
+        triggerLoading();
+        triggerPromise();
+      });
+    }
+    return p.then(
+      v => (pr === p && loadEnd(v), s()),
+      err => (pr === p && ((error = err), loadEnd(undefined)), s())
+    );
   }
   Object.defineProperty(read, "loading", {
     get() {
@@ -232,7 +239,7 @@ export function createResourceState<T extends StateNode>(
 // lazy load a function component asynchronously
 export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
   return ((props: any) => {
-    const hydrating = globalThis._$HYDRATION.context && globalThis._$HYDRATION.context.registry,
+    const hydrating = globalThis._$HYDRATION.context && !!globalThis._$HYDRATION.context.registry,
       ctx = nextHydrateContext(),
       [s, p] = createResource<T>();
     if (hydrating) {
@@ -278,7 +285,9 @@ export function suspend<T>(fn: () => T) {
   const { state } = useContext(SuspenseContext),
     wrapped = createMemo(fn);
   let cached: T;
-  return state ? createMemo(() => (state() === "suspended" ? cached : (cached = wrapped()))) : wrapped;
+  return state
+    ? createMemo(() => (state() === "suspended" ? cached : (cached = wrapped())))
+    : wrapped;
 }
 
 type HydrationContext = {

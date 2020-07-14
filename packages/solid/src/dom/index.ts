@@ -1,5 +1,5 @@
 import { insert, spread } from "./runtime";
-import { onCleanup, sample, split, Component, suspend } from "../index.js";
+import { onCleanup, sample, splitProps, Component, suspend } from "../index.js";
 
 export * from "./runtime";
 export {
@@ -39,7 +39,7 @@ export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX
 export function Dynamic<T>(
   props: T & { component?: Component<T> | keyof JSX.IntrinsicElements }
 ): () => JSX.Element {
-  const [p, others] = split(props, ["component"]);
+  const [p, others] = splitProps(props, ["component"]);
   return suspend(() => {
     const comp = p.component,
       t = typeof comp;

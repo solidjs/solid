@@ -1,7 +1,6 @@
 import {
   createRoot,
   createSignal,
-  createState,
   createResource,
   createResourceState,
   createEffect,
@@ -15,7 +14,7 @@ describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: number) => void,
-    load: (v?: () => Promise<string>) => void,
+    load: (v: () => Promise<string>) => void,
     i: number,
     value: Resource<string>,
     error: string;
@@ -33,7 +32,7 @@ describe("Simulate a dynamic fetch", () => {
       [value, load] = createResource<string>();
       trigger = setId;
       onError(e => (error = e));
-      createEffect(() => load((i = id()) ? fetcher(i) : undefined));
+      createEffect(() => (i = id()) && load(fetcher(i)));
       createEffect(value);
     });
     expect(value()).toBeUndefined();
@@ -67,12 +66,6 @@ describe("Simulate a dynamic fetch", () => {
     expect(error).toBe("Because I said so");
     expect(value.loading).toBe(false);
     done();
-  });
-
-  test("no promise", () => {
-    trigger(0);
-    expect(value.loading).toBe(false);
-    expect(value()).toBeUndefined();
   });
 });
 

@@ -1,7 +1,7 @@
 import { createMemo, sample, createSignal, onError } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import { suspend } from "./resource";
-import { Component, split } from "./component";
+import { Component, splitProps } from "./component";
 
 function simpleMap(
   props: { each: any[]; children: Function; fallback?: JSX.Element },
@@ -119,7 +119,7 @@ export function ErrorBoundary(props: {
 // use the version from solid-js/dom to support intrinsic elements writing for future considerations
 /* istanbul ignore next */
 export function Dynamic<T>(props: T & { component?: Component<T> }) {
-  const [p, others] = split(props, ["component"]);
+  const [p, others] = splitProps(props, ["component"]);
   return suspend(() => {
     const comp = p.component;
     return comp && sample(() => comp(others as any));

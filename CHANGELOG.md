@@ -1,4 +1,76 @@
 # Changelog
+## 0.19.0
+API Changes to support better SSR
+### Breaking Changes:
+
+#### Set State
+Mutable form is no longer a default. It was strangely inconsistent as you could accidentally mutate in immutable forms. No indicator why it should behave differently and work. Increased the size of `state` for everyone and added performance overhead with additional proxy wrapping. Also it was based on returning undefined meaning function forms could never return undefined to blank a vlue. Solid has changed it into a state setter modifier `produce` after ImmerJS naming.
+
+```js
+// top level
+setState(produce(s => {
+ s.name = "John"
+}));
+
+// nested
+setState('user', produce(s => {
+ s.name = "John"
+}));
+```
+#### Prop APIs
+After writing `setDefaults`, `cloneProps`, and about to introduce `mergeProps` it became clear we can do this all with a single `assignProps` helper. So the former has been removed and now we have:
+
+```js
+// default props
+props = assignProps({ name; "Smith" }, props);
+
+// clone props
+newProps = assignProps({}, props);
+
+// merge props
+assignProps(props, otherProps)
+```
+It follows the same pattern as ES `Object.assign` adding properties to the first argument and returning it. Except this method copies property descriptors without accessing them to preserve reactivity.
+
+#### Resource API
+In anticipating streaming hydration it was prudent to change resource signatures to take functions that return promises rather than promises themselves. This factory function has a lot advantages. This allows the library to decide whether to execute it or not. In certain cases we can choose skipping creating the promise altogether. It also leaves the door open for things like retry.
+
+### New
+
+#### State Getters
+For convenience of passing derived values or external reactive expressions through Solid's state initializer
+you can now add `getter`'s.
+
+```jsx
+const [state, setState] = createState({
+  firstName: "Jon",
+  lastName: "Snow",
+  get greeting() { return `You know nothing ${state.firstName} ${state.lastName}` }
+});
+
+return <div>{state.greeting}</div>
+```
+
+#### Control Flow
+
+Dynamic allows swapping Component dynamically.
+```jsx
+// element tag name
+const [comp, setComp] = createSignal("h1");
+
+<Dynamic component={comp()} {...otherProps} />
+
+// Component
+setComp(MyComp);
+```
+
+ErrorBoundary catches uncaught downstream errors and shows a fallback.
+```jsx
+<ErrorBoundary fallback={<div>Something went terribly wrong</div>}>
+  <MyComp />
+</ErrorBoundary>
+```
+
 ## 0.18.0 - 2020-05-01
 A lot of bug fixes, and introduction of string based SSR.
 Breaking Changes:

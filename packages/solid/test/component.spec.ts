@@ -1,4 +1,4 @@
-import { createComponent, assign, split } from "../src";
+import { createComponent, assignProps, splitProps } from "../src";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -10,7 +10,7 @@ type SimplePropTypes = {
 const Comp = (props: { greeting: string; name: string }) => `${props.greeting} ${props.name}`;
 
 const Comp2 = (props: { greeting: string; name: string, optional?: string }) => {
-  const [p, q] = split(props, ["greeting", "optional"]);
+  const [p, q] = splitProps(props, ["greeting", "optional"]);
   return `${p.greeting} ${q.name}`;
 }
 
@@ -31,7 +31,7 @@ describe("Set Default Props", () => {
         c: "j"
       },
       defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
-    props = assign(defaults, props);
+    props = assignProps(defaults, props);
     expect(props.a).toBe("ji");
     expect(props.b).toBe(null);
     expect(props.c).toBe("j");
@@ -50,7 +50,7 @@ describe("Clone Props", () => {
       b: null,
       c: "j"
     };
-    const newProps = assign({}, props);
+    const newProps = assignProps({}, props);
     expect(reactive).toBe(false);
     expect(newProps.a).toBe("ji");
     expect(reactive).toBe(true);
@@ -60,8 +60,8 @@ describe("Clone Props", () => {
   });
 });
 
-describe("Split Props", () => {
-  test("Split in two", () => {
+describe("SplitProps Props", () => {
+  test("SplitProps in two", () => {
     const out = createComponent(Comp2, { greeting: "Hi", name: () => "dynamic" }, ["name"]);
     expect(out).toBe("Hi dynamic");
   })

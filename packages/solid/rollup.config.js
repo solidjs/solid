@@ -100,5 +100,50 @@ export default [
     ],
     external: ["./index.js", "hyper-dom-expressions"],
     plugins
+  },
+  {
+    input: "src/static/index.ts",
+    output: [
+      {
+        file: "lib/static/index.js",
+        format: "cjs"
+      },
+      {
+        file: "dist/static/index.js",
+        format: "es"
+      }
+    ],
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
+            dest: "./src/static"
+          },
+          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/static/" }
+        ]
+      }),
+      nodeResolve({
+        extensions: [".js", ".ts"]
+      }),
+      babel({
+        extensions: [".js", ".ts"],
+        exclude: "node_modules/**",
+        babelrc: false,
+        presets: ["@babel/preset-typescript"],
+        plugins: [
+          [
+            "babel-plugin-transform-rename-import",
+            {
+              original: "rxcore",
+              replacement: "../../../packages/solid/src/static/core"
+            }
+          ]
+        ]
+      }),
+      cleanup({
+        extensions: [".js", ".ts"]
+      })
+    ]
   }
 ];

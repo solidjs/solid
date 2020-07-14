@@ -148,9 +148,18 @@ _Note Show is designed to handle more complex scenarios like Component insertion
 </SuspenseList>
 ```
 
+### ErrorBoundary
+
+Catches uncaught errors and renders fallback content.
+```jsx
+<ErrorBoundary fallback={<div>Something went terribly wrong</div>}>
+  <MyComp />
+</ErrorBoundary>
+```
+
 ### Index
 
-> **Note:** You should never use this unless you know exactly what you are doing. Use `<For />` instead. Non-keyed or keyed by index is a dangerous anti-pattern that should never be used. It can mangle DOM state breaking(or incurring extra cost) in CSS animations/transisions, Rich DOM elements, Web Components, and DOM level plugins. With Solid you do not need an explicit key so there is no excuse. This exists just for integration with poorly designed benchmarks and libraries which default to this behavior.
+> **Note:** You should never use this unless you know exactly what you are doing. Use `<For />` instead. Non-keyed or keyed by index is a dangerous anti-pattern that should never be used if it can be avoided. It can mangle DOM state breaking(or incurring extra cost) in CSS animations/transisions, Rich DOM elements, Web Components, and DOM level plugins. With Solid you do not need an explicit key. This exists for iterating over arrays of mutable primitive values or integration with poorly designed benchmarks and libraries which default to this behavior.
 
 Non-Keyed list iteration (rows keyed to index). Item is a signal:
 ```jsx
