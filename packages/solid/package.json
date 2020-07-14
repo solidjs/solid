@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.18.12",
+  "version": "0.18.13",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/ryansolid/solid#readme",
@@ -29,6 +29,6 @@
     "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
   },
   "optionalDependencies": {
-    "babel-preset-solid": "^0.18.12"
+    "babel-preset-solid": "^0.18.13"
   }
 }
