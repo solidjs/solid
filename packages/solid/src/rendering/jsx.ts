@@ -2502,25 +2502,27 @@ declare global {
         | "central"
         | "mathematical"
         | "hanging"
-        | "text-top";
+        | "text-top"
+        | "inherit";
       enableBackground?: string;
       fill?: string;
-      fillOpacity?: number | string;
+      fillOpacity?: number | "inherit";
       fillRule?: "nonzero" | "evenodd" | "inherit";
       filter?: string;
       floodColor?: string;
-      floodOpacity?: number | string;
+      floodOpacity?: number | "inherit";
       fontFamily?: string;
       fontSize?: string;
       fontSizeAdjust?: number | string;
       fontStretch?: string;
-      fontStyle?: "normal" | "italic" | "oblique";
+      fontStyle?: "normal" | "italic" | "oblique" | "inherit";
       fontVariant?: string;
       fontWeight?:
         | "normal"
         | "bold"
         | "lighter"
         | "bolder"
+        | "inherit"
         | 100
         | 200
         | 300
@@ -2532,7 +2534,7 @@ declare global {
         | 900;
       glyphOrientationHorizontal?: string;
       glyphOrientationVertical?: string;
-      imageRendering?: "auto" | "optimizeQuality" | "optimizeSpeed";
+      imageRendering?: "auto" | "optimizeQuality" | "optimizeSpeed" | "inherit";
       kerning?: string;
       letterSpacing?: number | string;
       lightingColor?: string;
@@ -2540,7 +2542,7 @@ declare global {
       markerMid?: string;
       markerStart?: string;
       mask?: string;
-      opacity?: number | string;
+      opacity?: number | "inherit";
       overflow?: "visible" | "hidden" | "scroll" | "auto" | "inherit";
       pointerEvents?:
         | "bounding-box"
@@ -2553,17 +2555,18 @@ declare global {
         | "fill"
         | "stroke"
         | "all"
-        | "none";
+        | "none"
+        | "inherit";
       shapeRendering?: "auto" | "optimizeSpeed" | "crispEdges" | "geometricPrecision" | "inherit";
       stopColor?: string;
-      stopOpacity?: number | string;
+      stopOpacity?: number | "inherit";
       stroke?: string;
       strokeDasharray?: string;
       strokeDashoffset?: number | string;
-      strokeLinecap?: "butt" | "round" | "square";
-      strokeLinejoin?: "arcs" | "bevel" | "miter" | "miter-clip" | "round";
-      strokeMiterlimit?: number;
-      strokeOpacity?: number | string;
+      strokeLinecap?: "butt" | "round" | "square" | "inherit";
+      strokeLinejoin?: "arcs" | "bevel" | "miter" | "miter-clip" | "round" | "inherit";
+      strokeMiterlimit?: number | "inherit";
+      strokeOpacity?: number | "inherit";
       strokeWidth?: number | string;
       textAnchor?: "start" | "middle" | "end" | "inherit";
       textDecoration?: "none" | "underline" | "overline" | "line-through" | "blink" | "inherit";
