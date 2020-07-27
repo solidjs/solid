@@ -1926,8 +1926,7 @@ declare global {
       lang?: string;
       spellcheck?: boolean;
       style?: CSSProperties | string;
-      tabIndex?: number | string;
-      tabindex?: number | string;
+      tabIndex?: number;
       title?: string;
       translate?: "yes" | "no";
 
@@ -2331,9 +2330,143 @@ declare global {
     }
 
     // SVG Elements
-    interface SVGAttributes<T> extends HTMLAttributes<T> {
-      accumulate?: "none" | "sum";
+
+    type SVGPreserveAspectRatio =
+      | "none"
+      | "xMinYMin"
+      | "xMidYMin"
+      | "xMaxYMin"
+      | "xMinYMid"
+      | "xMidYMid"
+      | "xMaxYMid"
+      | "xMinYMax"
+      | "xMidYMax"
+      | "xMaxYMax"
+      | "xMinYMin meet"
+      | "xMidYMin meet"
+      | "xMaxYMin meet"
+      | "xMinYMid meet"
+      | "xMidYMid meet"
+      | "xMaxYMid meet"
+      | "xMinYMax meet"
+      | "xMidYMax meet"
+      | "xMaxYMax meet"
+      | "xMinYMin slice"
+      | "xMidYMin slice"
+      | "xMaxYMin slice"
+      | "xMinYMid slice"
+      | "xMidYMid slice"
+      | "xMaxYMid slice"
+      | "xMinYMax slice"
+      | "xMidYMax slice"
+      | "xMaxYMax slice";
+
+    type ImagePreserveAspectRatio =
+      | SVGPreserveAspectRatio
+      | "defer none"
+      | "defer xMinYMin"
+      | "defer xMidYMin"
+      | "defer xMaxYMin"
+      | "defer xMinYMid"
+      | "defer xMidYMid"
+      | "defer xMaxYMid"
+      | "defer xMinYMax"
+      | "defer xMidYMax"
+      | "defer xMaxYMax"
+      | "defer xMinYMin meet"
+      | "defer xMidYMin meet"
+      | "defer xMaxYMin meet"
+      | "defer xMinYMid meet"
+      | "defer xMidYMid meet"
+      | "defer xMaxYMid meet"
+      | "defer xMinYMax meet"
+      | "defer xMidYMax meet"
+      | "defer xMaxYMax meet"
+      | "defer xMinYMin slice"
+      | "defer xMidYMin slice"
+      | "defer xMaxYMin slice"
+      | "defer xMinYMid slice"
+      | "defer xMidYMid slice"
+      | "defer xMaxYMid slice"
+      | "defer xMinYMax slice"
+      | "defer xMidYMax slice"
+      | "defer xMaxYMax slice";
+
+    type SVGUnits = "userSpaceOnUse" | "objectBoundingBox";
+
+    interface CoreSVGAttributes<T> extends DOMAttributes<T> {
+      id?: string;
+      lang?: string;
+      tabIndex?: number;
+      xmlBase?: string;
+      xmlLang?: string;
+      xmlSpace?: string;
+    }
+
+    interface StylableSVGAttributes {
+      class?: string;
+      className?: string;
+      style?: CSSProperties | string;
+    }
+
+    interface TransformableSVGAttributes {
+      transform?: string;
+    }
+
+    interface XLinkSVGAttributes {
+      xlinkActuate?: string;
+      xlinkArcrole?: string;
+      xlinkHref?: string;
+      xlinkRole?: string;
+      xlinkShow?: string;
+      xlinkTitle?: string;
+      xlinkType?: string;
+    }
+
+    interface ConditionalProcessingSVGAttributes {
+      requiredExtensions?: string;
+      requiredFeatures?: string;
+      systemLanguage?: string;
+    }
+
+    interface ExternalResourceSVGAttributes {
+      externalResourcesRequired?: "true" | "false";
+    }
+
+    interface AnimationTimingSVGAttributes {
+      begin?: string;
+      dur?: string;
+      end?: string;
+      min?: string;
+      max?: string;
+      restart?: "always" | "whenNotActive" | "never";
+      repeatCount?: number | "indefinite";
+      repeatDur?: string;
+      fill?: "freeze" | "remove";
+    }
+
+    interface AnimationValueSVGAttributes {
+      calcMode?: "discrete" | "linear" | "paced" | "spline";
+      values?: string;
+      keyTimes?: string;
+      keySplines?: string;
+      from?: number | string;
+      to?: number | string;
+      by?: number | string;
+    }
+
+    interface AnimationAdditionSVGAttributes {
+      attributeName?: string;
       additive?: "replace" | "sum";
+      accumulate?: "none" | "sum";
+    }
+
+    interface AnimationAttributeTargetSVGAttributes {
+      attributeName?: string;
+      attributeType?: "CSS" | "XML" | "auto";
+    }
+
+    interface PresentationSVGAttributes {
       alignmentBaseline?:
         | "auto"
         | "baseline"
@@ -2348,211 +2481,763 @@ declare global {
         | "hanging"
         | "mathematical"
         | "inherit";
-      allowReorder?: "no" | "yes";
-      amplitude?: number | string;
-      attributeName?: string;
-      attributeType?: string;
-      autoReverse?: number | string;
-      azimuth?: number | string;
-      baseFrequency?: number | string;
       baselineShift?: number | string;
-      baseProfile?: number | string;
-      begin?: number | string;
-      bias?: number | string;
-      by?: number | string;
-      calcMode?: number | string;
-      clip?: number | string;
+      clip?: string;
       clipPath?: string;
-      clipPathUnits?: number | string;
-      clipRule?: number | string;
-      colorInterpolation?: number | string;
+      clipRule?: "nonzero" | "evenodd" | "inherit";
+      color?: string;
+      colorInterpolation?: "auto" | "sRGB" | "linearRGB" | "inherit";
       colorInterpolationFilters?: "auto" | "sRGB" | "linearRGB" | "inherit";
-      colorProfile?: number | string;
-      colorRendering?: number | string;
-      contentScriptType?: number | string;
-      contentStyleType?: number | string;
-      cursor?: number | string;
-      cx?: number | string;
-      cy?: number | string;
-      d?: string;
-      decelerate?: number | string;
-      diffuseConstant?: number | string;
-      direction?: number | string;
-      display?: number | string;
-      divisor?: number | string;
-      dominantBaseline?: number | string;
-      dur?: number | string;
-      dx?: number | string;
-      dy?: number | string;
-      edgeMode?: number | string;
-      elevation?: number | string;
-      enableBackground?: number | string;
-      end?: number | string;
-      exponent?: number | string;
-      externalResourcesRequired?: number | string;
+      colorProfile?: string;
+      colorRendering?: "auto" | "optimizeSpeed" | "optimizeQuality" | "inherit";
+      cursor?: string;
+      direction?: "ltr" | "rtl" | "inherit";
+      display?: string;
+      dominantBaseline?:
+        | "auto"
+        | "text-bottom"
+        | "alphabetic"
+        | "ideographic"
+        | "middle"
+        | "central"
+        | "mathematical"
+        | "hanging"
+        | "text-top";
+      enableBackground?: string;
       fill?: string;
       fillOpacity?: number | string;
       fillRule?: "nonzero" | "evenodd" | "inherit";
       filter?: string;
-      filterRes?: number | string;
-      filterUnits?: number | string;
-      floodColor?: number | string;
+      floodColor?: string;
       floodOpacity?: number | string;
-      focusable?: number | string;
       fontFamily?: string;
-      fontSize?: number | string;
+      fontSize?: string;
       fontSizeAdjust?: number | string;
-      fontStretch?: number | string;
-      fontStyle?: number | string;
-      fontVariant?: number | string;
-      fontWeight?: number | string;
-      format?: number | string;
-      from?: number | string;
-      fx?: number | string;
-      fy?: number | string;
-      glyphOrientationHorizontal?: number | string;
-      glyphOrientationVertical?: number | string;
-      glyphRef?: number | string;
-      gradientTransform?: string;
-      gradientUnits?: string;
-      height?: number | string;
-      href?: string;
-      hreflang?: string;
-      imageRendering?: number | string;
-      in2?: number | string;
-      in?: string;
-      intercept?: number | string;
-      k1?: number | string;
-      k2?: number | string;
-      k3?: number | string;
-      k4?: number | string;
-      kernelMatrix?: number | string;
-      kernelUnitLength?: number | string;
-      kerning?: number | string;
-      keyPoints?: number | string;
-      keySplines?: number | string;
-      keyTimes?: number | string;
-      lengthAdjust?: number | string;
+      fontStretch?: string;
+      fontStyle?: "normal" | "italic" | "oblique";
+      fontVariant?: string;
+      fontWeight?:
+        | "normal"
+        | "bold"
+        | "lighter"
+        | "bolder"
+        | 100
+        | 200
+        | 300
+        | 400
+        | 500
+        | 600
+        | 700
+        | 800
+        | 900;
+      glyphOrientationHorizontal?: string;
+      glyphOrientationVertical?: string;
+      imageRendering?: "auto" | "optimizeQuality" | "optimizeSpeed";
+      kerning?: string;
       letterSpacing?: number | string;
-      lightingColor?: number | string;
-      limitingConeAngle?: number | string;
+      lightingColor?: string;
       markerEnd?: string;
-      markerHeight?: number | string;
       markerMid?: string;
       markerStart?: string;
-      markerUnits?: number | string;
-      markerWidth?: number | string;
       mask?: string;
-      maskContentUnits?: number | string;
-      maskUnits?: number | string;
-      max?: number | string;
-      media?: string;
-      method?: string;
-      min?: number | string;
-      mode?: number | string;
-      name?: string;
-      numOctaves?: number | string;
-      offset?: number | string;
       opacity?: number | string;
-      operator?: number | string;
-      order?: number | string;
-      orient?: number | string;
-      origin?: number | string;
-      overflow?: number | string;
-      paintOrder?: number | string;
-      pathLength?: number | string;
-      patternContentUnits?: string;
-      patternTransform?: number | string;
-      patternUnits?: string;
-      pointerEvents?: number | string;
-      points?: string;
-      pointsAtX?: number | string;
-      pointsAtY?: number | string;
-      pointsAtZ?: number | string;
-      preserveAlpha?: number | string;
-      preserveAspectRatio?: string;
-      primitiveUnits?: number | string;
-      r?: number | string;
-      radius?: number | string;
-      refX?: number | string;
-      refY?: number | string;
-      rel?: string;
-      repeatCount?: number | string;
-      repeatDur?: number | string;
-      requiredExtensions?: number | string;
-      requiredFeatures?: number | string;
-      restart?: number | string;
-      result?: string;
-      rotate?: number | string;
-      rx?: number | string;
-      ry?: number | string;
-      scale?: number | string;
-      seed?: number | string;
-      shapeRendering?: number | string;
-      spacing?: number | string;
-      specularConstant?: number | string;
-      specularExponent?: number | string;
-      speed?: number | string;
-      spreadMethod?: string;
-      startOffset?: number | string;
-      stdDeviation?: number | string;
-      stitchTiles?: number | string;
+      overflow?: "visible" | "hidden" | "scroll" | "auto" | "inherit";
+      pointerEvents?:
+        | "bounding-box"
+        | "visiblePainted"
+        | "visibleFill"
+        | "visibleStroke"
+        | "visible"
+        | "painted"
+        | "color"
+        | "fill"
+        | "stroke"
+        | "all"
+        | "none";
+      shapeRendering?: "auto" | "optimizeSpeed" | "crispEdges" | "geometricPrecision" | "inherit";
       stopColor?: string;
       stopOpacity?: number | string;
-      string?: number | string;
       stroke?: string;
-      strokeDasharray?: string | number;
-      strokeDashoffset?: string | number;
-      strokeLinecap?: "butt" | "round" | "square" | "inherit";
-      strokeLinejoin?: "miter" | "round" | "bevel" | "inherit";
-      strokeMiterlimit?: number | string;
+      strokeDasharray?: string;
+      strokeDashoffset?: number | string;
+      strokeLinecap?: "butt" | "round" | "square";
+      strokeLinejoin?: "arcs" | "bevel" | "miter" | "miter-clip" | "round";
+      strokeMiterlimit?: number;
       strokeOpacity?: number | string;
       strokeWidth?: number | string;
-      surfaceScale?: number | string;
-      systemLanguage?: number | string;
-      tableValues?: number | string;
-      target?: string;
-      targetX?: number | string;
-      targetY?: number | string;
-      textAnchor?: string;
-      textDecoration?: number | string;
-      textLength?: number | string;
-      textRendering?: number | string;
-      to?: number | string;
-      transform?: string;
-      type?: string;
-      unicodeBidi?: number | string;
-      values?: string;
-      vectorEffect?: number | string;
-      version?: string;
-      viewBox?: string;
-      viewTarget?: number | string;
-      visibility?: number | string;
-      width?: number | string;
+      textAnchor?: "start" | "middle" | "end" | "inherit";
+      textDecoration?: "none" | "underline" | "overline" | "line-through" | "blink" | "inherit";
+      textRendering?:
+        | "auto"
+        | "optimizeSpeed"
+        | "optimizeLegibility"
+        | "geometricPrecision"
+        | "inherit";
+      unicodeBidi?: string;
+      visibility?: "visible" | "hidden" | "collapse" | "inherit";
       wordSpacing?: number | string;
-      writingMode?: number | string;
+      writingMode?: "lr-tb" | "rl-tb" | "tb-rl" | "lr" | "rl" | "tb" | "inherit";
+    }
+
+    interface AnimationElementSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        ExternalResourceSVGAttributes,
+        ConditionalProcessingSVGAttributes {}
+
+    interface ContainerElementSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        Pick<
+          PresentationSVGAttributes,
+          | "clipPath"
+          | "mask"
+          | "cursor"
+          | "opacity"
+          | "filter"
+          | "enableBackground"
+          | "colorInterpolation"
+          | "colorRendering"
+        > {}
+
+    interface FilterPrimitiveElementSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        Pick<PresentationSVGAttributes, "colorInterpolationFilters"> {
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+      result?: string;
+    }
+
+    interface SingleInputFilterSVGAttributes {
+      in?: string;
+    }
+
+    interface DoubleInputFilterSVGAttributes {
+      in?: string;
+      in2?: string;
+    }
+
+    interface FitToViewBoxSVGAttributes {
+      viewBox?: string;
+      preserveAspectRatio?: SVGPreserveAspectRatio;
+    }
+
+    interface GradientElementSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        XLinkSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes {
+      gradientUnits?: SVGUnits;
+      gradientTransform?: string;
+      spreadMethod?: "pad" | "reflect" | "repeat";
+    }
+
+    interface GraphicsElementSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        Pick<
+          PresentationSVGAttributes,
+          | "clipRule"
+          | "mask"
+          | "pointerEvents"
+          | "cursor"
+          | "opacity"
+          | "filter"
+          | "display"
+          | "visibility"
+          | "colorInterpolation"
+          | "colorRendering"
+        > {}
+
+    interface LightSourceElementSVGAttributes<T> extends CoreSVGAttributes<T> {}
+
+    interface NewViewportSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        Pick<PresentationSVGAttributes, "overflow" | "clip"> {
+      viewBox?: string;
+    }
+
+    interface ShapeElementSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        Pick<
+          PresentationSVGAttributes,
+          | "color"
+          | "fill"
+          | "fillRule"
+          | "fillOpacity"
+          | "stroke"
+          | "strokeWidth"
+          | "strokeLinecap"
+          | "strokeLinejoin"
+          | "strokeMiterlimit"
+          | "strokeDasharray"
+          | "strokeDashoffset"
+          | "strokeOpacity"
+          | "shapeRendering"
+        > {}
+
+    interface TextContentElementSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        Pick<
+          PresentationSVGAttributes,
+          | "fontFamily"
+          | "fontStyle"
+          | "fontVariant"
+          | "fontWeight"
+          | "fontStretch"
+          | "fontSize"
+          | "fontSizeAdjust"
+          | "kerning"
+          | "letterSpacing"
+          | "wordSpacing"
+          | "textDecoration"
+          | "glyphOrientationHorizontal"
+          | "glyphOrientationVertical"
+          | "direction"
+          | "unicodeBidi"
+          | "textAnchor"
+          | "dominantBaseline"
+          | "color"
+          | "fill"
+          | "fillRule"
+          | "fillOpacity"
+          | "stroke"
+          | "strokeWidth"
+          | "strokeLinecap"
+          | "strokeLinejoin"
+          | "strokeMiterlimit"
+          | "strokeDasharray"
+          | "strokeDashoffset"
+          | "strokeOpacity"
+        > {}
+
+    interface ZoomAndPanSVGAttributes {
+      zoomAndPan?: "disable" | "magnify";
+    }
+
+    interface AnimateSVGAttributes<T>
+      extends AnimationElementSVGAttributes<T>,
+        XLinkSVGAttributes,
+        AnimationAttributeTargetSVGAttributes,
+        AnimationTimingSVGAttributes,
+        AnimationValueSVGAttributes,
+        AnimationAdditionSVGAttributes,
+        Pick<PresentationSVGAttributes, "colorInterpolation" | "colorRendering"> {}
+
+    interface AnimateMotionSVGAttributes<T>
+      extends AnimationElementSVGAttributes<T>,
+        XLinkSVGAttributes,
+        AnimationTimingSVGAttributes,
+        AnimationValueSVGAttributes,
+        AnimationAdditionSVGAttributes {
+      path?: string;
+      keyPoints?: string;
+      rotate?: number | "auto" | "auto-reverse";
+      origin?: "default";
+    }
+
+    interface AnimateTransformSVGAttributes<T>
+      extends AnimationElementSVGAttributes<T>,
+        XLinkSVGAttributes,
+        AnimationAttributeTargetSVGAttributes,
+        AnimationTimingSVGAttributes,
+        AnimationValueSVGAttributes,
+        AnimationAdditionSVGAttributes {
+      type?: "translate" | "scale" | "rotate" | "skewX" | "skewY";
+    }
+
+    interface CircleSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ShapeElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes {
+      cx?: number | string;
+      cy?: number | string;
+      r?: number | string;
+    }
+
+    interface ClipPathSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "clipPath"> {
+      clipPathUnits?: SVGUnits;
+    }
+
+    interface DefsSVGAttributes<T>
+      extends ContainerElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes {}
+
+    interface DescSVGAttributes<T> extends CoreSVGAttributes<T>, StylableSVGAttributes {}
+
+    interface EllipseSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ShapeElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes {
+      cx?: number | string;
+      cy?: number | string;
+      rx?: number | string;
+      ry?: number | string;
+    }
+
+    interface FeBlendSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        DoubleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      mode?: "normal" | "multiply" | "screen" | "darken" | "lighten";
+    }
+
+    interface FeColorMatrixSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      type?: "matrix" | "saturate" | "hueRotate" | "luminanceToAlpha";
+      values?: string;
+    }
+
+    interface FeComponentTransferSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes {}
+
+    interface FeCompositeSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        DoubleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      operator?: "over" | "in" | "out" | "atop" | "xor" | "arithmetic";
+      k1?: number;
+      k2?: number;
+      k3?: number;
+      k4?: number;
+    }
+
+    interface FeConvolveMatrixSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      order?: number | string;
+      kernelMatrix?: string;
+      divisor?: number;
+      bias?: number;
+      targetX?: number;
+      targetY?: number;
+      edgeMode?: "duplicate" | "wrap" | "none";
+      kernelUnitLength?: number | string;
+      preserveAlpha?: "true" | "false";
+    }
+
+    interface FeDiffuseLightingSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes,
+        Pick<PresentationSVGAttributes, "color" | "lightingColor"> {
+      surfaceScale?: number;
+      diffuseConstant?: number;
+      kernelUnitLength?: number | string;
+    }
+
+    interface FeDisplacementMapSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        DoubleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      scale?: number;
+      xChannelSelector?: "R" | "G" | "B" | "A";
+      yChannelSelector?: "R" | "G" | "B" | "A";
+    }
+
+    interface FeDistantLightSVGAttributes<T> extends LightSourceElementSVGAttributes<T> {
+      azimuth?: number;
+      elevation?: number;
+    }
+
+    interface FeFloodSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        StylableSVGAttributes,
+        Pick<PresentationSVGAttributes, "color" | "floodColor" | "floodOpacity"> {}
+
+    interface FeFuncSVGAttributes<T> extends CoreSVGAttributes<T> {
+      type?: "identity" | "table" | "discrete" | "linear" | "gamma";
+      tableValues?: string;
+      slope?: number;
+      intercept?: number;
+      amplitude?: number;
+      exponent?: number;
+      offset?: number;
+    }
+
+    interface FeGaussianBlurSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      stdDeviation?: number | string;
+    }
+
+    interface FeImageSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        XLinkSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes {
+      preserveAspectRatio: SVGPreserveAspectRatio;
+    }
+
+    interface FeMergeSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        StylableSVGAttributes {}
+
+    interface FeMergeNodeSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        SingleInputFilterSVGAttributes {}
+
+    interface FeMorphologySVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      operator?: "erode" | "dilate";
+      radius?: number | string;
+    }
+
+    interface FeOffsetSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes {
+      dx?: number;
+      dy?: number;
+    }
+
+    interface FePointLightSVGAttributes<T> extends LightSourceElementSVGAttributes<T> {
+      x?: number;
+      y?: number;
+      z?: number;
+    }
+
+    interface FeSpecularLightingSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes,
+        Pick<PresentationSVGAttributes, "color" | "lightingColor"> {
+      surfaceScale?: string;
+      specularConstant?: string;
+      specularExponent?: string;
+      kernelUnitLength?: number | string;
+    }
+
+    interface FeSpotLightSVGAttributes<T> extends LightSourceElementSVGAttributes<T> {
+      x?: number;
+      y?: number;
+      z?: number;
+      pointsAtX?: number;
+      pointsAtY?: number;
+      pointsAtZ?: number;
+      specularExponent?: number;
+      limitingConeAngle?: number;
+    }
+
+    interface FeTileSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        SingleInputFilterSVGAttributes,
+        StylableSVGAttributes {}
+
+    interface FeTurbulanceSVGAttributes<T>
+      extends FilterPrimitiveElementSVGAttributes<T>,
+        StylableSVGAttributes {
+      baseFrequency?: number | string;
+      numOctaves?: number;
+      seed?: number;
+      stitchTiles?: "stitch" | "noStitch";
+      type?: "fractalNoise" | "turbulence";
+    }
+
+    interface FilterSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        XLinkSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes {
+      filterUnits?: SVGUnits;
+      primitiveUnits?: SVGUnits;
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+      filterRes?: number | string;
+    }
+
+    interface ForeignObjectSVGAttributes<T>
+      extends NewViewportSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "display" | "visibility"> {
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+    }
+
+    interface GSVGAttributes<T>
+      extends ContainerElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        Pick<PresentationSVGAttributes, "display" | "visibility"> {}
+
+    interface ImageSVGAttributes<T>
+      extends NewViewportSVGAttributes<T>,
+        GraphicsElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        XLinkSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "colorProfile" | "imageRendering"> {
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+      preserveAspectRatio?: ImagePreserveAspectRatio;
+    }
+
+    interface LineSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ShapeElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "markerStart" | "markerMid" | "markerEnd"> {
+      x1?: number | string;
+      y1?: number | string;
+      x2?: number | string;
+      y2?: number | string;
+    }
+
+    interface LinearGradientSVGAttributes<T> extends GradientElementSVGAttributes<T> {
       x1?: number | string;
       x2?: number | string;
-      x?: number | string;
-      xChannelSelector?: string;
-      xlinkActuate?: string;
-      xlinkArcrole?: string;
-      xlinkHref?: string;
-      xlinkRole?: string;
-      xlinkShow?: string;
-      xlinkTitle?: string;
-      xlinkType?: string;
-      xmlBase?: string;
-      xmlLang?: string;
-      xmlns?: string;
-      xmlnsXlink?: string;
-      xmlSpace?: string;
       y1?: number | string;
       y2?: number | string;
+    }
+
+    interface MarkerSVGAttributes<T>
+      extends ContainerElementSVGAttributes<T>,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        FitToViewBoxSVGAttributes,
+        Pick<PresentationSVGAttributes, "overflow" | "clip"> {
+      markerUnits?: "strokeWidth" | "userSpaceOnUse";
+      refX?: number | string;
+      refY?: number | string;
+      markerWidth?: number | string;
+      markerHeight?: number | string;
+      orient?: string;
+    }
+
+    interface MaskSVGAttributes<T>
+      extends Omit<ContainerElementSVGAttributes<T>, "opacity" | "filter">,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes {
+      maskUnits?: SVGUnits;
+      maskContentUnits?: SVGUnits;
+      x?: number | string;
       y?: number | string;
-      yChannelSelector?: string;
-      z?: number | string;
-      zoomAndPan?: string;
+      width?: number | string;
+      height?: number | string;
+    }
+
+    interface MetadataSVGAttributes<T> extends CoreSVGAttributes<T> {}
+
+    interface PathSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ShapeElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "markerStart" | "markerMid" | "markerEnd"> {
+      d?: string;
+      pathLength?: number;
+    }
+
+    interface PatternSVGAttributes<T>
+      extends ContainerElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        XLinkSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        FitToViewBoxSVGAttributes,
+        Pick<PresentationSVGAttributes, "overflow" | "clip"> {
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+      patternUnits?: SVGUnits;
+      patternContentUnits?: SVGUnits;
+      patternTransform?: string;
+    }
+
+    interface PolygonSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ShapeElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "markerStart" | "markerMid" | "markerEnd"> {
+      points?: string;
+    }
+
+    interface PolylineSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ShapeElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "markerStart" | "markerMid" | "markerEnd"> {
+      points?: string;
+    }
+
+    interface RadialGradientSVGAttributes<T> extends GradientElementSVGAttributes<T> {
+      cx?: number | string;
+      cy?: number | string;
+      r?: number | string;
+      fx?: number | string;
+      fy?: number | string;
+    }
+
+    interface RectSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ShapeElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes {
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+      rx?: number | string;
+      ry?: number | string;
+    }
+
+    interface StopSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        StylableSVGAttributes,
+        Pick<PresentationSVGAttributes, "color" | "stopColor" | "stopOpacity"> {
+      offset?: number | string;
+    }
+
+    interface SvgSVGAttributes<T>
+      extends ContainerElementSVGAttributes<T>,
+        NewViewportSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        FitToViewBoxSVGAttributes,
+        ZoomAndPanSVGAttributes,
+        Pick<PresentationSVGAttributes, "display" | "visibility"> {
+      version?: string;
+      baseProfile?: string;
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+      contentScriptType?: string;
+      contentStyleType?: string;
+    }
+
+    interface SwitchSVGAttributes<T>
+      extends ContainerElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "display" | "visibility"> {}
+
+    interface SymbolSVGAttributes<T>
+      extends ContainerElementSVGAttributes<T>,
+        NewViewportSVGAttributes<T>,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        FitToViewBoxSVGAttributes {}
+
+    interface TextSVGAttributes<T>
+      extends TextContentElementSVGAttributes<T>,
+        GraphicsElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes,
+        Pick<PresentationSVGAttributes, "writingMode" | "textRendering"> {
+      x?: number | string;
+      y?: number | string;
+      dx?: number | string;
+      dy?: number | string;
+      rotate?: number | string;
+      textLength?: number | string;
+      lengthAdjust?: "spacing" | "spacingAndGlyphs";
+    }
+
+    interface TextPathSVGAttributes<T>
+      extends TextContentElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        XLinkSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        Pick<
+          PresentationSVGAttributes,
+          "alignmentBaseline" | "baselineShift" | "display" | "visibility"
+        > {
+      startOffset?: number | string;
+      method?: "align" | "stretch";
+      spacing?: "auto" | "exact";
+    }
+
+    interface TSpanSVGAttributes<T>
+      extends TextContentElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        Pick<
+          PresentationSVGAttributes,
+          "alignmentBaseline" | "baselineShift" | "display" | "visibility"
+        > {
+      x?: number | string;
+      y?: number | string;
+      dx?: number | string;
+      dy?: number | string;
+      rotate?: number | string;
+      textLength?: number | string;
+      lengthAdjust?: "spacing" | "spacingAndGlyphs";
+    }
+
+    interface UseSVGAttributes<T>
+      extends GraphicsElementSVGAttributes<T>,
+        ConditionalProcessingSVGAttributes,
+        XLinkSVGAttributes,
+        ExternalResourceSVGAttributes,
+        StylableSVGAttributes,
+        TransformableSVGAttributes {
+      x?: number | string;
+      y?: number | string;
+      width?: number | string;
+      height?: number | string;
+    }
+
+    interface ViewSVGAttributes<T>
+      extends CoreSVGAttributes<T>,
+        ExternalResourceSVGAttributes,
+        FitToViewBoxSVGAttributes,
+        ZoomAndPanSVGAttributes {
+      viewTarget?: string;
     }
 
     interface IntrinsicElements {
@@ -2674,62 +3359,63 @@ declare global {
       wbr: HTMLAttributes<HTMLElement>;
 
       // SVG
-      svg: SVGAttributes<SVGSVGElement>;
+      svg: SvgSVGAttributes<SVGSVGElement>;
 
-      animate: SVGAttributes<SVGAnimateElement>;
-      animateTransform: SVGAttributes<SVGAnimateTransformElement>;
-      circle: SVGAttributes<SVGCircleElement>;
-      clipPath: SVGAttributes<SVGClipPathElement>;
-      defs: SVGAttributes<SVGDefsElement>;
-      desc: SVGAttributes<SVGDescElement>;
-      ellipse: SVGAttributes<SVGEllipseElement>;
-      feBlend: SVGAttributes<SVGFEBlendElement>;
-      feColorMatrix: SVGAttributes<SVGFEColorMatrixElement>;
-      feComponentTransfer: SVGAttributes<SVGFEComponentTransferElement>;
-      feComposite: SVGAttributes<SVGFECompositeElement>;
-      feConvolveMatrix: SVGAttributes<SVGFEConvolveMatrixElement>;
-      feDiffuseLighting: SVGAttributes<SVGFEDiffuseLightingElement>;
-      feDisplacementMap: SVGAttributes<SVGFEDisplacementMapElement>;
-      feDistantLight: SVGAttributes<SVGFEDistantLightElement>;
-      feFlood: SVGAttributes<SVGFEFloodElement>;
-      feFuncA: SVGAttributes<SVGFEFuncAElement>;
-      feFuncB: SVGAttributes<SVGFEFuncBElement>;
-      feFuncG: SVGAttributes<SVGFEFuncGElement>;
-      feFuncR: SVGAttributes<SVGFEFuncRElement>;
-      feGaussianBlur: SVGAttributes<SVGFEGaussianBlurElement>;
-      feImage: SVGAttributes<SVGFEImageElement>;
-      feMerge: SVGAttributes<SVGFEMergeElement>;
-      feMergeNode: SVGAttributes<SVGFEMergeNodeElement>;
-      feMorphology: SVGAttributes<SVGFEMorphologyElement>;
-      feOffset: SVGAttributes<SVGFEOffsetElement>;
-      fePointLight: SVGAttributes<SVGFEPointLightElement>;
-      feSpecularLighting: SVGAttributes<SVGFESpecularLightingElement>;
-      feSpotLight: SVGAttributes<SVGFESpotLightElement>;
-      feTile: SVGAttributes<SVGFETileElement>;
-      feTurbulence: SVGAttributes<SVGFETurbulenceElement>;
-      filter: SVGAttributes<SVGFilterElement>;
-      foreignObject: SVGAttributes<SVGForeignObjectElement>;
-      g: SVGAttributes<SVGGElement>;
-      image: SVGAttributes<SVGImageElement>;
-      line: SVGAttributes<SVGLineElement>;
-      linearGradient: SVGAttributes<SVGLinearGradientElement>;
-      marker: SVGAttributes<SVGMarkerElement>;
-      mask: SVGAttributes<SVGMaskElement>;
-      metadata: SVGAttributes<SVGMetadataElement>;
-      path: SVGAttributes<SVGPathElement>;
-      pattern: SVGAttributes<SVGPatternElement>;
-      polygon: SVGAttributes<SVGPolygonElement>;
-      polyline: SVGAttributes<SVGPolylineElement>;
-      radialGradient: SVGAttributes<SVGRadialGradientElement>;
-      rect: SVGAttributes<SVGRectElement>;
-      stop: SVGAttributes<SVGStopElement>;
-      switch: SVGAttributes<SVGSwitchElement>;
-      symbol: SVGAttributes<SVGSymbolElement>;
-      text: SVGAttributes<SVGTextElement>;
-      textPath: SVGAttributes<SVGTextPathElement>;
-      tspan: SVGAttributes<SVGTSpanElement>;
-      use: SVGAttributes<SVGUseElement>;
-      view: SVGAttributes<SVGViewElement>;
+      animate: AnimateSVGAttributes<SVGAnimateElement>;
+      animateMotion: AnimateMotionSVGAttributes<SVGAnimateMotionElement>;
+      animateTransform: AnimateTransformSVGAttributes<SVGAnimateTransformElement>;
+      circle: CircleSVGAttributes<SVGCircleElement>;
+      clipPath: ClipPathSVGAttributes<SVGClipPathElement>;
+      defs: DefsSVGAttributes<SVGDefsElement>;
+      desc: DescSVGAttributes<SVGDescElement>;
+      ellipse: EllipseSVGAttributes<SVGEllipseElement>;
+      feBlend: FeBlendSVGAttributes<SVGFEBlendElement>;
+      feColorMatrix: FeColorMatrixSVGAttributes<SVGFEColorMatrixElement>;
+      feComponentTransfer: FeComponentTransferSVGAttributes<SVGFEComponentTransferElement>;
+      feComposite: FeCompositeSVGAttributes<SVGFECompositeElement>;
+      feConvolveMatrix: FeConvolveMatrixSVGAttributes<SVGFEConvolveMatrixElement>;
+      feDiffuseLighting: FeDiffuseLightingSVGAttributes<SVGFEDiffuseLightingElement>;
+      feDisplacementMap: FeDisplacementMapSVGAttributes<SVGFEDisplacementMapElement>;
+      feDistantLight: FeDistantLightSVGAttributes<SVGFEDistantLightElement>;
+      feFlood: FeFloodSVGAttributes<SVGFEFloodElement>;
+      feFuncA: FeFuncSVGAttributes<SVGFEFuncAElement>;
+      feFuncB: FeFuncSVGAttributes<SVGFEFuncBElement>;
+      feFuncG: FeFuncSVGAttributes<SVGFEFuncGElement>;
+      feFuncR: FeFuncSVGAttributes<SVGFEFuncRElement>;
+      feGaussianBlur: FeGaussianBlurSVGAttributes<SVGFEGaussianBlurElement>;
+      feImage: FeImageSVGAttributes<SVGFEImageElement>;
+      feMerge: FeMergeSVGAttributes<SVGFEMergeElement>;
+      feMergeNode: FeMergeNodeSVGAttributes<SVGFEMergeNodeElement>;
+      feMorphology: FeMorphologySVGAttributes<SVGFEMorphologyElement>;
+      feOffset: FeOffsetSVGAttributes<SVGFEOffsetElement>;
+      fePointLight: FePointLightSVGAttributes<SVGFEPointLightElement>;
+      feSpecularLighting: FeSpecularLightingSVGAttributes<SVGFESpecularLightingElement>;
+      feSpotLight: FeSpotLightSVGAttributes<SVGFESpotLightElement>;
+      feTile: FeTileSVGAttributes<SVGFETileElement>;
+      feTurbulence: FeTurbulanceSVGAttributes<SVGFETurbulenceElement>;
+      filter: FilterSVGAttributes<SVGFilterElement>;
+      foreignObject: ForeignObjectSVGAttributes<SVGForeignObjectElement>;
+      g: GSVGAttributes<SVGGElement>;
+      image: ImageSVGAttributes<SVGImageElement>;
+      line: LineSVGAttributes<SVGLineElement>;
+      linearGradient: LinearGradientSVGAttributes<SVGLinearGradientElement>;
+      marker: MarkerSVGAttributes<SVGMarkerElement>;
+      mask: MaskSVGAttributes<SVGMaskElement>;
+      metadata: MetadataSVGAttributes<SVGMetadataElement>;
+      path: PathSVGAttributes<SVGPathElement>;
+      pattern: PatternSVGAttributes<SVGPatternElement>;
+      polygon: PolygonSVGAttributes<SVGPolygonElement>;
+      polyline: PolylineSVGAttributes<SVGPolylineElement>;
+      radialGradient: RadialGradientSVGAttributes<SVGRadialGradientElement>;
+      rect: RectSVGAttributes<SVGRectElement>;
+      stop: StopSVGAttributes<SVGStopElement>;
+      switch: SwitchSVGAttributes<SVGSwitchElement>;
+      symbol: SymbolSVGAttributes<SVGSymbolElement>;
+      text: TextSVGAttributes<SVGTextElement>;
+      textPath: TextPathSVGAttributes<SVGTextPathElement>;
+      tspan: TSpanSVGAttributes<SVGTSpanElement>;
+      use: UseSVGAttributes<SVGUseElement>;
+      view: ViewSVGAttributes<SVGViewElement>;
     }
   }
 }
