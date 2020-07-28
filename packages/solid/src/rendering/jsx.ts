@@ -2517,21 +2517,7 @@ declare global {
       fontStretch?: string;
       fontStyle?: "normal" | "italic" | "oblique" | "inherit";
       fontVariant?: string;
-      fontWeight?:
-        | "normal"
-        | "bold"
-        | "lighter"
-        | "bolder"
-        | "inherit"
-        | 100
-        | 200
-        | 300
-        | 400
-        | 500
-        | 600
-        | 700
-        | 800
-        | 900;
+      fontWeight?: number | string;
       glyphOrientationHorizontal?: string;
       glyphOrientationVertical?: string;
       imageRendering?: "auto" | "optimizeQuality" | "optimizeSpeed" | "inherit";
