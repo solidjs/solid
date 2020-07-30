@@ -25,13 +25,13 @@ export function Index<T, U extends JSX.Element>(props: {
 }
 
 export function Show<T>(props: {
-  when: T | false;
+  when: T | undefined | null | false;
   fallback?: JSX.Element;
   children: JSX.Element | ((item: T) => JSX.Element);
 }) {
   const childDesc = Object.getOwnPropertyDescriptor(props, "children")!.value,
     callFn = typeof childDesc === "function" && childDesc.length,
-    condition = createMemo<T | boolean>(
+    condition = createMemo<T | undefined | null | boolean>(
       callFn ? () => props.when : () => !!props.when,
       undefined,
       true
@@ -69,7 +69,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
 }
 
 type MatchProps<T> = {
-  when: T | false;
+  when: T | undefined | null | false;
   children: JSX.Element | ((item: T) => JSX.Element);
 };
 export function Match<T>(props: MatchProps<T>) {
