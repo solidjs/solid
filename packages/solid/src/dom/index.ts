@@ -37,7 +37,7 @@ export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX
 }
 
 export function Dynamic<T>(
-  props: T & { component?: Component<T> | keyof JSX.IntrinsicElements }
+  props: T & { component?: Component<T> | string | keyof JSX.IntrinsicElements }
 ): () => JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
   return suspend(() => {
