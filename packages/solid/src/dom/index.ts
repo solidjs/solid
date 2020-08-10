@@ -10,9 +10,9 @@ export function Portal(props: {
   children: JSX.Element;
 }) {
   const { useShadow } = props,
-    container = document.createElement("div"),
+    container = props.mount ?? document.createElement("div"),
     marker = document.createTextNode(""),
-    mount = props.mount || document.body,
+    mount = props.mount ?? document.body,
     renderRoot =
       useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
 
