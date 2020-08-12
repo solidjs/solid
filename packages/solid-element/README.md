@@ -7,6 +7,10 @@
 
 This library extends [Solid](https://github.com/ryansolid/solid) by adding Custom Web Components and extensions to manage modular behaviors and composition. It uses [Component Register](https://github.com/ryansolid/component-register) to create Web Components and its composed mixin pattern to construct modular re-usable behaviors. This allows your code to available as simple HTML elements for library interopt and to leverage Shadow DOM style isolation. Solid already supports binding to Web Components so this fills the gap allowing full modular applications to be built out of nested Web Components. Component Register makes use of the V1 Standards and on top of being compatible with the common webcomponent.js polyfills, has a solution for Polyfilling Shadow DOM CSS using the ShadyCSS Parser from Polymer in a generic framework agnostic way (unlike the ShadyCSS package).
 
+## Example
+
+[See here](https://webcomponents.dev/edit/yGRb00wV4AMncPupRmA9) for an example of a webcomponent created by `solid-element`.
+
 ## Custom Elements
 
 The simplest way to create a Web Component is to use the `customElement` method. 
