@@ -9,7 +9,14 @@ This library extends [Solid](https://github.com/ryansolid/solid) by adding Custo
 
 ## Custom Elements
 
-The simplest way to create a Web Component is to use the customElement method. The first argument is the Custom element tag, the 2nd is optional is the props, and the 3rd is the Solid template function. Solid template is provided State wrapped props as the first argument, and the underlying element as the 2nd.
+The simplest way to create a Web Component is to use the `customElement` method. 
+
+The arguments of `customElement` are:
+1) custom element tag (e.g. `'my-component'`)
+2) (optional) props (e.g. `{someProp: 'one', otherProp: 'two'}`)
+3) the Solid template function. Solid template is provided State wrapped props as the first argument, and the underlying element as the 2nd (e.g. `(props, { element }) => {  solid code here
+ }`)
+
 ```jsx
 import { customElement } from 'solid-element';
 
@@ -17,6 +24,7 @@ customElement('my-component', {someProp: 'one', otherProp: 'two'}, (props, { ele
   // ... Solid code
 })
 ```
+
 Props get assigned as element properties and hyphenated attributes. This exposes the component that can be used in HTML/JSX as:
 ```html
 <my-component some-prop="some value" other-prop="some value"></my-component>
