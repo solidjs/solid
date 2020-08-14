@@ -102,6 +102,12 @@ export function createDependentEffect<T>(
 }
 
 export function createMemo<T>(
+  fn: (v: T) => T,
+  value: T,
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
+): () => T;
+
+export function createMemo<T>(
   fn: (v?: T) => T,
   value?: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean)
