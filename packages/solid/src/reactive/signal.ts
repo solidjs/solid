@@ -106,6 +106,11 @@ export function createMemo<T>(
   value: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean)
 ): () => T;
+export function createMemo<T>(
+  fn: (v?: T) => T,
+  value?: undefined,
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
+): () => T;
 
 export function createMemo<T>(
   fn: (v?: T) => T,
