@@ -32,14 +32,20 @@ assignProps(props, otherProps)
 ```
 It follows the same pattern as ES `Object.assign` adding properties to the first argument and returning it. Except this method copies property descriptors without accessing them to preserve reactivity.
 
+#### `freeze` & `sample` have been renamed
+These APIs never had the most obvious naming, borrowing from SRP and digital circuit concepts rather than common english. They are now `batch` and `untrack` respectively which better reflect their purpose. These are now deprecated and will be removed in next minor version.
+
 #### Resource API
-In anticipating streaming hydration it was prudent to change resource signatures to take functions that return promises rather than promises themselves. This factory function has a lot advantages. This allows the library to decide whether to execute it or not. In certain cases we can choose skipping creating the promise altogether. It also leaves the door open for things like retry.
+For better automatic hydration support it is prudent to change resource signatures to take functions that return promises rather than promises themselves. This factory function has a lot advantages. This allows the library to decide whether to execute it or not. In certain cases we can choose skipping creating the promise altogether. It also leaves the door open for things like retry.
+
+#### SSR Improvements
+
+New experimental support for Suspense aware synchronous, asynchronous, and streaming SSR with hydration, progressive hydration, and automatic isomorphic data serialization. Completely removed what was there before with a simple static generator and more examples, so all existing projects using `solid-ssr` package will break with this release. This is a much better foundation, and I hope to build better things on top.
 
 ### New
 
 #### State Getters
-For convenience of passing derived values or external reactive expressions through Solid's state initializer
-you can now add `getter`'s.
+For convenience of passing derived values or external reactive expressions through Solid's state initializer you can now add `getter`'s.
 
 ```jsx
 const [state, setState] = createState({
@@ -70,6 +76,20 @@ ErrorBoundary catches uncaught downstream errors and shows a fallback.
   <MyComp />
 </ErrorBoundary>
 ```
+
+#### Portals render in the Head
+
+You can now render portals in the head with no additional div element.
+
+#### Multi-version detection
+
+Common hard to track issue with Solid is when multiple versions of the library are running on the same page. It breaks reactivity, and is sometimes difficult to notice. Solid now detects if a version has already been loaded at runtime and complains.
+
+### Bug Fixes & Updates
+
+Arguably a new feature but Solid now detects computation owners with pending dependency changes when trying to resolve nested computations. In so it will resolve those dependencies first. This fixes a long time issue with conditional processing with not directly related reactive atoms.
+
+Improved TypeScript Types.
 
 ## 0.18.0 - 2020-05-01
 A lot of bug fixes, and introduction of string based SSR.
@@ -108,7 +128,7 @@ Big changes to experimental features:
 A lot fixes and new features:
 * Suspense improvements: `SuspenseList`, `useTransition`, trigger on read. Update API, and added `reload` and retry capability. Removed need for `awaitSuspense` by making `Show` and `Switch` control flows `Suspense` aware.
 * Deprecate `selectWhen` and `selectEach`.
-* Sample all Components. No more fear of nesting Components in JSX expressions. Top level in a Component will always be inert now.
+* Untrack all Components. No more fear of nesting Components in JSX expressions. Top level in a Component will always be inert now.
 * Support for safe boolean and logical operators. This allows for the same optimization as the `Show` control flow for simple inline JSX conditionals like `<div>{state.count > 5 && <MyComp />}</div>`.
 * Support for non-curried operator forms. All operators now support an accessor first form as well as the functional curried form. Ex `map(() => state.list, item => item)`
 * Fix issues with spreading over `children` props.

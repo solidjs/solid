@@ -11,17 +11,17 @@
   "main": "index.js",
   "types": "index.d.ts",
   "files": [
-    "server.js",
-    "index.js",
-    "static.js",
-    "server.d.ts",
-    "index.d.ts",
-    "static.d.ts"
+    "static"
   ],
   "scripts": {
-    "build:example": "rollup -c example/rollup.config.js",
-    "start:example": "node example/index.js",
-    "export:example": "node example/export.js"
+    "build:example:async": "rollup -c examples/async/rollup.config.js",
+    "start:example:async": "node examples/async/server.js",
+    "build:example:ssg": "rollup -c examples/ssg/rollup.config.js && node examples/ssg/export.js",
+    "start:example:ssg": "npx serve examples/ssg/public -l 8080",
+    "build:example:ssr": "rollup -c examples/ssr/rollup.config.js",
+    "start:example:ssr": "node examples/ssr/server.js",
+    "build:example:stream": "rollup -c examples/stream/rollup.config.js",
+    "start:example:stream": "node examples/stream/server.js"
   },
   "devDependencies": {
     "babel-preset-solid": "^0.18.14",

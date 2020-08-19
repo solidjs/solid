@@ -8,7 +8,7 @@ import {
   useMemo,
   useSignal,
   useCleanup,
-  sample
+  untrack
 } from "../src/index.js";
 
 const Counter = withSolid(({ onCleanup }) => {
@@ -18,7 +18,7 @@ const Counter = withSolid(({ onCleanup }) => {
   useEffect(() => {
     if (state.tick > 0) {
       setState("count", c => c + 1);
-      setCount(sample(count) + 1);
+      setCount(untrack(count) + 1);
     }
   });
   useCleanup(() => onCleanup());

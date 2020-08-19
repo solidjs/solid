@@ -105,6 +105,16 @@ export function createDependentEffect<T>(
 
 export function createMemo<T>(
   fn: (v?: T) => T,
+  value?: undefined,
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
+): () => T;
+export function createMemo<T>(
+  fn: (v: T) => T,
+  value: T,
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
+): () => T;
+export function createMemo<T>(
+  fn: (v?: T) => T,
   value?: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean)
 ): () => T {
@@ -133,7 +143,7 @@ export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) 
   return deferred;
 }
 
-export function freeze<T>(fn: () => T): T {
+export function batch<T>(fn: () => T): T {
   let pending = Pending,
     q: Signal<any>[] = (Pending = []);
   const result = fn();
@@ -151,7 +161,7 @@ export function freeze<T>(fn: () => T): T {
   return result;
 }
 
-export function sample<T>(fn: () => T): T {
+export function untrack<T>(fn: () => T): T {
   let result: T,
     listener = Listener;
 
@@ -249,9 +259,9 @@ function writeSignal(this: Signal<any> | Memo<any>, value: any) {
         const o = this.observers![i];
         if ((o as Memo<any>).observers && o.state !== PENDING) markUpstream(o as Memo<any>);
         o.state = STALE;
-        if (Updates!.length > 10e5) throw new Error("Potential Infinite Loop Detected.");
         Updates!.push(o);
       }
+      if (Updates!.length > 10e5) throw new Error("Potential Infinite Loop Detected.");
     });
   }
   return value;
@@ -298,8 +308,22 @@ function createComputation<T>(fn: (v?: T) => T, init?: T) {
 }
 
 function runTop(node: Computation<any> | null) {
-  let top = node!.state === STALE && node;
-  while (node!.fn && (node = node!.owner as Computation<any>)) node.state === STALE && (top = node);
+  let top = node!.state === STALE && node,
+    pending;
+  while (node!.fn && (node = node!.owner as Computation<any>)) {
+    if (node.state === PENDING) pending = node;
+    else if (node.state === STALE) {
+      top = node;
+      pending = undefined;
+    }
+  }
+  if (pending) {
+    const updates = Updates;
+    Updates = null;
+    lookDownstream(pending);
+    Updates = updates;
+    if (!top || top.state !== STALE) return;
+  }
   top && updateComputation(top);
 }
 
@@ -410,7 +434,7 @@ function createProvider(id: symbol) {
     let rendered;
     createEffect(() => {
       Owner!.context = { [id]: props.value };
-      rendered = sample(() => resolveChildren(props.children));
+      rendered = untrack(() => resolveChildren(props.children));
     });
     return rendered;
   };

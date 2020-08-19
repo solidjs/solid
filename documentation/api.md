@@ -36,13 +36,13 @@ The following are not required to build simple applications but allow a lot more
 
 Creates a new non-tracked context that doesn't auto-dispose. All Solid code should be wrapped in one of these top level as they ensure that all memory/computations are freed up.
 
-### `sample(() => <code>): any`
+### `untrack(() => <code>): any`
 
 Ignores tracking any of the dependencies in the executing code block and returns the value.
 
-### `freeze(() => <code>): any`
+### `batch(() => <code>): any`
 
-Ensures that all updates within the block happen at the same time to prevent unnecessary recalculation. Solid State's setState method and computations(useEffect, useMemo) automatically wrap their code in freeze blocks.
+Ensures that all notification of updates within the block happen at the same time to prevent unnecessary recalculation. Solid State's setState method and computations(useEffect, useMemo) automatically wrap their code in a batch.
 
 ### `onError((err: any) => <code>)`
 

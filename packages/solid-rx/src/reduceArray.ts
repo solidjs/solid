@@ -1,4 +1,4 @@
-import { sample } from "solid-js";
+import { untrack } from "solid-js";
 
 export function reduceArray<T, U>(
   fn: (memo: U, value: T, i: number) => U,
@@ -21,7 +21,7 @@ export function reduceArray<T, U>(list: any, fn: any, seed?: any): any {
     return () => {
       let newList = list() || [],
         result = seed;
-      return sample(() => {
+      return untrack(() => {
         for (let i = 0; i < newList.length; i++) {
           result = fn(result, newList[i], i);
         }

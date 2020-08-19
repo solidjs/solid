@@ -13,7 +13,7 @@ const context = {
   runPendingObservers
 };
 
-function freeze(fn) {
+function batch(fn) {
   if (context.isUpdating) return fn();
   try {
     context.isUpdating = true;
@@ -52,7 +52,7 @@ class Signal {
   set(newValue) {
     if (newValue !== this.value) {
       this.value = newValue;
-      freeze(() => runAll(this.listeners));
+      batch(() => runAll(this.listeners));
     }
   }
 }
@@ -200,5 +200,5 @@ module.exports = {
   createRoot,
   createEffect,
   createMemo,
-  freeze
+  batch
 };

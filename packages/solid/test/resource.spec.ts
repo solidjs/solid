@@ -10,6 +10,8 @@ import {
   State
 } from "../src";
 
+globalThis._$HYDRATION || (globalThis._$HYDRATION = {})
+
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
@@ -74,7 +76,7 @@ describe("Simulate a dynamic fetch with state", () => {
     reject: (r: string) => void,
     trigger: (v: number) => void,
     load: (
-      v: { [k: number]: (() => Promise<string>) | string },
+      v: { [k: number]: () => Promise<string> },
       r?: (v: any) => (state: any) => void
     ) => void,
     setUsers: SetStateFunction<{ [id: number]: string }>,

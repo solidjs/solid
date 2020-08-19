@@ -240,5 +240,5 @@ module.exports = {
   createRoot: root,
   createEffect: computed,
   createMemo: computed,
-  freeze: transaction
+  batch: transaction
 };

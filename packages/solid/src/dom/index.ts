@@ -1,7 +1,13 @@
 import { insert, spread } from "./runtime";
-import { onCleanup, sample, splitProps, Component, suspend } from "../index.js";
+import { onCleanup, untrack, splitProps, Component, suspend } from "../index.js";
 
 export * from "./runtime";
+export {
+  renderToString,
+  renderDOMToString,
+  ssr
+} from "./asyncSSR";
+
 export {
   For,
   Show,
@@ -15,24 +21,33 @@ export {
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
   const { useShadow } = props,
-    container = document.createElement("div"),
     marker = document.createTextNode(""),
-    mount = props.mount || document.body,
-    renderRoot =
-      useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
+    mount = props.mount || document.body;
 
-  Object.defineProperty(container, "host", {
-    get() {
-      return marker.parentNode;
-    }
-  });
-  insert(
-    renderRoot,
-    sample(() => props.children)
-  );
-  mount.appendChild(container);
-  (props as any).ref && (props as any).ref(container);
-  onCleanup(() => mount.removeChild(container));
+  if (mount instanceof HTMLHeadElement) {
+    insert(
+      mount,
+      () => props.children,
+      null
+    );
+  } else {
+    const container = document.createElement("div"),
+      renderRoot =
+        useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
+
+    Object.defineProperty(container, "host", {
+      get() {
+        return marker.parentNode;
+      }
+    });
+    insert(
+      renderRoot,
+      () => props.children
+    );
+    mount.appendChild(container);
+    (props as any).ref && (props as any).ref(container);
+    onCleanup(() => mount.removeChild(container));
+  }
   return marker;
 }
 
@@ -45,7 +60,7 @@ export function Dynamic<T>(
       t = typeof comp;
 
     if (comp) {
-      if (t === "function") return sample(() => (comp as Function)(others as any));
+      if (t === "function") return untrack(() => (comp as Function)(others as any));
       else if (t === "string") {
         const el = document.createElement(comp as string);
         spread(el, others);

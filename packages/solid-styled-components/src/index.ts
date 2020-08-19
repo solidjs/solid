@@ -24,8 +24,10 @@ type StyledTemplateArgs<T> = [
 ];
 
 export function styled<T extends keyof JSX.IntrinsicElements>(tag: T | ((props: any) => any)) {
-  return <P>(...args: StyledTemplateArgs<P & { theme?: any }>) => {
-    return (props: P  & JSX.IntrinsicElements[T] & { theme?: any }): JSX.Element => {
+  return <P>(...args: StyledTemplateArgs<P & { theme?: any; className?: any }>) => {
+    return (
+      props: P & JSX.IntrinsicElements[T] & { theme?: any; className?: any }
+    ): JSX.Element => {
       const newProps = assignProps({}, props);
       props.theme = useContext(ThemeContext);
       Object.defineProperty(newProps, "className", {
@@ -34,7 +36,10 @@ export function styled<T extends keyof JSX.IntrinsicElements>(tag: T | ((props: 
             append = "className" in props && /^go[0-9]+/.test(pClassName!);
 
           // Call `css` with the append flag and pass the props
-          let className = css.apply({ target: this.target, o: append, p: props }, args as [any, ...any[]]);
+          let className = css.apply(
+            { target: this.target, o: append, p: props },
+            args as [any, ...any[]]
+          );
 
           return [pClassName, className].filter(Boolean).join(" ");
         },

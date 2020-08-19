@@ -16,6 +16,24 @@ describe("Testing a simple Portal", () => {
   test("dispose", () => disposer());
 });
 
+describe("Testing a Portal to the head", () => {
+  let div = document.createElement("div"),
+    disposer: () => void;
+  const Component = () => (
+    <Portal mount={document.head}>
+      <title>A Meaningful Page Title</title>
+    </Portal>
+  );
+
+  test("Create portal control flow", () => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("");
+    expect(document.head.innerHTML).toBe("<title>A Meaningful Page Title</title>");
+  });
+
+  test("dispose", () => disposer());
+});
+
 describe("Testing a Portal with Synthetic Events", () => {
   let div = document.createElement("div"),
     disposer: () => void,

@@ -1,4 +1,4 @@
-import { isListening, createSignal, freeze } from "./signal";
+import { isListening, createSignal, batch } from "./signal";
 export const $RAW = Symbol("state-raw"),
   $NODE = Symbol("state-node"),
   $PROXY = Symbol("state-proxy");
@@ -122,7 +122,7 @@ function mergeState(state: StateNode, value: Partial<StateNode>, force?: boolean
 
 export function updatePath(current: StateNode, path: any[], traversed: (number | string)[] = []) {
   let part,
-    next = current;
+    prev = current;
   if (path.length > 1) {
     part = path.shift();
     const partType = typeof part,
@@ -152,18 +152,18 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
       updatePath(current[part], path, [part].concat(traversed));
       return;
     }
-    next = current[part];
+    prev = current[part];
     traversed = [part].concat(traversed);
   }
   let value = path[0];
   if (typeof value === "function") {
-    value = value(next, traversed);
-    if (value === next) return;
+    value = value(prev, traversed);
+    if (value === prev) return;
   }
   if (part === undefined && value == undefined) return;
   value = unwrap(value);
-  if (part === undefined || (isWrappable(next) && isWrappable(value) && !Array.isArray(value))) {
-    mergeState(next, value);
+  if (part === undefined || (isWrappable(prev) && isWrappable(value) && !Array.isArray(value))) {
+    mergeState(prev, value);
   } else setProperty(current, part, value);
 }
 
@@ -275,7 +275,7 @@ export function createState<T extends StateNode>(
   const unwrappedState = unwrap<T>(state || {}, true);
   const wrappedState = wrap(unwrappedState);
   function setState(...args: any[]): void {
-    freeze(() => updatePath(unwrappedState, args));
+    batch(() => updatePath(unwrappedState, args));
   }
 
   return [wrappedState, setState];

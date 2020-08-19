@@ -1,7 +1,7 @@
 import { createComponent } from "./component";
 import {
   createSignal,
-  sample,
+  untrack,
   createEffect,
   createContext,
   useContext,
@@ -138,7 +138,7 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
     {
       value: store,
       children: () => {
-        const rendered = sample(() => props.children);
+        const rendered = untrack(() => props.children);
 
         return () => {
           const value = store.state(),

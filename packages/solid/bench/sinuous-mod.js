@@ -45,7 +45,7 @@ function sample(fn) {
   return value;
 }
 
-function freeze(fn) {
+function batch(fn) {
   let prevQueue = queue;
   queue = [];
   const result = fn();

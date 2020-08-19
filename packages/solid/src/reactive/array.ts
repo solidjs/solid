@@ -1,4 +1,4 @@
-import { onCleanup, createRoot, sample, createSignal } from "./signal";
+import { onCleanup, createRoot, untrack, createSignal } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 
@@ -21,7 +21,7 @@ export function mapArray<T, U>(
     let newItems = list() || [],
       i: number,
       j: number;
-    return sample(() => {
+    return untrack(() => {
       let newLen = newItems.length,
         newIndices: Map<T | typeof FALLBACK, number>,
         newIndicesNext: number[],
@@ -183,7 +183,7 @@ export function indexArray<T, U>(
   });
   return () => {
     const newItems = list() || [];
-    return sample(() => {
+    return untrack(() => {
       if (newItems.length === 0) {
         if (len !== 0) {
           for (i = 0; i < len; i++) disposers[i]();

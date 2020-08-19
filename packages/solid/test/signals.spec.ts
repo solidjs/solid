@@ -5,8 +5,8 @@ import {
   createDeferred,
   createDependentEffect,
   createMemo,
-  freeze,
-  sample,
+  batch,
+  untrack,
   onCleanup,
   afterEffects,
   onError
@@ -118,12 +118,12 @@ describe("Update signals", () => {
   });
 });
 
-describe("Sample signals", () => {
+describe("Untrack signals", () => {
   test("Mute an effect", () => {
     createRoot(() => {
       let temp;
       const [sign, setSign] = createSignal("thoughts");
-      createEffect(() => (temp = "unpure " + sample(sign)));
+      createEffect(() => (temp = "unpure " + untrack(sign)));
       expect(temp).toBe("unpure thoughts");
       setSign("mind");
       expect(temp).toBe("unpure thoughts");
@@ -304,7 +304,7 @@ describe("Trigger afterEffects", () => {
   test("Test when frozen", () => {
     let result = "";
     createRoot(() => {
-      freeze(() => {
+      batch(() => {
         afterEffects(() => (result += "Hello, "));
         afterEffects(() => (result += "John "));
         expect(result).toBe("");

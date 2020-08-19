@@ -1,4 +1,4 @@
-import { sample } from "solid-js";
+import { untrack } from "solid-js";
 
 export function tap<T>(fn: (v: T) => void): (v: () => T) => () => T;
 export function tap<T>(input: () => T, fn: (v: T) => void): () => T;
@@ -12,7 +12,7 @@ export function tap<T>(input: any, fn?: any): any {
   function tap(input: () => T) {
     return () => {
       const value = input();
-      sample(() => fn(value));
+      untrack(() => fn(value));
       return value;
     };
   }

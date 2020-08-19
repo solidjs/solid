@@ -1,0 +1,7 @@
+{
+  "name": "solid-js/server",
+  "main": "../lib/server/index.js",
+  "module": "../dist/server/index.js",
+  "types": "../types/server/index.d.ts",
+  "sideEffects": false
+}

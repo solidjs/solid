@@ -1,4 +1,4 @@
-import { sample } from "solid-js";
+import { untrack } from "solid-js";
 
 export function scan<T, U>(fn: (a: U, v: T) => U, seed: U): (v: () => T) => () => U;
 export function scan<T, U>(input: () => T, fn: (a: U, v: T) => U, seed: U): () => U;
@@ -13,7 +13,7 @@ export function scan<T, U>(input: any, fn: any, seed?: U): any {
   function scan(input: () => T) {
     return () => {
       const value = input();
-      return sample(() => (seed = fn(seed, value)));
+      return untrack(() => (seed = fn(seed, value)));
     };
   }
 }

@@ -66,7 +66,12 @@ export default [
             src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
             dest: "./src/dom"
           },
-          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/dom/" }
+          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/dom/" },
+          {
+            src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
+            dest: "./src/dom"
+          },
+          { src: "../../node_modules/dom-expressions/src/asyncSSR.d.ts", dest: "./types/dom/" }
         ]
       })
     ].concat(plugins)
@@ -102,14 +107,14 @@ export default [
     plugins
   },
   {
-    input: "src/static/index.ts",
+    input: "src/server/index.ts",
     output: [
       {
-        file: "lib/static/index.js",
+        file: "lib/server/index.js",
         format: "cjs"
       },
       {
-        file: "dist/static/index.js",
+        file: "dist/server/index.js",
         format: "es"
       }
     ],
@@ -118,9 +123,14 @@ export default [
         targets: [
           {
             src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
-            dest: "./src/static"
+            dest: "./src/server"
           },
-          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/static/" }
+          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/server/" },
+          {
+            src: ["../../node_modules/dom-expressions/src/ssr.d.ts"],
+            dest: "./src/server"
+          },
+          { src: "../../node_modules/dom-expressions/src/ssr.d.ts", dest: "./types/server/" }
         ]
       }),
       nodeResolve({
@@ -136,7 +146,7 @@ export default [
             "babel-plugin-transform-rename-import",
             {
               original: "rxcore",
-              replacement: "../../../packages/solid/src/static/core"
+              replacement: "../../../packages/solid/src/server/core"
             }
           ]
         ]

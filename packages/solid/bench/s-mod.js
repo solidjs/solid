@@ -88,7 +88,7 @@ function createMemo(fn, value, areEqual) {
     return node.value;
   };
 }
-function freeze(fn) {
+function batch(fn) {
   let result = undefined;
   if (RunningClock !== null) result = fn();
   else {

@@ -16,7 +16,7 @@ import {
   memo
 } from "react";
 
-export { reconcile, sample, freeze } from "solid-js";
+export { reconcile, untrack, batch } from "solid-js";
 
 let inSolidEffect = false;
 function trackNesting(args) {

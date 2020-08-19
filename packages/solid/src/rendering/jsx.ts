@@ -121,7 +121,7 @@ declare global {
       // MouseEvents
       onClick?: EventHandlerUnion<T, MouseEvent>;
       onContextMenu?: EventHandlerUnion<T, MouseEvent>;
-      onDoubleClick?: EventHandlerUnion<T, MouseEvent>;
+      onDblClick?: EventHandlerUnion<T, MouseEvent>;
       onDrag?: EventHandlerUnion<T, DragEvent>;
       onDragEnd?: EventHandlerUnion<T, DragEvent>;
       onDragEnter?: EventHandlerUnion<T, DragEvent>;
@@ -1926,7 +1926,8 @@ declare global {
       lang?: string;
       spellcheck?: boolean;
       style?: CSSProperties | string;
-      tabIndex?: number;
+      tabIndex?: number | string;
+      tabindex?: number | string;
       title?: string;
       translate?: "yes" | "no";
 
@@ -2397,10 +2398,8 @@ declare global {
     interface CoreSVGAttributes<T> extends DOMAttributes<T> {
       id?: string;
       lang?: string;
-      tabIndex?: number;
-      xmlBase?: string;
-      xmlLang?: string;
-      xmlSpace?: string;
+      tabIndex?: number | string;
+      tabindex?: number | string;
     }
 
     interface StylableSVGAttributes {
@@ -2506,11 +2505,11 @@ declare global {
         | "inherit";
       enableBackground?: string;
       fill?: string;
-      fillOpacity?: number | "inherit";
+      fillOpacity?: number | string | "inherit";
       fillRule?: "nonzero" | "evenodd" | "inherit";
       filter?: string;
       floodColor?: string;
-      floodOpacity?: number | "inherit";
+      floodOpacity?: number | string | "inherit";
       fontFamily?: string;
       fontSize?: string;
       fontSizeAdjust?: number | string;
@@ -2528,7 +2527,7 @@ declare global {
       markerMid?: string;
       markerStart?: string;
       mask?: string;
-      opacity?: number | "inherit";
+      opacity?: number | string | "inherit";
       overflow?: "visible" | "hidden" | "scroll" | "auto" | "inherit";
       pointerEvents?:
         | "bounding-box"
@@ -2545,14 +2544,14 @@ declare global {
         | "inherit";
       shapeRendering?: "auto" | "optimizeSpeed" | "crispEdges" | "geometricPrecision" | "inherit";
       stopColor?: string;
-      stopOpacity?: number | "inherit";
+      stopOpacity?: number | string | "inherit";
       stroke?: string;
       strokeDasharray?: string;
       strokeDashoffset?: number | string;
       strokeLinecap?: "butt" | "round" | "square" | "inherit";
       strokeLinejoin?: "arcs" | "bevel" | "miter" | "miter-clip" | "round" | "inherit";
-      strokeMiterlimit?: number | "inherit";
-      strokeOpacity?: number | "inherit";
+      strokeMiterlimit?: number | string | "inherit";
+      strokeOpacity?: number | string | "inherit";
       strokeWidth?: number | string;
       textAnchor?: "start" | "middle" | "end" | "inherit";
       textDecoration?: "none" | "underline" | "overline" | "line-through" | "blink" | "inherit";
@@ -2720,7 +2719,7 @@ declare global {
         AnimationAdditionSVGAttributes {
       path?: string;
       keyPoints?: string;
-      rotate?: number | "auto" | "auto-reverse";
+      rotate?: number | string |"auto" | "auto-reverse";
       origin?: "default";
     }
 
@@ -2802,10 +2801,10 @@ declare global {
         DoubleInputFilterSVGAttributes,
         StylableSVGAttributes {
       operator?: "over" | "in" | "out" | "atop" | "xor" | "arithmetic";
-      k1?: number;
-      k2?: number;
-      k3?: number;
-      k4?: number;
+      k1?: number | string;
+      k2?: number | string;
+      k3?: number | string;
+      k4?: number | string;
     }
 
     interface FeConvolveMatrixSVGAttributes<T>
@@ -2814,10 +2813,10 @@ declare global {
         StylableSVGAttributes {
       order?: number | string;
       kernelMatrix?: string;
-      divisor?: number;
-      bias?: number;
-      targetX?: number;
-      targetY?: number;
+      divisor?: number | string;
+      bias?: number | string;
+      targetX?: number | string;
+      targetY?: number | string;
       edgeMode?: "duplicate" | "wrap" | "none";
       kernelUnitLength?: number | string;
       preserveAlpha?: "true" | "false";
@@ -2828,8 +2827,8 @@ declare global {
         SingleInputFilterSVGAttributes,
         StylableSVGAttributes,
         Pick<PresentationSVGAttributes, "color" | "lightingColor"> {
-      surfaceScale?: number;
-      diffuseConstant?: number;
+      surfaceScale?: number | string;
+      diffuseConstant?: number | string;
       kernelUnitLength?: number | string;
     }
 
@@ -2837,14 +2836,14 @@ declare global {
       extends FilterPrimitiveElementSVGAttributes<T>,
         DoubleInputFilterSVGAttributes,
         StylableSVGAttributes {
-      scale?: number;
+      scale?: number | string;
       xChannelSelector?: "R" | "G" | "B" | "A";
       yChannelSelector?: "R" | "G" | "B" | "A";
     }
 
     interface FeDistantLightSVGAttributes<T> extends LightSourceElementSVGAttributes<T> {
-      azimuth?: number;
-      elevation?: number;
+      azimuth?: number | string;
+      elevation?: number | string;
     }
 
     interface FeFloodSVGAttributes<T>
@@ -2855,11 +2854,11 @@ declare global {
     interface FeFuncSVGAttributes<T> extends CoreSVGAttributes<T> {
       type?: "identity" | "table" | "discrete" | "linear" | "gamma";
       tableValues?: string;
-      slope?: number;
-      intercept?: number;
-      amplitude?: number;
-      exponent?: number;
-      offset?: number;
+      slope?: number | string;
+      intercept?: number | string;
+      amplitude?: number | string;
+      exponent?: number | string;
+      offset?: number | string;
     }
 
     interface FeGaussianBlurSVGAttributes<T>
@@ -2897,14 +2896,14 @@ declare global {
       extends FilterPrimitiveElementSVGAttributes<T>,
         SingleInputFilterSVGAttributes,
         StylableSVGAttributes {
-      dx?: number;
-      dy?: number;
+      dx?: number | string;
+      dy?: number | string;
     }
 
     interface FePointLightSVGAttributes<T> extends LightSourceElementSVGAttributes<T> {
-      x?: number;
-      y?: number;
-      z?: number;
+      x?: number | string;
+      y?: number | string;
+      z?: number | string;
     }
 
     interface FeSpecularLightingSVGAttributes<T>
@@ -2919,14 +2918,14 @@ declare global {
     }
 
     interface FeSpotLightSVGAttributes<T> extends LightSourceElementSVGAttributes<T> {
-      x?: number;
-      y?: number;
-      z?: number;
-      pointsAtX?: number;
-      pointsAtY?: number;
-      pointsAtZ?: number;
-      specularExponent?: number;
-      limitingConeAngle?: number;
+      x?: number | string;
+      y?: number | string;
+      z?: number | string;
+      pointsAtX?: number | string;
+      pointsAtY?: number | string;
+      pointsAtZ?: number | string;
+      specularExponent?: number | string;
+      limitingConeAngle?: number | string;
     }
 
     interface FeTileSVGAttributes<T>
@@ -2938,8 +2937,8 @@ declare global {
       extends FilterPrimitiveElementSVGAttributes<T>,
         StylableSVGAttributes {
       baseFrequency?: number | string;
-      numOctaves?: number;
-      seed?: number;
+      numOctaves?: number | string;
+      seed?: number | string;
       stitchTiles?: "stitch" | "noStitch";
       type?: "fractalNoise" | "turbulence";
     }
@@ -3052,7 +3051,7 @@ declare global {
         TransformableSVGAttributes,
         Pick<PresentationSVGAttributes, "markerStart" | "markerMid" | "markerEnd"> {
       d?: string;
-      pathLength?: number;
+      pathLength?: number | string;
     }
 
     interface PatternSVGAttributes<T>

@@ -4,7 +4,7 @@ import {
   createEffect,
   createResource,
   createResourceState,
-  sample,
+  untrack,
   useTransition
 } from "../../src";
 import { render, Suspense, SuspenseList } from "../../src/dom";
@@ -19,7 +19,7 @@ describe("Testing Suspense", () => {
       let [value, load] = createResource<string>();
       createEffect(
         () =>
-          triggered() && (load(() => new Promise(r => setTimeout(() => r("Hey"), 300))), sample(value))
+          triggered() && (load(() => new Promise(r => setTimeout(() => r("Hey"), 300))), untrack(value))
       );
       return props.greeting;
     },

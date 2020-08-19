@@ -1,4 +1,4 @@
-import { sample } from "solid-js";
+import { untrack } from "solid-js";
 
 export function map<T, U>(fn: (v: T) => U): (v: () => T) => () => U;
 export function map<T, U>(input: () => T, fn: (v: T) => U): () => U;
@@ -12,7 +12,7 @@ export function map<T, U>(input: any, fn?: (v: T) => U): any {
   function map(input: () => T) {
     return () => {
       const value = input();
-      return sample(() => fn!(value));
+      return untrack(() => fn!(value));
     };
   }
 }

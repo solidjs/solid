@@ -1,4 +1,4 @@
-import { sample } from "../reactive/signal";
+import { untrack } from "../reactive/signal";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
@@ -25,7 +25,7 @@ export function createComponent<T>(
   if (dynamicKeys) {
     for (let i = 0; i < dynamicKeys.length; i++) dynamicProperty(props, dynamicKeys[i] as string);
   }
-  return sample(() => Comp(props as T));
+  return untrack(() => Comp(props as T));
 }
 
 export function assignProps<T, U>(target: T, source: U): T & U;

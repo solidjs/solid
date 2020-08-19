@@ -2,8 +2,8 @@ import {
   createContext,
   createEffect,
   useContext,
-  sample,
-  freeze,
+  untrack,
+  batch,
   createMemo,
   createSignal,
   isListening,
@@ -74,20 +74,23 @@ export interface Resource<T> {
 }
 
 export function createResource<T>(
-  value?: T
-): [Resource<T>, (fn: (() => Promise<T>) | T, options?: { force?: boolean }) => void] {
+  value?: T,
+  options: { name?: string; notStreamed?: boolean } = {}
+): [Resource<T>, (fn: () => Promise<T> | T) => void] {
   const [s, set] = createSignal<T | undefined>(value),
     [trackPromise, triggerPromise] = createSignal<void>(),
     [trackLoading, triggerLoading] = createSignal<void>(),
-    contexts = new Set<SuspenseContextType>();
+    contexts = new Set<SuspenseContextType>(),
+    h = globalThis._$HYDRATION;
   let loading = false,
     error: any = null,
     pr: Promise<T> | undefined;
 
   function loadEnd(v: T | undefined) {
     pr = undefined;
-    freeze(() => {
+    batch(() => {
       set(v);
+      if (h.asyncSSR && options.name) h.resources![options.name] = v;
       loading && ((loading = false), triggerLoading());
       for (let c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -105,24 +108,31 @@ export function createResource<T>(
     }
     return v;
   }
-  function load(fn: (() => Promise<T>) | T, options: { force?: boolean } = {}) {
+  function load(fn: () => Promise<T> | T) {
     error = null;
-    if (fn == null || typeof fn !== "function") {
-      pr = undefined;
-      loadEnd(fn);
-      return fn;
+    if (fn == null || typeof fn !== "function") return;
+    let p: Promise<T> | T;
+    const hydrating = h.context && !!h.context.registry;
+    if (hydrating) {
+      if (h.loadResource && !options.notStreamed) {
+        fn = h.loadResource;
+      } else if (options.name && h.resources && options.name in h.resources) {
+        fn = () => {
+          const data = h.resources![options.name!];
+          delete h.resources![options.name!];
+          return data;
+        };
+      }
     }
-    const hydrating =
-      globalThis._$HYDRATION &&
-      globalThis._$HYDRATION.context &&
-      !!globalThis._$HYDRATION.context.registry;
-    if (!options.force && hydrating) return;
-
-    let p: Promise<T>;
-    pr = p = (fn as () => Promise<T>)();
+    p = fn();
+    if (typeof p !== "object" || !("then" in p)) {
+      loadEnd(p);
+      return p;
+    }
+    pr = p;
     if (!loading) {
       loading = true;
-      freeze(() => {
+      batch(() => {
         triggerLoading();
         triggerPromise();
       });
@@ -140,88 +150,94 @@ export function createResource<T>(
   return [read as Resource<T>, load];
 }
 
-function createResourceNode(v: any) {
+function createResourceNode(v: any, name: string) {
   // maintain setState capability by using normal data node as well
   const node = createSignal(),
-    [r, load] = createResource(v);
+    [r, load] = createResource(v, { name });
   return [() => (r(), node[0]()), node[1], load, () => r.loading];
 }
 
-const loadingTraps = {
-  get(nodes: any, property: string | number) {
-    const node = nodes[property] || (nodes[property] = createResourceNode(undefined));
-    return node[3]();
-  },
-
-  set() {
-    return true;
-  },
-
-  deleteProperty() {
-    return true;
-  }
-};
-
-const resourceTraps = {
-  get(target: StateNode, property: string | number | symbol) {
-    if (property === $RAW) return target;
-    if (property === $PROXY || property === $NODE) return;
-    if (property === "loading") return new Proxy(getDataNodes(target), loadingTraps);
-    const value = target[property as string | number],
-      wrappable = isWrappable(value);
-    if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createSignal());
-        node[0]();
-      }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createResourceNode(value));
-      node[0]();
-    }
-    return wrappable ? wrap(value) : value;
-  },
-
-  set() {
-    return true;
-  },
-
-  deleteProperty() {
-    return true;
-  }
-};
-
 export interface LoadStateFunction<T> {
   (
-    v: { [P in keyof T]?: (() => Promise<T[P]>) | T[P] },
+    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
   ): void;
 }
 
 export function createResourceState<T extends StateNode>(
-  state: T | State<T>
+  state: T | State<T>,
+  options: { name?: string } = {}
 ): [
   State<T & { loading: { [P in keyof T]: boolean } }>,
   LoadStateFunction<T>,
   SetStateFunction<T>
 ] {
+  const loadingTraps = {
+    get(nodes: any, property: string | number) {
+      const node =
+        nodes[property] ||
+        (nodes[property] = createResourceNode(undefined, name && `${options.name}:${property}`));
+      return node[3]();
+    },
+
+    set() {
+      return true;
+    },
+
+    deleteProperty() {
+      return true;
+    }
+  };
+
+  const resourceTraps = {
+    get(target: StateNode, property: string | number | symbol) {
+      if (property === $RAW) return target;
+      if (property === $PROXY || property === $NODE) return;
+      if (property === "loading") return new Proxy(getDataNodes(target), loadingTraps);
+      const value = target[property as string | number],
+        wrappable = isWrappable(value);
+      if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
+        let nodes, node;
+        if (wrappable && (nodes = getDataNodes(value))) {
+          node = nodes._ || (nodes._ = createSignal());
+          node[0]();
+        }
+        nodes = getDataNodes(target);
+        node =
+          nodes[property] ||
+          (nodes[property] = createResourceNode(value, `${options.name}:${property as string}`));
+        node[0]();
+      }
+      return wrappable ? wrap(value) : value;
+    },
+
+    set() {
+      return true;
+    },
+
+    deleteProperty() {
+      return true;
+    }
+  };
+
   const unwrappedState = unwrap<T>(state || {}),
     wrappedState = wrap<T & { loading: { [P in keyof T]: boolean } }>(
       unwrappedState as any,
       resourceTraps
     );
   function setState(...args: any[]): void {
-    freeze(() => updatePath(unwrappedState, args));
+    batch(() => updatePath(unwrappedState, args));
   }
   function loadState(
-    v: { [P in keyof T]?: (() => Promise<T[P]>) | T[P] },
+    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
     r?: (v: Partial<T>) => (state: State<T>) => void
   ) {
     const nodes = getDataNodes(unwrappedState),
       keys = Object.keys(v);
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i],
-        node = nodes[k] || (nodes[k] = createResourceNode(unwrappedState[k])),
+        node =
+          nodes[k] || (nodes[k] = createResourceNode(unwrappedState[k], `${options.name}:${k}`)),
         resolver = (v?: T[keyof T]) => (
           r
             ? setState(k, r(v as Partial<T>))
@@ -239,22 +255,23 @@ export function createResourceState<T extends StateNode>(
 // lazy load a function component asynchronously
 export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
   return ((props: any) => {
-    const hydrating = globalThis._$HYDRATION.context && !!globalThis._$HYDRATION.context.registry,
+    const h = globalThis._$HYDRATION,
+      hydrating = h.context && h.context.registry,
       ctx = nextHydrateContext(),
-      [s, p] = createResource<T>();
-    if (hydrating) {
-      fn().then(mod => p(mod.default));
-    } else p(() => fn().then(mod => mod.default));
+      [s, l] = createResource<T>(undefined, { notStreamed: true });
+    if (hydrating && h.resources) {
+      fn().then(mod => l(() => mod.default));
+    } else l(() => fn().then(mod => mod.default));
     let Comp: T | undefined;
     return createMemo(
       () =>
         (Comp = s()) &&
-        sample(() => {
+        untrack(() => {
           if (!ctx) return Comp!(props);
-          const h = globalThis._$HYDRATION.context;
+          const c = h.context;
           setHydrateContext(ctx);
           const r = Comp!(props);
-          !h && setHydrateContext();
+          !c && setHydrateContext();
           return r;
         })
     );
@@ -298,6 +315,10 @@ type HydrationContext = {
 
 type GlobalHydration = {
   context?: HydrationContext;
+  register?: (v: Promise<any>) => void;
+  loadResource?: () => Promise<any>;
+  resources?: { [key: string]: any };
+  asyncSSR?: boolean;
 };
 
 declare global {
