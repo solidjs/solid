@@ -1,4 +1,4 @@
-import { isListening, createSignal, batch } from "./signal";
+import { getListener, createSignal, batch } from "./signal";
 export const $RAW = Symbol("state-raw"),
   $NODE = Symbol("state-node"),
   $PROXY = Symbol("state-proxy");
@@ -73,7 +73,7 @@ const proxyTraps = {
     if (property === $PROXY || property === $NODE) return;
     const value = target[property as string | number],
       wrappable = isWrappable(value);
-    if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
+    if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = createSignal());

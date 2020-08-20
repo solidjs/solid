@@ -5,7 +5,7 @@ export {
   createDeferred,
   createDependentEffect,
   createMemo,
-  isListening,
+  getListener,
   onCleanup,
   onError,
   untrack,

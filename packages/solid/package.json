@@ -18,6 +18,28 @@
     "lib",
     "types"
   ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./lib/index.js"
+    },
+    "./dom": {
+      "import": "./dist/dom/index.js",
+      "require": "./lib/dom/index.js"
+    },
+    "./h": {
+      "import": "./dist/dom/h.js",
+      "require": "./lib/dom/h.js"
+    },
+    "./html": {
+      "import": "./dist/dom/html.js",
+      "require": "./lib/dom/html.js"
+    },
+    "./server": {
+      "import": "./dist/server/index.js",
+      "require": "./lib/server/index.js"
+    }
+  },
   "scripts": {
     "prebuild": "rimraf dist/* lib/* types/*",
     "build": "npm-run-all -cnl build:*",

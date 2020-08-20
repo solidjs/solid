@@ -1,10 +1,12 @@
 globalThis.isSSR = true;
 import { awaitSuspense } from "solid-js";
 import { renderToString, generateHydrationScript } from "solid-js/dom";
-import App from "../shared/components/App";
+import App from "../shared/src/components/App";
 const lang = "en";
 
-function render(body) {
+// entry point for server render
+export default async (req) => {
+  const string = await renderToString(awaitSuspense(() => <App url={req.url} />));
   return `<html lang="${lang}">
     <head>
       <title>🔥 Solid SSR 🔥</title>
@@ -16,13 +18,7 @@ function render(body) {
         resolved: true
       })}</script>
     </head>
-    <body><div id="app">${body}</div></body>
+    <body><div id="app">${string}</div></body>
     <script type="module" src="/js/index.js"></script>
   </html>`;
-}
-
-// entry point for server render
-export default async req => {
-  const string = await renderToString(awaitSuspense(() => <App url={req.url} />));
-  return render(string);
 };

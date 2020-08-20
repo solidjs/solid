@@ -6,7 +6,7 @@ import {
   batch,
   createMemo,
   createSignal,
-  isListening,
+  getListener,
   afterEffects,
   Context
 } from "../reactive/signal";
@@ -196,7 +196,7 @@ export function createResourceState<T extends StateNode>(
       if (property === "loading") return new Proxy(getDataNodes(target), loadingTraps);
       const value = target[property as string | number],
         wrappable = isWrappable(value);
-      if (isListening() && (typeof value !== "function" || target.hasOwnProperty(property))) {
+      if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
         let nodes, node;
         if (wrappable && (nodes = getDataNodes(value))) {
           node = nodes._ || (nodes._ = createSignal());

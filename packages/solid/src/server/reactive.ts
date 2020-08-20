@@ -87,8 +87,8 @@ export function onError(fn: (err: any) => void): void {
   else Owner.context[ERROR].push(fn);
 }
 
-export function isListening() {
-  return false;
+export function getListener() {
+  return null;
 }
 
 // Context API
