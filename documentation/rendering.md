@@ -235,7 +235,7 @@ function App() {
 }
 ```
 
-You can also apply `ref` on a Component:
+You can also apply a callback `ref` on a Component:
 
 ```jsx
 function App() {

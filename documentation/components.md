@@ -41,14 +41,6 @@ const { name } = state;
 <StaticComponent name={ state.name }/>
 ```
 
-If you are very performance oriented you can also pass accessor functions instead of using Dynamic syntax on Function components. This will reduce overhead a little bit but requires that a function is always passed.
-
-```jsx
-const DynamicComponent = ({ name }) => <div>{ name() }</div>
-
-<DynamicComponent name={() => state.name}/>
-```
-
 ## Children
 
 Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array. 
@@ -74,6 +66,19 @@ const List = (props) => <ul>{ props.children.map(item => <li>{item}</li>) }</ul>
 ## Lifecycle
 
 Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components. Instead of lifecycles in Solid are tied to the lifecycle of the reactive system.
+
+```jsx
+<Component prop1="static" prop2={state.dynamic} />
+
+// compiles roughly to:
+
+// we untrack the component body to isolate it and prevent costly updates
+untrack(() => Component({
+  prop1: "static",
+  // dynamic expression so we wrap in a getter
+  get prop2() { return state.dynamic }
+}))
+```
 
 So if you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`.
 

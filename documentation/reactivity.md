@@ -47,9 +47,10 @@ setCount(count() + 1);
 // 2
 // 4
 ```
-Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX, the compiler is wrapping it in a function and passing it to a `createEffect` call.
+Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX(code between the parenthesis `{}`), the compiler is wrapping it in a function and passing it to a `createEffect` call.
 
 Memos allow us to store and access values without re-evaluating them until their dependendencies change.
+
 Keep in mind memos are only necessary if you wish to prevent re-evaluation when the value is read. Useful for expensive operations like DOM Node creation. Any example with a memo could also just be a function and effectively be the same without caching as it's just another signal.
 
 ```js
@@ -94,7 +95,7 @@ While Solid does not have Component lifecyles in the traditional sense, it still
 
 Once inside a scope whenever the scope is re-evaluated or disposed of itself, all children computations will be disposed. In addition you can register a `onCleanup` method that will execute as part of this disposal cycle.
 
-*Note: Solid's graph is synchronously executed so any starting point that isn't caused by a reactive update (perhaps an asynchronous entry) should start from its own root. There are other ways to handle asynchronicity as shown in the [Suspense Docs](./supense.md)*
+*Note: Solid's graph is synchronously executed so any starting point that isn't caused by a reactive update (perhaps an asynchronous entry) should start from its own root. There are other ways to handle asynchronicity as shown in the [Suspense Docs](./suspense.md)*
 
 ## Composition
 
