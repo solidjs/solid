@@ -1,6 +1,6 @@
 const Profile = (props) => (
     <>
-      <h1>{props.user?.name}'s Profile</h1>
+      <h1>{props.user?.firstName}'s Profile</h1>
       <p>This section could be about you.</p>
     </>
   )
