@@ -7,11 +7,12 @@ export { css, glob, extractCss } from "goober";
 const ThemeContext = createContext();
 
 export function ThemeProvider<T extends { theme: any; children?: any }>(props: T) {
-  return createComponent(
-    ThemeContext.Provider,
-    { value: props.theme, children: () => props.children },
-    ["children"]
-  );
+  return createComponent(ThemeContext.Provider, {
+    value: props.theme,
+    get children() {
+      return props.children;
+    }
+  });
 }
 
 export function useTheme() {

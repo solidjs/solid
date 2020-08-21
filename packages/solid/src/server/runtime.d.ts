@@ -29,6 +29,8 @@ export function style(
   prev?: { [k: string]: string }
 ): void;
 export function currentContext(): any;
+export function dynamicProperty(props: any, key: string): any;
+export function assignProps(target: any, ...sources: any): any
 
 export function getHydrationKey(): string;
 export function getNextElement(template: HTMLTemplateElement, isSSR: boolean): Node;

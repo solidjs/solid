@@ -1,8 +1,9 @@
 import { useContext, lazy } from "solid-js";
 import { Link, RouteHOC, RouterContext } from "../router";
+// import stub as main package to allowing fetch as you load
+import Profile from "./Profile";
 
 const Home = lazy(() => import("./Home"));
-const Profile = lazy(() => import("./Profile"));
 const Settings = lazy(() => import("./Settings"));
 
 const App = RouteHOC(() => {

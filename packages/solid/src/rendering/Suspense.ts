@@ -51,9 +51,8 @@ export function SuspenseList(props: {
             return [showingContent, showingFallback];
           }
         },
-        children: () => props.children
-      },
-      ["children"]
+        get children() { return props.children; }
+      }
     );
 
   createEffect(() => {
@@ -137,7 +136,7 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
     SuspenseContext.Provider,
     {
       value: store,
-      children: () => {
+      get children() {
         const rendered = untrack(() => props.children);
 
         return () => {
@@ -150,7 +149,6 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
           return props.fallback;
         };
       }
-    },
-    ["children"]
+    }
   );
 }

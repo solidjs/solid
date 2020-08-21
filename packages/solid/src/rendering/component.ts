@@ -3,28 +3,10 @@ import { untrack } from "../reactive/signal";
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
 
-type PossiblyWrapped<T> = {
-  [P in keyof T]: T[P] | (() => T[P]);
-};
-
-function dynamicProperty(props: any, key: string) {
-  const src = props[key];
-  Object.defineProperty(props, key, {
-    get() {
-      return src();
-    },
-    enumerable: true
-  });
-}
-
 export function createComponent<T>(
   Comp: (props: T) => JSX.Element,
-  props: PossiblyWrapped<T>,
-  dynamicKeys?: (keyof T)[]
+  props: T
 ): JSX.Element {
-  if (dynamicKeys) {
-    for (let i = 0; i < dynamicKeys.length; i++) dynamicProperty(props, dynamicKeys[i] as string);
-  }
   return untrack(() => Comp(props as T));
 }
 

@@ -51,7 +51,8 @@ export {
   ssrClassList,
   ssrSpread,
   getHydrationKey,
-  generateHydrationScript
+  generateHydrationScript,
+  dynamicProperty
 } from "./runtime";
 
 export {

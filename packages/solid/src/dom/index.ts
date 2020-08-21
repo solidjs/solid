@@ -16,7 +16,8 @@ export {
   Switch,
   Match,
   Index,
-  ErrorBoundary
+  ErrorBoundary,
+  assignProps
 } from "../index.js";
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
