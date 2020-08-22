@@ -11,7 +11,7 @@ export function insert(
   marker?: Node | null,
   init?: any
 ): any;
-export function createComponent(Comp: (props: any) => any, props: any, dynamicKeys?: string[]): any;
+export function createComponent(Comp: (props: any) => any, props: any): any;
 export function delegateEvents(eventNames: string[]): void;
 export function clearDelegatedEvents(): void;
 export function spread(node: Element, accessor: any, isSVG?: Boolean, skipChildren?: Boolean): void;

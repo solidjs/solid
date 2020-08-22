@@ -12,7 +12,6 @@ export function renderDOMToString<T>(
   }
 ): T extends Promise<any> ? Promise<string> : string;
 
-export function ssr(
-  template: string[] | string,
-  ...nodes: any[]
-): { t: string | (() => string) };
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string | (() => string) };
+
+export function resolveSSRNode(node: any): string;

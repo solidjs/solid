@@ -1,4 +1,5 @@
 import { State, SetStateFunction, updatePath } from "./reactive";
+import { resolveSSRNode } from "./ssr";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
@@ -95,7 +96,7 @@ function simpleMap(
     fn = props.children;
   if (len) {
     let mapped = "";
-    for (let i = 0; i < len; i++) mapped += wrap(fn, list[i], i);
+    for (let i = 0; i < len; i++) mapped += resolveSSRNode(wrap(fn, list[i], i));
     return mapped;
   }
   return props.fallback || "";
