@@ -107,10 +107,11 @@ export function reconcile<T>(
   value: T | State<T>,
   options: ReconcileOptions = {}
 ): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T> {
-  const { merge, key = "id" } = options;
+  const { merge, key = "id" } = options,
+    v = unwrap(value);
   return state => {
-    if (!isWrappable(state)) return value as T extends NotWrappable ? T : State<T>;
-    applyState(value, { state }, "state", merge, key);
+    if (!isWrappable(state)) return v as T extends NotWrappable ? T : State<T>;
+    applyState(v, { state }, "state", merge, key);
     return state;
   };
 }
