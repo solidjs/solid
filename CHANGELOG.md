@@ -1,5 +1,5 @@
 # Changelog
-## 0.19.0
+## 0.19.0 - 2020-08-23
 API Changes to support better SSR
 ### Breaking Changes:
 
@@ -22,7 +22,7 @@ After writing `setDefaults`, `cloneProps`, and about to introduce `mergeProps` i
 
 ```js
 // default props
-props = assignProps({ name; "Smith" }, props);
+props = assignProps({}, { name: "Smith" }, props);
 
 // clone props
 newProps = assignProps({}, props);
@@ -37,6 +37,8 @@ These APIs never had the most obvious naming, borrowing from SRP and digital cir
 
 #### Resource API
 For better automatic hydration support it is prudent to change resource signatures to take functions that return promises rather than promises themselves. This factory function has a lot advantages. This allows the library to decide whether to execute it or not. In certain cases we can choose skipping creating the promise altogether. It also leaves the door open for things like retry.
+
+We use this mechanism to wire up streamed data from the server and automatic data hydration for resources rendered into the page in async SSR.
 
 #### SSR Improvements
 
