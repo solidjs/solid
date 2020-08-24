@@ -89,10 +89,10 @@ describe("setState with reconcile", () => {
 
 describe("setState with produce", () => {
   interface DataState {
-    data: { ending: number, starting: number }
+    data: { ending?: number, starting: number }
   }
   test("Top Level Mutation", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    const [state, setState] = createState<DataState>({ data: { starting: 1, ending: 1 } });
     setState(produce<DataState>(s => {
       s.data.ending = s.data.starting + 1;
     }));
@@ -108,7 +108,7 @@ describe("setState with produce", () => {
     expect(state.data.ending).toBe(2);
   });
   test("Top Level Deletion", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    const [state, setState] = createState<DataState>({ data: { starting: 1, ending: 1 } });
     setState(produce<DataState>(s => {
       delete s.data.ending;
     }));
@@ -116,7 +116,7 @@ describe("setState with produce", () => {
     expect(state.data.ending).not.toBeDefined();
   });
   test("Top Level Object Mutation", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } }),
+    const [state, setState] = createState<DataState>({ data: { starting: 1, ending: 1 } }),
       next = { starting: 3, ending: 6 };
     setState(produce<DataState>(s => {
       s.data = next;

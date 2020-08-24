@@ -19,6 +19,7 @@ describe("State immutablity", () => {
   test("Deleting a property", () => {
     const [state] = createState({ name: "John" });
     expect(state.name).toBe("John");
+    // @ts-ignore
     delete state.name;
     expect(state.name).toBe("John");
   });
