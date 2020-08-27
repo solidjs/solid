@@ -61,6 +61,11 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
+export function createSignal<T>(): [() => T | undefined, (v: T) => T];
+export function createSignal<T>(
+  value: T,
+  areEqual?: boolean | ((prev: T, next: T) => boolean)
+): [() => T, (v: T) => T];
 export function createSignal<T>(
   value?: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean)

@@ -220,7 +220,7 @@ export function createResourceState<T extends StateNode>(
     }
   };
 
-  const unwrappedState = unwrap<T>(state || {}),
+  const unwrappedState = unwrap<T>(state || {}, true),
     wrappedState = wrap<T & { loading: { [P in keyof T]: boolean } }>(
       unwrappedState as any,
       resourceTraps
