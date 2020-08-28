@@ -2,7 +2,16 @@ import { untrack } from "../reactive/signal";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
-export type ComponentProps<T> = T extends Component<infer P>
+/**
+ * Takes the props of the passed component and returns its type
+ *
+ * @example
+ * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
+ * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
+ */
+export type ComponentProps<
+  T extends keyof JSX.IntrinsicElements | Component<any>
+> = T extends Component<infer P>
   ? P
   : T extends keyof JSX.IntrinsicElements
   ? JSX.IntrinsicElements[T]
