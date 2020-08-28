@@ -2,7 +2,12 @@ import { untrack } from "../reactive/signal";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
-
+export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any>> =
+        T extends Component<infer P>
+            ? P
+            : T extends keyof JSX.IntrinsicElements
+                ? JSX.IntrinsicElements[T]
+                : {};
 export function createComponent<T>(
   Comp: (props: T) => JSX.Element,
   props: T
