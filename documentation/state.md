@@ -23,7 +23,7 @@ const [state, setState] = createState({
 
 ### `setState(...path, changes)`
 
-This merges the changes into the path on the state object. All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time). Changes can take the form of function that passes previous state and returns new state or a value. Objects are always merged.
+This merges the changes into the path on the state object. All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time). Changes can take the form of function that passes previous state and returns new state or a value. Objects are always merged. Set values to `undefined` to delete them from state.
 
 ```js
 const [state, setState] = createState({ firstName: 'John', lastName: 'Miller' });

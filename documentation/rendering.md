@@ -58,6 +58,18 @@ To allow for casing to work all custom events should follow the all lowercase co
 <div on={{ "Weird-Event": e => alert(e.detail) }} />
 ```
 
+## Spreads
+
+Solid supports spread operator on native elements and Components. While not able to be optimized by the compiler these are useful for forwarding data through. Especially when the intermediary is unsure of what possible props are being passed down.
+
+```js
+function MyDiv(props) {
+  return <div {...props} />
+}
+```
+
+Solid supports dynamically changing which values are on the spread object value on native elements. However, currently there is a limitation on Components that while they support dynamic changes, all properties must be on the props object at first render.
+
 ## Control Flow
 
 While you could use a map function for loops they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods.
