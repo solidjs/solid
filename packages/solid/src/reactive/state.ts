@@ -68,11 +68,13 @@ export function getDataNodes(target: StateNode) {
 }
 
 const proxyTraps = {
-  get(target: StateNode, property: string | number | symbol) {
+  get(target: StateNode, property: string | number | symbol, receiver: any) {
     if (property === $RAW) return target;
-    if (property === $PROXY || property === $NODE) return;
-    const value = target[property as string | number],
-      wrappable = isWrappable(value);
+    if (property === $PROXY) return receiver;
+    const value = target[property as string | number];
+    if (property === $NODE || property === "__proto__") return value;
+
+    const wrappable = isWrappable(value);
     if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {

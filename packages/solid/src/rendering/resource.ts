@@ -190,12 +190,14 @@ export function createResourceState<T extends StateNode>(
   };
 
   const resourceTraps = {
-    get(target: StateNode, property: string | number | symbol) {
+    get(target: StateNode, property: string | number | symbol, receiver: any) {
       if (property === $RAW) return target;
-      if (property === $PROXY || property === $NODE) return;
+      if (property === $PROXY) return receiver;
       if (property === "loading") return new Proxy(getDataNodes(target), loadingTraps);
-      const value = target[property as string | number],
-        wrappable = isWrappable(value);
+      const value = target[property as string | number];
+      if (property === $NODE || property === "__proto__") return value;
+
+      const wrappable = isWrappable(value);
       if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
         let nodes, node;
         if (wrappable && (nodes = getDataNodes(value))) {
