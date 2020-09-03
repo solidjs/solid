@@ -401,6 +401,7 @@ function cleanNode(node: Owner) {
     for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
     node.cleanups = null;
   }
+  node.context = null;
 }
 
 function handleError(err: any) {
