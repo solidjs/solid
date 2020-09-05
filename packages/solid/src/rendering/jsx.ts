@@ -2975,6 +2975,7 @@ declare global {
         ConditionalProcessingSVGAttributes,
         ExternalResourceSVGAttributes,
         StylableSVGAttributes,
+        TransformableSVGAttributes,
         Pick<PresentationSVGAttributes, "display" | "visibility"> {}
 
     interface ImageSVGAttributes<T>
