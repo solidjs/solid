@@ -1,23 +1,28 @@
 # Changelog
+
 ## 0.19.0 - 2020-08-23
+
 API Changes to support better SSR
+
 ### Breaking Changes:
 
 #### Set State
+
 Mutable form is no longer a default. It was strangely inconsistent as you could accidentally mutate in immutable forms. No indicator why it should behave differently and work. Increased the size of `state` for everyone and added performance overhead with additional proxy wrapping. Also it was based on returning undefined meaning function forms could never return undefined to blank a vlue. Solid has changed it into a state setter modifier `produce` after ImmerJS naming.
 
 ```js
 // top level
-setState(produce(s => {
- s.name = "John"
-}));
+setState(produce(s => (s.name = "John")));
 
 // nested
-setState('user', produce(s => {
- s.name = "John"
-}));
+setState(
+  "user",
+  produce(s => (s.name = "John"))
+);
 ```
+
 #### Prop APIs
+
 After writing `setDefaults`, `cloneProps`, and about to introduce `mergeProps` it became clear we can do this all with a single `assignProps` helper. So the former has been removed and now we have:
 
 ```js
@@ -28,14 +33,17 @@ props = assignProps({}, { name: "Smith" }, props);
 newProps = assignProps({}, props);
 
 // merge props
-assignProps(props, otherProps)
+assignProps(props, otherProps);
 ```
+
 It follows the same pattern as ES `Object.assign` adding properties to the first argument and returning it. Except this method copies property descriptors without accessing them to preserve reactivity.
 
 #### `freeze` & `sample` have been renamed
+
 These APIs never had the most obvious naming, borrowing from SRP and digital circuit concepts rather than common english. They are now `batch` and `untrack` respectively which better reflect their purpose. These are now deprecated and will be removed in next minor version.
 
 #### Resource API
+
 For better automatic hydration support it is prudent to change resource signatures to take functions that return promises rather than promises themselves. This factory function has a lot advantages. This allows the library to decide whether to execute it or not. In certain cases we can choose skipping creating the promise altogether. It also leaves the door open for things like retry.
 
 We use this mechanism to wire up streamed data from the server and automatic data hydration for resources rendered into the page in async SSR.
@@ -47,32 +55,37 @@ New experimental support for Suspense aware synchronous, asynchronous, and strea
 ### New
 
 #### State Getters
+
 For convenience of passing derived values or external reactive expressions through Solid's state initializer you can now add `getter`'s.
 
 ```jsx
 const [state, setState] = createState({
   firstName: "Jon",
   lastName: "Snow",
-  get greeting() { return `You know nothing ${state.firstName} ${state.lastName}` }
+  get greeting() {
+    return `You know nothing ${state.firstName} ${state.lastName}`;
+  }
 });
 
-return <div>{state.greeting}</div>
+return <div>{state.greeting}</div>;
 ```
 
 #### Control Flow
 
 Dynamic allows swapping Component dynamically.
+
 ```jsx
 // element tag name
 const [comp, setComp] = createSignal("h1");
 
-<Dynamic component={comp()} {...otherProps} />
+<Dynamic component={comp()} {...otherProps} />;
 
 // Component
 setComp(MyComp);
 ```
 
 ErrorBoundary catches uncaught downstream errors and shows a fallback.
+
 ```jsx
 <ErrorBoundary fallback={<div>Something went terribly wrong</div>}>
   <MyComp />
@@ -94,63 +107,75 @@ Arguably a new feature but Solid now detects computation owners with pending dep
 Improved TypeScript Types.
 
 ## 0.18.0 - 2020-05-01
+
 A lot of bug fixes, and introduction of string based SSR.
 Breaking Changes:
-* Removal of `forwardRef`. Value and function handled by just `ref`.
-* Change to how TypeScript is managed. Brought all JSX types inside the repo, and improved Component typing.
-* Changed default renderer in `solid-ssr` to string renderer.
+
+- Removal of `forwardRef`. Value and function handled by just `ref`.
+- Change to how TypeScript is managed. Brought all JSX types inside the repo, and improved Component typing.
+- Changed default renderer in `solid-ssr` to string renderer.
 
 ## 0.17.0 - 2020-03-24
+
 A lot of consolidation in preparation for release candidate
-* Big refactor of core reactive system and render list reconciler
-  * Significantly smaller reducing core by atleast 3kb minified
-* Better handling of nested reactive nodes in Fragments
-* Update SSR mechanisms, added progressive event hydration, created repo for SSR environment (`solid-ssr`)
-* `@once` compiler hint to statically bind values
-* Better wrapping hueristics for booleans and ternaries in JSX
+
+- Big refactor of core reactive system and render list reconciler
+  - Significantly smaller reducing core by atleast 3kb minified
+- Better handling of nested reactive nodes in Fragments
+- Update SSR mechanisms, added progressive event hydration, created repo for SSR environment (`solid-ssr`)
+- `@once` compiler hint to statically bind values
+- Better wrapping hueristics for booleans and ternaries in JSX
 
 Breaking Changes
-* Removed `transform` prop from control flow. Idiomatic approach is to make a HOC for transformations of this nature.
-* Removed selectWhen/selectEach control flow transforms.
-* Changed event system
-  * `on____` prop to stop differentiating on case. Super confusing.Instead will try to delegate unless unable. Made TypeScript all CamelCase (although technically both forms behave identically)
-  * Removed `model` event delegation approach. Instead to create bound event use array: `onClick={[handler, row.id]}`. Inspired by Inferno's `linkEvent` helper.
-  * Renamed `events` prop to `on` prop
-  * Added `onCapture` prop for capture events
+
+- Removed `transform` prop from control flow. Idiomatic approach is to make a HOC for transformations of this nature.
+- Removed selectWhen/selectEach control flow transforms.
+- Changed event system
+  - `on____` prop to stop differentiating on case. Super confusing.Instead will try to delegate unless unable. Made TypeScript all CamelCase (although technically both forms behave identically)
+  - Removed `model` event delegation approach. Instead to create bound event use array: `onClick={[handler, row.id]}`. Inspired by Inferno's `linkEvent` helper.
+  - Renamed `events` prop to `on` prop
+  - Added `onCapture` prop for capture events
 
 ## 0.16.0 - 2020-01-14
+
 Big changes to experimental features:
-* New resource API `createResource` and `createResourceState` to replace `loadResource`. These are built to prioritize read capabilities and simplify implementation.
-* Support for Async SSR `renderToString` now returns a promise. Uses Suspense to know when it is done.
-* Progressive Hydration with code splitting support. Ability to track events and replay as hydration completes to reduce "uncanny valley". Components can be lazily loaded even during hydration. **No support for async data on hydration yet**, so render it from server and load into state synchronously.
-* New error boundary api with `onError`. If an error occurs in context or child context the nearest handler/s will be called.
-* Deprecating the `force` `setState` modifier as it is confusing.
+
+- New resource API `createResource` and `createResourceState` to replace `loadResource`. These are built to prioritize read capabilities and simplify implementation.
+- Support for Async SSR `renderToString` now returns a promise. Uses Suspense to know when it is done.
+- Progressive Hydration with code splitting support. Ability to track events and replay as hydration completes to reduce "uncanny valley". Components can be lazily loaded even during hydration. **No support for async data on hydration yet**, so render it from server and load into state synchronously.
+- New error boundary api with `onError`. If an error occurs in context or child context the nearest handler/s will be called.
+- Deprecating the `force` `setState` modifier as it is confusing.
 
 ## 0.15.0 - 2019-12-16
+
 A lot fixes and new features:
-* Suspense improvements: `SuspenseList`, `useTransition`, trigger on read. Update API, and added `reload` and retry capability. Removed need for `awaitSuspense` by making `Show` and `Switch` control flows `Suspense` aware.
-* Deprecate `selectWhen` and `selectEach`.
-* Untrack all Components. No more fear of nesting Components in JSX expressions. Top level in a Component will always be inert now.
-* Support for safe boolean and logical operators. This allows for the same optimization as the `Show` control flow for simple inline JSX conditionals like `<div>{state.count > 5 && <MyComp />}</div>`.
-* Support for non-curried operator forms. All operators now support an accessor first form as well as the functional curried form. Ex `map(() => state.list, item => item)`
-* Fix issues with spreading over `children` props.
-* Better Type Definitions.
+
+- Suspense improvements: `SuspenseList`, `useTransition`, trigger on read. Update API, and added `reload` and retry capability. Removed need for `awaitSuspense` by making `Show` and `Switch` control flows `Suspense` aware.
+- Deprecate `selectWhen` and `selectEach`.
+- Untrack all Components. No more fear of nesting Components in JSX expressions. Top level in a Component will always be inert now.
+- Support for safe boolean and logical operators. This allows for the same optimization as the `Show` control flow for simple inline JSX conditionals like `<div>{state.count > 5 && <MyComp />}</div>`.
+- Support for non-curried operator forms. All operators now support an accessor first form as well as the functional curried form. Ex `map(() => state.list, item => item)`
+- Fix issues with spreading over `children` props.
+- Better Type Definitions.
 
 ## 0.14.0 - 2019-11-16
+
 v0.14.0 brings changes to the render runtime and `setState` API
 
-* Adds diffing to batched computations to improve update performance
-* Supports support for mutable(TypeScript safe) `setState` API inspired by Immer. Function setters in Solid now pass a mutable version of state. Modifying will schedule updates. This form must not return a value. It can still be used immutably simply by returning the new value.
-* Changes how `force` and `reconcile` helpers work. They can now be used on nested paths.
-* Removes support for multi-path `setState`.
+- Adds diffing to batched computations to improve update performance
+- Supports support for mutable(TypeScript safe) `setState` API inspired by Immer. Function setters in Solid now pass a mutable version of state. Modifying will schedule updates. This form must not return a value. It can still be used immutably simply by returning the new value.
+- Changes how `force` and `reconcile` helpers work. They can now be used on nested paths.
+- Removes support for multi-path `setState`.
 
 ## 0.13.0 - 2019-10-27
+
 v0.13.0 contains large changes to the reactive system and compiler.
 
 The main update is to simplify reactivity by removing computation recycling. While this was a useful feature to avoid unnecessary computation nodes, Solid now uses batching as a different approach to get similar results. Most templating libraries can offer breakneck update speeds without fine grained updates. The real cost of these top down approaches is the need to redo structural reconciliation. The current approach is that different computations will be created for each:
-* Dynamic insert expression (any expression between tags)
-* Spread operator
-* JSX template entry point(Top level tag, Fragment, or Component Children)
+
+- Dynamic insert expression (any expression between tags)
+- Spread operator
+- JSX template entry point(Top level tag, Fragment, or Component Children)
 
 To aid in performance simple text inserts the `textContent` binding is now optimized so they can be batched.
 
