@@ -19,7 +19,7 @@ function useTick(delay) {
 
 Signals are special functions that when executed return their value. In addition they are trackable when executed under a reactive scope. This means that when their value read (executed) the currently executing reactive scope is now subscribed to the Signal and will re-execute whenever the Signal is updated.
 
-This mechanism is based on executing function scope so Signals reads can be composed and nested as many levels as desired. By wrapping a Signal read in a thunk `() => signal()` you have effectively created a derived signal that can be tracked as well. The same holds true for accessing state. Want to use state as a signal just wrap it in a function:
+This mechanism is based on the executing function's scope so Signals reads can be composed and nested as many levels as desired. By wrapping a Signal read in a thunk `() => signal()` you have effectively created a derived signal that can be tracked as well. The same holds true for accessing state. Want to use state as a signal just wrap it in a function:
 
 ```js
 // I can be tracked
@@ -34,7 +34,7 @@ These accessors are just functions that can be tracked and return a value. No ad
 
 An computation is calculation over a function execution that automatically and dynamically tracks any child signals that are accessed during that execution. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
 
-There are 2 main computations used by Solid: Effects which produce side effects, and Memos which are pure and designed to cache values until their reactivity forces re-evaluation.
+There are 3 main computations used by Solid: Memos which are pure and designed to cache values until their reactivity forces re-evaluation, Computeds which are designed to write to other signals, and Effects which are intended to produce side effects.
 
 ```js
 import { createSignal, createEffect, createMemo } from "solid-js";
@@ -106,15 +106,14 @@ State and Signals combine wonderfully as wrapping a state selector in a function
 const useReducer = (reducer, init) => {
   const [state, setState] = createState(init),
     [getAction, dispatch] = createSignal();
-  createDependentEffect(
+  createComputed(
     (prevState = init) => {
       let action, next;
       if (!(action = getAction())) return prevState;
       next = reducer(prevState, action);
       setState(reconcile(next));
       return next;
-    },
-    [getAction]
+    }
   );
   return [state, dispatch];
 };

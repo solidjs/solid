@@ -26,14 +26,17 @@ describe("Basic element attributes", () => {
     expect(d.className).toBe("first third fourth");
   });
 
-  test("ternary expression triggered", () => {
+  test("ternary expression triggered", (done) => {
     let div: HTMLDivElement;
     createRoot(() => {
       const [s, setS] = createSignal(0);
       div = (<div>{s() > 5 ? "Large" : "Small"}</div>) as HTMLDivElement;
       expect(div.innerHTML).toBe("Small");
-      setS(7);
-      expect(div.innerHTML).toBe("Large");
+      setTimeout(() => {
+        setS(7);
+        expect(div.innerHTML).toBe("Large");
+        done();
+      });
     });
   });
 

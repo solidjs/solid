@@ -12,7 +12,7 @@ export default [
         format: "cjs"
       }
     ],
-    external: ["solid-js", "solid-js/dom", "path", "express"],
+    external: ["solid-js", "solid-js/server", "path", "express"],
     plugins: [
       nodeResolve({ preferBuiltins: true }),
       babel({

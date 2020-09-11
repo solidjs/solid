@@ -2,7 +2,7 @@ import {
   createRoot,
   createState,
   createSignal,
-  createEffect,
+  createComputed,
   createMemo,
   unwrap,
   $RAW
@@ -187,7 +187,7 @@ describe("Tracking State changes", () => {
         executionCount = 0;
 
       expect.assertions(2);
-      createEffect(() => {
+      createComputed(() => {
         if (executionCount === 0) expect(state.data).toBe(2);
         else if (executionCount === 1) {
           expect(state.data).toBe(5);
@@ -213,7 +213,7 @@ describe("Tracking State changes", () => {
         executionCount = 0;
 
       expect.assertions(2);
-      createEffect(() => {
+      createComputed(() => {
         if (executionCount === 0) {
           expect(state.user.firstName).toBe("John");
         } else if (executionCount === 1) {
@@ -256,7 +256,7 @@ describe("Setting state from Effects", () => {
     createRoot(() => {
       var [getData, setData] = createSignal("init"),
         [state, setState] = createState({ data: "" });
-      createEffect(() => setState("data", getData()));
+      createComputed(() => setState("data", getData()));
       setData("signal");
       expect(state.data).toBe("signal");
     });
@@ -268,7 +268,7 @@ describe("Setting state from Effects", () => {
           setTimeout(resolve, 20, "promised");
         }),
         [state, setState] = createState({ data: "" });
-      createEffect(() => p.then(v => setState("data", v)));
+      p.then(v => setState("data", v));
       await p;
       expect(state.data).toBe("promised");
       done();

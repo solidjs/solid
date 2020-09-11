@@ -5,6 +5,7 @@ import {
   useObserver,
   useState,
   useEffect,
+  useComputed,
   useMemo,
   useSignal,
   useCleanup,
@@ -15,7 +16,7 @@ const Counter = withSolid(({ onCleanup }) => {
   const [state, setState] = useState({ count: 0, tick: 0 }),
     [count, setCount] = useSignal(10),
     getCounterText = useMemo(() => `Counter ${state.count} ${count()}`);
-  useEffect(() => {
+  useComputed(() => {
     if (state.tick > 0) {
       setState("count", c => c + 1);
       setCount(untrack(count) + 1);
@@ -64,7 +65,7 @@ describe("Simple Counter", () => {
     expect(container.firstChild.innerHTML).toBe("Counter 0 10");
     ref = container.firstChild;
   });
-  test("Triggering Effect", () => {
+  test("Triggering Computed", () => {
     act(() => ref.click());
     expect(ref.innerHTML).toBe("Counter 1 11");
     act(() => ref.click());

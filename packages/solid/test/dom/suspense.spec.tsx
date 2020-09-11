@@ -1,7 +1,7 @@
 import {
   lazy,
   createSignal,
-  createEffect,
+  createComputed,
   createResource,
   createResourceState,
   untrack,
@@ -17,7 +17,7 @@ describe("Testing Suspense", () => {
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
       let [value, load] = createResource<string>();
-      createEffect(
+      createComputed(
         () =>
           triggered() && (load(() => new Promise(r => setTimeout(() => r("Hey"), 300))), untrack(value))
       );
@@ -54,7 +54,7 @@ describe("Testing Suspense", () => {
     });
     setTimeout(() => {
       expect(div.innerHTML).toBe("Loading");
-      expect(pending()).toBe(true);
+      expect(pending()).toBe(false);
     }, 200);
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo");

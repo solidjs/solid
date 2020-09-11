@@ -233,10 +233,6 @@ export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () =
   ];
 }
 
-export function suspend<T>(fn: () => T) {
-  return fn();
-}
-
 type HydrationContext = {
   id: string;
   count: number;

@@ -34,23 +34,19 @@ export function createSignal<T>(
   return [() => value as T, (v: T) => (value = v)];
 }
 
-export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
+export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   Owner = { owner: Owner, context: null };
   fn(value);
   Owner = Owner.owner;
 }
 
-export function createDependentEffect<T>(
-  fn: (v?: T) => T,
-  deps: (() => any) | (() => any)[],
-  defer?: boolean
-) {
-  if (!defer) {
-    Owner = { owner: Owner, context: null };
-    fn();
-    Owner = Owner.owner;
-  }
+export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
+  Owner = { owner: Owner, context: null };
+  fn(value);
+  Owner = Owner.owner;
 }
+
+export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
 export function createMemo<T>(
   fn: (v?: T) => T,
@@ -74,8 +70,6 @@ export function batch<T>(fn: () => T): T {
 export function untrack<T>(fn: () => T): T {
   return fn();
 }
-
-export function afterEffects(fn: () => void): void {}
 
 export function onCleanup(fn: () => void) {}
 
@@ -133,7 +127,7 @@ function resolveChildren(children: any): any {
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     let rendered;
-    createEffect(() => {
+    createRenderEffect(() => {
       Owner!.context = { [id]: props.value };
       rendered = resolveChildren(props.children);
     });
@@ -372,6 +366,16 @@ export function reconcile<T>(
       if (value[previousKeys[i]] === undefined)
         setProperty(state, previousKeys[i] as string, undefined);
     }
+  };
+}
+
+// Immer style mutation style
+export function produce<T>(
+  fn: (state: T) => void
+): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T> {
+  return state => {
+    if (isWrappable(state)) fn(state as T);
+    return state;
   };
 }
 

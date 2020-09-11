@@ -1,4 +1,4 @@
-import { createRoot, createSignal, createEffect } from "solid-js";
+import { createRoot, createSignal, createComputed } from "solid-js";
 import { tap } from "../src";
 
 describe("Tap operator", () => {
@@ -6,7 +6,7 @@ describe("Tap operator", () => {
     createRoot(() => {
       const [s, set] = createSignal("Hi");
       let out: string;
-      createEffect(tap(s, t => (out = t + " " + t)));
+      createComputed(tap(s, t => (out = t + " " + t)));
       expect(out).toBe("Hi Hi");
       set("Lo");
       expect(out).toBe("Lo Lo");
@@ -18,7 +18,7 @@ describe("Tap operator", () => {
       let out: string;
       const [s, set] = createSignal("Hi"),
         repeat = tap(t => (out = t + " " + t));
-      createEffect(repeat(s));
+      createComputed(repeat(s));
       expect(out).toBe("Hi Hi");
       set("Lo");
       expect(out).toBe("Lo Lo");

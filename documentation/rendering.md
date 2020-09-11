@@ -216,19 +216,19 @@ Refs come in 2 flavours. `ref` which directly assigns the value, and which calls
 ```jsx
 function MyComp() {
   let myDiv;
-  setTimeout(() => console.log(myDiv.clientWidth));
+  createEffect(() => console.log(myDiv.clientWidth));
   return <div ref={myDiv} />;
 }
 ```
 
-On a native intrinsic element as the element executes the provided variable will be assigned. This form usually is used in combination with `setTimeout` (same timing as React's `useEffect`) or `afterEffects`(same timing as React's `useLayoutEffect`) to do work after the component has mounted. Like do a DOM measurement or attach DOM plugins etc...
+On a native intrinsic element as the element executes the provided variable will be assigned. This form usually is used in combination with `createEffect` to do work after the component has mounted. Like do a DOM measurement or attach DOM plugins etc...
 
 When applied to a Component it acts similarly but also passes a prop in that is a function that is expected to be called with a ref to forward the ref (more on this in the next section):
 
 ```jsx
 function App() {
   let myDiv;
-  setTimeout(() => console.log(myDiv.clientWidth));
+  createEffect(() => console.log(myDiv.clientWidth));
   return <MyComp ref={myDiv} />;
 }
 ```
@@ -242,7 +242,7 @@ function MyComp(props) {
 
 function App() {
   let myDiv;
-  setTimeout(() => console.log(myDiv.clientWidth));
+  createEffect(() => console.log(myDiv.clientWidth));
   return <MyComp ref={myDiv} />;
 }
 ```

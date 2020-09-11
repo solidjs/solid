@@ -7,12 +7,19 @@ const ERROR = Symbol("error");
 const NOTPENDING = {};
 const STALE = 1;
 const PENDING = 2;
-const UNOWNED: Owner = { owned: null, cleanups: null, context: null, owner: null };
+const UNOWNED: Owner = {
+  owned: null,
+  cleanups: null,
+  context: null,
+  owner: null
+};
+const [transPending, setTransPending] = createSignal(false, true);
 let Owner: Owner | null = null;
 let Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
-let Afters: (() => void)[] = [];
+let Effects: Computation<any>[] | null = null;
+let Transition: Transition | null = null;
 let ExecCount = 0;
 
 interface Signal<T> {
@@ -37,9 +44,18 @@ interface Computation<T> extends Owner {
   sourceSlots: number[] | null;
   value?: T;
   updatedAt: number | null;
+  pure: boolean;
 }
 
 interface Memo<T> extends Signal<T>, Computation<T> {}
+
+interface Transition {
+  sources: Map<Signal<any>, any>;
+  effects: Computation<any>[];
+  promises: Set<Promise<any>>;
+  running: boolean;
+  timeout: NodeJS.Timeout | null;
+}
 
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Owner): T {
   detachedOwner && (Owner = detachedOwner);
@@ -49,12 +65,10 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   Owner = root;
   Listener = null;
   let result: T;
+
   try {
-    result = fn(() => cleanNode(root));
-  } catch (err) {
-    handleError(err);
+    runUpdates(() => (result = fn(() => cleanNode(root))), true);
   } finally {
-    while (Afters.length) Afters.shift()!();
     Listener = listener;
     Owner = owner;
   }
@@ -80,32 +94,16 @@ export function createSignal<T>(
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
-export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
-  try {
-    updateComputation(createComputation(fn, value));
-  } catch (err) {
-    handleError(err);
-  }
+export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
+  updateComputation(createComputation(fn, value, true));
 }
 
-export function createDependentEffect<T>(
-  fn: (v?: T) => T,
-  deps: (() => any) | (() => any)[],
-  defer?: boolean
-) {
-  const resolved = Array.isArray(deps) ? callAll(deps) : deps;
-  defer = !!defer;
-  createEffect<T>(value => {
-    const listener = Listener;
-    resolved();
-    if (defer) defer = false;
-    else {
-      Listener = null;
-      value = fn(value);
-      Listener = listener;
-    }
-    return value!;
-  });
+export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
+  updateComputation(createComputation(fn, value, false));
+}
+
+export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
+  Effects!.push(createComputation(fn, value, false));
 }
 
 export function createMemo<T>(
@@ -123,16 +121,13 @@ export function createMemo<T>(
   value?: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean)
 ): () => T {
-  const c: Partial<Memo<T>> = createComputation<T>(fn, value);
+  const c: Partial<Memo<T>> = createComputation<T>(fn, value, true);
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
+  c.state = 0;
   c.comparator = areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined;
-  try {
-    updateComputation(c as Computation<T>);
-  } catch (err) {
-    handleError(err);
-  }
+  updateComputation(c as Memo<T>);
   return readSignal.bind(c as Memo<T>);
 }
 
@@ -140,7 +135,7 @@ export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) 
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
   const [deferred, setDeferred] = createSignal(fn());
-  createEffect(() => {
+  createComputed(() => {
     fn();
     if (!t || !t.fn)
       t = requestCallback(() => setDeferred(fn()), timeout !== undefined ? { timeout } : undefined);
@@ -162,8 +157,14 @@ export function batch<T>(fn: () => T): T {
         writeSignal.call(data, pending);
       }
     }
-  });
+  }, false);
   return result;
+}
+
+export function useTransition(
+  config: { timeoutMs?: number } = {}
+): [() => boolean, (fn: () => void) => void] {
+  return [transPending, createTransition(config)];
 }
 
 export function untrack<T>(fn: () => T): T {
@@ -175,10 +176,6 @@ export function untrack<T>(fn: () => T): T {
   Listener = listener;
 
   return result;
-}
-
-export function afterEffects(fn: () => void): void {
-  Afters.push(fn);
 }
 
 export function onCleanup(fn: () => void) {
@@ -221,14 +218,139 @@ export function getContextOwner() {
   return Owner;
 }
 
+// Resource API
+type SuspenseState = "running" | "suspended" | "fallback";
+type SuspenseContextType = {
+  increment?: () => void;
+  decrement?: () => void;
+  state?: () => SuspenseState;
+  initializing?: boolean;
+};
+
+export const SuspenseContext: Context<SuspenseContextType> & {
+  active?(): boolean;
+  increment?(): void;
+  decrement?(): void;
+} = createContext<SuspenseContextType>({});
+
+function createActivityTracker(): [() => boolean, () => void, () => void] {
+  let count = 0;
+  const [read, trigger] = createSignal(false);
+
+  return [read, () => count++ === 0 && trigger(true), () => --count <= 0 && trigger(false)];
+}
+
+const [active, increment, decrement] = createActivityTracker();
+SuspenseContext.active = active;
+SuspenseContext.increment = increment;
+SuspenseContext.decrement = decrement;
+
+export interface Resource<T> {
+  (): T | undefined;
+  loading: boolean;
+}
+export function createResource<T>(
+  init?: T,
+  options: { name?: string; notStreamed?: boolean } = {}
+): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T> | T] {
+  const [s, set] = createSignal(init),
+    [loading, setLoading] = createSignal<boolean>(false, true),
+    contexts = new Set<SuspenseContextType>(),
+    h = globalThis._$HYDRATION;
+  let err: any = null,
+    pr: Promise<T> | null = null;
+  function loadEnd(p: Promise<T>, v: T, e?: any) {
+    if (Transition && Transition.promises.has(p)) {
+      Transition.promises.delete(p);
+      if (pr === p || !Transition.promises.size) {
+        err = e;
+        runUpdates(() => {
+          Transition!.running = true;
+          pr = null;
+          !Transition!.promises.size && (Effects = Transition!.effects);
+          completeLoad(v);
+        }, false);
+      }
+      return v;
+    }
+    if (pr === p) {
+      err = e;
+      pr = null;
+      completeLoad(v);
+    }
+    return v;
+  }
+  function completeLoad(v: T) {
+    batch(() => {
+      set(v);
+      if (h.asyncSSR && options.name) h.resources![options.name] = v;
+      setLoading(false);
+      for (let c of contexts.keys()) c.decrement!();
+      contexts.clear();
+    });
+  }
+
+  function read() {
+    const c = useContext(SuspenseContext),
+      v = s();
+    if (err) throw err;
+    if (pr && c.increment && !contexts.has(c)) {
+      c.increment!();
+      contexts.add(c);
+    }
+    return v;
+  }
+  function load(fn: () => Promise<T> | T) {
+    err = null;
+    let p: Promise<T> | T;
+    const hydrating = h.context && !!h.context.registry;
+    if (hydrating) {
+      if (h.loadResource && !options.notStreamed) {
+        fn = h.loadResource;
+      } else if (options.name && h.resources && options.name in h.resources) {
+        fn = () => {
+          const data = h.resources![options.name!];
+          delete h.resources![options.name!];
+          return data;
+        };
+      }
+    }
+    p = fn();
+    if (typeof p !== "object" || !("then" in p)) {
+      Transition && pr && Transition.promises.delete(pr);
+      pr = null;
+      completeLoad(p);
+      return p;
+    }
+    pr = p;
+    if (Transition) Transition.promises.add(p);
+    batch(() => {
+      setLoading(true);
+      set(untrack(s));
+    });
+    return p.then(
+      v => loadEnd(p as Promise<T>, v),
+      e => loadEnd(p as Promise<T>, s()!, e)
+    );
+  }
+  Object.defineProperty(read, "loading", {
+    get() {
+      return loading();
+    }
+  });
+  return [read as Resource<T>, load];
+}
+
 function readSignal(this: Signal<any> | Memo<any>) {
   if ((this as Memo<any>).state && (this as Memo<any>).sources) {
-    const updates = Updates;
-    Updates = null;
+    const updates = Updates,
+      effects = Effects;
+    Updates = Effects = null;
     (this as Memo<any>).state === STALE
       ? updateComputation(this as Memo<any>)
       : lookDownstream(this as Memo<any>);
     Updates = updates;
+    Effects = effects;
   }
   if (Listener) {
     const sSlot = this.observers ? this.observers.length : 0;
@@ -247,27 +369,40 @@ function readSignal(this: Signal<any> | Memo<any>) {
       this.observerSlots!.push(Listener.sources.length - 1);
     }
   }
+  if (Transition && Transition.running && Transition.sources.has(this))
+    return Transition.sources.get(this);
   return this.value;
 }
 
 function writeSignal(this: Signal<any> | Memo<any>, value: any) {
-  if (this.comparator && this.comparator(this.value, value)) return value;
+  if (this.comparator) {
+    if (Transition && Transition.running && Transition.sources.has(this)) {
+      if (this.comparator(Transition.sources.get(this), value)) return value;
+    } else if (this.comparator(this.value, value)) return value;
+  }
   if (Pending) {
     if (this.pending === NOTPENDING) Pending.push(this);
     this.pending = value;
     return value;
   }
-  this.value = value;
+  if (Transition) {
+    if (Transition.running || Transition.sources.has(this)) Transition.sources.set(this, value);
+    if (!Transition.running) this.value = value;
+  } else this.value = value;
   if (this.observers && (!Updates || this.observers.length)) {
     runUpdates(() => {
       for (let i = 0; i < this.observers!.length; i += 1) {
         const o = this.observers![i];
         if ((o as Memo<any>).observers && o.state !== PENDING) markUpstream(o as Memo<any>);
         o.state = STALE;
-        Updates!.push(o);
+        if (o.pure) Updates!.push(o);
+        else Effects!.push(o);
       }
-      if (Updates!.length > 10e5) throw new Error("Potential Infinite Loop Detected.");
-    });
+      if (Updates!.length > 10e5) {
+        Updates = [];
+        throw new Error("Potential Infinite Loop Detected.");
+      }
+    }, false);
   }
   return value;
 }
@@ -278,8 +413,13 @@ function updateComputation(node: Computation<any>) {
   const owner = Owner,
     listener = Listener,
     time = ExecCount;
+  let nextValue;
   Listener = Owner = node;
-  const nextValue = node.fn(node.value);
+  try {
+    nextValue = node.fn(node.value);
+  } catch (err) {
+    handleError(err);
+  }
   if (!node.updatedAt || node.updatedAt <= time) {
     if ((node as Memo<any>).observers && (node as Memo<any>).observers!.length) {
       writeSignal.call(node as Memo<any>, nextValue);
@@ -290,10 +430,10 @@ function updateComputation(node: Computation<any>) {
   Owner = owner;
 }
 
-function createComputation<T>(fn: (v?: T) => T, init?: T) {
+function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boolean) {
   const c: Computation<T> = {
     fn,
-    state: 0,
+    state: STALE,
     updatedAt: null,
     owned: null,
     sources: null,
@@ -301,7 +441,8 @@ function createComputation<T>(fn: (v?: T) => T, init?: T) {
     cleanups: null,
     value: init,
     owner: Owner,
-    context: null
+    context: null,
+    pure
   };
   if (Owner === null)
     console.warn("computations created outside a `createRoot` or `render` will never be disposed");
@@ -323,32 +464,50 @@ function runTop(node: Computation<any> | null) {
     }
   }
   if (pending) {
-    const updates = Updates;
-    Updates = null;
+    const updates = Updates,
+      effects = Effects;
+    Updates = Effects = null;
     lookDownstream(pending);
     Updates = updates;
+    Effects = effects;
     if (!top || top.state !== STALE) return;
   }
   top && updateComputation(top);
 }
 
-function runUpdates(fn: () => void) {
+function runUpdates(fn: () => void, init: boolean) {
   if (Updates) return fn();
-  Updates = [];
+  let wait = false;
+  if (!init) Updates = [];
+  if (Effects) wait = true;
+  else Effects = [];
   ExecCount++;
   try {
     fn();
-    for (let i = 0; i < Updates!.length; i += 1) {
-      try {
-        runTop(Updates![i]);
-      } catch (err) {
-        handleError(err);
-      }
-    }
+  } catch (err) {
+    handleError(err);
   } finally {
+    if (Updates) runQueue(Updates);
+    if (!wait) {
+      if (Transition && Transition.running && Transition.promises.size) {
+        Transition.effects.push(...Effects);
+      } else runQueue(Effects);
+      Effects = null;
+    }
     Updates = null;
-    while (Afters.length) Afters.shift()!();
+    if (Transition) {
+      if (!Transition.promises.size) {
+        Transition.sources.forEach((v, s) => (s.value = v));
+        if (Transition.timeout) clearTimeout(Transition.timeout);
+        Transition = null;
+        setTransPending(false);
+      } else Transition.running = false;
+    }
   }
+}
+
+function runQueue(queue: Computation<any>[]) {
+  for (let i = 0; i < queue!.length; i += 1) runTop(queue![i]);
 }
 
 function lookDownstream(node: Computation<any>) {
@@ -389,7 +548,6 @@ function cleanNode(node: Owner) {
         }
       }
     }
-    (node as Computation<any>).state = 0;
   }
 
   if (node.owned) {
@@ -401,6 +559,7 @@ function cleanNode(node: Owner) {
     for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
     node.cleanups = null;
   }
+  (node as Computation<any>).state = 0;
   node.context = null;
 }
 
@@ -408,12 +567,6 @@ function handleError(err: any) {
   const fns = lookup(Owner, ERROR);
   if (!fns) throw err;
   fns.forEach((f: (err: any) => void) => f(err));
-}
-
-function callAll(ss: (() => any)[]) {
-  return () => {
-    for (let i = 0; i < ss.length; i++) ss[i]();
-  };
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {
@@ -438,10 +591,36 @@ function resolveChildren(children: any): any {
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     let rendered;
-    createEffect(() => {
+    createRenderEffect(() => {
       Owner!.context = { [id]: props.value };
       rendered = untrack(() => resolveChildren(props.children));
     });
     return rendered;
+  };
+}
+
+function createTransition(config: { timeoutMs?: number }) {
+  return (fn: () => void) => {
+    setTransPending(true);
+    Transition ||
+      (Transition = {
+        sources: new Map(),
+        effects: [],
+        promises: new Set(),
+        running: true,
+        timeout: null
+      });
+    if (config.timeoutMs) {
+      if (Transition.timeout) clearTimeout(Transition.timeout);
+      Transition.timeout = setTimeout(() => {
+        Transition?.promises.clear();
+        runUpdates(() => {
+          Transition!.running = true;
+          Effects = Transition!.effects;
+        }, false);
+      }, config.timeoutMs);
+    }
+    Transition.running = true;
+    runUpdates(fn, false);
   };
 }

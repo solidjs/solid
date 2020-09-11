@@ -1,7 +1,7 @@
 import { createRoot } from "../../src";
 import { ErrorBoundary } from "../../src/dom";
 
-describe("Testing Dynamic control flow", () => {
+describe("Testing ErrorBoundary control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
 
   const Component = () => {

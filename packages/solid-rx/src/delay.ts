@@ -1,4 +1,4 @@
-import { createSignal, createEffect } from "solid-js";
+import { createSignal, createComputed } from "solid-js";
 
 export function delay<T>(timeMs: number): (v: () => T) => () => T;
 export function delay<T>(input: () => T, timeMs: number): () => T;
@@ -11,7 +11,7 @@ export function delay<T>(input: any, timeMs?: number): any {
 
   function delay(input: () => T) {
     const [s, set] = createSignal();
-    createEffect(() => {
+    createComputed(() => {
       const value = input();
       setTimeout(() => set(value), timeMs);
     });

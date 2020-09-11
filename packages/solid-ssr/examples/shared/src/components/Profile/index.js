@@ -8,7 +8,7 @@ export default () => {
     () =>
       // simulate data loading
       new Promise(res => {
-        setTimeout(() => res({ firstName: "Jon", lastName: "Snow" }), 500);
+        setTimeout(() => res({ firstName: "Jon", lastName: "Snow" }), 350);
       })
   );
   return <Profile user={user()} />

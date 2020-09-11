@@ -1,9 +1,10 @@
 export {
   createRoot,
   createSignal,
+  createComputed,
+  createRenderEffect,
   createEffect,
   createDeferred,
-  createDependentEffect,
   createMemo,
   getListener,
   onCleanup,
@@ -14,12 +15,12 @@ export {
   useContext,
   getContextOwner,
   equalFn,
-  afterEffects,
   requestCallback,
   createState,
   unwrap,
   $RAW,
   reconcile,
+  produce,
   mapArray
 } from "./reactive";
 
@@ -37,7 +38,6 @@ export {
   SuspenseList,
   createResource,
   createResourceState,
-  suspend,
   useTransition,
   lazy
 } from "./rendering";

@@ -1,6 +1,6 @@
 import {
   createRoot,
-  createEffect,
+  createRenderEffect,
   createMemo,
   createComponent,
   getContextOwner
@@ -9,4 +9,4 @@ import {
 // reactive injection for dom-expressions
 function memo(fn: () => any, equal: boolean) { return createMemo(fn, undefined, equal); }
 
-export { getContextOwner as currentContext, createComponent, createRoot as root, createEffect as effect, memo }
+export { getContextOwner as currentContext, createComponent, createRoot as root, createRenderEffect as effect, memo }

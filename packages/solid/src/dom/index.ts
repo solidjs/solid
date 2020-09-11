@@ -1,5 +1,5 @@
 import { insert, spread } from "./runtime";
-import { onCleanup, untrack, splitProps, Component, suspend } from "../index.js";
+import { createMemo, onCleanup, untrack, splitProps, Component } from "../index.js";
 
 export * from "./runtime";
 export {
@@ -56,7 +56,7 @@ export function Dynamic<T>(
   props: T & { component?: Component<T> | string | keyof JSX.IntrinsicElements }
 ): () => JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
-  return suspend(() => {
+  return createMemo(() => {
     const comp = p.component,
       t = typeof comp;
 

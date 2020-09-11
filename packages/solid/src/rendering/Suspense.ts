@@ -3,23 +3,30 @@ import {
   createSignal,
   untrack,
   createEffect,
+  createComputed,
   createContext,
   useContext,
-  afterEffects
+  SuspenseContext
 } from "../reactive/signal";
-import { SuspenseContext } from "./resource";
 
-type SuspenseState = "running" | "suspended" | "fallback";
 type SuspenseListRegistryItem = {
-  state: () => SuspenseState;
+  inFallback: () => boolean;
   showContent: (v: boolean) => void;
   showFallback: (v: boolean) => void;
 };
 
 type SuspenseListContextType = {
-  register: (state: () => SuspenseState) => [() => boolean, () => boolean];
+  register: (inFallback: () => boolean) => [() => boolean, () => boolean];
 };
 const SuspenseListContext = createContext<SuspenseListContextType>();
+
+export function awaitSuspense(fn: () => any) {
+  return () =>
+    new Promise(resolve => {
+      const res = fn();
+      createEffect(() => !SuspenseContext.active!() && resolve(res));
+    });
+}
 
 export function SuspenseList(props: {
   children: JSX.Element;
@@ -27,35 +34,34 @@ export function SuspenseList(props: {
   tail?: "collapsed" | "hidden";
 }) {
   let index = 0,
-    suspenseSetter: (s: SuspenseState) => void,
+    suspenseSetter: (s: boolean) => void,
     showContent: () => boolean,
     showFallback: () => boolean;
 
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) {
-    const [state, stateSetter] = createSignal<SuspenseState>("running", true);
-    suspenseSetter = stateSetter;
-    [showContent, showFallback] = listContext.register(state);
+    const [inFallback, setFallback] = createSignal(false, true);
+    suspenseSetter = setFallback;
+    [showContent, showFallback] = listContext.register(inFallback);
   }
 
   const registry: SuspenseListRegistryItem[] = [],
-    comp = createComponent(
-      SuspenseListContext.Provider,
-      {
-        value: {
-          register: (state: () => SuspenseState) => {
-            const [showingContent, showContent] = createSignal(false, true),
-              [showingFallback, showFallback] = createSignal(false, true);
-            registry[index++] = { state, showContent, showFallback };
-            return [showingContent, showingFallback];
-          }
-        },
-        get children() { return props.children; }
+    comp = createComponent(SuspenseListContext.Provider, {
+      value: {
+        register: (inFallback: () => boolean) => {
+          const [showingContent, showContent] = createSignal(false, true),
+            [showingFallback, showFallback] = createSignal(false, true);
+          registry[index++] = { inFallback, showContent, showFallback };
+          return [showingContent, showingFallback];
+        }
+      },
+      get children() {
+        return props.children;
       }
-    );
+    });
 
-  createEffect(() => {
+  createComputed(() => {
     const reveal = props.revealOrder,
       tail = props.tail,
       visibleContent = showContent ? showContent() : true,
@@ -63,8 +69,8 @@ export function SuspenseList(props: {
       reverse = reveal === "backwards";
 
     if (reveal === "together") {
-      const all = registry.every(i => i.state() === "running");
-      suspenseSetter && suspenseSetter(all ? "running" : "fallback");
+      const all = registry.every(i => !i.inFallback());
+      suspenseSetter && suspenseSetter(!all);
       registry.forEach(i => {
         i.showContent(all && visibleContent);
         i.showFallback(visibleFallback);
@@ -75,13 +81,13 @@ export function SuspenseList(props: {
     let stop = false;
     for (let i = 0, len = registry.length; i < len; i++) {
       const n = reverse ? len - i - 1 : i,
-        s = registry[n].state();
-      if (!stop && (s === "running" || s === "suspended")) {
+        s = registry[n].inFallback();
+      if (!stop && !s) {
         registry[n].showContent(visibleContent);
         registry[n].showFallback(visibleFallback);
       } else {
         const next = !stop;
-        if (next && suspenseSetter) suspenseSetter("fallback");
+        if (next && suspenseSetter) suspenseSetter(true);
         if (!tail || (next && tail === "collapsed")) {
           registry[n].showFallback(visibleFallback);
         } else registry[n].showFallback(false);
@@ -89,7 +95,7 @@ export function SuspenseList(props: {
         registry[n].showContent(next);
       }
     }
-    if (!stop && suspenseSetter) suspenseSetter("running");
+    if (!stop && suspenseSetter) suspenseSetter(false);
   });
 
   return comp;
@@ -97,58 +103,42 @@ export function SuspenseList(props: {
 
 export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }) {
   let counter = 0,
-    t: NodeJS.Timeout,
     showContent: () => boolean,
-    showFallback: () => boolean,
-    transition: typeof SuspenseContext["transition"];
-  const [state, nextState] = createSignal<SuspenseState>("running", true),
+    showFallback: () => boolean;
+  const [inFallback, setFallback] = createSignal<boolean>(false, true),
     store = {
       increment: () => {
         if (++counter === 1) {
-          if (!store.initializing) {
-            if (SuspenseContext.transition) {
-              !transition && (transition = SuspenseContext.transition).increment();
-              t = setTimeout(() => nextState("fallback"), SuspenseContext.transition.timeoutMs);
-              nextState("suspended");
-            } else nextState("fallback");
-          } else nextState("fallback");
+          setFallback(true);
           SuspenseContext.increment!();
         }
       },
       decrement: () => {
         if (--counter === 0) {
-          t && clearTimeout(t);
-          transition && transition.decrement();
-          transition = undefined;
-          nextState("running");
-          afterEffects(() => SuspenseContext.decrement!());
+          setFallback(false);
+          Promise.resolve().then(SuspenseContext.decrement!);
         }
       },
-      state,
-      initializing: true
+      inFallback
     };
 
   // SuspenseList support
   const listContext = useContext(SuspenseListContext);
-  if (listContext) [showContent, showFallback] = listContext.register(store.state);
+  if (listContext) [showContent, showFallback] = listContext.register(store.inFallback);
 
-  return createComponent(
-    SuspenseContext.Provider,
-    {
-      value: store,
-      get children() {
-        const rendered = untrack(() => props.children);
+  return createComponent(SuspenseContext.Provider, {
+    value: store,
+    get children() {
+      const rendered = untrack(() => props.children);
 
-        return () => {
-          const value = store.state(),
-            visibleContent = showContent ? showContent() : true,
-            visibleFallback = showFallback ? showFallback() : true;
-          if (store.initializing) store.initializing = false;
-          if ((value === "running" && visibleContent) || value === "suspended") return rendered;
-          if (!visibleFallback) return;
-          return props.fallback;
-        };
-      }
+      return () => {
+        const inFallback = store.inFallback(),
+          visibleContent = showContent ? showContent() : true,
+          visibleFallback = showFallback ? showFallback() : true;
+        if (!inFallback && visibleContent) return rendered;
+        if (!visibleFallback) return;
+        return props.fallback;
+      };
     }
-  );
+  });
 }

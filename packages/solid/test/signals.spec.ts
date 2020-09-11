@@ -3,12 +3,9 @@ import {
   createSignal,
   createEffect,
   createDeferred,
-  createDependentEffect,
   createMemo,
-  batch,
   untrack,
   onCleanup,
-  afterEffects,
   onError
 } from "../src";
 
@@ -34,19 +31,11 @@ describe("Create signals", () => {
     });
   });
   test("Create an Effect", () => {
+    let temp: string;
     createRoot(() => {
-      let temp;
       createEffect(() => (temp = "unpure"));
-      expect(temp).toBe("unpure");
     });
-  });
-  test("Create an Effect with explicit deps", () => {
-    createRoot(() => {
-      let temp;
-      const [sign] = createSignal("thoughts");
-      createDependentEffect(() => (temp = "unpure " + sign()), [sign]);
-      expect(temp).toBe("unpure thoughts");
-    });
+    expect(temp!).toBe("unpure");
   });
 });
 
@@ -75,74 +64,66 @@ describe("Update signals", () => {
       expect(memo()).toBe("Hello Jake");
     });
   });
-  test("Create and trigger a Memo in an effect", () => {
+  test("Create and trigger a Memo in an effect", done => {
     createRoot(() => {
-      let temp;
+      let temp: string;
       const [name, setName] = createSignal("John"),
         memo = createMemo(() => "Hello " + name());
       createEffect(() => (temp = memo() + "!!!"));
-      expect(temp).toBe("Hello John!!!");
-      setName("Jake");
-      expect(temp).toBe("Hello Jake!!!");
+      setTimeout(() => {
+        expect(temp).toBe("Hello John!!!");
+        setName("Jake");
+        expect(temp).toBe("Hello Jake!!!");
+        done();
+      })
     });
   });
-  test("Create and trigger an Effect", () => {
+  test("Create and trigger an Effect", done => {
     createRoot(() => {
-      let temp;
+      let temp: string;
       const [sign, setSign] = createSignal("thoughts");
       createEffect(() => (temp = "unpure " + sign()));
-      expect(temp).toBe("unpure thoughts");
-      setSign("mind");
-      expect(temp).toBe("unpure mind");
-    });
-  });
-  test("Create an Effect trigger explicit deps", () => {
-    createRoot(() => {
-      let temp;
-      const [sign, setSign] = createSignal("thoughts");
-      createDependentEffect(() => (temp = "unpure " + sign()), sign);
-      expect(temp).toBe("unpure thoughts");
-      setSign("mind");
-      expect(temp).toBe("unpure mind");
-    });
-  });
-  test("Create an Effect trigger not in explicit deps", () => {
-    createRoot(() => {
-      let temp;
-      const [sign, setSign] = createSignal("thoughts");
-      createDependentEffect(() => (temp = "unpure " + sign()), []);
-      expect(temp).toBe("unpure thoughts");
-      setSign("mind");
-      expect(temp).toBe("unpure thoughts");
+      setTimeout(() => {
+        expect(temp).toBe("unpure thoughts");
+        setSign("mind");
+        expect(temp).toBe("unpure mind");
+        done();
+      });
     });
   });
 });
 
 describe("Untrack signals", () => {
-  test("Mute an effect", () => {
+  test("Mute an effect", done => {
     createRoot(() => {
-      let temp;
+      let temp: string;
       const [sign, setSign] = createSignal("thoughts");
       createEffect(() => (temp = "unpure " + untrack(sign)));
-      expect(temp).toBe("unpure thoughts");
-      setSign("mind");
-      expect(temp).toBe("unpure thoughts");
+      setTimeout(() => {
+        expect(temp).toBe("unpure thoughts");
+        setSign("mind");
+        expect(temp).toBe("unpure thoughts");
+        done();
+      });
     });
   });
 });
 
 describe("onCleanup", () => {
-  test("Clean an effect", () => {
+  test("Clean an effect", done => {
     createRoot(() => {
-      let temp;
+      let temp: string;
       const [sign, setSign] = createSignal("thoughts");
       createEffect(() => {
         sign();
         onCleanup(() => (temp = "after"));
       });
-      expect(temp).toBeUndefined();
-      setSign("mind");
-      expect(temp).toBe("after");
+      setTimeout(() => {
+        expect(temp).toBeUndefined();
+        setSign("mind");
+        expect(temp).toBe("after");
+        done();
+      });
     });
   });
   test("Explicit root disposal", () => {
@@ -286,45 +267,5 @@ describe("createDeferred", () => {
         done();
       }, 100);
     });
-  });
-});
-
-describe("Trigger afterEffects", () => {
-  test("Queue up and execute in order", () => {
-    let result = "";
-    createRoot(() => {
-      afterEffects(() => (result += "Hello, "));
-      afterEffects(() => (result += "John "));
-      afterEffects(() => (result += "Smith!"));
-      expect(result).toBe("");
-    });
-    expect(result).toBe("Hello, John Smith!");
-  });
-
-  test("Test when frozen", () => {
-    let result = "";
-    createRoot(() => {
-      batch(() => {
-        afterEffects(() => (result += "Hello, "));
-        afterEffects(() => (result += "John "));
-        expect(result).toBe("");
-      });
-      afterEffects(() => (result += "Smith!"));
-      expect(result).toBe("Hello, John ");
-    });
-    expect(result).toBe("Hello, John Smith!");
-  });
-
-  test('Queue up and execute when nested', () => {
-    let result = ''
-    createRoot(() => {
-      afterEffects(() => result += 'Hello, ');
-      createEffect(() => {
-        afterEffects(() => result += 'John ');
-        createEffect(() => afterEffects(() => result += 'Smith!'))
-      })
-      expect(result).toBe("");
-    });
-    expect(result).toBe('Hello, John Smith!');
   });
 });

@@ -1,4 +1,4 @@
-import { createRoot, createSignal, createMemo, createEffect } from "solid-js";
+import { createRoot, createSignal, createMemo, createComputed } from "solid-js";
 import { filter } from "../src";
 
 describe("Filter operator", () => {
@@ -7,7 +7,7 @@ describe("Filter operator", () => {
       const [s, set] = createSignal(0),
         r = createMemo(filter(s, n => n % 2 === 0));
       let executions = 0;
-      createEffect(() => {
+      createComputed(() => {
         r();
         executions++;
       });
@@ -34,7 +34,7 @@ describe("Filter operator", () => {
         even = filter<number>(n => n % 2 === 0),
         r = createMemo(even(s));
       let executions = 0;
-      createEffect(() => {
+      createComputed(() => {
         r();
         executions++;
       });

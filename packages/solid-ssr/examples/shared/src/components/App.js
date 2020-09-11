@@ -7,7 +7,7 @@ const Home = lazy(() => import("./Home"));
 const Settings = lazy(() => import("./Settings"));
 
 const App = RouteHOC(() => {
-  const [, { matches }] = useContext(RouterContext);
+  const [, pending, { matches }] = useContext(RouterContext);
   return (
     <>
       <ul class="inline">
@@ -21,7 +21,7 @@ const App = RouteHOC(() => {
           <Link path="settings">Settings</Link>
         </li>
       </ul>
-      <div class="tab">
+      <div class="tab" classList={{"pending": pending()}}>
         <Suspense fallback="Loading...">
           <Switch>
             <Match when={matches("index")}>

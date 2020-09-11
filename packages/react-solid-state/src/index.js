@@ -2,6 +2,7 @@ import {
   createState,
   createEffect,
   createMemo,
+  createComputed,
   createSignal,
   onCleanup,
   createRoot
@@ -84,6 +85,18 @@ export function useEffect(...args) {
     createRoot(disposer => {
       dispose.current = disposer;
       createEffect(...trackNesting(args));
+    });
+  }
+}
+
+export function useComputed(...args) {
+  if (inSolidEffect) return createComputed(...args);
+  const dispose = rRef();
+  rEffect(() => dispose.current, []);
+  if (!dispose.current) {
+    createRoot(disposer => {
+      dispose.current = disposer;
+      createComputed(...trackNesting(args));
     });
   }
 }

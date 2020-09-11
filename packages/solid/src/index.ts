@@ -2,26 +2,30 @@ export {
   createRoot,
   createSignal,
   createEffect,
+  createRenderEffect,
+  createComputed,
   createDeferred,
-  createDependentEffect,
   createMemo,
+  createResource,
   getListener,
   onCleanup,
   onError,
   untrack,
   batch,
+  useTransition,
   createContext,
   useContext,
   getContextOwner,
   equalFn,
-  afterEffects,
   // deprecations
   untrack as sample,
   batch as freeze
 } from "./reactive/signal";
+export type { Resource } from "./reactive/signal";
 
 export { createState, unwrap, $RAW } from "./reactive/state";
 export type { State, SetStateFunction } from "./reactive/state";
+export * from "./reactive/resourceState";
 
 export { reconcile, produce } from "./reactive/stateModifiers";
 

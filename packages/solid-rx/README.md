@@ -5,7 +5,7 @@
 ![](https://img.shields.io/npm/dt/solid-rx.svg?style=flat)
 [![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
 
-Functional Reactive Extensions for Solid.js. This package contains a number of operators intended to be use with Solid's `createMemo` and `createEffect` to create reactive transformations.
+Functional Reactive Extensions for Solid.js. This package contains a number of operators intended to be use with Solid's `createMemo`, `createComputed`, and `createEffect` to create reactive transformations.
 
 Example:
 

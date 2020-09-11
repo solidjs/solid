@@ -8,12 +8,12 @@ function RouteHOC(Comp) {
         (props.url ? props.url : window.location.pathname).slice(1) || "index"
       ),
       matches = (match) => match === (location() || "index"),
-      [, start] = useTransition({ timeoutMs: 500 });
+      [pending, start] = useTransition({ timeoutMs: 400 });
     !globalThis.isSSR && (window.onpopstate = () => setLocation(window.location.pathname.slice(1)));
 
     return (
       <RouterContext.Provider
-        value={[location, { setLocation: (v) => start(() => setLocation(v)), matches }]}
+        value={[location, pending, { setLocation: (v) => start(() => setLocation(v)), matches }]}
       >
         <Comp />
       </RouterContext.Provider>
@@ -22,7 +22,7 @@ function RouteHOC(Comp) {
 }
 
 const Link = (props) => {
-  const [, { setLocation }] = useContext(RouterContext);
+  const [, , { setLocation }] = useContext(RouterContext);
   const navigate = (e) => {
     if (e) e.preventDefault();
     window.history.pushState("", "", `/${props.path}`);

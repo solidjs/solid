@@ -13,6 +13,12 @@ body {
   font-family: sans-serif;
   color: #444;
 }
+.tab.pending {
+  transition: opacity .2s;
+  transition-delay: .1s;
+  transition-timing-function: ease-in;
+  opacity: .6;
+}
 ul.inline {
   list-style: none;
   padding: 0;

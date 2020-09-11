@@ -8,13 +8,17 @@ Creates a new State object and setState pair that can be used to maintain your c
 
 This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. You can have it only notify on changes is you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
-### `createEffect(prev => <code>, initialValue): void`
-
-Creates a new effect that automatically tracks dependencies. 2nd argument is the initial value.
-
 ### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
 
 Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes is you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+
+### `createComputed(prev => <code>, initialValue): void`
+
+Creates a new computation that automatically tracks dependencies and runs immediately. Use this to write to other reactive primitives or to reactively trigger async data loading. 2nd argument is the initial value.
+
+### `createEffect(prev => <code>, initialValue): void`
+
+Creates a new computation that automatically tracks dependencies and runs after render. Ideal for using `ref`s and managing other side effects. 2nd argument is the initial value.
 
 ### `onCleanup(() => <code>)`
 
@@ -52,25 +56,21 @@ Registers a error handler method that executes when child context errors. Only n
 
 Creates memo that only notifies downstream changes when the browser is idle. `timeoutMS` is the maximum time to wait before forcing the update.
 
-### `createDependentEffect(() => <code>, dependencies, defer): void`
-
-Creates a new effect that explicitly tracks dependencies. The 2nd optional argument is an explicit array of dependencies. The 3rd optional argument is whether to defer initial execution of the effect until a value has changed (this only works with explicit dependencies).
-
-### `createResource(initialValue): [getValueFn, loadFn]`
+### `createResource(initialValue, options: { name }): [getValueFn, loadFn]`
 
 Creates a new resource signal that can hold a async resource. Resources when read while loading trigger Suspense. The `loadFn` takes a promise whose resolved value is set in the resource.
 
-### `createResourceState(initialValue): [state, loadState, setState]`
+### `createResourceState(initialValue, options: { name }): [state, loadState, setState]`
 
 Creates a new Resource State object. Similar to normal state except each immediate property is a resource.
-
-### `afterEffects(() => <code>)`
-
-Registers a method that will run after the current execution process is complete. These are useful when waiting on refs to resolves or child DOM nodes to render.
 
 ### `lazy(() => <Promise>): Component`
 
 Used to lazy load components to allow for things like code splitting and Suspense.
+
+### `useTransition({ timeoutMs }): [isPending, startTransition]`
+
+Used to batch async updates deferring commit until all async processes are complete.
 
 ### `assignProps(target, ...sources): target`
 

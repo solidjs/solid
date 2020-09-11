@@ -1,4 +1,4 @@
-import { createDependentEffect } from "solid-js";
+import { createComputed, untrack } from "solid-js";
 
 const SymbolCopy = Symbol as any;
 const $$observable = SymbolCopy.observable || (SymbolCopy.observable = Symbol("observable"));
@@ -18,10 +18,11 @@ export function observable<T>(input: () => T) {
       }
       const handler = "next" in observer ? observer.next : observer;
       let complete = false;
-      createDependentEffect(() => {
+      createComputed(() => {
+        const v = input();
         if (complete) return;
-        handler(input());
-      }, input);
+        untrack(() => handler(v));
+      });
       return {
         unsubscribe() {
           complete = true;

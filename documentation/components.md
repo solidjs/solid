@@ -43,7 +43,7 @@ const { name } = state;
 
 ## Children
 
-Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array. 
+Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array.
 
 ```jsx
 // single child
@@ -63,9 +63,9 @@ const List = (props) => <ul>{ props.children.map(item => <li>{item}</li>) }</ul>
 
 **Important:** Solid treats child tags as expensive expressions and wraps them the same way as dynamic reactive expressions. This means they evaluate lazily on `prop` access. Be careful accessing them multiple times or destructuring before the place you would use them in the view. This is because Solid doesn't have luxury of creating Virtual DOM nodes ahead of time then diffing them so resolution of these `props` must be lazy and deliberate.
 
-## Lifecycle
+## Props
 
-Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components. Instead of lifecycles in Solid are tied to the lifecycle of the reactive system.
+Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components.
 
 ```jsx
 <Component prop1="static" prop2={state.dynamic} />
@@ -80,7 +80,51 @@ untrack(() => Component({
 }))
 ```
 
-So if you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`.
+To help maintain reactivity Solid has a couple prop helpers:
+
+```jsx
+// default props
+props = assignProps({}, { name: "Smith" }, props);
+
+// clone props
+const newProps = assignProps({}, props);
+
+// merge props
+assignProps(props, otherProps);
+
+// split props into multiple props objects
+const [local, others] = splitProps(props, ["className"])
+<div {...others} className={cx(local.className, theme.component)} />
+```
+
+## Lifecycle
+
+Instead of lifecycles in Solid are tied to the lifecycle of the reactive system.
+
+If you wish to perform some side effect on mount or after update use `createEffect`:
+
+```jsx
+import { createSignal, createEffect } from 'solid-js';
+
+function Example() {
+  const [count, setCount] = createSignal(0);
+
+  createEffect(() => {
+    document.title = `You clicked ${count()} times`;
+  });
+
+  return (
+    <div>
+      <p>You clicked {count()} times</p>
+      <button onClick={() => setCount(count() + 1)}>
+        Click me
+      </button>
+    </div>
+  );
+}
+```
+
+If you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`:
 
 ```jsx
 const Ticker = () => {

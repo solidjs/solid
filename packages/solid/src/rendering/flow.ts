@@ -1,6 +1,5 @@
 import { createMemo, untrack, createSignal, onError } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
-import { suspend } from "./resource";
 import { Component, splitProps } from "./component";
 
 export function For<T, U extends JSX.Element>(props: {
@@ -9,7 +8,9 @@ export function For<T, U extends JSX.Element>(props: {
   children: (item: T, index: () => number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return suspend(mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
+  return createMemo(
+    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
+  );
 }
 
 // non-keyed
@@ -19,7 +20,9 @@ export function Index<T, U extends JSX.Element>(props: {
   children: (item: () => T, index: number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return suspend(indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined));
+  return createMemo(
+    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
+  );
 }
 
 export function Show<T>(props: {
@@ -34,7 +37,7 @@ export function Show<T>(props: {
       undefined,
       true
     );
-  return suspend(() => {
+  return createMemo(() => {
     const c = condition();
     return c
       ? callFn
@@ -56,9 +59,9 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
       return [-1];
     },
     undefined,
-    (a, b) => a && a[0] === b[0] && a[1] === b[1]
+    (a: [number, unknown?], b: [number, unknown?]) => a && a[0] === b[0] && a[1] === b[1]
   );
-  return suspend(() => {
+  return createMemo(() => {
     const [index, when] = evalConditions();
     if (index < 0) return props.fallback;
     const c = conditions[index].children;
@@ -99,7 +102,7 @@ export function ErrorBoundary(props: {
 /* istanbul ignore next */
 export function Dynamic<T>(props: T & { component?: Component<T> }) {
   const [p, others] = splitProps(props, ["component"]);
-  return suspend(() => {
+  return createMemo(() => {
     const comp = p.component;
     return comp && untrack(() => comp(others as any));
   });

@@ -1,4 +1,4 @@
-import { untrack } from "../reactive/signal";
+import { untrack, createResource, createMemo } from "../reactive/signal";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
@@ -95,4 +95,63 @@ export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
       return clone;
     };
   return keys.map(split).concat(split(Object.keys(descriptors) as (keyof T)[]));
+}
+
+// lazy load a function component asynchronously
+export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
+  return ((props: any) => {
+    const h = globalThis._$HYDRATION,
+      hydrating = h.context && h.context.registry,
+      ctx = nextHydrateContext(),
+      [s, l] = createResource<T>(undefined, { notStreamed: true });
+    if (hydrating && h.resources) {
+      fn().then(mod => l(() => mod.default));
+    } else l(() => fn().then(mod => mod.default));
+    let Comp: T | undefined;
+    return createMemo(
+      () =>
+        (Comp = s()) &&
+        untrack(() => {
+          if (!ctx) return Comp!(props);
+          const c = h.context;
+          setHydrateContext(ctx);
+          const r = Comp!(props);
+          !c && setHydrateContext();
+          return r;
+        })
+    );
+  }) as T;
+}
+
+function setHydrateContext(context?: HydrationContext): void {
+  globalThis._$HYDRATION.context = context;
+}
+
+function nextHydrateContext(): HydrationContext | undefined {
+  const hydration = globalThis._$HYDRATION;
+  return hydration && hydration.context
+    ? {
+        id: `${hydration.context.id}.${hydration.context.count++}`,
+        count: 0,
+        registry: hydration.context.registry
+      }
+    : undefined;
+}
+
+type HydrationContext = {
+  id: string;
+  count: number;
+  registry?: Map<string, Element>;
+};
+
+type GlobalHydration = {
+  context?: HydrationContext;
+  register?: (v: Promise<any>) => void;
+  loadResource?: () => Promise<any>;
+  resources?: { [key: string]: any };
+  asyncSSR?: boolean;
+};
+
+declare global {
+  var _$HYDRATION: GlobalHydration;
 }
