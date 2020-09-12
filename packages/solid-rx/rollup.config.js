@@ -7,6 +7,7 @@ const plugins = [
   }),
   babel({
     extensions: ['.ts', '.js'],
+    babelHelpers: "bundled",
     presets: ["@babel/preset-typescript"],
     exclude: 'node_modules/**'
   })

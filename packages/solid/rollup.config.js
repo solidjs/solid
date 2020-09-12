@@ -11,6 +11,7 @@ const plugins = [
     extensions: [".js", ".ts"],
     exclude: "node_modules/**",
     babelrc: false,
+    babelHelpers: "bundled",
     presets: ["@babel/preset-typescript"],
     plugins: [
       [
@@ -81,7 +82,8 @@ export default [
     output: [
       {
         file: "lib/dom/html.js",
-        format: "cjs"
+        format: "cjs",
+        exports: "auto"
       },
       {
         file: "dist/dom/html.js",
@@ -96,7 +98,8 @@ export default [
     output: [
       {
         file: "lib/dom/h.js",
-        format: "cjs"
+        format: "cjs",
+        exports: "auto"
       },
       {
         file: "dist/dom/h.js",
@@ -118,6 +121,7 @@ export default [
         format: "es"
       }
     ],
+    external: ["stream"],
     plugins: [
       copy({
         targets: [
@@ -140,6 +144,7 @@ export default [
         extensions: [".js", ".ts"],
         exclude: "node_modules/**",
         babelrc: false,
+        babelHelpers: "bundled",
         presets: ["@babel/preset-typescript"],
         plugins: [
           [

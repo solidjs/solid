@@ -3,6 +3,7 @@ import babel from '@rollup/plugin-babel';
 const plugins = [
   babel({
     extensions: ['.js', '.ts'],
+    babelHelpers: "bundled",
     presets: ["@babel/preset-typescript"],
     exclude: 'node_modules/**'
   })

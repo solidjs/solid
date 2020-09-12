@@ -3,6 +3,7 @@ import babel from '@rollup/plugin-babel';
 const plugins = [
   babel({
     extensions: ['.js', '.ts'],
+    babelHelpers: "bundled",
     presets: ["@babel/preset-typescript"],
     exclude: 'node_modules/**'
   })
@@ -17,6 +18,6 @@ export default {
     file: 'dist//solid-styled-components.js',
     format: 'es'
   }],
-  external: ['solid-js', 'goober'],
+  external: ['solid-js', 'solid-js/dom', 'goober'],
   plugins
 };
