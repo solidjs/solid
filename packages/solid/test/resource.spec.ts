@@ -10,8 +10,6 @@ import {
   State
 } from "../src";
 
-globalThis._$HYDRATION || (globalThis._$HYDRATION = {})
-
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,

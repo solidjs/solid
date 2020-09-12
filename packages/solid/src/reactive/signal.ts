@@ -131,15 +131,23 @@ export function createMemo<T>(
   return readSignal.bind(c as Memo<T>);
 }
 
-export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) {
+export function createDeferred<T>(fn: (v?: T) => T, value?: T, options?: { timeoutMs: number }) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const [deferred, setDeferred] = createSignal(fn());
-  createComputed(() => {
-    fn();
-    if (!t || !t.fn)
-      t = requestCallback(() => setDeferred(fn()), timeout !== undefined ? { timeout } : undefined);
-  });
+  const [deferred, setDeferred] = createSignal(value);
+  const node = createComputation(
+    v => {
+      if (!t || !t.fn)
+        t = requestCallback(
+          () => setDeferred(node.value),
+          timeout !== undefined ? { timeout } : undefined
+        );
+      return fn(v);
+    },
+    value,
+    true
+  );
+  updateComputation(node);
   return deferred;
 }
 
@@ -256,7 +264,7 @@ export function createResource<T>(
   const [s, set] = createSignal(init),
     [loading, setLoading] = createSignal<boolean>(false, true),
     contexts = new Set<SuspenseContextType>(),
-    h = globalThis._$HYDRATION;
+    h = globalThis._$HYDRATION || {};
   let err: any = null,
     pr: Promise<T> | null = null;
   function loadEnd(p: Promise<T>, v: T, e?: any) {
@@ -374,7 +382,7 @@ function readSignal(this: Signal<any> | Memo<any>) {
   return this.value;
 }
 
-function writeSignal(this: Signal<any> | Memo<any>, value: any) {
+function writeSignal(this: Signal<any> | Memo<any>, value: any, isMemo?: boolean) {
   if (this.comparator) {
     if (Transition && Transition.running && Transition.sources.has(this)) {
       if (this.comparator(Transition.sources.get(this), value)) return value;
@@ -386,7 +394,8 @@ function writeSignal(this: Signal<any> | Memo<any>, value: any) {
     return value;
   }
   if (Transition) {
-    if (Transition.running || Transition.sources.has(this)) Transition.sources.set(this, value);
+    if (Transition.running || (!isMemo && Transition.sources.has(this)))
+      Transition.sources.set(this, value);
     if (!Transition.running) this.value = value;
   } else this.value = value;
   if (this.observers && (!Updates || this.observers.length)) {
@@ -413,21 +422,30 @@ function updateComputation(node: Computation<any>) {
   const owner = Owner,
     listener = Listener,
     time = ExecCount;
-  let nextValue;
   Listener = Owner = node;
+  runComputation(node, node.value, time);
+  if (Transition && !Transition.running && Transition.sources.has(node as Memo<any>)) {
+    Transition.running = true;
+    runComputation(node, Transition.sources.get(node as Memo<any>), time);
+    Transition.running = false;
+  }
+  Listener = listener;
+  Owner = owner;
+}
+
+function runComputation(node: Computation<any>, value: any, time: number) {
+  let nextValue;
   try {
-    nextValue = node.fn(node.value);
+    nextValue = node.fn(value);
   } catch (err) {
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
     if ((node as Memo<any>).observers && (node as Memo<any>).observers!.length) {
-      writeSignal.call(node as Memo<any>, nextValue);
+      writeSignal.call(node as Memo<any>, nextValue, true);
     } else node.value = nextValue;
     node.updatedAt = time;
   }
-  Listener = listener;
-  Owner = owner;
 }
 
 function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boolean) {
