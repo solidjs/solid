@@ -506,14 +506,20 @@ function runUpdates(fn: () => void, init: boolean) {
   } catch (err) {
     handleError(err);
   } finally {
-    if (Updates) runQueue(Updates);
-    if (!wait) {
-      if (Transition && Transition.running && Transition.promises.size) {
-        Transition.effects.push(...Effects);
-      } else runQueue(Effects);
-      Effects = null;
-    }
+    do {
+      if (Updates) {
+        runQueue(Updates);
+        Updates = [];
+      }
+      if (!wait) {
+        if (Transition && Transition.running && Transition.promises.size) {
+          Transition.effects.push(...Effects);
+        } else runQueue(Effects);
+        Effects = [];
+      }
+    } while (Updates && Updates.length);
     Updates = null;
+    if (!wait) Effects = null;
     if (Transition) {
       if (!Transition.promises.size) {
         Transition.sources.forEach((v, s) => (s.value = v));
