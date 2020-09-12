@@ -131,23 +131,24 @@ export function createMemo<T>(
   return readSignal.bind(c as Memo<T>);
 }
 
-export function createDeferred<T>(fn: (v?: T) => T, value?: T, options?: { timeoutMs: number }) {
+export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const [deferred, setDeferred] = createSignal(value);
+  const [deferred, setDeferred] = createSignal();
   const node = createComputation(
-    v => {
+    () => {
       if (!t || !t.fn)
         t = requestCallback(
           () => setDeferred(node.value),
           timeout !== undefined ? { timeout } : undefined
         );
-      return fn(v);
+      return fn();
     },
-    value,
+    undefined,
     true
   );
   updateComputation(node);
+  setDeferred(node.value);
   return deferred;
 }
 

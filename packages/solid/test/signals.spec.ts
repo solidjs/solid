@@ -257,11 +257,11 @@ describe("onError", () => {
 describe("createDeferred", () => {
   test("simple defer", done => {
     createRoot(() => {
-      const [s, set] = createSignal(),
-        r = createDeferred(s, undefined, { timeoutMs: 20 });
-      expect(r()).not.toBeDefined();
+      const [s, set] = createSignal("init"),
+        r = createDeferred(s, { timeoutMs: 20 });
+      expect(r()).toBe("init");
       set("Hi");
-      expect(r()).not.toBeDefined();
+      expect(r()).toBe("init");
       setTimeout(() => {
         expect(r()).toBe("Hi");
         done();
