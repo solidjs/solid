@@ -20,7 +20,16 @@ type SuspenseListContextType = {
 };
 const SuspenseListContext = createContext<SuspenseListContextType>();
 
+let trackSuspense = false;
 export function awaitSuspense(fn: () => any) {
+  if (!trackSuspense) {
+    let count = 0;
+    const [active, trigger] = createSignal(false);
+    SuspenseContext.active = active;
+    SuspenseContext.increment = () => count++ === 0 && trigger(true);
+    SuspenseContext.decrement = () => --count <= 0 && trigger(false);
+    trackSuspense = true;
+  }
   return () =>
     new Promise(resolve => {
       const res = fn();
@@ -105,18 +114,18 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
   let counter = 0,
     showContent: () => boolean,
     showFallback: () => boolean;
-  const [inFallback, setFallback] = createSignal<boolean>(false, true),
+  const [inFallback, setFallback] = createSignal<boolean>(false),
     store = {
       increment: () => {
         if (++counter === 1) {
           setFallback(true);
-          SuspenseContext.increment!();
+          trackSuspense && SuspenseContext.increment!();
         }
       },
       decrement: () => {
         if (--counter === 0) {
           setFallback(false);
-          Promise.resolve().then(SuspenseContext.decrement!);
+          trackSuspense && Promise.resolve().then(SuspenseContext.decrement!);
         }
       },
       inFallback

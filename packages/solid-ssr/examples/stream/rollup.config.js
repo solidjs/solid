@@ -6,16 +6,18 @@ import copy from "rollup-plugin-copy";
 export default [
   {
     input: "examples/stream/index.js",
+    preserveEntrySignatures: false,
     output: [
       {
         dir: "examples/stream/lib",
         format: "cjs"
       }
     ],
-    external: ["solid-js", "solid-js/dom", "path", "express"],
+    external: ["solid-js", "solid-js/dom", "path", "express", "stream"],
     plugins: [
       nodeResolve({ preferBuiltins: true }),
       babel({
+        babelHelpers: "bundled",
         presets: [["solid", { generate: "ssr", hydratable: true }]]
       }),
       common()
@@ -33,6 +35,7 @@ export default [
     plugins: [
       nodeResolve(),
       babel({
+        babelHelpers: "bundled",
         presets: [["solid", { generate: "dom", hydratable: true }]]
       }),
       common(),

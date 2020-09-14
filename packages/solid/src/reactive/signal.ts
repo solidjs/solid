@@ -2,7 +2,7 @@
 import { requestCallback, Task } from "./scheduler";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
-const ERROR = Symbol("error");
+let ERROR: symbol | null = null;
 
 const NOTPENDING = {};
 const STALE = 1;
@@ -196,6 +196,7 @@ export function onCleanup(fn: () => void) {
 }
 
 export function onError(fn: (err: any) => void): void {
+  ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
     console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
@@ -241,18 +242,6 @@ export const SuspenseContext: Context<SuspenseContextType> & {
   increment?(): void;
   decrement?(): void;
 } = createContext<SuspenseContextType>({});
-
-function createActivityTracker(): [() => boolean, () => void, () => void] {
-  let count = 0;
-  const [read, trigger] = createSignal(false);
-
-  return [read, () => count++ === 0 && trigger(true), () => --count <= 0 && trigger(false)];
-}
-
-const [active, increment, decrement] = createActivityTracker();
-SuspenseContext.active = active;
-SuspenseContext.increment = increment;
-SuspenseContext.decrement = decrement;
 
 export interface Resource<T> {
   (): T | undefined;
@@ -589,7 +578,7 @@ function cleanNode(node: Owner) {
 }
 
 function handleError(err: any) {
-  const fns = lookup(Owner, ERROR);
+  const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw err;
   fns.forEach((f: (err: any) => void) => f(err));
 }

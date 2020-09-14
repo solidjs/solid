@@ -16,6 +16,7 @@ export default [
     plugins: [
       nodeResolve({ preferBuiltins: true }),
       babel({
+        babelHelpers: "bundled",
         presets: [["solid", { generate: "ssr", hydratable: true, async: true }]]
       }),
       common()
@@ -33,6 +34,7 @@ export default [
     plugins: [
       nodeResolve(),
       babel({
+        babelHelpers: "bundled",
         presets: [["solid", { generate: "dom", hydratable: true }]]
       }),
       common(),
