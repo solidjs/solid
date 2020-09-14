@@ -627,7 +627,7 @@ function createTransition(config: { timeoutMs?: number }) {
     if (config.timeoutMs) {
       if (Transition.timeout) clearTimeout(Transition.timeout);
       Transition.timeout = setTimeout(() => {
-        Transition?.promises.clear();
+        Transition!.promises.clear();
         runUpdates(() => {
           Transition!.running = true;
           Effects = Transition!.effects;
