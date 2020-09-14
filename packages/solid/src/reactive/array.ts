@@ -82,39 +82,6 @@ export function mapArray<T, U>(
           indexes && (tempIndexes![newEnd] = indexes[end]);
         }
 
-        // remove any remaining nodes and we're done
-        if (start > newEnd) {
-          for (j = end; start <= j; j--) disposers[j]();
-          const rLen = end - start + 1;
-          if (rLen > 0) {
-            mapped.splice(start, rLen);
-            disposers.splice(start, rLen);
-            if (indexes) {
-              indexes.splice(start, rLen);
-              for (j = start; j < newLen; j++) indexes[j](j);
-            }
-          }
-          items = newItems.slice(0);
-          len = newLen;
-          return mapped;
-        }
-
-        // insert any remaining updates and we're done
-        if (start > end) {
-          for (j = start; j <= newEnd; j++) mapped[j] = createRoot(mapper);
-          for (; j < newLen; j++) {
-            mapped[j] = temp[j];
-            disposers[j] = tempdisposers[j];
-            if (indexes) {
-              indexes[j] = tempIndexes![j];
-              indexes[j](j);
-            }
-          }
-          items = newItems.slice(0);
-          len = newLen;
-          return mapped;
-        }
-
         // 0) prepare a map of all indices in newItems, scanning backwards so we encounter them in natural order
         newIndices = new Map<T, number>();
         newIndicesNext = new Array(newEnd + 1);
