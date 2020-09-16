@@ -27,6 +27,7 @@ interface Signal<T> {
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
   pending: T | {};
+  tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
 }
 
@@ -47,10 +48,12 @@ interface Computation<T> extends Owner {
   pure: boolean;
 }
 
-interface Memo<T> extends Signal<T>, Computation<T> {}
+interface Memo<T> extends Signal<T>, Computation<T> {
+  tOwned?: Computation<any>[];
+}
 
 interface Transition {
-  sources: Map<Signal<any>, any>;
+  sources: Set<Signal<any>>;
   effects: Computation<any>[];
   promises: Set<Promise<any>>;
   running: boolean;
@@ -367,15 +370,14 @@ function readSignal(this: Signal<any> | Memo<any>) {
       this.observerSlots!.push(Listener.sources.length - 1);
     }
   }
-  if (Transition && Transition.running && Transition.sources.has(this))
-    return Transition.sources.get(this);
+  if (Transition && Transition.running && Transition.sources.has(this)) return this.tValue;
   return this.value;
 }
 
-function writeSignal(this: Signal<any> | Memo<any>, value: any, isMemo?: boolean) {
+function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: boolean) {
   if (this.comparator) {
     if (Transition && Transition.running && Transition.sources.has(this)) {
-      if (this.comparator(Transition.sources.get(this), value)) return value;
+      if (this.comparator(this.tValue, value)) return value;
     } else if (this.comparator(this.value, value)) return value;
   }
   if (Pending) {
@@ -384,8 +386,10 @@ function writeSignal(this: Signal<any> | Memo<any>, value: any, isMemo?: boolean
     return value;
   }
   if (Transition) {
-    if (Transition.running || (!isMemo && Transition.sources.has(this)))
-      Transition.sources.set(this, value);
+    if (Transition.running || (!isComp && Transition.sources.has(this))) {
+      Transition.sources.add(this);
+      this.tValue = value;
+    }
     if (!Transition.running) this.value = value;
   } else this.value = value;
   if (this.observers && (!Updates || this.observers.length)) {
@@ -416,7 +420,7 @@ function updateComputation(node: Computation<any>) {
   runComputation(node, node.value, time);
   if (Transition && !Transition.running && Transition.sources.has(node as Memo<any>)) {
     Transition.running = true;
-    runComputation(node, Transition.sources.get(node as Memo<any>), time);
+    runComputation(node, (node as Memo<any>).tValue, time);
     Transition.running = false;
   }
   Listener = listener;
@@ -455,8 +459,13 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
   if (Owner === null)
     console.warn("computations created outside a `createRoot` or `render` will never be disposed");
   else if (Owner !== UNOWNED) {
-    if (!Owner.owned) Owner.owned = [c];
-    else Owner.owned.push(c);
+    if (Transition && Transition.running && (Owner as Memo<T>).pure) {
+      if (!(Owner as Memo<T>).tOwned) (Owner as Memo<T>).tOwned = [c];
+      else (Owner as Memo<T>).tOwned!.push(c);
+    } else {
+      if (!Owner.owned) Owner.owned = [c];
+      else Owner.owned.push(c);
+    }
   }
   return c;
 }
@@ -511,7 +520,16 @@ function runUpdates(fn: () => void, init: boolean) {
     if (!wait) Effects = null;
     if (Transition) {
       if (!Transition.promises.size) {
-        Transition.sources.forEach((v, s) => (s.value = v));
+        Transition.sources.forEach(v => {
+          v.value = v.tValue;
+          if ((v as Memo<any>).owned) {
+            for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
+              cleanNode((v as Memo<any>).owned![i]);
+          }
+          if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
+          delete v.tValue;
+          delete (v as Memo<any>).tOwned;
+        });
         if (Transition.timeout) clearTimeout(Transition.timeout);
         Transition = null;
         setTransPending(false);
@@ -564,7 +582,13 @@ function cleanNode(node: Owner) {
     }
   }
 
-  if (node.owned) {
+  if (Transition && Transition.running && (node as Memo<any>).pure) {
+    if ((node as Memo<any>).tOwned) {
+      for (i = 0; i < (node as Memo<any>).tOwned!.length; i++)
+        cleanNode((node as Memo<any>).tOwned![i]);
+      delete (node as Memo<any>).tOwned;
+    }
+  } else if (node.owned) {
     for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
     node.owned = null;
   }
@@ -618,7 +642,7 @@ function createTransition(config: { timeoutMs?: number }) {
     setTransPending(true);
     Transition ||
       (Transition = {
-        sources: new Map(),
+        sources: new Set(),
         effects: [],
         promises: new Set(),
         running: true,

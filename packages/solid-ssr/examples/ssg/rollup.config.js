@@ -9,6 +9,7 @@ export default [
     output: [
       {
         dir: "examples/ssg/lib",
+        exports: "auto",
         format: "cjs"
       }
     ],

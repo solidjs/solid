@@ -8,7 +8,7 @@ function RouteHOC(Comp) {
         (props.url ? props.url : window.location.pathname).slice(1) || "index"
       ),
       matches = match => match === (location() || "index"),
-      [pending, start] = useTransition({ timeoutMs: 400 });
+      [pending, start] = useTransition({ timeoutMs: 600 });
     !globalThis.isSSR && (window.onpopstate = () => setLocation(window.location.pathname.slice(1)));
 
     return (
