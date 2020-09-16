@@ -59,8 +59,15 @@ export function createMemo<T>(
   return () => v;
 }
 
-export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) {
-  return fn;
+export function createDeferred<T>(source: () => T, options?: { timeoutMs: number }) {
+  return source;
+}
+
+export function createSelector<T>(
+  source: () => T,
+  fn: (k: T, value: T, prevValue: T | undefined) => boolean
+) {
+  return source;
 }
 
 export function batch<T>(fn: () => T): T {

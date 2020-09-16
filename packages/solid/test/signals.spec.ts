@@ -4,6 +4,7 @@ import {
   createEffect,
   createDeferred,
   createMemo,
+  createSelector,
   untrack,
   onCleanup,
   onError
@@ -75,7 +76,7 @@ describe("Update signals", () => {
         setName("Jake");
         expect(temp).toBe("Hello Jake!!!");
         done();
-      })
+      });
     });
   });
   test("Create and trigger an Effect", done => {
@@ -266,6 +267,39 @@ describe("createDeferred", () => {
         expect(r()).toBe("Hi");
         done();
       }, 100);
+    });
+  });
+});
+
+describe("createSelector", () => {
+  test("simple selection", done => {
+    createRoot(() => {
+      const [s, set] = createSignal<number>(-1),
+        select = createSelector<number>(
+          s,
+          (key, value, prevValue) => key === value || key === prevValue
+        );
+      let count = 0;
+      const list = Array.from({ length: 100 }, (_, i) =>
+        createMemo(() => {
+          count++;
+          return select(i) === i ? "selected" : "no";
+        })
+      );
+      expect(count).toBe(100);
+      expect(list[3]()).toBe("no");
+      setTimeout(() => {
+        count = 0;
+        set(3);
+        expect(count).toBe(1);
+        expect(list[3]()).toBe("selected");
+        count = 0;
+        set(6);
+        expect(count).toBe(2);
+        expect(list[3]()).toBe("no");
+        expect(list[6]()).toBe("selected");
+        done();
+      });
     });
   });
 });

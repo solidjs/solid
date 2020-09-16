@@ -134,7 +134,7 @@ export function createMemo<T>(
   return readSignal.bind(c as Memo<T>);
 }
 
-export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) {
+export function createDeferred<T>(source: () => T, options?: { timeoutMs: number }) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
   const [deferred, setDeferred] = createSignal();
@@ -145,7 +145,7 @@ export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) 
           () => setDeferred(node.value),
           timeout !== undefined ? { timeout } : undefined
         );
-      return fn();
+      return source();
     },
     undefined,
     true
@@ -153,6 +153,32 @@ export function createDeferred<T>(fn: () => T, options?: { timeoutMs: number }) 
   updateComputation(node);
   setDeferred(node.value);
   return deferred;
+}
+
+export function createSelector<T>(
+  source: () => T,
+  fn: (k: T, value: T, prevValue: T | undefined) => boolean
+) {
+  let subs = new Map<T, Computation<any>>();
+  const node = createComputation((p: T | undefined) => {
+    const v = source();
+    for(const key of subs.keys())
+      if (fn(key, v, p)) {
+        const c = subs.get(key)!;
+        c.state = STALE;
+        if (c.pure) Updates!.push(c);
+        else Effects!.push(c);
+      }
+    return v;
+  }, undefined, true);
+  updateComputation(node);
+  return (key: T) => {
+    if (Listener) {
+      subs.set(key, Listener);
+      onCleanup(() => subs.delete(key));
+    }
+    return node.value;
+  }
 }
 
 export function batch<T>(fn: () => T): T {

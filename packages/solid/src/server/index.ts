@@ -5,6 +5,7 @@ export {
   createRenderEffect,
   createEffect,
   createDeferred,
+  createSelector,
   createMemo,
   getListener,
   onCleanup,
