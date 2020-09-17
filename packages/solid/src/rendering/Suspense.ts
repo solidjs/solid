@@ -128,7 +128,8 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
           trackSuspense && Promise.resolve().then(SuspenseContext.decrement!);
         }
       },
-      inFallback
+      inFallback,
+      resolved: false
     };
 
   // SuspenseList support
@@ -139,6 +140,7 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
     value: store,
     get children() {
       const rendered = untrack(() => props.children);
+      store.resolved = true;
 
       return () => {
         const inFallback = store.inFallback(),

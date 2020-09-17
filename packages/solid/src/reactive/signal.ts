@@ -57,7 +57,6 @@ interface Transition {
   effects: Computation<any>[];
   promises: Set<Promise<any>>;
   running: boolean;
-  timeout: NodeJS.Timeout | null;
 }
 
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Owner): T {
@@ -160,17 +159,21 @@ export function createSelector<T>(
   fn: (k: T, value: T, prevValue: T | undefined) => boolean
 ) {
   let subs = new Map<T, Computation<any>>();
-  const node = createComputation((p: T | undefined) => {
-    const v = source();
-    for(const key of subs.keys())
-      if (fn(key, v, p)) {
-        const c = subs.get(key)!;
-        c.state = STALE;
-        if (c.pure) Updates!.push(c);
-        else Effects!.push(c);
-      }
-    return v;
-  }, undefined, true);
+  const node = createComputation(
+    (p: T | undefined) => {
+      const v = source();
+      for (const key of subs.keys())
+        if (fn(key, v, p)) {
+          const c = subs.get(key)!;
+          c.state = STALE;
+          if (c.pure) Updates!.push(c);
+          else Effects!.push(c);
+        }
+      return v;
+    },
+    undefined,
+    true
+  );
   updateComputation(node);
   return (key: T) => {
     if (Listener) {
@@ -178,7 +181,7 @@ export function createSelector<T>(
       onCleanup(() => subs.delete(key));
     }
     return node.value;
-  }
+  };
 }
 
 export function batch<T>(fn: () => T): T {
@@ -199,10 +202,21 @@ export function batch<T>(fn: () => T): T {
   return result;
 }
 
-export function useTransition(
-  config: { timeoutMs?: number } = {}
-): [() => boolean, (fn: () => void) => void] {
-  return [transPending, createTransition(config)];
+export function useTransition(): [() => boolean, (fn: () => void) => void] {
+  return [
+    transPending,
+    (fn: () => void) => {
+      Transition ||
+        (Transition = {
+          sources: new Set(),
+          effects: [],
+          promises: new Set(),
+          running: true
+        });
+      Transition.running = true;
+      runUpdates(fn, false);
+    }
+  ];
 }
 
 export function untrack<T>(fn: () => T): T {
@@ -263,7 +277,7 @@ type SuspenseContextType = {
   increment?: () => void;
   decrement?: () => void;
   state?: () => SuspenseState;
-  initializing?: boolean;
+  resolved?: boolean;
 };
 
 export const SuspenseContext: Context<SuspenseContextType> & {
@@ -322,6 +336,7 @@ export function createResource<T>(
       v = s();
     if (err) throw err;
     if (pr && c.increment && !contexts.has(c)) {
+      if (Transition && c.resolved) Transition.promises.add(pr);
       c.increment!();
       contexts.add(c);
     }
@@ -350,7 +365,6 @@ export function createResource<T>(
       return p;
     }
     pr = p;
-    if (Transition) Transition.promises.add(p);
     batch(() => {
       setLoading(true);
       set(untrack(s));
@@ -556,10 +570,12 @@ function runUpdates(fn: () => void, init: boolean) {
           delete v.tValue;
           delete (v as Memo<any>).tOwned;
         });
-        if (Transition.timeout) clearTimeout(Transition.timeout);
         Transition = null;
         setTransPending(false);
-      } else Transition.running = false;
+      } else {
+        Transition.running = false;
+        setTransPending(true);
+      }
     }
   }
 }
@@ -655,36 +671,10 @@ function resolveChildren(children: any): any {
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     let rendered;
-    createRenderEffect(() => {
+    createComputed(() => {
       Owner!.context = { [id]: props.value };
       rendered = untrack(() => resolveChildren(props.children));
     });
     return rendered;
-  };
-}
-
-function createTransition(config: { timeoutMs?: number }) {
-  return (fn: () => void) => {
-    setTransPending(true);
-    Transition ||
-      (Transition = {
-        sources: new Set(),
-        effects: [],
-        promises: new Set(),
-        running: true,
-        timeout: null
-      });
-    if (config.timeoutMs != null) {
-      if (Transition.timeout) clearTimeout(Transition.timeout);
-      Transition.timeout = setTimeout(() => {
-        Transition!.promises.clear();
-        runUpdates(() => {
-          Transition!.running = true;
-          Effects = Transition!.effects;
-        }, false);
-      }, config.timeoutMs);
-    }
-    Transition.running = true;
-    runUpdates(fn, false);
   };
 }

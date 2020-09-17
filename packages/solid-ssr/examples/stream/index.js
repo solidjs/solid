@@ -24,6 +24,7 @@ app.get("*", (req, res) => {
         eventNames: ["click", "blur", "input"],
         streaming: true
       })}</script>
+      <script async type="module" src="/js/index.js"></script>
     </head>
     <body><div id="app">`;
 
@@ -32,7 +33,6 @@ app.get("*", (req, res) => {
   stream.pipe(res, { end: false });
 
   const htmlEnd = `</div></body>
-    <script type="module" src="/js/index.js"></script>
   </html>`;
 
   stream.on("end", () => {

@@ -26,7 +26,7 @@ app.get("*", (req, res) => {
         })}</script>
       </head>
       <body><div id="app">${string}</div></body>
-      <script type="module" src="/js/index.js"></script>
+      <script async type="module" src="/js/index.js"></script>
     </html>`;
   } catch (err) {
     console.error(err);

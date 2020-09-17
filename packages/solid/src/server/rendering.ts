@@ -224,7 +224,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
   };
 }
 
-export function useTransition(config: SuspenseConfig): [() => boolean, (fn: () => any) => void] {
+export function useTransition(): [() => boolean, (fn: () => any) => void] {
   return [
     () => false,
     fn => {

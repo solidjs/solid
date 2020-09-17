@@ -43,8 +43,8 @@ describe("Testing Suspense", () => {
     });
   });
 
-  test("Toggle with delayed fallback", done => {
-    const [pending, start] = useTransition({ timeoutMs: 100 });
+  test("Toggle with refresh transition", done => {
+    const [pending, start] = useTransition();
     start(() => trigger(true));
     expect(div.innerHTML).toBe("Hi, Jo");
     expect(pending()).toBe(true);
@@ -52,10 +52,6 @@ describe("Testing Suspense", () => {
       expect(div.innerHTML).toBe("Hi, Jo");
       expect(pending()).toBe(true);
     });
-    setTimeout(() => {
-      expect(div.innerHTML).toBe("Loading");
-      expect(pending()).toBe(false);
-    }, 200);
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo");
       expect(pending()).toBe(false);
