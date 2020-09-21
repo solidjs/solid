@@ -17,10 +17,7 @@ export {
   createContext,
   useContext,
   getContextOwner,
-  equalFn,
-  // deprecations
-  untrack as sample,
-  batch as freeze
+  equalFn
 } from "./reactive/signal";
 export type { Resource } from "./reactive/signal";
 

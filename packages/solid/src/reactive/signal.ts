@@ -46,6 +46,7 @@ interface Computation<T> extends Owner {
   value?: T;
   updatedAt: number | null;
   pure: boolean;
+  suspense?: SuspenseContextType;
 }
 
 interface Memo<T> extends Signal<T>, Computation<T> {
@@ -105,7 +106,19 @@ export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
 }
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
-  Effects!.push(createComputation(fn, value, false));
+  const c = createComputation(fn, value, false),
+    s = SuspenseContext && lookup(Owner, SuspenseContext.id);
+  if (s) c.suspense = s;
+  Effects!.push(c);
+}
+
+export function resumeEffects(e: Computation<any>[]) {
+  Promise.resolve().then(() =>
+    runUpdates(() => {
+      Effects!.push.apply(Effects, e);
+      e.length = 0;
+    }, false)
+  );
 }
 
 export function createMemo<T>(
@@ -272,19 +285,23 @@ export function getContextOwner() {
 }
 
 // Resource API
-type SuspenseState = "running" | "suspended" | "fallback";
 type SuspenseContextType = {
   increment?: () => void;
   decrement?: () => void;
-  state?: () => SuspenseState;
+  inFallback?: () => boolean;
+  effects?: Computation<any>[];
   resolved?: boolean;
 };
 
-export const SuspenseContext: Context<SuspenseContextType> & {
+let SuspenseContext: Context<SuspenseContextType> & {
   active?(): boolean;
   increment?(): void;
   decrement?(): void;
-} = createContext<SuspenseContextType>({});
+};
+
+export function getSuspenseContext() {
+  return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>({}));
+}
 
 export interface Resource<T> {
   (): T | undefined;
@@ -332,10 +349,10 @@ export function createResource<T>(
   }
 
   function read() {
-    const c = useContext(SuspenseContext),
+    const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = s();
     if (err) throw err;
-    if (pr && c.increment && !contexts.has(c)) {
+    if (pr && c && !contexts.has(c)) {
       if (Transition && c.resolved) Transition.promises.add(pr);
       c.increment!();
       contexts.add(c);
@@ -513,6 +530,7 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
 function runTop(node: Computation<any> | null) {
   let top = node!.state === STALE && node,
     pending;
+  if (node!.suspense && untrack(node!.suspense.inFallback!)) return node!.suspense.effects!.push(node!);
   while (node!.fn && (node = node!.owner as Computation<any>)) {
     if (node.state === PENDING) pending = node;
     else if (node.state === STALE) {

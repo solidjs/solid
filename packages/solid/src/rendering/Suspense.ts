@@ -6,7 +6,8 @@ import {
   createComputed,
   createContext,
   useContext,
-  SuspenseContext
+  getSuspenseContext,
+  resumeEffects
 } from "../reactive/signal";
 
 type SuspenseListRegistryItem = {
@@ -22,6 +23,7 @@ const SuspenseListContext = createContext<SuspenseListContextType>();
 
 let trackSuspense = false;
 export function awaitSuspense(fn: () => any) {
+  const SuspenseContext = getSuspenseContext();
   if (!trackSuspense) {
     let count = 0;
     const [active, trigger] = createSignal(false);
@@ -115,6 +117,7 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
     showContent: () => boolean,
     showFallback: () => boolean;
   const [inFallback, setFallback] = createSignal<boolean>(false),
+    SuspenseContext = getSuspenseContext(),
     store = {
       increment: () => {
         if (++counter === 1) {
@@ -129,6 +132,7 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
         }
       },
       inFallback,
+      effects: [],
       resolved: false
     };
 
@@ -146,7 +150,10 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
         const inFallback = store.inFallback(),
           visibleContent = showContent ? showContent() : true,
           visibleFallback = showFallback ? showFallback() : true;
-        if (!inFallback && visibleContent) return rendered;
+        if (!inFallback && visibleContent) {
+          resumeEffects(store.effects);
+          return rendered;
+        }
         if (!visibleFallback) return;
         return props.fallback;
       };
