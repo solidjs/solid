@@ -4,7 +4,6 @@ import {
   createComputed,
   createResource,
   createResourceState,
-  untrack,
   useTransition
 } from "../../src";
 import { render, Suspense, SuspenseList } from "../../src/dom";
@@ -16,17 +15,17 @@ describe("Testing Suspense", () => {
     [triggered, trigger] = createSignal(false);
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
-      let [value, load] = createResource<string>();
+      let [value, load] = createResource<string>("");
       createComputed(
         () =>
-          triggered() && (load(() => new Promise(r => setTimeout(() => r("Hey"), 300))), untrack(value))
+          triggered() && load(() => new Promise(r => setTimeout(() => r("Jo"), 300)))
       );
-      return props.greeting;
+      return () => `${props.greeting} ${value()}`;
     },
     Component = () => (
       <Suspense fallback="Loading">
-        <LazyComponent greeting="Hi, " />
-        <LazyComponent greeting="Jo" />
+        <LazyComponent greeting="Hi," />.
+        <LazyComponent greeting="Hello" />
       </Suspense>
     );
 
@@ -38,7 +37,7 @@ describe("Testing Suspense", () => {
   test("Toggle Suspense control flow", done => {
     for (const r of resolvers) r({ default: ChildComponent });
     setTimeout(() => {
-      expect(div.innerHTML).toBe("Hi, Jo");
+      expect(div.innerHTML).toBe("Hi, .Hello ");
       done();
     });
   });
@@ -46,14 +45,14 @@ describe("Testing Suspense", () => {
   test("Toggle with refresh transition", done => {
     const [pending, start] = useTransition();
     start(() => trigger(true));
-    expect(div.innerHTML).toBe("Hi, Jo");
+    expect(div.innerHTML).toBe("Hi, .Hello ");
     expect(pending()).toBe(true);
     setTimeout(() => {
-      expect(div.innerHTML).toBe("Hi, Jo");
+      expect(div.innerHTML).toBe("Hi, .Hello ");
       expect(pending()).toBe(true);
     });
     setTimeout(() => {
-      expect(div.innerHTML).toBe("Hi, Jo");
+      expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
       expect(pending()).toBe(false);
       done();
     }, 400);

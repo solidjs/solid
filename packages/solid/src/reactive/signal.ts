@@ -46,6 +46,7 @@ interface Computation<T> extends Owner {
   value?: T;
   updatedAt: number | null;
   pure: boolean;
+  user?: boolean;
   suspense?: SuspenseContextType;
 }
 
@@ -106,16 +107,18 @@ export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
 }
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
+  if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
   const c = createComputation(fn, value, false),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
+  c.user = true;
   Effects!.push(c);
 }
 
 export function resumeEffects(e: Computation<any>[]) {
   Promise.resolve().then(() =>
     runUpdates(() => {
-      Effects!.push.apply(Effects, e);
+      Effects!.push(...e);
       e.length = 0;
     }, false)
   );
@@ -322,9 +325,9 @@ export function createResource<T>(
       Transition.promises.delete(p);
       if (pr === p || !Transition.promises.size) {
         err = e;
+        pr = null;
         runUpdates(() => {
           Transition!.running = true;
-          pr = null;
           !Transition!.promises.size && (Effects = Transition!.effects);
           completeLoad(v);
         }, false);
@@ -352,7 +355,7 @@ export function createResource<T>(
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = s();
     if (err) throw err;
-    if (pr && c && !contexts.has(c)) {
+    if (pr && Listener && !Listener.user && c && !contexts.has(c)) {
       if (Transition && c.resolved) Transition.promises.add(pr);
       c.increment!();
       contexts.add(c);
@@ -530,7 +533,8 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
 function runTop(node: Computation<any> | null) {
   let top = node!.state === STALE && node,
     pending;
-  if (node!.suspense && untrack(node!.suspense.inFallback!)) return node!.suspense.effects!.push(node!);
+  if (node!.suspense && untrack(node!.suspense.inFallback!))
+    return node!.suspense.effects!.push(node!);
   while (node!.fn && (node = node!.owner as Computation<any>)) {
     if (node.state === PENDING) pending = node;
     else if (node.state === STALE) {
@@ -564,13 +568,13 @@ function runUpdates(fn: () => void, init: boolean) {
   } finally {
     do {
       if (Updates) {
-        runQueue(Updates);
+        for (let i = 0; i < Updates.length; i++) runTop(Updates[i]);
         Updates = [];
       }
       if (!wait) {
         if (Transition && Transition.running && Transition.promises.size) {
           Transition.effects.push(...Effects);
-        } else runQueue(Effects);
+        } else runEffects(Effects);
         Effects = [];
       }
     } while (Updates && Updates.length);
@@ -598,8 +602,15 @@ function runUpdates(fn: () => void, init: boolean) {
   }
 }
 
-function runQueue(queue: Computation<any>[]) {
-  for (let i = 0; i < queue!.length; i += 1) runTop(queue![i]);
+function runEffects(queue: Computation<any>[]) {
+  for (let i = 0; i < queue.length; i++) {
+    const e = queue[i];
+    if (!e.user) runTop(e);
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const e = queue[i];
+    if (e.user) runTop(e);
+  }
 }
 
 function lookDownstream(node: Computation<any>) {

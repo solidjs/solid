@@ -2,7 +2,7 @@ import { createComponent } from "./component";
 import {
   createSignal,
   untrack,
-  createEffect,
+  createRenderEffect,
   createComputed,
   createContext,
   useContext,
@@ -35,7 +35,7 @@ export function awaitSuspense(fn: () => any) {
   return () =>
     new Promise(resolve => {
       const res = fn();
-      createEffect(() => !SuspenseContext.active!() && resolve(res));
+      createRenderEffect(() => !SuspenseContext.active!() && resolve(res));
     });
 }
 

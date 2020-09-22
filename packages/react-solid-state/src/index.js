@@ -50,7 +50,7 @@ export function useObserver(fn) {
   if (!dispose.current) {
     createRoot(disposer => {
       dispose.current = disposer;
-      createEffect(() => {
+      createComputed(() => {
         const v = tracking();
         if (!("top" in v)) return;
         else if (v.top) results.current = run.current();
