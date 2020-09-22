@@ -59,6 +59,8 @@ render(
 
 That `_el$` is a real div element and `props.name`, `Taylor` in this case, is appended to its child nodes. Notice that `props.name` is wrapped in a function. That is because that is the only part of this component that will ever execute again. Even if a name is updated from the outside only that one expression will be re-evaluated. The compiler optimizes initial render and the runtime optimizes updates. It's the best of both worlds.
 
+Want to see what code Solid generates [try it online](https://solid-template-explorer.netlify.app/).
+
 ## Installation
 
 > _`npm init solid <project-type> <project-name>` is available with npm 6+._
