@@ -68,7 +68,7 @@ Creates a new Resource State object. Similar to normal state except each immedia
 
 Used to lazy load components to allow for things like code splitting and Suspense.
 
-### `useTransition({ timeoutMs }): [isPending, startTransition]`
+### `useTransition(): [isPending, startTransition]`
 
 Used to batch async updates deferring commit until all async processes are complete.
 

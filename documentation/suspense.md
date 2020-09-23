@@ -49,10 +49,9 @@ function App() {
 
 ## Placeholders & Transitions
 
-But what if we don't control when the asynchronous action returns and we need to deal with potentially multiple asynchronous actions. This is where Suspense comes in. It inverts the control, so that the child can manage its asynchronous needs and the parent just sets the rules of how to display the fallback content that is shown as these processes complete. Unlike conditional control flow (like the `Deferred` component above) the children are not blocked and get execute their asynchronous actions triggering Suspense rather than pushing the responsibility on the parent. Suspense consists of 3 states:
+But what if we don't control when the asynchronous action returns and we need to deal with potentially multiple asynchronous actions. This is where Suspense comes in. It inverts the control, so that the child can manage its asynchronous needs and the parent just sets the rules of how to display the fallback content that is shown as these processes complete. Unlike conditional control flow (like the `Deferred` component above) the children are not blocked and get execute their asynchronous actions triggering Suspense rather than pushing the responsibility on the parent. Suspense consists of 2 states:
 
 - normal - This is when no asynchronous actions are being processed and the system is working as normal.
-- suspended - This state is entered once asynchronous actions have started but before a delay has run out to show fallback content. In this state the previous content will continue to be visible.
 - fallback - This is the fallback content (like a loading spinner) to show in place of the loading if the asynchronous actions have not completed by the time the delay has run out.
 
 Consider the simple case of switching between 3 tabs which have asynchronous loaded tabs. To use Suspense you need to use the `Suspense` Component to wrap the asynchronous activity.
@@ -85,7 +84,7 @@ function App() {
 
 In this case if the tab hasn't loaded you will see a `LoadingSpinner` and as you switch you will see another `LoadingSpinner` as it moves in and out of suspended state.
 
-The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. When control flow is suspended it continues to show the current branch while rendering the next off screen. It is important to note that once suspense has triggered the onscreen content within this flow will no longer update.
+The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. When control flow is suspended it continues to show the current branch while rendering the next off screen.
 
 ```jsx
 import { createState, useTransition } from "solid-js";

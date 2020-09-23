@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.20.0 - 2020-09-x
+
+Re-scheduling Reactivity.
+
+This release makes large changes to the Reactive System.Defering `createEffect` to be after rendering and introducing `createComputed` do graph updates like loading async data.
+
+### Breaking Changes:
+
+#### Removed APIs
+
+`afterEffects`, `createDependentEffect`, and `suspend` have been removed as they no longer make sense with the new reactive system timing.
+
 ## 0.19.0 - 2020-08-23
 
 API Changes to support better SSR

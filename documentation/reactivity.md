@@ -34,7 +34,7 @@ These accessors are just functions that can be tracked and return a value. No ad
 
 An computation is calculation over a function execution that automatically and dynamically tracks any child signals that are accessed during that execution. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
 
-There are 3 main computations used by Solid: Memos which are pure and designed to cache values until their reactivity forces re-evaluation, Computeds which are designed to write to other signals, and Effects which are intended to produce side effects.
+There are 3 main computations used by Solid: Memos which are pure and designed to cache values until their reactivity forces re-evaluation, Computeds which are designed to write to other signals, and Effects which are intended to produce side effects after rendering.
 
 ```js
 import { createSignal, createEffect, createMemo } from "solid-js";

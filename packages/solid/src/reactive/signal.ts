@@ -116,12 +116,9 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
 }
 
 export function resumeEffects(e: Computation<any>[]) {
-  Promise.resolve().then(() =>
-    runUpdates(() => {
-      Effects!.push(...e);
-      e.length = 0;
-    }, false)
-  );
+  Transition && (Transition.running = true);
+  Effects!.push(...e);
+  e.length = 0;
 }
 
 export function createMemo<T>(
@@ -328,7 +325,8 @@ export function createResource<T>(
         pr = null;
         runUpdates(() => {
           Transition!.running = true;
-          !Transition!.promises.size && (Effects = Transition!.effects);
+          !Transition!.promises.size && Effects!.push(...Transition!.effects);
+          Transition!.effects = [];
           completeLoad(v);
         }, false);
       }
@@ -356,7 +354,7 @@ export function createResource<T>(
       v = s();
     if (err) throw err;
     if (pr && Listener && !Listener.user && c && !contexts.has(c)) {
-      if (Transition && c.resolved) Transition.promises.add(pr);
+      if (Transition && c.resolved) createComputed(() => (s(), pr && Transition!.promises.add(pr)));
       c.increment!();
       contexts.add(c);
     }
@@ -404,14 +402,12 @@ export function createResource<T>(
 
 function readSignal(this: Signal<any> | Memo<any>) {
   if ((this as Memo<any>).state && (this as Memo<any>).sources) {
-    const updates = Updates,
-      effects = Effects;
-    Updates = Effects = null;
+    const updates = Updates;
+    Updates = null;
     (this as Memo<any>).state === STALE
       ? updateComputation(this as Memo<any>)
       : lookDownstream(this as Memo<any>);
     Updates = updates;
-    Effects = effects;
   }
   if (Listener) {
     const sSlot = this.observers ? this.observers.length : 0;
@@ -543,12 +539,10 @@ function runTop(node: Computation<any> | null) {
     }
   }
   if (pending) {
-    const updates = Updates,
-      effects = Effects;
-    Updates = Effects = null;
+    const updates = Updates;
+    Updates = null;
     lookDownstream(pending);
     Updates = updates;
-    Effects = effects;
     if (!top || top.state !== STALE) return;
   }
   top && updateComputation(top);
@@ -579,7 +573,8 @@ function runUpdates(fn: () => void, init: boolean) {
       }
     } while (Updates && Updates.length);
     Updates = null;
-    if (!wait) Effects = null;
+    if (wait) return;
+    Effects = null;
     if (Transition) {
       if (!Transition.promises.size) {
         Transition.sources.forEach(v => {
@@ -603,14 +598,16 @@ function runUpdates(fn: () => void, init: boolean) {
 }
 
 function runEffects(queue: Computation<any>[]) {
-  for (let i = 0; i < queue.length; i++) {
+  let i,
+    userLength = 0;
+  for (i = 0; i < queue.length; i++) {
     const e = queue[i];
     if (!e.user) runTop(e);
+    else queue[userLength++] = e;
   }
-  for (let i = 0; i < queue.length; i++) {
-    const e = queue[i];
-    if (e.user) runTop(e);
-  }
+  const resume = queue.length;
+  for (i = 0; i < userLength; i++) runTop(queue[i]);
+  for (i = resume; i < queue.length; i++) runTop(queue[i]);
 }
 
 function lookDownstream(node: Computation<any>) {
