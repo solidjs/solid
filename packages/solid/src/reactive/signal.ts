@@ -325,8 +325,10 @@ export function createResource<T>(
         pr = null;
         runUpdates(() => {
           Transition!.running = true;
-          !Transition!.promises.size && Effects!.push(...Transition!.effects);
-          Transition!.effects = [];
+          if (!Transition!.promises.size) {
+            Effects!.push(...Transition!.effects);
+            Transition!.effects = [];
+          }
           completeLoad(v);
         }, false);
       }
@@ -353,10 +355,12 @@ export function createResource<T>(
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = s();
     if (err) throw err;
-    if (pr && Listener && !Listener.user && c && !contexts.has(c)) {
-      if (Transition && c.resolved) createComputed(() => (s(), pr && Transition!.promises.add(pr)));
-      c.increment!();
-      contexts.add(c);
+    if (pr && Listener && !Listener.user && c) {
+      if (c.resolved && Transition) Transition.promises.add(pr!);
+      else if (!contexts.has(c)) {
+        c.increment!();
+        contexts.add(c);
+      }
     }
     return v;
   }
@@ -589,7 +593,7 @@ function runUpdates(fn: () => void, init: boolean) {
         });
         Transition = null;
         setTransPending(false);
-      } else {
+      } else if (Transition.running) {
         Transition.running = false;
         setTransPending(true);
       }

@@ -144,13 +144,12 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
     value: store,
     get children() {
       const rendered = untrack(() => props.children);
-      store.resolved = true;
-
       return () => {
         const inFallback = store.inFallback(),
           visibleContent = showContent ? showContent() : true,
           visibleFallback = showFallback ? showFallback() : true;
         if (!inFallback && visibleContent) {
+          store.resolved = true;
           resumeEffects(store.effects);
           return rendered;
         }
