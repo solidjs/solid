@@ -2,13 +2,15 @@
 
 ## 0.20.0 - 2020-09-x
 
-Re-scheduling Reactivity.
+### Re-scheduling Reactivity.
 
-This release makes large changes to the Reactive System.Defering `createEffect` to be after rendering and introducing `createComputed` do graph updates like loading async data.
+This release makes large changes to the Reactive System. Key changes are deferring `createEffect` to be after rendering and introducing `createComputed` do reactive graph updates like loading async data.
 
-### Breaking Changes:
+### Concurrency
 
-#### Removed APIs
+In addition the the reactive model brings updates to Suspense and Transitions. Solid now has true concurrent rendering at a granular level.
+
+### Removed APIs
 
 `afterEffects`, `createDependentEffect`, and `suspend` have been removed as they no longer make sense with the new reactive system timing.
 

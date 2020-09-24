@@ -21,6 +21,7 @@ export {
 } from "../index.js";
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
+  if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
   const { useShadow } = props,
     marker = document.createTextNode(""),
     mount = props.mount || document.body;

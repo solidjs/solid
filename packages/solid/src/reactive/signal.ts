@@ -3,6 +3,7 @@ import { requestCallback, Task } from "./scheduler";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 let ERROR: symbol | null = null;
+let runEffects = runQueue;
 
 const NOTPENDING = {};
 const STALE = 1;
@@ -108,6 +109,7 @@ export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
   if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
+  runEffects = runUserEffects;
   const c = createComputation(fn, value, false),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
@@ -117,7 +119,7 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
 
 export function resumeEffects(e: Computation<any>[]) {
   Transition && (Transition.running = true);
-  Effects!.push(...e);
+  Effects!.push.apply(Effects, e);
   e.length = 0;
 }
 
@@ -167,16 +169,13 @@ export function createDeferred<T>(source: () => T, options?: { timeoutMs: number
   return deferred;
 }
 
-export function createSelector<T>(
-  source: () => T,
-  fn: (k: T, value: T, prevValue: T | undefined) => boolean
-) {
+export function createSelector<T>(source: () => T, fn = equalFn) {
   let subs = new Map<T, Computation<any>>();
   const node = createComputation(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v, p)) {
+        if (fn(key, v) || fn(key, p)) {
           const c = subs.get(key)!;
           c.state = STALE;
           if (c.pure) Updates!.push(c);
@@ -193,7 +192,7 @@ export function createSelector<T>(
       subs.set(key, Listener);
       onCleanup(() => subs.delete(key));
     }
-    return node.value;
+    return fn(key, node.value);
   };
 }
 
@@ -318,26 +317,20 @@ export function createResource<T>(
   let err: any = null,
     pr: Promise<T> | null = null;
   function loadEnd(p: Promise<T>, v: T, e?: any) {
-    if (Transition && Transition.promises.has(p)) {
-      Transition.promises.delete(p);
-      if (pr === p || !Transition.promises.size) {
-        err = e;
-        pr = null;
+    if (pr === p) {
+      err = e;
+      pr = null;
+      if (Transition && Transition.promises.has(p)) {
+        Transition.promises.delete(p);
         runUpdates(() => {
           Transition!.running = true;
           if (!Transition!.promises.size) {
-            Effects!.push(...Transition!.effects);
+            Effects!.push.apply(Effects, Transition!.effects);
             Transition!.effects = [];
           }
           completeLoad(v);
         }, false);
-      }
-      return v;
-    }
-    if (pr === p) {
-      err = e;
-      pr = null;
-      completeLoad(v);
+      } else completeLoad(v);
     }
     return v;
   }
@@ -380,8 +373,8 @@ export function createResource<T>(
       }
     }
     p = fn();
+    Transition && pr && Transition.promises.delete(pr);
     if (typeof p !== "object" || !("then" in p)) {
-      Transition && pr && Transition.promises.delete(pr);
       pr = null;
       completeLoad(p);
       return p;
@@ -566,12 +559,12 @@ function runUpdates(fn: () => void, init: boolean) {
   } finally {
     do {
       if (Updates) {
-        for (let i = 0; i < Updates.length; i++) runTop(Updates[i]);
+        runQueue(Updates);
         Updates = [];
       }
       if (!wait) {
         if (Transition && Transition.running && Transition.promises.size) {
-          Transition.effects.push(...Effects);
+          Transition.effects.push.apply(Transition.effects, Effects);
         } else runEffects(Effects);
         Effects = [];
       }
@@ -601,7 +594,11 @@ function runUpdates(fn: () => void, init: boolean) {
   }
 }
 
-function runEffects(queue: Computation<any>[]) {
+function runQueue(queue: Computation<any>[]) {
+  for (let i = 0; i < queue.length; i++) runTop(queue[i]);
+}
+
+function runUserEffects(queue: Computation<any>[]) {
   let i,
     userLength = 0;
   for (i = 0; i < queue.length; i++) {

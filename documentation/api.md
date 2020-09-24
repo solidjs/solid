@@ -52,9 +52,13 @@ Ensures that all notification of updates within the block happen at the same tim
 
 Registers a error handler method that executes when child context errors. Only nearest context error handlers execute. Rethrow to trigger up the line.
 
-### `createDeferred(prev => <code>, options: { timeoutMs: number }): getValueFn`
+### `createDeferred(() => <code>, options: { timeoutMs: number }): getValueFn`
 
 Creates memo that only notifies downstream changes when the browser is idle. `timeoutMS` is the maximum time to wait before forcing the update.
+
+### `createSelector(() => <code>, comparatorFn?): (key) => boolean`
+
+Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state.
 
 ### `createResource(initialValue, options: { name }): [getValueFn, loadFn]`
 

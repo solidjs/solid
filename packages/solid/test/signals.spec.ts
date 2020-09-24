@@ -275,15 +275,12 @@ describe("createSelector", () => {
   test("simple selection", done => {
     createRoot(() => {
       const [s, set] = createSignal<number>(-1),
-        select = createSelector<number>(
-          s,
-          (key, value, prevValue) => key === value || key === prevValue
-        );
+        isSelected = createSelector<number>(s);
       let count = 0;
       const list = Array.from({ length: 100 }, (_, i) =>
         createMemo(() => {
           count++;
-          return select(i) === i ? "selected" : "no";
+          return isSelected(i) ? "selected" : "no";
         })
       );
       expect(count).toBe(100);

@@ -84,7 +84,7 @@ function App() {
 
 In this case if the tab hasn't loaded you will see a `LoadingSpinner` and as you switch you will see another `LoadingSpinner` as it moves in and out of suspended state.
 
-The power of Suspense is that deferring loading states a small amount perceptually make things feel like they are loading faster and smoother even if the app is slightly less responsive. The key to handling these deferred updates is to define a transition with `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. When control flow is suspended it continues to show the current branch while rendering the next off screen.
+But we can do more when we already have data loaded. We can avoid going back to the fallback state by leveraging `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. When control flow is suspended it continues to show the current branch while rendering the next off screen. Resource reads under existing boundaries add it the transition. Any new nested `Suspense` components with drop to "fallback"
 
 ```jsx
 import { createState, useTransition } from "solid-js";
