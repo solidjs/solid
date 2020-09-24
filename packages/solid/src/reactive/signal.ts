@@ -197,10 +197,10 @@ export function createSelector<T>(source: () => T, fn = equalFn) {
 }
 
 export function batch<T>(fn: () => T): T {
-  let pending = Pending,
-    q: Signal<any>[] = (Pending = []);
-  const result = fn();
-  Pending = pending;
+  if (Pending) return fn();
+  const q: Signal<any>[] = (Pending = []),
+    result = fn();
+  Pending = null;
   runUpdates(() => {
     for (let i = 0; i < q.length; i += 1) {
       const data = q[i];
@@ -226,7 +226,7 @@ export function useTransition(): [() => boolean, (fn: () => void) => void] {
           running: true
         });
       Transition.running = true;
-      runUpdates(fn, false);
+      batch(fn);
     }
   ];
 }
@@ -348,11 +348,17 @@ export function createResource<T>(
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = s();
     if (err) throw err;
-    if (pr && Listener && !Listener.user && c) {
-      if (c.resolved && Transition) Transition.promises.add(pr!);
-      else if (!contexts.has(c)) {
-        c.increment!();
-        contexts.add(c);
+    if (Listener && !Listener.user && c) {
+      if (!Listener.pure)
+        createComputed(() => {
+          if (pr && c.resolved && Transition) Transition.promises.add(pr!);
+        });
+      if (pr) {
+        if (Listener.pure && c.resolved && Transition) Transition.promises.add(pr!);
+        else if (!contexts.has(c)) {
+          c.increment!();
+          contexts.add(c);
+        }
       }
     }
     return v;
