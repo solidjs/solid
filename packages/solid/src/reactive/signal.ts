@@ -351,6 +351,7 @@ export function createResource<T>(
     if (Listener && !Listener.user && c) {
       if (!Listener.pure)
         createComputed(() => {
+          s();
           if (pr && c.resolved && Transition) Transition.promises.add(pr!);
         });
       if (pr) {
