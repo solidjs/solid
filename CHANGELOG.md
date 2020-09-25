@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.20.0 - 2020-09-x
+## 0.20.0 - 2020-09-24
 
 ### Re-scheduling Reactivity.
 
