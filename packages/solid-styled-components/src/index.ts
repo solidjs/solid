@@ -1,5 +1,5 @@
 import { css, CSSAttribute } from "goober";
-import { assignProps, createContext, useContext } from "solid-js";
+import { assignProps, splitProps, createContext, useContext } from "solid-js";
 import { spread, createComponent } from "solid-js/dom";
 
 export { css, glob, extractCss } from "goober";
@@ -25,34 +25,33 @@ type StyledTemplateArgs<T> = [
 ];
 
 export function styled<T extends keyof JSX.IntrinsicElements>(tag: T | ((props: any) => any)) {
-  return <P>(...args: StyledTemplateArgs<P & { theme?: any; className?: any }>) => {
+  return <P>(...args: StyledTemplateArgs<P & { theme?: any; as?: keyof JSX.IntrinsicElements; className?: any }>) => {
     return (
-      props: P & JSX.IntrinsicElements[T] & { theme?: any; className?: any }
+      props: P & JSX.IntrinsicElements[T] & { theme?: any; as?: keyof JSX.IntrinsicElements; className?: any }
     ): JSX.Element => {
-      const newProps = assignProps({}, props);
-      props.theme = useContext(ThemeContext);
-      Object.defineProperty(newProps, "className", {
-        get() {
+      const clone = assignProps({}, props, {
+        theme: useContext(ThemeContext),
+        get className(): string {
           const pClassName = props.className,
             append = "className" in props && /^go[0-9]+/.test(pClassName!);
 
           // Call `css` with the append flag and pass the props
           let className = css.apply(
-            { target: this.target, o: append, p: props },
+            { target: (this as any).target, o: append, p: newProps },
             args as [any, ...any[]]
           );
 
           return [pClassName, className].filter(Boolean).join(" ");
-        },
-        configurable: true,
-        enumerable: true
+        }
       });
+      const [local, newProps] = splitProps(clone, ["as"]);
+      const createTag = local.as || tag;
 
       let el;
-      if (typeof tag === "function") {
-        el = tag(newProps);
+      if (typeof createTag === "function") {
+        el = createTag(newProps);
       } else {
-        el = document.createElement(tag);
+        el = document.createElement(createTag as any);
         spread(el, newProps);
       }
 

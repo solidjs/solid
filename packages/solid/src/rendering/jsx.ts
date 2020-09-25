@@ -7,7 +7,15 @@ declare global {
    */
 
   namespace JSX {
-    type Element = Node | ArrayElement | FunctionElement | string | number | boolean | null | undefined;
+    type Element =
+      | Node
+      | ArrayElement
+      | FunctionElement
+      | string
+      | number
+      | boolean
+      | null
+      | undefined;
 
     interface ArrayElement extends Array<Element> {}
     interface FunctionElement {
@@ -1949,6 +1957,11 @@ declare global {
       itemType?: string;
       itemId?: string;
       itemRef?: string;
+
+      // others
+      align?: "start" | "end" | "center" | "baseline" | "stretch" | "left" | "right";
+      part?: string;
+      exportparts?: string;
     }
 
     // HTML Elements
@@ -2719,7 +2732,7 @@ declare global {
         AnimationAdditionSVGAttributes {
       path?: string;
       keyPoints?: string;
-      rotate?: number | string |"auto" | "auto-reverse";
+      rotate?: number | string | "auto" | "auto-reverse";
       origin?: "default";
     }
 

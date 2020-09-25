@@ -23,7 +23,7 @@
     "test:types": "tsc --project tsconfig.test.json"
   },
   "dependencies": {
-    "csstype": "^2.6.2",
+    "csstype": "^3.0.3",
     "goober": "1.8.0"
   },
   "peerDependencies": {
