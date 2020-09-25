@@ -25,7 +25,7 @@ This mechanism is based on the executing function's scope so Signals reads can b
 // I can be tracked
 const firstName = () => state.user.firstName;
 
-return <div>{firstName()}</div>
+return <div>{firstName()}</div>;
 ```
 
 These accessors are just functions that can be tracked and return a value. No additional primitive or method is needed for them to work as Signals in their own right. However, you need another primitive to create that reactive scope:
@@ -40,13 +40,14 @@ There are 3 main computations used by Solid: Memos which are pure and designed t
 import { createSignal, createEffect, createMemo } from "solid-js";
 
 const [count, setCount] = createSignal(1),
-  doubleCount = createMemo(() => count() * 2)
+  doubleCount = createMemo(() => count() * 2);
 createEffect(() => console.log(doubleCount()));
 setCount(count() + 1);
 
 // 2
 // 4
 ```
+
 Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX(code between the parenthesis `{}`), the compiler is wrapping it in a function and passing it to a `createEffect` call.
 
 Memos allow us to store and access values without re-evaluating them until their dependendencies change.
@@ -57,7 +58,7 @@ Keep in mind memos are only necessary if you wish to prevent re-evaluation when 
 import { createSignal, createEffect } from "solid-js";
 
 const [count, setCount] = createSignal(1),
-  doubleCount = () => count() * 2
+  doubleCount = () => count() * 2;
 // No memo still works
 createEffect(() => console.log(doubleCount()));
 setCount(count() + 1);
@@ -95,7 +96,7 @@ While Solid does not have Component lifecyles in the traditional sense, it still
 
 Once inside a scope whenever the scope is re-evaluated or disposed of itself, all children computations will be disposed. In addition you can register a `onCleanup` method that will execute as part of this disposal cycle.
 
-*Note: Solid's graph is synchronously executed so any starting point that isn't caused by a reactive update (perhaps an asynchronous entry) should start from its own root. There are other ways to handle asynchronicity as shown in the [Suspense Docs](./suspense.md)*
+_Note: Solid's graph is synchronously executed so any starting point that isn't caused by a reactive update (perhaps an asynchronous entry) should start from its own root. There are other ways to handle asynchronicity as shown in the [Suspense Docs](./suspense.md)_
 
 ## Composition
 
@@ -106,15 +107,13 @@ State and Signals combine wonderfully as wrapping a state selector in a function
 const useReducer = (reducer, init) => {
   const [state, setState] = createState(init),
     [getAction, dispatch] = createSignal();
-  createComputed(
-    (prevState = init) => {
-      let action, next;
-      if (!(action = getAction())) return prevState;
-      next = reducer(prevState, action);
-      setState(reconcile(next));
-      return next;
-    }
-  );
+  createComputed(prevState => {
+    let action, next;
+    if (!(action = getAction())) return prevState;
+    next = reducer(prevState, action);
+    setState(reconcile(next));
+    return next;
+  }, init);
   return [state, dispatch];
 };
 ```

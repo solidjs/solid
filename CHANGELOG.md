@@ -8,7 +8,7 @@ This release makes large changes to the Reactive System. Key changes are deferri
 
 ### Concurrency
 
-In addition the the reactive model brings updates to Suspense and Transitions. Solid now has true concurrent rendering at a granular level.
+In addition the the reactive model brings updates to Suspense and Transitions. Solid now has true concurrent rendering at a granular level. This mechanism does differ from React as it currently only supports a single future.
 
 ### Removed APIs
 
