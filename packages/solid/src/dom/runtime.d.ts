@@ -41,3 +41,15 @@ export function ssrClassList(value: { [k: string]: boolean }): string;
 export function ssrStyle(value: { [k: string]: string }): string;
 export function ssrSpread(accessor: any, isSVG: boolean, skipChildren: boolean): () => string;
 export function escape(html: string): string;
+
+declare type AttributeInfo = {
+  [key: string]: {
+    type: string;
+    alias?: string;
+  };
+};
+export const Attributes: AttributeInfo;
+export const SVGAttributes: AttributeInfo;
+export const NonComposedEvents: Set<string>;
+export const SVGElements: Set<string>;
+export const SVGNamespace: Record<string, string>;

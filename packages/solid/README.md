@@ -222,8 +222,8 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Latest Articles
 
-- [Why I am not a fan of Single File Components](https://dev.to/ryansolid/why-i-m-not-a-fan-of-single-file-components-3bfl)
-- [How we wrote the Fastest JavaScript Framework, Again!](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6)
+- [Why I am not a fan of Single File Components](https://dev.to/ryansolid/why-i-m-not-a-fan-of-single-file-components-3bfl) Exploring the advantages of Solid's templates
+- [How we wrote the Fastest JavaScript Framework, Again!](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) This time we conquered the server
 - [SolidJS: Reactivity to Rendering](https://indepth.dev/solidjs-reactivity-to-rendering/) Building Solid's reactive renderer from the ground up
 - [Exploring Reactivity Patterns in 2020](https://indepth.dev/exploring-the-state-of-reactivity-patterns-in-2020/) What's the latest trend in the frontend?
 - [Why SolidJS: Do We Really Need Another JS UI Library](https://dev.to/ryansolid/why-solidjs-do-we-need-another-js-ui-library-1mdc) Ryan's personal journey creating SolidJS.
