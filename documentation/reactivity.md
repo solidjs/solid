@@ -90,6 +90,46 @@ dispatch({ type: "LIST/ADD", payload: { id: 1, title: "New Value" } });
 
 That being said there are plenty of reasons to use actual Redux.
 
+## Managing Dependencies and Updates
+
+Sometimes we want to be explicit about what triggers computations to update and nothing else. Solid offers ways to explicitly set dependencies or to not track under a tracking scope at all.
+
+```js
+const [a, setA] = createSignal(1);
+const [b, setB] = createSignal(1);
+
+createEffect(() => {
+  const v = a();
+  untrack(() => console.log(v, b()));
+}); // 1, 1
+
+setA(2); // 2, 1
+setB(2); // (does not trigger)
+setA(3); // 3, 2 (still reads latest values)
+```
+
+For convenience Solid provides an `on` operator to set up explict dependencies for any computation.
+
+```js
+// equivalent to above
+createEffect(on(a, v => console.log(v, b())));
+```
+
+Another situation is maybe you want something to run only on mount:
+```js
+// does not update when props update
+createEffect(untrack(() => console.log("Mounted with", props.a, props.b)));
+```
+
+Solid executes synchronously but sometimes you want to apply multiple changes at once. `batch` allows us to do that without triggering updates multiple times.
+
+```js
+batch(() => {
+  setA(4);
+  setB(6);
+});
+```
+
 ## Cleanup
 
 While Solid does not have Component lifecyles in the traditional sense, it still needs to handle cleaning up reactive dependencies. The way Solid works is that each nested computation is owned by it's parent reactive scope. In so all commputations must be created as part of a root. This detail is generally taken care of for you as the `render` method contains a `createRoot` call. But it can be called directly for cases where you need to control disposal outside of this cycle.

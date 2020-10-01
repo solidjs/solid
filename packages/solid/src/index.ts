@@ -13,6 +13,7 @@ export {
   onError,
   untrack,
   batch,
+  on,
   useTransition,
   createContext,
   useContext,

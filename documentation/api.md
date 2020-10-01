@@ -48,6 +48,9 @@ Ignores tracking any of the dependencies in the executing code block and returns
 
 Ensures that all notification of updates within the block happen at the same time to prevent unnecessary recalculation. Solid State's setState method and computations(useEffect, useMemo) automatically wrap their code in a batch.
 
+### `on(...args, (value, prevValue, prevResult) => result): (prev) => value`
+`on` is designed to be passed into a computation to make its deps explicit. If more than one dep is passed value and prevValue are arrays.
+
 ### `onError((err: any) => <code>)`
 
 Registers a error handler method that executes when child context errors. Only nearest context error handlers execute. Rethrow to trigger up the line.

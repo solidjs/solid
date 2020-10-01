@@ -2,10 +2,12 @@ import {
   createRoot,
   createSignal,
   createEffect,
+  createComputed,
   createDeferred,
   createMemo,
   createSelector,
   untrack,
+  on,
   onCleanup,
   onError
 } from "../src";
@@ -37,6 +39,22 @@ describe("Create signals", () => {
       createEffect(() => (temp = "unpure"));
     });
     expect(temp!).toBe("unpure");
+  });
+  test("Create a Computed with explicit deps", () => {
+    createRoot(() => {
+      let temp: string;
+      const [sign] = createSignal("thoughts");
+      createComputed(on(sign, v => (temp = "unpure " + v)));
+      expect(temp!).toBe("unpure thoughts");
+    });
+  });
+  test("Create a Computed with multiple explicit deps", () => {
+    createRoot(() => {
+      let temp: string;
+      const [sign] = createSignal("thoughts");
+      createComputed(on(sign, sign, v => (temp = "unpure " + v[1])));
+      expect(temp!).toBe("unpure thoughts");
+    });
   });
 });
 
