@@ -12,6 +12,7 @@ export {
   onError,
   untrack,
   batch,
+  on,
   createContext,
   useContext,
   getContextOwner,

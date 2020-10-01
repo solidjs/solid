@@ -242,45 +242,43 @@ export function untrack<T>(fn: () => T): T {
   return result;
 }
 
-export function on<T, U>(w: () => T, fn: (v: T, prev: T) => U): (prev?: [T, U]) => [T, U];
+export function on<T, U>(w: () => T, fn: (v: T, prev: T, prevResult: U) => U): (prev?: U) => U;
 export function on<T1, T2, U>(
   w1: () => T1,
   w2: () => T2,
-  fn: (v: [T1, T2], prev: [T1, T2]) => U
-): (prev?: [[T1, T2], U]) => [[T1, T2], U];
+  fn: (v: [T1, T2], prev: [T1, T2], prevResult: U) => U
+): (prev?: U) => U;
 export function on<T1, T2, T3, U>(
   w1: () => T1,
   w2: () => T2,
   w3: () => T3,
-  fn: (v: [T1, T2, T3], p: [T1, T2, T3]) => U
-): (prev?: [[T1, T2, T3], U]) => [[T1, T2, T3], U];
+  fn: (v: [T1, T2, T3], p: [T1, T2, T3], prevResult: U) => U
+): (prev?:U) => U;
 export function on<T1, T2, T3, T4, U>(
   w1: () => T1,
   w2: () => T2,
   w3: () => T3,
   w4: () => T4,
-  fn: (v: [T1, T2, T3, T4], p: [T1, T2, T3, T4]) => U
-): (prev?: [[T1, T2, T3, T4], U]) => [[T1, T2, T3, T4], U];
+  fn: (v: [T1, T2, T3, T4], p: [T1, T2, T3, T4], prevResult: U) => U
+): (prev?: U) => U;
 export function on<T1, T2, T3, T4, T5, U>(
   w1: () => T1,
   w2: () => T2,
   w3: () => T3,
   w4: () => T4,
   w5: () => T5,
-  fn: (v: [T1, T2, T3, T4, T5], p: [T1, T2, T3, T4, T5]) => U
-): (prev?: [[T1, T2, T3, T4, T5], U]) => [[T1, T2, T3, T4, T5], U];
-export function on<T, U>(
-  ...args: Array<Function>
-): (prev?: [T | Array<T>, U]) => [T | Array<T>, U] {
+  fn: (v: [T1, T2, T3, T4, T5], p: [T1, T2, T3, T4, T5], prevResults: U) => U
+): (prev?: U) => U;
+export function on<T, U>(...args: Array<Function>): (prev?: U) => U {
   const fn = args.pop() as (v: T | Array<T>, p?: T | Array<T>, r?: U) => U;
   let deps: (() => T) | Array<() => T>;
   let isArray = true;
+  let prev: T | T[];
   if (args.length < 2) {
     deps = args[0] as () => T;
     isArray = false;
   } else deps = args as Array<() => T>;
-  return (prevs: any = []) => {
-    let [prev, prevResult] = prevs;
+  return prevResult => {
     let value: T | Array<T>;
     if (isArray) {
       value = [];
@@ -288,7 +286,8 @@ export function on<T, U>(
       for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
     } else value = (deps as () => T)();
     const result = untrack<U>(() => fn!(value, prev, prevResult));
-    return [value, result] as [T | Array<T>, U];
+    prev = value;
+    return result as U;
   };
 }
 
