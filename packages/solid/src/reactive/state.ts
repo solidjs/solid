@@ -25,7 +25,9 @@ export type State<T> = {
   AddCallable<T>;
 
 export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): State<T> {
-  return value[$PROXY] || (value[$PROXY] = new Proxy(value, traps || proxyTraps));
+  let p = value[$PROXY];
+  if (!p) Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, traps || proxyTraps) })
+  return p;
 }
 
 export function isWrappable(obj: any) {
@@ -63,7 +65,7 @@ export function unwrap<T extends StateNode>(item: any, skipGetters?: boolean): T
 
 export function getDataNodes(target: StateNode) {
   let nodes = target[$NODE];
-  if (!nodes) target[$NODE] = nodes = {};
+  if (!nodes) Object.defineProperty(target, $NODE, { value: nodes = {} });
   return nodes;
 }
 
