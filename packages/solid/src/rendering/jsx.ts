@@ -1017,7 +1017,7 @@ declare global {
        */
       hyphens?: CSSWideKeyword | any;
 
-      imeMode?: CSSWideKeyword | any;
+      "ime-mode"?: CSSWideKeyword | any;
 
       /**
        * Defines how the browser distributes space between and around flex items
@@ -1260,12 +1260,12 @@ declare global {
       /**
        * Controls how extra content exceeding the x-axis of the bounding box of an element is rendered.
        */
-      overflowX?: CSSWideKeyword | "auto" | "hidden" | "scroll" | "visible";
+      "overflow-x"?: CSSWideKeyword | "auto" | "hidden" | "scroll" | "visible";
 
       /**
        * Controls how extra content exceeding the y-axis of the bounding box of an element is rendered.
        */
-      overflowY?: CSSWideKeyword | "auto" | "hidden" | "scroll" | "visible";
+      "overflow-y"?: CSSWideKeyword | "auto" | "hidden" | "scroll" | "visible";
 
       /**
        * The padding optional CSS property sets the required padding space on one to four sides of an element.
