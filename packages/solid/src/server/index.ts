@@ -41,7 +41,8 @@ export {
   createResource,
   createResourceState,
   useTransition,
-  lazy
+  lazy,
+  spread
 } from "./rendering";
 
 export type { State, SetStateFunction } from "./reactive";

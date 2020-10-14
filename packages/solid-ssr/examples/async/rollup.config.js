@@ -12,6 +12,7 @@ export default [
         format: "cjs"
       }
     ],
+    preserveEntrySignatures: false,
     external: ["solid-js", "solid-js/dom", "path", "express"],
     plugins: [
       nodeResolve({ preferBuiltins: true }),

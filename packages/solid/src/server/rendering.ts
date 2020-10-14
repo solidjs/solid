@@ -24,7 +24,11 @@ export function assignProps<T, U, V, W>(
   source3: W
 ): T & U & V & W;
 export function assignProps(target: any, ...sources: any): any {
-  return Object.assign(target, ...sources);
+  for (let i = 0; i < sources.length; i++) {
+    const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
+    Object.defineProperties(target, descriptors);
+  }
+  return target;
 }
 
 export function splitProps<T extends object, K1 extends keyof T>(
@@ -264,3 +268,6 @@ export function Suspense(props: { fallback: string; children: string }) {
   props.children;
   return props.fallback;
 }
+
+//no-op on server
+export function spread() {}

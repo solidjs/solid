@@ -116,9 +116,10 @@ createEffect(on(a, v => console.log(v, b())));
 ```
 
 Another situation is maybe you want something to run only on mount:
+
 ```js
 // does not update when props update
-createEffect(untrack(() => console.log("Mounted with", props.a, props.b)));
+createEffect(() => untrack(() => console.log("Mounted with", props.a, props.b)));
 ```
 
 Solid executes synchronously but sometimes you want to apply multiple changes at once. `batch` allows us to do that without triggering updates multiple times.

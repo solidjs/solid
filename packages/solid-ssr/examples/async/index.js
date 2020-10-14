@@ -4,6 +4,7 @@ import path from "path";
 
 import { awaitSuspense } from "solid-js";
 import { renderToString, generateHydrationScript } from "solid-js/dom";
+import { extractCss } from "solid-styled-components";
 import App from "../shared/src/components/App";
 
 const app = express();
@@ -16,6 +17,7 @@ app.get("*", async (req, res) => {
   let html;
   try {
     const string = await renderToString(awaitSuspense(() => <App url={req.url} />));
+    const style = extractCss();
     html = `<html lang="${lang}">
       <head>
         <title>🔥 Solid SSR 🔥</title>
@@ -26,6 +28,7 @@ app.get("*", async (req, res) => {
           eventNames: ["click", "blur", "input"],
           resolved: true
         })}</script>
+        ${style ? `<style id="_goober">${style}</style>` : ""}
       </head>
       <body><div id="app">${string}</div></body>
       <script type="module" src="/js/index.js"></script>

@@ -108,7 +108,7 @@ const CustomButton = props => (
 
 - `@returns {String}`
 
-Returns the `<style>` tag that is rendered in a target and clears the style sheet. Defaults to `<head>`.
+Returns the `<style>` tag that is rendered in a target and clears the style sheet. Defaults to `<head>`. Used to grab the styles for SSR.
 
 ```js
 const { extractCss } = require("goober");
