@@ -57,6 +57,9 @@ This also means it can support stuff like CSS variables:
 <div style={{ "--my-custom-color": state.themeColor }} />
 ```
 
+In addition to supporting CSS variables it puts things consistent with CSS string and SSR versions.
+[`setProperty`](https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleDeclaration/setProperty) is also more performant.
+
 _Note: The compiler automatically optimizes object form when declared inline unrolling any iteration._
 
 ## Classes
