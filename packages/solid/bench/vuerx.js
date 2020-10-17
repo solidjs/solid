@@ -801,5 +801,5 @@ function createRoot(fn) { return fn(); }
 module.exports = {
   createSignal,
   createRoot,
-  createEffect: effect
+  createComputed: effect
 };

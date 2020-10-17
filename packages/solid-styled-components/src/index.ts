@@ -66,8 +66,8 @@ export function styled<T extends keyof JSX.IntrinsicElements>(tag: T | ((props: 
         const [local, others] = splitProps(newProps, ["children"]);
         el = ssr(
           [`<${createTag} `, ">", `</${createTag}>`],
-          ssrSpread(others, false, true),
-          local.children
+          ssrSpread(others),
+          local.children || ""
         );
       } else {
         el = document.createElement(createTag as any);

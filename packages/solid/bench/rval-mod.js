@@ -198,7 +198,7 @@ function createEffect(fn) {
 module.exports = {
   createSignal,
   createRoot,
-  createEffect,
+  createEffect: createComputed,
   createMemo,
   batch
 };

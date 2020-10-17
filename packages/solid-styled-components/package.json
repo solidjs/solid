@@ -24,10 +24,10 @@
   },
   "dependencies": {
     "csstype": "^3.0.3",
-    "goober": "1.8.0"
+    "goober": "2.0.8"
   },
   "peerDependencies": {
-    "solid-js": "^0.18.0"
+    "solid-js": "^0.20.3"
   },
   "devDependencies": {
     "solid-js": "^0.20.3"

@@ -198,7 +198,7 @@ module.exports = {
     return [o.current.bind(o), o.next.bind(o)];
   },
   createRoot,
-  createEffect: (observer, seed) => createComputationNode(observer, seed),
+  createComputed: (observer, seed) => createComputationNode(observer, seed),
   createMemo: (observer, seed) => {
     const c = createComputationNode(observer, seed);
     return currentValue.bind(c);

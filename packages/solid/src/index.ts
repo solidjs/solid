@@ -9,6 +9,7 @@ export {
   createMemo,
   createResource,
   getListener,
+  onMount,
   onCleanup,
   onError,
   untrack,

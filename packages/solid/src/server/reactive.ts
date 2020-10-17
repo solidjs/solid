@@ -125,6 +125,8 @@ export function on<T, U>(...args: Array<Function>): (prev?: U) => U {
   };
 }
 
+export function onMount(fn: () => void) {}
+
 export function onCleanup(fn: () => void) {}
 
 export function onError(fn: (err: any) => void): void {

@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createComputed: createEffect } = require("../lib");
+const { createRoot, createSignal, createComputed } = require("../lib");
 
 var now = typeof process === 'undefined' ? browserNow : nodeNow;
 
@@ -201,27 +201,27 @@ function createComputations1000to1(n, sources) {
 }
 
 function createComputation0(i) {
-  createEffect(function () { return i; });
+  createComputed(function () { return i; });
 }
 
 function createComputation1(s1) {
-  createEffect(function () { return s1(); });
+  createComputed(function () { return s1(); });
 }
 
 function createComputation2(s1, s2) {
-  createEffect(function () { return s1() + s2(); });
+  createComputed(function () { return s1() + s2(); });
 }
 
 function createComputation4(s1, s2, s3, s4) {
-  createEffect(function () { return s1() + s2() + s3() + s4(); });
+  createComputed(function () { return s1() + s2() + s3() + s4(); });
 }
 
 function createComputation8(s1, s2, s3, s4, s5, s6, s7, s8) {
-  createEffect(function () { return s1() + s2() + s3() + s4() + s5() + s6() + s7() + s8(); });
+  createComputed(function () { return s1() + s2() + s3() + s4() + s5() + s6() + s7() + s8(); });
 }
 
 function createComputation1000(ss, offset) {
-  createEffect(function () {
+  createComputed(function () {
     var sum = 0;
     for (var i = 0; i < 1000; i++) {
       sum += ss[offset + i][0]();
@@ -232,7 +232,7 @@ function createComputation1000(ss, offset) {
 
 function updateComputations1to1(n, sources) {
   var [get1, set1] = sources[0];
-  createEffect(function () { return get1(); });
+  createComputed(function () { return get1(); });
   for (var i = 0; i < n; i++) {
     set1(i);
   }
@@ -241,7 +241,7 @@ function updateComputations1to1(n, sources) {
 function updateComputations2to1(n, sources) {
   var [get1, set1] = sources[0],
     [get2] = sources[1];
-  createEffect(function () { return get1() + get2(); });
+  createComputed(function () { return get1() + get2(); });
   for (var i = 0; i < n; i++) {
     set1(i);
   }
@@ -252,7 +252,7 @@ function updateComputations4to1(n, sources) {
     [get2] = sources[1];
     [get3] = sources[2],
     [get4] = sources[3];
-  createEffect(function () { return get1() + get2() + get3() + get4(); });
+  createComputed(function () { return get1() + get2() + get3() + get4(); });
   for (var i = 0; i < n; i++) {
     set1(i);
   }
@@ -260,7 +260,7 @@ function updateComputations4to1(n, sources) {
 
 function updateComputations1000to1(n, sources) {
   var [get1, set1] = sources[0];
-  createEffect(function () {
+  createComputed(function () {
     var sum = 0;
     for (var i = 0; i < 1000; i++) {
       sum += sources[i][0]();
@@ -274,8 +274,8 @@ function updateComputations1000to1(n, sources) {
 
 function updateComputations1to2(n, sources) {
   var [get1, set1] = sources[0];
-  createEffect(function () { return get1(); });
-  createEffect(function () { return get1(); });
+  createComputed(function () { return get1(); });
+  createComputed(function () { return get1(); });
   for (var i = 0; i < n / 2; i++) {
     set1(i);
   }
@@ -283,10 +283,10 @@ function updateComputations1to2(n, sources) {
 
 function updateComputations1to4(n, sources) {
   var [get1, set1] = sources[0];
-  createEffect(function () { return get1(); });
-  createEffect(function () { return get1(); });
-  createEffect(function () { return get1(); });
-  createEffect(function () { return get1(); });
+  createComputed(function () { return get1(); });
+  createComputed(function () { return get1(); });
+  createComputed(function () { return get1(); });
+  createComputed(function () { return get1(); });
   for (var i = 0; i < n / 4; i++) {
     set1(i);
   }
@@ -295,7 +295,7 @@ function updateComputations1to4(n, sources) {
 function updateComputations1to1000(n, sources) {
   var [get1, set1] = sources[0];
   for (var i = 0; i < 1000; i++) {
-    createEffect(function () { return get1(); });
+    createComputed(function () { return get1(); });
   }
   for (var i = 0; i < n / 1000; i++) {
     set1(i);
