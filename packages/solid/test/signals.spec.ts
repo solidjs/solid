@@ -8,6 +8,7 @@ import {
   createSelector,
   untrack,
   on,
+  onMount,
   onCleanup,
   onError
 } from "../src";
@@ -36,7 +37,7 @@ describe("Create signals", () => {
   test("Create an Effect", () => {
     let temp: string;
     createRoot(() => {
-      createEffect(() => (temp = "unpure"));
+      onMount(() => (temp = "unpure"));
     });
     expect(temp!).toBe("unpure");
   });

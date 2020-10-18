@@ -35,11 +35,11 @@ export function assignProps(target: any, ...sources: any): any
 export function getHydrationKey(): string;
 export function getNextElement(template: HTMLTemplateElement, isSSR: boolean): Node;
 export function getNextMarker(start: Node): [Node, Array<Node>];
-export function generateHydrationScript(options: { eventNames: string[], streaming: boolean }): string;
+export function generateHydrationScript(options?: { eventNames?: string[], streaming?: boolean, resolved?: boolean }): string;
 
 export function ssrClassList(value: { [k: string]: boolean }): string;
 export function ssrStyle(value: { [k: string]: string }): string;
-export function ssrSpread(accessor: any, isSVG: boolean, skipChildren: boolean): () => string;
+export function ssrSpread(accessor: any): () => string;
 export function escape(html: string): string;
 
 declare type AttributeInfo = {
@@ -48,8 +48,9 @@ declare type AttributeInfo = {
     alias?: string;
   };
 };
-export const Attributes: AttributeInfo;
-export const SVGAttributes: AttributeInfo;
+export const Aliases: Record<string, string>;
+export const Properties: Set<string>;
+export const ChildProperties: Set<string>;
 export const NonComposedEvents: Set<string>;
 export const SVGElements: Set<string>;
 export const SVGNamespace: Record<string, string>;

@@ -2,7 +2,7 @@
 
 Solid supports templating in 3 forms JSX, Tagged Template Literals, and Solid's HyperScript variant. Although JSX is the predominate form. Why? JSX is a great DSL made for compilation. It has clear syntax, supports TypeScript, works with Babel, supports other tooling like Code Syntax Highlighting and Prettier. It was only pragmatic to use a tool that basically gives you that all for free. As a compiled solution it provides great DX. Why struggle with custom Syntax DSLs when you can use one so widely supported?
 
-Still there is some confusion as to what JSX is and is not. JSX is an XML-like syntax extension to EcmaScript (https://facebook.github.io/jsx/). It is not a language or runtime. Those can be refered to as HyperScript. So while Solid's JSX and might resemble React it by no means works like React and there should be no illusions that a JSX library will just work with Solid. Afterall, there are no JSX libraries, as they all work without JSX, only HyperScript or React ones.
+Still there is some confusion as to what JSX is and is not. JSX is an XML-like syntax extension to EcmaScript (https://facebook.github.io/jsx/). It is not a language or runtime. Those can be refered to as HyperScript. So while Solid's JSX and might resemble React it by no means works like React and there should be no illusions that a JSX library will just work with Solid. Afterall, there are no JSX libraries, as they all work without JSX, only HyperScript ones.
 
 ## JSX Compilation
 
@@ -16,7 +16,22 @@ This approach both is more performant and produces less code then creating each 
 
 More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions)
 
-### Note on attribute binding order
+## Attributes and Props
+
+Solid attempts to reflect HTML conventions as much as possible including case insensitivity of attributes.
+
+The majority of all attributes on native element JSX are set as DOM attributes. Static values are built right into the template that is cloned. There a number of exceptions like `class`, `style`, `value`, `innerHTML` which provide extra functionality.
+
+However, custom elements (with exception of native built-ins) default to properties when dynamic. This is to handle more complex data types. It does this conversion by camel casing standard snake case attribute names `some-attr` to `someAttr`.
+
+However, it is possible to control this behavior directly with namespace directives. You can force an attribute with `attr:` or force prop `prop:`
+
+```jsx
+<my-element prop:UniqACC={state.value} attr:title={state.title} />
+```
+> Support for namespace in JSX is coming in TS 4.2.
+
+### Note on binding order
 
 Static attributes are created as part of the html template together. Expressions fixed and dynamic are applied afterwards in JSX binding order. While this is fine for most DOM elements there are some like input elements with `type='range'` where order matters. Keep this in mind when binding elements.
 
@@ -256,6 +271,31 @@ function App() {
 ```
 
 This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `ref` up a Component chain as you wish.
+
+## Custom Directives
+
+> Support for Namespaced JSX Attributes is coming to TypeScript in version 4.2
+
+Creating a Component is the cleanest way to package reusable functionality data and view behavior. Reactive primitive composition is often the best way to reuse data behavior. However sometimes there is a need for behavior that can be re-used cross DOM element.
+
+Solid provides a custom directive syntax for adding additional behavior to native elements as a syntax sugar over `ref` making it easy to combine multiple on a single element.
+
+```jsx
+<div use:draggable use:pannable />
+
+const [name, setName] = createSignal("");
+<input type="text" use:model={[name, setName]} />
+```
+
+To create a directive simply expose a function with this signature `(el: HTMLElement, valueAccessor: () => /*binding value*/) => {}`. Value accessor lets you track it if you wish to. And you can register `onCleanup` methods to cleanup any side effects you create.
+
+```jsx
+function model(el, value) {
+  const [field, setField] = value();
+  createRenderEffect(() => el.value = field());
+  el.addEventListener(e => setField(e.target.value));
+}
+```
 
 ## Server Side Rendering (Experimental)
 

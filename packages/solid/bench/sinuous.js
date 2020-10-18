@@ -238,7 +238,7 @@ function resetUpdate(update) {
 module.exports = {
   createSignal: observable,
   createRoot: root,
-  createEffect: computed,
+  createComputed: computed,
   createMemo: computed,
   batch: transaction
 };

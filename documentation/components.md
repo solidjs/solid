@@ -99,9 +99,9 @@ const [local, others] = splitProps(props, ["className"])
 
 ## Lifecycle
 
-Instead of lifecycles in Solid are tied to the lifecycle of the reactive system.
+All lifecycles in Solid are tied to the lifecycle of the reactive system.
 
-If you wish to perform some side effect on mount or after update use `createEffect`:
+If you wish to perform some side effect on mount or after update use `createEffect` after render has complete:
 
 ```jsx
 import { createSignal, createEffect } from 'solid-js';
@@ -123,8 +123,9 @@ function Example() {
   );
 }
 ```
+For convenience if you need to only run it once you can use `onMount` which is the same as `createEffect` but will only run once. Keep in mind Solid's cleanup is independent of this mechanism. So if you aren't reading the DOM you don't need to use these.
 
-If you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`:
+If you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`.
 
 ```jsx
 const Ticker = () => {

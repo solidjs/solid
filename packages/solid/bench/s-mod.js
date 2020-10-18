@@ -597,5 +597,5 @@ function dispose(node) {
 }
 
 module.exports = {
-  createRoot, createEffect, createSignal
+  createRoot, createComputed: createEffect, createSignal
 }

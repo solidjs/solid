@@ -1,12 +1,19 @@
 # Core API
 
-### `createState(initValue): [state, setState]`
-
-Creates a new State object and setState pair that can be used to maintain your componenents state. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
-
 ### `createSignal(initialValue, boolean | comparatorFn): [getValueFn, setValueFn]`
 
 This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. You can have it only notify on changes is you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+
+### `createState(initValue): [state, setState]`
+
+Creates a new State proxy object and setState pair. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
+
+### `onMount(() => <code>)`
+Registers a method that runs after initial render and elements have been mounted. Ideal for using `ref`s and managing other one time side effects.
+
+### `onCleanup(() => <code>)`
+
+Registers a cleanup method that executes on disposal or recalculation of the current context. Can be used in components or computations.
 
 ### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
 
@@ -18,11 +25,7 @@ Creates a new computation that automatically tracks dependencies and runs immedi
 
 ### `createEffect(prev => <code>, initialValue): void`
 
-Creates a new computation that automatically tracks dependencies and runs after render. Ideal for using `ref`s and managing other side effects. 2nd argument is the initial value.
-
-### `onCleanup(() => <code>)`
-
-Registers a cleanup methodthat executes on disposal or recalculation of the current context.
+Creates a new computation that automatically tracks dependencies and runs after each render where a dependency has changed. Ideal for using `ref`s and managing other side effects. 2nd argument is the initial value.
 
 ### `createContext(defaultContext): Context`
 
@@ -58,6 +61,10 @@ Registers a error handler method that executes when child context errors. Only n
 ### `createDeferred(() => <code>, options: { timeoutMs: number }): getValueFn`
 
 Creates memo that only notifies downstream changes when the browser is idle. `timeoutMS` is the maximum time to wait before forcing the update.
+
+### `createRenderEffect(prev => <code>, initialValue): void`
+
+Creates a new computation that automatically tracks dependencies and runs during the render phase as DOM elements are created and updated but not necessarily connected. All internal DOM updates happen at this time.
 
 ### `createSelector(() => <code>, comparatorFn?): (key) => boolean`
 

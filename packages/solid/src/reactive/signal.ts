@@ -114,7 +114,7 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
-  Effects!.push(c);
+  Effects && Effects!.push(c);
 }
 
 export function resumeEffects(e: Computation<any>[]) {
@@ -289,6 +289,10 @@ export function on<T, U>(...args: Array<Function>): (prev?: U) => U {
     prev = value;
     return result as U;
   };
+}
+
+export function onMount(fn: () => void) {
+  createEffect(() => untrack(fn));
 }
 
 export function onCleanup(fn: () => void) {

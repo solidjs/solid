@@ -9,8 +9,9 @@ import {
   dynamicProperty,
   setAttribute,
   setAttributeNS,
-  Attributes,
-  SVGAttributes,
+  Aliases,
+  Properties,
+  ChildProperties,
   NonComposedEvents,
   SVGElements,
   SVGNamespace
@@ -26,8 +27,9 @@ export default createHTML({
   dynamicProperty,
   setAttribute,
   setAttributeNS,
-  Attributes,
-  SVGAttributes,
+  Aliases,
+  Properties,
+  ChildProperties,
   NonComposedEvents,
   SVGElements,
   SVGNamespace

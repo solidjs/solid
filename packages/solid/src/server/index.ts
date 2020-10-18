@@ -8,6 +8,7 @@ export {
   createSelector,
   createMemo,
   getListener,
+  onMount,
   onCleanup,
   onError,
   untrack,
@@ -64,6 +65,7 @@ export {
   renderToNodeStream
 } from "./ssr";
 
+import { ssr } from "./ssr";
 import { ssrSpread } from "./runtime";
 import { splitProps } from "./rendering";
 export function Dynamic<T>(props: T & { component?: Function | string; children?: any }) {
@@ -74,7 +76,11 @@ export function Dynamic<T>(props: T & { component?: Function | string; children?
   if (comp) {
     if (t === "function") return (comp as Function)(others);
     else if (t === "string") {
-      return `<${comp} ${ssrSpread(others, false, true)}>${p.children || ""}</${comp}>`;
+      return ssr(
+        [`<${comp} `, ">", `</${comp}>`],
+        ssrSpread(others),
+        p.children || ""
+      );
     }
   }
 }
