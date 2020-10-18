@@ -85,7 +85,7 @@ declare global {
       onChange?: EventHandlerUnion<T, Event>;
       onInput?: EventHandlerUnion<T, InputEvent>;
       onReset?: EventHandlerUnion<T, Event>;
-      onSubmit?: EventHandlerUnion<T, FocusEvent>;
+      onSubmit?: EventHandlerUnion<T, Event & { submitter: HTMLElement }>;
 
       // Image Events
       onLoad?: EventHandlerUnion<T, Event>;
