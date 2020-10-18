@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.21.0 - 2020-10-17
+
+### Attribute and Prop changes
+
+We will now default to using Attributes where possible to be consistent. Solid is aiming to generally reflect the case insensitiveness of HTML. Custom Elements remain the one place that defaults to property setters on Dynamic elements.
+
+While TypeScript 4.2 is yet to be released, we are introduce `attr`, `prop`, `use` and `style` namespace directives. To allow more expressiveness in binding syntax.
+
+### Other Changes
+
+* New `on` and `onMount` helpers
+* More performant SSR escaping
+* Lazy eval SSR Component props (fix SSR Context API)
+* Add support for SSR with Solid Styled Components
+* Fix Lit Dom Expressions style in Template tags
+* Fix JSX Types
+
 ## 0.20.0 - 2020-09-24
 
 ### Re-scheduling Reactivity.
