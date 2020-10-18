@@ -62,6 +62,10 @@ Registers a error handler method that executes when child context errors. Only n
 
 Creates memo that only notifies downstream changes when the browser is idle. `timeoutMS` is the maximum time to wait before forcing the update.
 
+### `createRenderEffect(prev => <code>, initialValue): void`
+
+Creates a new computation that automatically tracks dependencies and runs during the render phase as DOM elements are created and updated but not necessarily connected. All internal DOM updates happen at this time.
+
 ### `createSelector(() => <code>, comparatorFn?): (key) => boolean`
 
 Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state.
