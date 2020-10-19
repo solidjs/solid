@@ -293,7 +293,7 @@ To create a directive simply expose a function with this signature `(el: HTMLEle
 function model(el, value) {
   const [field, setField] = value();
   createRenderEffect(() => el.value = field());
-  el.addEventListener(e => setField(e.target.value));
+  el.addEventListener("input", e => setField(e.target.value));
 }
 ```
 
