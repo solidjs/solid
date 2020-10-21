@@ -167,6 +167,7 @@ And check out the Documentation, Examples, and Articles below to get more famili
 - [Context](https://github.com/ryansolid/solid/blob/master/documentation/context.md)
 - [Suspense](https://github.com/ryansolid/solid/blob/master/documentation/suspense.md)
 - [API](https://github.com/ryansolid/solid/blob/master/documentation/api.md)
+- [FAQ](https://github.com/ryansolid/solid/blob/master/documentation/faq.md)
 - [Comparison with other Libraries](https://github.com/ryansolid/solid/blob/master/documentation/comparison.md)
 - [Storybook](https://github.com/ryansolid/solid/blob/master/documentation/storybook.md)
 
@@ -222,6 +223,8 @@ And check out the Documentation, Examples, and Articles below to get more famili
 
 ## Latest Articles
 
+- [SolidJS: The Tesla of JavaScript Frameworks?](https://medium.com/@ryansolid/solidjs-the-tesla-of-javascript-ui-frameworks-6a1d379bc05e) Tech built for Economy can be used for Performance
+- [The Journey to Isomorphic JavaScript Performance](https://indepth.dev/the-journey-to-isomorphic-rendering-performance) Finding the right SSR solution for Solid.
 - [Why I am not a fan of Single File Components](https://dev.to/ryansolid/why-i-m-not-a-fan-of-single-file-components-3bfl) Exploring the advantages of Solid's templates
 - [How we wrote the Fastest JavaScript Framework, Again!](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) This time we conquered the server
 - [SolidJS: Reactivity to Rendering](https://indepth.dev/solidjs-reactivity-to-rendering/) Building Solid's reactive renderer from the ground up

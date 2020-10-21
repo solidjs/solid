@@ -47,7 +47,7 @@ function App() {
 }
 ```
 
-## Placeholders & Transitions
+## Placeholders & Transitions(Experimental)
 
 But what if we don't control when the asynchronous action returns and we need to deal with potentially multiple asynchronous actions. This is where Suspense comes in. It inverts the control, so that the child can manage its asynchronous needs and the parent just sets the rules of how to display the fallback content that is shown as these processes complete. Unlike conditional control flow (like the `Deferred` component above) the children are not blocked and get execute their asynchronous actions triggering Suspense rather than pushing the responsibility on the parent. Suspense consists of 2 states:
 
