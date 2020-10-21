@@ -1,12 +1,9 @@
-import { insert, spread } from "./runtime";
-import { createMemo, onCleanup, untrack, splitProps, Component } from "../index.js";
+import { insert, spread, ssrSpread } from "./runtime";
+import { ssr } from "./asyncSSR";
+import { createSignal, createMemo, onCleanup, untrack, splitProps, Component } from "../index.js";
 
 export * from "./runtime";
-export {
-  renderToString,
-  renderDOMToString,
-  ssr
-} from "./asyncSSR";
+export { renderToString, renderDOMToString, ssr } from "./asyncSSR";
 
 export {
   For,
@@ -21,17 +18,23 @@ export {
 } from "../index.js";
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
-  if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
+  const hydration = globalThis._$HYDRATION;
+  if (hydration && hydration.asyncSSR) return;
   const { useShadow } = props,
     marker = document.createTextNode(""),
     mount = props.mount || document.body;
 
+  // don't render when hydrating
+  function renderPortal() {
+    if (hydration && hydration.context && hydration.context.registry) {
+      const [s, set] = createSignal(false);
+      queueMicrotask(() => set(true));
+      return () => s() && props.children;
+    } else return () => props.children
+  }
+
   if (mount instanceof HTMLHeadElement) {
-    insert(
-      mount,
-      () => props.children,
-      null
-    );
+    insert(mount, renderPortal(), null);
   } else {
     const container = document.createElement("div"),
       renderRoot =
@@ -42,10 +45,7 @@ export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX
         return marker.parentNode;
       }
     });
-    insert(
-      renderRoot,
-      () => props.children
-    );
+    insert(renderRoot, renderPortal());
     mount.appendChild(container);
     (props as any).ref && (props as any).ref(container);
     onCleanup(() => mount.removeChild(container));
@@ -54,7 +54,7 @@ export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX
 }
 
 export function Dynamic<T>(
-  props: T & { component?: Component<T> | string | keyof JSX.IntrinsicElements }
+  props: T & { children?: any,  component?: Component<T> | string | keyof JSX.IntrinsicElements }
 ): () => JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
   return createMemo(() => {
@@ -64,8 +64,18 @@ export function Dynamic<T>(
     if (comp) {
       if (t === "function") return untrack(() => (comp as Function)(others as any));
       else if (t === "string") {
-        const el = document.createElement(comp as string);
-        spread(el, others);
+        let el;
+        if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) {
+          const [local, sOthers] = splitProps(others, ["children"]);
+          el = ssr(
+            [`<${comp} `, ">", `</${comp}>`],
+            ssrSpread(sOthers),
+            local.children || ""
+          );
+        } else {
+          el = document.createElement(comp as string);
+          spread(el, others);
+        }
         return el;
       }
     }

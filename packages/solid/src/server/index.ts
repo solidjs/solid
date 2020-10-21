@@ -68,6 +68,7 @@ export {
 import { ssr } from "./ssr";
 import { ssrSpread } from "./runtime";
 import { splitProps } from "./rendering";
+export function Portal() { return ""; }
 export function Dynamic<T>(props: T & { component?: Function | string; children?: any }) {
   const [p, others] = splitProps(props, ["component", "children"]);
   const comp = p.component,
