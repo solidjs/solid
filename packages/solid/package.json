@@ -5,6 +5,10 @@
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/ryansolid/solid#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryansolid/solid"
+  },
   "main": "lib/index.js",
   "module": "dist/index.js",
   "types": "types/index.d.ts",
@@ -50,5 +54,14 @@
     "test:coverage": "jest --coverage && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json",
     "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
-  }
+  },
+  "keywords": [
+    "solid",
+    "solidjs",
+    "ui",
+    "reactive",
+    "components",
+    "compiler",
+    "performance"
+  ]
 }
