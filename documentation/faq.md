@@ -2,9 +2,9 @@
 
 ### 1. JSX without a VDOM? Is this vaporware? I've heard prominent voices like the authors of the other frameworks say this isn't possible.
 
-It is possible when you don't have React's update model. JSX is a Template DSL like any other. Just one that is more flexible. Inserting arbitrary JavaScript can be challenging at times, but no different than supporting spread operators. So no this isn't vapourware but an approach proven to be one of the most performant.
+It is possible when you don't have React's update model. JSX is a Template DSL like any other. Just one that is more flexible in certain ways. Inserting arbitrary JavaScript can be challenging at times, but no different than supporting spread operators. So no this isn't vapourware but an approach proven to be one of the most performant.
 
-The real benefit comes in how extensible it is. You can the compiler working for you giving you optimal native DOM updates but you have all the freedom of a library like React to write Components using techniques like Render Props and Higher Order Components along side your reactive "hooks". Don't like how Solid's control flow works? Write your own.
+The real benefit comes in how extensible it is. You have the compiler working for you giving you optimal native DOM updates but you have all the freedom of a library like React to write Components using techniques like Render Props and Higher Order Components along side your reactive "hooks". Don't like how Solid's control flow works? Write your own.
 
 ### 2. How is Solid so performant?
 
@@ -16,11 +16,11 @@ I wish I could point to a single thing, but it really is the combination of many
 
 These are currently unique techniques in a combination that give Solid an edge over the competition.
 
-### 3. Is there React Compat?
+### 3. Is there React-Compat?
 
 No. And there likely never will be. While the APIs are similar and components often can be moved across with minor edits, the update model is fundamentally different. React Components render over and over so code outside of Hooks works very differently. The closures and hook rules are not only unnecessary they can be used in manners that do not work here.
 
-Vue compat on the other hand, that'd be doable. Although there are no plans to implement currently.
+Vue-compat on the other hand, that'd be doable. Although there are no plans to implement currently.
 
 ### 4. Why does destructuring not work? I realized I can fix it by wrapping my whole component in a function.
 
@@ -28,7 +28,7 @@ Reactivity occurs on property access on Prop and State objects. Referencing them
 
 However, wrapping your whole component in a function is not what you want to be doing irresponsibly. Solid does not have a VDOM. So any tracked change will run the whole function again recreating everything. Don't do it.
 
-### 5. Can you add support class components? I find the lifecycles are easier to reason about.
+### 5. Can you add support for class components? I find the lifecycles are easier to reason about.
 
 It is not the intention to support class components. The lifecycles of Solid are tied to scheduling the reactive system and are artificial. You could make a class out of it I suppose but effectively all the non-event handler code is basically being run in the constructor, including the render function. It's just more syntax for an excuse to make your data less granular.
 
