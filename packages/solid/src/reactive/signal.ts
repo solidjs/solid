@@ -760,7 +760,7 @@ function createProvider(id: symbol) {
     let rendered;
     createComputed(() => {
       Owner!.context = { [id]: props.value };
-      rendered = untrack(() => resolveChildren(props.children));
+      rendered = resolveChildren(props.children);
     });
     return rendered;
   };
