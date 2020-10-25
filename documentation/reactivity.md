@@ -1,5 +1,61 @@
 # Reactivity
 
+Solid's data management is built off a set of flexible reactive primitives are responsible for all the updates. It takes a very similar approach to MobX or Vue except it never trades its granularity for a VDOM. Dependencies are automatically tracked when you access your reactive values in your Effects and JSX View code.
+
+Solid has a number of reactive primitives but the main 2 are Signals, and State. Ultimately you will need to understand both to write effective Solid code.
+
+Signals hold simple values that you view as atomic immutable cells that consist of a getter and setter. These are ideal for simple local component values. They are called signals as they act as tiny streams that wire your application together.
+
+```jsx
+import { createSignal, onCleanup } from "solid-js";
+import { render } from "solid-js/dom";
+
+const App = () => {
+  const [count, setCount] = createSignal(0),
+    timer = setInterval(() => setCount(count() + 1), 1000);
+  onCleanup(() => clearInterval(timer));
+
+  return <div>{count()}</div>;
+};
+
+render(() => <App />, document.getElementById("app"));
+```
+
+> **For React Users:** This looks like React Hooks, but it is very different. There are no Hook rules, or concern about stale closures because your Component only runs once. It is only the "Hooks" that re-execute. So they always have the latest.
+
+Solid's state object are deeply nested reactive data trees useful for global stores, model caches, and 3rd party immutable data interopt. They have a much more powerful setter that allows to specify nested changes and use value and function forms for updates.
+
+They can be used in Components as well and is the go to choice when data gets more complicated (nested).
+
+```jsx
+import { createState, onCleanup } from "solid-js";
+import { render } from "solid-js/dom";
+
+const App = () => {
+  const [state, setState] = createState({
+    user: {
+      firstName: "John",
+      lastName: "Smith",
+      get fullName() {
+        return `${state.user.firstName} ${state.user.lastName}`;
+      }
+    }
+  });
+
+  return (
+    <div onClick={() => setState("user", "lastName", value => value + "!")}>
+      {state.user.fullName}
+    </div>
+  );
+};
+
+render(() => <App />, document.getElementById("app"));
+```
+
+Remember if you destructure or spread a state object reactivity is lost. However, unlike Vue we don't separate our `setup` from our view code so there is little concern about transforming or transfering these reactive atoms around. Just access the properties where you need them.
+
+With Solid State and Context API you really don't need 3rd party global stores. These proxies are optimized part of the reactive system and lend to creating controlled unidirectional patterns.
+
 ## Signals
 
 Signals are the glue that hold the library together. They are a simple primitive that contain values that change over time. With Signals you can track all sorts of changes from various sources in your applications. You can update a Signal manually or from any Async source.

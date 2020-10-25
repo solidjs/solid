@@ -757,11 +757,9 @@ function resolveChildren(children: any): any {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    let rendered;
-    createComputed(() => {
+    return createMemo(() => {
       Owner!.context = { [id]: props.value };
-      rendered = resolveChildren(props.children);
+      return resolveChildren(props.children);
     });
-    return rendered;
   };
 }
