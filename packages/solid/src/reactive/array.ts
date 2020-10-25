@@ -4,7 +4,7 @@ const FALLBACK = Symbol("fallback");
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function mapArray<T, U>(
-  list: () => T[],
+  list: () => readonly T[],
   mapFn: (v: T, i: () => number) => U,
   options: { fallback?: () => any } = {}
 ): () => U[] {
@@ -134,7 +134,7 @@ export function mapArray<T, U>(
 }
 
 export function indexArray<T, U>(
-  list: () => T[],
+  list: () => readonly T[],
   mapFn: (v: () => T, i: number) => U,
   options: { fallback?: () => any } = {}
 ): () => U[] {
