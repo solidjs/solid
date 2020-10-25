@@ -14,6 +14,12 @@ export type StateNode = {
 type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
   ? { [Symbol.toPrimitive]: V }
   : {};
+type AddSymbolIterator<T> = T extends { [Symbol.iterator]: infer V }
+  ? { [Symbol.iterator]: V }
+  : {};
+type AddSymbolToStringTag<T> = T extends { [Symbol.toStringTag]: infer V }
+  ? { [Symbol.toStringTag]: V }
+  : {};
 type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
 
 export type NotWrappable = string | number | boolean | Function | null;
@@ -22,11 +28,14 @@ export type State<T> = {
 } & {
   [$RAW]?: T;
 } & AddSymbolToPrimitive<T> &
+  AddSymbolIterator<T> &
+  AddSymbolToStringTag<T> &
   AddCallable<T>;
 
 export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): State<T> {
   let p = value[$PROXY];
-  if (!p) Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, traps || proxyTraps) })
+  if (!p)
+    Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, traps || proxyTraps) });
   return p;
 }
 
