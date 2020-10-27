@@ -1,10 +1,19 @@
-# Latest Articles
+# Articles
+
+## Podcasts
+
+- [The Deep Dive Ep#4 Reactive Frontend Frameworks](https://thedeepdive.simplecast.com/episodes/reactive-frontend-frameworks)
+
+## Latest Articles
 
 - [SolidJS: The Tesla of JavaScript Frameworks?](https://medium.com/@ryansolid/solidjs-the-tesla-of-javascript-ui-frameworks-6a1d379bc05e) Tech built for Economy can be used for Performance
 - [The Journey to Isomorphic JavaScript Performance](https://indepth.dev/the-journey-to-isomorphic-rendering-performance) Finding the right SSR solution for Solid.
 - [Why I am not a fan of Single File Components](https://dev.to/ryansolid/why-i-m-not-a-fan-of-single-file-components-3bfl) Exploring the advantages of Solid's templates
 - [How we wrote the Fastest JavaScript Framework, Again!](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) This time we conquered the server
+- [Solid - The best JavaScript UI library?](https://areknawo.com/solid-the-best-javascript-ui-library/)
 - [SolidJS: Reactivity to Rendering](https://indepth.dev/solidjs-reactivity-to-rendering/) Building Solid's reactive renderer from the ground up
+- [Comparing reactivity models - React vs Vue vs Svelte vs MobX vs Solid vs Redux](https://dev.to/lloyds-digital/comparing-reactivity-models-react-vs-vue-vs-svelte-vs-mobx-vs-solid-29m8)
+- [Best React-like JSX UI Libraries in 2020](https://areknawo.com/best-react-like-jsx-ui-libraries-in-2020/)
 - [Exploring Reactivity Patterns in 2020](https://indepth.dev/exploring-the-state-of-reactivity-patterns-in-2020/) What's the latest trend in the frontend?
 - [Why SolidJS: Do We Really Need Another JS UI Library](https://dev.to/ryansolid/why-solidjs-do-we-need-another-js-ui-library-1mdc) Ryan's personal journey creating SolidJS.
 - [Thinking Granular: How is SolidJS so Performant?](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) An end to end look at what makes SolidJS so fast.
@@ -17,6 +26,8 @@
 - [Designing SolidJS: Components](https://medium.com/@ryansolid/designing-solidjs-components-8f1ebb88d78b?source=friends_link&sk=cac89d1679d8be2c7bf2b303fabd153c) Exploring Solid's "Vanishing" Components
 - [Designing SolidJS: Reactivity](https://medium.com/@ryansolid/designing-solidjs-reactivity-75180a4c74b4?source=friends_link&sk=dbb9dd46a2e902c199ad3d5c7aeb1566) Finding the right reactivity model for Solid.
 - [Designing SolidJS: Dualities](https://medium.com/@ryansolid/designing-solidjs-dualities-69ee4c08aa03?source=friends_link&sk=161ddd70db4fca50d6f33b6d53056d36) How exploring opposites can help us redefine the whole problem space.
+- [Understanding Solid: JSX](https://dev.to/atfzl/understanding-solid-jsx-584p)
+- [Understanding Solid: Reactivity Basics](https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk)
 - [How we wrote the Fastest JavaScript UI Frameworks](https://medium.com/@ryansolid/how-we-wrote-the-fastest-javascript-ui-frameworks-a96f2636431e) How Solid topped the JS Framework Benchmark.
 - [Finding Fine Grained Reactive Programming](https://levelup.gitconnected.com/finding-fine-grained-reactive-programming-89741994ddee?source=friends_link&sk=31c66a70c1dce7dd5f3f4229423ad127) Introduction to the inner workings of Solid's Reactive system.
 - [The Real Cost of UI Components](https://medium.com/better-programming/the-real-cost-of-ui-components-6d2da4aba205?source=friends_link&sk=a412aa18825c8424870d72a556db2169) Comparison of the cost of Components in different UI Libraries.
