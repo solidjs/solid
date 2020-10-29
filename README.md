@@ -158,7 +158,7 @@ The last 2 versions of modern evergreen browsers and Node LTS.
 ## Community
 Come chat with us on [Discord](https://discord.com/invite/solidjs)
 
-### Open Collection
+### Open Collective
 
 Support us with a donation and help us continue our activities. [[Contribute](https://opencollective.com/solid)]
 
