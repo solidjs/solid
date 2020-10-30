@@ -294,7 +294,7 @@ describe("createSelector", () => {
   test("simple selection", done => {
     createRoot(() => {
       const [s, set] = createSignal<number>(-1),
-        isSelected = createSelector<number>(s);
+        isSelected = createSelector<number, number>(s);
       let count = 0;
       const list = Array.from({ length: 100 }, (_, i) =>
         createMemo(() => {

@@ -169,13 +169,16 @@ export function createDeferred<T>(source: () => T, options?: { timeoutMs: number
   return deferred;
 }
 
-export function createSelector<T>(source: () => T, fn = equalFn) {
-  let subs = new Map<T, Computation<any>>();
+export function createSelector<T, U>(
+  source: () => T,
+  fn: (a: U, b: T) => boolean = equalFn as any
+) {
+  let subs = new Map<U, Computation<any>>();
   const node = createComputation(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v) || fn(key, p)) {
+        if (fn(key, v) || p && fn(key, p)) {
           const c = subs.get(key)!;
           c.state = STALE;
           if (c.pure) Updates!.push(c);
@@ -187,12 +190,12 @@ export function createSelector<T>(source: () => T, fn = equalFn) {
     true
   );
   updateComputation(node);
-  return (key: T) => {
+  return (key: U) => {
     if (Listener) {
       subs.set(key, Listener);
       onCleanup(() => subs.delete(key));
     }
-    return fn(key, node.value);
+    return fn(key, node.value!);
   };
 }
 
@@ -253,7 +256,7 @@ export function on<T1, T2, T3, U>(
   w2: () => T2,
   w3: () => T3,
   fn: (v: [T1, T2, T3], p: [T1, T2, T3], prevResult: U) => U
-): (prev?:U) => U;
+): (prev?: U) => U;
 export function on<T1, T2, T3, T4, U>(
   w1: () => T1,
   w2: () => T2,
@@ -617,40 +620,39 @@ function runUpdates(fn: () => void, init: boolean) {
   } catch (err) {
     handleError(err);
   } finally {
-    do {
-      if (Updates) {
-        runQueue(Updates);
-        Updates = [];
-      }
-      if (!wait) {
-        if (Transition && Transition.running && Transition.promises.size) {
-          Transition.effects.push.apply(Transition.effects, Effects);
-        } else runEffects(Effects);
-        Effects = [];
-      }
-    } while (Updates && Updates.length);
-    Updates = null;
+    if (Updates) {
+      runQueue(Updates);
+      Updates = null;
+    }
     if (wait) return;
-    Effects = null;
-    if (Transition) {
-      if (!Transition.promises.size) {
-        Transition.sources.forEach(v => {
-          v.value = v.tValue;
-          if ((v as Memo<any>).owned) {
-            for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
-              cleanNode((v as Memo<any>).owned![i]);
-          }
-          if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
-          delete v.tValue;
-          delete (v as Memo<any>).tOwned;
-        });
-        Transition = null;
-        setTransPending(false);
-      } else if (Transition.running) {
+    if (Transition && Transition.running) {
+      if (Transition.promises.size) {
+        Transition.effects.push.apply(Transition.effects, Effects);
+        Effects = null;
         Transition.running = false;
         setTransPending(true);
+        return;
       }
+      // finish transition
+      Transition.sources.forEach(v => {
+        v.value = v.tValue;
+        if ((v as Memo<any>).owned) {
+          for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
+            cleanNode((v as Memo<any>).owned![i]);
+        }
+        if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
+        delete v.tValue;
+        delete (v as Memo<any>).tOwned;
+      });
+      Transition = null;
+      setTransPending(false);
     }
+    if (Effects.length)
+      batch(() => {
+        runEffects(Effects!);
+        Effects = null;
+      });
+    else Effects = null;
   }
 }
 

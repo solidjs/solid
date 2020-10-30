@@ -3,6 +3,8 @@ import {
   createSignal,
   createResource,
   createResourceState,
+  createComputed,
+  createRenderEffect,
   createEffect,
   onError,
   SetStateFunction,
@@ -32,8 +34,8 @@ describe("Simulate a dynamic fetch", () => {
       [value, load] = createResource<string>();
       trigger = setId;
       onError(e => (error = e));
-      createEffect(() => (i = id()) && load(fetcher(i)));
-      createEffect(value);
+      createComputed(() => (i = id()) && load(fetcher(i)));
+      createRenderEffect(value);
     });
     expect(value()).toBeUndefined();
     expect(value.loading).toBe(true);
@@ -91,7 +93,7 @@ describe("Simulate a dynamic fetch with state", () => {
       const [id, setId] = createSignal(1);
       [users, load, setUsers] = createResourceState<{ [id: number]: string }>({ 6: "Rio" });
       trigger = setId;
-      createEffect(() => load({[id()]: fetcher}));
+      createComputed(() => load({[id()]: fetcher}));
     });
     expect(users[1]).toBeUndefined();
     expect(users.loading[1]).toBe(true);
