@@ -21,6 +21,7 @@
 ## Demos
 - [TodoMVC](https://github.com/ryansolid/solid-todomvc) Classic TodoMVC example
 - [Real World Demo](https://github.com/ryansolid/solid-realworld) Real World Demo for Solid
+- [Hacker News](https://github.com/ryansolid/solid-hackernews) Hacker News Clone for Solid
 - [Hacker News App](https://github.com/ryansolid/solid-hackernews-app) Small application to showcase Solid Element
 
 ## Benchmarks
