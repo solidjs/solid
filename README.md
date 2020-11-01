@@ -155,6 +155,8 @@ Remember you still need the corresponding DOM Expressions library for these to w
 
 The last 2 versions of modern evergreen browsers and Node LTS.
 
+<img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
+
 ## Community
 Come chat with us on [Discord](https://discord.com/invite/solidjs)
 
