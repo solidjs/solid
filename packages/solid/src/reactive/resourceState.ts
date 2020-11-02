@@ -1,7 +1,7 @@
 import {
   batch,
   createSignal,
-  getListener,
+  Listener,
   createResource
 } from "./signal";
 
@@ -68,7 +68,7 @@ export function createResourceState<T extends StateNode>(
       if (property === $NODE || property === "__proto__") return value;
 
       const wrappable = isWrappable(value);
-      if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
+      if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
         let nodes, node;
         if (wrappable && (nodes = getDataNodes(value))) {
           node = nodes._ || (nodes._ = createSignal());

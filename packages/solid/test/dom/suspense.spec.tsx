@@ -42,21 +42,21 @@ describe("Testing Suspense", () => {
     });
   });
 
-  // test("Toggle with refresh transition", done => {
-  //   const [pending, start] = useTransition();
-  //   start(() => trigger(true));
-  //   expect(div.innerHTML).toBe("Hi, .Hello ");
-  //   expect(pending()).toBe(true);
-  //   setTimeout(() => {
-  //     expect(div.innerHTML).toBe("Hi, .Hello ");
-  //     expect(pending()).toBe(true);
-  //   });
-  //   setTimeout(() => {
-  //     expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
-  //     expect(pending()).toBe(false);
-  //     done();
-  //   }, 400);
-  // });
+  test("Toggle with refresh transition", done => {
+    const [pending, start] = useTransition();
+    start(() => trigger(true));
+    expect(div.innerHTML).toBe("Hi, .Hello ");
+    expect(pending()).toBe(true);
+    setTimeout(() => {
+      expect(div.innerHTML).toBe("Hi, .Hello ");
+      expect(pending()).toBe(true);
+    });
+    setTimeout(() => {
+      expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
+      expect(pending()).toBe(false);
+      done();
+    }, 400);
+  });
 
   test("dispose", () => {
     div.innerHTML = "";

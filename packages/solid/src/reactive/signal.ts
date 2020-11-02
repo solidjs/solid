@@ -15,8 +15,8 @@ const UNOWNED: Owner = {
   owner: null
 };
 const [transPending, setTransPending] = createSignal(false, true);
-let Owner: Owner | null = null;
-let Listener: Computation<any> | null = null;
+export let Owner: Owner | null = null;
+export let Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
@@ -178,7 +178,7 @@ export function createSelector<T, U>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v) || p && fn(key, p)) {
+        if (fn(key, v) || (p && fn(key, p))) {
           const c = subs.get(key)!;
           c.state = STALE;
           if (c.pure) Updates!.push(c);
@@ -221,14 +221,16 @@ export function useTransition(): [() => boolean, (fn: () => void) => void] {
   return [
     transPending,
     (fn: () => void) => {
-      Transition ||
-        (Transition = {
-          sources: new Set(),
-          effects: [],
-          promises: new Set(),
-          running: true
-        });
-      Transition.running = true;
+      if (SuspenseContext) {
+        Transition ||
+          (Transition = {
+            sources: new Set(),
+            effects: [],
+            promises: new Set(),
+            running: true
+          });
+        Transition.running = true;
+      }
       batch(fn);
     }
   ];
