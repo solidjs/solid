@@ -164,6 +164,18 @@ Come chat with us on [Discord](https://discord.com/invite/solidjs)
 
 Support us with a donation and help us continue our activities. [[Contribute](https://opencollective.com/solid)]
 
+<a href="https://opencollective.com/solid/sponsor/0/website" target="_blank"><img src="https://opencollective.com/solid/backer/0/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/1/website" target="_blank"><img src="https://opencollective.com/solid/backer/1/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/2/website" target="_blank"><img src="https://opencollective.com/solid/backer/2/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/3/website" target="_blank"><img src="https://opencollective.com/solid/backer/3/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/4/website" target="_blank"><img src="https://opencollective.com/solid/backer/4/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/5/website" target="_blank"><img src="https://opencollective.com/solid/backer/5/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/6/website" target="_blank"><img src="https://opencollective.com/solid/backer/6/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/7/website" target="_blank"><img src="https://opencollective.com/solid/backer/7/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/8/website" target="_blank"><img src="https://opencollective.com/solid/backer/8/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/9/website" target="_blank"><img src="https://opencollective.com/solid/backer/9/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/10/website" target="_blank"><img src="https://opencollective.com/solid/backer/10/avatar.svg"></a>
+
 ### Sponsors
 Become a sponsor and get your logo on our README on GitHub with a link to your site. [[Become a sponsor](https://opencollective.com/solid#sponsor)]
 
