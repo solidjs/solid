@@ -160,6 +160,10 @@ The last 2 versions of modern evergreen browsers and Node LTS.
 ## Community
 Come chat with us on [Discord](https://discord.com/invite/solidjs)
 
+### Contributors
+
+<a href="https://github.com/ryansolid/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
+
 ### Open Collective
 
 Support us with a donation and help us continue our activities. [[Contribute](https://opencollective.com/solid)]
