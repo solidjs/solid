@@ -28,10 +28,9 @@
 - [Solid Router](https://github.com/mduclehcm/solid-router) A declarative router for Solid
 - [Solid App Router](https://github.com/ryansolid/solid-app-router) A configuration driven nested router for Solid
 - [Solid TypeFu Router5](https://github.com/mikeplus64/solid-typefu-router5) A TypeScript forward router
-- [Solid Router 5](https://github.com/zxlib/solid-router5) A Solid router built on Router5.
+- [Solid Router5](https://github.com/zxlib/solid-router5) A Solid router built on Router5.
 - [Solid Tiny Router](https://github.com/amoutonbrady/solid-tiny-router) Experimental little router based on regexparam for Solid
 - [rturnq Solid Router](https://github.com/rturnq/solid-router) A React Router inspired router for Solid
-- [zxlib Solid Router](https://github.com/zxlib/solid-router) A declarative router for Solid
 
 ## Components
 - [Lume](https://github.com/lume/lume) Toolkit that simplifies the creation of rich and interactive 2D or 3D experiences built with Solid
