@@ -9,7 +9,7 @@ import {
 export { hot, getCurrentElement } from "component-register";
 export type ComponentType<T> = mComponentType<T>;
 import { createRoot, createState } from "solid-js";
-import { insert } from "solid-js/dom";
+import { insert } from "solid-js/web";
 
 function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
   return (rawProps: T, options: ComponentOptions) => {

@@ -18,6 +18,6 @@ export default {
     file: 'dist//solid-styled-components.js',
     format: 'es'
   }],
-  external: ['solid-js', 'solid-js/dom', 'goober'],
+  external: ['solid-js', 'solid-js/web', 'goober'],
   plugins
 };

@@ -1,7 +1,7 @@
 {
   "name": "solid-js/dom",
-  "main": "../lib/dom/index.js",
-  "module": "../dist/dom/index.js",
-  "types": "../types/dom/index.d.ts",
+  "main": "../web/dist/web.cjs.js",
+  "module": "../web/dist/web.js",
+  "types": "../web/types/index.d.ts",
   "sideEffects": false
 }

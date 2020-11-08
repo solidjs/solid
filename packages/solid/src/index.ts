@@ -31,15 +31,17 @@ export { reconcile, produce } from "./reactive/stateModifiers";
 
 export * from "./reactive/scheduler";
 export * from "./reactive/array";
-export * from "./rendering";
+export * from "./render";
 
 // handle multiple instance check
 declare global {
   var Solid$$: boolean;
 }
 
-if (!globalThis.Solid$$) globalThis.Solid$$ = true;
-else
-  console.warn(
-    "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
-  );
+if ("_SOLID_DEBUG_") {
+  if (!globalThis.Solid$$) globalThis.Solid$$ = true;
+  else
+    console.warn(
+      "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
+    );
+}

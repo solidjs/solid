@@ -8,7 +8,7 @@ Signals hold simple values that you view as atomic immutable cells that consist 
 
 ```jsx
 import { createSignal, onCleanup } from "solid-js";
-import { render } from "solid-js/dom";
+import { render } from "solid-js/web";
 
 const App = () => {
   const [count, setCount] = createSignal(0),
@@ -29,7 +29,7 @@ They can be used in Components as well and is the go to choice when data gets mo
 
 ```jsx
 import { createState, onCleanup } from "solid-js";
-import { render } from "solid-js/dom";
+import { render } from "solid-js/web";
 
 const App = () => {
   const [state, setState] = createState({

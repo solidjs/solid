@@ -2,6 +2,7 @@ import copy from "rollup-plugin-copy";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
+import replace from "@rollup/plugin-replace";
 
 const plugins = [
   nodeResolve({
@@ -18,7 +19,7 @@ const plugins = [
         "babel-plugin-transform-rename-import",
         {
           original: "rxcore",
-          replacement: "../../../packages/solid/src/dom/core"
+          replacement: "../../../packages/solid/src/shared/core"
         }
       ]
     ]
@@ -33,108 +34,102 @@ export default [
     input: "src/index.ts",
     output: [
       {
-        file: "lib/index.js",
+        file: "dist/solid.cjs.js",
         format: "cjs"
       },
       {
-        file: "dist/index.js",
+        file: "dist/solid.js",
         format: "es"
       }
     ],
     plugins: [
       copy({
-        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/rendering" }]
+        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/render" }]
+      }),
+      replace({
+        '"_SOLID_DEBUG_"': false,
+        delimiters: ["", ""]
       })
     ].concat(plugins)
   },
   {
-    input: "src/dom/index.ts",
+    input: "src/index.ts",
     output: [
       {
-        file: "lib/dom/index.js",
+        file: "debug/dist/debug.cjs.js",
         format: "cjs"
       },
       {
-        file: "dist/dom/index.js",
+        file: "debug/dist/debug.js",
         format: "es"
       }
     ],
-    external: ["../index.js"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
-            dest: "./src/dom"
-          },
-          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/dom/" },
-          {
-            src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
-            dest: "./src/dom"
-          },
-          { src: "../../node_modules/dom-expressions/src/asyncSSR.d.ts", dest: "./types/dom/" }
-        ]
-      })
-    ].concat(plugins)
-  },
-  {
-    input: "src/dom/html.ts",
-    output: [
-      {
-        file: "lib/dom/html.js",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "dist/dom/html.js",
-        format: "es"
-      }
-    ],
-    external: ["./index.js", "lit-dom-expressions"],
     plugins
   },
   {
-    input: "src/dom/h.ts",
+    input: "static/src/index.ts",
     output: [
       {
-        file: "lib/dom/h.js",
-        format: "cjs",
-        exports: "auto"
-      },
-      {
-        file: "dist/dom/h.js",
-        format: "es"
-      }
-    ],
-    external: ["./index.js", "hyper-dom-expressions"],
-    plugins
-  },
-  {
-    input: "src/server/index.ts",
-    output: [
-      {
-        file: "lib/server/index.js",
+        file: "static/dist/static.cjs.js",
         format: "cjs"
       },
       {
-        file: "dist/server/index.js",
+        file: "static/dist/static.js",
         format: "es"
       }
     ],
     external: ["stream"],
     plugins: [
       copy({
+        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./static/src" }]
+      })
+    ].concat(plugins)
+  },
+  {
+    input: "web/src/index.ts",
+    output: [
+      {
+        file: "web/dist/web.cjs.js",
+        format: "cjs"
+      },
+      {
+        file: "web/dist/web.js",
+        format: "es"
+      }
+    ],
+    external: ["../.."],
+    plugins: [
+      copy({
         targets: [
           {
             src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
-            dest: "./src/server"
+            dest: "./web/src/"
           },
-          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./types/server/" },
+          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./web/types/" },
+        ]
+      })
+    ].concat(plugins)
+  },
+  {
+    input: "server/src/index.ts",
+    output: [
+      {
+        file: "server/dist/server.cjs.js",
+        format: "cjs"
+      },
+      {
+        file: "server/dist/server.js",
+        format: "es"
+      }
+    ],
+    external: ["../../static", "stream"],
+    plugins: [
+      copy({
+        targets: [
           {
-            src: ["../../node_modules/dom-expressions/src/ssr.d.ts"],
-            dest: "./src/server"
-          },
-          { src: "../../node_modules/dom-expressions/src/ssr.d.ts", dest: "./types/server/" }
+            src: ["../../node_modules/dom-expressions/src/syncSSR.d.ts"],
+            dest: "./server/src"
+          }
         ]
       }),
       nodeResolve({
@@ -151,7 +146,7 @@ export default [
             "babel-plugin-transform-rename-import",
             {
               original: "rxcore",
-              replacement: "../../../packages/solid/src/server/core"
+              replacement: "../../../packages/solid/server/src/core"
             }
           ]
         ]
@@ -160,5 +155,61 @@ export default [
         extensions: [".js", ".ts"]
       })
     ]
-  }
+  },
+  {
+    input: "server-async/src/index.ts",
+    output: [
+      {
+        file: "server-async/dist/server-async.cjs.js",
+        format: "cjs"
+      },
+      {
+        file: "server-async/dist/server-async.js",
+        format: "es"
+      }
+    ],
+    external: ["../.."],
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
+            dest: "./server-async/src"
+          }
+        ]
+      })
+    ].concat(plugins)
+  },
+  {
+    input: "html/src/index.ts",
+    output: [
+      {
+        file: "html/dist/html.cjs.js",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "html/dist/html.js",
+        format: "es"
+      }
+    ],
+    external: ["../../web"],
+    plugins
+  },
+  {
+    input: "h/src/index.ts",
+    output: [
+      {
+        file: "h/dist/h.cjs.js",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "h/dist/h.js",
+        format: "es"
+      }
+    ],
+    external: ["../../web"],
+    plugins
+  },
 ];

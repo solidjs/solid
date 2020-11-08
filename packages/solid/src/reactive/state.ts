@@ -78,8 +78,8 @@ export function getDataNodes(target: StateNode) {
   return nodes;
 }
 
-const proxyTraps = {
-  get(target: StateNode, property: string | number | symbol, receiver: any) {
+const proxyTraps: ProxyHandler<StateNode> = {
+  get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
     const value = target[property as string | number];
@@ -105,6 +105,15 @@ const proxyTraps = {
 
   deleteProperty() {
     return true;
+  },
+
+  getOwnPropertyDescriptor(target, property) {
+    const desc = Reflect.getOwnPropertyDescriptor(target, property);
+    if (!desc || desc.get || property === $PROXY || property === $NODE) return desc;
+    delete desc.value;
+    delete desc.writable;
+    desc.get = () => target[property as string | number];
+    return desc;
   }
 };
 

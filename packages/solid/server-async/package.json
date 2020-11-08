@@ -1,0 +1,6 @@
+{
+  "name": "solid-js/server-async",
+  "main": "./dist/server-async.cjs.js",
+  "module": "./dist/server-async.js",
+  "sideEffects": false
+}

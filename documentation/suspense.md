@@ -57,8 +57,7 @@ But what if we don't control when the asynchronous action returns and we need to
 Consider the simple case of switching between 3 tabs which have asynchronous loaded tabs. To use Suspense you need to use the `Suspense` Component to wrap the asynchronous activity.
 
 ```jsx
-import { createState } from "solid-js";
-import { Suspense } from "solid-js/dom";
+import { createState, Suspense } from "solid-js";
 
 function App() {
   const [state, setState] = createState({ activeTab: 1 });
@@ -87,8 +86,7 @@ In this case if the tab hasn't loaded you will see a `LoadingSpinner` and as you
 But we can do more when we already have data loaded. We can avoid going back to the fallback state by leveraging `useTransition`. It returns a method to wrap state updates that can be deferred and an method that tracks whether the transition is currently active. When control flow is suspended it continues to show the current branch while rendering the next off screen. Resource reads under existing boundaries add it the transition. Any new nested `Suspense` components with drop to "fallback"
 
 ```jsx
-import { createState, useTransition } from "solid-js";
-import { Suspense } from "solid-js/dom";
+import { createState, useTransition, Suspense } from "solid-js";
 
 function App() {
   const [state, setState] = createState({ activeTab: 1 }),
@@ -138,7 +136,7 @@ function MyComponent() {
 There are lots of potential patterns for code splitting, but routing is a good start. For instance taking the example from the previous section, we can defer loading our Component to when the corresponding tab becomes active:
 
 ```jsx
-import { Suspense } from "solid-js/dom";
+import { Suspense } from "solid-js";
 
 const ComponentA = lazy(() => import("./ComponentA"));
 const ComponentB = lazy(() => import("./ComponentB"));

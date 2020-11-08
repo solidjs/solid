@@ -43,10 +43,10 @@ In some cases it might make sense to manage the form state outside of Solid via 
 
 ## Entry
 
-The easiest way to mount Solid is to import render from 'solid-js/dom'. `render` takes a function as the first argument and the mounting container for the second and returns a disposal method. This `render` automatically creates the reactive root and handles rendering into the mount container. For best performance use an element with no children.
+The easiest way to mount Solid is to import render from 'solid-js/web'. `render` takes a function as the first argument and the mounting container for the second and returns a disposal method. This `render` automatically creates the reactive root and handles rendering into the mount container. For best performance use an element with no children.
 
 ```jsx
-import { render } from "solid-js/dom";
+import { render } from "solid-js/web";
 
 render(() => <App />, document.getElementById("main"));
 ```
@@ -104,7 +104,7 @@ While you could use a map function for loops they aren't optimized. While perhap
 </ul>
 ```
 
-Control flows can be imported from `solid-js` but as a convenience the compiler will automatically import them from `solid-js/dom`.
+Control flows can be imported from `solid-js` but as a convenience the compiler will automatically import them from `solid-js/web`.
 
 ### For
 
@@ -202,7 +202,7 @@ Optional second argument is an index number:
 </Index>
 ```
 
-Also available from `solid-js/dom`:
+Also available from `solid-js/web`:
 
 ### Dynamic
 

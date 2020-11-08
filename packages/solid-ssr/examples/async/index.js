@@ -1,9 +1,8 @@
-globalThis.isSSR = true;
 import express from "express";
 import path from "path";
 
 import { awaitSuspense } from "solid-js";
-import { renderToString, generateHydrationScript } from "solid-js/dom";
+import { renderToString, generateHydrationScript } from "solid-js/web";
 import { extractCss } from "solid-styled-components";
 import App from "../shared/src/components/App";
 

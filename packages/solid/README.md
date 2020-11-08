@@ -29,7 +29,7 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 ## The Gist
 
 ```jsx
-import { render } from "solid-js/dom";
+import { render } from "solid-js/web";
 
 const HelloMessage = props => <div>Hello {props.name}</div>;
 
@@ -41,7 +41,7 @@ A Simple Component is just a function that accepts properties. Solid uses a `ren
 The JSX is then compiled down to efficient real DOM expressions:
 
 ```js
-import { render, template, insert, createComponent } from "solid-js/dom";
+import { render, template, insert, createComponent } from "solid-js/web";
 
 const _tmpl$ = template(`<div>Hello </div>`);
 

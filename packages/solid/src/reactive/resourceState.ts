@@ -42,8 +42,8 @@ export function createResourceState<T extends StateNode>(
   LoadStateFunction<T>,
   SetStateFunction<T>
 ] {
-  const loadingTraps = {
-    get(nodes: any, property: string | number) {
+  const loadingTraps: ProxyHandler<any> = {
+    get(nodes, property: string | number) {
       const node =
         nodes[property] ||
         (nodes[property] = createResourceNode(undefined, name && `${options.name}:${property}`));
@@ -59,8 +59,8 @@ export function createResourceState<T extends StateNode>(
     }
   };
 
-  const resourceTraps = {
-    get(target: StateNode, property: string | number | symbol, receiver: any) {
+  const resourceTraps: ProxyHandler<StateNode> = {
+    get(target, property, receiver) {
       if (property === $RAW) return target;
       if (property === $PROXY) return receiver;
       if (property === "loading") return new Proxy(getDataNodes(target), loadingTraps);
@@ -89,6 +89,15 @@ export function createResourceState<T extends StateNode>(
 
     deleteProperty() {
       return true;
+    },
+
+    getOwnPropertyDescriptor(target, property) {
+      const desc = Reflect.getOwnPropertyDescriptor(target, property);
+      if (!desc || desc.get || property === $PROXY || property === $NODE) return desc;
+      delete desc.value;
+      delete desc.writable;
+      desc.get = () => target[property as string | number];
+      return desc;
     }
   };
 
