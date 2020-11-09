@@ -17,7 +17,8 @@ import {
   StateNode,
   SetStateFunction,
   State,
-  setProperty
+  setProperty,
+  proxyDescriptor
 } from "./state";
 
 function createResourceNode(v: any, name: string) {
@@ -91,14 +92,7 @@ export function createResourceState<T extends StateNode>(
       return true;
     },
 
-    getOwnPropertyDescriptor(target, property) {
-      const desc = Reflect.getOwnPropertyDescriptor(target, property);
-      if (!desc || desc.get || property === $PROXY || property === $NODE) return desc;
-      delete desc.value;
-      delete desc.writable;
-      desc.get = () => target[property as string | number];
-      return desc;
-    }
+    getOwnPropertyDescriptor: proxyDescriptor
   };
 
   const unwrappedState = unwrap<T>(state || {}, true),

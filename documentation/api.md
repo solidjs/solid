@@ -58,6 +58,10 @@ Ensures that all notification of updates within the block happen at the same tim
 
 Registers a error handler method that executes when child context errors. Only nearest context error handlers execute. Rethrow to trigger up the line.
 
+### `createMutable(initValue): state`
+
+Creates a new mutable State proxy object. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
+
 ### `createDeferred(() => <code>, options: { timeoutMs: number }): getValueFn`
 
 Creates memo that only notifies downstream changes when the browser is idle. `timeoutMS` is the maximum time to wait before forcing the update.

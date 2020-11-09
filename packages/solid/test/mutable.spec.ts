@@ -1,155 +1,98 @@
 import {
   createRoot,
-  createState,
+  createMutable,
   createSignal,
   createComputed,
   createMemo,
   unwrap,
-  $RAW
+  $RAW,
+  batch
 } from "../src";
 
-describe("State immutablity", () => {
+describe("State Mutablity", () => {
   test("Setting a property", () => {
-    const [state] = createState({ name: "John" });
-    expect(state.name).toBe("John");
-    state.name = "Jake";
-    expect(state.name).toBe("John");
+    const user = createMutable({ name: "John" });
+    expect(user.name).toBe("John");
+    user.name = "Jake";
+    expect(user.name).toBe("Jake");
   });
 
   test("Deleting a property", () => {
-    const [state] = createState({ name: "John" });
-    expect(state.name).toBe("John");
+    const user = createMutable({ name: "John" });
+    expect(user.name).toBe("John");
     // @ts-ignore
-    delete state.name;
-    expect(state.name).toBe("John");
-  });
-
-  test("Immutable state is not mutable even inside setter", () => {
-    const [state, setState] = createState({ name: "John" });
-    expect(state.name).toBe("John");
-    setState(() => {
-      state.name = "Jake";
-    });
-    expect(state.name).toBe("John");
+    delete user.name;
+    expect(user.name).toBeUndefined();
   });
 });
 
-describe("State Getters", () => {
+describe("State Getter/Setters", () => {
   test("Testing an update from state", () => {
-    const [state, setState] = createState({
+    const user = createMutable({
       name: "John",
       get greeting(): string {
         return `Hi, ${this.name}`;
       }
     });
-    expect(state.greeting).toBe("Hi, John");
-    setState({ name: "Jake" });
-    expect(state.greeting).toBe("Hi, Jake");
+    expect(user.greeting).toBe("Hi, John");
+    user.name = "Jake";
+    expect(user.greeting).toBe("Hi, Jake");
+  });
+
+  test("setting a value with setters", () => {
+    const user = createMutable({
+      firstName: "John",
+      lastName: "Smith",
+      get fullName() {
+        return `${this.firstName} ${this.lastName}`;
+      },
+      set fullName(value) {
+        const parts = value.split(" ");
+        batch(() => {
+          this.firstName = parts[0];
+          this.lastName = parts[1];
+        });
+      }
+    });
+    expect(user.fullName).toBe("John Smith");
+    user.fullName = "Jake Murray";
+    expect(user.firstName).toBe("Jake");
+    expect(user.lastName).toBe("Murray");
   });
 });
 
-describe("Simple setState modes", () => {
+describe("Simple update modes", () => {
   test("Simple Key Value", () => {
-    const [state, setState] = createState({ key: "" });
-    setState("key", "value");
+    const state = createMutable({ key: "" });
+    state.key = "value";
     expect(state.key).toBe("value");
   });
 
-  test("Top level merge", () => {
-    const [state, setState] = createState({ starting: 1, ending: 1 });
-    setState({ ending: 2 });
-    expect(state.starting).toBe(1);
-    expect(state.ending).toBe(2);
-  });
-
-  test("Top level merge no arguments", () => {
-    const [state, setState] = createState({ starting: 1 });
-    setState({});
-    expect(state.starting).toBe(1);
-  });
-
-  test("Top level state function merge", () => {
-    const [state, setState] = createState({ starting: 1, ending: 1 });
-    setState(s => ({ ending: s.starting + 1 }));
-    expect(state.starting).toBe(1);
-    expect(state.ending).toBe(2);
-  });
-
-  test("Nested merge", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
-    setState("data", { ending: 2 });
-    expect(state.data.starting).toBe(1);
-    expect(state.data.ending).toBe(2);
-  });
-
-  test("Nested state function merge", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
-    setState("data", d => ({ ending: d.starting + 1 }));
+  test("Nested update", () => {
+    const state = createMutable({ data: { starting: 1, ending: 1 } });
+    state.data.ending = 2;
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
 
   test("Test Array", () => {
-    const [state, setState] = createState({
+    const state = createMutable({
       todos: [
         { id: 1, title: "Go To Work", done: true },
         { id: 2, title: "Eat Lunch", done: false }
       ]
     });
-    setState("todos", 1, { done: true });
-    setState("todos", [...state.todos, { id: 3, title: "Go Home", done: false }]);
+    state.todos[1].done = true;
+    state.todos.push({ id: 3, title: "Go Home", done: false });
     expect(Array.isArray(state.todos)).toBe(true);
     expect(state.todos[1].done).toBe(true);
     expect(state.todos[2].title).toBe("Go Home");
   });
 });
 
-describe("Array setState modes", () => {
-  test("Update Specific", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", [1, 3], r => r * 2);
-    expect(state.rows[0]).toBe(1);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(3);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(5);
-  });
-  test("Update filterFn", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState(
-      "rows",
-      (r, i) => !!(i % 2),
-      r => r * 2
-    );
-    expect(state.rows[0]).toBe(1);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(3);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(5);
-  });
-  test("Update traversal range", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", { from: 1, to: 4, by: 2 }, r => r * 2);
-    expect(state.rows[0]).toBe(1);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(3);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(5);
-  });
-  test("Update traversal range defaults", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", {}, r => r * 2);
-    expect(state.rows[0]).toBe(2);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(6);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(10);
-  });
-});
-
 describe("Unwrapping Edge Cases", () => {
   test("Unwrap nested frozen state object", () => {
-    var [state] = createState({
+    var state = createMutable({
         data: Object.freeze({ user: { firstName: "John", lastName: "Snow" } })
       }),
       s = unwrap({ ...state });
@@ -159,7 +102,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data.user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen array", () => {
-    var [state] = createState({
+    var state = createMutable({
         data: [{ user: { firstName: "John", lastName: "Snow" } }]
       }),
       s = unwrap({ data: state.data.slice(0) });
@@ -169,7 +112,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data[0].user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen state array", () => {
-    var [state] = createState({
+    var state = createMutable({
         data: Object.freeze([{ user: { firstName: "John", lastName: "Snow" } }])
       }),
       s = unwrap({ ...state });
@@ -183,7 +126,7 @@ describe("Unwrapping Edge Cases", () => {
 describe("Tracking State changes", () => {
   test("Track a state change", () => {
     createRoot(() => {
-      var [state, setState] = createState({ data: 2 }),
+      var state = createMutable({ data: 2 }),
         executionCount = 0;
 
       expect.assertions(2);
@@ -198,16 +141,15 @@ describe("Tracking State changes", () => {
         executionCount++;
       });
 
-      setState({ data: 5 });
-
+      state.data = 5;
       // same value again should not retrigger
-      setState({ data: 5 });
+      state.data = 5;
     });
   });
 
   test("Track a nested state change", () => {
     createRoot(() => {
-      var [state, setState] = createState({
+      var state = createMutable({
           user: { firstName: "John", lastName: "Smith" }
         }),
         executionCount = 0;
@@ -225,7 +167,7 @@ describe("Tracking State changes", () => {
         executionCount++;
       });
 
-      setState("user", "firstName", "Jake");
+      state.user.firstName = "Jake";
     });
   });
 });
@@ -233,7 +175,7 @@ describe("Tracking State changes", () => {
 describe("Handling functions in state", () => {
   test("Array Native Methods: Array.Filter", () => {
     createRoot(() => {
-      var [state] = createState({ list: [0, 1, 2] }),
+      var state = createMutable({ list: [0, 1, 2] }),
         getFiltered = createMemo(() => state.list.filter(i => i % 2));
       expect(getFiltered()).toStrictEqual([1]);
     });
@@ -241,11 +183,11 @@ describe("Handling functions in state", () => {
 
   test("Track function change", () => {
     createRoot(() => {
-      var [state, setState] = createState<{ fn: () => number }>({
+      var state = createMutable<{ fn: () => number }>({
           fn: () => 1
         }),
         getValue = createMemo(() => state.fn());
-      setState({ fn: () => 2 });
+      state.fn = () => 2;
       expect(getValue()).toBe(2);
     });
   });
@@ -255,8 +197,8 @@ describe("Setting state from Effects", () => {
   test("Setting state from signal", () => {
     createRoot(() => {
       var [getData, setData] = createSignal("init"),
-        [state, setState] = createState({ data: "" });
-      createComputed(() => setState("data", getData()));
+        state = createMutable({ data: "" });
+      createComputed(() => (state.data = getData()));
       setData("signal");
       expect(state.data).toBe("signal");
     });
@@ -267,8 +209,8 @@ describe("Setting state from Effects", () => {
       var p = new Promise<string>(resolve => {
           setTimeout(resolve, 20, "promised");
         }),
-        [state, setState] = createState({ data: "" });
-      p.then(v => setState("data", v));
+        state = createMutable({ data: "" });
+      p.then(v => (state.data = v));
       await p;
       expect(state.data).toBe("promised");
       done();
@@ -279,19 +221,19 @@ describe("Setting state from Effects", () => {
 describe("State wrapping", () => {
   test("Setting plain object", () => {
     const data = { withProperty: "y" },
-      [state] = createState({ data });
+      state = createMutable({ data });
     // not wrapped
     expect(state.data).not.toBe(data);
   });
   test("Setting plain array", () => {
     const data = [1, 2, 3],
-      [state] = createState({ data });
+      state = createMutable({ data });
     // not wrapped
     expect(state.data).not.toBe(data);
   });
   test("Setting non-wrappable", () => {
     const date = new Date(),
-      [state] = createState({ time: date });
+      state = createMutable({ time: date });
     // not wrapped
     expect(state.time).toBe(date);
   });
