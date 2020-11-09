@@ -25,7 +25,8 @@
     "server/dist",
     "server-async/dist",
     "debug/dist",
-    "types"
+    "types",
+    "dom"
   ],
   "exports": {
     ".": {
@@ -59,6 +60,10 @@
     "./debug": {
       "import": "./debug/dist/debug.js",
       "require": "./debug/dist/debug.cjs.js"
+    },
+    "./dom": {
+      "import": "./web/dist/web.js",
+      "require": "./web/dist/web.cjs.js"
     }
   },
   "scripts": {
