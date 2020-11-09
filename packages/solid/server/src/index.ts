@@ -1,5 +1,5 @@
 import { ssr, ssrSpread } from "./syncSSR";
-import { splitProps, Component } from "../../static";
+import { splitProps, Component } from "solid-js/static";
 
 export * from "./syncSSR";
 
@@ -13,7 +13,7 @@ export {
   Index,
   ErrorBoundary,
   assignProps
-} from "../../static";
+} from "solid-js/static";
 
 export const isServer = true;
 

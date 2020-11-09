@@ -4,7 +4,7 @@ import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
 
-const plugins = [
+const plugins = (p) => [
   nodeResolve({
     extensions: [".js", ".ts"]
   }),
@@ -19,7 +19,7 @@ const plugins = [
         "babel-plugin-transform-rename-import",
         {
           original: "rxcore",
-          replacement: "../../../packages/solid/src/shared/core"
+          replacement: `../../../packages/solid/${p}/src/core`
         }
       ]
     ]
@@ -50,7 +50,7 @@ export default [
         '"_SOLID_DEBUG_"': false,
         delimiters: ["", ""]
       })
-    ].concat(plugins)
+    ].concat(plugins("solid"))
   },
   {
     input: "src/index.ts",
@@ -64,7 +64,7 @@ export default [
         format: "es"
       }
     ],
-    plugins
+    plugins: plugins("debug")
   },
   {
     input: "static/src/index.ts",
@@ -83,7 +83,7 @@ export default [
       copy({
         targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./static/src" }]
       })
-    ].concat(plugins)
+    ].concat(plugins("static"))
   },
   {
     input: "web/src/index.ts",
@@ -97,7 +97,7 @@ export default [
         format: "es"
       }
     ],
-    external: ["../.."],
+    external: ["solid-js"],
     plugins: [
       copy({
         targets: [
@@ -108,77 +108,7 @@ export default [
           { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./web/types/" },
         ]
       })
-    ].concat(plugins)
-  },
-  {
-    input: "server/src/index.ts",
-    output: [
-      {
-        file: "server/dist/server.cjs.js",
-        format: "cjs"
-      },
-      {
-        file: "server/dist/server.js",
-        format: "es"
-      }
-    ],
-    external: ["../../static", "stream"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/syncSSR.d.ts"],
-            dest: "./server/src"
-          }
-        ]
-      }),
-      nodeResolve({
-        extensions: [".js", ".ts"]
-      }),
-      babel({
-        extensions: [".js", ".ts"],
-        exclude: "node_modules/**",
-        babelrc: false,
-        babelHelpers: "bundled",
-        presets: ["@babel/preset-typescript"],
-        plugins: [
-          [
-            "babel-plugin-transform-rename-import",
-            {
-              original: "rxcore",
-              replacement: "../../../packages/solid/server/src/core"
-            }
-          ]
-        ]
-      }),
-      cleanup({
-        extensions: [".js", ".ts"]
-      })
-    ]
-  },
-  {
-    input: "server-async/src/index.ts",
-    output: [
-      {
-        file: "server-async/dist/server-async.cjs.js",
-        format: "cjs"
-      },
-      {
-        file: "server-async/dist/server-async.js",
-        format: "es"
-      }
-    ],
-    external: ["../.."],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
-            dest: "./server-async/src"
-          }
-        ]
-      })
-    ].concat(plugins)
+    ].concat(plugins("web"))
   },
   {
     input: "html/src/index.ts",
@@ -193,8 +123,8 @@ export default [
         format: "es"
       }
     ],
-    external: ["../../web"],
-    plugins
+    external: ["solid-js/web"],
+    plugins: plugins("web")
   },
   {
     input: "h/src/index.ts",
@@ -209,7 +139,54 @@ export default [
         format: "es"
       }
     ],
-    external: ["../../web"],
-    plugins
+    external: ["solid-js/web"],
+    plugins: plugins("web")
   },
+  {
+    input: "server/src/index.ts",
+    output: [
+      {
+        file: "server/dist/server.cjs.js",
+        format: "cjs"
+      },
+      {
+        file: "server/dist/server.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js/static", "stream"],
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: ["../../node_modules/dom-expressions/src/syncSSR.d.ts"],
+            dest: "./server/src"
+          }
+        ]
+      })].concat(plugins("server"))
+  },
+  {
+    input: "server-async/src/index.ts",
+    output: [
+      {
+        file: "server-async/dist/server-async.cjs.js",
+        format: "cjs"
+      },
+      {
+        file: "server-async/dist/server-async.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
+            dest: "./server-async/src"
+          }
+        ]
+      })
+    ].concat(plugins("server-async"))
+  }
 ];

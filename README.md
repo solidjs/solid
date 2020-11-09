@@ -149,7 +149,7 @@ import h from "solid-js/h";
 import html from "solid-js/html";
 ```
 
-Remember you still need the corresponding DOM Expressions library for these to work.
+Remember you still need the corresponding DOM Expressions library for these to work with TypeScript.
 
 ## Browser Support
 

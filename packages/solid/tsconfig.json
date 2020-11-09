@@ -3,6 +3,5 @@
   "compilerOptions": {
     "outDir": "./types"
   },
-  "include": ["./src"],
-  "exclude": ["./src/shared"]
+  "include": ["./src"]
 }

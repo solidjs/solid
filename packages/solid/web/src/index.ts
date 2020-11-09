@@ -1,5 +1,5 @@
 import { insert, spread } from "./runtime";
-import { createSignal, createMemo, onCleanup, untrack, splitProps, Component } from "../..";
+import { createSignal, createMemo, onCleanup, untrack, splitProps, Component } from "solid-js";
 
 export * from "./runtime";
 
@@ -13,7 +13,7 @@ export {
   Index,
   ErrorBoundary,
   assignProps
-} from "../..";
+} from "solid-js";
 
 export * from "./server-mock";
 export const isServer = false;

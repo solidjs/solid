@@ -12,10 +12,10 @@ module.exports = {
             replacements: [
               {
                 original: "rxcore",
-                replacement: "../../../packages/solid/src/shared/core"
+                replacement: "../../../packages/solid/web/src/core"
               },
               {
-                original: "^../..$",
+                original: "^solid-js$",
                 replacement: "../../src",
               }
             ]

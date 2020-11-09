@@ -15,7 +15,7 @@ import {
   NonComposedEvents,
   SVGElements,
   SVGNamespace
-} from "../../web";
+} from "solid-js/web";
 
 export default createHTML({
   effect,

@@ -8,12 +8,11 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid/blob/master/packages/solid-styled-jsx"
   },
-  "main": "lib/solid-styled-components.js",
+  "main": "dist/solid-styled-components.cjs.js",
   "module": "dist/solid-styled-components.js",
   "types": "types/index.d.ts",
   "files": [
     "dist",
-    "lib",
     "types/index.d.ts"
   ],
   "sideEffects": "false",

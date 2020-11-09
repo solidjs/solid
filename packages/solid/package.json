@@ -64,10 +64,11 @@
   "scripts": {
     "prebuild": "rimraf dist/* types/*",
     "build": "npm-run-all -cnl build:*",
+    "build:link": "symlink-dir . node_modules/solid-js",
     "build:js": "rollup -c",
     "build:types": "tsc",
     "build:types-static": "tsc --project ./static/tsconfig.json",
-    "build:types-web": "tsc --project ./web/tsconfig.json",
+    "build:types-web": "tsc --project ./web/tsconfig.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",
     "build:types-h": "tsc --project ./h/tsconfig.json",
     "bench": "node --allow-natives-syntax bench/bench.js",

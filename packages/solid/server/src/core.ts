@@ -4,7 +4,7 @@ import {
   createMemo,
   createComponent,
   getContextOwner
-} from "../../static";
+} from "solid-js/static";
 
 // reactive injection for dom-expressions
 function memo(fn: () => any, equal: boolean) { return createMemo(fn, undefined, equal); }

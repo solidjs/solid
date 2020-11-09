@@ -1,5 +1,4 @@
 import { State, SetStateFunction, updatePath } from "./reactive";
-import { resolveSSRNode } from "dom-expressions/src/syncSSR";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
@@ -7,6 +6,14 @@ export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
 type PossiblyWrapped<T> = {
   [P in keyof T]: T[P] | (() => T[P]);
 };
+
+function resolveSSRNode(node: any): string {
+  if (Array.isArray(node)) return node.map(resolveSSRNode).join("");
+  const t = typeof node;
+  if (node && t === "object") return resolveSSRNode(node.t);
+  if (t === "function") return resolveSSRNode(node());
+  return t === "string" ? node : JSON.stringify(node);
+}
 
 export function createComponent<T>(
   Comp: (props: T) => JSX.Element,

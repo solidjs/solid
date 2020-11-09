@@ -1,5 +1,5 @@
 import { ssr, ssrSpread } from "./asyncSSR";
-import { createMemo, untrack, splitProps, Component } from "../..";
+import { createMemo, untrack, splitProps, Component } from "solid-js";
 
 export * from "./asyncSSR";
 
@@ -13,9 +13,11 @@ export {
   Index,
   ErrorBoundary,
   assignProps
-} from "../..";
+} from "solid-js";
 
 export const isServer = true;
+
+export function spread() {}
 
 export function Dynamic<T>(
   props: T & { children?: any; component?: Component<T> | string | keyof JSX.IntrinsicElements }
