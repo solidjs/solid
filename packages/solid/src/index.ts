@@ -39,7 +39,7 @@ declare global {
   var Solid$$: boolean;
 }
 
-if ("_SOLID_DEBUG_") {
+if ("_SOLID_DEBUG_" && globalThis) {
   if (!globalThis.Solid$$) globalThis.Solid$$ = true;
   else
     console.warn(
