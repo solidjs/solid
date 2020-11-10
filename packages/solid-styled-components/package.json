@@ -1,7 +1,7 @@
 {
   "name": "solid-styled-components",
   "description": "Solid wrapper for Styled JSX",
-  "version": "0.21.5",
+  "version": "0.21.6",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -30,6 +30,6 @@
     "solid-js": "^0.21.0"
   },
   "devDependencies": {
-    "solid-js": "^0.21.5"
+    "solid-js": "^0.21.6"
   }
 }
