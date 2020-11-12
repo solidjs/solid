@@ -176,6 +176,8 @@ setState('users', reconcile(
 
 Sometimes it makes sense especially when interopting with 3rd parties or legacy systems to use mutable state. Solid provides a `createMutable` for this purpose. It allows direct mutation much like MobX's Observables and Vue's Reactive. While less than ideal for managing global state, passing data to component children, these can often be convenient for local state.
 
+> Use with caution as it can promote difficult to reason about code, anti-patterns, and unexpected performance cliffs. Keep in mind Vue and MobX care less about these inefficient patterns since they have a VDOM safety net. We do not. For advanced users only.
+
 ```js
 const user = createMutable({
   firstName: "John",

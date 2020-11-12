@@ -5,6 +5,7 @@ declare namespace NodeJS {
 
 export function renderToString<T>(fn: () => T): string;
 export function renderToNodeStream<T>(fn: () => T): NodeJS.ReadableStream;
+export function renderToWebStream<T>(fn: () => T): ReadableStream;
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
 export function resolveSSRNode(node: any): string;
 export function ssrClassList(value: { [k: string]: boolean }): string;

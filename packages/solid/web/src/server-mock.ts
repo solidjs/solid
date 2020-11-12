@@ -6,6 +6,7 @@ export function renderToString<T>(
   }
 ): T extends Promise<any> ? Promise<string> : string {}
 export function renderToNodeStream<T>(fn: () => T): NodeJS.ReadableStream {}
+export function renderToWebStream<T>(fn: () => T): ReadableStream {}
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {}
 export function resolveSSRNode(node: any): string {}
 export function ssrClassList(value: { [k: string]: boolean }): string {}
