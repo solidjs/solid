@@ -19,7 +19,8 @@ export {
   createContext,
   useContext,
   getContextOwner,
-  equalFn
+  equalFn,
+  serializeGraph
 } from "./reactive/signal";
 export type { Resource } from "./reactive/signal";
 
@@ -39,7 +40,7 @@ declare global {
   var Solid$$: boolean;
 }
 
-if ("_SOLID_DEBUG_" && globalThis) {
+if ("_SOLID_DEV_" && globalThis) {
   if (!globalThis.Solid$$) globalThis.Solid$$ = true;
   else
     console.warn(

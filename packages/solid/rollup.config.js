@@ -47,7 +47,7 @@ export default [
         targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/render" }]
       }),
       replace({
-        '"_SOLID_DEBUG_"': false,
+        '"_SOLID_DEV_"': false,
         delimiters: ["", ""]
       })
     ].concat(plugins("solid"))
@@ -56,15 +56,15 @@ export default [
     input: "src/index.ts",
     output: [
       {
-        file: "debug/dist/debug.cjs.js",
+        file: "dev/dist/dev.cjs.js",
         format: "cjs"
       },
       {
-        file: "debug/dist/debug.js",
+        file: "dev/dist/dev.js",
         format: "es"
       }
     ],
-    plugins: plugins("debug")
+    plugins: plugins("dev")
   },
   {
     input: "static/src/index.ts",

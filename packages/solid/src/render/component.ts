@@ -154,4 +154,5 @@ type GlobalHydration = {
 
 declare global {
   var _$HYDRATION: GlobalHydration;
+  var _$afterUpdate: () => void;
 }

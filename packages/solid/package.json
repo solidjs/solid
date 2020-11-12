@@ -57,9 +57,9 @@
       "import": "./server-async/dist/server-async.js",
       "require": "./server-async/dist/server-async.cjs.js"
     },
-    "./debug": {
-      "import": "./debug/dist/debug.js",
-      "require": "./debug/dist/debug.cjs.js"
+    "./dev": {
+      "import": "./dev/dist/dev.js",
+      "require": "./dev/dist/dev.cjs.js"
     },
     "./dom": {
       "import": "./web/dist/web.js",

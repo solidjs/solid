@@ -1,6 +1,0 @@
-{
-  "name": "solid-js/debug",
-  "main": "./dist/debug.cjs.js",
-  "module": "./dist/debug.js",
-  "sideEffects": false
-}

@@ -1,4 +1,4 @@
-import { Listener, createSignal } from "./signal";
+import { Listener, createSignal, hashValue, registerGraph } from "./signal";
 import {
   wrap,
   unwrap,
@@ -7,6 +7,7 @@ import {
   $RAW,
   $NODE,
   $PROXY,
+  $NAME,
   StateNode,
   State,
   setProperty,
@@ -24,14 +25,28 @@ const proxyTraps: ProxyHandler<StateNode> = {
     if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createSignal());
+        node =
+          nodes._ ||
+          (nodes._ = "_SOLID_DEV_"
+            ? createSignal(undefined, false, { internal: true })
+            : createSignal());
         node[0]();
       }
       nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createSignal());
+      node =
+        nodes[property] ||
+        (nodes[property] = "_SOLID_DEV_"
+          ? createSignal(undefined, false, { internal: true })
+          : createSignal());
       node[0]();
     }
-    return wrappable ? wrap(value, proxyTraps) : value;
+    return wrappable
+      ? wrap(
+          value,
+          "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`,
+          proxyTraps
+        )
+      : value;
   },
 
   set(target, property: string | number, value) {
@@ -48,9 +63,18 @@ const proxyTraps: ProxyHandler<StateNode> = {
 };
 
 export function createMutable<T extends StateNode>(
-  state: T | State<T>
+  state: T | State<T>,
+  options?: { name?: string }
 ): State<T> {
   const unwrappedState = unwrap<T>(state || {}, true);
-  const wrappedState = wrap(unwrappedState, proxyTraps);
+  const wrappedState = wrap(
+    unwrappedState,
+    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
+    proxyTraps
+  );
+  if ("_SOLID_DEV_") {
+    const name = options && options.name || hashValue(unwrappedState);
+    registerGraph(name, { value: unwrappedState });
+  }
   return wrappedState as State<T>;
 }

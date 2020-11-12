@@ -51,12 +51,12 @@ module.exports = function (context, options = {}) {
         }
       ]);
     }
-  } else if (options.debug) {
+  } else if (options.dev) {
     plugins.push([
       rename,
       {
         replacements: [
-          { original: "^solid-js$", replacement: "solid-js/debug" }
+          { original: "^solid-js$", replacement: "solid-js/dev" }
         ]
       }
     ]);

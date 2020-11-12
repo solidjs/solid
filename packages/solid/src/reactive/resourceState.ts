@@ -1,9 +1,4 @@
-import {
-  batch,
-  createSignal,
-  Listener,
-  createResource
-} from "./signal";
+import { batch, createSignal, Listener, createResource, hashValue, registerGraph } from "./signal";
 
 import {
   updatePath,
@@ -23,7 +18,7 @@ import {
 
 function createResourceNode(v: any, name: string) {
   // maintain setState capability by using normal data node as well
-  const node = createSignal(),
+  const node = "_SOLID_DEV_" ? createSignal(undefined, false, { internal: true }) : createSignal(),
     [r, load] = createResource(v, { name });
   return [() => (r(), node[0]()), node[1], load, () => r.loading];
 }
@@ -72,7 +67,11 @@ export function createResourceState<T extends StateNode>(
       if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
         let nodes, node;
         if (wrappable && (nodes = getDataNodes(value))) {
-          node = nodes._ || (nodes._ = createSignal());
+          node =
+            nodes._ ||
+            (nodes._ = "_SOLID_DEV_"
+              ? createSignal(undefined, false, { internal: true })
+              : createSignal());
           node[0]();
         }
         nodes = getDataNodes(target);
@@ -81,7 +80,9 @@ export function createResourceState<T extends StateNode>(
           (nodes[property] = createResourceNode(value, `${options.name}:${property as string}`));
         node[0]();
       }
-      return wrappable ? wrap(value) : value;
+      return wrappable
+        ? wrap(value, "_SOLID_DEV_" && options.name && `${options.name}:${property as string}`)
+        : value;
     },
 
     set() {
@@ -91,15 +92,19 @@ export function createResourceState<T extends StateNode>(
     deleteProperty() {
       return true;
     },
-
     getOwnPropertyDescriptor: proxyDescriptor
   };
 
   const unwrappedState = unwrap<T>(state || {}, true),
     wrappedState = wrap<T & { loading: { [P in keyof T]: boolean } }>(
       unwrappedState as any,
+      "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
       resourceTraps
     );
+  if ("_SOLID_DEV_") {
+    const name = (options && options.name) || hashValue(unwrappedState);
+    registerGraph(name, { value: unwrappedState });
+  }
   function setState(...args: any[]): void {
     batch(() => updatePath(unwrappedState, args));
   }
