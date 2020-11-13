@@ -355,11 +355,11 @@ interface GraphRecord {
   sources?: Record<string, unknown>;
   children?: GraphRecord[];
 }
-export function serializeGraph(owner?: Owner): GraphRecord {
-  owner || owner === Owner;
+export function serializeGraph(owner?: Owner | null): GraphRecord {
+  owner || (owner = Owner);
   if (!"_SOLID_DEV_" || !owner) return {};
   return {
-    sources: serializeValues(owner.sourceMap),
+    ...serializeValues(owner.sourceMap),
     children: owner.owned ? serializeChildren(owner) : undefined
   };
 }
@@ -833,7 +833,7 @@ function serializeChildren(root: Owner): GraphRecord[] {
   for (let i = 0, len = root.owned!.length; i < len; i++) {
     const node = root.owned![i];
     results.push({
-      sources: node.sourceMap ? serializeValues(node.sourceMap) : undefined,
+      ...serializeValues(node.sourceMap),
       children: node.owned ? serializeChildren(node) : undefined
     });
   }
