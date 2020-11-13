@@ -131,7 +131,8 @@ export function onCleanup(fn: () => void) {}
 
 export function onError(fn: (err: any) => void): void {
   if (Owner === null)
-    console.warn("error handlers created outside a `createRoot` or `render` will never be run");
+    "_SOLID_DEV_" &&
+      console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
   else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
   else Owner.context[ERROR].push(fn);

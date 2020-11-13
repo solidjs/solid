@@ -68,7 +68,10 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   detachedOwner && (Owner = detachedOwner);
   const listener = Listener,
     owner = Owner,
-    root: Owner = fn.length === 0 && !"_SOLID_DEV_" ? UNOWNED : { owned: null, cleanups: null, context: null, owner };
+    root: Owner =
+      fn.length === 0 && !"_SOLID_DEV_"
+        ? UNOWNED
+        : { owned: null, cleanups: null, context: null, owner };
   Owner = root;
   Listener = null;
   let result: T;
@@ -310,7 +313,8 @@ export function onMount(fn: () => void) {
 
 export function onCleanup(fn: () => void) {
   if (Owner === null)
-    console.warn("cleanups created outside a `createRoot` or `render` will never be run");
+    "_SOLID_DEV_" &&
+      console.warn("cleanups created outside a `createRoot` or `render` will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
   return fn;
@@ -319,7 +323,8 @@ export function onCleanup(fn: () => void) {
 export function onError(fn: (err: any) => void): void {
   ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
-    console.warn("error handlers created outside a `createRoot` or `render` will never be run");
+    "_SOLID_DEV_" &&
+      console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
   else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
   else Owner.context[ERROR].push(fn);
@@ -609,7 +614,10 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
     pure
   };
   if (Owner === null)
-    console.warn("computations created outside a `createRoot` or `render` will never be disposed");
+    "_SOLID_DEV_" &&
+      console.warn(
+        "computations created outside a `createRoot` or `render` will never be disposed"
+      );
   else if (Owner !== UNOWNED) {
     if (Transition && Transition.running && (Owner as Memo<T>).pure) {
       if (!(Owner as Memo<T>).tOwned) (Owner as Memo<T>).tOwned = [c];

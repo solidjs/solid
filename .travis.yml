@@ -11,6 +11,5 @@ jobs:
       artifacts:
         paths:
           - "*/dist"
-          - "*/lib"
           - "*/types"
         expire_in: 1 day
