@@ -1,14 +1,15 @@
 const path = require("path");
-const { execFile } = require("child_process");
+const execFile = require("util").promisify(require("child_process").execFile);
 
 const pathToRunner = path.resolve(__dirname, "writeToDisk.js");
 
-function run({ entry, output, url }) {
-  execFile("node", [pathToRunner, entry, output, url], (err, stdout, stderr) => console.log(stdout));
+async function run({ entry, output, url }) {
+  const { stdout } = await execFile("node", [pathToRunner, entry, output, url]);
+  if (stdout.length) console.log(stdout);
 }
 
-module.exports = function renderStatic(config) {
+module.exports = async function renderStatic(config) {
   if (Array.isArray(config)) {
-    config.forEach(run);
-  } else run(config);
+    await Promise.all(config.map(run));
+  } else await run(config);
 };
