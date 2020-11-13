@@ -18,6 +18,8 @@ Finally there is a new `globalThis._$afterUpdate` hook that can be assigned that
 
 This is just the start but it is my intention to develop these features to allow for better HMR and DevTools.
 
+> Note: If the libraries are not being pulled into your bundle and are treated as external you may need to alias `solid-js` to `solid-js/dev` in your bundler in order to use dev mode.
+
 ### Self contained HyperScript/Lit Modules
 
 We now ship the respective DOM expressions code. This makes it much easier to use directly from a CDN like Skypack. You literally can develop with Solid in the old school write it in notepad before npm was a thing sort of way.

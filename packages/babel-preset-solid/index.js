@@ -23,6 +23,7 @@ module.exports = function (context, options = {}) {
           delegateEvents: true,
           contextToCustomElements: true,
           wrapConditionals: true,
+          wrapSpreads: false,
           generate: "dom"
         },
         options
