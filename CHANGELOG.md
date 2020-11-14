@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.22.0 - 2020-11-
+## 0.22.0 - 2020-11-14
 
-### Unified Exports
+### Unified Exports (Deprecation `solid-js/dom`)
 
 Solid now has streamlined exports for isomorphic development. This means from now on using `solid-js/web` instead of `solid-js/dom`. Based on compiler options it will swap out the appropriate packages for web. You should only ever import `solid-js`, `solid-js/h`, `solid-js/html`, and `solid-js/web` directly in your code.
 
