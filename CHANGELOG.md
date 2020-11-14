@@ -76,6 +76,10 @@ user.fullName = "Jake Murray";
 console.log(user.firstName); // Jake
 ```
 
+### State Getter/Setters are now Wrapped
+
+Getters are now wrapped in `createMemo` and setters in `batch`. However, this introduces a new limitation that they can only be top level to have this behavior.
+
 ### State compatible with Prop Helpers
 
 You can now use state with `assignProps` and `splitProps` helpers.
