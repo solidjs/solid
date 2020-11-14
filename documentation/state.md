@@ -12,7 +12,7 @@ Through the use of proxies and explicit setters it gives the control of an immut
 
 Initializes with object value and returns an array where the first index is the state object and the second is the setState method.
 
-Initial state consists of a tree of values, including getters that can define derived values:
+Initial state consists of a tree of values, including getters that are automatically wrapped in a Memo that can define derived values:
 
 ```jsx
 const [state, setState] = createState({
@@ -23,6 +23,7 @@ const [state, setState] = createState({
   }
 });
 ```
+> Note: getters are only currently supported top level
 
 ### `setState(changes)`
 
@@ -197,4 +198,4 @@ const user = createMutable({
 user.firstName = "Jake";
 ```
 
-Along with getters Mutable state supports setters. Just remember that you need to `batch` your changes if you don't want to waste work on multiple updates. `setState` does this automatically with Immutable State.
+Along with getters Mutable state supports setters. Setters are atomic but remember that you need to `batch` your changes if you don't want to waste work on multiple updates. `setState` does this automatically with Immutable State.

@@ -25,7 +25,7 @@ function createResourceNode(v: any, name: string) {
 
 export interface LoadStateFunction<T> {
   (
-    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
+    v: { [P in keyof T]?: () => Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
   ): void;
 }
@@ -99,6 +99,7 @@ export function createResourceState<T extends StateNode>(
     wrappedState = wrap<T & { loading: { [P in keyof T]: boolean } }>(
       unwrappedState as any,
       "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
+      true,
       resourceTraps
     );
   if ("_SOLID_DEV_") {

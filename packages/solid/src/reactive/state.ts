@@ -1,4 +1,4 @@
-import { Listener, createSignal, batch, hashValue, registerGraph } from "./signal";
+import { Listener, createSignal, createMemo, batch, hashValue, registerGraph } from "./signal";
 export const $RAW = Symbol("state-raw"),
   $NODE = Symbol("state-node"),
   $PROXY = Symbol("state-proxy"),
@@ -37,11 +37,32 @@ export type State<T> = {
 export function wrap<T extends StateNode>(
   value: T,
   name?: string,
+  processProps?: boolean,
   traps?: ProxyHandler<T>
 ): State<T> {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, traps || proxyTraps) });
+    if (processProps) {
+      let keys = Object.keys(value),
+        desc = Object.getOwnPropertyDescriptors(value);
+      for (let i = 0, l = keys.length; i < l; i++) {
+        const prop = keys[i];
+        if (desc[prop].get) {
+          const get = createMemo(desc[prop].get!.bind(p));
+          Object.defineProperty(value, prop, {
+            get
+          });
+        }
+        if (desc[prop].set) {
+          const og = desc[prop].set!,
+            set = (v: T[keyof T]) => batch(() => og.call(p, v));
+          Object.defineProperty(value, prop, {
+            set
+          });
+        }
+      }
+    }
     if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
   }
   return p;
@@ -319,7 +340,8 @@ export function createState<T extends StateNode>(
   const unwrappedState = unwrap<T>(state || {}, true);
   const wrappedState = wrap(
     unwrappedState,
-    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState))
+    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
+    true
   );
   if ("_SOLID_DEV_") {
     const name = (options && options.name) || hashValue(unwrappedState);
