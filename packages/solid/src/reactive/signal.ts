@@ -15,8 +15,8 @@ const UNOWNED: Owner = {
   owner: null
 };
 const [transPending, setTransPending] = createSignal(false, true);
-export let Owner: Owner | null = null;
-export let Listener: Computation<any> | null = null;
+export var Owner: Owner | null = null;
+export var Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
@@ -30,6 +30,7 @@ interface Signal<T> {
   pending: T | {};
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
+  name?: string;
 }
 
 interface Owner {
@@ -37,6 +38,7 @@ interface Owner {
   cleanups: (() => void)[] | null;
   owner?: Owner | null;
   context: any | null;
+  sourceMap?: Record<string, { value: unknown }>;
 }
 
 interface Computation<T> extends Owner {
@@ -66,7 +68,10 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   detachedOwner && (Owner = detachedOwner);
   const listener = Listener,
     owner = Owner,
-    root: Owner = fn.length === 0 ? UNOWNED : { owned: null, cleanups: null, context: null, owner };
+    root: Owner =
+      fn.length === 0 && !"_SOLID_DEV_"
+        ? UNOWNED
+        : { owned: null, cleanups: null, context: null, owner };
   Owner = root;
   Listener = null;
   let result: T;
@@ -83,11 +88,13 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 export function createSignal<T>(): [() => T | undefined, (v: T) => T];
 export function createSignal<T>(
   value: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
+  areEqual?: boolean | ((prev: T, next: T) => boolean),
+  options?: { name?: string; internal?: boolean }
 ): [() => T, (v: T) => T];
 export function createSignal<T>(
   value?: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
+  areEqual?: boolean | ((prev: T, next: T) => boolean),
+  options?: { name?: string; internal?: boolean }
 ): [() => T, (v: T) => T] {
   const s: Signal<T> = {
     value,
@@ -96,6 +103,10 @@ export function createSignal<T>(
     pending: NOTPENDING,
     comparator: areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined
   };
+  if ("_SOLID_DEV_" && (!options || !options.internal)) {
+    s.name = (options && options.name) || hashValue(value);
+    registerGraph(s.name, s as { value: unknown });
+  }
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
@@ -302,7 +313,8 @@ export function onMount(fn: () => void) {
 
 export function onCleanup(fn: () => void) {
   if (Owner === null)
-    console.warn("cleanups created outside a `createRoot` or `render` will never be run");
+    "_SOLID_DEV_" &&
+      console.warn("cleanups created outside a `createRoot` or `render` will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
   return fn;
@@ -311,7 +323,8 @@ export function onCleanup(fn: () => void) {
 export function onError(fn: (err: any) => void): void {
   ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
-    console.warn("error handlers created outside a `createRoot` or `render` will never be run");
+    "_SOLID_DEV_" &&
+      console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
   else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
   else Owner.context[ERROR].push(fn);
@@ -319,6 +332,36 @@ export function onError(fn: (err: any) => void): void {
 
 export function getListener() {
   return Listener;
+}
+
+export function getContextOwner() {
+  return Owner;
+}
+
+export function hashValue(v: any) {
+  return typeof v === "string" ? hash(v) : hash(JSON.stringify(v) || "");
+}
+
+export function registerGraph(name: string, value: { value: unknown }) {
+  if (Owner) {
+    let tryName = name;
+    let i = 0;
+    Owner.sourceMap || (Owner.sourceMap = {});
+    while (Owner.sourceMap[tryName]) tryName = name + "_" + ++i;
+    Owner.sourceMap[tryName] = value;
+  }
+}
+interface GraphRecord {
+  sources?: Record<string, unknown>;
+  children?: GraphRecord[];
+}
+export function serializeGraph(owner?: Owner | null): GraphRecord {
+  owner || (owner = Owner);
+  if (!"_SOLID_DEV_" || !owner) return {};
+  return {
+    ...serializeValues(owner.sourceMap),
+    children: owner.owned ? serializeChildren(owner) : undefined
+  };
 }
 
 // Context API
@@ -335,10 +378,6 @@ export function createContext<T>(defaultValue?: T): Context<T> {
 
 export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
-}
-
-export function getContextOwner() {
-  return Owner;
 }
 
 // Resource API
@@ -575,7 +614,10 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
     pure
   };
   if (Owner === null)
-    console.warn("computations created outside a `createRoot` or `render` will never be disposed");
+    "_SOLID_DEV_" &&
+      console.warn(
+        "computations created outside a `createRoot` or `render` will never be disposed"
+      );
   else if (Owner !== UNOWNED) {
     if (Transition && Transition.running && (Owner as Memo<T>).pure) {
       if (!(Owner as Memo<T>).tOwned) (Owner as Memo<T>).tOwned = [c];
@@ -654,7 +696,10 @@ function runUpdates(fn: () => void, init: boolean) {
         runEffects(Effects!);
         Effects = null;
       });
-    else Effects = null;
+    else {
+      Effects = null;
+      if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
+    }
   }
 }
 
@@ -766,4 +811,31 @@ function createProvider(id: symbol) {
       return resolveChildren(props.children);
     });
   };
+}
+
+function hash(s: string) {
+  for (var i = 0, h = 9; i < s.length; ) h = Math.imul(h ^ s.charCodeAt(i++), 9 ** 9);
+  return `s${h ^ (h >>> 9)}`;
+}
+
+function serializeValues(sources: Record<string, { value: unknown }> = {}) {
+  const k = Object.keys(sources);
+  const result: Record<string, unknown> = {};
+  for (let i = 0; i < k.length; i++) {
+    const key = k[i];
+    result[key] = sources[key].value;
+  }
+  return result;
+}
+
+function serializeChildren(root: Owner): GraphRecord[] {
+  const results: GraphRecord[] = [];
+  for (let i = 0, len = root.owned!.length; i < len; i++) {
+    const node = root.owned![i];
+    results.push({
+      ...serializeValues(node.sourceMap),
+      children: node.owned ? serializeChildren(node) : undefined
+    });
+  }
+  return results;
 }

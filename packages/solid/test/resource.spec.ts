@@ -147,7 +147,7 @@ describe("Simulate a dynamic fetch with state", () => {
   test("setState tracked", () => {
     createRoot(() => {
       let runs = 0;
-      createEffect(() => {
+      createComputed(() => {
         users[7];
         runs++;
       });

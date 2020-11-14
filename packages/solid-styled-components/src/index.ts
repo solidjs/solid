@@ -1,10 +1,9 @@
 import { css, CSSAttribute } from "goober";
 import { assignProps, splitProps, createContext, useContext, createComponent } from "solid-js";
-import { spread, ssr, ssrSpread } from "solid-js/dom";
+import { spread, ssr, ssrSpread, isServer } from "solid-js/web";
 
 export { css, glob, extractCss } from "goober";
 
-const isSSR = !globalThis.window;
 const ThemeContext = createContext();
 
 export function ThemeProvider<T extends { theme: any; children?: any }>(props: T) {
@@ -62,7 +61,7 @@ export function styled<T extends keyof JSX.IntrinsicElements>(tag: T | ((props: 
       let el;
       if (typeof createTag === "function") {
         el = createTag(newProps);
-      } else if (isSSR) {
+      } else if (isServer) {
         const [local, others] = splitProps(newProps, ["children"]);
         el = ssr(
           [`<${createTag} `, ">", `</${createTag}>`],

@@ -1,4 +1,4 @@
-import { createComponent, assignProps, splitProps } from "../src";
+import { createComponent, assignProps, splitProps, createState } from "../src";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -59,6 +59,17 @@ describe("Clone Props", () => {
     expect(newProps.d).toBe(undefined);
   });
 });
+
+describe("Clone State", () => {
+  const [state, setState] = createState<{a: string, b: string, c?: string}>({ a: "Hi", b: "Jo" });
+  const clone = assignProps({}, state);
+  expect(clone.a).toBe("Hi");
+  expect(clone.b).toBe("Jo");
+  setState({ a: "Greetings", c: "John" });
+  expect(clone.a).toBe("Greetings");
+  expect(clone.b).toBe("Jo");
+  expect(clone.c).toBe(undefined);
+})
 
 describe("SplitProps Props", () => {
   test("SplitProps in two", () => {

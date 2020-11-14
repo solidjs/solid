@@ -1,4 +1,5 @@
 import { createSignal, createContext, useContext, useTransition } from "solid-js";
+import { isServer } from "solid-js/web";
 
 // Super simplistic pushstate router that matches on absolute paths
 const RouterContext = createContext();
@@ -9,7 +10,7 @@ function RouteHOC(Comp) {
       ),
       matches = match => match === (location() || "index"),
       [pending, start] = useTransition();
-    !globalThis.isSSR && (window.onpopstate = () => setLocation(window.location.pathname.slice(1)));
+    !isServer && (window.onpopstate = () => setLocation(window.location.pathname.slice(1)));
 
     return (
       <RouterContext.Provider

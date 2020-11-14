@@ -9,17 +9,24 @@ module.exports = {
         [
           "babel-plugin-transform-rename-import",
           {
-            original: "rxcore",
-            replacement: "../../../packages/solid/src/dom/core"
+            replacements: [
+              {
+                original: "rxcore",
+                replacement: "../../../packages/solid/web/src/core"
+              },
+              {
+                original: "^solid-js$",
+                replacement: "../../src",
+              }
+            ]
           }
         ],
         [
           "babel-plugin-jsx-dom-expressions",
           {
-            moduleName: "../../src/dom/index",
+            moduleName: "../../web/src/index",
             contextToCustomElements: true,
-            wrapConditionals: true,
-            builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal"]
+            wrapConditionals: true
           }
         ]
       ]

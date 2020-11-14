@@ -1,8 +1,7 @@
-globalThis.isSSR = true;
 import express from "express";
 import path from "path";
 
-import { renderToNodeStream, generateHydrationScript } from "solid-js/server";
+import { renderToNodeStream, generateHydrationScript } from "solid-js/web";
 import App from "../shared/src/components/App";
 
 const app = express();
@@ -21,7 +20,6 @@ app.get("*", (req, res) => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <link rel="stylesheet" href="/styles.css" />
       <script>${generateHydrationScript({
-        eventNames: ["click", "blur", "input"],
         streaming: true
       })}</script>
       <script async type="module" src="/js/index.js"></script>

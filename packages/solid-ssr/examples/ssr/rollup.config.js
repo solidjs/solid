@@ -12,7 +12,7 @@ export default [
         format: "cjs"
       }
     ],
-    external: ["solid-js", "solid-js/server", "path", "express"],
+    external: ["solid-js/static", "solid-js/server", "path", "express", "stream"],
     plugins: [
       nodeResolve({ preferBuiltins: true }),
       babel({
@@ -20,7 +20,8 @@ export default [
         presets: [["solid", { generate: "ssr", hydratable: true }]]
       }),
       common()
-    ]
+    ],
+    preserveEntrySignatures: false
   },
   {
     input: "examples/shared/src/index.js",

@@ -10,5 +10,5 @@ const { code } = babel.transformSync('const v = <div a b={2} />;', {
 	compact: true
 });
 
-assert.equal(code, 'import{template as _$template}from"solid-js/dom";const _tmpl$=_$template(`<div a="" b="2"></div>`,2);const v=_tmpl$.cloneNode(true);');
+assert.equal(code, 'import{template as _$template}from"solid-js/web";const _tmpl$=_$template(`<div a="" b="2"></div>`,2);const v=_tmpl$.cloneNode(true);');
 console.log('passed');

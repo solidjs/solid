@@ -29,7 +29,7 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 ## The Gist
 
 ```jsx
-import { render } from "solid-js/dom";
+import { render } from "solid-js/web";
 
 const HelloMessage = props => <div>Hello {props.name}</div>;
 
@@ -41,7 +41,7 @@ A Simple Component is just a function that accepts properties. Solid uses a `ren
 The JSX is then compiled down to efficient real DOM expressions:
 
 ```js
-import { render, template, insert, createComponent } from "solid-js/dom";
+import { render, template, insert, createComponent } from "solid-js/web";
 
 const _tmpl$ = template(`<div>Hello </div>`);
 
@@ -60,6 +60,7 @@ render(
 That `_el$` is a real div element and `props.name`, `Taylor` in this case, is appended to its child nodes. Notice that `props.name` is wrapped in a function. That is because that is the only part of this component that will ever execute again. Even if a name is updated from the outside only that one expression will be re-evaluated. The compiler optimizes initial render and the runtime optimizes updates. It's the best of both worlds.
 
 Want to see what code Solid generates:
+
 ### [Try it Online](https://solid-template-explorer.netlify.app/)
 
 ## Getting Started
@@ -91,8 +92,7 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 ```
 
 > Check out these two introductory articles by [@aftzl](https://github.com/atfzl):
-[Understanding Solid: Reactivity Basics](https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk)
-[Understanding Solid: JSX](https://dev.to/atfzl/understanding-solid-jsx-584p)
+> [Understanding Solid: Reactivity Basics](https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk) > [Understanding Solid: JSX](https://dev.to/atfzl/understanding-solid-jsx-584p)
 
 ## Documentation
 
@@ -122,20 +122,18 @@ You can run them straight from the browser with a script tag using (Solid Standa
 
 ```html
 <html>
-  <head>
-    <script src="https://unpkg.com/solid-standalone/html.min.js"></script>
-  </head>
   <body>
-    <script>
-      const { createState, onCleanup } = Solid;
-      const { render, html } = SolidDOM;
-      const App = () => {
-        const [state, setState] = createState({ counter: 0 }),
-          timer = setInterval(() => setState("counter", c => c + 1), 1000);
-        onCleanup(() => clearInterval(timer));
+    <script type="module">
+      import { createSignal, onCleanup } from "https://cdn.skypack.dev/solid-js";
+      import { render } from "https://cdn.skypack.dev/solid-js/web";
+      import html from "https://cdn.skypack.dev/solid-js/html";
 
-        return html`<div>${() => state.counter}</div>`
-      }
+      const App = () => {
+        const [count, setCount] = createSignal(0),
+          timer = setInterval(() => setCount(count() + 1), 1000);
+        onCleanup(() => clearInterval(timer));
+        return html`<div>${count}</div>`;
+      };
       render(App, document.body);
     </script>
   </body>
@@ -149,7 +147,7 @@ import h from "solid-js/h";
 import html from "solid-js/html";
 ```
 
-Remember you still need the corresponding DOM Expressions library for these to work.
+Remember you still need the corresponding DOM Expressions library for these to work with TypeScript.
 
 ## Browser Support
 
@@ -158,13 +156,31 @@ The last 2 versions of modern evergreen browsers and Node LTS.
 <img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
 
 ## Community
+
 Come chat with us on [Discord](https://discord.com/invite/solidjs)
+
+### Contributors
+
+<a href="https://github.com/ryansolid/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
 
 ### Open Collective
 
 Support us with a donation and help us continue our activities. [[Contribute](https://opencollective.com/solid)]
 
+<a href="https://opencollective.com/solid/backer/0/website" target="_blank"><img src="https://opencollective.com/solid/backer/0/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/1/website" target="_blank"><img src="https://opencollective.com/solid/backer/1/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/2/website" target="_blank"><img src="https://opencollective.com/solid/backer/2/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/3/website" target="_blank"><img src="https://opencollective.com/solid/backer/3/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/4/website" target="_blank"><img src="https://opencollective.com/solid/backer/4/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/5/website" target="_blank"><img src="https://opencollective.com/solid/backer/5/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/6/website" target="_blank"><img src="https://opencollective.com/solid/backer/6/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/7/website" target="_blank"><img src="https://opencollective.com/solid/backer/7/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/8/website" target="_blank"><img src="https://opencollective.com/solid/backer/8/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/9/website" target="_blank"><img src="https://opencollective.com/solid/backer/9/avatar.svg"></a>
+<a href="https://opencollective.com/solid/backer/10/website" target="_blank"><img src="https://opencollective.com/solid/backer/10/avatar.svg"></a>
+
 ### Sponsors
+
 Become a sponsor and get your logo on our README on GitHub with a link to your site. [[Become a sponsor](https://opencollective.com/solid#sponsor)]
 
 <a href="https://opencollective.com/solid/sponsor/0/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/0/avatar.svg"></a>

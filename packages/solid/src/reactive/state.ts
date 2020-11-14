@@ -1,11 +1,13 @@
-import { Listener, createSignal, batch } from "./signal";
+import { Listener, createSignal, createMemo, batch, hashValue, registerGraph } from "./signal";
 export const $RAW = Symbol("state-raw"),
   $NODE = Symbol("state-node"),
-  $PROXY = Symbol("state-proxy");
+  $PROXY = Symbol("state-proxy"),
+  $NAME = Symbol("state-name");
 
 export type StateNode = {
   [$NODE]?: any;
   [$PROXY]?: any;
+  [$NAME]?: string;
   [k: string]: any;
   [k: number]: any;
 };
@@ -32,10 +34,37 @@ export type State<T> = {
   AddSymbolToStringTag<T> &
   AddCallable<T>;
 
-export function wrap<T extends StateNode>(value: T, traps?: ProxyHandler<T>): State<T> {
+export function wrap<T extends StateNode>(
+  value: T,
+  name?: string,
+  processProps?: boolean,
+  traps?: ProxyHandler<T>
+): State<T> {
   let p = value[$PROXY];
-  if (!p)
+  if (!p) {
     Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, traps || proxyTraps) });
+    if (processProps) {
+      let keys = Object.keys(value),
+        desc = Object.getOwnPropertyDescriptors(value);
+      for (let i = 0, l = keys.length; i < l; i++) {
+        const prop = keys[i];
+        if (desc[prop].get) {
+          const get = createMemo(desc[prop].get!.bind(p));
+          Object.defineProperty(value, prop, {
+            get
+          });
+        }
+        if (desc[prop].set) {
+          const og = desc[prop].set!,
+            set = (v: T[keyof T]) => batch(() => og.call(p, v));
+          Object.defineProperty(value, prop, {
+            set
+          });
+        }
+      }
+    }
+    if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
+  }
   return p;
 }
 
@@ -78,8 +107,18 @@ export function getDataNodes(target: StateNode) {
   return nodes;
 }
 
-const proxyTraps = {
-  get(target: StateNode, property: string | number | symbol, receiver: any) {
+export function proxyDescriptor(target: StateNode, property: string | number | symbol) {
+  const desc = Reflect.getOwnPropertyDescriptor(target, property);
+  if (!desc || desc.get || property === $PROXY || property === $NODE || property === $NAME)
+    return desc;
+  delete desc.value;
+  delete desc.writable;
+  desc.get = () => target[property as string | number];
+  return desc;
+}
+
+const proxyTraps: ProxyHandler<StateNode> = {
+  get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
     const value = target[property as string | number];
@@ -89,14 +128,24 @@ const proxyTraps = {
     if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createSignal());
+        node =
+          nodes._ ||
+          (nodes._ = "_SOLID_DEV_"
+            ? createSignal(undefined, false, { internal: true })
+            : createSignal());
         node[0]();
       }
       nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createSignal());
+      node =
+        nodes[property] ||
+        (nodes[property] = "_SOLID_DEV_"
+          ? createSignal(undefined, false, { internal: true })
+          : createSignal());
       node[0]();
     }
-    return wrappable ? wrap(value) : value;
+    return wrappable
+      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
+      : value;
   },
 
   set() {
@@ -105,7 +154,9 @@ const proxyTraps = {
 
   deleteProperty() {
     return true;
-  }
+  },
+
+  getOwnPropertyDescriptor: proxyDescriptor
 };
 
 export function setProperty(
@@ -283,10 +334,19 @@ export interface SetStateFunction<T> {
 }
 
 export function createState<T extends StateNode>(
-  state: T | State<T>
+  state: T | State<T>,
+  options?: { name?: string }
 ): [State<T>, SetStateFunction<T>] {
   const unwrappedState = unwrap<T>(state || {}, true);
-  const wrappedState = wrap(unwrappedState);
+  const wrappedState = wrap(
+    unwrappedState,
+    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
+    true
+  );
+  if ("_SOLID_DEV_") {
+    const name = (options && options.name) || hashValue(unwrappedState);
+    registerGraph(name, { value: unwrappedState });
+  }
   function setState(...args: any[]): void {
     batch(() => updatePath(unwrappedState, args));
   }

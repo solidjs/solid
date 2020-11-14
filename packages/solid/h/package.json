@@ -1,7 +1,7 @@
 {
   "name": "solid-js/h",
-  "main": "../lib/dom/h.js",
-  "module": "../dist/dom/h.js",
-  "types": "../types/dom/h.d.ts",
+  "main": ".dist/h.cjs.js",
+  "module": "./dist/h.js",
+  "types": "./types/index.d.ts",
   "sideEffects": false
 }

@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.21.6",
+  "version": "0.22.0-beta.4",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/ryansolid/solid#readme",
@@ -9,46 +9,74 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid"
   },
-  "main": "lib/index.js",
-  "module": "dist/index.js",
+  "main": "dist/solid.cjs.js",
+  "module": "dist/solid.js",
   "types": "types/index.d.ts",
   "sideEffects": false,
   "files": [
     "dist",
+    "web/dist",
+    "web/types",
+    "h/dist",
+    "h/types",
+    "html/dist",
+    "html/types",
+    "static/dist",
+    "server/dist",
+    "server-async/dist",
+    "debug/dist",
+    "types",
     "dom",
-    "h",
-    "html",
-    "server",
-    "lib",
-    "types"
+    "dev"
   ],
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "require": "./lib/index.js"
+      "import": "./dist/solid.js",
+      "require": "./dist/solid.cjs.js"
     },
-    "./dom": {
-      "import": "./dist/dom/index.js",
-      "require": "./lib/dom/index.js"
+    "./web": {
+      "import": "./web/dist/web.js",
+      "require": "./web/dist/web.cjs.js"
     },
     "./h": {
-      "import": "./dist/dom/h.js",
-      "require": "./lib/dom/h.js"
+      "import": "./h/dist/h.js",
+      "require": "./h/dist/h.cjs.js"
     },
     "./html": {
-      "import": "./dist/dom/html.js",
-      "require": "./lib/dom/html.js"
+      "import": "./html/dist/html.js",
+      "require": "./html/dist/html.cjs.js"
+    },
+    "./static": {
+      "import": "./static/dist/static.js",
+      "require": "./static/dist/static.cjs.js"
     },
     "./server": {
-      "import": "./dist/server/index.js",
-      "require": "./lib/server/index.js"
+      "import": "./server/dist/server.js",
+      "require": "./server/dist/server.cjs.js"
+    },
+    "./server-async": {
+      "import": "./server-async/dist/server-async.js",
+      "require": "./server-async/dist/server-async.cjs.js"
+    },
+    "./dev": {
+      "import": "./dev/dist/dev.js",
+      "require": "./dev/dist/dev.cjs.js"
+    },
+    "./dom": {
+      "import": "./web/dist/web.js",
+      "require": "./web/dist/web.cjs.js"
     }
   },
   "scripts": {
-    "prebuild": "rimraf dist/* lib/* types/*",
+    "prebuild": "rimraf dist/* types/*",
     "build": "npm-run-all -cnl build:*",
+    "build:link": "symlink-dir . node_modules/solid-js",
     "build:js": "rollup -c",
     "build:types": "tsc",
+    "build:types-static": "tsc --project ./static/tsconfig.json",
+    "build:types-web": "tsc --project ./web/tsconfig.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
+    "build:types-html": "tsc --project ./html/tsconfig.json",
+    "build:types-h": "tsc --project ./h/tsconfig.json",
     "bench": "node --allow-natives-syntax bench/bench.js",
     "test": "jest && npm run test:types",
     "test:coverage": "jest --coverage && npm run test:types",

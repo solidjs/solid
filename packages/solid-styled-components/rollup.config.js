@@ -12,12 +12,12 @@ const plugins = [
 export default {
   input: 'src/index.ts',
   output: [{
-    file: 'lib//solid-styled-components.js',
+    file: 'dist/solid-styled-components.cjs.js',
     format: 'cjs'
   }, {
-    file: 'dist//solid-styled-components.js',
+    file: 'dist/solid-styled-components.js',
     format: 'es'
   }],
-  external: ['solid-js', 'solid-js/dom', 'goober'],
+  external: ['solid-js', 'solid-js/web', 'goober'],
   plugins
 };

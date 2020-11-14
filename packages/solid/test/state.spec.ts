@@ -36,15 +36,18 @@ describe("State immutablity", () => {
 
 describe("State Getters", () => {
   test("Testing an update from state", () => {
-    const [state, setState] = createState({
-      name: "John",
-      get greeting(): string {
-        return `Hi, ${state.name}`;
-      }
+    let state: any, setState: Function;
+    createRoot(() => {
+      [state, setState] = createState({
+        name: "John",
+        get greeting(): string {
+          return `Hi, ${this.name}`;
+        }
+      });
     });
-    expect(state.greeting).toBe("Hi, John");
-    setState({ name: "Jake" });
-    expect(state.greeting).toBe("Hi, Jake");
+    expect(state!.greeting).toBe("Hi, John");
+    setState!({ name: "Jake" });
+    expect(state!.greeting).toBe("Hi, Jake");
   });
 });
 

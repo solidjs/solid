@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.22.0 - 2020-11-
+
+### Unified Exports
+
+Solid now has streamlined exports for isomorphic development. This means from now on using `solid-js/web` instead of `solid-js/dom`. Based on compiler options it will swap out the appropriate packages for web. You should only ever import `solid-js`, `solid-js/h`, `solid-js/html`, and `solid-js/web` directly in your code.
+
+`solid-js/web` now exports an `isServer` field which indicates whether the code is executed for server rendering. This is constant in the respective packages meaning it can allow for powerful treeshaking/dead code elimination in final bundles even when used directly in end user code or 3rd party libraries.
+
+### Dev Mode
+
+Passing `dev: true` to `babel-preset-solid` links in a Dev mode of Solid. It's still a WIP process but it introduces some new APIs. First signals and state (and resources) have the ability to set a name for debug purposes as an options argument.
+
+We also export a `serializeGraph` method which will serialize all the signals below the executing context in the reactive graph.
+
+Finally there is a new `globalThis._$afterUpdate` hook that can be assigned that will be called after every render that can be used for tracking purposes.
+
+This is just the start but it is my intention to develop these features to allow for better HMR and DevTools.
+
+> Note: If the libraries are not being pulled into your bundle and are treated as external you may need to alias `solid-js` to `solid-js/dev` in your bundler in order to use dev mode.
+
+### Self contained HyperScript/Lit Modules
+
+We now ship the respective DOM expressions code. This makes it much easier to use directly from a CDN like Skypack. You literally can develop with Solid in the old school write it in notepad before npm was a thing sort of way.
+
+```html
+<html>
+  <body>
+    <script type="module">
+      import { createSignal, onCleanup } from "https://cdn.skypack.dev/solid-js";
+      import { render } from "https://cdn.skypack.dev/solid-js/web";
+      import html from "https://cdn.skypack.dev/solid-js/html";
+
+      const App = () => {
+        const [count, setCount] = createSignal(0),
+          timer = setInterval(() => setCount(count() + 1), 1000);
+        onCleanup(() => clearInterval(timer));
+        return html`<div>${count}</div>`;
+      };
+      render(App, document.body);
+    </script>
+  </body>
+</html>
+```
+
+Save this in a text file called "site.html" and double click it and instant Solid in your browser.
+
+### renderToWebStream
+
+New `renderToWebStream` for synchronous SSR mode. This allows us to stream from things like Cloudflare Workers.
+
+### createMutable
+
+New mutable state primitive. Useful for interopt with other libraries. We can use this potentially for things like Vue/MobX compat. Or when we need to interact with libraries that can't be aware of Solid's reactive system, yet we want to capture updates. It supports getters and setters.
+
+Use with caution as it can promote difficult to reason about code, anti-patterns, and unexpected performance cliffs. Keep in mind Vue and MobX care less about these inefficient patterns since they have a VDOM safety net. We do not. For advanced users only.
+
+```js
+const user = createMutable({
+  firstName: "John",
+  lastName: "Smith",
+  get fullName() {
+    return `${this.firstName} ${this.lastName}`;
+  },
+  set fullName(value) {
+    const parts = value.split(" ");
+    batch(() => {
+      this.firstName = parts[0];
+      this.lastName = parts[1];
+    });
+  }
+});
+console.log(user.fullName); // John Smith
+user.fullName = "Jake Murray";
+console.log(user.firstName); // Jake
+```
+
+### State Getter/Setters are now Wrapped
+
+Getters are now wrapped in `createMemo` and setters in `batch`. However, this introduces a new limitation that they can only be top level to have this behavior.
+
+### State compatible with Prop Helpers
+
+You can now use state with `assignProps` and `splitProps` helpers.
+
+### Removed DOM SSR
+
+No longer supporting hydratable DOM SSR in patched(ie... JSDOM) node environments. Use the standard SSR methods instead. Can still run Solid in JSDOM for things like Jest, but can't be used for isomorphic development.
+
 ## 0.21.0 - 2020-10-17
 
 ### Attribute and Prop changes
@@ -10,12 +98,12 @@ While TypeScript 4.2 is yet to be released, we are introduce `attr`, `prop`, `us
 
 ### Other Changes
 
-* New `on` and `onMount` helpers
-* More performant SSR escaping
-* Lazy eval SSR Component props (fix SSR Context API)
-* Add support for SSR with Solid Styled Components
-* Fix Lit Dom Expressions style in Template tags
-* Fix JSX Types
+- New `on` and `onMount` helpers
+- More performant SSR escaping
+- Lazy eval SSR Component props (fix SSR Context API)
+- Add support for SSR with Solid Styled Components
+- Fix Lit Dom Expressions style in Template tags
+- Fix JSX Types
 
 ## 0.20.0 - 2020-09-24
 

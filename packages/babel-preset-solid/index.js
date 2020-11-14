@@ -7,7 +7,7 @@ module.exports = function (context, options = {}) {
       jsxTransform,
       Object.assign(
         {
-          moduleName: "solid-js/dom",
+          moduleName: "solid-js/web",
           builtIns: [
             "For",
             "Show",
@@ -23,6 +23,7 @@ module.exports = function (context, options = {}) {
           delegateEvents: true,
           contextToCustomElements: true,
           wrapConditionals: true,
+          wrapSpreads: false,
           generate: "dom"
         },
         options
@@ -30,17 +31,37 @@ module.exports = function (context, options = {}) {
     ]
   ];
 
-  if (options.generate === "ssr" && !options.async)
+  if (options.generate === "ssr") {
+    if (options.async) {
+      plugins.push([
+        rename,
+        {
+          replacements: [
+            { original: "solid-js/web", replacement: "solid-js/server-async" },
+          ]
+        }
+      ]);
+    } else {
+      plugins.push([
+        rename,
+        {
+          replacements: [
+            { original: "solid-js/web", replacement: "solid-js/server" },
+            { original: "^solid-js$", replacement: "solid-js/static" }
+          ]
+        }
+      ]);
+    }
+  } else if (options.dev) {
     plugins.push([
       rename,
       {
         replacements: [
-          { original: "solid-js/dom", replacement: "solid-js" },
-          { original: "solid-js/server", replacement: "solid-js" },
-          { original: "solid-js", replacement: "solid-js/server" }
+          { original: "^solid-js$", replacement: "solid-js/dev" }
         ]
       }
     ]);
+  }
 
   return {
     plugins

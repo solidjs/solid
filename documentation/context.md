@@ -34,7 +34,7 @@ export function CounterProvider(props) {
 }
 
 // index.js
-import { render } from "solid-js/dom";
+import { render } from "solid-js/web";
 import { CounterProvider } from "./counter-context";
 import App from "./app";
 

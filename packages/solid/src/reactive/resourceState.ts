@@ -1,9 +1,4 @@
-import {
-  batch,
-  createSignal,
-  Listener,
-  createResource
-} from "./signal";
+import { batch, createSignal, Listener, createResource, hashValue, registerGraph } from "./signal";
 
 import {
   updatePath,
@@ -17,19 +12,20 @@ import {
   StateNode,
   SetStateFunction,
   State,
-  setProperty
+  setProperty,
+  proxyDescriptor
 } from "./state";
 
 function createResourceNode(v: any, name: string) {
   // maintain setState capability by using normal data node as well
-  const node = createSignal(),
+  const node = "_SOLID_DEV_" ? createSignal(undefined, false, { internal: true }) : createSignal(),
     [r, load] = createResource(v, { name });
   return [() => (r(), node[0]()), node[1], load, () => r.loading];
 }
 
 export interface LoadStateFunction<T> {
   (
-    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
+    v: { [P in keyof T]?: () => Promise<T[P]> | T[P] },
     reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
   ): void;
 }
@@ -42,8 +38,8 @@ export function createResourceState<T extends StateNode>(
   LoadStateFunction<T>,
   SetStateFunction<T>
 ] {
-  const loadingTraps = {
-    get(nodes: any, property: string | number) {
+  const loadingTraps: ProxyHandler<any> = {
+    get(nodes, property: string | number) {
       const node =
         nodes[property] ||
         (nodes[property] = createResourceNode(undefined, name && `${options.name}:${property}`));
@@ -59,8 +55,8 @@ export function createResourceState<T extends StateNode>(
     }
   };
 
-  const resourceTraps = {
-    get(target: StateNode, property: string | number | symbol, receiver: any) {
+  const resourceTraps: ProxyHandler<StateNode> = {
+    get(target, property, receiver) {
       if (property === $RAW) return target;
       if (property === $PROXY) return receiver;
       if (property === "loading") return new Proxy(getDataNodes(target), loadingTraps);
@@ -71,7 +67,11 @@ export function createResourceState<T extends StateNode>(
       if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
         let nodes, node;
         if (wrappable && (nodes = getDataNodes(value))) {
-          node = nodes._ || (nodes._ = createSignal());
+          node =
+            nodes._ ||
+            (nodes._ = "_SOLID_DEV_"
+              ? createSignal(undefined, false, { internal: true })
+              : createSignal());
           node[0]();
         }
         nodes = getDataNodes(target);
@@ -80,7 +80,9 @@ export function createResourceState<T extends StateNode>(
           (nodes[property] = createResourceNode(value, `${options.name}:${property as string}`));
         node[0]();
       }
-      return wrappable ? wrap(value) : value;
+      return wrappable
+        ? wrap(value, "_SOLID_DEV_" && options.name && `${options.name}:${property as string}`)
+        : value;
     },
 
     set() {
@@ -89,14 +91,21 @@ export function createResourceState<T extends StateNode>(
 
     deleteProperty() {
       return true;
-    }
+    },
+    getOwnPropertyDescriptor: proxyDescriptor
   };
 
   const unwrappedState = unwrap<T>(state || {}, true),
     wrappedState = wrap<T & { loading: { [P in keyof T]: boolean } }>(
       unwrappedState as any,
+      "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
+      true,
       resourceTraps
     );
+  if ("_SOLID_DEV_") {
+    const name = (options && options.name) || hashValue(unwrappedState);
+    registerGraph(name, { value: unwrappedState });
+  }
   function setState(...args: any[]): void {
     batch(() => updatePath(unwrappedState, args));
   }

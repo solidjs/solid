@@ -1,7 +1,7 @@
 {
   "name": "solid-js/html",
-  "main": "../lib/dom/html.js",
-  "module": "../dist/dom/html.js",
-  "types": "../types/dom/html.d.ts",
+  "main": ".dist/html.cjs.js",
+  "module": "./dist/html.js",
+  "types": "./types/index.d.ts",
   "sideEffects": false
 }
