@@ -10,7 +10,7 @@ Solid now has streamlined exports for isomorphic development. This means from no
 
 ### Dev Mode
 
-Passing `dev: true` to `babel-preset-solid` links in a Dev mode of Solid. It's still a WIP process but it introduces some new APIs. First signals and state (and resources) have the ability to set a name for debug purposes as an options argument.
+Aliasing `solid-js` to `solid-js/dev` in your bundler links in a Dev mode of Solid. It's still a WIP process but it introduces some new APIs. First signals and state (and resources) have the ability to set a name for debug purposes as an options argument.
 
 We also export a `serializeGraph` method which will serialize all the signals below the executing context in the reactive graph.
 

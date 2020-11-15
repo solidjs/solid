@@ -52,15 +52,6 @@ module.exports = function (context, options = {}) {
         }
       ]);
     }
-  } else if (options.dev) {
-    plugins.push([
-      rename,
-      {
-        replacements: [
-          { original: "^solid-js$", replacement: "solid-js/dev" }
-        ]
-      }
-    ]);
   }
 
   return {
