@@ -118,7 +118,7 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 
 Dislike JSX? Don't mind doing manual work to wrap expressions, worse performance, and having larger bundle sizes? Alternatively in non-compiled environments you can use Tagged Template Literals or HyperScript.
 
-You can run them straight from the browser with a script tag using (Solid Standalone)[https://github.com/ryansolid/solid-standalone] which exports both a Tagged Template(`html.min.js`) and HyperScript(`h.min.js`) versions of solid
+You can run them straight from the browser using SkyPack:
 
 ```html
 <html>
