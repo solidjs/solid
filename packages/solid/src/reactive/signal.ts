@@ -628,7 +628,10 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
       else Owner.owned.push(c);
     }
     if ("_SOLID_DEV_")
-      c.name = ((Owner as Computation<any>).name || "c") + "-" + Owner.owned!.length;
+      c.name =
+        ((Owner as Computation<any>).name || "c") +
+        "-" +
+        (Owner.owned || (Owner as Memo<T>).tOwned!).length;
   }
   return c;
 }
