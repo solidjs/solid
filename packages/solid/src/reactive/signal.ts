@@ -769,6 +769,7 @@ function cleanNode(node: Owner) {
         cleanNode((node as Memo<any>).tOwned![i]);
       delete (node as Memo<any>).tOwned;
     }
+    reset(node as Computation<any>);
   } else if (node.owned) {
     for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
     node.owned = null;
@@ -780,6 +781,13 @@ function cleanNode(node: Owner) {
   }
   (node as Computation<any>).state = 0;
   node.context = null;
+}
+
+function reset(node: Computation<any>) {
+  node.state = 0;
+  if (node.owned) {
+    for (let i = 0; i < node.owned.length; i++) reset(node.owned[i]);
+  }
 }
 
 function handleError(err: any) {
