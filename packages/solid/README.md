@@ -19,8 +19,8 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 - Fast! Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
 - Small! Completely tree-shakeable Solid's compiler will only include parts of the library you use.
 - Supports and is built on TypeScript.
-- Supports modern features like JSX, Fragments, Context, Portals, Suspense, SSR, Error Boundaries and Concurrent Rendering.
-- Webcomponent friendly
+- Supports modern features like JSX, Fragments, Context, Portals, Suspense, Streaming SSR, Progression Hydration, Error Boundaries and Concurrent Rendering.
+- Webcomponent friendly and can author Custom Elements
   - Context API that spans Custom Elements
   - Implicit event delegation with Shadow DOM Retargeting
   - Shadow DOM Portals
@@ -118,7 +118,7 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 
 Dislike JSX? Don't mind doing manual work to wrap expressions, worse performance, and having larger bundle sizes? Alternatively in non-compiled environments you can use Tagged Template Literals or HyperScript.
 
-You can run them straight from the browser with a script tag using (Solid Standalone)[https://github.com/ryansolid/solid-standalone] which exports both a Tagged Template(`html.min.js`) and HyperScript(`h.min.js`) versions of solid
+You can run them straight from the browser using SkyPack:
 
 ```html
 <html>
@@ -140,14 +140,7 @@ You can run them straight from the browser with a script tag using (Solid Standa
 </html>
 ```
 
-Or if installed from NPM. Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions). For convenience Solid exports interfaces to runtimes for these as:
-
-```js
-import h from "solid-js/h";
-import html from "solid-js/html";
-```
-
-Remember you still need the corresponding DOM Expressions library for these to work with TypeScript.
+Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions).
 
 ## Browser Support
 

@@ -12,8 +12,8 @@ describe("Dev features", () => {
     let owner: ReturnType<typeof getContextOwner>, set1: (v: number) => number, setState1: any;
 
     const SNAPSHOTS = [
-      `{"s1773325850":5,"s1773325850_1":5,"s533736025":{"firstName":"John","lastName":"Smith"},"children":[{"explicit":6}]}`,
-      `{"s1773325850":7,"s1773325850_1":5,"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."},"children":[{"explicit":6}]}`
+      `{"s1773325850":5,"s1773325850-1":5,"s533736025":{"firstName":"John","lastName":"Smith"},"c-1":{"explicit":6}}`,
+      `{"s1773325850":7,"s1773325850-1":5,"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."},"c-1":{"explicit":6}}`
     ];
     createRoot(() => {
       owner = getContextOwner();

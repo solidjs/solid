@@ -20,7 +20,7 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 - Small! Completely tree-shakeable Solid's compiler will only include parts of the library you use.
 - Supports and is built on TypeScript.
 - Supports modern features like JSX, Fragments, Context, Portals, Suspense, Streaming SSR, Progression Hydration, Error Boundaries and Concurrent Rendering.
-- Webcomponent friendly and can be used to author Custom Elements
+- Webcomponent friendly and can author Custom Elements
   - Context API that spans Custom Elements
   - Implicit event delegation with Shadow DOM Retargeting
   - Shadow DOM Portals
@@ -140,14 +140,7 @@ You can run them straight from the browser using SkyPack:
 </html>
 ```
 
-Or if installed from NPM. Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or even HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions). For convenience Solid exports interfaces to runtimes for these as:
-
-```js
-import h from "solid-js/h";
-import html from "solid-js/html";
-```
-
-Remember you still need the corresponding DOM Expressions library for these to work with TypeScript.
+Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions).
 
 ## Browser Support
 

@@ -164,3 +164,7 @@ render(
 );
 ```
 The library provides a `useTheme` hook if you wish to use it elsewhere like in you `css` functions.
+
+### `setup(prefixer: (key: string, value: any) => string)`
+
+Set up a custom prefixer.

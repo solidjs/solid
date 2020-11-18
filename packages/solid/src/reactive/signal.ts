@@ -51,6 +51,7 @@ interface Computation<T> extends Owner {
   pure: boolean;
   user?: boolean;
   suspense?: SuspenseContextType;
+  name?: string;
 }
 
 interface Memo<T> extends Signal<T>, Computation<T> {
@@ -103,10 +104,9 @@ export function createSignal<T>(
     pending: NOTPENDING,
     comparator: areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined
   };
-  if ("_SOLID_DEV_" && (!options || !options.internal)) {
-    s.name = (options && options.name) || hashValue(value);
-    registerGraph(s.name, s as { value: unknown });
-  }
+  if ("_SOLID_DEV_" && (!options || !options.internal))
+    s.name = registerGraph((options && options.name) || hashValue(value), s as { value: unknown });
+
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
@@ -339,28 +339,28 @@ export function getContextOwner() {
 }
 
 export function hashValue(v: any) {
-  return typeof v === "string" ? hash(v) : hash(JSON.stringify(v) || "");
+  return "s" + (typeof v === "string" ? hash(v) : hash(JSON.stringify(v) || ""));
 }
 
 export function registerGraph(name: string, value: { value: unknown }) {
+  let tryName = name;
   if (Owner) {
-    let tryName = name;
     let i = 0;
     Owner.sourceMap || (Owner.sourceMap = {});
-    while (Owner.sourceMap[tryName]) tryName = name + "_" + ++i;
+    while (Owner.sourceMap[tryName]) tryName = name + "-" + ++i;
     Owner.sourceMap[tryName] = value;
   }
+  return tryName;
 }
 interface GraphRecord {
-  sources?: Record<string, unknown>;
-  children?: GraphRecord[];
+  [k: string]: GraphRecord | unknown;
 }
 export function serializeGraph(owner?: Owner | null): GraphRecord {
   owner || (owner = Owner);
   if (!"_SOLID_DEV_" || !owner) return {};
   return {
     ...serializeValues(owner.sourceMap),
-    children: owner.owned ? serializeChildren(owner) : undefined
+    ...(owner.owned ? serializeChildren(owner) : {})
   };
 }
 
@@ -575,6 +575,7 @@ function updateComputation(node: Computation<any>) {
     time = ExecCount;
   Listener = Owner = node;
   runComputation(node, node.value, time);
+
   if (Transition && !Transition.running && Transition.sources.has(node as Memo<any>)) {
     Transition.running = true;
     runComputation(node, (node as Memo<any>).tValue, time);
@@ -626,6 +627,8 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
       if (!Owner.owned) Owner.owned = [c];
       else Owner.owned.push(c);
     }
+    if ("_SOLID_DEV_")
+      c.name = ((Owner as Computation<any>).name || "c") + "-" + Owner.owned!.length;
   }
   return c;
 }
@@ -815,7 +818,7 @@ function createProvider(id: symbol) {
 
 function hash(s: string) {
   for (var i = 0, h = 9; i < s.length; ) h = Math.imul(h ^ s.charCodeAt(i++), 9 ** 9);
-  return `s${h ^ (h >>> 9)}`;
+  return `${h ^ (h >>> 9)}`;
 }
 
 function serializeValues(sources: Record<string, { value: unknown }> = {}) {
@@ -828,14 +831,14 @@ function serializeValues(sources: Record<string, { value: unknown }> = {}) {
   return result;
 }
 
-function serializeChildren(root: Owner): GraphRecord[] {
-  const results: GraphRecord[] = [];
+function serializeChildren(root: Owner): GraphRecord {
+  const result: GraphRecord = {};
   for (let i = 0, len = root.owned!.length; i < len; i++) {
     const node = root.owned![i];
-    results.push({
+    result[node.name!] = {
       ...serializeValues(node.sourceMap),
-      children: node.owned ? serializeChildren(node) : undefined
-    });
+      ...(node.owned ? serializeChildren(node) : {})
+    };
   }
-  return results;
+  return result;
 }

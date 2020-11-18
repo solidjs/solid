@@ -1,8 +1,18 @@
-import { css, CSSAttribute } from "goober";
+import { css, CSSAttribute, setup as gooberSetup } from "goober";
 import { assignProps, splitProps, createContext, useContext, createComponent } from "solid-js";
 import { spread, ssr, ssrSpread, isServer } from "solid-js/web";
 
-export { css, glob, extractCss } from "goober";
+declare module "goober" {
+  function keyframes(
+    tag: TemplateStringsArray | string,
+    ...props: Array<string | number>
+  ): string;
+}
+export { css, glob, extractCss, keyframes } from "goober";
+
+export function setup(prefixer: (key: string, value: any) => string) {
+  gooberSetup(null, prefixer);
+}
 
 const ThemeContext = createContext();
 
