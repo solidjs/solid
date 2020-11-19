@@ -18,7 +18,12 @@ export {
 export * from "./server-mock";
 export const isServer = false;
 
-export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
+export function Portal(props: {
+  mount?: Node;
+  useShadow?: boolean;
+  isSVG?: boolean;
+  children: JSX.Element;
+}) {
   const hydration = globalThis._$HYDRATION;
   const { useShadow } = props,
     marker = document.createTextNode(""),
@@ -36,7 +41,9 @@ export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX
   if (mount instanceof HTMLHeadElement) {
     insert(mount, renderPortal(), null);
   } else {
-    const container = document.createElement("div"),
+    const container = props.isSVG
+        ? document.createElementNS("http://www.w3.org/2000/svg", "g")
+        : document.createElement("div"),
       renderRoot =
         useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
 

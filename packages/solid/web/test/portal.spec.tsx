@@ -16,6 +16,22 @@ describe("Testing a simple Portal", () => {
   test("dispose", () => disposer());
 });
 
+describe("Testing an SVG Portal", () => {
+  let div = document.createElement("div"),
+    disposer: () => void;
+  const testMount = document.createElement("svg");
+  const Component = () => <Portal mount={testMount} isSVG={true}>Hi</Portal>;
+
+  test("Create portal control flow", () => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("");
+    expect((testMount.firstChild as SVGGElement).innerHTML).toBe("Hi");
+    expect((testMount.firstChild as SVGGElement & { host: SVGElement }).host).toBe(div);
+  });
+
+  test("dispose", () => disposer());
+});
+
 describe("Testing a Portal to the head", () => {
   let div = document.createElement("div"),
     disposer: () => void;
