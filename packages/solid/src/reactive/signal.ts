@@ -595,6 +595,9 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   if (!node.updatedAt || node.updatedAt <= time) {
     if ((node as Memo<any>).observers && (node as Memo<any>).observers!.length) {
       writeSignal.call(node as Memo<any>, nextValue, true);
+    } else if (Transition && Transition.running && node.pure) {
+      Transition.sources.add(node as Memo<any>);
+      (node as Memo<any>).tValue = nextValue;
     } else node.value = nextValue;
     node.updatedAt = time;
   }
