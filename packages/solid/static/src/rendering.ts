@@ -8,12 +8,13 @@ type PossiblyWrapped<T> = {
 };
 
 function resolveSSRNode(node: any): string {
-  if (Array.isArray(node)) return node.map(resolveSSRNode).join("");
   const t = typeof node;
+  if (t === "string") return node;
   if (node == null || t === "boolean") return "";
+  if (Array.isArray(node)) return node.map(resolveSSRNode).join("");
   if (t === "object") return resolveSSRNode(node.t);
   if (t === "function") return resolveSSRNode(node());
-  return t === "string" ? node : String(node);
+  return String(node);
 }
 
 export function createComponent<T>(

@@ -679,10 +679,10 @@ function runUpdates(fn: () => void, init: boolean) {
     }
     if (wait) return;
     if (Transition && Transition.running) {
+      Transition.running = false;
       if (Transition.promises.size) {
         Transition.effects.push.apply(Transition.effects, Effects);
         Effects = null;
-        Transition.running = false;
         setTransPending(true);
         return;
       }
