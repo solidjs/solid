@@ -62,6 +62,7 @@ interface Transition {
   sources: Set<Signal<any>>;
   effects: Computation<any>[];
   promises: Set<Promise<any>>;
+  disposed: Set<Computation<any>>;
   running: boolean;
 }
 
@@ -238,6 +239,7 @@ export function useTransition(): [() => boolean, (fn: () => void) => void] {
             sources: new Set(),
             effects: [],
             promises: new Set(),
+            disposed: new Set(),
             running: true
           });
         Transition.running = true;
@@ -553,6 +555,7 @@ function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: boolean
     runUpdates(() => {
       for (let i = 0; i < this.observers!.length; i += 1) {
         const o = this.observers![i];
+        if (Transition && Transition.running && Transition.disposed.has(o)) continue;
         if ((o as Memo<any>).observers && o.state !== PENDING) markUpstream(o as Memo<any>);
         o.state = STALE;
         if (o.pure) Updates!.push(o);
@@ -775,7 +778,7 @@ function cleanNode(node: Owner) {
         cleanNode((node as Memo<any>).tOwned![i]);
       delete (node as Memo<any>).tOwned;
     }
-    reset(node as Computation<any>);
+    reset(node as Computation<any>, true);
   } else if (node.owned) {
     for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
     node.owned = null;
@@ -789,8 +792,11 @@ function cleanNode(node: Owner) {
   node.context = null;
 }
 
-function reset(node: Computation<any>) {
-  node.state = 0;
+function reset(node: Computation<any>, top?: boolean) {
+  if (!top) {
+    node.state = 0;
+    Transition!.disposed.add(node);
+  }
   if (node.owned) {
     for (let i = 0; i < node.owned.length; i++) reset(node.owned[i]);
   }
