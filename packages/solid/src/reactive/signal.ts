@@ -36,8 +36,9 @@ interface Signal<T> {
 interface Owner {
   owned: Computation<any>[] | null;
   cleanups: (() => void)[] | null;
-  owner?: Owner | null;
+  owner: Owner | null;
   context: any | null;
+  attached?: boolean;
   sourceMap?: Record<string, { value: unknown }>;
 }
 
@@ -73,7 +74,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
     root: Owner =
       fn.length === 0 && !"_SOLID_DEV_"
         ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner };
+        : { owned: null, cleanups: null, context: null, owner, attached: !!detachedOwner };
   Owner = root;
   Listener = null;
   let result: T;
@@ -647,7 +648,12 @@ function runTop(node: Computation<any> | null) {
     pending;
   if (node!.suspense && untrack(node!.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
-  while (node!.fn && (node = node!.owner as Computation<any>)) {
+  const runningTransition = Transition && Transition.running;
+  while (
+    (node!.fn || (runningTransition && node!.attached)) &&
+    (node = node!.owner as Computation<any>)
+  ) {
+    if (runningTransition && Transition!.disposed.has(node)) return;
     if (node.state === PENDING) pending = node;
     else if (node.state === STALE) {
       top = node;

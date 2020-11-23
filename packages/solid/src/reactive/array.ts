@@ -1,4 +1,4 @@
-import { onCleanup, createRoot, untrack, createSignal } from "./signal";
+import { onCleanup, createRoot, untrack, createSignal, Owner } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 
@@ -12,7 +12,8 @@ export function mapArray<T, U>(
     mapped: U[] = [],
     disposers: (() => void)[] = [],
     len = 0,
-    indexes: ((v: number) => number)[] | null = mapFn.length > 1 ? [] : null;
+    indexes: ((v: number) => number)[] | null = mapFn.length > 1 ? [] : null,
+    ctx = Owner!;
 
   onCleanup(() => {
     for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
@@ -48,7 +49,7 @@ export function mapArray<T, U>(
           mapped[0] = createRoot(disposer => {
             disposers[0] = disposer;
             return options.fallback!();
-          });
+          }, ctx);
           len = 1;
         }
       }
@@ -56,7 +57,7 @@ export function mapArray<T, U>(
       else if (len === 0) {
         for (j = 0; j < newLen; j++) {
           items[j] = newItems[j];
-          mapped[j] = createRoot(mapper);
+          mapped[j] = createRoot(mapper, ctx);
         }
         len = newLen;
       } else {
@@ -112,7 +113,7 @@ export function mapArray<T, U>(
               indexes[j] = tempIndexes![j];
               indexes[j](j);
             }
-          } else mapped[j] = createRoot(mapper);
+          } else mapped[j] = createRoot(mapper, ctx);
         }
         // 3) in case the new set is shorter than the old, set the length of the mapped array
         len = mapped.length = newLen;
@@ -143,7 +144,8 @@ export function indexArray<T, U>(
     disposers: (() => void)[] = [],
     signals: ((v: T) => T)[] = [],
     len = 0,
-    i: number;
+    i: number,
+    ctx = Owner!;
 
   onCleanup(() => {
     for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
@@ -165,7 +167,7 @@ export function indexArray<T, U>(
           mapped[0] = createRoot(disposer => {
             disposers[0] = disposer;
             return options.fallback!();
-          });
+          }, ctx);
           len = 1;
         }
         return mapped;
@@ -182,7 +184,7 @@ export function indexArray<T, U>(
         if (i < items.length && items[i] !== newItems[i]) {
           signals[i](newItems[i]);
         } else if (i >= items.length) {
-          mapped[i] = createRoot(mapper);
+          mapped[i] = createRoot(mapper, ctx);
         }
       }
       for (; i < items.length; i++) {
