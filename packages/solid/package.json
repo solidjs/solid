@@ -37,6 +37,10 @@
       }
     },
     "./web": {
+      "server-async": {
+        "import": "./web/dist/server-async.js",
+        "require": "./web/dist/server-async.cjs"
+      },
       "server": {
         "import": "./web/dist/server.js",
         "require": "./web/dist/server.cjs"
