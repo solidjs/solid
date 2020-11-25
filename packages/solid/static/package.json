@@ -1,7 +1,0 @@
-{
-  "name": "solid-js/static",
-  "main": "./dist/static.cjs.js",
-  "module": "./dist/static.js",
-  "types": "./types/index.d.ts",
-  "sideEffects": false
-}

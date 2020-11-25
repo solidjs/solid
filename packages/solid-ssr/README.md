@@ -2,7 +2,7 @@
 
 This library provides tools to help with SSR. So far it's a simple Static Generator. This project is still in progress.
 
-Look at the examples to best understand how to use it.
+Look at the examples to best understand how to use it. Important I make use of conditional export maps here in node. You need the latest version of Node 14 (works in latest Node 12 too but this example doesn't, sorry).
 
 ### Examples
 

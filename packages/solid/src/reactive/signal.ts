@@ -666,6 +666,12 @@ function runTop(node: Computation<any> | null) {
     lookDownstream(pending);
     Updates = updates;
     if (!top || top.state !== STALE) return;
+    if (runningTransition) {
+      node = top;
+      while ((node.fn || node.attached) && (node = node.owner as Computation<any>)) {
+        if (Transition!.disposed.has(node)) return;
+      }
+    }
   }
   top && updateComputation(top);
 }

@@ -1,6 +1,0 @@
-{
-  "name": "solid-js/server",
-  "main": "./dist/server.cjs.js",
-  "module": "./dist/server.js",
-  "sideEffects": false
-}

@@ -1,6 +1,6 @@
 {
   "name": "solid-js/web",
-  "main": "./dist/web.cjs.js",
+  "main": "./dist/web.cjs",
   "module": "./dist/web.js",
   "types": "./types/index.d.ts",
   "sideEffects": false

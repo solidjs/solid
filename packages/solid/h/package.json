@@ -1,6 +1,6 @@
 {
   "name": "solid-js/h",
-  "main": ".dist/h.cjs.js",
+  "main": ".dist/h.cjs",
   "module": "./dist/h.js",
   "types": "./types/index.d.ts",
   "sideEffects": false

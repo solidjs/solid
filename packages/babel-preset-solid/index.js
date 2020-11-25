@@ -1,5 +1,4 @@
 const jsxTransform = require("babel-plugin-jsx-dom-expressions");
-const rename = require("babel-plugin-transform-rename-import");
 
 module.exports = function (context, options = {}) {
   const plugins = [
@@ -30,29 +29,6 @@ module.exports = function (context, options = {}) {
       )
     ]
   ];
-
-  if (options.generate === "ssr") {
-    if (options.async) {
-      plugins.push([
-        rename,
-        {
-          replacements: [
-            { original: "solid-js/web", replacement: "solid-js/server-async" },
-          ]
-        }
-      ]);
-    } else {
-      plugins.push([
-        rename,
-        {
-          replacements: [
-            { original: "solid-js/web", replacement: "solid-js/server" },
-            { original: "^solid-js$", replacement: "solid-js/static" }
-          ]
-        }
-      ]);
-    }
-  }
 
   return {
     plugins

@@ -16,7 +16,7 @@ const plugins = [
 export default {
   input: 'src/index.ts',
   output: [{
-    file: 'dist/solid-rx.cjs.js',
+    file: 'dist/solid-rx.cjs',
     format: 'cjs'
   }, {
     file: 'dist/solid-rx.js',

@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid"
   },
-  "main": "dist/solid.cjs.js",
+  "main": "dist/solid.cjs",
   "module": "dist/solid.js",
   "types": "types/index.d.ts",
   "sideEffects": false,
@@ -21,50 +21,50 @@
     "h/types",
     "html/dist",
     "html/types",
-    "static/dist",
-    "server/dist",
-    "server-async/dist",
-    "debug/dist",
     "types",
     "dom",
     "dev"
   ],
   "exports": {
     ".": {
-      "import": "./dist/solid.js",
-      "require": "./dist/solid.cjs.js"
+      "server": {
+        "import": "./dist/static.js",
+        "require": "./dist/static.cjs"
+      },
+      "default": {
+        "import": "./dist/solid.js",
+        "require": "./dist/solid.cjs"
+      }
     },
     "./web": {
-      "import": "./web/dist/web.js",
-      "require": "./web/dist/web.cjs.js"
+      "server": {
+        "import": "./web/dist/server.js",
+        "require": "./web/dist/server.cjs"
+      },
+      "node": {
+        "import": "./web/dist/server-async.js",
+        "require": "./web/dist/server-async.cjs"
+      },
+      "default": {
+        "import": "./web/dist/web.js",
+        "require": "./web/dist/web.cjs"
+      }
     },
     "./h": {
       "import": "./h/dist/h.js",
-      "require": "./h/dist/h.cjs.js"
+      "require": "./h/dist/h.cjs"
     },
     "./html": {
       "import": "./html/dist/html.js",
-      "require": "./html/dist/html.cjs.js"
-    },
-    "./static": {
-      "import": "./static/dist/static.js",
-      "require": "./static/dist/static.cjs.js"
-    },
-    "./server": {
-      "import": "./server/dist/server.js",
-      "require": "./server/dist/server.cjs.js"
-    },
-    "./server-async": {
-      "import": "./server-async/dist/server-async.js",
-      "require": "./server-async/dist/server-async.cjs.js"
+      "require": "./html/dist/html.cjs"
     },
     "./dev": {
       "import": "./dev/dist/dev.js",
-      "require": "./dev/dist/dev.cjs.js"
+      "require": "./dev/dist/dev.cjs"
     },
     "./dom": {
       "import": "./web/dist/web.js",
-      "require": "./web/dist/web.cjs.js"
+      "require": "./web/dist/web.cjs"
     }
   },
   "scripts": {
@@ -73,7 +73,6 @@
     "build:link": "symlink-dir . node_modules/solid-js",
     "build:js": "rollup -c",
     "build:types": "tsc",
-    "build:types-static": "tsc --project ./static/tsconfig.json",
     "build:types-web": "tsc --project ./web/tsconfig.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",
     "build:types-h": "tsc --project ./h/tsconfig.json",

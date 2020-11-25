@@ -12,7 +12,7 @@ const plugins = [
 export default {
   input: 'src/index.ts',
   output: [{
-    file: 'dist/solid-element.cjs.js',
+    file: 'dist/solid-element.cjs',
     format: 'cjs'
   }, {
     file: 'dist/solid-element.js',

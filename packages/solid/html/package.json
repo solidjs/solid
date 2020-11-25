@@ -1,6 +1,6 @@
 {
   "name": "solid-js/html",
-  "main": ".dist/html.cjs.js",
+  "main": ".dist/html.cjs",
   "module": "./dist/html.js",
   "types": "./types/index.d.ts",
   "sideEffects": false

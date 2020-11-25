@@ -5,7 +5,7 @@
   "author": "Ryan Carniato <ryansolid@gmail.com>",
   "homepage": "https://github.com/ryansolid/solid/blob/master/packages/solid-rx#readme",
   "license": "MIT",
-  "main": "dist/solid-rx.cjs.js",
+  "main": "dist/solid-rx.cjs",
   "module": "dist/solid-rx.js",
   "types": "types/index.d.ts",
   "files": [

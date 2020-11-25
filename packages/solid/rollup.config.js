@@ -4,7 +4,7 @@ import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
 
-const plugins = (p) => [
+const plugins = [
   nodeResolve({
     extensions: [".js", ".ts"]
   }),
@@ -19,7 +19,7 @@ const plugins = (p) => [
         "babel-plugin-transform-rename-import",
         {
           original: "rxcore",
-          replacement: `../../../packages/solid/${p}/src/core`
+          replacement: `../../../packages/solid/web/src/core`
         }
       ]
     ]
@@ -34,7 +34,7 @@ export default [
     input: "src/index.ts",
     output: [
       {
-        file: "dist/solid.cjs.js",
+        file: "dist/solid.cjs",
         format: "cjs"
       },
       {
@@ -50,13 +50,32 @@ export default [
         '"_SOLID_DEV_"': false,
         delimiters: ["", ""]
       })
-    ].concat(plugins("solid"))
+    ].concat(plugins)
+  },
+  {
+    input: "src/static/index.ts",
+    output: [
+      {
+        file: "dist/static.cjs",
+        format: "cjs"
+      },
+      {
+        file: "dist/static.js",
+        format: "es"
+      }
+    ],
+    external: ["stream"],
+    plugins: [
+      copy({
+        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/static" }]
+      })
+    ].concat(plugins)
   },
   {
     input: "src/index.ts",
     output: [
       {
-        file: "dev/dist/dev.cjs.js",
+        file: "dev/dist/dev.cjs",
         format: "cjs"
       },
       {
@@ -64,32 +83,13 @@ export default [
         format: "es"
       }
     ],
-    plugins: plugins("dev")
-  },
-  {
-    input: "static/src/index.ts",
-    output: [
-      {
-        file: "static/dist/static.cjs.js",
-        format: "cjs"
-      },
-      {
-        file: "static/dist/static.js",
-        format: "es"
-      }
-    ],
-    external: ["stream"],
-    plugins: [
-      copy({
-        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./static/src" }]
-      })
-    ].concat(plugins("static"))
+    plugins
   },
   {
     input: "web/src/index.ts",
     output: [
       {
-        file: "web/dist/web.cjs.js",
+        file: "web/dist/web.cjs",
         format: "cjs"
       },
       {
@@ -108,13 +108,13 @@ export default [
           { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./web/types/" },
         ]
       })
-    ].concat(plugins("web"))
+    ].concat(plugins)
   },
   {
     input: "html/src/index.ts",
     output: [
       {
-        file: "html/dist/html.cjs.js",
+        file: "html/dist/html.cjs",
         format: "cjs",
         exports: "auto"
       },
@@ -124,13 +124,13 @@ export default [
       }
     ],
     external: ["solid-js/web"],
-    plugins: plugins("web")
+    plugins
   },
   {
     input: "h/src/index.ts",
     output: [
       {
-        file: "h/dist/h.cjs.js",
+        file: "h/dist/h.cjs",
         format: "cjs",
         exports: "auto"
       },
@@ -140,40 +140,40 @@ export default [
       }
     ],
     external: ["solid-js/web"],
-    plugins: plugins("web")
+    plugins
   },
   {
-    input: "server/src/index.ts",
+    input: "web/server/index.ts",
     output: [
       {
-        file: "server/dist/server.cjs.js",
+        file: "web/dist/server.cjs",
         format: "cjs"
       },
       {
-        file: "server/dist/server.js",
+        file: "web/dist/server.js",
         format: "es"
       }
     ],
-    external: ["solid-js/static", "stream"],
+    external: ["solid-js", "stream"],
     plugins: [
       copy({
         targets: [
           {
             src: ["../../node_modules/dom-expressions/src/syncSSR.d.ts"],
-            dest: "./server/src"
+            dest: "./web/server"
           }
         ]
-      })].concat(plugins("server"))
+      })].concat(plugins)
   },
   {
-    input: "server-async/src/index.ts",
+    input: "web/server-async/index.ts",
     output: [
       {
-        file: "server-async/dist/server-async.cjs.js",
+        file: "web/dist/server-async.cjs",
         format: "cjs"
       },
       {
-        file: "server-async/dist/server-async.js",
+        file: "web/dist/server-async.js",
         format: "es"
       }
     ],
@@ -183,10 +183,10 @@ export default [
         targets: [
           {
             src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
-            dest: "./server-async/src"
+            dest: "./web/server-async"
           }
         ]
       })
-    ].concat(plugins("server-async"))
+    ].concat(plugins)
   }
 ];
