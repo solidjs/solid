@@ -8,16 +8,16 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid/blob/master/packages/solid-styled-jsx"
   },
-  "main": "dist/solid-styled-components.cjs",
-  "module": "dist/solid-styled-components.js",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "types/index.d.ts",
   "files": [
-    "dist",
-    "types/index.d.ts"
+    "dist"
   ],
   "sideEffects": "false",
   "scripts": {
-    "build": "rollup -c && tsc",
+    "build": "tsc",
     "test": "jest && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json"
   },

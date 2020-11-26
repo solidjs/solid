@@ -5,16 +5,16 @@
   "license": "MIT",
   "version": "0.22.8",
   "homepage": "https://github.com/ryansolid/solid/blob/master/packages/solid-element#readme",
-  "main": "dist/solid-element.cjs",
-  "module": "dist/solid-element.js",
-  "types": "types/index.d.ts",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
-    "dist",
-    "types/index.d.ts"
+    "dist"
   ],
   "sideEffects": "false",
   "scripts": {
-    "build": "rollup -c && tsc"
+    "build": "tsc"
   },
   "dependencies": {
     "component-register": "~0.8.0",
