@@ -31,10 +31,8 @@
         "import": "./dist/static.js",
         "require": "./dist/static.cjs"
       },
-      "default": {
-        "import": "./dist/solid.js",
-        "require": "./dist/solid.cjs"
-      }
+      "import": "./dist/solid.js",
+      "require": "./dist/solid.cjs"
     },
     "./web": {
       "server-async": {
@@ -49,10 +47,8 @@
         "import": "./web/dist/server-async.js",
         "require": "./web/dist/server-async.cjs"
       },
-      "default": {
-        "import": "./web/dist/web.js",
-        "require": "./web/dist/web.cjs"
-      }
+      "import": "./web/dist/web.js",
+      "require": "./web/dist/web.cjs"
     },
     "./h": {
       "import": "./h/dist/h.js",
