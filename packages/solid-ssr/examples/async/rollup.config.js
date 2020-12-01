@@ -13,7 +13,7 @@ export default [
       }
     ],
     preserveEntrySignatures: false,
-    external: ["solid-js", "solid-js/web", "path", "express", "solid-styled-components"],
+    external: ["solid-js", "solid-js/web", "path", "express"],
     plugins: [
       nodeResolve({ preferBuiltins: true }),
       babel({

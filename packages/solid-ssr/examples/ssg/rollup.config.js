@@ -13,7 +13,7 @@ export default [
         format: "cjs"
       }
     ],
-    external: ["solid-js", "solid-js/web", "solid-styled-components"],
+    external: ["solid-js", "solid-js/web"],
     plugins: [
       nodeResolve({ preferBuiltins: true }),
       babel({

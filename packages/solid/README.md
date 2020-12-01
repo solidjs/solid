@@ -26,6 +26,8 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
   - Shadow DOM Portals
 - Transparent debugging: a `<div>` is just a div.
 
+[Top 5 Things You Should Know about Solid](https://dev.to/ryansolid/introducing-the-solidjs-ui-library-4mck)
+
 ## The Gist
 
 ```jsx
@@ -92,7 +94,8 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 ```
 
 > Check out these two introductory articles by [@aftzl](https://github.com/atfzl):
-> [Understanding Solid: Reactivity Basics](https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk) > [Understanding Solid: JSX](https://dev.to/atfzl/understanding-solid-jsx-584p)
+> [Understanding Solid: Reactivity Basics](https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk)<br>
+> [Understanding Solid: JSX](https://dev.to/atfzl/understanding-solid-jsx-584p)
 
 ## Documentation
 
