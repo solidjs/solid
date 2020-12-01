@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   createComputed,
+  createMutable,
   createSignal,
   onCleanup,
   createRoot
@@ -23,7 +24,7 @@ let inSolidEffect = false;
 function trackNesting(args) {
   const fn = args[0];
   return [
-    function() {
+    function () {
       const outside = inSolidEffect;
       inSolidEffect = true;
       const ret = fn.call(this, arguments);
@@ -70,6 +71,11 @@ export function withSolid(ComponentType) {
 export function useState(v) {
   if (inSolidEffect) return createState(v);
   return rMemo(() => createState(v), []);
+}
+
+export function useMutable(v) {
+  if (inSolidEffect) return createMutable(v);
+  return rMemo(() => createMutable(v), []);
 }
 
 export function useSignal(v) {
