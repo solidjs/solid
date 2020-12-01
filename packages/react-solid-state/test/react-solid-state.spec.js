@@ -4,6 +4,7 @@ import {
   withSolid,
   useObserver,
   useState,
+  useMutable,
   useEffect,
   useComputed,
   useMemo,
@@ -28,6 +29,28 @@ const Counter = withSolid(({ onCleanup }) => {
       onClick={() => {
         setState("tick", t => t + 1);
       }}
+    >
+      {getCounterText()}
+    </div>
+  );
+});
+
+const CounterMutable = withSolid(({ onCleanup }) => {
+  const state = useMutable({ count: 0, tick: 0 }),
+    [count, setCount] = useSignal(10),
+    getCounterText = useMemo(() => `Counter ${state.count} ${count()}`);
+  useComputed(() => {
+    if (state.tick > 0) {
+      untrack(() => {
+        state.count++;
+        setCount(count() + 1);
+      })
+    }
+  });
+  useCleanup(() => onCleanup());
+  return () => (
+    <div
+      onClick={() => state.tick++}
     >
       {getCounterText()}
     </div>
@@ -62,6 +85,29 @@ describe("Simple Counter", () => {
   }
   test("Create Component", () => {
     const { container } = render(<Counter onCleanup={handleCleanup} />);
+    expect(container.firstChild.innerHTML).toBe("Counter 0 10");
+    ref = container.firstChild;
+  });
+  test("Triggering Computed", () => {
+    act(() => ref.click());
+    expect(ref.innerHTML).toBe("Counter 1 11");
+    act(() => ref.click());
+    expect(ref.innerHTML).toBe("Counter 2 12");
+  });
+  test("Cleanup", () => {
+    expect(disposed).toBeUndefined();
+    cleanup();
+    expect(disposed).toBe(true);
+  });
+});
+
+describe("Simple Mutable Counter", () => {
+  let ref, disposed;
+  function handleCleanup() {
+    disposed = true;
+  }
+  test("Create Component", () => {
+    const { container } = render(<CounterMutable onCleanup={handleCleanup} />);
     expect(container.firstChild.innerHTML).toBe("Counter 0 10");
     ref = container.firstChild;
   });
