@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   createComputed,
+  createMutable,
   createSignal,
   onCleanup,
   createRoot
@@ -70,6 +71,11 @@ export function withSolid(ComponentType) {
 export function useState(v) {
   if (inSolidEffect) return createState(v);
   return rMemo(() => createState(v), []);
+}
+
+export function useMutableState(v) {
+  if (inSolidEffect) return createMutable(v);
+  return rMemo(() => createMutable(v), []);
 }
 
 export function useSignal(v) {
