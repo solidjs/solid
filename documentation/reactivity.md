@@ -37,7 +37,7 @@ const App = () => {
       firstName: "John",
       lastName: "Smith",
       get fullName() {
-        return `${state.user.firstName} ${state.user.lastName}`;
+        return `${this.user.firstName} ${this.user.lastName}`;
       }
     }
   });
