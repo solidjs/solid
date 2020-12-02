@@ -9,6 +9,7 @@ export function resolveSSRNode(node: any): string;
 export function ssrClassList(value: { [k: string]: boolean }): string;
 export function ssrStyle(value: { [k: string]: string }): string;
 export function ssrSpread(accessor: any): () => string;
+export function ssrBoolean(key: string, value: boolean): string;
 export function escape(html: string): string;
 export function generateHydrationScript(options?: { eventNames?: string[] }): string;
 export function getHydrationKey(): string;
