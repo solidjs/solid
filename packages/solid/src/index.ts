@@ -1,3 +1,7 @@
+import { getGlobal } from "./getGlobal";
+
+export * from "./getGlobal";
+
 export {
   createRoot,
   createSignal,
@@ -40,7 +44,8 @@ declare global {
   var Solid$$: boolean;
 }
 
-if ("_SOLID_DEV_" && globalThis) {
+if ("_SOLID_DEV_") {
+  const globalThis = getGlobal() as any;
   if (!globalThis.Solid$$) globalThis.Solid$$ = true;
   else
     console.warn(

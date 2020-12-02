@@ -1,5 +1,8 @@
 // Inspired by S.js[https://github.com/adamhaile/S] by Adam Haile
 import { requestCallback, Task } from "./scheduler";
+import { getGlobal } from "../getGlobal";
+
+const globalThis = getGlobal() as any;
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 let ERROR: symbol | null = null;

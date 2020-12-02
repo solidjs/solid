@@ -1,4 +1,7 @@
 import { untrack, createResource, createMemo } from "../reactive/signal";
+import { getGlobal } from "../getGlobal";
+
+const globalThis = getGlobal() as any;
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;

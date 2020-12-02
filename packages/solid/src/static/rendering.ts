@@ -1,4 +1,7 @@
 import { State, SetStateFunction, updatePath } from "./reactive";
+import { getGlobal } from "../getGlobal";
+
+const globalThis = getGlobal() as any;
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
