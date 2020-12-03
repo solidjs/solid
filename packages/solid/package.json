@@ -71,7 +71,7 @@
     "prebuild": "rimraf dist/* types/*",
     "build": "npm-run-all -cnl build:*",
     "build:link": "symlink-dir . node_modules/solid-js",
-    "build:js": "rollup -c",
+    "build:js": "ncp ../../node_modules/dom-expressions/src/jsx.ts ./src/render/jsx.ts && ncp ../../node_modules/dom-expressions/src/jsx.ts ./src/static/jsx.ts && rollup -c",
     "build:types": "tsc",
     "build:types-web": "tsc --project ./web/tsconfig.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",

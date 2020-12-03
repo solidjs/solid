@@ -43,9 +43,6 @@ export default [
       }
     ],
     plugins: [
-      copy({
-        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/render" }]
-      }),
       replace({
         '"_SOLID_DEV_"': false,
         delimiters: ["", ""]
@@ -65,11 +62,7 @@ export default [
       }
     ],
     external: ["stream"],
-    plugins: [
-      copy({
-        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/static" }]
-      })
-    ].concat(plugins)
+    plugins
   },
   {
     input: "src/index.ts",
