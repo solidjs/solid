@@ -29,6 +29,7 @@
     "solid-js": "^0.22.0"
   },
   "devDependencies": {
+    "babel-plugin-jsx-dom-expressions": "~0.23.5",
     "solid-js": "^0.22.9"
   }
 }

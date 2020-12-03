@@ -69,7 +69,7 @@
   },
   "scripts": {
     "prebuild": "rimraf dist/* types/*",
-    "build": "npm-run-all -cnl build:*",
+    "build": "npm run build:js && npm-run-all -cnl build:*",
     "build:link": "symlink-dir . node_modules/solid-js",
     "build:js": "rollup -c",
     "build:types": "tsc",
@@ -81,6 +81,12 @@
     "test:coverage": "jest --coverage && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json",
     "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
+  },
+  "devDependencies": {
+    "babel-plugin-jsx-dom-expressions": "~0.23.5",
+    "dom-expressions": "^0.23.5",
+    "hyper-dom-expressions": "^0.23.5",
+    "lit-dom-expressions": "^0.23.6"
   },
   "keywords": [
     "solid",
