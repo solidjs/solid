@@ -44,7 +44,7 @@ export default [
     ],
     plugins: [
       copy({
-        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/render" }]
+        targets: [{ src: "../dom-expressions/src/jsx.ts", dest: "./src/render" }]
       }),
       replace({
         '"_SOLID_DEV_"': false,
@@ -67,7 +67,7 @@ export default [
     external: ["stream"],
     plugins: [
       copy({
-        targets: [{ src: "../../node_modules/dom-expressions/src/jsx.ts", dest: "./src/static" }]
+        targets: [{ src: "../dom-expressions/src/jsx.ts", dest: "./src/static" }]
       })
     ].concat(plugins)
   },
@@ -102,10 +102,10 @@ export default [
       copy({
         targets: [
           {
-            src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
+            src: ["../dom-expressions/src/runtime.d.ts"],
             dest: "./web/src/"
           },
-          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./web/types/" },
+          { src: "../dom-expressions/src/runtime.d.ts", dest: "./web/types/" }
         ]
       })
     ].concat(plugins)
@@ -159,11 +159,12 @@ export default [
       copy({
         targets: [
           {
-            src: ["../../node_modules/dom-expressions/src/syncSSR.d.ts"],
+            src: ["../dom-expressions/src/syncSSR.d.ts"],
             dest: "./web/server"
           }
         ]
-      })].concat(plugins)
+      })
+    ].concat(plugins)
   },
   {
     input: "web/server-async/index.ts",
@@ -182,7 +183,7 @@ export default [
       copy({
         targets: [
           {
-            src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
+            src: ["../dom-expressions/src/asyncSSR.d.ts"],
             dest: "./web/server-async"
           }
         ]

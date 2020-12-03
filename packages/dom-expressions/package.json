@@ -1,0 +1,24 @@
+{
+  "name": "dom-expressions",
+  "description": "A Fine-Grained Runtime for Performant DOM Rendering",
+  "version": "0.23.5",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryansolid/dom-expressions"
+  },
+  "readmeFilename": "README.md",
+  "sideEffects": false,
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "report:coverage": "cat ./coverage/lcov.info | ../../node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage"
+  },
+  "dependencies": {
+    "babel-plugin-transform-rename-import": "^2.3.0"
+  },
+  "devDependencies": {
+    "babel-plugin-jsx-dom-expressions": "^0.23.5"
+  }
+}
