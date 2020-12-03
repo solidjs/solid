@@ -42,7 +42,7 @@ export function wrap<T extends StateNode>(
 ): State<T> {
   let p = value[$PROXY];
   if (!p) {
-    Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, traps || proxyTraps) });
+    Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, traps || proxyTraps)) });
     if (processProps) {
       let keys = Object.keys(value),
         desc = Object.getOwnPropertyDescriptors(value);
@@ -72,7 +72,7 @@ export function isWrappable(obj: any) {
   return (
     obj != null &&
     typeof obj === "object" &&
-    (obj.__proto__ === Object.prototype || Array.isArray(obj))
+    (!obj.__proto__ || obj.__proto__ === Object.prototype || Array.isArray(obj))
   );
 }
 
@@ -103,7 +103,7 @@ export function unwrap<T extends StateNode>(item: any, skipGetters?: boolean): T
 
 export function getDataNodes(target: StateNode) {
   let nodes = target[$NODE];
-  if (!nodes) Object.defineProperty(target, $NODE, { value: nodes = {} });
+  if (!nodes) Object.defineProperty(target, $NODE, { value: (nodes = {}) });
   return nodes;
 }
 
