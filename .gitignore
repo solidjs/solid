@@ -5,3 +5,10 @@ lib/
 coverage/
 types/
 package-lock.json
+
+packages/solid/src/render/jsx.ts
+packages/solid/src/static/jsx.ts
+packages/solid/web/server-async/asyncSSR.d.ts
+packages/solid/web/server/syncSSR.d.ts
+packages/solid/web/src/runtime.d.ts
+packages/babel-plugin-jsx-dom-expressions/index.js
