@@ -1,4 +1,3 @@
-import copy from "rollup-plugin-copy";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
@@ -43,9 +42,6 @@ export default [
       }
     ],
     plugins: [
-      copy({
-        targets: [{ src: "../dom-expressions/src/jsx.ts", dest: "./src/render" }]
-      }),
       replace({
         '"_SOLID_DEV_"': false,
         delimiters: ["", ""]
@@ -65,11 +61,7 @@ export default [
       }
     ],
     external: ["stream"],
-    plugins: [
-      copy({
-        targets: [{ src: "../dom-expressions/src/jsx.ts", dest: "./src/static" }]
-      })
-    ].concat(plugins)
+    plugins
   },
   {
     input: "src/index.ts",
@@ -98,17 +90,7 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../dom-expressions/src/runtime.d.ts"],
-            dest: "./web/src/"
-          },
-          { src: "../dom-expressions/src/runtime.d.ts", dest: "./web/types/" }
-        ]
-      })
-    ].concat(plugins)
+    plugins
   },
   {
     input: "html/src/index.ts",
@@ -155,16 +137,7 @@ export default [
       }
     ],
     external: ["solid-js", "stream"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../dom-expressions/src/syncSSR.d.ts"],
-            dest: "./web/server"
-          }
-        ]
-      })
-    ].concat(plugins)
+    plugins
   },
   {
     input: "web/server-async/index.ts",
@@ -179,15 +152,6 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../dom-expressions/src/asyncSSR.d.ts"],
-            dest: "./web/server-async"
-          }
-        ]
-      })
-    ].concat(plugins)
+    plugins
   }
 ];

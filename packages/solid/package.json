@@ -69,7 +69,8 @@
   },
   "scripts": {
     "prebuild": "rimraf dist/* types/*",
-    "build": "npm run build:js && npm-run-all -cnl build:*",
+    "build": "npm-run-all -cnl build:copy build:*",
+    "build:copy": "gulp -f ./gulpfile.cjs copy",
     "build:link": "symlink-dir . node_modules/solid-js",
     "build:js": "rollup -c",
     "build:types": "tsc",
