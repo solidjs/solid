@@ -1,4 +1,4 @@
-import { createRoot, createSignal } from "../../src";
+import { createRoot, createSignal, JSX } from "../../src";
 
 describe("Basic element attributes", () => {
   test("spread", () => {

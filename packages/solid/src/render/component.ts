@@ -1,4 +1,5 @@
 import { untrack, createResource, createMemo } from "../reactive/signal";
+import type { JSX } from "../jsx"
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;

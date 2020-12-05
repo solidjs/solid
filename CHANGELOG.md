@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.23.0 - 2020-12-
+
+This release is mostly bug fixes. Breaking change for TS users. JSX types no longer pollutes global namespace. This means you need to update your projects to import it. For users TS 4.1 or above add to your tsconfig to have JSX types in all your TSX files:
+
+```js
+"compilerOptions" {
+  "jsx": "preserve",
+  "jsxImportSource": "solid-js",
+}
+```
+You can import `JSX` types directly from Solid:
+```js
+import { JSX } from "solid-js";
+```
+
 ## 0.22.0 - 2020-11-14
 
 ### Unified Exports (Deprecation `solid-js/dom`)

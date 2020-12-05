@@ -46,6 +46,14 @@ export default [
       replace({
         '"_SOLID_DEV_"': false,
         delimiters: ["", ""]
+      }),
+      copy({
+        targets: [
+          {
+            src: "./src/jsx.d.ts",
+            dest: "./types/"
+          }
+        ]
       })
     ].concat(plugins)
   },
@@ -98,7 +106,7 @@ export default [
             src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
             dest: "./web/src/"
           },
-          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./web/types/" },
+          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./web/types/" }
         ]
       })
     ].concat(plugins)
@@ -156,7 +164,8 @@ export default [
             dest: "./web/server"
           }
         ]
-      })].concat(plugins)
+      })
+    ].concat(plugins)
   },
   {
     input: "web/server-async/index.ts",

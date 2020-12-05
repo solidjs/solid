@@ -42,7 +42,10 @@ export function createResourceState<T extends StateNode>(
     get(nodes, property: string | number) {
       const node =
         nodes[property] ||
-        (nodes[property] = createResourceNode(undefined, name && `${options.name}:${property}`));
+        (nodes[property] = createResourceNode(
+          undefined,
+          ((name as unknown) as string) && `${options.name}:${property}`
+        ));
       return node[3]();
     },
 

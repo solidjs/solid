@@ -1,5 +1,8 @@
 {
   "extends": "../../tsconfig.test.json",
+  "compilerOptions": {
+    "jsxImportSource": "solid-js"
+  },
   "include": [
     "./test"
   ]

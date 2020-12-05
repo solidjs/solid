@@ -9,15 +9,14 @@
     "url": "https://github.com/ryansolid/solid/blob/master/packages/solid-styled-jsx"
   },
   "type": "module",
-  "main": "dist/index.js",
-  "module": "dist/index.js",
-  "types": "types/index.d.ts",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "types": "src/index.d.ts",
   "files": [
-    "dist"
+    "src"
   ],
   "sideEffects": "false",
   "scripts": {
-    "build": "tsc",
     "test": "jest && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json"
   },

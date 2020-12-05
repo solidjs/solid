@@ -1,5 +1,5 @@
 import { insert, spread } from "./runtime";
-import { createSignal, createMemo, onCleanup, untrack, splitProps, Component } from "solid-js";
+import { createSignal, createMemo, onCleanup, untrack, splitProps, Component, JSX } from "solid-js";
 
 export * from "./runtime";
 

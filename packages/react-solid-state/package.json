@@ -20,8 +20,8 @@
     "solid-js": "^0.22.10"
   },
   "peerDependencies": {
-    "react": "^16.8.2",
-    "react-dom": "^16.8.2"
+    "react": "*",
+    "react-dom": "*"
   },
   "devDependencies": {
     "@babel/preset-react": "^7.8.0",
