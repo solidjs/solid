@@ -5,7 +5,8 @@
     "target": "esnext",
     "newLine": "LF",
     "moduleResolution": "node",
-    "strict": true
+    "strict": true,
+    "jsx": "preserve"
   },
   "exclude": ["node_modules", "**/*.spec.ts", "**/*.spec.tsx"]
 }

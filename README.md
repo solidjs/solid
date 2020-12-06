@@ -93,6 +93,14 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 "presets": ["solid"]
 ```
 
+For TypeScript remember to set your TSConfig to handle Solid's JSX by:
+```js
+"compilerOptions" {
+  "jsx": "preserve",
+  "jsxImportSource": "solid-js",
+}
+```
+
 > Check out these two introductory articles by [@aftzl](https://github.com/atfzl):
 > [Understanding Solid: Reactivity Basics](https://dev.to/atfzl/understanding-solid-reactivity-basics-39kk)<br>
 > [Understanding Solid: JSX](https://dev.to/atfzl/understanding-solid-jsx-584p)

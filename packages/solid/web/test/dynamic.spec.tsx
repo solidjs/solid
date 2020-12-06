@@ -1,4 +1,4 @@
-import { createRoot, createSignal, Component } from "../../src";
+import { createRoot, createSignal, Component, JSX } from "../../src";
 import { Dynamic } from "../src";
 
 describe("Testing Dynamic control flow", () => {

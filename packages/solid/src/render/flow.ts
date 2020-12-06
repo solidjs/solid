@@ -1,6 +1,6 @@
 import { createMemo, untrack, createSignal, onError } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
-import { Component, splitProps } from "./component";
+import type { JSX } from "../jsx";
 
 export function For<T, U extends JSX.Element>(props: {
   each: readonly T[];

@@ -9,6 +9,7 @@ import {
   getSuspenseContext,
   resumeEffects
 } from "../reactive/signal";
+import type { JSX } from "../jsx";
 
 type SuspenseListRegistryItem = {
   inFallback: () => boolean;

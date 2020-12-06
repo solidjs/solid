@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.22.10",
+  "version": "0.23.0-beta.0",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/ryansolid/solid#readme",
@@ -23,7 +23,8 @@
     "html/types",
     "types",
     "dom",
-    "dev"
+    "dev",
+    "jsx-runtime.d.ts"
   ],
   "exports": {
     ".": {
@@ -71,7 +72,7 @@
     "prebuild": "rimraf dist/* types/*",
     "build": "npm-run-all -cnl build:*",
     "build:link": "symlink-dir . node_modules/solid-js",
-    "build:js": "ncp ../../node_modules/dom-expressions/src/jsx.ts ./src/render/jsx.ts && ncp ../../node_modules/dom-expressions/src/jsx.ts ./src/static/jsx.ts && rollup -c",
+    "build:js": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && rollup -c",
     "build:types": "tsc",
     "build:types-web": "tsc --project ./web/tsconfig.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",

@@ -34,6 +34,7 @@ export { reconcile, produce } from "./reactive/stateModifiers";
 export * from "./reactive/scheduler";
 export * from "./reactive/array";
 export * from "./render";
+export type { JSX } from "./jsx";
 
 // handle multiple instance check
 declare global {

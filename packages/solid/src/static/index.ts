@@ -48,8 +48,5 @@ export {
 export type { State, SetStateFunction } from "./reactive";
 export type { Component, LoadStateFunction, Resource } from "./rendering";
 
-// jsx types
-import "./jsx"
-
 
 
