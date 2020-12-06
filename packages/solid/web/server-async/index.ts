@@ -1,5 +1,5 @@
 import { ssr, ssrSpread } from "./asyncSSR";
-import { createMemo, untrack, splitProps, Component } from "solid-js";
+import { createMemo, untrack, splitProps, Component, JSX } from "solid-js";
 
 export * from "./asyncSSR";
 

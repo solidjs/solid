@@ -1,5 +1,5 @@
 import { ssr, ssrSpread } from "./syncSSR";
-import { splitProps, Component } from "solid-js";
+import { splitProps, Component, JSX } from "solid-js";
 
 export * from "./syncSSR";
 
