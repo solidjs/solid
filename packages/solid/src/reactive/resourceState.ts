@@ -16,7 +16,7 @@ import {
   proxyDescriptor
 } from "./state";
 
-function createResourceNode(v: any, name: string) {
+function createResourceNode(v: any, name?: string) {
   // maintain setState capability by using normal data node as well
   const node = "_SOLID_DEV_" ? createSignal(undefined, false, { internal: true }) : createSignal(),
     [r, load] = createResource(v, { name });
@@ -44,7 +44,7 @@ export function createResourceState<T extends StateNode>(
         nodes[property] ||
         (nodes[property] = createResourceNode(
           undefined,
-          ((name as unknown) as string) && `${options.name}:${property}`
+          options.name && `${options.name}:${property}`
         ));
       return node[3]();
     },
