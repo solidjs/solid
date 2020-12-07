@@ -13,6 +13,7 @@
   "module": "dist/solid.js",
   "types": "types/index.d.ts",
   "sideEffects": false,
+  "type": "module",
   "files": [
     "dist",
     "web/dist",
