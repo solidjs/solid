@@ -17,7 +17,12 @@
     "build": "tsc"
   },
   "dependencies": {
-    "component-register": "~0.8.0",
+    "component-register": "~0.8.0"
+  },
+  "peerDependencies": {
+    "solid-js": "^0.23.0"
+  },
+  "devDependencies": {
     "solid-js": "^0.23.0"
   }
 }

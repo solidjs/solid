@@ -3,5 +3,6 @@
   "main": "../web/dist/web.cjs",
   "module": "../web/dist/web.js",
   "types": "../web/types/index.d.ts",
+  "type": "module",
   "sideEffects": false
 }

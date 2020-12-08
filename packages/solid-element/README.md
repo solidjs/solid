@@ -11,9 +11,15 @@ This library extends [Solid](https://github.com/ryansolid/solid) by adding Custo
 
 [See here](https://webcomponents.dev/edit/yGRb00wV4AMncPupRmA9) for an example of a webcomponent created by `solid-element`.
 
+## Installation
+
+```sh
+npm i solid-element solid-js babel-preset-solid
+```
+
 ## Custom Elements
 
-The simplest way to create a Web Component is to use the `customElement` method. 
+The simplest way to create a Web Component is to use the `customElement` method.
 
 The arguments of `customElement` are:
 1) custom element tag (e.g. `'my-component'`)

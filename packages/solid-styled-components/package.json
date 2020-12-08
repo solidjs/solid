@@ -25,7 +25,7 @@
     "goober": "^2.0.15"
   },
   "peerDependencies": {
-    "solid-js": "^0.22.0"
+    "solid-js": "^0.23.0"
   },
   "devDependencies": {
     "solid-js": "^0.23.0"

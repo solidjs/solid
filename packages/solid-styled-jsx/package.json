@@ -19,7 +19,7 @@
     "babel-plugin-transform-rename-import": "^2.3.0"
   },
   "peerDependencies": {
-    "solid-js": "^0.22.0",
+    "solid-js": "^0.23.0",
     "styled-jsx": "^3.2.5"
   },
   "devDependencies": {
