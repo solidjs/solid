@@ -22,7 +22,7 @@ const App = RouteHOC(() => {
         </li>
       </ul>
       <div class="tab" classList={{"pending": pending()}}>
-        <Suspense fallback="Loading...">
+        <Suspense fallback={<span class="loader" style={"opacity: 0"}>Loading...</span>}>
           <Switch>
             <Match when={matches("index")}>
               <Home />

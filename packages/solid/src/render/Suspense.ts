@@ -129,7 +129,7 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
       decrement: () => {
         if (--counter === 0) {
           setFallback(false);
-          trackSuspense && queueMicrotask(SuspenseContext.decrement!);
+          trackSuspense && setTimeout(SuspenseContext.decrement!);
         }
       },
       inFallback,

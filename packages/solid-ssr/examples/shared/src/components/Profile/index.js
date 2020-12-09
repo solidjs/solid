@@ -11,17 +11,18 @@ export default () => {
       new Promise(res => {
         setTimeout(() => res({ firstName: "Jon", lastName: "Snow" }), 400);
       })
-  );
-  loadInfo(
-    () =>
-      // simulate data loading
-      new Promise(res => {
-        setTimeout(
-          () =>
-            res(["Something Interesting", "Something else you might care about", "Or maybe not"]),
-          800
-        );
-      })
-  );
+  ).then(() => {
+    loadInfo(
+      () =>
+        // simulate cascading data loading
+        new Promise(res => {
+          setTimeout(
+            () =>
+              res(["Something Interesting", "Something else you might care about", "Or maybe not"]),
+            400
+          );
+        })
+    );
+  });
   return <Profile user={user()} info={info()} />;
 };

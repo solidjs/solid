@@ -409,13 +409,19 @@ export interface Resource<T> {
 export function createResource<T>(
   init?: T,
   options: { name?: string; notStreamed?: boolean } = {}
-): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T> | T] {
-  const [s, set] = createSignal(init),
-    [loading, setLoading] = createSignal<boolean>(false, true),
-    contexts = new Set<SuspenseContextType>(),
+): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T>] {
+  const contexts = new Set<SuspenseContextType>(),
     h = globalThis._$HYDRATION || {};
   let err: any = null,
-    pr: Promise<T> | null = null;
+    pr: Promise<T> | null = null,
+    serialized = false;
+  if (options.name && h.resources && options.name in h.resources) {
+    init = h.resources![options.name!];
+    delete h.resources![options.name!];
+    serialized = true;
+  }
+  const [s, set] = createSignal(init),
+    [loading, setLoading] = createSignal<boolean>(false, true);
   function loadEnd(p: Promise<T>, v: T, e?: any) {
     if (pr === p) {
       err = e;
@@ -465,26 +471,20 @@ export function createResource<T>(
     return v;
   }
   function load(fn: () => Promise<T> | T) {
+    if (serialized) {
+      serialized = false;
+      return Promise.resolve(init!);
+    }
     err = null;
     let p: Promise<T> | T;
     const hydrating = h.context && !!h.context.registry;
-    if (hydrating) {
-      if (h.loadResource && !options.notStreamed) {
-        fn = h.loadResource;
-      } else if (options.name && h.resources && options.name in h.resources) {
-        fn = () => {
-          const data = h.resources![options.name!];
-          delete h.resources![options.name!];
-          return data;
-        };
-      }
-    }
+    if (hydrating && h.loadResource && !options.notStreamed) fn = h.loadResource;
     p = fn();
     Transition && pr && Transition.promises.delete(pr);
     if (typeof p !== "object" || !("then" in p)) {
       pr = null;
       completeLoad(p);
-      return p;
+      return Promise.resolve(p);
     }
     pr = p;
     batch(() => {

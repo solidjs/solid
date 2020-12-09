@@ -1,5 +1,5 @@
 import { State, SetStateFunction, updatePath } from "./reactive";
-import type { JSX } from "../jsx"
+import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
@@ -186,15 +186,17 @@ export interface Resource<T> {
   loading: boolean;
 }
 
-export function createResource<T>(value?: T): [Resource<T>, (fn: () => Promise<T> | T) => void] {
+export function createResource<T>(
+  value?: T
+): [Resource<T>, (fn: () => Promise<T> | T) => { then: Function }] {
   const resource = () => value;
   resource.loading = false;
   function load(fn: () => Promise<T> | T) {
-    if (typeof fn === "function") {
-      resource.loading = true;
-      const p = (fn as () => Promise<T>)();
-      globalThis._$HYDRATION.register && globalThis._$HYDRATION.register(p);
-    } else value = fn;
+    resource.loading = true;
+    const p = fn();
+    if ("then" in p) globalThis._$HYDRATION.register && globalThis._$HYDRATION.register(p);
+    else value = p;
+    return { then: () => {} };
   }
   return [resource, load];
 }
