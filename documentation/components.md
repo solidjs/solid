@@ -19,9 +19,9 @@ const Label = ({ greeting, children }) => (
 );
 ```
 
-Since the all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM.
+Since all nodes from JSX are actual DOM nodes the only responsibility of top level Templates/Components is appending to the DOM.
 
-Components also support dynamic bindings which allow you to pass values that will change. However you need to be careful to access your props inside bindings or effects it you want them to track change.
+Components also support dynamic bindings which allow you to pass values that will change. However you need to be careful to access your props inside bindings or effects if you want them to track change.
 
 ```jsx
 // Name will never update as it is destructured outside
@@ -123,6 +123,7 @@ function Example() {
   );
 }
 ```
+
 For convenience if you need to only run it once you can use `onMount` which is the same as `createEffect` but will only run once. Keep in mind Solid's cleanup is independent of this mechanism. So if you aren't reading the DOM you don't need to use these.
 
 If you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`.

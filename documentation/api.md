@@ -2,13 +2,14 @@
 
 ### `createSignal(initialValue, boolean | comparatorFn): [getValueFn, setValueFn]`
 
-This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. You can have it only notify on changes is you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. You can have it only notify on changes if you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `createState(initValue): [state, setState]`
 
 Creates a new State proxy object and setState pair. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
 
 ### `onMount(() => <code>)`
+
 Registers a method that runs after initial render and elements have been mounted. Ideal for using `ref`s and managing other one time side effects.
 
 ### `onCleanup(() => <code>)`
@@ -17,7 +18,7 @@ Registers a cleanup method that executes on disposal or recalculation of the cur
 
 ### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
 
-Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes is you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes if you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `createComputed(prev => <code>, initialValue): void`
 
@@ -52,11 +53,12 @@ Ignores tracking any of the dependencies in the executing code block and returns
 Ensures that all notification of updates within the block happen at the same time to prevent unnecessary recalculation. Solid State's setState method and computations(useEffect, useMemo) automatically wrap their code in a batch.
 
 ### `on(...args, (value, prevValue, prevResult) => result): (prev) => value`
-`on` is designed to be passed into a computation to make its deps explicit. If more than one dep is passed value and prevValue are arrays.
+
+`on` is designed to be passed into a computation to make its deps explicit. If more than one dep is passed, value and prevValue are arrays.
 
 ### `onError((err: any) => <code>)`
 
-Registers a error handler method that executes when child context errors. Only nearest context error handlers execute. Rethrow to trigger up the line.
+Registers an error handler method that executes when child context errors. Only nearest context error handlers execute. Rethrow to trigger up the line.
 
 ### `createMutable(initValue): state`
 
@@ -64,7 +66,7 @@ Creates a new mutable State proxy object. State only triggers update on values c
 
 ### `createDeferred(() => <code>, options: { timeoutMs: number }): getValueFn`
 
-Creates memo that only notifies downstream changes when the browser is idle. `timeoutMS` is the maximum time to wait before forcing the update.
+Creates memo that only notifies downstream changes when the browser is idle. `timeoutMs` is the maximum time to wait before forcing the update.
 
 ### `createRenderEffect(prev => <code>, initialValue): void`
 
@@ -76,7 +78,7 @@ Creates a conditional signal that only notifies subscribers when entering or exi
 
 ### `createResource(initialValue, options: { name }): [getValueFn, loadFn]`
 
-Creates a new resource signal that can hold a async resource. Resources when read while loading trigger Suspense. The `loadFn` takes a promise whose resolved value is set in the resource.
+Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `loadFn` takes a Promise whose resolved value is set in the resource.
 
 ### `createResourceState(initialValue, options: { name }): [state, loadState, setState]`
 
