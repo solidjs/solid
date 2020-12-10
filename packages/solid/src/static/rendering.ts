@@ -87,18 +87,19 @@ export function splitProps<
   Omit<T, K1 | K2 | K3 | K4 | K5>
 ];
 export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
-  const split = (k: (keyof T)[]) => {
-    const clone: Partial<T> = {};
-    for (let i = 0; i < k.length; i++) {
-      const key = k[i];
-      if (props[key]) {
-        clone[key] = props[key];
-        delete props[key];
+  const descriptors = Object.getOwnPropertyDescriptors(props),
+    split = (k: (keyof T)[]) => {
+      const clone: Partial<T> = {};
+      for (let i = 0; i < k.length; i++) {
+        const key = k[i];
+        if (descriptors[key]) {
+          Object.defineProperty(clone, key, descriptors[key]);
+          delete descriptors[key];
+        }
       }
-    }
-    return clone;
-  };
-  return keys.map(split).concat(split(Object.keys(props) as (keyof T)[]));
+      return clone;
+    };
+  return keys.map(split).concat(split(Object.keys(descriptors) as (keyof T)[]));
 }
 
 function simpleMap(
