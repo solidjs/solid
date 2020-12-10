@@ -1,6 +1,6 @@
 # Reactivity
 
-Solid's data management is built off a set of flexible reactive primitives are responsible for all the updates. It takes a very similar approach to MobX or Vue except it never trades its granularity for a VDOM. Dependencies are automatically tracked when you access your reactive values in your Effects and JSX View code.
+Solid's data management is built off a set of flexible reactive primitives which are responsible for all the updates. It takes a very similar approach to MobX or Vue except it never trades its granularity for a VDOM. Dependencies are automatically tracked when you access your reactive values in your Effects and JSX View code.
 
 Solid has a number of reactive primitives but the main 2 are Signals, and State. Ultimately you will need to understand both to write effective Solid code.
 
@@ -73,7 +73,7 @@ function useTick(delay) {
 
 ## Accessors Reactive Scope
 
-Signals are special functions that when executed return their value. In addition they are trackable when executed under a reactive scope. This means that when their value read (executed) the currently executing reactive scope is now subscribed to the Signal and will re-execute whenever the Signal is updated.
+Signals are special functions that when executed return their value. In addition they are trackable when executed under a reactive scope. This means that when their value is read (executed) the currently executing reactive scope is now subscribed to the Signal and will re-execute whenever the Signal is updated.
 
 This mechanism is based on the executing function's scope so Signals reads can be composed and nested as many levels as desired. By wrapping a Signal read in a thunk `() => signal()` you have effectively created a derived signal that can be tracked as well. The same holds true for accessing state. Want to use state as a signal just wrap it in a function:
 
@@ -88,7 +88,7 @@ These accessors are just functions that can be tracked and return a value. No ad
 
 ## Computations
 
-An computation is calculation over a function execution that automatically and dynamically tracks any child signals that are accessed during that execution. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
+A computation is calculation over a function execution that automatically and dynamically tracks any child signals that are accessed during that execution. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
 
 There are 3 main computations used by Solid: Memos which are pure and designed to cache values until their reactivity forces re-evaluation, Computeds which are designed to write to other signals, and Effects which are intended to produce side effects after rendering.
 
@@ -189,7 +189,7 @@ batch(() => {
 
 ## Cleanup
 
-While Solid does not have Component lifecyles in the traditional sense, it still needs to handle cleaning up reactive dependencies. The way Solid works is that each nested computation is owned by it's parent reactive scope. In so all commputations must be created as part of a root. This detail is generally taken care of for you as the `render` method contains a `createRoot` call. But it can be called directly for cases where you need to control disposal outside of this cycle.
+While Solid does not have Component lifecyles in the traditional sense, it still needs to handle cleaning up reactive dependencies. The way Solid works is that each nested computation is owned by it's parent reactive scope. In so all computations must be created as part of a root. This detail is generally taken care of for you as the `render` method contains a `createRoot` call. But it can be called directly for cases where you need to control disposal outside of this cycle.
 
 Once inside a scope whenever the scope is re-evaluated or disposed of itself, all children computations will be disposed. In addition you can register a `onCleanup` method that will execute as part of this disposal cycle.
 
