@@ -63,7 +63,7 @@ That `_el$` is a real div element and `props.name`, `Taylor` in this case, is ap
 
 Want to see what code Solid generates:
 
-### [Try it Online](https://solid-template-explorer.netlify.app/)
+### [Try it Online](https://playground.solidjs.com/)
 
 ## Getting Started
 

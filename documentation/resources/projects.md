@@ -48,7 +48,7 @@
 - [Create Solid](https://github.com/ryansolid/create-solid) Solid's port of Create React App.
 - [Vite Plugin Solid](https://github.com/amoutonbrady/vite-plugin-solid) Solid plugin for Vite.
 - [Solid Hot Loader](https://github.com/ryansolid/solid-hot-loader) Webpack Loader for HMR for Solid Components.
-- [Solid Template Explorer](https://github.com/amoutonbrady/solid-template-explorer) Simple REPL for Solid.
+- [Solid Playground](https://github.com/ryansolid/solid-playground) A playground for Solid.
 - [Solid Debug](https://github.com/amoutonbrady/solid-debug) Simple visual debugger for Solid.
 
 ## Related Projects
