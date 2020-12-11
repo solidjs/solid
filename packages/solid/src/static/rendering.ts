@@ -139,10 +139,11 @@ export function Show<T>(props: {
   fallback?: string;
   children: string | ((item: T) => string);
 }) {
+  let c: string | ((item: T) => string);
   return props.when
-    ? typeof props.children === "function"
-      ? props.children(props.when)
-      : props.children
+    ? typeof (c =  props.children) === "function"
+      ? c(props.when)
+      : c
     : props.fallback || "";
 }
 
@@ -278,6 +279,7 @@ export function SuspenseList(props: {
 }
 
 export function Suspense(props: { fallback: string; children: string }) {
+  // TODO: look at not always going to fallback
   props.children;
   return props.fallback;
 }
