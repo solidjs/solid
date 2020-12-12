@@ -4,6 +4,9 @@
 
 - [The Deep Dive Ep#4 Reactive Frontend Frameworks](https://thedeepdive.simplecast.com/episodes/reactive-frontend-frameworks)
 
+## Videos
+- [Solid Video Series By Eric Schmucker](https://www.youtube.com/playlist?list=PLtLhzwNMDs1fMi43erQSzXD49Y4p0TniU)
+
 ## Latest Articles
 
 - [SolidJS: The Tesla of JavaScript Frameworks?](https://medium.com/@ryansolid/solidjs-the-tesla-of-javascript-ui-frameworks-6a1d379bc05e) Tech built for Economy can be used for Performance
