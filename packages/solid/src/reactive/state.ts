@@ -49,7 +49,7 @@ export function wrap<T extends StateNode>(
       for (let i = 0, l = keys.length; i < l; i++) {
         const prop = keys[i];
         if (desc[prop].get) {
-          const get = createMemo(desc[prop].get!.bind(p));
+          const get = createMemo(desc[prop].get!.bind(p), undefined, true);
           Object.defineProperty(value, prop, {
             get
           });
