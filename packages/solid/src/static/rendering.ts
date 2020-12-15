@@ -196,9 +196,11 @@ export function createResource<T>(
   function load(fn: () => Promise<T> | T) {
     resource.loading = true;
     const p = fn();
-    if ("then" in p) globalThis._$HYDRATION.register && globalThis._$HYDRATION.register(p);
-    else value = p;
-    return { then: () => {} };
+    if ("then" in p) {
+      globalThis._$HYDRATION.register && globalThis._$HYDRATION.register(p);
+      return p;
+    }
+    return Promise.resolve(value = p);
   }
   return [resource, load];
 }
