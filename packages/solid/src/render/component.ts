@@ -117,7 +117,7 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
           const c = h.context;
           setHydrateContext(ctx);
           const r = Comp!(props);
-          !c && setHydrateContext();
+          setHydrateContext(c);
           return r;
         })
     );

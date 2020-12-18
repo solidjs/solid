@@ -127,7 +127,7 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
-  Effects && Effects!.push(c);
+  Effects && Effects.push(c);
 }
 
 export function resumeEffects(e: Computation<any>[]) {
@@ -411,17 +411,13 @@ export function createResource<T>(
   options: { name?: string; notStreamed?: boolean } = {}
 ): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T>] {
   const contexts = new Set<SuspenseContextType>(),
-    h = globalThis._$HYDRATION || {};
+    h = globalThis._$HYDRATION || {},
+    [s, set] = createSignal(init),
+    [loading, setLoading] = createSignal<boolean>(false, true);
+
   let err: any = null,
     pr: Promise<T> | null = null,
-    serialized = false;
-  if (options.name && h.resources && options.name in h.resources) {
-    init = h.resources![options.name!];
-    delete h.resources![options.name!];
-    serialized = true;
-  }
-  const [s, set] = createSignal(init),
-    [loading, setLoading] = createSignal<boolean>(false, true);
+    ctx: any;
   function loadEnd(p: Promise<T>, v: T, e?: any) {
     if (pr === p) {
       err = e;
@@ -442,12 +438,14 @@ export function createResource<T>(
   }
   function completeLoad(v: T) {
     batch(() => {
-      set(v);
+      if (ctx) h.context = ctx;
       if (h.asyncSSR && options.name) h.resources![options.name] = v;
+      set(v);
       setLoading(false);
       for (let c of contexts.keys()) c.decrement!();
       contexts.clear();
     });
+    if (ctx) h.context = ctx = undefined;
   }
 
   function read() {
@@ -471,14 +469,20 @@ export function createResource<T>(
     return v;
   }
   function load(fn: () => Promise<T> | T) {
-    if (serialized) {
-      serialized = false;
-      return Promise.resolve(init!);
-    }
     err = null;
     let p: Promise<T> | T;
     const hydrating = h.context && !!h.context.registry;
-    if (hydrating && h.loadResource && !options.notStreamed) fn = h.loadResource;
+    if (hydrating) {
+      if (h.loadResource && !options.notStreamed) {
+        fn = h.loadResource;
+      } else if (options.name && h.resources && options.name in h.resources) {
+        fn = () => {
+          const data = h.resources![options.name!];
+          delete h.resources![options.name!];
+          return data;
+        };
+      }
+    } else if (h.asyncSSR && h.context) ctx = h.context;
     p = fn();
     Transition && pr && Transition.promises.delete(pr);
     if (typeof p !== "object" || !("then" in p)) {
@@ -643,15 +647,15 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
   return c;
 }
 
-function runTop(node: Computation<any> | null) {
-  let top = node!.state === STALE && node,
+function runTop(node: Computation<any>) {
+  let top = node.state === STALE && node,
     pending;
-  if (node!.suspense && untrack(node!.suspense.inFallback!))
+  if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const runningTransition = Transition && Transition.running;
   while (
-    (node!.fn || (runningTransition && node!.attached)) &&
-    (node = node!.owner as Computation<any>)
+    (node.fn || (runningTransition && node.attached)) &&
+    (node = node.owner as Computation<any>)
   ) {
     if (runningTransition && Transition!.disposed.has(node)) return;
     if (node.state === PENDING) pending = node;
