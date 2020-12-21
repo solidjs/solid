@@ -112,7 +112,7 @@ function simpleMap(
   if (len) {
     let mapped = "";
     for (let i = 0; i < len; i++) mapped += resolveSSRNode(wrap(fn, list[i], i));
-    return mapped;
+    return { t: mapped };
   }
   return props.fallback || "";
 }
