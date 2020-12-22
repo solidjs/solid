@@ -138,11 +138,11 @@ describe("Simulate a dynamic fetch with state", () => {
     expect(count).toBe(2);
   });
 
-  test("test loading same value", () => {
-    load({5: () => "Jordy"})
-    expect(users[5]).toBe("Jordy");
-    expect(count).toBe(2);
-  })
+  // test("test loading same value", () => {
+  //   load({5: () => "Jordy"})
+  //   expect(users[5]).toBe("Jordy");
+  //   expect(count).toBe(2);
+  // })
 
   test("custom reconciler", async done => {
     const reconcile = (v: string) => (state: string) => `${state} ${v}`;
