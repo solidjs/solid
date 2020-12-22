@@ -100,14 +100,15 @@ export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
 
 // lazy load a function component asynchronously
 export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
+  let p: Promise<{ default: T }>;
   return ((props: any) => {
     const h = globalThis._$HYDRATION || {},
       hydrating = h.context && h.context.registry,
       ctx = nextHydrateContext(),
       [s, l] = createResource<T>(undefined, { notStreamed: true });
     if (hydrating && h.resources) {
-      fn().then(mod => l(() => mod.default));
-    } else l(() => fn().then(mod => mod.default));
+      (p || (p = fn())).then(mod => l(() => mod.default));
+    } else l(() => (p || (p = fn())).then(mod => mod.default));
     let Comp: T | undefined;
     return createMemo(
       () =>
