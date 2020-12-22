@@ -141,7 +141,7 @@ export function Show<T>(props: {
 }) {
   let c: string | ((item: T) => string);
   return props.when
-    ? typeof (c =  props.children) === "function"
+    ? typeof (c = props.children) === "function"
       ? c(props.when)
       : c
     : props.fallback || "";
@@ -181,8 +181,6 @@ export function ErrorBoundary(props: {
 }
 
 // Suspense Context
-type SuspenseConfig = { timeoutMs: number };
-
 export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
@@ -194,13 +192,14 @@ export function createResource<T>(
   const resource = () => value;
   resource.loading = false;
   function load(fn: () => Promise<T> | T) {
+    if (!globalThis._$HYDRATION.streamSSR) return { then() {} };
     resource.loading = true;
     const p = fn();
     if ("then" in p) {
       globalThis._$HYDRATION.register && globalThis._$HYDRATION.register(p);
       return p;
     }
-    return Promise.resolve(value = p);
+    return Promise.resolve((value = p));
   }
   return [resource, load];
 }
@@ -265,6 +264,7 @@ type GlobalHydration = {
   loadResource?: () => Promise<any>;
   resources?: { [key: string]: any };
   asyncSSR?: boolean;
+  streamSSR?: boolean;
 };
 
 declare global {

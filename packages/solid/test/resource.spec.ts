@@ -76,11 +76,12 @@ describe("Simulate a dynamic fetch with state", () => {
     reject: (r: string) => void,
     trigger: (v: number) => void,
     load: (
-      v: { [k: number]: () => Promise<string> },
+      v: { [k: number]: () => Promise<string> | string },
       r?: (v: any) => (state: any) => void
     ) => void,
     setUsers: SetStateFunction<{ [id: number]: string }>,
-    users: State<{ [id: number]: string; loading: { [id: number]: boolean } }>;
+    users: State<{ [id: number]: string; loading: { [id: number]: boolean } }>,
+    count = 0;
   function fetcher(): Promise<string> {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -94,6 +95,7 @@ describe("Simulate a dynamic fetch with state", () => {
       [users, load, setUsers] = createResourceState<{ [id: number]: string }>({ 6: "Rio" });
       trigger = setId;
       createComputed(() => load({[id()]: fetcher}));
+      createComputed(() => (users[5], count++));
     });
     expect(users[1]).toBeUndefined();
     expect(users.loading[1]).toBe(true);
@@ -133,7 +135,14 @@ describe("Simulate a dynamic fetch with state", () => {
   test("setState", () => {
     setUsers(5, "Jordy");
     expect(users[5]).toBe("Jordy");
+    expect(count).toBe(2);
   });
+
+  test("test loading same value", () => {
+    load({5: () => "Jordy"})
+    expect(users[5]).toBe("Jordy");
+    expect(count).toBe(2);
+  })
 
   test("custom reconciler", async done => {
     const reconcile = (v: string) => (state: string) => `${state} ${v}`;

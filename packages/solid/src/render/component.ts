@@ -151,6 +151,7 @@ type GlobalHydration = {
   loadResource?: () => Promise<any>;
   resources?: { [key: string]: any };
   asyncSSR?: boolean;
+  streamSSR?: boolean;
 };
 
 declare global {
