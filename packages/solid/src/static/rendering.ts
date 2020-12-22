@@ -237,8 +237,9 @@ export function createResourceState<T>(
 }
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
+  let p: Promise<{ default: any }>;
   return (props: any) => {
-    fn().then(mod => mod.default(props));
+    (p || (p = fn())).then(mod => mod.default(props));
     return "";
   };
 }
