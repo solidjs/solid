@@ -17,10 +17,8 @@ import {
 } from "./state";
 
 function createResourceNode(v: any, name?: string) {
-  // maintain setState capability by using normal data node as well
-  const node = "_SOLID_DEV_" ? createSignal(undefined, false, { internal: true }) : createSignal(),
-    [r, load] = createResource(v, { name });
-  return [() => (r(), node[0]()), node[1], load, () => r.loading];
+  const [r, load] = createResource(v, { name });
+  return [() => r(), (v: any) => load(() => v), load, () => r.loading];
 }
 
 export interface LoadStateFunction<T> {
@@ -126,10 +124,12 @@ export function createResourceState<T extends StateNode>(
           r
             ? setState(k, r(v as Partial<T>))
             : setProperty(unwrappedState, k as string | number, v),
-          v
-        ),
-        p = node[2](v[k]);
-      typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p);
+          unwrappedState[k]
+        );
+      node[2](() => {
+        const p = v[k]();
+        return typeof p === "object" && "then" in p ? p.then(resolver) : resolver(p);
+      });
     }
   }
 

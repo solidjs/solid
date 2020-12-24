@@ -162,25 +162,24 @@ const proxyTraps: ProxyHandler<StateNode> = {
 export function setProperty(
   state: StateNode,
   property: string | number,
-  value: any,
-  force?: boolean
+  value: any
 ) {
-  if (!force && state[property] === value) return;
+  if (state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
   if (value === undefined) {
     delete state[property];
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && node[1]();
+  (node = nodes[property]) && node[1](value);
   notify && (node = nodes._) && node[1]();
 }
 
-function mergeState(state: StateNode, value: Partial<StateNode>, force?: boolean) {
+function mergeState(state: StateNode, value: Partial<StateNode>) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
-    setProperty(state, key, value[key], force);
+    setProperty(state, key, value[key]);
   }
 }
 

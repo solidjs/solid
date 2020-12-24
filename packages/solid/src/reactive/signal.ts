@@ -88,7 +88,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [() => T | undefined, (v: T) => T];
+export function createSignal<T>(): [() => T | undefined, (v?: T) => T];
 export function createSignal<T>(
   value: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean),
@@ -412,7 +412,8 @@ export function createResource<T>(
 ): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T>] {
   const contexts = new Set<SuspenseContextType>(),
     h = globalThis._$HYDRATION || {},
-    [s, set] = createSignal(init),
+    [s, set] = createSignal(init, true),
+    [track, trigger] = createSignal<void>(),
     [loading, setLoading] = createSignal<boolean>(false, true);
 
   let err: any = null,
@@ -453,18 +454,16 @@ export function createResource<T>(
       v = s();
     if (err) throw err;
     if (Listener && !Listener.user && c) {
-      if (!Listener.pure)
-        createComputed(() => {
-          s();
-          if (pr && c.resolved && Transition) Transition.promises.add(pr!);
-        });
-      if (pr) {
-        if (Listener.pure && c.resolved && Transition) Transition.promises.add(pr!);
-        else if (!contexts.has(c)) {
-          c.increment!();
-          contexts.add(c);
+      createComputed(() => {
+        track();
+        if (pr) {
+          if (c.resolved && Transition) Transition.promises.add(pr!);
+          else if (!contexts.has(c)) {
+            c.increment!();
+            contexts.add(c);
+          }
         }
-      }
+      });
     }
     return v;
   }
@@ -493,11 +492,11 @@ export function createResource<T>(
     pr = p;
     batch(() => {
       setLoading(true);
-      set(untrack(s));
+      trigger();
     });
     return p.then(
       v => loadEnd(p as Promise<T>, v),
-      e => loadEnd(p as Promise<T>, s()!, e)
+      e => loadEnd(p as Promise<T>, undefined as any, e)
     );
   }
   Object.defineProperty(read, "loading", {

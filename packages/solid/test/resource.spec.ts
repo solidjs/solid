@@ -5,11 +5,11 @@ import {
   createResourceState,
   createComputed,
   createRenderEffect,
-  createEffect,
   onError,
   SetStateFunction,
   Resource,
-  State
+  State,
+  reconcile
 } from "../src";
 
 describe("Simulate a dynamic fetch", () => {
@@ -94,7 +94,7 @@ describe("Simulate a dynamic fetch with state", () => {
       const [id, setId] = createSignal(1);
       [users, load, setUsers] = createResourceState<{ [id: number]: string }>({ 6: "Rio" });
       trigger = setId;
-      createComputed(() => load({[id()]: fetcher}));
+      createComputed(() => load({ [id()]: fetcher }));
       createComputed(() => (users[5], count++));
     });
     expect(users[1]).toBeUndefined();
@@ -138,11 +138,11 @@ describe("Simulate a dynamic fetch with state", () => {
     expect(count).toBe(2);
   });
 
-  // test("test loading same value", () => {
-  //   load({5: () => "Jordy"})
-  //   expect(users[5]).toBe("Jordy");
-  //   expect(count).toBe(2);
-  // })
+  test("test loading same value", () => {
+    load({ 5: () => "Jordy" });
+    expect(users[5]).toBe("Jordy");
+    expect(count).toBe(2);
+  });
 
   test("custom reconciler", async done => {
     const reconcile = (v: string) => (state: string) => `${state} ${v}`;
@@ -165,6 +165,59 @@ describe("Simulate a dynamic fetch with state", () => {
       expect(users[7]).toBe("Jimbo");
       expect(runs).toBe(2);
     });
+  });
+});
+
+describe("Simulate a dynamic fetch with state and reconcile", () => {
+  interface User {
+    firstName: string;
+    address: {
+      streetNumber: number;
+      streetName: string;
+    };
+  }
+  let resolve: (v: User) => void,
+    load: (
+      v: { [k: number]: () => Promise<User> | User },
+      r?: (v: any) => (state: any) => void
+    ) => void,
+    users: State<{ [id: number]: User; loading: { [id: number]: boolean } }>,
+    count = 0;
+  function fetcher() {
+    return new Promise<User>(r => {
+      resolve = r;
+    });
+  }
+  const data: User[] = [];
+  data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } })
+  data.push({ ...data[0], firstName: "Joseph" })
+
+  test("initial async resource", async done => {
+    createRoot(() => {
+      [users, load] = createResourceState<{ [id: number]: User }>({});
+      createComputed(() => (users[0], count++));
+    });
+    load({ 0: fetcher });
+    expect(users[0]).toBeUndefined();
+    expect(users.loading[0]).toBe(true);
+    resolve(data[0]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(users[0]).toStrictEqual(data[0]);
+    expect(users.loading[0]).toBe(false);
+    expect(count).toBe(2);
+
+    load({ 0: fetcher }, reconcile);
+    expect(users.loading[0]).toBe(true);
+    resolve(data[1]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(users[0]).toStrictEqual(data[0]);
+    expect(users[0].firstName).toBe("Joseph");
+    expect(users[0].address).toStrictEqual(data[0].address);
+    expect(users.loading[0]).toBe(false);
+    expect(count).toBe(2);
+    done();
   });
 });
 
