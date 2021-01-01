@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["./src", "types/index.d.ts"],
+  "files": ["types/index.d.ts"],
+  "compilerOptions": {
+    "declaration": true,
+    "declarationDir": "./src",
+    "typeRoots": ["./types/"],
+    "rootDir": ".",
+    "outDir": "./lib"
+  },
+}

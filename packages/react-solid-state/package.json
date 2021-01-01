@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@babel/preset-react": "^7.8.0",
+    "@types/react": "^17.0.0",
     "react": "^16.11.0",
     "react-dom": "^16.11.0",
     "react-testing-library": "^7.0.1"
