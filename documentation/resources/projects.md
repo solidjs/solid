@@ -50,6 +50,7 @@
 - [Solid Hot Loader](https://github.com/ryansolid/solid-hot-loader) Webpack Loader for HMR for Solid Components.
 - [Solid Playground](https://github.com/ryansolid/solid-playground) A playground for Solid.
 - [Solid Debug](https://github.com/amoutonbrady/solid-debug) Simple visual debugger for Solid.
+- [Solid Esbuild Plugin](https://github.com/amoutonbrady/esbuild-plugin-solid) Solid plugin for Esbuild.
 
 ## Related Projects
 
