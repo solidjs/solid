@@ -830,7 +830,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
 }
 
 function resolveChildren(children: any): any {
-  if (typeof children === "function") return createMemo(() => resolveChildren(children()));
+  if (typeof children === "function") return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
@@ -846,7 +846,8 @@ function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     return createMemo(() => {
       Owner!.context = { [id]: props.value };
-      return resolveChildren(props.children);
+      const children = createMemo(() => props.children);
+      return createMemo(() => resolveChildren(children()));
     });
   };
 }

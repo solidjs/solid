@@ -107,7 +107,11 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
       ctx = nextHydrateContext(),
       [s, l] = createResource<T>(undefined, { notStreamed: true });
     if (hydrating && h.resources) {
-      (p || (p = fn())).then(mod => l(() => mod.default));
+      (p || (p = fn())).then(mod => {
+        setHydrateContext(ctx);
+        l(() => mod.default);
+        setHydrateContext(undefined);
+      });
     } else l(() => (p || (p = fn())).then(mod => mod.default));
     let Comp: T | undefined;
     return createMemo(
