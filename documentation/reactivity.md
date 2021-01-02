@@ -106,7 +106,7 @@ setCount(count() + 1);
 
 Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX(code between the parenthesis `{}`), the compiler is wrapping it in a function and passing it to a `createEffect` call.
 
-Memos allow us to store and access values without re-evaluating them until their dependendencies change.
+Memos allow us to store and access values without re-evaluating them until their dependencies change.
 
 Keep in mind memos are only necessary if you wish to prevent re-evaluation when the value is read. Useful for expensive operations like DOM Node creation. Any example with a memo could also just be a function and effectively be the same without caching as it's just another signal.
 
