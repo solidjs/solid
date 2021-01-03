@@ -1,5 +1,5 @@
 import { insert, spread } from "./runtime";
-import { createSignal, createMemo, onCleanup, untrack, splitProps, Component, JSX } from "solid-js";
+import { createSignal, createMemo, onCleanup, untrack, splitProps, Component, JSX, createRoot } from "solid-js";
 
 export * from "./runtime";
 
@@ -39,7 +39,16 @@ export function Portal(props: {
   }
 
   if (mount instanceof HTMLHeadElement) {
-    insert(mount, renderPortal(), null);
+    let dispose: () => void;
+    const [clean, setClean] = createSignal(false);
+    createRoot(disposer => {
+      dispose = disposer;
+      insert(mount, () => !clean() && renderPortal()(), null);
+    });
+    onCleanup(() => {
+      setClean(true);
+      dispose();
+    })
   } else {
     const container = props.isSVG
         ? document.createElementNS("http://www.w3.org/2000/svg", "g")

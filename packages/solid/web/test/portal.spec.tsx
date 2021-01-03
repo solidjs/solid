@@ -1,3 +1,4 @@
+import { createSignal } from "../../src";
 import { render, clearDelegatedEvents, Portal } from "../src";
 
 describe("Testing a simple Portal", () => {
@@ -13,7 +14,10 @@ describe("Testing a simple Portal", () => {
     expect((testMount.firstChild as HTMLDivElement & { host: HTMLElement }).host).toBe(div);
   });
 
-  test("dispose", () => disposer());
+  test("dispose", () => {
+    disposer();
+    expect(div.innerHTML).toBe("");
+  });
 });
 
 describe("Testing an SVG Portal", () => {
@@ -34,10 +38,11 @@ describe("Testing an SVG Portal", () => {
 
 describe("Testing a Portal to the head", () => {
   let div = document.createElement("div"),
-    disposer: () => void;
+    disposer: () => void,
+    [s, set] = createSignal("A Meaningful Page Title");
   const Component = () => (
     <Portal mount={document.head}>
-      <title>A Meaningful Page Title</title>
+      <title>{s()}</title>
     </Portal>
   );
 
@@ -47,7 +52,16 @@ describe("Testing a Portal to the head", () => {
     expect(document.head.innerHTML).toBe("<title>A Meaningful Page Title</title>");
   });
 
-  test("dispose", () => disposer());
+  test("Update title text", () => {
+    set("A New Better Page Title");
+    expect(document.head.innerHTML).toBe("<title>A New Better Page Title</title>");
+  });
+
+  test("dispose", async () => {
+    expect(document.head.innerHTML).toBe("<title>A New Better Page Title</title>");
+    disposer();
+    expect(document.head.innerHTML).toBe("");
+  });
 });
 
 describe("Testing a Portal with Synthetic Events", () => {
