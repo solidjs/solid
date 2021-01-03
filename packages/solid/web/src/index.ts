@@ -47,7 +47,7 @@ export function Portal(props: {
     });
     onCleanup(() => {
       setClean(true);
-      dispose();
+      queueMicrotask(dispose);
     })
   } else {
     const container = props.isSVG

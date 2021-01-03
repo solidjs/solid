@@ -1,5 +1,7 @@
 import { createSignal } from "../../src";
-import { render, clearDelegatedEvents, Portal } from "../src";
+import { render, clearDelegatedEvents, Portal, Show } from "../src";
+
+global.queueMicrotask = setImmediate;
 
 describe("Testing a simple Portal", () => {
   let div = document.createElement("div"),
@@ -39,11 +41,14 @@ describe("Testing an SVG Portal", () => {
 describe("Testing a Portal to the head", () => {
   let div = document.createElement("div"),
     disposer: () => void,
-    [s, set] = createSignal("A Meaningful Page Title");
+    [s, set] = createSignal("A Meaningful Page Title"),
+    [visible, setVisible] = createSignal(true);
   const Component = () => (
-    <Portal mount={document.head}>
-      <title>{s()}</title>
-    </Portal>
+    <Show when={visible()}>
+      <Portal mount={document.head}>
+        <title>{s()}</title>
+      </Portal>
+    </Show>
   );
 
   test("Create portal control flow", () => {
@@ -54,6 +59,13 @@ describe("Testing a Portal to the head", () => {
 
   test("Update title text", () => {
     set("A New Better Page Title");
+    expect(document.head.innerHTML).toBe("<title>A New Better Page Title</title>");
+  });
+
+  test("Hide Portal", () => {
+    setVisible(false);
+    expect(document.head.innerHTML).toBe("");
+    setVisible(true);
     expect(document.head.innerHTML).toBe("<title>A New Better Page Title</title>");
   });
 
