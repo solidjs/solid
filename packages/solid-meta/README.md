@@ -1,4 +1,4 @@
-# solid-head [![npm Version](https://img.shields.io/npm/v/solid-head.svg?style=flat-square)](https://www.npmjs.org/package/solid-head) [![bundlephobia](https://badgen.net/bundlephobia/minzip/solid-head)](https://bundlephobia.com/result?p=solid-head)
+# solid-meta [![npm Version](https://img.shields.io/npm/v/solid-meta.svg?style=flat-square)](https://www.npmjs.org/package/solid-meta) [![bundlephobia](https://badgen.net/bundlephobia/minzip/solid-meta)](https://bundlephobia.com/result?p=solid-meta)
 
 Asynchronous SSR-ready Document Head management for Solid based on [React Head](https://github.com/tizmagik/react-head)
 
@@ -27,7 +27,7 @@ Wrap your app with `<MetaProvider />` on the server, using a `tags[]` array to p
 
 ```js
 import { renderToString } from 'solid-js/web';
-import { MetaProvider, renderTags } from 'solid-head';
+import { MetaProvider, renderTags } from 'solid-meta';
 import App from './App';
 
 // ... within the context of a request ...
@@ -56,7 +56,7 @@ res.send(`
 There is nothing special required on the client, just render one of head tag components whenever you want to inject a tag in the `<head />`.
 
 ```js
-import { MetaProvider, Title, Link, Meta } from 'react-head';
+import { MetaProvider, Title, Link, Meta } from 'solid-meta';
 
 const App = () => (
   <MetaProvider>
