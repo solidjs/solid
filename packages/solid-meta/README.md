@@ -1,4 +1,4 @@
-# solid-meta [![npm Version](https://img.shields.io/npm/v/solid-meta.svg?style=flat-square)](https://www.npmjs.org/package/solid-meta) [![bundlephobia](https://badgen.net/bundlephobia/minzip/solid-meta)](https://bundlephobia.com/result?p=solid-meta)
+# solid-meta [![npm Version](https://img.shields.io/npm/v/solid-meta.svg?style=flat-square)](https://www.npmjs.org/package/solid-meta)
 
 Asynchronous SSR-ready Document Head management for Solid based on [React Head](https://github.com/tizmagik/react-head)
 
