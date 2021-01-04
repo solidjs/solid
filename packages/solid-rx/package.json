@@ -1,6 +1,6 @@
 {
   "name": "solid-rx",
-  "version": "0.23.7",
+  "version": "0.23.8",
   "description": "Functionally reactive extensions for Solid.js",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
   "homepage": "https://github.com/ryansolid/solid/blob/master/packages/solid-rx#readme",
@@ -29,6 +29,6 @@
     "solid-js": "^0.23.0"
   },
   "devDependencies": {
-    "solid-js": "^0.23.7"
+    "solid-js": "^0.23.8"
   }
 }
