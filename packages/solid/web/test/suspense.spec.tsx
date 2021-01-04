@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import {
   lazy,
   createSignal,

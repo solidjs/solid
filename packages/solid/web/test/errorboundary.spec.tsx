@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { createRoot } from "../../src";
 import { ErrorBoundary } from "../src";
 

@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { createSignal } from "../../src";
 import { render, clearDelegatedEvents, Portal, Show } from "../src";
 

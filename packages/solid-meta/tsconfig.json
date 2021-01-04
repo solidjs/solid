@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "emitDeclarationOnly": false
+    "emitDeclarationOnly": false,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js"
   },
   "include": [
     "./src"

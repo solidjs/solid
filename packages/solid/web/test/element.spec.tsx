@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { createRoot, createSignal, JSX } from "../../src";
 
 describe("Basic element attributes", () => {

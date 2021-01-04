@@ -1,28 +1,25 @@
 {
-  "name": "solid-styled-components",
-  "description": "Styled Components for Solid",
+  "name": "solid-meta",
+  "description": "Solid wrapper for Styled JSX",
   "version": "0.23.7",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ryansolid/solid/blob/master/packages/solid-styled-components"
+    "url": "https://github.com/ryansolid/solid/blob/master/packages/solid-meta"
   },
   "type": "module",
-  "main": "src/index.js",
-  "module": "src/index.js",
-  "types": "src/index.d.ts",
+  "main": "dist/index.jsx",
+  "module": "dist/index.jsx",
+  "types": "dist/index.d.ts",
   "files": [
-    "src"
+    "dist"
   ],
   "sideEffects": "false",
   "scripts": {
+    "build": "tsc",
     "test": "jest && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json"
-  },
-  "dependencies": {
-    "csstype": "^3.0.3",
-    "goober": "^2.0.15"
   },
   "peerDependencies": {
     "solid-js": "^0.23.0"

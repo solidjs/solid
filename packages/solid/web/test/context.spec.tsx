@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { createContext, useContext } from "../../src";
 import { render, Show } from "../src";
 

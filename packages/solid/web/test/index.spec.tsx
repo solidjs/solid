@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { createRoot, createSignal } from "../../src";
 import { insert, Index } from "../src";
 

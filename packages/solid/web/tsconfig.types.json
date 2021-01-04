@@ -7,7 +7,7 @@
     "paths": {
       "solid-js": ["../.."]
     },
-    "jsxImportSource": ".."
+    "jsxImportSource": "solid-js"
   },
   "include": ["./src"]
 }

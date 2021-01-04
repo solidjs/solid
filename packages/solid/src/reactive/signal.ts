@@ -1,5 +1,6 @@
 // Inspired by S.js[https://github.com/adamhaile/S] by Adam Haile
 import { requestCallback, Task } from "./scheduler";
+import type { JSX } from "../jsx"
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 let ERROR: symbol | null = null;
@@ -848,7 +849,7 @@ function createProvider(id: symbol) {
       Owner!.context = { [id]: props.value };
       const children = createMemo(() => props.children);
       return createMemo(() => resolveChildren(children()));
-    });
+    }) as unknown as JSX.Element;
   };
 }
 

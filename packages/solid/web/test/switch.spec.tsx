@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { render, Switch, Match } from "../src";
 import { createRoot, createSignal } from "../../src";
 

@@ -1,3 +1,4 @@
+/* @jsxImportSource solid-js */
 import { createRoot, createSignal, Component, JSX } from "../../src";
 import { Dynamic } from "../src";
 
