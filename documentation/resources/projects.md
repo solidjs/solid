@@ -42,6 +42,7 @@
 - [Solid Rollup Boilerplate](https://github.com/MrFoxPro/solid-rollup-boilerplate) - Rollup
 - [Solid TypeScript Starter](https://github.com/high1/solid-typescript-starter) - Webpack
 - [Solid TS Webpack](https://github.com/ryansolid/solid-ts-webpack) - Webpack
+- [Solid Parcel Starter](https://gitlab.com/enom/solid-parcel-starter) - Parcel
 - [Parcel 2 Solid TS Starter](https://github.com/amoutonbrady/parcel2-solid-ts-starter) - Parcel
 - [Solid Snowpack Starter](https://github.com/amoutonbrady/solid-snowpack-starter) - Snowpack
 - [Vite Template Solid](https://github.com/amoutonbrady/vite-template-solid) - Vite
