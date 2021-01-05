@@ -87,7 +87,7 @@ Solid supports dynamically changing which values are on the spread object value 
 
 ## Control Flow
 
-While you could use a map function for loops they aren't optimized. While perhaps not as big of a deal in the VDOM since Solid is designed to not execute all the code from top down repeatedly we rely on techniques like isolated contexts and memoization. This is complicated and requires special methods.
+While you could use a map function to loop, they aren't optimized. It is perhaps not as big of a deal in VDOM-based libraries (like React), since they always execute all the code from top down repeatedly anyway. But Solid is designed to _avoid_ doing that, so we rely on techniques like isolated contexts and memoization. This is complicated and require special methods which Solid exposes through JSX control flow syntax.
 
 ```jsx
 <ul>
