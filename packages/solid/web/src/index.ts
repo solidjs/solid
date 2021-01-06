@@ -1,5 +1,14 @@
 import { insert, spread } from "./runtime";
-import { createSignal, createMemo, onCleanup, untrack, splitProps, Component, JSX, createRoot } from "solid-js";
+import {
+  createSignal,
+  createMemo,
+  onCleanup,
+  untrack,
+  splitProps,
+  Component,
+  JSX,
+  createRoot
+} from "solid-js";
 
 export * from "./runtime";
 
@@ -31,7 +40,7 @@ export function Portal(props: {
 
   // don't render when hydrating
   function renderPortal() {
-    if (hydration && hydration.context && hydration.context.registry) {
+    if (hydration && hydration.context) {
       const [s, set] = createSignal(false);
       queueMicrotask(() => set(true));
       return () => s() && props.children;
@@ -41,14 +50,18 @@ export function Portal(props: {
   if (mount instanceof HTMLHeadElement) {
     let dispose: () => void;
     const [clean, setClean] = createSignal(false);
+    const cleanup = () => {
+      setClean(true);
+      queueMicrotask(dispose);
+    };
     createRoot(disposer => {
       dispose = disposer;
       insert(mount, () => !clean() && renderPortal()(), null);
     });
     onCleanup(() => {
-      setClean(true);
-      queueMicrotask(dispose);
-    })
+      if (hydration && hydration.context) queueMicrotask(cleanup);
+      else cleanup();
+    });
   } else {
     const container = props.isSVG
         ? document.createElementNS("http://www.w3.org/2000/svg", "g")

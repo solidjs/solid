@@ -22,7 +22,10 @@ function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
       element.addPropertyChangedCallback((key: string, val: any) =>
         setProps({ [key]: val } as any)
       );
-      element.addReleaseCallback(() => dispose());
+      element.addReleaseCallback(() => {
+        element.renderRoot.textContent = "";
+        dispose();
+      });
 
       const comp = (ComponentType as FunctionComponent<T>)(props as T, options);
       return insert(

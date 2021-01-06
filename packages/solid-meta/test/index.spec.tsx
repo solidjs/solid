@@ -7,7 +7,7 @@ global.queueMicrotask = setImmediate;
 
 test('renders into document.head portal', () => {
   let div = document.createElement("div");
-  const snapshot = "<style>body {}</style><link href=\"index.css\"><base href=\"/new_base\"><title>Test title</title><meta charset=\"utf-8\">"
+  const snapshot = "<title>Test title</title><style>body {}</style><link href=\"index.css\"><meta charset=\"utf-8\"><base href=\"/new_base\">"
   const dispose = render(() =>
     <MetaProvider>
       <div>

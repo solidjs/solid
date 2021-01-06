@@ -1,7 +1,7 @@
 import {
   createContext,
   createState,
-  createEffect,
+  createComputed,
   onMount,
   onCleanup,
   splitProps,
@@ -36,7 +36,7 @@ const MetaProvider: Component<{ tags?: Array<TagDescription> }> = props => {
     [state, setState] = createState<{ [k: string]: (string | null)[] }>({});
 
   onMount(() => {
-    const ssrTags = document.head.querySelectorAll(`[data-rh=""]`);
+    const ssrTags = document.head.querySelectorAll(`[data-sm=""]`);
     // `forEach` on `NodeList` is not supported in Googlebot, so use a workaround
     Array.prototype.forEach.call(ssrTags, (ssrTag: Node) => ssrTag.parentNode!.removeChild(ssrTag));
   });
@@ -103,7 +103,7 @@ const MetaTag: Component<{ [k: string]: any }> = props => {
   const { addClientTag, removeClientTag, addServerTag, shouldRenderTag } = c;
 
   let index = -1;
-  createEffect(() => {
+  createComputed(() => {
     index = addClientTag(props.tag, props.name || props.property);
     onCleanup(() => removeClientTag(props.tag, index));
   });
@@ -128,7 +128,7 @@ export function renderTags(tags: Array<TagDescription>) {
   return tags
     .map(tag => {
       const keys = Object.keys(tag.props);
-      return `<${tag.tag} data-rh=""${keys.map(k =>
+      return `<${tag.tag} data-sm=""${keys.map(k =>
         k === "children" ? "" : ` ${k}="${tag.props[k]}"`
       )}>${tag.props.children || ""}</${tag.tag}>`;
     })
