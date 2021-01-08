@@ -48,16 +48,9 @@ export function Portal(props: {
   }
 
   if (mount instanceof HTMLHeadElement) {
-    let dispose: () => void;
     const [clean, setClean] = createSignal(false);
-    const cleanup = () => {
-      setClean(true);
-      queueMicrotask(dispose);
-    };
-    createRoot(disposer => {
-      dispose = disposer;
-      insert(mount, () => !clean() && renderPortal()(), null);
-    });
+    const cleanup = () => setClean(true);
+    createRoot(dispose => insert(mount, () => (!clean() ? renderPortal()() : dispose()), null));
     onCleanup(() => {
       if (hydration && hydration.context) queueMicrotask(cleanup);
       else cleanup();

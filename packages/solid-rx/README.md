@@ -2,8 +2,7 @@
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![NPM Version](https://img.shields.io/npm/v/solid-rx.svg?style=flat)](https://www.npmjs.com/package/solid-rx)
 ![](https://img.shields.io/librariesio/release/npm/solid-rx)
-![](https://img.shields.io/npm/dt/solid-rx.svg?style=flat)
-[![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
+![](https://img.shields.io/npm/dm/solid-rx.svg?style=flat)
 
 Functional Reactive Extensions for Solid.js. This package contains a number of operators intended to be use with Solid's `createMemo`, `createComputed`, and `createEffect` to create reactive transformations.
 

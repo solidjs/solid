@@ -1,6 +1,6 @@
 // Inspired by S.js[https://github.com/adamhaile/S] by Adam Haile
 import { requestCallback, Task } from "./scheduler";
-import type { JSX } from "../jsx"
+import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 let ERROR: symbol | null = null;
@@ -23,6 +23,7 @@ let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
 let Transition: Transition | null = null;
 let ExecCount = 0;
+let rootCount = 0;
 
 interface Signal<T> {
   value?: T;
@@ -41,6 +42,7 @@ interface Owner {
   context: any | null;
   attached?: boolean;
   sourceMap?: Record<string, { value: unknown }>;
+  name?: string;
 }
 
 interface Computation<T> extends Owner {
@@ -53,7 +55,6 @@ interface Computation<T> extends Owner {
   pure: boolean;
   user?: boolean;
   suspense?: SuspenseContextType;
-  name?: string;
 }
 
 interface Memo<T> extends Signal<T>, Computation<T> {
@@ -76,6 +77,12 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
       fn.length === 0 && !"_SOLID_DEV_"
         ? UNOWNED
         : { owned: null, cleanups: null, context: null, owner, attached: !!detachedOwner };
+
+  if ("_SOLID_DEV_" && owner)
+    root.name =
+      (owner as Computation<any>).name +
+      "-r" +
+      rootCount++;
   Owner = root;
   Listener = null;
   let result: T;
@@ -698,26 +705,29 @@ function runUpdates(fn: () => void, init: boolean) {
     }
     if (wait) return;
     if (Transition && Transition.running) {
-      Transition.running = false;
       if (Transition.promises.size) {
+        Transition.running = false;
         Transition.effects.push.apply(Transition.effects, Effects);
         Effects = null;
         setTransPending(true);
         return;
       }
       // finish transition
-      Transition.sources.forEach(v => {
-        v.value = v.tValue;
-        if ((v as Memo<any>).owned) {
-          for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
-            cleanNode((v as Memo<any>).owned![i]);
-        }
-        if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
-        delete v.tValue;
-        delete (v as Memo<any>).tOwned;
-      });
+      const sources = Transition.sources;
       Transition = null;
-      setTransPending(false);
+      batch(() => {
+        sources.forEach(v => {
+          v.value = v.tValue;
+          if ((v as Memo<any>).owned) {
+            for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
+              cleanNode((v as Memo<any>).owned![i]);
+          }
+          if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
+          delete v.tValue;
+          delete (v as Memo<any>).tOwned;
+        });
+        setTransPending(false);
+      });
     }
     if (Effects.length)
       batch(() => {
@@ -845,11 +855,11 @@ function resolveChildren(children: any): any {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    return createMemo(() => {
+    return (createMemo(() => {
       Owner!.context = { [id]: props.value };
       const children = createMemo(() => props.children);
       return createMemo(() => resolveChildren(children()));
-    }) as unknown as JSX.Element;
+    }) as unknown) as JSX.Element;
   };
 }
 

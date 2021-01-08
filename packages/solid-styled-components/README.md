@@ -3,8 +3,7 @@
 [![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
 [![NPM Version](https://img.shields.io/npm/v/solid-styled-components.svg?style=flat)](https://www.npmjs.com/package/solid-styled-components)
 ![](https://img.shields.io/librariesio/release/npm/solid-styled-components)
-![](https://img.shields.io/npm/dt/solid-styled-components.svg?style=flat)
-[![Gitter](https://img.shields.io/gitter/room/solidjs-community/community)](https://gitter.im/solidjs-community/community)
+![](https://img.shields.io/npm/dm/solid-styled-components.svg?style=flat)
 
 This library provides Styled Components and css helper found in popular JS in CSS libraries. This library uses [goober](https://github.com/cristianbote/goober) a 1kb style library with a wrapper to work with Solid's API. The wrapper also adds a Theming solution.
 
