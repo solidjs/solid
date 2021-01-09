@@ -1,7 +1,7 @@
 {
   "name": "solid-styled-components",
   "description": "Styled Components for Solid",
-  "version": "0.23.9",
+  "version": "0.23.10",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -28,6 +28,6 @@
     "solid-js": "^0.23.0"
   },
   "devDependencies": {
-    "solid-js": "^0.23.9"
+    "solid-js": "^0.23.10"
   }
 }
