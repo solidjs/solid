@@ -427,11 +427,11 @@ export function createResource<T>(
   let err: any = null,
     pr: Promise<T> | null = null,
     ctx: any;
-  function loadEnd(p: Promise<T>, v: T, e?: any) {
+  function loadEnd(p: Promise<T> | null, v: T, e?: any) {
     if (pr === p) {
       err = e;
       pr = null;
-      if (Transition && Transition.promises.has(p)) {
+      if (Transition && p && Transition.promises.has(p)) {
         Transition.promises.delete(p);
         runUpdates(() => {
           Transition!.running = true;
@@ -491,10 +491,8 @@ export function createResource<T>(
       }
     } else if (h.asyncSSR && h.context) ctx = h.context;
     p = fn();
-    Transition && pr && Transition.promises.delete(pr);
     if (typeof p !== "object" || !("then" in p)) {
-      pr = null;
-      completeLoad(p);
+      loadEnd(pr, p);
       return Promise.resolve(p);
     }
     pr = p;
