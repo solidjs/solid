@@ -229,7 +229,7 @@ These examples handle the different loading states. However, you can expand this
 
 ## Render as you Fetch
 
-It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is inacted when a child of a Suspense Component accesses a Resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
+It is important to note that Suspense is tracked based on data requirements of the the reactive graph not the fact data is being fetched. Suspense is enacted when a child of a Suspense Component accesses a Resource not when the fetch occurs. In so, it is possible to start loading the Component data and lazy load the Component itself at the same time, instead of waiting for the Component to load to start loading the data.
 
 ```jsx
 // start loading data before any part of the page is executed.
