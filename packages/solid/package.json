@@ -45,6 +45,10 @@
         "import": "./web/dist/server.js",
         "require": "./web/dist/server.cjs"
       },
+      "browser": {
+        "import": "./web/dist/web.js",
+        "require": "./web/dist/web.cjs"
+      },
       "node": {
         "import": "./web/dist/server-async.js",
         "require": "./web/dist/server-async.cjs"
