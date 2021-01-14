@@ -25,8 +25,9 @@ type AddSymbolToStringTag<T> = T extends { [Symbol.toStringTag]: infer V }
 type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
 
 export type NotWrappable = string | number | boolean | Function | null;
+// Intersection for missing fields https://github.com/microsoft/TypeScript/issues/13543
 export type State<T> = {
-  [P in keyof T]: T[P] extends object ? State<T[P]> : T[P];
+  [P in keyof T]: T[P] extends object ? State<T[P]> & T[P] : T[P];
 } & {
   [$RAW]?: T;
 } & AddSymbolToPrimitive<T> &
