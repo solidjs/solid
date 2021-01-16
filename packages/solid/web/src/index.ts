@@ -1,4 +1,4 @@
-import { insert, spread } from "./runtime";
+import { insert, spread, SVGElements } from "./runtime";
 import {
   createSignal,
   createMemo,
@@ -26,6 +26,12 @@ export {
 
 export * from "./server-mock";
 export const isServer = false;
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+function createElement(tagName: string, isSVG = false): HTMLElement|SVGElement {
+  return isSVG ? document.createElementNS(SVG_NAMESPACE, tagName) :
+                 document.createElement(tagName);
+}
 
 export function Portal(props: {
   mount?: Node;
@@ -56,9 +62,7 @@ export function Portal(props: {
       else cleanup();
     });
   } else {
-    const container = props.isSVG
-        ? document.createElementNS("http://www.w3.org/2000/svg", "g")
-        : document.createElement("div"),
+    const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
       renderRoot =
         useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
 
@@ -75,21 +79,27 @@ export function Portal(props: {
   return marker;
 }
 
-export function Dynamic<T>(
-  props: T & { children?: any; component?: Component<T> | string | keyof JSX.IntrinsicElements }
-): () => JSX.Element {
+type DynamicProps<T> = T&{
+  children?: any;
+  component?: Component<T>|string|keyof JSX.IntrinsicElements;
+};
+
+export function Dynamic<T>(props: DynamicProps<T>): () => JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
   return createMemo(() => {
-    const comp = p.component,
-      t = typeof comp;
+    const component = p.component as Function|string;
+    switch (typeof component) {
+      case "function":
+        return untrack(() => component(others));
 
-    if (comp) {
-      if (t === "function") return untrack(() => (comp as Function)(others as any));
-      else if (t === "string") {
-        const el = document.createElement(comp as string);
-        spread(el, others);
+      case "string":
+        const isSvg = SVGElements.has(component);
+        const el = createElement(component, isSvg);
+        spread(el, others, isSvg);
         return el;
-      }
+
+      default:
+        break;
     }
   });
 }
