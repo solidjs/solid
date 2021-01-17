@@ -18,16 +18,17 @@ describe("Testing Dynamic control flow", () => {
     CompA: Component<DynamicProps> = props => <div>Hi {props.title}</div>,
     CompB: Component<DynamicProps> = props => <span>Yo {props.title}</span>;
 
-  test("Create Dynamic control flow", () => {
+  beforeEach(() => {
     createRoot(dispose => {
       disposer = dispose;
       <Component />;
     });
+  })
 
-    expect(div.innerHTML).toBe("");
-  });
+  afterEach(() => disposer());
 
   test("Toggle Dynamic control flow", () => {
+    expect(div.innerHTML).toBe("");
     setComp(CompA);
     expect(div.innerHTML).toBe("<div>Hi Smith</div>");
     setName("Smithers");
@@ -38,7 +39,13 @@ describe("Testing Dynamic control flow", () => {
     expect(div.innerHTML).toBe(`<h1 title="Smithers"></h1>`);
     setName("Sunny")
     expect(div.innerHTML).toBe(`<h1 title="Sunny"></h1>`);
+    expect(div.querySelector('h1')).toBeInstanceOf(HTMLElement);
   });
 
-  test("dispose", () => disposer());
+  test("Renders SVG elements", () => {
+    setComp("svg")
+    expect(div.querySelector('svg')).toBeInstanceOf(SVGSVGElement);
+    setComp("path")
+    expect(div.querySelector('path')).toBeInstanceOf(SVGElement);
+  });
 });
