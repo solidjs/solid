@@ -15,7 +15,7 @@
   "files": [
     "dist"
   ],
-  "sideEffects": "false",
+  "sideEffects": false,
   "scripts": {
     "build": "tsc",
     "test": "jest && npm run test:types",
