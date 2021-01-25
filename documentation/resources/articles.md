@@ -9,6 +9,7 @@
 
 ## Latest Articles
 
+- [5 Ways SolidJS Differs from Other JS Frameworks](https://dev.to/ryansolid/5-ways-solidjs-differs-from-other-js-frameworks-1g63) Discover what sets Solid apart from other JS frameworks
 - [SolidJS: The Tesla of JavaScript Frameworks?](https://medium.com/@ryansolid/solidjs-the-tesla-of-javascript-ui-frameworks-6a1d379bc05e) Tech built for Economy can be used for Performance
 - [The Journey to Isomorphic JavaScript Performance](https://indepth.dev/the-journey-to-isomorphic-rendering-performance) Finding the right SSR solution for Solid.
 - [Why I am not a fan of Single File Components](https://dev.to/ryansolid/why-i-m-not-a-fan-of-single-file-components-3bfl) Exploring the advantages of Solid's templates
