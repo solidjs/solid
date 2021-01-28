@@ -18,6 +18,7 @@ export {
   useTransition,
   createContext,
   useContext,
+  children,
   getContextOwner,
   equalFn,
   serializeGraph
@@ -26,7 +27,6 @@ export type { Resource } from "./reactive/signal";
 
 export { createState, unwrap, $RAW } from "./reactive/state";
 export type { State, SetStateFunction } from "./reactive/state";
-export * from "./reactive/resourceState";
 export * from "./reactive/mutable";
 
 export { reconcile, produce } from "./reactive/stateModifiers";

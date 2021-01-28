@@ -1,4 +1,4 @@
-import { State, SetStateFunction, updatePath } from "./reactive";
+import { createMemo, Owner, createContext, useContext, lookup, runWithOwner } from "./reactive";
 import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
@@ -18,10 +18,36 @@ function resolveSSRNode(node: any): string {
   return String(node);
 }
 
+type SharedConfig = {
+  context?: HydrationContext;
+};
+export const sharedConfig: SharedConfig = {};
+
+function setHydrateContext(context?: HydrationContext): void {
+  sharedConfig.context = context;
+}
+
+function nextHydrateContext(): HydrationContext | undefined {
+  return sharedConfig.context
+    ? {
+        ...sharedConfig.context,
+        id: `${sharedConfig.context.id}${sharedConfig.context.count++}.`,
+        count: 0
+      }
+    : undefined;
+}
+
 export function createComponent<T>(
   Comp: (props: T) => JSX.Element,
   props: PossiblyWrapped<T>
 ): JSX.Element {
+  if (sharedConfig.context) {
+    const c = sharedConfig.context;
+    setHydrateContext(nextHydrateContext());
+    const r = Comp(props as T);
+    setHydrateContext(c);
+    return r;
+  }
   return Comp(props as T);
 }
 
@@ -186,60 +212,78 @@ export interface Resource<T> {
   loading: boolean;
 }
 
+type SuspenseContextType = {
+  completedCount: number;
+  resources: Set<string>;
+  completed: () => void;
+};
+
+const SuspenseContext = createContext<SuspenseContextType>();
 export function createResource<T>(
   value?: T
 ): [Resource<T>, (fn: () => Promise<T> | T) => { then: Function }] {
-  const resource = () => value;
-  resource.loading = false;
+  const contexts = new Set<SuspenseContextType>();
+  const id = sharedConfig.context!.id + sharedConfig.context!.count++;
+  const read = () => {
+    const resolved = sharedConfig.context!.async && id in sharedConfig.context!.resources;
+    if (sharedConfig.context!.async && !resolved) {
+      const ctx = useContext(SuspenseContext);
+      if (ctx) {
+        ctx.resources.add(id);
+        contexts.add(ctx);
+      }
+    }
+    return resolved ? sharedConfig.context!.resources[id] : value;
+  };
+  read.loading = false;
   function load(fn: () => Promise<T> | T) {
-    if (!globalThis._$HYDRATION.streamSSR) return { then() {} };
-    resource.loading = true;
+    const ctx = sharedConfig.context!;
+    if (!ctx.async && !ctx.streaming) return { then() {} };
+    if (ctx.resources && id in ctx.resources) {
+      value = ctx.resources[id];
+      return { then() {} };
+    }
+    read.loading = true;
     const p = fn();
     if ("then" in p) {
-      globalThis._$HYDRATION.register && globalThis._$HYDRATION.register(p);
+      if (ctx.writeResource) {
+        ctx.writeResource(id, p);
+        return p;
+      }
+      p.then(res => {
+        ctx.resources[id] = res;
+        for (const c of contexts) {
+          if (++c.completedCount === c.resources.size) c.completed();
+        }
+        contexts.clear();
+        return res;
+      });
       return p;
     }
     return Promise.resolve((value = p));
   }
-  return [resource, load];
-}
-
-export interface LoadStateFunction<T> {
-  (
-    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
-    reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
-  ): void;
-}
-
-export function createResourceState<T>(
-  state: T | State<T>
-): [
-  State<T & { loading: { [P in keyof T]: boolean } }>,
-  LoadStateFunction<T>,
-  SetStateFunction<T>
-] {
-  (state as any).loading = {};
-  function setState(...args: any[]): void {
-    updatePath(state, args);
-  }
-  function loadState(
-    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
-    reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
-  ) {
-    const keys = Object.keys(v);
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i] as keyof T,
-        [, l] = createResource(state[k]);
-      l(v[k]);
-    }
-  }
-  return [state as State<T & { loading: { [P in keyof T]: boolean } }>, loadState, setState];
+  return [read, load];
 }
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
-  let p: Promise<{ default: any }>;
+  let resolved: (props: any) => any;
+  const p = fn();
+  const contexts = new Set<SuspenseContextType>();
+  p.then(mod => (resolved = mod.default));
   return (props: any) => {
-    (p || (p = fn())).then(mod => mod.default(props));
+    const id = sharedConfig.context!.id + sharedConfig.context!.count++;
+    if (resolved) return resolved(props);
+    const ctx = useContext(SuspenseContext);
+    if (ctx) {
+      ctx.resources.add(id);
+      contexts.add(ctx);
+    }
+    p.then(() => {
+      for (const c of contexts) {
+        if (++c.completedCount === c.resources.size) c.completed();
+      }
+      contexts.clear();
+    });
     return "";
   };
 }
@@ -256,21 +300,18 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  registry?: Map<string, Element>;
+  writeResource?: (id: string, v: Promise<any>) => void;
+  resources: Record<string, any>;
+  suspense: Record<string, SuspenseContextValue>;
+  async?: boolean;
+  streaming?: boolean;
 };
 
-type GlobalHydration = {
-  context?: HydrationContext;
-  register?: (v: Promise<any>) => void;
-  loadResource?: () => Promise<any>;
-  resources?: { [key: string]: any };
-  asyncSSR?: boolean;
-  streamSSR?: boolean;
+type SuspenseContextValue = {
+  completedCount: number;
+  resources: Set<string>;
+  completed: () => void;
 };
-
-declare global {
-  var _$HYDRATION: GlobalHydration;
-}
 
 export function SuspenseList(props: {
   children: string;
@@ -281,8 +322,73 @@ export function SuspenseList(props: {
   return props.children;
 }
 
+const SUSPENSE_GLOBAL = Symbol("suspense-global");
 export function Suspense(props: { fallback: string; children: string }) {
+  const ctx = sharedConfig.context!;
   // TODO: look at not always going to fallback
-  props.children;
-  return props.fallback;
+  if (ctx.streaming) createComponent(() => props.children, {});
+  if (!ctx.async) return props.fallback;
+
+  const id = ctx.id + ctx.count;
+  const done = ctx.async ? lookup(Owner, SUSPENSE_GLOBAL)(id) : () => {};
+  const o = Owner!;
+  const value: SuspenseContextValue = ctx.suspense[id] || (ctx.suspense[id] = {
+    completedCount: 0,
+    resources: new Set<string>(),
+    completed: () => {
+      const res = runSuspense();
+      if (value.completedCount === value.resources.size) {
+        done(resolveSSRNode(res));
+      }
+    }
+  });
+  function runSuspense() {
+    setHydrateContext({ ...ctx, count: 0 });
+    return runWithOwner(o, () => {
+      return createComponent(SuspenseContext.Provider, {
+        value,
+        get children() {
+          return props.children;
+        }
+      });
+    });
+  }
+  const res = runSuspense();
+  if (value.completedCount === value.resources.size) {
+    done();
+    return res;
+  }
+  return sharedConfig.context!.async ? { t: `<#${id}#>` } : props.fallback;
+}
+
+const SUSPENSE_REPLACE = /<#([0-9\.]+)\#>/;
+export function awaitSuspense(fn: () => any) {
+  return () =>
+    new Promise(resolve => {
+      const registry = new Set<string>();
+      const cache: Record<string, string> = Object.create(null);
+      const res = createMemo(() => {
+        Owner!.context = { [SUSPENSE_GLOBAL]: getCallback };
+        return fn();
+      });
+      if (!registry.size) resolve(res());
+      function getCallback(key: string) {
+        registry.add(key);
+        return (value: string) => {
+          if (value) cache[key] = value;
+          registry.delete(key);
+          if (!registry.size)
+            queueMicrotask(() => {
+              let source = resolveSSRNode(res());
+              let final = "";
+              let match: any;
+              while ((match = source.match(SUSPENSE_REPLACE))) {
+                final += source.substring(0, match.index);
+                source = cache[match[1]] + source.substring(match.index + match[0].length);
+              }
+              resolve(final + source);
+            });
+        };
+      }
+    });
 }

@@ -12,7 +12,7 @@ import {
   Aliases,
   Properties,
   ChildProperties,
-  NonComposedEvents,
+  DelegatedEvents,
   SVGElements,
   SVGNamespace
 } from "solid-js/web";
@@ -30,7 +30,7 @@ export default createHTML({
   Aliases,
   Properties,
   ChildProperties,
-  NonComposedEvents,
+  DelegatedEvents,
   SVGElements,
   SVGNamespace
 });

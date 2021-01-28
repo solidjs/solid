@@ -80,10 +80,6 @@ Creates a conditional signal that only notifies subscribers when entering or exi
 
 Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `loadFn` takes a Promise whose resolved value is set in the resource.
 
-### `createResourceState(initialValue, options: { name }): [state, loadState, setState]`
-
-Creates a new Resource State object. Similar to normal state except each immediate property is a resource.
-
 ### `lazy(() => <Promise>): Component`
 
 Used to lazy load components to allow for things like code splitting and Suspense.

@@ -1,5 +1,6 @@
 // Inspired by S.js[https://github.com/adamhaile/S] by Adam Haile
 import { requestCallback, Task } from "./scheduler";
+import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
@@ -24,6 +25,10 @@ let Effects: Computation<any>[] | null = null;
 let Transition: Transition | null = null;
 let ExecCount = 0;
 let rootCount = 0;
+
+declare global {
+  var _$afterUpdate: () => void;
+}
 
 interface Signal<T> {
   value?: T;
@@ -78,11 +83,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
         ? UNOWNED
         : { owned: null, cleanups: null, context: null, owner, attached: !!detachedOwner };
 
-  if ("_SOLID_DEV_" && owner)
-    root.name =
-      (owner as Computation<any>).name +
-      "-r" +
-      rootCount++;
+  if ("_SOLID_DEV_" && owner) root.name = (owner as Computation<any>).name + "-r" + rootCount++;
   Owner = root;
   Listener = null;
   let result: T;
@@ -129,7 +130,6 @@ export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
 }
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
-  if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
   runEffects = runUserEffects;
   const c = createComputation(fn, value, false),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
@@ -391,6 +391,11 @@ export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
+export function children(fn: () => any) {
+  const children = createMemo(fn);
+  return createMemo(() => resolveChildren(children()));
+}
+
 // Resource API
 type SuspenseContextType = {
   increment?: () => void;
@@ -416,17 +421,20 @@ export interface Resource<T> {
 }
 export function createResource<T>(
   init?: T,
-  options: { name?: string; notStreamed?: boolean } = {}
+  options: { notStreamed?: boolean } = {}
 ): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T>] {
   const contexts = new Set<SuspenseContextType>(),
-    h = globalThis._$HYDRATION || {},
     [s, set] = createSignal(init, true),
     [track, trigger] = createSignal<void>(),
     [loading, setLoading] = createSignal<boolean>(false, true);
 
   let err: any = null,
     pr: Promise<T> | null = null,
-    ctx: any;
+    id: string | null = null;
+
+  if (sharedConfig.context) {
+    id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
+  }
   function loadEnd(p: Promise<T> | null, v: T, e?: any) {
     if (pr === p) {
       err = e;
@@ -447,14 +455,11 @@ export function createResource<T>(
   }
   function completeLoad(v: T) {
     batch(() => {
-      if (ctx) h.context = ctx;
-      if (h.asyncSSR && options.name) h.resources![options.name] = v;
       set(v);
       setLoading(false);
       for (let c of contexts.keys()) c.decrement!();
       contexts.clear();
     });
-    if (ctx) h.context = ctx = undefined;
   }
 
   function read() {
@@ -475,24 +480,23 @@ export function createResource<T>(
     }
     return v;
   }
-  function load(fn: () => Promise<T> | T) {
+  function load(fn: () => Promise<T> | T, transform = (v: T, prev: T | undefined) => v) {
     err = null;
     let p: Promise<T> | T;
-    const hydrating = h.context && !!h.context.registry;
-    if (hydrating) {
-      if (h.loadResource && !options.notStreamed) {
-        fn = h.loadResource;
-      } else if (options.name && h.resources && options.name in h.resources) {
+    if (sharedConfig.context) {
+      if (sharedConfig.loadResource && !options.notStreamed) {
+        fn = () => sharedConfig.loadResource!(id!);
+      } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
         fn = () => {
-          const data = h.resources![options.name!];
-          delete h.resources![options.name!];
+          const data = sharedConfig.resources![id!];
+          delete sharedConfig.resources![id!];
           return data;
         };
       }
-    } else if (h.asyncSSR && h.context) ctx = h.context;
+    }
     p = fn();
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p);
+      loadEnd(pr, transform(p, untrack(s)));
       return Promise.resolve(p);
     }
     pr = p;
@@ -501,7 +505,7 @@ export function createResource<T>(
       trigger();
     });
     return p.then(
-      v => loadEnd(p as Promise<T>, v),
+      v => loadEnd(p as Promise<T>, transform(v, untrack(s))),
       e => loadEnd(p as Promise<T>, undefined as any, e)
     );
   }
@@ -697,45 +701,49 @@ function runUpdates(fn: () => void, init: boolean) {
   } catch (err) {
     handleError(err);
   } finally {
-    if (Updates) {
-      runQueue(Updates);
-      Updates = null;
-    }
-    if (wait) return;
-    if (Transition && Transition.running) {
-      if (Transition.promises.size) {
-        Transition.running = false;
-        Transition.effects.push.apply(Transition.effects, Effects);
-        Effects = null;
-        setTransPending(true);
-        return;
-      }
-      // finish transition
-      const sources = Transition.sources;
-      Transition = null;
-      batch(() => {
-        sources.forEach(v => {
-          v.value = v.tValue;
-          if ((v as Memo<any>).owned) {
-            for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
-              cleanNode((v as Memo<any>).owned![i]);
-          }
-          if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
-          delete v.tValue;
-          delete (v as Memo<any>).tOwned;
-        });
-        setTransPending(false);
-      });
-    }
-    if (Effects.length)
-      batch(() => {
-        runEffects(Effects!);
-        Effects = null;
-      });
-    else {
+    completeUpdates(wait);
+  }
+}
+
+function completeUpdates(wait: boolean) {
+  if (Updates) {
+    runQueue(Updates);
+    Updates = null;
+  }
+  if (wait) return;
+  if (Transition && Transition.running) {
+    if (Transition.promises.size) {
+      Transition.running = false;
+      Transition.effects.push.apply(Transition.effects, Effects!);
       Effects = null;
-      if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
+      setTransPending(true);
+      return;
     }
+    // finish transition
+    const sources = Transition.sources;
+    Transition = null;
+    batch(() => {
+      sources.forEach(v => {
+        v.value = v.tValue;
+        if ((v as Memo<any>).owned) {
+          for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
+            cleanNode((v as Memo<any>).owned![i]);
+        }
+        if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
+        delete v.tValue;
+        delete (v as Memo<any>).tOwned;
+      });
+      setTransPending(false);
+    });
+  }
+  if (Effects!.length)
+    batch(() => {
+      runEffects(Effects!);
+      Effects = null;
+    });
+  else {
+    Effects = null;
+    if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
   }
 }
 
@@ -838,7 +846,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
   );
 }
 
-function resolveChildren(children: any): any {
+function resolveChildren(children: any): unknown {
   if (typeof children === "function") return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
@@ -855,8 +863,7 @@ function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     return (createMemo(() => {
       Owner!.context = { [id]: props.value };
-      const children = createMemo(() => props.children);
-      return createMemo(() => resolveChildren(children()));
+      return children(() => props.children);
     }) as unknown) as JSX.Element;
   };
 }

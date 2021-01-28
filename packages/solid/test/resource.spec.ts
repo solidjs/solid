@@ -2,8 +2,8 @@ import {
   createRoot,
   createSignal,
   createResource,
-  createResourceState,
   createComputed,
+  createState,
   createRenderEffect,
   onError,
   SetStateFunction,
@@ -71,103 +71,6 @@ describe("Simulate a dynamic fetch", () => {
   });
 });
 
-describe("Simulate a dynamic fetch with state", () => {
-  let resolve: (v: string) => void,
-    reject: (r: string) => void,
-    trigger: (v: number) => void,
-    load: (
-      v: { [k: number]: () => Promise<string> | string },
-      r?: (v: any) => (state: any) => void
-    ) => void,
-    setUsers: SetStateFunction<{ [id: number]: string }>,
-    users: State<{ [id: number]: string; loading: { [id: number]: boolean } }>,
-    count = 0;
-  function fetcher(): Promise<string> {
-    return new Promise<string>((r, f) => {
-      resolve = r;
-      reject = f;
-    });
-  }
-
-  test("initial async resource", async done => {
-    createRoot(() => {
-      const [id, setId] = createSignal(1);
-      [users, load, setUsers] = createResourceState<{ [id: number]: string }>({ 6: "Rio" });
-      trigger = setId;
-      createComputed(() => load({ [id()]: fetcher }));
-      createComputed(() => (users[5], count++));
-    });
-    expect(users[1]).toBeUndefined();
-    expect(users.loading[1]).toBe(true);
-    resolve("John");
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(users[1]).toBe("John");
-    expect(users.loading[1]).toBe(false);
-    done();
-  });
-
-  test("test multiple loads", async done => {
-    trigger(2);
-    expect(users.loading[2]).toBe(true);
-    const resolve1 = resolve;
-    trigger(3);
-    const resolve2 = resolve;
-    resolve2("Jake");
-    resolve1("Jo");
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(users[3]).toBe("Jake");
-    expect(users.loading[3]).toBe(false);
-    done();
-  });
-
-  test("promise rejection", async done => {
-    trigger(4);
-    expect(users.loading[4]).toBe(true);
-    reject("Because I said so");
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(users.loading[4]).toBe(false);
-    done();
-  });
-
-  test("setState", () => {
-    setUsers(5, "Jordy");
-    expect(users[5]).toBe("Jordy");
-    expect(count).toBe(2);
-  });
-
-  test("test loading same value", () => {
-    load({ 5: () => "Jordy" });
-    expect(users[5]).toBe("Jordy");
-    expect(count).toBe(2);
-  });
-
-  test("custom reconciler", async done => {
-    const reconcile = (v: string) => (state: string) => `${state} ${v}`;
-    load({ 6: () => new Promise(r => r("Jerry")) }, reconcile);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(users[6]).toBe("Rio Jerry");
-    done();
-  });
-
-  test("setState tracked", () => {
-    createRoot(() => {
-      let runs = 0;
-      createComputed(() => {
-        users[7];
-        runs++;
-      });
-      expect(runs).toBe(1);
-      setUsers({ 7: "Jimbo" });
-      expect(users[7]).toBe("Jimbo");
-      expect(runs).toBe(2);
-    });
-  });
-});
-
 describe("Simulate a dynamic fetch with state and reconcile", () => {
   interface User {
     firstName: string;
@@ -177,11 +80,12 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     };
   }
   let resolve: (v: User) => void,
+    user: Resource<User>,
     load: (
-      v: { [k: number]: () => Promise<User> | User },
-      r?: (v: any) => (state: any) => void
+      v: () => Promise<User> | User ,
+      r?: (v: User, p: User) => User
     ) => void,
-    users: State<{ [id: number]: User; loading: { [id: number]: boolean } }>,
+    state: { user?: User, userLoading: boolean },
     count = 0;
   function fetcher() {
     return new Promise<User>(r => {
@@ -194,28 +98,36 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
 
   test("initial async resource", async done => {
     createRoot(() => {
-      [users, load] = createResourceState<{ [id: number]: User }>({});
-      createComputed(() => (users[0], count++));
+      [user, load] = createResource<User>();
+      [state] = createState<{ user?: User, userLoading: boolean }>({
+        get user() {
+          return user();
+        },
+        get userLoading() {
+          return user.loading;
+        }
+      });
+      createComputed(() => (state.user, count++));
     });
-    load({ 0: fetcher });
-    expect(users[0]).toBeUndefined();
-    expect(users.loading[0]).toBe(true);
+    load(fetcher);
+    expect(state.user).toBeUndefined();
+    expect(state.userLoading).toBe(true);
     resolve(data[0]);
     await Promise.resolve();
     await Promise.resolve();
-    expect(users[0]).toStrictEqual(data[0]);
-    expect(users.loading[0]).toBe(false);
+    expect(state.user).toStrictEqual(data[0]);
+    expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
 
-    load({ 0: fetcher }, reconcile);
-    expect(users.loading[0]).toBe(true);
+    load(fetcher, (value, prev) => reconcile(value)(prev));
+    expect(state.userLoading).toBe(true);
     resolve(data[1]);
     await Promise.resolve();
     await Promise.resolve();
-    expect(users[0]).toStrictEqual(data[0]);
-    expect(users[0].firstName).toBe("Joseph");
-    expect(users[0].address).toStrictEqual(data[0].address);
-    expect(users.loading[0]).toBe(false);
+    expect(state.user).toStrictEqual(data[0]);
+    expect(state.user!.firstName).toBe("Joseph");
+    expect(state.user!.address).toStrictEqual(data[0].address);
+    expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
     done();
   });

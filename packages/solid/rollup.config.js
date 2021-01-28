@@ -103,10 +103,10 @@ export default [
       copy({
         targets: [
           {
-            src: ["../../node_modules/dom-expressions/src/runtime.d.ts"],
+            src: ["../../node_modules/dom-expressions/src/client.d.ts"],
             dest: "./web/src/"
           },
-          { src: "../../node_modules/dom-expressions/src/runtime.d.ts", dest: "./web/types/" }
+          { src: "../../node_modules/dom-expressions/src/client.d.ts", dest: "./web/types/" }
         ]
       })
     ].concat(plugins)
@@ -160,32 +160,8 @@ export default [
       copy({
         targets: [
           {
-            src: ["../../node_modules/dom-expressions/src/syncSSR.d.ts"],
+            src: ["../../node_modules/dom-expressions/src/server.d.ts"],
             dest: "./web/server"
-          }
-        ]
-      })
-    ].concat(plugins)
-  },
-  {
-    input: "web/server-async/index.ts",
-    output: [
-      {
-        file: "web/dist/server-async.cjs",
-        format: "cjs"
-      },
-      {
-        file: "web/dist/server-async.js",
-        format: "es"
-      }
-    ],
-    external: ["solid-js"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/asyncSSR.d.ts"],
-            dest: "./web/server-async"
           }
         ]
       })

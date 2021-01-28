@@ -1,6 +1,6 @@
 /* @jsxImportSource solid-js */
-import { render, Switch, Match } from "../src";
-import { createRoot, createSignal } from "../../src";
+import { render, Switch, Match, For } from "../src";
+import { createRoot, createSignal, createState } from "../../src";
 
 describe("Testing a single match switch control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -72,7 +72,7 @@ describe("Testing an only child Switch control flow", () => {
     setCount(4);
     expect(div.innerHTML).toBe("2");
     expect(div.firstChild).toBe(c);
-  })
+  });
 
   test("dispose", () => disposer());
 });
@@ -115,6 +115,45 @@ describe("Testing function handler Switch control flow", () => {
   test("dispose", () => disposer());
 });
 
+describe("Testing a For in a Switch control flow", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [state, setState] = createState({
+    users: [
+      { firstName: "Jerry", certified: false },
+      { firstName: "Janice", certified: false }
+    ]
+  });
+  const Component = () => (
+    <div ref={div}>
+      <Switch fallback={"fallback"}>
+        <For each={state.users}>
+          {user => <Match when={user.certified}>{user.firstName}</Match>}
+        </For>
+      </Switch>
+    </div>
+  );
+
+  test("Create Switch control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("fallback");
+  });
+
+  test("Toggle Switch control flow", () => {
+    setState("users", 1, "certified", true);
+    expect(div.innerHTML).toBe("Janice");
+    setState("users", 0, "certified", true);
+    expect(div.innerHTML).toBe("Jerry");
+    setState("users", u => [{ firstName: "Gordy", certified: true }, ...u]);
+    expect(div.innerHTML).toBe("Gordy");
+  });
+
+  test("dispose", () => disposer());
+});
+
 describe("Test top level switch control flow", () => {
   let div = document.createElement("div"),
     disposer: () => void;
@@ -125,7 +164,7 @@ describe("Test top level switch control flow", () => {
     </Switch>
   );
 
-  test("Create when control flow", () => {
+  test("Create switch control flow", () => {
     disposer = render(Component, div);
 
     expect(div.innerHTML).toBe("fallback");

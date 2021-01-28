@@ -3,8 +3,8 @@ const Profile = lazy(() => import("./Profile"));
 
 // this component lazy loads data and code in parallel
 export default () => {
-  const [user, loadUser] = createResource(undefined, { name: "profile" }),
-    [info, loadInfo] = createResource([], { name: "profile_info" });
+  const [user, loadUser] = createResource(),
+    [info, loadInfo] = createResource([]);
   loadUser(
     () =>
       // simulate data loading

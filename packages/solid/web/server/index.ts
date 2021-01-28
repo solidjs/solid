@@ -1,7 +1,7 @@
-import { ssr, ssrSpread } from "./syncSSR";
+import { ssr, ssrSpread } from "./server";
 import { splitProps, Component, JSX } from "solid-js";
 
-export * from "./syncSSR";
+export * from "./server";
 
 export {
   For,

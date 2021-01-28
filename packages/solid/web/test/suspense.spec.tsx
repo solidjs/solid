@@ -4,7 +4,6 @@ import {
   createSignal,
   createComputed,
   createResource,
-  createResourceState,
   useTransition
 } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
@@ -54,36 +53,6 @@ describe("Testing Suspense", () => {
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
       expect(pending()).toBe(false);
-      done();
-    }, 400);
-  });
-
-  test("dispose", () => {
-    div.innerHTML = "";
-    disposer();
-  });
-});
-
-describe("Testing Suspense with State", () => {
-  let div = document.createElement("div"),
-    disposer: () => void;
-  const ChildComponent = (props: { name: string }) => {
-      const [state, load] = createResourceState({ greeting: "" });
-      load({ greeting: () => new Promise(r => setTimeout(() => r("Hey"), 300)) });
-      return <>{`${state.greeting}, ${props.name}`}</>;
-    },
-    Component = () => (
-      <Suspense fallback="Loading">
-        <ChildComponent name="Jo!" />
-        <ChildComponent name="Jacob!" />
-      </Suspense>
-    );
-
-  test("Create Suspense control flow", done => {
-    disposer = render(Component, div);
-    expect(div.innerHTML).toBe("Loading");
-    setTimeout(() => {
-      expect(div.innerHTML).toBe("Hey, Jo!Hey, Jacob!");
       done();
     }, 400);
   });

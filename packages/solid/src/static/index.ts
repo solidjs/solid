@@ -28,6 +28,7 @@ export {
 } from "./reactive";
 
 export {
+  awaitSuspense,
   assignProps,
   splitProps,
   createComponent,
@@ -40,13 +41,13 @@ export {
   Suspense,
   SuspenseList,
   createResource,
-  createResourceState,
   useTransition,
-  lazy
+  lazy,
+  sharedConfig
 } from "./rendering";
 
 export type { State, SetStateFunction } from "./reactive";
-export type { Component, LoadStateFunction, Resource } from "./rendering";
+export type { Component, Resource } from "./rendering";
 
 
 

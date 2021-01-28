@@ -1,4 +1,5 @@
 import { untrack, createResource, createMemo } from "../reactive/signal";
+import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx"
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
@@ -18,6 +19,13 @@ export type ComponentProps<
   ? JSX.IntrinsicElements[T]
   : {};
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+  if (sharedConfig.context) {
+    const c = sharedConfig.context;
+    setHydrateContext(nextHydrateContext());
+    const r = untrack(() => Comp(props as T));
+    setHydrateContext(c);
+    return r;
+  }
   return untrack(() => Comp(props as T));
 }
 
@@ -102,11 +110,9 @@ export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
 export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
   let p: Promise<{ default: T }>;
   return ((props: any) => {
-    const h = globalThis._$HYDRATION || {},
-      hydrating = h.context && h.context.registry,
-      ctx = nextHydrateContext(),
+    const ctx =  sharedConfig.context,
       [s, l] = createResource<T>(undefined, { notStreamed: true });
-    if (hydrating && h.resources) {
+    if (sharedConfig.context && sharedConfig.resources) {
       (p || (p = fn())).then(mod => {
         setHydrateContext(ctx);
         l(() => mod.default);
@@ -119,7 +125,7 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
         (Comp = s()) &&
         untrack(() => {
           if (!ctx) return Comp!(props);
-          const c = h.context;
+          const c = sharedConfig.context;
           setHydrateContext(ctx);
           const r = Comp!(props);
           setHydrateContext(c);
@@ -127,39 +133,4 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
         })
     );
   }) as T;
-}
-
-function setHydrateContext(context?: HydrationContext): void {
-  globalThis._$HYDRATION.context = context;
-}
-
-function nextHydrateContext(): HydrationContext | undefined {
-  const hydration = globalThis._$HYDRATION;
-  return hydration && hydration.context
-    ? {
-        id: `${hydration.context.id}.${hydration.context.count++}`,
-        count: 0,
-        registry: hydration.context.registry
-      }
-    : undefined;
-}
-
-type HydrationContext = {
-  id: string;
-  count: number;
-  registry?: Map<string, Element>;
-};
-
-type GlobalHydration = {
-  context?: HydrationContext;
-  register?: (v: Promise<any>) => void;
-  loadResource?: () => Promise<any>;
-  resources?: { [key: string]: any };
-  asyncSSR?: boolean;
-  streamSSR?: boolean;
-};
-
-declare global {
-  var _$HYDRATION: GlobalHydration;
-  var _$afterUpdate: () => void;
 }
