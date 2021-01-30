@@ -213,8 +213,7 @@ export interface Resource<T> {
 }
 
 type SuspenseContextType = {
-  completedCount: number;
-  resources: Set<string>;
+  resources: Map<string, { loading: boolean }>;
   completed: () => void;
 };
 
@@ -229,7 +228,7 @@ export function createResource<T>(
     if (sharedConfig.context!.async && !resolved) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
-        ctx.resources.add(id);
+        if (!ctx.resources.has(id)) ctx.resources.set(id, read);
         contexts.add(ctx);
       }
     }
@@ -251,11 +250,9 @@ export function createResource<T>(
         return p;
       }
       p.then(res => {
+        read.loading = false;
         ctx.resources[id] = res;
-        for (const c of contexts) {
-          if (++c.completedCount === c.resources.size) c.completed();
-        }
-        contexts.clear();
+        notifySuspense(contexts);
         return res;
       });
       return p;
@@ -274,18 +271,31 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
     const id = sharedConfig.context!.id + sharedConfig.context!.count++;
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
+    const track = { loading: true };
     if (ctx) {
-      ctx.resources.add(id);
+      ctx.resources.set(id, track);
       contexts.add(ctx);
     }
     p.then(() => {
-      for (const c of contexts) {
-        if (++c.completedCount === c.resources.size) c.completed();
-      }
-      contexts.clear();
+      track.loading = false;
+      notifySuspense(contexts);
     });
     return "";
   };
+}
+
+function suspenseComplete(c: SuspenseContextType) {
+  for (let r of c.resources.values()) {
+    if (r.loading) return false;
+  }
+  return true;
+}
+
+function notifySuspense(contexts: Set<SuspenseContextType>) {
+  for (const c of contexts) {
+    if (suspenseComplete(c)) c.completed();
+  }
+  contexts.clear();
 }
 
 export function useTransition(): [() => boolean, (fn: () => any) => void] {
@@ -302,15 +312,9 @@ type HydrationContext = {
   count: number;
   writeResource?: (id: string, v: Promise<any>) => void;
   resources: Record<string, any>;
-  suspense: Record<string, SuspenseContextValue>;
+  suspense: Record<string, SuspenseContextType>;
   async?: boolean;
   streaming?: boolean;
-};
-
-type SuspenseContextValue = {
-  completedCount: number;
-  resources: Set<string>;
-  completed: () => void;
 };
 
 export function SuspenseList(props: {
@@ -332,16 +336,17 @@ export function Suspense(props: { fallback: string; children: string }) {
   const id = ctx.id + ctx.count;
   const done = ctx.async ? lookup(Owner, SUSPENSE_GLOBAL)(id) : () => {};
   const o = Owner!;
-  const value: SuspenseContextValue = ctx.suspense[id] || (ctx.suspense[id] = {
-    completedCount: 0,
-    resources: new Set<string>(),
-    completed: () => {
-      const res = runSuspense();
-      if (value.completedCount === value.resources.size) {
-        done(resolveSSRNode(res));
+  const value: SuspenseContextType =
+    ctx.suspense[id] ||
+    (ctx.suspense[id] = {
+      resources: new Map<string, { loading: boolean }>(),
+      completed: () => {
+        const res = runSuspense();
+        if (suspenseComplete(value)) {
+          done(resolveSSRNode(res));
+        }
       }
-    }
-  });
+    });
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
     return runWithOwner(o, () => {
@@ -354,7 +359,7 @@ export function Suspense(props: { fallback: string; children: string }) {
     });
   }
   const res = runSuspense();
-  if (value.completedCount === value.resources.size) {
+  if (suspenseComplete(value)) {
     done();
     return res;
   }
@@ -363,32 +368,31 @@ export function Suspense(props: { fallback: string; children: string }) {
 
 const SUSPENSE_REPLACE = /<#([0-9\.]+)\#>/;
 export function awaitSuspense(fn: () => any) {
-  return () =>
-    new Promise(resolve => {
-      const registry = new Set<string>();
-      const cache: Record<string, string> = Object.create(null);
-      const res = createMemo(() => {
-        Owner!.context = { [SUSPENSE_GLOBAL]: getCallback };
-        return fn();
-      });
-      if (!registry.size) resolve(res());
-      function getCallback(key: string) {
-        registry.add(key);
-        return (value: string) => {
-          if (value) cache[key] = value;
-          registry.delete(key);
-          if (!registry.size)
-            queueMicrotask(() => {
-              let source = resolveSSRNode(res());
-              let final = "";
-              let match: any;
-              while ((match = source.match(SUSPENSE_REPLACE))) {
-                final += source.substring(0, match.index);
-                source = cache[match[1]] + source.substring(match.index + match[0].length);
-              }
-              resolve(final + source);
-            });
-        };
-      }
+  return new Promise(resolve => {
+    const registry = new Set<string>();
+    const cache: Record<string, string> = Object.create(null);
+    const res = createMemo(() => {
+      Owner!.context = { [SUSPENSE_GLOBAL]: getCallback };
+      return fn();
     });
+    if (!registry.size) resolve(res());
+    function getCallback(key: string) {
+      registry.add(key);
+      return (value: string) => {
+        if (value) cache[key] = value;
+        registry.delete(key);
+        if (!registry.size)
+          queueMicrotask(() => {
+            let source = resolveSSRNode(res());
+            let final = "";
+            let match: any;
+            while ((match = source.match(SUSPENSE_REPLACE))) {
+              final += source.substring(0, match.index);
+              source = cache[match[1]] + source.substring(match.index + match[0].length);
+            }
+            resolve(final + source);
+          });
+      };
+    }
+  });
 }

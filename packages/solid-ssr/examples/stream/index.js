@@ -11,7 +11,7 @@ const lang = "en";
 app.use(express.static(path.join(__dirname, "../public")));
 
 app.get("*", (req, res) => {
-  const stream = renderToNodeStream(() => <App url={req.url} />);
+  const { stream, script } = renderToNodeStream(() => <App url={req.url} />);
 
   const htmlStart = `<html lang="${lang}">
     <head>
@@ -20,6 +20,7 @@ app.get("*", (req, res) => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <link rel="stylesheet" href="/styles.css" />
       <script async type="module" src="/js/index.js"></script>
+      ${script}
     </head>
     <body><div id="app">`;
 

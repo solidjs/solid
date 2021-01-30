@@ -16,7 +16,7 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
-const [transPending, setTransPending] = createSignal(false, true);
+const [transPending, setTransPending] = /*@__PURE__*/createSignal(false, true);
 export var Owner: Owner | null = null;
 export var Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
@@ -484,17 +484,14 @@ export function createResource<T>(
     err = null;
     let p: Promise<T> | T;
     if (sharedConfig.context) {
-      if (sharedConfig.loadResource && !options.notStreamed) {
-        fn = () => sharedConfig.loadResource!(id!);
+      if (sharedConfig.context.loadResource && !options.notStreamed) {
+        p = sharedConfig.context.loadResource!(id!);
       } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
-        fn = () => {
-          const data = sharedConfig.resources![id!];
-          delete sharedConfig.resources![id!];
-          return data;
-        };
+        p = sharedConfig.resources![id!];
+        delete sharedConfig.resources![id!];
       }
     }
-    p = fn();
+    if (!p!) p = fn();
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, transform(p, untrack(s)));
       return Promise.resolve(p);
