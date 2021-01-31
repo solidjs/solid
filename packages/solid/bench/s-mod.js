@@ -141,6 +141,13 @@ function useContext(context) {
 function getContextOwner() {
   return Owner;
 }
+function runWithOwner(owner, callback) {
+  const currentOwner = getContextOwner();
+  Owner = owner;
+  const result = callback();
+  Owner = currentOwner;
+  return result;
+}
 // Internal implementation
 /// Graph classes and operations
 class DataNode {

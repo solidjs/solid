@@ -17,6 +17,7 @@ export {
   createContext,
   useContext,
   getContextOwner,
+  runWithOwner,
   equalFn,
   requestCallback,
   createState,
