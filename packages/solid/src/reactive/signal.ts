@@ -269,34 +269,12 @@ export function untrack<T>(fn: () => T): T {
   return result;
 }
 
-export function on<T, U>(w: () => T, fn: (v: T, prev: T, prevResult: U) => U): (prev?: U) => U;
-export function on<T1, T2, U>(
-  w1: () => T1,
-  w2: () => T2,
-  fn: (v: [T1, T2], prev: [T1, T2], prevResult: U) => U
-): (prev?: U) => U;
-export function on<T1, T2, T3, U>(
-  w1: () => T1,
-  w2: () => T2,
-  w3: () => T3,
-  fn: (v: [T1, T2, T3], p: [T1, T2, T3], prevResult: U) => U
-): (prev?: U) => U;
-export function on<T1, T2, T3, T4, U>(
-  w1: () => T1,
-  w2: () => T2,
-  w3: () => T3,
-  w4: () => T4,
-  fn: (v: [T1, T2, T3, T4], p: [T1, T2, T3, T4], prevResult: U) => U
-): (prev?: U) => U;
-export function on<T1, T2, T3, T4, T5, U>(
-  w1: () => T1,
-  w2: () => T2,
-  w3: () => T3,
-  w4: () => T4,
-  w5: () => T5,
-  fn: (v: [T1, T2, T3, T4, T5], p: [T1, T2, T3, T4, T5], prevResults: U) => U
-): (prev?: U) => U;
-export function on<T, U>(...args: Array<Function>): (prev?: U) => U {
+type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends (() => infer U) ? U : never };
+export function on<T, X extends Array<() => T>, U>(
+  ...args: X['length'] extends 1
+    ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
+    : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
+): (prev?: U) => U {
   const fn = args.pop() as (v: T | Array<T>, p?: T | Array<T>, r?: U) => U;
   let deps: (() => T) | Array<() => T>;
   let isArray = true;
@@ -314,7 +292,7 @@ export function on<T, U>(...args: Array<Function>): (prev?: U) => U {
     } else value = (deps as () => T)();
     const result = untrack<U>(() => fn!(value, prev, prevResult));
     prev = value;
-    return result as U;
+    return result;
   };
 }
 
