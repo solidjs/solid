@@ -114,7 +114,7 @@ export function proxyDescriptor(target: StateNode, property: string | number | s
     return desc;
   delete desc.value;
   delete desc.writable;
-  desc.get = () => target[property as string | number];
+  desc.get = () => target[$PROXY][property as string | number];
   return desc;
 }
 
