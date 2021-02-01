@@ -327,6 +327,16 @@ export function getContextOwner() {
   return Owner;
 }
 
+export function runWithOwner<T>(owner: Owner | null, callback: () => T) {
+  const currentOwner = getContextOwner();
+  
+  Owner = owner;
+  const result = callback();
+  Owner = currentOwner;
+  
+  return result;
+}
+
 export function hashValue(v: any) {
   return "s" + (typeof v === "string" ? hash(v) : hash(JSON.stringify(v) || ""));
 }

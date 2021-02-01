@@ -140,6 +140,16 @@ export function getContextOwner() {
   return Owner;
 }
 
+export function runWithOwner<T>(owner: Owner | null, callback: () => T) {
+  const currentOwner = getContextOwner();
+  
+  Owner = owner;
+  const result = callback();
+  Owner = currentOwner;
+  
+  return result;
+}
+
 function lookup(owner: Owner | null, key: symbol | string): any {
   return (
     owner && ((owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key)))
