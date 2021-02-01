@@ -375,6 +375,33 @@ describe("createSelector", () => {
       });
     });
   });
+
+  test("zero index", done => {
+    createRoot(() => {
+      const [s, set] = createSignal<number>(-1),
+        isSelected = createSelector<number, number>(s);
+      let count = 0;
+      const list = [
+        createMemo(() => {
+          count++;
+          return isSelected(0) ? "selected" : "no";
+        })
+      ];
+      expect(count).toBe(1);
+      expect(list[0]()).toBe("no");
+      setTimeout(() => {
+        count = 0;
+        set(0);
+        expect(count).toBe(1);
+        expect(list[0]()).toBe("selected");
+        count = 0;
+        set(-1);
+        expect(count).toBe(1);
+        expect(list[0]()).toBe("no");
+        done();
+      });
+    });
+  });
 });
 
 describe("create and use context", () => {

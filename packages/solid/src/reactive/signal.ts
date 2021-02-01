@@ -205,7 +205,7 @@ export function createSelector<T, U>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v) || (p && fn(key, p))) {
+        if (fn(key, v) || (p !== undefined && fn(key, p))) {
           const c = subs.get(key)!;
           c.state = STALE;
           if (c.pure) Updates!.push(c);
