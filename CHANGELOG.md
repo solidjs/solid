@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.24.0 - 2021-2-x
+
+This release is the start of the rework of the SSR solution. Consolidating them under a single method. Unfortunately this one comes with several breaking changes.
+
+### Breaking Changes
+
+#### Removed `solid-js/dom`
+
+It's been a few versions deprecated. It's gone.
+
+#### Updated Resource API
+
+Changed to more resemble SWR and React Query. Needed to remove `createResourceState`so now need to use a getter over `createResource` to get same effect. See updated documentation.
+
+#### Change SSR render call signatures
+
+They now return results objects that include the generated hydration script. No more need to generate it separately. Also comes autowrapped in the `script` tag now.
+
+#### `assignProps` to `mergeProps`
+
+While you use them the same way mostly it no longer has `Object.assign` semantics and always returns a new object. This is important as in many cases we need to upgrade to a Proxy.
+
+#### Renamed `getContextOwner` to `getOwner`
+
+Removes confusion around context and consistent with new helper `runWithOwner`.
+
+### Non-break Changes
+
+#### Event Delegation
+
+Solid is now being more strict on what events it delegates. Limiting to standard pointer/touch/mouse/keyboard events. Custom events will no longer be delegated.
+### New Features
+
+#### `children` helper
+
+Resolves children and returns a memo. This makes it much easier to deal with children. Using same mechanism `<Switch>` can now have dynamic children like `<For>` inside.
+
 ## 0.23.0 - 2020-12-05
 
 This release is mostly bug fixes. Breaking change for TS users. JSX types no longer pollutes global namespace. This means you need to update your projects to import it.

@@ -334,14 +334,14 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(owner: Owner | null, callback: () => T) {
-  const currentOwner = getContextOwner();
-  
-  Owner = owner;
-  const result = callback();
-  Owner = currentOwner;
-  
-  return result;
+export function runWithOwner(o: Owner, fn: () => any) {
+  const prev = Owner;
+  Owner = o;
+  try {
+    return fn();
+  } finally {
+    Owner = prev;
+  }
 }
 
 export function hashValue(v: any) {
