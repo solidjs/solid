@@ -96,7 +96,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [() => T | undefined, (v?: T) => T];
+export function createSignal<T>(): [() => T | undefined, <U extends T | undefined>(v?: U) => U];
 export function createSignal<T>(
   value: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean),
@@ -373,10 +373,12 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
 export interface Context<T> {
   id: symbol;
   Provider: (props: { value: T; children: any }) => any;
-  defaultValue?: T;
+  defaultValue: T;
 }
 
-export function createContext<T>(defaultValue?: T): Context<T> {
+export function createContext<T>(): Context<T | undefined>
+export function createContext<T>(defaultValue: T): Context<T>
+export function createContext<T>(defaultValue?: T): Context<T | undefined> {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
 }

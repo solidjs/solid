@@ -11,7 +11,9 @@ import {
   on,
   onMount,
   onCleanup,
-  onError
+  onError,
+  createContext,
+  useContext
 } from "../src";
 
 describe("Create signals", () => {
@@ -111,6 +113,17 @@ describe("Update signals", () => {
         done();
       });
     });
+  });
+  test("Set signal returns argument", () => {
+    const [_, setValue] = createSignal<number>();
+    const res1: undefined = setValue(undefined);
+    expect(res1).toBe(undefined);
+    const res2: number = setValue(12);
+    expect(res2).toBe(12);
+    const res3 = setValue(Math.random() >= 0 ? 12 : undefined);
+    expect(res3).toBe(12);
+    const res4 = setValue();
+    expect(res4).toBe(undefined);
   });
 });
 
@@ -363,3 +376,11 @@ describe("createSelector", () => {
     });
   });
 });
+
+describe("create and use context", () => {
+  test("createContext without arguments defaults to undefined", () => {
+    const context = createContext<number>()
+    const res = useContext(context);
+    expect(res).toBe<typeof res>(undefined)
+  })
+})
