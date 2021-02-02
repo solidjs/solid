@@ -2,6 +2,7 @@ import {
   createRoot,
   createSignal,
   createEffect,
+  createRenderEffect,
   createComputed,
   createDeferred,
   createMemo,
@@ -124,6 +125,49 @@ describe("Untrack signals", () => {
         setSign("mind");
         expect(temp).toBe("unpure thoughts");
         done();
+      });
+    });
+  });
+});
+
+describe("Typecheck computed and effects", () => {
+  test("No default value can return undefined", () => {
+    createRoot(() => {
+      let count = 0;
+      const [sign, setSign] = createSignal("thoughts");
+      const fn = (arg?: number) => {
+        count++;
+        sign();
+        expect(arg).toBe(undefined);
+        return arg;
+      };
+      createComputed(fn);
+      createRenderEffect(fn);
+      createEffect(fn);
+      setTimeout(() => {
+        expect(count).toBe(3);
+        setSign("update");
+        expect(count).toBe(6);
+      });
+    });
+  });
+  test("Default value never receives undefined", () => {
+    createRoot(() => {
+      let count = 0;
+      const [sign, setSign] = createSignal("thoughts");
+      const fn = (arg: number) => {
+        count++;
+        sign();
+        expect(arg).toBe(12);
+        return arg;
+      };
+      createComputed(fn, 12);
+      createRenderEffect(fn, 12);
+      createEffect(fn, 12);
+      setTimeout(() => {
+        expect(count).toBe(3);
+        setSign("update");
+        expect(count).toBe(6);
       });
     });
   });

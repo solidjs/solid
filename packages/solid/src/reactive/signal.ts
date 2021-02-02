@@ -120,14 +120,20 @@ export function createSignal<T>(
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
+export function createComputed<T>(fn: (v: T) => T, value: T): void;
+export function createComputed<T>(fn: (v?: T) => T | undefined): void;
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   updateComputation(createComputation(fn, value, true));
 }
 
+export function createRenderEffect<T>(fn: (v: T) => T, value: T): void;
+export function createRenderEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
   updateComputation(createComputation(fn, value, false));
 }
 
+export function createEffect<T>(fn: (v: T) => T, value: T): void;
+export function createEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
   if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
   runEffects = runUserEffects;
