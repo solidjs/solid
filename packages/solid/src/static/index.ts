@@ -16,7 +16,7 @@ export {
   on,
   createContext,
   useContext,
-  getContextOwner,
+  getOwner,
   equalFn,
   requestCallback,
   createState,
@@ -29,7 +29,7 @@ export {
 
 export {
   awaitSuspense,
-  assignProps,
+  mergeProps,
   splitProps,
   createComponent,
   For,

@@ -8,7 +8,7 @@ import {
   useContext,
   Component,
   JSX,
-  assignProps
+  mergeProps
 } from "solid-js";
 import { isServer, Show, Portal, Dynamic } from "solid-js/web";
 
@@ -136,16 +136,16 @@ export function renderTags(tags: Array<TagDescription>) {
 }
 
 export const Title: Component<JSX.HTMLAttributes<HTMLTitleElement>> = props =>
-  MetaTag(assignProps({ tag: "title" }, props));
+  MetaTag(mergeProps({ tag: "title" }, props));
 
 export const Style: Component<JSX.StyleHTMLAttributes<HTMLStyleElement>> = props =>
-  MetaTag(assignProps({ tag: "style" }, props));
+  MetaTag(mergeProps({ tag: "style" }, props));
 
 export const Meta: Component<JSX.MetaHTMLAttributes<HTMLMetaElement>> = props =>
-  MetaTag(assignProps({ tag: "meta" }, props));
+  MetaTag(mergeProps({ tag: "meta" }, props));
 
 export const Link: Component<JSX.LinkHTMLAttributes<HTMLLinkElement>> = props =>
-  MetaTag(assignProps({ tag: "link" }, props));
+  MetaTag(mergeProps({ tag: "link" }, props));
 
 export const Base: Component<JSX.BaseHTMLAttributes<HTMLBaseElement>> = props =>
-  MetaTag(assignProps({ tag: "base" }, props));
+  MetaTag(mergeProps({ tag: "base" }, props));

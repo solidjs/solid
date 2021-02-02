@@ -44,7 +44,6 @@ const proxyTraps: ProxyHandler<StateNode> = {
       ? wrap(
           value,
           "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`,
-          false,
           proxyTraps
         )
       : value;
@@ -71,7 +70,6 @@ export function createMutable<T extends StateNode>(
   const wrappedState = wrap(
     unwrappedState,
     "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
-    true,
     proxyTraps
   );
   if ("_SOLID_DEV_") {

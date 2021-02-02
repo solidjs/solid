@@ -63,10 +63,6 @@
     "./dev": {
       "import": "./dev/dist/dev.js",
       "require": "./dev/dist/dev.cjs"
-    },
-    "./dom": {
-      "import": "./web/dist/web.js",
-      "require": "./web/dist/web.cjs"
     }
   },
   "scripts": {

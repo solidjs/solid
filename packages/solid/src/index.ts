@@ -19,7 +19,7 @@ export {
   createContext,
   useContext,
   children,
-  getContextOwner,
+  getOwner,
   equalFn,
   serializeGraph
 } from "./reactive/signal";

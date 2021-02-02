@@ -6,35 +6,30 @@ import {
   createState,
   createRenderEffect,
   onError,
-  SetStateFunction,
   Resource,
-  State,
-  reconcile
+  reconcile,
+  State
 } from "../src";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
-    trigger: (v: number) => void,
-    load: (v: () => Promise<string>) => void,
-    i: number,
+    trigger: (v: string) => void,
     value: Resource<string>,
     error: string;
-  function fetcher(id: number) {
-    return () =>
-      new Promise<string>((r, f) => {
-        resolve = r;
-        reject = f;
-      });
+  function fetcher(id: string) {
+    return new Promise<string>((r, f) => {
+      resolve = r;
+      reject = f;
+    });
   }
 
   test("initial async resource", async done => {
     createRoot(() => {
-      const [id, setId] = createSignal(1);
-      [value, load] = createResource<string>();
+      const [id, setId] = createSignal("1");
       trigger = setId;
       onError(e => (error = e));
-      createComputed(() => (i = id()) && load(fetcher(i)));
+      [value] = createResource(id, fetcher);
       createRenderEffect(value);
     });
     expect(value()).toBeUndefined();
@@ -47,10 +42,10 @@ describe("Simulate a dynamic fetch", () => {
   });
 
   test("test out of order", async done => {
-    trigger(2);
+    trigger("2");
     expect(value.loading).toBe(true);
     const resolve1 = resolve;
-    trigger(3);
+    trigger("3");
     const resolve2 = resolve;
     resolve2("Jake");
     resolve1("Jo");
@@ -61,7 +56,7 @@ describe("Simulate a dynamic fetch", () => {
   });
 
   test("promise rejection", async done => {
-    trigger(4);
+    trigger("4");
     expect(value.loading).toBe(true);
     reject("Because I said so");
     await Promise.resolve();
@@ -80,26 +75,23 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     };
   }
   let resolve: (v: User) => void,
+    refetch: () => void,
     user: Resource<User>,
-    load: (
-      v: () => Promise<User> | User ,
-      r?: (v: User, p: User) => User
-    ) => void,
-    state: { user?: User, userLoading: boolean },
+    state: { user?: User; userLoading: boolean },
     count = 0;
-  function fetcher() {
+  function fetcher(_: string, getPrev: () => User | undefined) {
     return new Promise<User>(r => {
       resolve = r;
-    });
+    }).then(value => reconcile(value)(getPrev() as State<User>));
   }
   const data: User[] = [];
-  data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } })
-  data.push({ ...data[0], firstName: "Joseph" })
+  data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } });
+  data.push({ ...data[0], firstName: "Joseph" });
 
   test("initial async resource", async done => {
     createRoot(() => {
-      [user, load] = createResource<User>();
-      [state] = createState<{ user?: User, userLoading: boolean }>({
+      [user, { refetch }] = createResource("user", fetcher);
+      [state] = createState<{ user?: User; userLoading: boolean }>({
         get user() {
           return user();
         },
@@ -109,7 +101,6 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
       });
       createComputed(() => (state.user, count++));
     });
-    load(fetcher);
     expect(state.user).toBeUndefined();
     expect(state.userLoading).toBe(true);
     resolve(data[0]);
@@ -119,7 +110,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
 
-    load(fetcher, (value, prev) => reconcile(value)(prev));
+    refetch();
     expect(state.userLoading).toBe(true);
     resolve(data[1]);
     await Promise.resolve();
@@ -136,9 +127,8 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
 describe("using Resource with no root", () => {
   test("loads default value", () => {
     expect(() => {
-      const [, load] = createResource<string>();
       let resolve: (v: string) => void;
-      load(() => new Promise(r => (resolve = r)));
+      createResource("error", () => new Promise(r => (resolve = r)));
       resolve!("Hi");
     }).not.toThrow();
   });

@@ -76,9 +76,9 @@ Creates a new computation that automatically tracks dependencies and runs during
 
 Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state.
 
-### `createResource(initialValue, options: { name }): [getValueFn, loadFn]`
+### `createResource(key, fetcher, initialValue): getValueFn`
 
-Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `loadFn` takes a Promise whose resolved value is set in the resource.
+Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `fetcher` is a function that accepts key and returns a Promise whose resolved value is set in the resource.
 
 ### `lazy(() => <Promise>): Component`
 
@@ -88,9 +88,9 @@ Used to lazy load components to allow for things like code splitting and Suspens
 
 Used to batch async updates deferring commit until all async processes are complete.
 
-### `assignProps(target, ...sources): target`
+### `mergeProps(...sources): target`
 
-A reactive object `assign` method. Useful for setting default props for components in case caller doesn't provide them. Or cloning the props object including reactive properties.
+A reactive object `merge` method. Useful for setting default props for components in case caller doesn't provide them. Or cloning the props object including reactive properties.
 
 ### `splitProps(props, ...keyArrays): [...splitProps]`
 

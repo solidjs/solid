@@ -1,5 +1,5 @@
 import { css, setup as gooberSetup } from "goober";
-import { assignProps, splitProps, createContext, useContext, createComponent } from "solid-js";
+import { mergeProps, splitProps, createContext, useContext, createComponent } from "solid-js";
 import { spread, ssr, ssrSpread, isServer } from "solid-js/web";
 export { css, glob, extractCss, keyframes } from "goober";
 export function setup(prefixer) {
@@ -21,16 +21,16 @@ export function styled(tag) {
   return (...args) => {
     return props => {
       const theme = useContext(ThemeContext);
-      const clone = assignProps({}, props, {
+      const clone = mergeProps(props, {
         get className() {
           const pClassName = props.className,
             append = "className" in props && /^go[0-9]+/.test(pClassName);
           // Call `css` with the append flag and pass the props
           let className = css.apply({ target: this.target, o: append, p: clone }, args);
           return [pClassName, className].filter(Boolean).join(" ");
-        }
+        },
+        theme
       });
-      theme && (clone.theme = theme);
       const [local, newProps] = splitProps(clone, ["as"]);
       const createTag = local.as || tag;
       let el;

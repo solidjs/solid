@@ -12,7 +12,7 @@ export {
   Match,
   Index,
   ErrorBoundary,
-  assignProps
+  mergeProps
 } from "solid-js";
 
 export const isServer = true;

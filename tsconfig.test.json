@@ -4,7 +4,7 @@
     "target": "esnext",
     "moduleResolution": "node",
     "strict": true,
-    "lib": ["dom", "es2015", "dom.iterable"],
+    "lib": ["dom", "esnext", "dom.iterable"],
     "jsx": "preserve"
   },
   "exclude": ["node_modules"]

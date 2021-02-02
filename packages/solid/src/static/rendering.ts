@@ -51,15 +51,16 @@ export function createComponent<T>(
   return Comp(props as T);
 }
 
-export function assignProps<T, U>(target: T, source: U): T & U;
-export function assignProps<T, U, V>(target: T, source1: U, source2: V): T & U & V;
-export function assignProps<T, U, V, W>(
-  target: T,
+export function mergeProps<T, U>(source: T, source1: U): T & U;
+export function mergeProps<T, U, V>(source: T, source1: U, source2: V): T & U & V;
+export function mergeProps<T, U, V, W>(
+  source: T,
   source1: U,
   source2: V,
   source3: W
 ): T & U & V & W;
-export function assignProps(target: any, ...sources: any): any {
+export function mergeProps(...sources: any): any {
+  const target = {};
   for (let i = 0; i < sources.length; i++) {
     const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
     Object.defineProperties(target, descriptors);
@@ -218,48 +219,73 @@ type SuspenseContextType = {
 };
 
 const SuspenseContext = createContext<SuspenseContextType>();
-export function createResource<T>(
+export function createResource<T, U>(
+  key: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
   value?: T
-): [Resource<T>, (fn: () => Promise<T> | T) => { then: Function }] {
+): [
+  Resource<T>,
+  {
+    mutate: (v: T | undefined) => T | undefined;
+    refetch: () => void;
+  }
+] {
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.context!.id + sharedConfig.context!.count++;
+  let resource: { ref?: any; data?: T } = {};
+  if (sharedConfig.context!.async) {
+    resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
+    if (resource.ref) {
+      if (!resource.data && !resource.ref[0].loading) resource.ref[1].refetch();
+      return resource.ref;
+    }
+  }
   const read = () => {
-    const resolved = sharedConfig.context!.async && id in sharedConfig.context!.resources;
+    const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
     if (sharedConfig.context!.async && !resolved) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
-        if (!ctx.resources.has(id)) ctx.resources.set(id, read);
+        ctx.resources.set(id, read);
         contexts.add(ctx);
       }
     }
-    return resolved ? sharedConfig.context!.resources[id] : value;
+    return resolved ? sharedConfig.context!.resources[id].data : value;
   };
   read.loading = false;
-  function load(fn: () => Promise<T> | T) {
+  function load() {
     const ctx = sharedConfig.context!;
-    if (!ctx.async && !ctx.streaming) return { then() {} };
-    if (ctx.resources && id in ctx.resources) {
-      value = ctx.resources[id];
-      return { then() {} };
+    if (!ctx.async && !ctx.streaming) return;
+    if (ctx.resources && id in ctx.resources && ctx.resources[id].data) {
+      value = ctx.resources[id].data;
+      return;
     }
+    const lookup = typeof key === "function" ? (key as () => U)() : key;
+    if (!lookup) return;
     read.loading = true;
-    const p = fn();
+    const p = fetcher(lookup, () => value);
     if ("then" in p) {
       if (ctx.writeResource) {
         ctx.writeResource(id, p);
-        return p;
+        return;
       }
       p.then(res => {
         read.loading = false;
-        ctx.resources[id] = res;
+        ctx.resources[id].data = res;
         notifySuspense(contexts);
         return res;
       });
-      return p;
+      return;
     }
-    return Promise.resolve((value = p));
+    ctx.resources[id].data = p;
   }
-  return [read, load];
+  load();
+  return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as [
+    Resource<T>,
+    {
+      mutate: (v: T | undefined) => T | undefined;
+      refetch: () => void;
+    }
+  ]);
 }
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {

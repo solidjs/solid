@@ -1,4 +1,4 @@
-import { createComponent, assignProps, splitProps, createState } from "../src";
+import { createComponent, mergeProps, splitProps, createState } from "../src";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -31,7 +31,7 @@ describe("Set Default Props", () => {
         c: "j"
       },
       defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
-    props = assignProps(defaults, props);
+    props = mergeProps(defaults, props);
     expect(props.a).toBe("ji");
     expect(props.b).toBe(null);
     expect(props.c).toBe("j");
@@ -50,7 +50,7 @@ describe("Clone Props", () => {
       b: null,
       c: "j"
     };
-    const newProps = assignProps({}, props);
+    const newProps = mergeProps({}, props);
     expect(reactive).toBe(false);
     expect(newProps.a).toBe("ji");
     expect(reactive).toBe(true);
@@ -62,13 +62,13 @@ describe("Clone Props", () => {
 
 describe("Clone State", () => {
   const [state, setState] = createState<{a: string, b: string, c?: string}>({ a: "Hi", b: "Jo" });
-  const clone = assignProps({}, state);
+  const clone = mergeProps(state);
   expect(clone.a).toBe("Hi");
   expect(clone.b).toBe("Jo");
   setState({ a: "Greetings", c: "John" });
   expect(clone.a).toBe("Greetings");
   expect(clone.b).toBe("Jo");
-  expect(clone.c).toBe(undefined);
+  expect(clone.c).toBe("John");
 })
 
 describe("SplitProps Props", () => {

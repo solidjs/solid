@@ -16,7 +16,8 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
-const [transPending, setTransPending] = /*@__PURE__*/createSignal(false, true);
+export const $LAZY = Symbol("lazy");
+const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false, true);
 export var Owner: Owner | null = null;
 export var Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
@@ -345,7 +346,7 @@ export function getListener() {
   return Listener;
 }
 
-export function getContextOwner() {
+export function getOwner() {
   return Owner;
 }
 
@@ -419,10 +420,17 @@ export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
 }
-export function createResource<T>(
-  init?: T,
-  options: { notStreamed?: boolean } = {}
-): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T>] {
+export function createResource<T, U>(
+  key: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  init?: T
+): [
+  Resource<T>,
+  {
+    mutate: (v: T | undefined) => T | undefined;
+    refetch: () => void;
+  }
+] {
   const contexts = new Set<SuspenseContextType>(),
     [s, set] = createSignal(init, true),
     [track, trigger] = createSignal<void>(),
@@ -430,7 +438,8 @@ export function createResource<T>(
 
   let err: any = null,
     pr: Promise<T> | null = null,
-    id: string | null = null;
+    id: string | null = null,
+    dynamic = typeof key === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -480,29 +489,34 @@ export function createResource<T>(
     }
     return v;
   }
-  function load(fn: () => Promise<T> | T, transform = (v: T, prev: T | undefined) => v) {
+  function load() {
     err = null;
-    let p: Promise<T> | T;
+    let p: Promise<T> | T,
+      lookup = dynamic ? (key as () => U)() : (key as U);
+    if (!lookup) {
+      loadEnd(pr, untrack(s)!);
+      return;
+    }
     if (sharedConfig.context) {
-      if (sharedConfig.context.loadResource && !options.notStreamed) {
+      if (sharedConfig.context.loadResource && lookup !== ($LAZY as any)) {
         p = sharedConfig.context.loadResource!(id!);
       } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
-        p = sharedConfig.resources![id!];
-        delete sharedConfig.resources![id!];
+        p = sharedConfig.resources![id];
+        delete sharedConfig.resources![id];
       }
     }
-    if (!p!) p = fn();
+    if (!p!) p = fetcher(lookup, s);
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, transform(p, untrack(s)));
-      return Promise.resolve(p);
+      loadEnd(pr, p);
+      return;
     }
     pr = p;
     batch(() => {
       setLoading(true);
       trigger();
     });
-    return p.then(
-      v => loadEnd(p as Promise<T>, transform(v, untrack(s))),
+    p.then(
+      v => loadEnd(p as Promise<T>, v),
       e => loadEnd(p as Promise<T>, undefined as any, e)
     );
   }
@@ -511,7 +525,9 @@ export function createResource<T>(
       return loading();
     }
   });
-  return [read as Resource<T>, load];
+  if (dynamic) createComputed(load);
+  else load();
+  return [read as Resource<T>, { refetch: load, mutate: set }];
 }
 
 function readSignal(this: Signal<any> | Memo<any>) {

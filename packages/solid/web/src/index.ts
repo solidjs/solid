@@ -22,7 +22,7 @@ export {
   Match,
   Index,
   ErrorBoundary,
-  assignProps
+  mergeProps
 } from "solid-js";
 
 export * from "./server-mock";

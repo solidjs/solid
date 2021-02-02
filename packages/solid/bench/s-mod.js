@@ -138,7 +138,7 @@ function createContext(defaultValue) {
 function useContext(context) {
   return lookup(Owner, context.id) || context.defaultValue;
 }
-function getContextOwner() {
+function getOwner() {
   return Owner;
 }
 // Internal implementation

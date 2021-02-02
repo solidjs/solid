@@ -170,12 +170,10 @@ Solid ships with a primitive to handle async data loading, `createResource`. It 
 import { createResource } from "solid-js";
 
 // notice returns a function that returns a promise
-const fetchUser = id =>
-  () => fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
+const fetchJSON = query => fetch(query).then(r => r.json());
 
 export default const UserPanel = props => {
-  let [user, load] = createResource();
-  load(fetchUser(props.userId)));
+  let [user] = createResource(() => `https://swapi.co/api/people/${props.userId}/`, fetchJSON);
 
   return <div>
     <Switch fallback={"Failed to load User"}>
@@ -192,32 +190,17 @@ export default const UserPanel = props => {
   </div>
 }
 ```
+
 This example handles the different loading states. However, you can expand this example to use Suspense instead by wrapping with the `Suspense` Component.
 
-`load` also supports a second argument to transform the data before you store it. This can be useful for creating resource caches.
+Resource also returns actions that can be performed, like `refetch` and `mutate`. And if absent using `fetch` to return JSON is the default fetcher.
 
 ```js
-// fetch all the posts
-loadPosts(fetchPosts);
-
-// fetch a single post and add it to the resource
-loadPosts(fetchPost(id), (post, prev) => { ...prev, [id]: post });
+let [user, { refetch, mutate }] = createResource(
+  () => `https://swapi.co/api/people/${props.userId}/`
+);
 ```
-
-Or even if you store it as state be able to deep data diff:
-```js
-const [user, loadUser] = createResource();
-const [state] = createState({
-  get user() { return user() }
-})
-
-// get the user initially
-loadUser(fetchUser(id))
-
-// refresh user info
-loadUser(fetchUser(id), (user, prevUser) => reconcile(user)(prevUser));
-```
-Since it is in state and being reconciled only the properties that have updated on the server will notify change.
+The first argument can be a unique string key or dynamically generated one that is automatically tracked in a function.
 
 > **For React Users:** At the time of writing this React has not completely settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
 

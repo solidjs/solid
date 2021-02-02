@@ -154,7 +154,7 @@ export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
-export function getContextOwner() {
+export function getOwner() {
   return Owner;
 }
 

@@ -84,13 +84,13 @@ To help maintain reactivity Solid has a couple prop helpers:
 
 ```jsx
 // default props
-props = assignProps({}, { name: "Smith" }, props);
+props = mergeProps({ name: "Smith" }, props);
 
 // clone props
-const newProps = assignProps({}, props);
+const newProps = mergeProps(props);
 
 // merge props
-assignProps(props, otherProps);
+props = mergeProps(props, otherProps);
 
 // split props into multiple props objects
 const [local, others] = splitProps(props, ["className"])

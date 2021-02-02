@@ -27,7 +27,7 @@ function createProps<T>(raw: T) {
 function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
   return (rawProps: T, options: ComponentOptions) => {
     const { element } = options as {
-      element: ICustomElement & { _context?: any };
+      element: ICustomElement & { _$owner?: any };
     };
     return createRoot((dispose: Function) => {
       const props = createProps<T>(rawProps);
@@ -40,7 +40,7 @@ function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
 
       const comp = (ComponentType as FunctionComponent<T>)(props as T, options);
       return insert(element.renderRoot, comp);
-    }, (element.assignedSlot && element.assignedSlot._context) || element._context);
+    }, (element.assignedSlot && element.assignedSlot._$owner) || element._$owner);
   };
 }
 

@@ -38,30 +38,27 @@ export type State<T> = {
 export function wrap<T extends StateNode>(
   value: T,
   name?: string,
-  processProps?: boolean,
   traps?: ProxyHandler<T>
 ): State<T> {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, traps || proxyTraps)) });
-    if (processProps) {
-      let keys = Object.keys(value),
-        desc = Object.getOwnPropertyDescriptors(value);
-      for (let i = 0, l = keys.length; i < l; i++) {
-        const prop = keys[i];
-        if (desc[prop].get) {
-          const get = createMemo(desc[prop].get!.bind(p), undefined, true);
-          Object.defineProperty(value, prop, {
-            get
-          });
-        }
-        if (desc[prop].set) {
-          const og = desc[prop].set!,
-            set = (v: T[keyof T]) => batch(() => og.call(p, v));
-          Object.defineProperty(value, prop, {
-            set
-          });
-        }
+    let keys = Object.keys(value),
+      desc = Object.getOwnPropertyDescriptors(value);
+    for (let i = 0, l = keys.length; i < l; i++) {
+      const prop = keys[i];
+      if (desc[prop].get) {
+        const get = createMemo(desc[prop].get!.bind(p), undefined, true);
+        Object.defineProperty(value, prop, {
+          get
+        });
+      }
+      if (desc[prop].set) {
+        const og = desc[prop].set!,
+          set = (v: T[keyof T]) => batch(() => og.call(p, v));
+        Object.defineProperty(value, prop, {
+          set
+        });
       }
     }
     if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
@@ -160,11 +157,7 @@ const proxyTraps: ProxyHandler<StateNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(
-  state: StateNode,
-  property: string | number,
-  value: any
-) {
+export function setProperty(state: StateNode, property: string | number, value: any) {
   if (state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
   if (value === undefined) {
@@ -340,8 +333,7 @@ export function createState<T extends StateNode>(
   const unwrappedState = unwrap<T>(state || {}, true);
   const wrappedState = wrap(
     unwrappedState,
-    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
-    true
+    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState))
   );
   if ("_SOLID_DEV_") {
     const name = (options && options.name) || hashValue(unwrappedState);
