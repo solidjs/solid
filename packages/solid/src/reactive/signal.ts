@@ -96,7 +96,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [() => T | undefined, (v?: T) => T];
+export function createSignal<T>(): [() => T | undefined, <U extends T | undefined>(v?: U) => U];
 export function createSignal<T>(
   value: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean),
@@ -120,14 +120,20 @@ export function createSignal<T>(
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
+export function createComputed<T>(fn: (v: T) => T, value: T): void;
+export function createComputed<T>(fn: (v?: T) => T | undefined): void;
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   updateComputation(createComputation(fn, value, true));
 }
 
+export function createRenderEffect<T>(fn: (v: T) => T, value: T): void;
+export function createRenderEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
   updateComputation(createComputation(fn, value, false));
 }
 
+export function createEffect<T>(fn: (v: T) => T, value: T): void;
+export function createEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
   if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
   runEffects = runUserEffects;
@@ -199,7 +205,7 @@ export function createSelector<T, U>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v) || (p && fn(key, p))) {
+        if (fn(key, v) || (p !== undefined && fn(key, p))) {
           const c = subs.get(key)!;
           c.state = STALE;
           if (c.pure) Updates!.push(c);
@@ -367,10 +373,12 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
 export interface Context<T> {
   id: symbol;
   Provider: (props: { value: T; children: any }) => any;
-  defaultValue?: T;
+  defaultValue: T;
 }
 
-export function createContext<T>(defaultValue?: T): Context<T> {
+export function createContext<T>(): Context<T | undefined>
+export function createContext<T>(defaultValue: T): Context<T>
+export function createContext<T>(defaultValue?: T): Context<T | undefined> {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
 }

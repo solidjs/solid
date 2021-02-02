@@ -2,6 +2,7 @@ import {
   createRoot,
   createSignal,
   createEffect,
+  createRenderEffect,
   createComputed,
   createDeferred,
   createMemo,
@@ -10,7 +11,9 @@ import {
   on,
   onMount,
   onCleanup,
-  onError
+  onError,
+  createContext,
+  useContext
 } from "../src";
 
 describe("Create signals", () => {
@@ -111,6 +114,17 @@ describe("Update signals", () => {
       });
     });
   });
+  test("Set signal returns argument", () => {
+    const [_, setValue] = createSignal<number>();
+    const res1: undefined = setValue(undefined);
+    expect(res1).toBe(undefined);
+    const res2: number = setValue(12);
+    expect(res2).toBe(12);
+    const res3 = setValue(Math.random() >= 0 ? 12 : undefined);
+    expect(res3).toBe(12);
+    const res4 = setValue();
+    expect(res4).toBe(undefined);
+  });
 });
 
 describe("Untrack signals", () => {
@@ -124,6 +138,49 @@ describe("Untrack signals", () => {
         setSign("mind");
         expect(temp).toBe("unpure thoughts");
         done();
+      });
+    });
+  });
+});
+
+describe("Typecheck computed and effects", () => {
+  test("No default value can return undefined", () => {
+    createRoot(() => {
+      let count = 0;
+      const [sign, setSign] = createSignal("thoughts");
+      const fn = (arg?: number) => {
+        count++;
+        sign();
+        expect(arg).toBe(undefined);
+        return arg;
+      };
+      createComputed(fn);
+      createRenderEffect(fn);
+      createEffect(fn);
+      setTimeout(() => {
+        expect(count).toBe(3);
+        setSign("update");
+        expect(count).toBe(6);
+      });
+    });
+  });
+  test("Default value never receives undefined", () => {
+    createRoot(() => {
+      let count = 0;
+      const [sign, setSign] = createSignal("thoughts");
+      const fn = (arg: number) => {
+        count++;
+        sign();
+        expect(arg).toBe(12);
+        return arg;
+      };
+      createComputed(fn, 12);
+      createRenderEffect(fn, 12);
+      createEffect(fn, 12);
+      setTimeout(() => {
+        expect(count).toBe(3);
+        setSign("update");
+        expect(count).toBe(6);
       });
     });
   });
@@ -318,4 +375,39 @@ describe("createSelector", () => {
       });
     });
   });
+
+  test("zero index", done => {
+    createRoot(() => {
+      const [s, set] = createSignal<number>(-1),
+        isSelected = createSelector<number, number>(s);
+      let count = 0;
+      const list = [
+        createMemo(() => {
+          count++;
+          return isSelected(0) ? "selected" : "no";
+        })
+      ];
+      expect(count).toBe(1);
+      expect(list[0]()).toBe("no");
+      setTimeout(() => {
+        count = 0;
+        set(0);
+        expect(count).toBe(1);
+        expect(list[0]()).toBe("selected");
+        count = 0;
+        set(-1);
+        expect(count).toBe(1);
+        expect(list[0]()).toBe("no");
+        done();
+      });
+    });
+  });
 });
+
+describe("create and use context", () => {
+  test("createContext without arguments defaults to undefined", () => {
+    const context = createContext<number>()
+    const res = useContext(context);
+    expect(res).toBe<typeof res>(undefined)
+  })
+})
