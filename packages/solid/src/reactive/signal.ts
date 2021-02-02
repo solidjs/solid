@@ -98,7 +98,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [() => T | undefined, (v?: T) => T];
+export function createSignal<T>(): [() => T | undefined, <U extends T | undefined>(v?: U) => U];
 export function createSignal<T>(
   value: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean),
@@ -122,14 +122,20 @@ export function createSignal<T>(
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
+export function createComputed<T>(fn: (v: T) => T, value: T): void;
+export function createComputed<T>(fn: (v?: T) => T | undefined): void;
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   updateComputation(createComputation(fn, value, true));
 }
 
+export function createRenderEffect<T>(fn: (v: T) => T, value: T): void;
+export function createRenderEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
   updateComputation(createComputation(fn, value, false));
 }
 
+export function createEffect<T>(fn: (v: T) => T, value: T): void;
+export function createEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
   runEffects = runUserEffects;
   const c = createComputation(fn, value, false),
@@ -200,7 +206,7 @@ export function createSelector<T, U>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v) || (p && fn(key, p))) {
+        if (fn(key, v) || (p !== undefined && fn(key, p))) {
           const c = subs.get(key)!;
           c.state = STALE;
           if (c.pure) Updates!.push(c);
@@ -270,34 +276,12 @@ export function untrack<T>(fn: () => T): T {
   return result;
 }
 
-export function on<T, U>(w: () => T, fn: (v: T, prev: T, prevResult: U) => U): (prev?: U) => U;
-export function on<T1, T2, U>(
-  w1: () => T1,
-  w2: () => T2,
-  fn: (v: [T1, T2], prev: [T1, T2], prevResult: U) => U
-): (prev?: U) => U;
-export function on<T1, T2, T3, U>(
-  w1: () => T1,
-  w2: () => T2,
-  w3: () => T3,
-  fn: (v: [T1, T2, T3], p: [T1, T2, T3], prevResult: U) => U
-): (prev?: U) => U;
-export function on<T1, T2, T3, T4, U>(
-  w1: () => T1,
-  w2: () => T2,
-  w3: () => T3,
-  w4: () => T4,
-  fn: (v: [T1, T2, T3, T4], p: [T1, T2, T3, T4], prevResult: U) => U
-): (prev?: U) => U;
-export function on<T1, T2, T3, T4, T5, U>(
-  w1: () => T1,
-  w2: () => T2,
-  w3: () => T3,
-  w4: () => T4,
-  w5: () => T5,
-  fn: (v: [T1, T2, T3, T4, T5], p: [T1, T2, T3, T4, T5], prevResults: U) => U
-): (prev?: U) => U;
-export function on<T, U>(...args: Array<Function>): (prev?: U) => U {
+type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends (() => infer U) ? U : never };
+export function on<T, X extends Array<() => T>, U>(
+  ...args: X['length'] extends 1
+    ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
+    : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
+): (prev?: U) => U {
   const fn = args.pop() as (v: T | Array<T>, p?: T | Array<T>, r?: U) => U;
   let deps: (() => T) | Array<() => T>;
   let isArray = true;
@@ -315,7 +299,7 @@ export function on<T, U>(...args: Array<Function>): (prev?: U) => U {
     } else value = (deps as () => T)();
     const result = untrack<U>(() => fn!(value, prev, prevResult));
     prev = value;
-    return result as U;
+    return result;
   };
 }
 
@@ -350,6 +334,16 @@ export function getOwner() {
   return Owner;
 }
 
+export function runWithOwner<T>(owner: Owner | null, callback: () => T) {
+  const currentOwner = getContextOwner();
+  
+  Owner = owner;
+  const result = callback();
+  Owner = currentOwner;
+  
+  return result;
+}
+
 export function hashValue(v: any) {
   return "s" + (typeof v === "string" ? hash(v) : hash(JSON.stringify(v) || ""));
 }
@@ -380,10 +374,12 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
 export interface Context<T> {
   id: symbol;
   Provider: (props: { value: T; children: any }) => any;
-  defaultValue?: T;
+  defaultValue: T;
 }
 
-export function createContext<T>(defaultValue?: T): Context<T> {
+export function createContext<T>(): Context<T | undefined>
+export function createContext<T>(defaultValue: T): Context<T>
+export function createContext<T>(defaultValue?: T): Context<T | undefined> {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
 }
