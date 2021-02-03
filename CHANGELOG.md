@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.24.0 - 2021-2-x
+## 0.24.0 - 2021-02-03
 
 This release is the start of the rework of the SSR solution. Consolidating them under a single method. Unfortunately this one comes with several breaking changes.
 
@@ -26,16 +26,38 @@ While you use them the same way mostly it no longer has `Object.assign` semantic
 
 Removes confusion around context and consistent with new helper `runWithOwner`.
 
-### Non-break Changes
+#### Solid Element no longer uses State for props
 
+This reduces the size of the library especially for those not using state. It also should slightly increase performance as no need for deep nesting of proxies. It also makes things behave more consistently avoided unintended deep wrapping.
+
+### Non-breaking Changes
+
+#### New non-reactive Async SSR
+
+I have now combined sync/streaming/async SSR into the same compiler output. To do so I have developed a new non-reactive Async SSR approach. After realizing how fast Solid renders, it occurred to me on the server we could do a much simpler approach if we were willing to re-render all content in Suspense boundaries. While that is some wasted work, compared to including the reactive system it's a killing.
+
+#### Increase SSR Performance
+
+Through reusing static strings in the template we reduce repeated creation costs. This small improvement can make 5-8% improvements where you have many rows.
 #### Event Delegation
 
-Solid is now being more strict on what events it delegates. Limiting to standard pointer/touch/mouse/keyboard events. Custom events will no longer be delegated.
+Solid is now being more strict on what events it delegates. Limiting to standard pointer/touch/mouse/keyboard events. Custom events will no longer be delegated automatically. This increases compatibility for Web Component users who don't compose their events. Non-delegated events will still work and binding array syntax with them.
 ### New Features
 
 #### `children` helper
 
 Resolves children and returns a memo. This makes it much easier to deal with children. Using same mechanism `<Switch>` can now have dynamic children like `<For>` inside.
+
+#### "solid" Export Conidition
+This is the way to package the JSX components to be compiled to work on server or client. By putting the "solid" condition the source JSX will be prioritized over normal browser builds.
+
+### Bug Fixes
+
+* Top level primitive values not working with `reconcile`
+* Fix Dynamic Components to handle SVG
+* Rename potentially conflicting properties for event delegtion
+* Fixed State spreads to not loose reactiviy. Added support for dynamically created properties to track in spreads and helpers
+* TypeScript, always TypeScript
 
 ## 0.23.0 - 2020-12-05
 

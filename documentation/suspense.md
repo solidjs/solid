@@ -210,10 +210,8 @@ It is important to note that Suspense is tracked based on data requirements of t
 
 ```jsx
 // start loading data before any part of the page is executed.
-const [user, loadUser] = createResource();
-const [posts, loadPosts] = createResource();
-loadUser(fetchUser);
-loadPosts(fetchPosts);
+const [user] = createResource("user", fetchUser);
+const [posts] = createResource("posts", fetchPost);
 
 function ProfilePage() {
   return (
