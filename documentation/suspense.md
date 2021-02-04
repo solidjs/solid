@@ -164,20 +164,16 @@ const App = () => {
 
 ## Data Loading
 
-Solid ships with two resource containers to handle async loading. One is a signal created by `createResource` and the other a state object created by `createResourceState`. The signal is a simple reactive atom so it's reactivity is not deeply nested. Whereas state deeply nests reactive properties.
-
-Both have trackable `loading` property. On the signal it's a boolean. On the state object it is an object with a boolean per key.
+Solid ships with a primitive to handle async data loading, `createResource`. It has a trackable `loading` property.
 
 ```jsx
 import { createResource } from "solid-js";
 
 // notice returns a function that returns a promise
-const fetchUser = id =>
-  () => fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
+const fetchJSON = query => fetch(query).then(r => r.json());
 
 export default const UserPanel = props => {
-  let [user, load] = createResource();
-  load(fetchUser(props.userId)));
+  let [user] = createResource(() => `https://swapi.co/api/people/${props.userId}/`, fetchJSON);
 
   return <div>
     <Switch fallback={"Failed to load User"}>
@@ -195,35 +191,16 @@ export default const UserPanel = props => {
 }
 ```
 
-```jsx
-import { createResourceState } from "solid-js";
+This example handles the different loading states. However, you can expand this example to use Suspense instead by wrapping with the `Suspense` Component.
 
+Resource also returns actions that can be performed, like `refetch` and `mutate`. And if absent using `fetch` to return JSON is the default fetcher.
 
-// notice returns a function that returns a promise
-const fetchUser = id =>
-  () => fetch(`https://swapi.co/api/people/${id}/`).then(r => r.json());
-
-export default const UserPanel = props => {
-  let [state, load] = createResourceState();
-  load({ user: fetchUser(props.userId) });
-
-  return <div>
-    <Switch fallback={"Failed to load User"}>
-      <Match when={state.loading.user}>Loading...</Match>
-      <Match when={state.user}>{ user =>
-        <h1>{user.name}</h1>
-        <ul>
-          <li>Height: {user.height}</li>
-          <li>Mass: {user.mass}</li>
-          <li>Birth Year: {user.birthYear}</li>
-        </ul>
-      }</Match>
-    </Switch>
-  </div>
-}
+```js
+let [user, { refetch, mutate }] = createResource(
+  () => `https://swapi.co/api/people/${props.userId}/`
+);
 ```
-
-These examples handle the different loading states. However, you can expand this example to use Suspense instead by wrapping with the `Suspense` Component.
+The first argument can be a unique string key or dynamically generated one that is automatically tracked in a function.
 
 > **For React Users:** At the time of writing this React has not completely settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
 
@@ -233,8 +210,8 @@ It is important to note that Suspense is tracked based on data requirements of t
 
 ```jsx
 // start loading data before any part of the page is executed.
-const [state, load] = createResourceState();
-load({ user: fetchUser(), posts: fetchPosts() });
+const [user] = createResource("user", fetchUser);
+const [posts] = createResource("posts", fetchPost);
 
 function ProfilePage() {
   return (

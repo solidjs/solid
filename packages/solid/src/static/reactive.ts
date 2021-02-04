@@ -2,7 +2,7 @@ export const equalFn = <T>(a: T, b: T) => a === b;
 const ERROR = Symbol("error");
 
 const UNOWNED: Owner = { context: null, owner: null };
-let Owner: Owner | null = null;
+export let Owner: Owner | null = null;
 
 interface Owner {
   owner: Owner | null;
@@ -40,11 +40,7 @@ export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   Owner = Owner.owner;
 }
 
-export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
-  Owner = { owner: Owner, context: null };
-  fn(value);
-  Owner = Owner.owner;
-}
+export const createRenderEffect = createComputed;
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
@@ -136,21 +132,25 @@ export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
-export function getContextOwner() {
+export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(owner: Owner | null, callback: () => T) {
-  const currentOwner = getContextOwner();
-  
-  Owner = owner;
-  const result = callback();
-  Owner = currentOwner;
-  
-  return result;
+export function children(fn: () => any) {
+  return resolveChildren(fn())
 }
 
-function lookup(owner: Owner | null, key: symbol | string): any {
+export function runWithOwner(o: Owner, fn: () => any) {
+  const prev = Owner;
+  Owner = o;
+  try {
+    return fn();
+  } finally {
+    Owner = prev;
+  }
+}
+
+export function lookup(owner: Owner | null, key: symbol | string): any {
   return (
     owner && ((owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key)))
   );

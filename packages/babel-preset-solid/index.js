@@ -19,10 +19,8 @@ module.exports = function (context, options = {}) {
             "Dynamic",
             "ErrorBoundary"
           ],
-          delegateEvents: true,
           contextToCustomElements: true,
           wrapConditionals: true,
-          wrapSpreads: false,
           generate: "dom"
         },
         options

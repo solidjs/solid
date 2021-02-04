@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.24.0 - 2021-02-03
+
+This release is the start of the rework of the SSR solution. Consolidating them under a single method. Unfortunately this one comes with several breaking changes.
+
+### Breaking Changes
+
+#### Removed `solid-js/dom`
+
+It's been a few versions deprecated. It's gone.
+
+#### Updated Resource API
+
+Changed to more resemble SWR and React Query. Needed to remove `createResourceState`so now need to use a getter over `createResource` to get same effect. See updated documentation.
+
+#### Change SSR render call signatures
+
+They now return results objects that include the generated hydration script. No more need to generate it separately. Also comes autowrapped in the `script` tag now.
+
+#### `assignProps` to `mergeProps`
+
+While you use them the same way mostly it no longer has `Object.assign` semantics and always returns a new object. This is important as in many cases we need to upgrade to a Proxy.
+
+#### Renamed `getContextOwner` to `getOwner`
+
+Removes confusion around context and consistent with new helper `runWithOwner`.
+
+#### Solid Element no longer uses State for props
+
+This reduces the size of the library especially for those not using state. It also should slightly increase performance as no need for deep nesting of proxies. It also makes things behave more consistently avoided unintended deep wrapping.
+
+### Non-breaking Changes
+
+#### New non-reactive Async SSR
+
+I have now combined sync/streaming/async SSR into the same compiler output. To do so I have developed a new non-reactive Async SSR approach. After realizing how fast Solid renders, it occurred to me on the server we could do a much simpler approach if we were willing to re-render all content in Suspense boundaries. While that is some wasted work, compared to including the reactive system it's a killing.
+
+#### Increase SSR Performance
+
+Through reusing static strings in the template we reduce repeated creation costs. This small improvement can make 5-8% improvements where you have many rows.
+
+#### Event Delegation
+
+Solid is now being more strict on what events it delegates. Limiting to standard pointer/touch/mouse/keyboard events. Custom events will no longer be delegated automatically. This increases compatibility for Web Component users who don't compose their events. Non-delegated events will still work and binding array syntax with them.
+
+#### State getters no longer memos
+
+Automatic memos put some constraints on the disposal system that get in the way of making the approach flexible to hold all manner of reactive primitives. Some previous limitations included not being able to have nested getters. You can still manually create a memo and put it in a getter but the default will not be memoized.
+### New Features
+
+#### `children` helper
+
+Resolves children and returns a memo. This makes it much easier to deal with children. Using same mechanism `<Switch>` can now have dynamic children like `<For>` inside.
+
+#### "solid" Export Conidition
+This is the way to package the JSX components to be compiled to work on server or client. By putting the "solid" condition the source JSX will be prioritized over normal browser builds.
+
+### Bug Fixes
+
+* Top level primitive values not working with `reconcile`
+* Fix Dynamic Components to handle SVG
+* Rename potentially conflicting properties for event delegtion
+* Fixed State spreads to not loose reactiviy. Added support for dynamically created properties to track in spreads and helpers
+* TypeScript, always TypeScript
+
 ## 0.23.0 - 2020-12-05
 
 This release is mostly bug fixes. Breaking change for TS users. JSX types no longer pollutes global namespace. This means you need to update your projects to import it.

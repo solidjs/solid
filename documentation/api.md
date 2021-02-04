@@ -4,9 +4,13 @@
 
 This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. You can have it only notify on changes if you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
-### `createState(initValue): [state, setState]`
+### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
 
-Creates a new State proxy object and setState pair. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
+Creates a readonly derived signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes if you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+
+### `createEffect(prev => <code>, initialValue): void`
+
+Creates a new computation that automatically tracks dependencies and runs after each render where a dependency has changed. Ideal for using `ref`s and managing other side effects. 2nd argument is the initial value.
 
 ### `onMount(() => <code>)`
 
@@ -16,17 +20,9 @@ Registers a method that runs after initial render and elements have been mounted
 
 Registers a cleanup method that executes on disposal or recalculation of the current context. Can be used in components or computations.
 
-### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
+### `createState(initValue): [state, setState]`
 
-Creates a readonly signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes if you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
-
-### `createComputed(prev => <code>, initialValue): void`
-
-Creates a new computation that automatically tracks dependencies and runs immediately. Use this to write to other reactive primitives or to reactively trigger async data loading. 2nd argument is the initial value.
-
-### `createEffect(prev => <code>, initialValue): void`
-
-Creates a new computation that automatically tracks dependencies and runs after each render where a dependency has changed. Ideal for using `ref`s and managing other side effects. 2nd argument is the initial value.
+Creates a new State proxy object and setState pair. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
 
 ### `createContext(defaultContext): Context`
 
@@ -68,6 +64,10 @@ Creates a new mutable State proxy object. State only triggers update on values c
 
 Creates memo that only notifies downstream changes when the browser is idle. `timeoutMs` is the maximum time to wait before forcing the update.
 
+### `createComputed(prev => <code>, initialValue): void`
+
+Creates a new computation that automatically tracks dependencies and runs immediately. Use this to write to other reactive primitives or to reactively trigger async data loading before render. 2nd argument is the initial value.
+
 ### `createRenderEffect(prev => <code>, initialValue): void`
 
 Creates a new computation that automatically tracks dependencies and runs during the render phase as DOM elements are created and updated but not necessarily connected. All internal DOM updates happen at this time.
@@ -76,13 +76,9 @@ Creates a new computation that automatically tracks dependencies and runs during
 
 Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state.
 
-### `createResource(initialValue, options: { name }): [getValueFn, loadFn]`
+### `createResource(key, fetcher, initialValue): getValueFn`
 
-Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `loadFn` takes a Promise whose resolved value is set in the resource.
-
-### `createResourceState(initialValue, options: { name }): [state, loadState, setState]`
-
-Creates a new Resource State object. Similar to normal state except each immediate property is a resource.
+Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `fetcher` is a function that accepts key and returns a Promise whose resolved value is set in the resource.
 
 ### `lazy(() => <Promise>): Component`
 
@@ -92,9 +88,9 @@ Used to lazy load components to allow for things like code splitting and Suspens
 
 Used to batch async updates deferring commit until all async processes are complete.
 
-### `assignProps(target, ...sources): target`
+### `mergeProps(...sources): target`
 
-A reactive object `assign` method. Useful for setting default props for components in case caller doesn't provide them. Or cloning the props object including reactive properties.
+A reactive object `merge` method. Useful for setting default props for components in case caller doesn't provide them. Or cloning the props object including reactive properties.
 
 ### `splitProps(props, ...keyArrays): [...splitProps]`
 

@@ -1,12 +1,5 @@
 /* @jsxImportSource solid-js */
-import {
-  lazy,
-  createSignal,
-  createComputed,
-  createResource,
-  createResourceState,
-  useTransition
-} from "../../src";
+import { lazy, createSignal, createResource, useTransition } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
 
 describe("Testing Suspense", () => {
@@ -16,9 +9,10 @@ describe("Testing Suspense", () => {
     [triggered, trigger] = createSignal(false);
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
-      let [value, load] = createResource<string>("");
-      createComputed(
-        () => triggered() && load(() => new Promise(r => setTimeout(() => r("Jo"), 300)))
+      let [value] = createResource<string>(
+        () =>  triggered() ? "child" : null,
+        () => new Promise(r => setTimeout(() => r("Jo"), 300)),
+        ""
       );
       return () => `${props.greeting} ${value()}`;
     },
@@ -64,39 +58,9 @@ describe("Testing Suspense", () => {
   });
 });
 
-describe("Testing Suspense with State", () => {
-  let div = document.createElement("div"),
-    disposer: () => void;
-  const ChildComponent = (props: { name: string }) => {
-      const [state, load] = createResourceState({ greeting: "" });
-      load({ greeting: () => new Promise(r => setTimeout(() => r("Hey"), 300)) });
-      return <>{`${state.greeting}, ${props.name}`}</>;
-    },
-    Component = () => (
-      <Suspense fallback="Loading">
-        <ChildComponent name="Jo!" />
-        <ChildComponent name="Jacob!" />
-      </Suspense>
-    );
-
-  test("Create Suspense control flow", done => {
-    disposer = render(Component, div);
-    expect(div.innerHTML).toBe("Loading");
-    setTimeout(() => {
-      expect(div.innerHTML).toBe("Hey, Jo!Hey, Jacob!");
-      done();
-    }, 400);
-  });
-
-  test("dispose", () => {
-    div.innerHTML = "";
-    disposer();
-  });
-});
-
 describe("SuspenseList", () => {
-  const promiseFactory = (time: number, v: string) => {
-      return () =>
+  const promiseFactory = (time: number) => {
+      return (v: string) =>
         new Promise<string>(r => {
           setTimeout(() => {
             r(v);
@@ -104,18 +68,15 @@ describe("SuspenseList", () => {
         });
     },
     A = () => {
-      const [value, load] = createResource<string>();
-      load(promiseFactory(200, "A"));
+      const [value] = createResource("A", promiseFactory(200));
       return <div>{value()}</div>;
     },
     B = () => {
-      const [value, load] = createResource<string>();
-      load(promiseFactory(100, "B"));
+      const [value] = createResource("B", promiseFactory(100));
       return <div>{value()}</div>;
     },
     C = () => {
-      const [value, load] = createResource<string>();
-      load(promiseFactory(300, "C"));
+      const [value] = createResource("C", promiseFactory(300));
       return <div>{value()}</div>;
     };
 

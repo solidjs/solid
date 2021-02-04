@@ -1,6 +1,5 @@
-import { Listener, createSignal, hashValue, registerGraph } from "./signal";
+import { Listener, createSignal, hashValue, registerGraph, batch } from "./signal";
 import {
-  wrap,
   unwrap,
   isWrappable,
   getDataNodes,
@@ -41,12 +40,7 @@ const proxyTraps: ProxyHandler<StateNode> = {
       node[0]();
     }
     return wrappable
-      ? wrap(
-          value,
-          "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`,
-          false,
-          proxyTraps
-        )
+      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
       : value;
   },
 
@@ -63,19 +57,38 @@ const proxyTraps: ProxyHandler<StateNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
+function wrap<T extends StateNode>(value: T, name?: string): State<T> {
+  let p = value[$PROXY];
+  if (!p) {
+    Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
+    let keys = Object.keys(value),
+      desc = Object.getOwnPropertyDescriptors(value);
+    for (let i = 0, l = keys.length; i < l; i++) {
+      const prop = keys[i];
+      if (desc[prop].set) {
+        const og = desc[prop].set!,
+          set = (v: T[keyof T]) => batch(() => og.call(p, v));
+        Object.defineProperty(value, prop, {
+          set
+        });
+      }
+    }
+    if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
+  }
+  return p;
+}
+
 export function createMutable<T extends StateNode>(
   state: T | State<T>,
   options?: { name?: string }
 ): State<T> {
-  const unwrappedState = unwrap<T>(state || {}, true);
+  const unwrappedState = unwrap<T>(state || {});
   const wrappedState = wrap(
     unwrappedState,
-    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
-    true,
-    proxyTraps
+    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState))
   );
   if ("_SOLID_DEV_") {
-    const name = options && options.name || hashValue(unwrappedState);
+    const name = (options && options.name) || hashValue(unwrappedState);
     registerGraph(name, { value: unwrappedState });
   }
   return wrappedState as State<T>;

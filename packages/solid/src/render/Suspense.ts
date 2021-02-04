@@ -2,7 +2,6 @@ import { createComponent } from "./component";
 import {
   createSignal,
   untrack,
-  createRenderEffect,
   createComputed,
   createContext,
   useContext,
@@ -22,24 +21,6 @@ type SuspenseListContextType = {
   register: (inFallback: () => boolean) => [() => boolean, () => boolean];
 };
 const SuspenseListContext = createContext<SuspenseListContextType>();
-
-let trackSuspense = false;
-export function awaitSuspense(fn: () => any) {
-  const SuspenseContext = getSuspenseContext();
-  if (!trackSuspense) {
-    let count = 0;
-    const [active, trigger] = createSignal(false);
-    SuspenseContext.active = active;
-    SuspenseContext.increment = () => count++ === 0 && trigger(true);
-    SuspenseContext.decrement = () => --count <= 0 && trigger(false);
-    trackSuspense = true;
-  }
-  return () =>
-    new Promise(resolve => {
-      const res = fn();
-      createRenderEffect(() => !SuspenseContext.active!() && resolve(res));
-    });
-}
 
 export function SuspenseList(props: {
   children: JSX.Element;
@@ -122,16 +103,10 @@ export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }
     SuspenseContext = getSuspenseContext(),
     store = {
       increment: () => {
-        if (++counter === 1) {
-          setFallback(true);
-          trackSuspense && SuspenseContext.increment!();
-        }
+        if (++counter === 1) setFallback(true);
       },
       decrement: () => {
-        if (--counter === 0) {
-          setFallback(false);
-          trackSuspense && setTimeout(SuspenseContext.decrement!);
-        }
+        if (--counter === 0) setFallback(false);
       },
       inFallback,
       effects: [],

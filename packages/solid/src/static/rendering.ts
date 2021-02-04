@@ -1,4 +1,4 @@
-import { State, SetStateFunction, updatePath } from "./reactive";
+import { createMemo, Owner, createContext, useContext, lookup, runWithOwner } from "./reactive";
 import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
@@ -18,22 +18,49 @@ function resolveSSRNode(node: any): string {
   return String(node);
 }
 
+type SharedConfig = {
+  context?: HydrationContext;
+};
+export const sharedConfig: SharedConfig = {};
+
+function setHydrateContext(context?: HydrationContext): void {
+  sharedConfig.context = context;
+}
+
+function nextHydrateContext(): HydrationContext | undefined {
+  return sharedConfig.context
+    ? {
+        ...sharedConfig.context,
+        id: `${sharedConfig.context.id}${sharedConfig.context.count++}.`,
+        count: 0
+      }
+    : undefined;
+}
+
 export function createComponent<T>(
   Comp: (props: T) => JSX.Element,
   props: PossiblyWrapped<T>
 ): JSX.Element {
+  if (sharedConfig.context) {
+    const c = sharedConfig.context;
+    setHydrateContext(nextHydrateContext());
+    const r = Comp(props as T);
+    setHydrateContext(c);
+    return r;
+  }
   return Comp(props as T);
 }
 
-export function assignProps<T, U>(target: T, source: U): T & U;
-export function assignProps<T, U, V>(target: T, source1: U, source2: V): T & U & V;
-export function assignProps<T, U, V, W>(
-  target: T,
+export function mergeProps<T, U>(source: T, source1: U): T & U;
+export function mergeProps<T, U, V>(source: T, source1: U, source2: V): T & U & V;
+export function mergeProps<T, U, V, W>(
+  source: T,
   source1: U,
   source2: V,
   source3: W
 ): T & U & V & W;
-export function assignProps(target: any, ...sources: any): any {
+export function mergeProps(...sources: any): any {
+  const target = {};
   for (let i = 0; i < sources.length; i++) {
     const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
     Object.defineProperties(target, descriptors);
@@ -186,62 +213,115 @@ export interface Resource<T> {
   loading: boolean;
 }
 
-export function createResource<T>(
+type SuspenseContextType = {
+  resources: Map<string, { loading: boolean }>;
+  completed: () => void;
+};
+
+const SuspenseContext = createContext<SuspenseContextType>();
+export function createResource<T, U>(
+  key: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
   value?: T
-): [Resource<T>, (fn: () => Promise<T> | T) => { then: Function }] {
-  const resource = () => value;
-  resource.loading = false;
-  function load(fn: () => Promise<T> | T) {
-    if (!globalThis._$HYDRATION.streamSSR) return { then() {} };
-    resource.loading = true;
-    const p = fn();
-    if ("then" in p) {
-      globalThis._$HYDRATION.register && globalThis._$HYDRATION.register(p);
-      return p;
-    }
-    return Promise.resolve((value = p));
-  }
-  return [resource, load];
-}
-
-export interface LoadStateFunction<T> {
-  (
-    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
-    reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
-  ): void;
-}
-
-export function createResourceState<T>(
-  state: T | State<T>
 ): [
-  State<T & { loading: { [P in keyof T]: boolean } }>,
-  LoadStateFunction<T>,
-  SetStateFunction<T>
-] {
-  (state as any).loading = {};
-  function setState(...args: any[]): void {
-    updatePath(state, args);
+  Resource<T>,
+  {
+    mutate: (v: T | undefined) => T | undefined;
+    refetch: () => void;
   }
-  function loadState(
-    v: { [P in keyof T]: () => Promise<T[P]> | T[P] },
-    reconcilerFn?: (v: Partial<T>) => (state: State<T>) => void
-  ) {
-    const keys = Object.keys(v);
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i] as keyof T,
-        [, l] = createResource(state[k]);
-      l(v[k]);
+] {
+  const contexts = new Set<SuspenseContextType>();
+  const id = sharedConfig.context!.id + sharedConfig.context!.count++;
+  let resource: { ref?: any; data?: T } = {};
+  if (sharedConfig.context!.async) {
+    resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
+    if (resource.ref) {
+      if (!resource.data && !resource.ref[0].loading) resource.ref[1].refetch();
+      return resource.ref;
     }
   }
-  return [state as State<T & { loading: { [P in keyof T]: boolean } }>, loadState, setState];
+  const read = () => {
+    const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
+    if (sharedConfig.context!.async && !resolved) {
+      const ctx = useContext(SuspenseContext);
+      if (ctx) {
+        ctx.resources.set(id, read);
+        contexts.add(ctx);
+      }
+    }
+    return resolved ? sharedConfig.context!.resources[id].data : value;
+  };
+  read.loading = false;
+  function load() {
+    const ctx = sharedConfig.context!;
+    if (!ctx.async && !ctx.streaming) return;
+    if (ctx.resources && id in ctx.resources && ctx.resources[id].data) {
+      value = ctx.resources[id].data;
+      return;
+    }
+    const lookup = typeof key === "function" ? (key as () => U)() : key;
+    if (!lookup) return;
+    read.loading = true;
+    const p = fetcher(lookup, () => value);
+    if ("then" in p) {
+      if (ctx.writeResource) {
+        ctx.writeResource(id, p);
+        return;
+      }
+      p.then(res => {
+        read.loading = false;
+        ctx.resources[id].data = res;
+        notifySuspense(contexts);
+        return res;
+      });
+      return;
+    }
+    ctx.resources[id].data = p;
+  }
+  load();
+  return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as [
+    Resource<T>,
+    {
+      mutate: (v: T | undefined) => T | undefined;
+      refetch: () => void;
+    }
+  ]);
 }
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
-  let p: Promise<{ default: any }>;
+  let resolved: (props: any) => any;
+  const p = fn();
+  const contexts = new Set<SuspenseContextType>();
+  p.then(mod => (resolved = mod.default));
   return (props: any) => {
-    (p || (p = fn())).then(mod => mod.default(props));
+    const id = sharedConfig.context!.id + sharedConfig.context!.count++;
+    if (resolved) return resolved(props);
+    const ctx = useContext(SuspenseContext);
+    const track = { loading: true };
+    if (ctx) {
+      ctx.resources.set(id, track);
+      contexts.add(ctx);
+    }
+    p.then(() => {
+      track.loading = false;
+      notifySuspense(contexts);
+    });
     return "";
   };
+}
+
+function suspenseComplete(c: SuspenseContextType) {
+  for (let r of c.resources.values()) {
+    if (r.loading) return false;
+  }
+  return true;
+}
+
+function notifySuspense(contexts: Set<SuspenseContextType>) {
+  for (const c of contexts) {
+    if (suspenseComplete(c)) c.completed();
+  }
+  contexts.clear();
 }
 
 export function useTransition(): [() => boolean, (fn: () => any) => void] {
@@ -256,21 +336,12 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  registry?: Map<string, Element>;
+  writeResource?: (id: string, v: Promise<any>) => void;
+  resources: Record<string, any>;
+  suspense: Record<string, SuspenseContextType>;
+  async?: boolean;
+  streaming?: boolean;
 };
-
-type GlobalHydration = {
-  context?: HydrationContext;
-  register?: (v: Promise<any>) => void;
-  loadResource?: () => Promise<any>;
-  resources?: { [key: string]: any };
-  asyncSSR?: boolean;
-  streamSSR?: boolean;
-};
-
-declare global {
-  var _$HYDRATION: GlobalHydration;
-}
 
 export function SuspenseList(props: {
   children: string;
@@ -281,8 +352,73 @@ export function SuspenseList(props: {
   return props.children;
 }
 
+const SUSPENSE_GLOBAL = Symbol("suspense-global");
 export function Suspense(props: { fallback: string; children: string }) {
+  const ctx = sharedConfig.context!;
   // TODO: look at not always going to fallback
-  props.children;
-  return props.fallback;
+  if (ctx.streaming) createComponent(() => props.children, {});
+  if (!ctx.async) return props.fallback;
+
+  const id = ctx.id + ctx.count;
+  const done = ctx.async ? lookup(Owner, SUSPENSE_GLOBAL)(id) : () => {};
+  const o = Owner!;
+  const value: SuspenseContextType =
+    ctx.suspense[id] ||
+    (ctx.suspense[id] = {
+      resources: new Map<string, { loading: boolean }>(),
+      completed: () => {
+        const res = runSuspense();
+        if (suspenseComplete(value)) {
+          done(resolveSSRNode(res));
+        }
+      }
+    });
+  function runSuspense() {
+    setHydrateContext({ ...ctx, count: 0 });
+    return runWithOwner(o, () => {
+      return createComponent(SuspenseContext.Provider, {
+        value,
+        get children() {
+          return props.children;
+        }
+      });
+    });
+  }
+  const res = runSuspense();
+  if (suspenseComplete(value)) {
+    done();
+    return res;
+  }
+  return sharedConfig.context!.async ? { t: `<#${id}#>` } : props.fallback;
+}
+
+const SUSPENSE_REPLACE = /<#([0-9\.]+)\#>/;
+export function awaitSuspense(fn: () => any) {
+  return new Promise(resolve => {
+    const registry = new Set<string>();
+    const cache: Record<string, string> = Object.create(null);
+    const res = createMemo(() => {
+      Owner!.context = { [SUSPENSE_GLOBAL]: getCallback };
+      return fn();
+    });
+    if (!registry.size) resolve(res());
+    function getCallback(key: string) {
+      registry.add(key);
+      return (value: string) => {
+        if (value) cache[key] = value;
+        registry.delete(key);
+        if (!registry.size)
+          queueMicrotask(() => {
+            let source = resolveSSRNode(res());
+            let final = "";
+            let match: any;
+            while ((match = source.match(SUSPENSE_REPLACE))) {
+              final += source.substring(0, match.index);
+              source = cache[match[1]] + source.substring(match.index + match[0].length);
+            }
+            resolve(final + source);
+          });
+      };
+    }
+  });
 }

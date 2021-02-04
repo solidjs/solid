@@ -1,4 +1,4 @@
-import { createMemo, untrack, createSignal, onError } from "../reactive/signal";
+import { createMemo, untrack, createSignal, onError, children } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import type { JSX } from "../jsx";
 
@@ -48,23 +48,28 @@ export function Show<T>(props: {
 }
 
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }) {
-  let conditions = (props.children as unknown) as (MatchProps<unknown> & { keyed: boolean })[];
-  Array.isArray(conditions) || (conditions = [conditions]);
-  const evalConditions = createMemo<[number, unknown?]>(
+  let conditions = children(() => props.children) as () => (MatchProps<unknown> & {
+    keyed: boolean;
+  })[];
+  const evalConditions = createMemo<
+    [number, unknown?, (MatchProps<unknown> & { keyed: boolean })?]
+  >(
     () => {
-      for (let i = 0; i < conditions.length; i++) {
-        const c = conditions[i].when;
-        if (c) return [i, conditions[i].keyed ? c : !!c];
+      let conds = conditions();
+      if (!Array.isArray(conds)) conds = [conds];
+      for (let i = 0; i < conds.length; i++) {
+        const c = conds[i].when;
+        if (c) return [i, conds[i].keyed ? c : !!c, conds[i]];
       }
       return [-1];
     },
     undefined,
-    (a: [number, unknown?], b: [number, unknown?]) => a && a[0] === b[0] && a[1] === b[1]
+    (a: [number, unknown?, unknown?], b: [number, unknown?, unknown?]) => a && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
   );
   return createMemo(() => {
-    const [index, when] = evalConditions();
+    const [index, when, cond] = evalConditions();
     if (index < 0) return props.fallback;
-    const c = conditions[index].children;
+    const c = cond!.children;
     return typeof c === "function" && c.length ? untrack(() => c(when)) : (c as JSX.Element);
   });
 }

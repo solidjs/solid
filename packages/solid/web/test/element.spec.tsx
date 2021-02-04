@@ -13,11 +13,11 @@ describe("Basic element attributes", () => {
         },
         onClick: () => console.log("clicked")
       },
-      d = createRoot(() => <div {...props} />) as HTMLDivElement & { __click: any };
+      d = createRoot(() => <div {...props} />) as HTMLDivElement & { $$click: any };
     expect(div!).toBe(d);
     expect(d.id).toBe("main");
     expect(d.title).toBe("main");
-    expect(d.__click).toBeDefined();
+    expect(d.$$click).toBeDefined();
     expect(d.innerHTML).toBe("<p>Hi</p>");
   });
 

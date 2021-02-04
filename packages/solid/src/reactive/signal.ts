@@ -1,5 +1,6 @@
 // Inspired by S.js[https://github.com/adamhaile/S] by Adam Haile
 import { requestCallback, Task } from "./scheduler";
+import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
@@ -15,7 +16,8 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
-const [transPending, setTransPending] = createSignal(false, true);
+export const $LAZY = Symbol("lazy");
+const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false, true);
 export var Owner: Owner | null = null;
 export var Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
@@ -24,6 +26,10 @@ let Effects: Computation<any>[] | null = null;
 let Transition: Transition | null = null;
 let ExecCount = 0;
 let rootCount = 0;
+
+declare global {
+  var _$afterUpdate: () => void;
+}
 
 interface Signal<T> {
   value?: T;
@@ -78,11 +84,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
         ? UNOWNED
         : { owned: null, cleanups: null, context: null, owner, attached: !!detachedOwner };
 
-  if ("_SOLID_DEV_" && owner)
-    root.name =
-      (owner as Computation<any>).name +
-      "-r" +
-      rootCount++;
+  if ("_SOLID_DEV_" && owner) root.name = (owner as Computation<any>).name + "-r" + rootCount++;
   Owner = root;
   Listener = null;
   let result: T;
@@ -135,7 +137,6 @@ export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
 export function createEffect<T>(fn: (v: T) => T, value: T): void;
 export function createEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
-  if (globalThis._$HYDRATION && globalThis._$HYDRATION.asyncSSR) return;
   runEffects = runUserEffects;
   const c = createComputation(fn, value, false),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
@@ -275,9 +276,9 @@ export function untrack<T>(fn: () => T): T {
   return result;
 }
 
-type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends (() => infer U) ? U : never };
+type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends () => infer U ? U : never };
 export function on<T, X extends Array<() => T>, U>(
-  ...args: X['length'] extends 1
+  ...args: X["length"] extends 1
     ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
     : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
 ): (prev?: U) => U {
@@ -329,18 +330,18 @@ export function getListener() {
   return Listener;
 }
 
-export function getContextOwner() {
+export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(owner: Owner | null, callback: () => T) {
-  const currentOwner = getContextOwner();
-  
-  Owner = owner;
-  const result = callback();
-  Owner = currentOwner;
-  
-  return result;
+export function runWithOwner(o: Owner, fn: () => any) {
+  const prev = Owner;
+  Owner = o;
+  try {
+    return fn();
+  } finally {
+    Owner = prev;
+  }
 }
 
 export function hashValue(v: any) {
@@ -376,8 +377,8 @@ export interface Context<T> {
   defaultValue: T;
 }
 
-export function createContext<T>(): Context<T | undefined>
-export function createContext<T>(defaultValue: T): Context<T>
+export function createContext<T>(): Context<T | undefined>;
+export function createContext<T>(defaultValue: T): Context<T>;
 export function createContext<T>(defaultValue?: T): Context<T | undefined> {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
@@ -385,6 +386,11 @@ export function createContext<T>(defaultValue?: T): Context<T | undefined> {
 
 export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
+}
+
+export function children(fn: () => any) {
+  const children = createMemo(fn);
+  return createMemo(() => resolveChildren(children()));
 }
 
 // Resource API
@@ -410,19 +416,30 @@ export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
 }
-export function createResource<T>(
-  init?: T,
-  options: { name?: string; notStreamed?: boolean } = {}
-): [Resource<T>, (fn: () => Promise<T> | T) => Promise<T>] {
+export function createResource<T, U>(
+  key: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  init?: T
+): [
+  Resource<T>,
+  {
+    mutate: (v: T | undefined) => T | undefined;
+    refetch: () => void;
+  }
+] {
   const contexts = new Set<SuspenseContextType>(),
-    h = globalThis._$HYDRATION || {},
     [s, set] = createSignal(init, true),
     [track, trigger] = createSignal<void>(),
     [loading, setLoading] = createSignal<boolean>(false, true);
 
   let err: any = null,
     pr: Promise<T> | null = null,
-    ctx: any;
+    id: string | null = null,
+    dynamic = typeof key === "function";
+
+  if (sharedConfig.context) {
+    id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
+  }
   function loadEnd(p: Promise<T> | null, v: T, e?: any) {
     if (pr === p) {
       err = e;
@@ -443,14 +460,11 @@ export function createResource<T>(
   }
   function completeLoad(v: T) {
     batch(() => {
-      if (ctx) h.context = ctx;
-      if (h.asyncSSR && options.name) h.resources![options.name] = v;
       set(v);
       setLoading(false);
       for (let c of contexts.keys()) c.decrement!();
       contexts.clear();
     });
-    if (ctx) h.context = ctx = undefined;
   }
 
   function read() {
@@ -471,32 +485,33 @@ export function createResource<T>(
     }
     return v;
   }
-  function load(fn: () => Promise<T> | T) {
+  function load() {
     err = null;
-    let p: Promise<T> | T;
-    const hydrating = h.context && !!h.context.registry;
-    if (hydrating) {
-      if (h.loadResource && !options.notStreamed) {
-        fn = h.loadResource;
-      } else if (options.name && h.resources && options.name in h.resources) {
-        fn = () => {
-          const data = h.resources![options.name!];
-          delete h.resources![options.name!];
-          return data;
-        };
+    let p: Promise<T> | T,
+      lookup = dynamic ? (key as () => U)() : (key as U);
+    if (!lookup) {
+      loadEnd(pr, untrack(s)!);
+      return;
+    }
+    if (sharedConfig.context) {
+      if (sharedConfig.context.loadResource && lookup !== ($LAZY as any)) {
+        p = sharedConfig.context.loadResource!(id!);
+      } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
+        p = sharedConfig.resources![id];
+        delete sharedConfig.resources![id];
       }
-    } else if (h.asyncSSR && h.context) ctx = h.context;
-    p = fn();
+    }
+    if (!p!) p = fetcher(lookup, s);
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);
-      return Promise.resolve(p);
+      return;
     }
     pr = p;
     batch(() => {
       setLoading(true);
       trigger();
     });
-    return p.then(
+    p.then(
       v => loadEnd(p as Promise<T>, v),
       e => loadEnd(p as Promise<T>, undefined as any, e)
     );
@@ -506,7 +521,9 @@ export function createResource<T>(
       return loading();
     }
   });
-  return [read as Resource<T>, load];
+  if (dynamic) createComputed(load);
+  else load();
+  return [read as Resource<T>, { refetch: load, mutate: set }];
 }
 
 function readSignal(this: Signal<any> | Memo<any>) {
@@ -693,45 +710,49 @@ function runUpdates(fn: () => void, init: boolean) {
   } catch (err) {
     handleError(err);
   } finally {
-    if (Updates) {
-      runQueue(Updates);
-      Updates = null;
-    }
-    if (wait) return;
-    if (Transition && Transition.running) {
-      if (Transition.promises.size) {
-        Transition.running = false;
-        Transition.effects.push.apply(Transition.effects, Effects);
-        Effects = null;
-        setTransPending(true);
-        return;
-      }
-      // finish transition
-      const sources = Transition.sources;
-      Transition = null;
-      batch(() => {
-        sources.forEach(v => {
-          v.value = v.tValue;
-          if ((v as Memo<any>).owned) {
-            for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
-              cleanNode((v as Memo<any>).owned![i]);
-          }
-          if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
-          delete v.tValue;
-          delete (v as Memo<any>).tOwned;
-        });
-        setTransPending(false);
-      });
-    }
-    if (Effects.length)
-      batch(() => {
-        runEffects(Effects!);
-        Effects = null;
-      });
-    else {
+    completeUpdates(wait);
+  }
+}
+
+function completeUpdates(wait: boolean) {
+  if (Updates) {
+    runQueue(Updates);
+    Updates = null;
+  }
+  if (wait) return;
+  if (Transition && Transition.running) {
+    if (Transition.promises.size) {
+      Transition.running = false;
+      Transition.effects.push.apply(Transition.effects, Effects!);
       Effects = null;
-      if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
+      setTransPending(true);
+      return;
     }
+    // finish transition
+    const sources = Transition.sources;
+    Transition = null;
+    batch(() => {
+      sources.forEach(v => {
+        v.value = v.tValue;
+        if ((v as Memo<any>).owned) {
+          for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
+            cleanNode((v as Memo<any>).owned![i]);
+        }
+        if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
+        delete v.tValue;
+        delete (v as Memo<any>).tOwned;
+      });
+      setTransPending(false);
+    });
+  }
+  if (Effects!.length)
+    batch(() => {
+      runEffects(Effects!);
+      Effects = null;
+    });
+  else {
+    Effects = null;
+    if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
   }
 }
 
@@ -834,7 +855,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
   );
 }
 
-function resolveChildren(children: any): any {
+function resolveChildren(children: any): unknown {
   if (typeof children === "function") return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
@@ -851,8 +872,7 @@ function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     return (createMemo(() => {
       Owner!.context = { [id]: props.value };
-      const children = createMemo(() => props.children);
-      return createMemo(() => resolveChildren(children()));
+      return children(() => props.children);
     }) as unknown) as JSX.Element;
   };
 }

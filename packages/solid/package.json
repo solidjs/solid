@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "0.23.11",
+  "version": "0.24.0-beta.4",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/ryansolid/solid#readme",
@@ -29,7 +29,11 @@
   ],
   "exports": {
     ".": {
-      "server": {
+      "browser": {
+        "import": "./dist/solid.js",
+        "require": "./dist/solid.cjs"
+      },
+      "node": {
         "import": "./dist/static.js",
         "require": "./dist/static.cjs"
       },
@@ -37,21 +41,13 @@
       "require": "./dist/solid.cjs"
     },
     "./web": {
-      "server-async": {
-        "import": "./web/dist/server-async.js",
-        "require": "./web/dist/server-async.cjs"
-      },
-      "server": {
-        "import": "./web/dist/server.js",
-        "require": "./web/dist/server.cjs"
-      },
       "browser": {
         "import": "./web/dist/web.js",
         "require": "./web/dist/web.cjs"
       },
       "node": {
-        "import": "./web/dist/server-async.js",
-        "require": "./web/dist/server-async.cjs"
+        "import": "./web/dist/server.js",
+        "require": "./web/dist/server.cjs"
       },
       "import": "./web/dist/web.js",
       "require": "./web/dist/web.cjs"
@@ -67,10 +63,6 @@
     "./dev": {
       "import": "./dev/dist/dev.js",
       "require": "./dev/dist/dev.cjs"
-    },
-    "./dom": {
-      "import": "./web/dist/web.js",
-      "require": "./web/dist/web.cjs"
     }
   },
   "scripts": {
@@ -82,7 +74,7 @@
     "build:types-web": "tsc --project ./web/tsconfig.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",
     "build:types-h": "tsc --project ./h/tsconfig.json",
-    "bench": "node --allow-natives-syntax bench/bench.js",
+    "bench": "node --allow-natives-syntax bench/bench.cjs",
     "test": "jest && npm run test:types",
     "test:coverage": "jest --coverage && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json",

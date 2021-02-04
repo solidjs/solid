@@ -1,6 +1,6 @@
 import {
   createRoot,
-  getContextOwner,
+  getOwner,
   createSignal,
   createState,
   createEffect,
@@ -9,14 +9,14 @@ import {
 
 describe("Dev features", () => {
   test("Reactive graph serialization", () => {
-    let owner: ReturnType<typeof getContextOwner>, set1: (v: number) => number, setState1: any;
+    let owner: ReturnType<typeof getOwner>, set1: (v: number) => number, setState1: any;
 
     const SNAPSHOTS = [
       `{"s1773325850":5,"s1773325850-1":5,"s533736025":{"firstName":"John","lastName":"Smith"},"c-1":{"explicit":6}}`,
       `{"s1773325850":7,"s1773325850-1":5,"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."},"c-1":{"explicit":6}}`
     ];
     createRoot(() => {
-      owner = getContextOwner();
+      owner = getOwner();
       const [s, set] = createSignal(5);
       const [s2] = createSignal(5);
       createEffect(() => {

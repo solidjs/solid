@@ -1,4 +1,4 @@
-import { Listener, createSignal, createMemo, batch, hashValue, registerGraph } from "./signal";
+import { Listener, createSignal, batch, hashValue, registerGraph } from "./signal";
 export const $RAW = Symbol("state-raw"),
   $NODE = Symbol("state-node"),
   $PROXY = Symbol("state-proxy"),
@@ -35,35 +35,10 @@ export type State<T> = {
   AddSymbolToStringTag<T> &
   AddCallable<T>;
 
-export function wrap<T extends StateNode>(
-  value: T,
-  name?: string,
-  processProps?: boolean,
-  traps?: ProxyHandler<T>
-): State<T> {
+function wrap<T extends StateNode>(value: T, name?: string): State<T> {
   let p = value[$PROXY];
   if (!p) {
-    Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, traps || proxyTraps)) });
-    if (processProps) {
-      let keys = Object.keys(value),
-        desc = Object.getOwnPropertyDescriptors(value);
-      for (let i = 0, l = keys.length; i < l; i++) {
-        const prop = keys[i];
-        if (desc[prop].get) {
-          const get = createMemo(desc[prop].get!.bind(p), undefined, true);
-          Object.defineProperty(value, prop, {
-            get
-          });
-        }
-        if (desc[prop].set) {
-          const og = desc[prop].set!,
-            set = (v: T[keyof T]) => batch(() => og.call(p, v));
-          Object.defineProperty(value, prop, {
-            set
-          });
-        }
-      }
-    }
+    Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
     if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
   }
   return p;
@@ -77,7 +52,7 @@ export function isWrappable(obj: any) {
   );
 }
 
-export function unwrap<T extends StateNode>(item: any, skipGetters?: boolean): T {
+export function unwrap<T extends StateNode>(item: any): T {
   let result, unwrapped, v, prop;
   if ((result = item != null && item[$RAW])) return result;
   if (!isWrappable(item)) return item;
@@ -86,17 +61,17 @@ export function unwrap<T extends StateNode>(item: any, skipGetters?: boolean): T
     if (Object.isFrozen(item)) item = item.slice(0);
     for (let i = 0, l = item.length; i < l; i++) {
       v = item[i];
-      if ((unwrapped = unwrap(v, skipGetters)) !== v) item[i] = unwrapped;
+      if ((unwrapped = unwrap(v)) !== v) item[i] = unwrapped;
     }
   } else {
     if (Object.isFrozen(item)) item = Object.assign({}, item);
     let keys = Object.keys(item),
-      desc = skipGetters && Object.getOwnPropertyDescriptors(item);
+      desc = Object.getOwnPropertyDescriptors(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       prop = keys[i];
-      if (skipGetters && (desc as any)[prop].get) continue;
+      if ((desc as any)[prop].get) continue;
       v = item[prop];
-      if ((unwrapped = unwrap(v, skipGetters)) !== v) item[prop] = unwrapped;
+      if ((unwrapped = unwrap(v)) !== v) item[prop] = unwrapped;
     }
   }
   return item;
@@ -114,7 +89,7 @@ export function proxyDescriptor(target: StateNode, property: string | number | s
     return desc;
   delete desc.value;
   delete desc.writable;
-  desc.get = () => target[property as string | number];
+  desc.get = () => target[$PROXY][property as string | number];
   return desc;
 }
 
@@ -160,11 +135,7 @@ const proxyTraps: ProxyHandler<StateNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(
-  state: StateNode,
-  property: string | number,
-  value: any
-) {
+export function setProperty(state: StateNode, property: string | number, value: any) {
   if (state[property] === value) return;
   const notify = Array.isArray(state) || !(property in state);
   if (value === undefined) {
@@ -337,11 +308,10 @@ export function createState<T extends StateNode>(
   state: T | State<T>,
   options?: { name?: string }
 ): [State<T>, SetStateFunction<T>] {
-  const unwrappedState = unwrap<T>(state || {}, true);
+  const unwrappedState = unwrap<T>(state || {});
   const wrappedState = wrap(
     unwrappedState,
-    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState)),
-    true
+    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState))
   );
   if ("_SOLID_DEV_") {
     const name = (options && options.name) || hashValue(unwrappedState);

@@ -1,5 +1,6 @@
-import { untrack, createResource, createMemo } from "../reactive/signal";
-import type { JSX } from "../jsx"
+import { untrack, createSignal, createResource, createMemo, $LAZY } from "../reactive/signal";
+import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
+import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
@@ -18,23 +19,63 @@ export type ComponentProps<
   ? JSX.IntrinsicElements[T]
   : {};
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+  if (sharedConfig.context) {
+    const c = sharedConfig.context;
+    setHydrateContext(nextHydrateContext());
+    const r = untrack(() => Comp(props as T));
+    setHydrateContext(c);
+    return r;
+  }
   return untrack(() => Comp(props as T));
 }
 
-export function assignProps<T, U>(target: T, source: U): T & U;
-export function assignProps<T, U, V>(target: T, source1: U, source2: V): T & U & V;
-export function assignProps<T, U, V, W>(
-  target: T,
+const propTraps: ProxyHandler<{ get: (k: string | number | symbol) => any; keys: () => any }> = {
+  get(_, property) {
+    return _.get(property);
+  },
+  has(_, property) {
+    return _.get(property) !== undefined;
+  },
+  getOwnPropertyDescriptor(_, property) {
+    return {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return _.get(property);
+      }
+    };
+  },
+  ownKeys(_) {
+    return _.keys();
+  }
+};
+
+export function mergeProps<T>(source: T): T;
+export function mergeProps<T, U>(source: T, source1: U): T & U;
+export function mergeProps<T, U, V>(source: T, source1: U, source2: V): T & U & V;
+export function mergeProps<T, U, V, W>(
+  source: T,
   source1: U,
   source2: V,
   source3: W
 ): T & U & V & W;
-export function assignProps(target: any, ...sources: any): any {
-  for (let i = 0; i < sources.length; i++) {
-    const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
-    Object.defineProperties(target, descriptors);
-  }
-  return target;
+export function mergeProps(...sources: any): any {
+  return new Proxy(
+    {
+      get(property: string | number | symbol) {
+        for (let i = sources.length - 1; i >= 0; i--) {
+          const v = sources[i][property];
+          if (v !== undefined) return v;
+        }
+      },
+      keys() {
+        const keys = [];
+        for (let i = 0; i < sources.length; i++) keys.push(...Object.keys(sources[i]));
+        return [...new Set(keys)];
+      }
+    },
+    propTraps
+  );
 }
 
 export function splitProps<T extends object, K1 extends keyof T>(
@@ -82,44 +123,60 @@ export function splitProps<
   Pick<T, K5>,
   Omit<T, K1 | K2 | K3 | K4 | K5>
 ];
-export function splitProps<T>(props: T, ...keys: [(keyof T)[]]) {
-  const descriptors = Object.getOwnPropertyDescriptors(props),
-    split = (k: (keyof T)[]) => {
-      const clone: Partial<T> = {};
-      for (let i = 0; i < k.length; i++) {
-        const key = k[i];
-        if (descriptors[key]) {
-          Object.defineProperty(clone, key, descriptors[key]);
-          delete descriptors[key];
+export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
+  const blocked = new Set(keys.flat());
+  const descriptors = Object.getOwnPropertyDescriptors(props);
+  const res = keys.map(k => {
+    const clone = {};
+    for (let i = 0; i < k.length; i++) {
+      const key = k[i];
+      if (descriptors[key]) Object.defineProperty(clone, key, descriptors[key]);
+    }
+    return clone;
+  });
+  res.push(
+    new Proxy(
+      {
+        get(property: string | number | symbol) {
+          if (blocked.has(property as keyof T)) return;
+          return props[property as keyof T];
+        },
+        keys() {
+          return Object.keys(props).filter(k => !blocked.has(k as keyof T));
         }
-      }
-      return clone;
-    };
-  return keys.map(split).concat(split(Object.keys(descriptors) as (keyof T)[]));
+      },
+      propTraps
+    )
+  );
+  return res;
 }
 
 // lazy load a function component asynchronously
 export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
   let p: Promise<{ default: T }>;
   return ((props: any) => {
-    const h = globalThis._$HYDRATION || {},
-      hydrating = h.context && h.context.registry,
-      ctx = nextHydrateContext(),
-      [s, l] = createResource<T>(undefined, { notStreamed: true });
-    if (hydrating && h.resources) {
+    const ctx = sharedConfig.context;
+    let comp: () => T | undefined;
+    if (ctx && sharedConfig.resources) {
+      ctx.count++; // increment counter for hydration
+      const [s, set] = createSignal<T>();
       (p || (p = fn())).then(mod => {
         setHydrateContext(ctx);
-        l(() => mod.default);
+        set(mod.default);
         setHydrateContext(undefined);
       });
-    } else l(() => (p || (p = fn())).then(mod => mod.default));
+      comp = s;
+    } else {
+      const [s] = createResource($LAZY, () => (p || (p = fn())).then(mod => mod.default));
+      comp = s;
+    }
     let Comp: T | undefined;
     return createMemo(
       () =>
-        (Comp = s()) &&
+        (Comp = comp()) &&
         untrack(() => {
           if (!ctx) return Comp!(props);
-          const c = h.context;
+          const c = sharedConfig.context;
           setHydrateContext(ctx);
           const r = Comp!(props);
           setHydrateContext(c);
@@ -127,39 +184,4 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
         })
     );
   }) as T;
-}
-
-function setHydrateContext(context?: HydrationContext): void {
-  globalThis._$HYDRATION.context = context;
-}
-
-function nextHydrateContext(): HydrationContext | undefined {
-  const hydration = globalThis._$HYDRATION;
-  return hydration && hydration.context
-    ? {
-        id: `${hydration.context.id}.${hydration.context.count++}`,
-        count: 0,
-        registry: hydration.context.registry
-      }
-    : undefined;
-}
-
-type HydrationContext = {
-  id: string;
-  count: number;
-  registry?: Map<string, Element>;
-};
-
-type GlobalHydration = {
-  context?: HydrationContext;
-  register?: (v: Promise<any>) => void;
-  loadResource?: () => Promise<any>;
-  resources?: { [key: string]: any };
-  asyncSSR?: boolean;
-  streamSSR?: boolean;
-};
-
-declare global {
-  var _$HYDRATION: GlobalHydration;
-  var _$afterUpdate: () => void;
 }

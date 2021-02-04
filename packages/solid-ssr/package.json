@@ -1,7 +1,7 @@
 {
   "name": "solid-ssr",
   "description": "Patches node to work with Solid's SSR",
-  "version": "0.23.11",
+  "version": "0.24.0-beta.4",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -16,18 +16,18 @@
   "scripts": {
     "build:example:async": "rollup -c examples/async/rollup.config.js",
     "start:example:async": "node examples/async/lib/index.js",
-    "build:example:ssg": "rollup -c examples/ssg/rollup.config.js && node examples/ssg/export.js",
+    "build:example:ssg": "rollup -c examples/ssg/rollup.config.js && node --trace-warnings examples/ssg/export.js",
     "start:example:ssg": "npx serve examples/ssg/public -l 8080",
     "build:example:ssr": "rollup -c examples/ssr/rollup.config.js",
-    "start:example:ssr": "node --conditions=server examples/ssr/lib/index.js",
+    "start:example:ssr": "node examples/ssr/lib/index.js",
     "build:example:stream": "rollup -c examples/stream/rollup.config.js",
-    "start:example:stream": "node --conditions=server examples/stream/lib/index.js"
+    "start:example:stream": "node examples/stream/lib/index.js"
   },
   "devDependencies": {
-    "babel-preset-solid": "^0.23.8",
+    "babel-preset-solid": "^0.24.0-beta.3",
     "express": "^4.17.1",
-    "solid-js": "^0.23.11",
-    "solid-styled-components": "^0.23.11"
+    "solid-js": "^0.24.0-beta.4",
+    "solid-styled-components": "^0.24.0-beta.4"
   },
   "peerDependencies": {
     "solid-js": "*"

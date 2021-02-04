@@ -138,15 +138,8 @@ function createContext(defaultValue) {
 function useContext(context) {
   return lookup(Owner, context.id) || context.defaultValue;
 }
-function getContextOwner() {
+function getOwner() {
   return Owner;
-}
-function runWithOwner(owner, callback) {
-  const currentOwner = getContextOwner();
-  Owner = owner;
-  const result = callback();
-  Owner = currentOwner;
-  return result;
 }
 // Internal implementation
 /// Graph classes and operations

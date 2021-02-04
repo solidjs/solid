@@ -1,4 +1,4 @@
-import { insert, spread, SVGElements } from "./runtime";
+import { insert, spread, SVGElements } from "./client";
 import {
   createSignal,
   createMemo,
@@ -7,10 +7,11 @@ import {
   splitProps,
   Component,
   JSX,
-  createRoot
+  createRoot,
+  sharedConfig
 } from "solid-js";
 
-export * from "./runtime";
+export * from "./client";
 
 export {
   For,
@@ -21,7 +22,7 @@ export {
   Match,
   Index,
   ErrorBoundary,
-  assignProps
+  mergeProps
 } from "solid-js";
 
 export * from "./server-mock";
@@ -39,14 +40,13 @@ export function Portal(props: {
   isSVG?: boolean;
   children: JSX.Element;
 }) {
-  const hydration = globalThis._$HYDRATION;
   const { useShadow } = props,
     marker = document.createTextNode(""),
     mount = props.mount || document.body;
 
   // don't render when hydrating
   function renderPortal() {
-    if (hydration && hydration.context) {
+    if (sharedConfig.context) {
       const [s, set] = createSignal(false);
       queueMicrotask(() => set(true));
       return () => s() && props.children;
@@ -58,7 +58,7 @@ export function Portal(props: {
     const cleanup = () => setClean(true);
     createRoot(dispose => insert(mount, () => (!clean() ? renderPortal()() : dispose()), null));
     onCleanup(() => {
-      if (hydration && hydration.context) queueMicrotask(cleanup);
+      if (sharedConfig.context) queueMicrotask(cleanup);
       else cleanup();
     });
   } else {

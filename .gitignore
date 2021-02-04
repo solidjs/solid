@@ -6,6 +6,5 @@ coverage/
 types/
 
 packages/solid/src/jsx.d.ts
-packages/solid/web/server-async/asyncSSR.d.ts
-packages/solid/web/server/syncSSR.d.ts
-packages/solid/web/src/runtime.d.ts
+packages/solid/web/server/server.d.ts
+packages/solid/web/src/client.d.ts

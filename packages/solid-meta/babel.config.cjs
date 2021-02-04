@@ -17,5 +17,19 @@ module.exports = {
         ]
       ]
     }
-  }
+  },
+  presets: [
+    "@babel/preset-typescript"
+  ],
+  plugins: [
+    [
+      "babel-plugin-jsx-dom-expressions",
+      {
+        moduleName: "solid-js/web",
+        contextToCustomElements: true,
+        wrapConditionals: true,
+        builtIns: ["For", "Show", "Switch", "Match", "Suspense", "SuspenseList", "Portal"]
+      }
+    ]
+  ]
 };

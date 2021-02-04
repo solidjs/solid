@@ -8,31 +8,39 @@ import {
 } from "component-register";
 export { hot, getCurrentElement } from "component-register";
 export type ComponentType<T> = mComponentType<T>;
-import { createRoot, createState } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { insert } from "solid-js/web";
+
+function createProps<T>(raw: T) {
+  const keys = Object.keys(raw) as (keyof T)[];
+  const props = {};
+  for (let i = 0; i < keys.length; i++) {
+    const [get, set] = createSignal(raw[keys[i]]);
+    Object.defineProperty(props, keys[i], {
+      get,
+      set
+    });
+  }
+  return props as T;
+}
 
 function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
   return (rawProps: T, options: ComponentOptions) => {
     const { element } = options as {
-      element: ICustomElement & { _context?: any };
+      element: ICustomElement & { _$owner?: any };
     };
     return createRoot((dispose: Function) => {
-      const [props, setProps] = createState<T>(rawProps);
+      const props = createProps<T>(rawProps);
 
-      element.addPropertyChangedCallback((key: string, val: any) =>
-        setProps({ [key]: val } as any)
-      );
+      element.addPropertyChangedCallback((key: string, val: any) => (props[key as keyof T] = val));
       element.addReleaseCallback(() => {
         element.renderRoot.textContent = "";
         dispose();
       });
 
       const comp = (ComponentType as FunctionComponent<T>)(props as T, options);
-      return insert(
-        element.renderRoot,
-        comp
-      );
-    }, (element.assignedSlot && element.assignedSlot._context) || element._context);
+      return insert(element.renderRoot, comp);
+    }, (element.assignedSlot && element.assignedSlot._$owner) || element._$owner);
   };
 }
 

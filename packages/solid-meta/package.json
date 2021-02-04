@@ -1,7 +1,7 @@
 {
   "name": "solid-meta",
   "description": "Solid wrapper for Styled JSX",
-  "version": "0.23.11",
+  "version": "0.24.0-beta.4",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -9,15 +9,20 @@
     "url": "https://github.com/ryansolid/solid/blob/master/packages/solid-meta"
   },
   "type": "module",
-  "main": "dist/index.jsx",
-  "module": "dist/index.jsx",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "solid": "./dist/index.jsx",
+      "default": "./dist/index.js"
+    }
+  },
   "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && babel src/index.tsx --out-file dist/index.js",
     "test": "jest && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json"
   },
@@ -25,6 +30,6 @@
     "solid-js": "^0.23.0"
   },
   "devDependencies": {
-    "solid-js": "^0.23.11"
+    "solid-js": "^0.24.0-beta.4"
   }
 }

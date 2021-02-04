@@ -16,7 +16,7 @@ export {
   on,
   createContext,
   useContext,
-  getContextOwner,
+  getOwner,
   runWithOwner,
   equalFn,
   requestCallback,
@@ -29,7 +29,8 @@ export {
 } from "./reactive";
 
 export {
-  assignProps,
+  awaitSuspense,
+  mergeProps,
   splitProps,
   createComponent,
   For,
@@ -41,13 +42,13 @@ export {
   Suspense,
   SuspenseList,
   createResource,
-  createResourceState,
   useTransition,
-  lazy
+  lazy,
+  sharedConfig
 } from "./rendering";
 
 export type { State, SetStateFunction } from "./reactive";
-export type { Component, LoadStateFunction, Resource } from "./rendering";
+export type { Component, Resource } from "./rendering";
 
 
 
