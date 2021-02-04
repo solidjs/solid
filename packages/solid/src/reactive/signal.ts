@@ -276,9 +276,9 @@ export function untrack<T>(fn: () => T): T {
   return result;
 }
 
-type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends (() => infer U) ? U : never };
+type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends () => infer U ? U : never };
 export function on<T, X extends Array<() => T>, U>(
-  ...args: X['length'] extends 1
+  ...args: X["length"] extends 1
     ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
     : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
 ): (prev?: U) => U {
@@ -377,8 +377,8 @@ export interface Context<T> {
   defaultValue: T;
 }
 
-export function createContext<T>(): Context<T | undefined>
-export function createContext<T>(defaultValue: T): Context<T>
+export function createContext<T>(): Context<T | undefined>;
+export function createContext<T>(defaultValue: T): Context<T>;
 export function createContext<T>(defaultValue?: T): Context<T | undefined> {
   const id = Symbol("context");
   return { id, Provider: createProvider(id), defaultValue };
