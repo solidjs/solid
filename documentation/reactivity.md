@@ -2,9 +2,9 @@
 
 Solid's data management is built off a set of flexible reactive primitives which are responsible for all the updates. It takes a very similar approach to MobX or Vue except it never trades its granularity for a VDOM. Dependencies are automatically tracked when you access your reactive values in your Effects and JSX View code.
 
-Solid has a number of reactive primitives but the main 2 are Signals, and State. Ultimately you will need to understand both to write effective Solid code.
+Solid's primitives come in the form of `create` calls that often return tuples, where generally the first element is a readable primitive and the second is a setter. It is common to refer to only the readable part by the primitive name.
 
-Signals hold simple values that you view as atomic immutable cells that consist of a getter and setter. These are ideal for simple local component values. They are called signals as they act as tiny streams that wire your application together.
+Here is a basic auto incrementing counter that is updating based on setting the `count` signal.
 
 ```jsx
 import { createSignal, onCleanup } from "solid-js";
@@ -21,49 +21,16 @@ const App = () => {
 render(() => <App />, document.getElementById("app"));
 ```
 
-> **For React Users:** This looks like React Hooks, but it is very different. There are no Hook rules, or concern about stale closures because your Component only runs once. It is only the "Hooks" that re-execute. So they always have the latest.
-
-Solid's state object are deeply nested reactive data trees useful for global stores, model caches, and 3rd party immutable data interopt. They have a much more powerful setter that allows to specify nested changes and use value and function forms for updates.
-
-They can be used in Components as well and is the go to choice when data gets more complicated (nested).
-
-```jsx
-import { createState, onCleanup } from "solid-js";
-import { render } from "solid-js/web";
-
-const App = () => {
-  const [state, setState] = createState({
-    user: {
-      firstName: "John",
-      lastName: "Smith",
-      get fullName() {
-        return `${this.firstName} ${this.lastName}`;
-      }
-    }
-  });
-
-  return (
-    <div onClick={() => setState("user", "lastName", value => value + "!")}>
-      {state.user.fullName}
-    </div>
-  );
-};
-
-render(() => <App />, document.getElementById("app"));
-```
-
-Remember if you destructure or spread a state object reactivity is lost. However, unlike Vue we don't separate our `setup` from our view code so there is little concern about transforming or transfering these reactive atoms around. Just access the properties where you need them.
-
-With Solid State and Context API you really don't need 3rd party global stores. These proxies are optimized part of the reactive system and lend to creating controlled unidirectional patterns.
+> **For React Users:** This looks like React Hooks, but it is very different. There are no Hook rules, or concern about stale closures because your Component only runs once. It is only the "Hooks" that re-execute. So they always have the latest references.
 
 ## Signals
 
-Signals are the glue that hold the library together. They are a simple primitive that contain values that change over time. With Signals you can track all sorts of changes from various sources in your applications. You can update a Signal manually or from any Async source.
+Signals are the glue that hold the library together. They are a simple primitive that contain values that change over time. With Signals you can track all sorts of changes from various sources in your applications. They are not tied to any specific component and can be used wherever whenever.
 
 ```js
 import { createSignal, onCleanup } from "solid-js";
 
-function useTick(delay) {
+function createTick(delay) {
   const [getCount, setCount] = createSignal(0),
     handle = setInterval(() => setCount(getCount() + 1), delay);
   onCleanup(() => clearInterval(handle));
@@ -71,26 +38,28 @@ function useTick(delay) {
 }
 ```
 
-## Accessors Reactive Scope
+## Reactive Scope and Tracking
 
 Signals are special functions that when executed return their value. In addition they are trackable when executed under a reactive scope. This means that when their value is read (executed) the currently executing reactive scope is now subscribed to the Signal and will re-execute whenever the Signal is updated.
 
-This mechanism is based on the executing function's scope so Signals reads can be composed and nested as many levels as desired. By wrapping a Signal read in a thunk `() => signal()` you have effectively created a derived signal that can be tracked as well. The same holds true for accessing state. Want to use state as a signal just wrap it in a function:
+This method of tracking wraps the execution stack so Signals can be accessed any number of levels deep. In so, by wrapping a Signal read in a thunk `() => signal()` you have effectively created a derived signal that can be tracked as well. The same holds true for accessing props or Solid's reactive State proxies. Want to use state as a signal just wrap it in a function:
 
 ```js
-// I can be tracked
+// I can be tracked later
 const firstName = () => state.user.firstName;
 
 return <div>{firstName()}</div>;
 ```
 
-These accessors are just functions that can be tracked and return a value. No additional primitive or method is needed for them to work as Signals in their own right. However, you need another primitive to create that reactive scope:
+These are just functions that can be tracked and return a value. No additional primitive or method is needed for them to work as Signals in their own right. This is because Signals are readonly. Any pure function that wraps a signal is also a Signal.
+
+However, you need another primitive to actually execute the work and track the these signals.
 
 ## Computations
 
 A computation is calculation over a function execution that automatically and dynamically tracks any child signals that are accessed during that execution. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
 
-There are 3 main computations used by Solid: Memos which are pure and designed to cache values until their reactivity forces re-evaluation, Computeds which are designed to write to other signals, and Effects which are intended to produce side effects after rendering.
+There are 2 main types of computations. Those that are pure and meant to derive a value called Memos and those that update the outside world and produce side effects, aptly called Effects.
 
 ```js
 import { createSignal, createEffect, createMemo } from "solid-js";
@@ -106,7 +75,7 @@ setCount(count() + 1);
 
 Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX(code between the parenthesis `{}`), the compiler is wrapping it in a function and passing it to a `createEffect` call.
 
-Memos allow us to store and access values without re-evaluating them until their dependencies change.
+Memos allow us to store and access values without re-evaluating them until their dependencies change. They are very similar to derived Signals mentioned above except they only re-evaluate when their dependencies change and return the last cached value on read.
 
 Keep in mind memos are only necessary if you wish to prevent re-evaluation when the value is read. Useful for expensive operations like DOM Node creation. Any example with a memo could also just be a function and effectively be the same without caching as it's just another signal.
 
@@ -126,6 +95,7 @@ setCount(count() + 1);
 Memos also pass the previous value on each execution. This is useful for reducing operations (obligatory Redux in a couple lines example):
 
 ```js
+// reducer
 const reducer = (state, action = {}) => {
   switch (action.type) {
     case "LIST/ADD":
@@ -135,9 +105,12 @@ const reducer = (state, action = {}) => {
   }
 };
 
+// initial state
+const state = { list: [] };
+
 // redux
 const [getAction, dispatch] = createSignal(),
-  getStore = createMemo(state => reducer(state, getAction()), { list: [] });
+  getStore = createMemo(state => reducer(state, getAction()), state);
 
 // subscribe and dispatch
 createEffect(() => console.log(getStore().list));
@@ -171,13 +144,6 @@ For convenience Solid provides an `on` operator to set up explict dependencies f
 createEffect(on(a, v => console.log(v, b())));
 ```
 
-Another situation is maybe you want something to run only on mount:
-
-```js
-// does not update when props update
-createEffect(() => untrack(() => console.log("Mounted with", props.a, props.b)));
-```
-
 Solid executes synchronously but sometimes you want to apply multiple changes at once. `batch` allows us to do that without triggering updates multiple times.
 
 ```js
@@ -197,10 +163,10 @@ _Note: Solid's graph is synchronously executed so any starting point that isn't 
 
 ## Composition
 
-State and Signals combine wonderfully as wrapping a state selector in a function instantly makes it reactive accessor. They encourage composing more sophisticated patterns to fit developer need.
+Solid's primitives combine wonderfully. They encourage composing more sophisticated patterns to fit developer need.
 
 ```js
-// deep reconciled immutable reducer
+// Solid's fine-grained exivalent to React's `useReducer` Hook
 const useReducer = (reducer, init) => {
   const [state, setState] = createState(init),
     [getAction, dispatch] = createSignal();

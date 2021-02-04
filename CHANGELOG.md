@@ -39,9 +39,14 @@ I have now combined sync/streaming/async SSR into the same compiler output. To d
 #### Increase SSR Performance
 
 Through reusing static strings in the template we reduce repeated creation costs. This small improvement can make 5-8% improvements where you have many rows.
+
 #### Event Delegation
 
 Solid is now being more strict on what events it delegates. Limiting to standard pointer/touch/mouse/keyboard events. Custom events will no longer be delegated automatically. This increases compatibility for Web Component users who don't compose their events. Non-delegated events will still work and binding array syntax with them.
+
+#### State getters no longer memos
+
+Automatic memos put some constraints on the disposal system that get in the way of making the approach flexible to hold all manner of reactive primitives. Some previous limitations included not being able to have nested getters. You can still manually create a memo and put it in a getter but the default will not be memoized.
 ### New Features
 
 #### `children` helper

@@ -15,10 +15,10 @@ export default [
     preserveEntrySignatures: false,
     external: ["solid-js", "solid-js/web", "path", "express"],
     plugins: [
-      nodeResolve({ preferBuiltins: true }),
+      nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"] }),
       babel({
         babelHelpers: "bundled",
-        presets: [["solid", { generate: "ssr", hydratable: true, async: true }]]
+        presets: [["solid", { generate: "ssr", hydratable: true }]]
       }),
       common()
     ]
@@ -33,7 +33,7 @@ export default [
     ],
     preserveEntrySignatures: false,
     plugins: [
-      nodeResolve(),
+      nodeResolve({ exportConditions: ["solid"] }),
       babel({
         babelHelpers: "bundled",
         presets: [["solid", { generate: "dom", hydratable: true }]]

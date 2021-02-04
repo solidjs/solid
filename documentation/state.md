@@ -10,20 +10,38 @@ Through the use of proxies and explicit setters it gives the control of an immut
 
 ### `createState(object)`
 
-Initializes with object value and returns an array where the first index is the state object and the second is the setState method.
+Solid's state object are deeply nested reactive data trees useful for global stores, model caches, and 3rd party immutable data interopt. They have a much more powerful setter that allows to specify nested changes and use value and function forms for updates.
 
-Initial state consists of a tree of values, including getters that are automatically wrapped in a Memo that can define derived values:
+They can be used in Components as well and is the go to choice when data gets more complicated (nested).
 
 ```jsx
-const [state, setState] = createState({
-  firstName: "John",
-  lastName: "Miller",
-  get fullName() {
-    return `${this.firstName} ${this.lastName}`;
-  }
-});
+import { createState } from "solid-js";
+import { render } from "solid-js/web";
+
+const App = () => {
+  const [state, setState] = createState({
+    user: {
+      firstName: "John",
+      lastName: "Smith",
+      get fullName() {
+        return `${this.firstName} ${this.lastName}`;
+      }
+    }
+  });
+
+  return (
+    <div onClick={() => setState("user", "lastName", value => value + "!")}>
+      {state.user.fullName}
+    </div>
+  );
+};
+
+render(() => <App />, document.getElementById("app"));
 ```
-> Note: getters are only currently supported top level
+
+Remember if you destructure or spread a state object outside of a computation or JSX reactivity is lost. However, unlike Vue we don't separate our `setup` from our view code so there is little concern about transforming or transfering these reactive atoms around. Just access the properties where you need them.
+
+With Solid State and Context API you really don't need 3rd party global stores. These proxies are optimized part of the reactive system and lend to creating controlled unidirectional patterns.
 
 ### `setState(changes)`
 
