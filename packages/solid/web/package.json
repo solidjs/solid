@@ -4,5 +4,15 @@
   "module": "./dist/web.js",
   "types": "./types/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "node": {
+        "import": "./dist/server.js",
+        "require": "./dist/server.cjs"
+      },
+      "import": "./dist/web.js",
+      "require": "./dist/web.cjs"
+    }
+  },
   "sideEffects": false
 }

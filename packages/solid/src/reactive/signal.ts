@@ -513,7 +513,7 @@ export function createResource<T, U>(
     });
     p.then(
       v => loadEnd(p as Promise<T>, v),
-      e => loadEnd(p as Promise<T>, undefined as any, e)
+      e => loadEnd(p as Promise<T>, e, e)
     );
   }
   Object.defineProperty(read, "loading", {
@@ -856,7 +856,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
 }
 
 function resolveChildren(children: any): unknown {
-  if (typeof children === "function") return resolveChildren(children());
+  if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
@@ -903,3 +903,4 @@ function serializeChildren(root: Owner): GraphRecord {
   }
   return result;
 }
+
