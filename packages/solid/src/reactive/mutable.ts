@@ -65,6 +65,12 @@ function wrap<T extends StateNode>(value: T, name?: string): State<T> {
       desc = Object.getOwnPropertyDescriptors(value);
     for (let i = 0, l = keys.length; i < l; i++) {
       const prop = keys[i];
+      if (desc[prop].get) {
+        const get = desc[prop].get!.bind(p);
+        Object.defineProperty(value, prop, {
+          get
+        });
+      }
       if (desc[prop].set) {
         const og = desc[prop].set!,
           set = (v: T[keyof T]) => batch(() => og.call(p, v));
