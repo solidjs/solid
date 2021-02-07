@@ -179,12 +179,14 @@ export default const UserPanel = props => {
     <Switch fallback={"Failed to load User"}>
       <Match when={user.loading}>Loading...</Match>
       <Match when={user()}>{ ({ name, height, mass, birthYear }) =>
-        <h1>{name}</h1>
-        <ul>
-          <li>Height: {height}</li>
-          <li>Mass: {mass}</li>
-          <li>Birth Year: {birthYear}</li>
-        </ul>
+        <>
+          <h1>{name}</h1>
+          <ul>
+            <li>Height: {height}</li>
+            <li>Mass: {mass}</li>
+            <li>Birth Year: {birthYear}</li>
+          </ul>
+        </>
       }</Match>
     </Switch>
   </div>
