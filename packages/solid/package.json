@@ -52,18 +52,22 @@
       "import": "./web/dist/web.js",
       "require": "./web/dist/web.cjs"
     },
+    "./web/dist/*": "./web/dist/*",
     "./h": {
       "import": "./h/dist/h.js",
       "require": "./h/dist/h.cjs"
     },
+    "./h/dist/*": "./h/dist/*",
     "./html": {
       "import": "./html/dist/html.js",
       "require": "./html/dist/html.cjs"
     },
+    "./html/dist/*": "./html/dist/*",
     "./dev": {
       "import": "./dev/dist/dev.js",
       "require": "./dev/dist/dev.cjs"
-    }
+    },
+    "./dev/dist/*": "./dev/dist/*"
   },
   "scripts": {
     "prebuild": "rimraf dist/* types/*",
