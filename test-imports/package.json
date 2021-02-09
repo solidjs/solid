@@ -1,5 +1,6 @@
 {
   "name": "test-imports",
+  "private": true,
   "scripts": {
     "test": "node test-imports.mjs"
   },
