@@ -1,4 +1,4 @@
 {
-  "packages": ["packages/*", "test-imports"],
+  "packages": ["packages/*"],
   "version": "0.24.3"
 }
