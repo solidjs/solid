@@ -3,12 +3,5 @@
   "main": "./dist/h.cjs",
   "module": "./dist/h.js",
   "types": "./types/index.d.ts",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./dist/h.js",
-      "require": "./dist/h.cjs"
-    }
-  },
   "sideEffects": false
 }

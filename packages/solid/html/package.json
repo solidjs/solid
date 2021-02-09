@@ -3,12 +3,5 @@
   "main": "./dist/html.cjs",
   "module": "./dist/html.js",
   "types": "./types/index.d.ts",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./dist/html.js",
-      "require": "./dist/html.cjs"
-    }
-  },
   "sideEffects": false
 }
