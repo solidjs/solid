@@ -1,0 +1,10 @@
+{
+  "name": "test-imports",
+  "private": true,
+  "scripts": {
+    "test": "node test-imports.mjs"
+  },
+  "dependencies": {
+    "solid-js": "^0.24.3"
+  }
+}

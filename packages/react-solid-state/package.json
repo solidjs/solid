@@ -12,6 +12,8 @@
     "src"
   ],
   "scripts": {
+    "prebuild": "npm run clean",
+    "clean": "rimraf lib/ coverage/",
     "build": "rollup -c",
     "test": "jest",
     "test:coverage": "jest --coverage"

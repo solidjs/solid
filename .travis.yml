@@ -1,11 +1,12 @@
 language: node_js
-node_js: '12'
+node_js: "14"
 cache: npm
 jobs:
   include:
     - stage: test
       script:
         - npm run build
+        - npm test
         - npm run test:coverage
         - npm run report:coverage
       artifacts:
