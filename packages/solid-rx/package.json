@@ -18,6 +18,8 @@
     "url": "git+https://github.com/ryansolid/solid.git"
   },
   "scripts": {
+    "prebuild": "npm run clean",
+    "clean": "rimraf dist/ types/ coverage/",
     "build": "rollup -c && tsc",
     "test": "jest",
     "test:coverage": "jest --coverage"

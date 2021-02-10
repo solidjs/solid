@@ -22,6 +22,8 @@
   ],
   "sideEffects": false,
   "scripts": {
+    "prebuild": "npm run clean",
+    "clean": "rimraf dist/",
     "build": "tsc && babel src/index.tsx --out-file dist/index.js",
     "test": "jest && npm run test:types",
     "test:types": "tsc --project tsconfig.test.json"
