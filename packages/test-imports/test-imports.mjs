@@ -31,7 +31,6 @@ Promise.all([
   import("solid-js/web").catch(checkError),
   import("solid-js/web/dist/web.js").catch(checkError),
   import("solid-js/web/dist/server.js").catch(checkError),
-  import("solid-js/web/dist/server-async.js").catch(checkError),
 
   import("solid-js/h").catch(checkError),
   import("solid-js/h/dist/h.js").catch(checkError),
