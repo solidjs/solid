@@ -17,13 +17,14 @@ function checkError(error) {
   // Any other errors (unless I missed any that should be added to the checks
   // above) are errors that happen after imported modules are successfully
   // resolved (f.e. a module was found, but it doesn't export a particular
-  // identifier when running in node vs browser). We don't want to fail the
-  // test in those cases, because we're testing only that ESM exports are set
-  // up correctly. Importing `solid-js/h` will fail in node even if modules are
-  // resolved properly, for example.
+  // identifier when running in node vs browser).  SO we silence them by not
+  // re-throwing them here as we don't want to fail the test in those cases,
+  // because we're testing only that ESM exports are set up correctly.
+  // Importing `solid-js/h` will fail in node even if modules are resolved
+  // properly, for example.
 }
 
-await Promise.all([
+Promise.all([
   import("solid-js/dev").catch(checkError),
   import("solid-js/dev/dist/dev.js").catch(checkError),
 
@@ -37,6 +38,11 @@ await Promise.all([
 
   import("solid-js/html").catch(checkError),
   import("solid-js/html/dist/html.js").catch(checkError)
-]);
-
-console.log("ES Module import test passed.");
+])
+  .then(() => {
+    console.log("ES Module import test passed.");
+  })
+  .catch(error => {
+    console.error(error);
+    process.exit(1);
+  });
