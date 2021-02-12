@@ -435,6 +435,7 @@ export function createResource<T, U>(
   let err: any = null,
     pr: Promise<T> | null = null,
     id: string | null = null,
+    loadedUnderTransition = false,
     dynamic = typeof key === "function";
 
   if (sharedConfig.context) {
@@ -444,8 +445,9 @@ export function createResource<T, U>(
     if (pr === p) {
       err = e;
       pr = null;
-      if (Transition && p && Transition.promises.has(p)) {
+      if (Transition && p && loadedUnderTransition) {
         Transition.promises.delete(p);
+        loadedUnderTransition = false;
         runUpdates(() => {
           Transition!.running = true;
           if (!Transition!.promises.size) {
@@ -489,6 +491,7 @@ export function createResource<T, U>(
     err = null;
     let p: Promise<T> | T,
       lookup = dynamic ? (key as () => U)() : (key as U);
+    loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (!lookup) {
       loadEnd(pr, untrack(s)!);
       return;
