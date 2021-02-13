@@ -36,6 +36,12 @@ const propTraps: ProxyHandler<{ get: (k: string | number | symbol) => any; keys:
   has(_, property) {
     return _.get(property) !== undefined;
   },
+  set() {
+    return true;
+  },
+  deleteProperty() {
+    return true;
+  },
   getOwnPropertyDescriptor(_, property) {
     return {
       configurable: true,
