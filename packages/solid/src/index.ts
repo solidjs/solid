@@ -37,6 +37,9 @@ export * from "./reactive/array";
 export * from "./render";
 export type { JSX } from "./jsx";
 
+// mock server endpoint for dom-expressions
+export function awaitSuspense() {}
+
 // handle multiple instance check
 declare global {
   var Solid$$: boolean;
