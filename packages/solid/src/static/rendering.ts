@@ -260,7 +260,7 @@ export function createResource<T, U>(
       return;
     }
     const lookup = typeof key === "function" ? (key as () => U)() : key;
-    if (!lookup) return;
+    if (lookup == null || lookup === false) return;
     read.loading = true;
     const p = fetcher(lookup, () => value);
     if ("then" in p) {

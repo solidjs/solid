@@ -492,7 +492,7 @@ export function createResource<T, U>(
     let p: Promise<T> | T,
       lookup = dynamic ? (key as () => U)() : (key as U);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
-    if (!lookup) {
+    if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
       return;
     }
@@ -906,4 +906,3 @@ function serializeChildren(root: Owner): GraphRecord {
   }
   return result;
 }
-
