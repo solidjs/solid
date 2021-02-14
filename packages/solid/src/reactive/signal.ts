@@ -434,12 +434,19 @@ export function createResource<T, U>(
 
   let err: any = null,
     pr: Promise<T> | null = null,
+    initP: Promise<T> | null = null,
     id: string | null = null,
     loadedUnderTransition = false,
     dynamic = typeof key === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
+    if (sharedConfig.context.loadResource) {
+      initP = sharedConfig.context.loadResource!(id!);
+    } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
+      initP = sharedConfig.resources![id];
+      delete sharedConfig.resources![id];
+    }
   }
   function loadEnd(p: Promise<T> | null, v: T, e?: any) {
     if (pr === p) {
@@ -489,22 +496,14 @@ export function createResource<T, U>(
   }
   function load() {
     err = null;
-    let p: Promise<T> | T,
-      lookup = dynamic ? (key as () => U)() : (key as U);
+    let lookup = dynamic ? (key as () => U)() : (key as U);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
       return;
     }
-    if (sharedConfig.context) {
-      if (sharedConfig.context.loadResource && lookup !== ($LAZY as any)) {
-        p = sharedConfig.context.loadResource!(id!);
-      } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
-        p = sharedConfig.resources![id];
-        delete sharedConfig.resources![id];
-      }
-    }
-    if (!p!) p = fetcher(lookup, s);
+    const p = initP || fetcher(lookup, s);
+    initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);
       return;

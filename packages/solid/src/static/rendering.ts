@@ -219,6 +219,7 @@ type SuspenseContextType = {
 };
 
 const SuspenseContext = createContext<SuspenseContextType>();
+let resourceContext = null;
 export function createResource<T, U>(
   key: U | false | (() => U | false),
   fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
@@ -233,6 +234,7 @@ export function createResource<T, U>(
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.context!.id + sharedConfig.context!.count++;
   let resource: { ref?: any; data?: T } = {};
+  let p: Promise<T> | T;
   if (sharedConfig.context!.async) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
@@ -241,6 +243,7 @@ export function createResource<T, U>(
     }
   }
   const read = () => {
+    if (resourceContext && p) resourceContext.push(p);
     const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
     if (sharedConfig.context!.async && !resolved) {
       const ctx = useContext(SuspenseContext);
@@ -259,24 +262,38 @@ export function createResource<T, U>(
       value = ctx.resources[id].data;
       return;
     }
+    resourceContext = [];
     const lookup = typeof key === "function" ? (key as () => U)() : key;
-    if (lookup == null || lookup === false) return;
+    if (resourceContext.length) {
+      p = Promise.all(resourceContext).then(() => fetcher((key as () => U)(), () => value));
+    }
+    resourceContext = null;
+    if (!p) {
+      if (lookup == null || lookup === false) return;
+      p = fetcher(lookup, () => value);
+    }
     read.loading = true;
-    const p = fetcher(lookup, () => value);
     if ("then" in p) {
       if (ctx.writeResource) {
         ctx.writeResource(id, p);
+        p.then(v => {
+          value = v;
+          read.loading = false;
+          p = null
+        });
         return;
       }
       p.then(res => {
         read.loading = false;
         ctx.resources[id].data = res;
+        p = null;
         notifySuspense(contexts);
         return res;
       });
       return;
     }
     ctx.resources[id].data = p;
+    p = null;
   }
   load();
   return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as [
