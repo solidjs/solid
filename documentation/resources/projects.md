@@ -27,11 +27,11 @@
 
 ## Routers
 
-- [Solid Router](https://github.com/mduclehcm/solid-router) A declarative router for Solid
-- [rturnq Solid Router](https://github.com/rturnq/solid-router) A React Router inspired router for Solid
+- [Solid Router](https://github.com/rturnq/solid-router) A React Router inspired router for Solid
 - [Solid App Router](https://github.com/ryansolid/solid-app-router) A configuration driven nested router for Solid
 - [Solid TypeFu Router5](https://github.com/mikeplus64/solid-typefu-router5) A TypeScript forward router
 - [Solid Router5](https://github.com/zxlib/solid-router5) A Solid router built on Router5.
+- [Solid Router](https://github.com/mduclehcm/solid-router) A declarative router for Solid
 - [Solid Tiny Router](https://github.com/amoutonbrady/solid-tiny-router) Experimental little router based on regexparam for Solid
 
 ## Components
@@ -48,6 +48,7 @@
 - [Vite Template Solid](https://github.com/amoutonbrady/vite-template-solid) - Vite
 
 ## Tooling
+- [Solid Testing Library](https://github.com/ryansolid/solid-testing-library) Solid's Testing Library
 - [Create Solid](https://github.com/ryansolid/create-solid) Solid's port of Create React App.
 - [Vite Plugin Solid](https://github.com/amoutonbrady/vite-plugin-solid) Solid plugin for Vite.
 - [Solid Hot Loader](https://github.com/ryansolid/solid-hot-loader) Webpack Loader for HMR for Solid Components.
