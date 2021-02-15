@@ -29,26 +29,32 @@ export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): J
   return untrack(() => Comp(props as T));
 }
 
-const propTraps: ProxyHandler<{ get: (k: string | number | symbol) => any; keys: () => any }> = {
+function trueFn() {
+  return true;
+}
+
+const propTraps: ProxyHandler<{
+  get: (k: string | number | symbol) => any;
+  has: (k: string | number | symbol) => boolean;
+  keys: () => string[];
+}> = {
   get(_, property) {
     return _.get(property);
   },
   has(_, property) {
-    return _.get(property) !== undefined;
+    return _.has(property);
   },
-  set() {
-    return true;
-  },
-  deleteProperty() {
-    return true;
-  },
+  set: trueFn,
+  deleteProperty: trueFn,
   getOwnPropertyDescriptor(_, property) {
     return {
       configurable: true,
       enumerable: true,
       get() {
         return _.get(property);
-      }
+      },
+      set: trueFn,
+      deleteProperty: trueFn
     };
   },
   ownKeys(_) {
@@ -73,6 +79,12 @@ export function mergeProps(...sources: any): any {
           const v = sources[i][property];
           if (v !== undefined) return v;
         }
+      },
+      has(property: string | number | symbol) {
+        for (let i = sources.length - 1; i >= 0; i--) {
+          if (property in sources[i]) return true;
+        }
+        return false;
       },
       keys() {
         const keys = [];
@@ -144,8 +156,10 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
     new Proxy(
       {
         get(property: string | number | symbol) {
-          if (blocked.has(property as keyof T)) return;
-          return props[property as keyof T];
+          return blocked.has(property as keyof T) ? undefined : props[property as keyof T];
+        },
+        has(property: string | number | symbol) {
+          return blocked.has(property as keyof T) ? false : property in props;
         },
         keys() {
           return Object.keys(props).filter(k => !blocked.has(k as keyof T));
