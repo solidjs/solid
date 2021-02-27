@@ -172,9 +172,11 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
 }
 
 // lazy load a function component asynchronously
-export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>): T {
+export function lazy<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>
+): T & { preload: () => Promise<T> } {
   let p: Promise<{ default: T }>;
-  return ((props: any) => {
+  const wrap: T & { preload?: () => Promise<T> } = ((props: any) => {
     const ctx = sharedConfig.context;
     let comp: () => T | undefined;
     if (ctx && sharedConfig.resources) {
@@ -204,4 +206,6 @@ export function lazy<T extends Component<any>>(fn: () => Promise<{ default: T }>
         })
     );
   }) as T;
+  wrap.preload = () => (p || (p = fn())).then(mod => mod.default);
+  return wrap as T & { preload: () => Promise<T> };
 }

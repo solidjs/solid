@@ -310,7 +310,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
   const p = fn();
   const contexts = new Set<SuspenseContextType>();
   p.then(mod => (resolved = mod.default));
-  return (props: any) => {
+  const wrap = (props: any) => {
     const id = sharedConfig.context!.id + sharedConfig.context!.count++;
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
@@ -325,6 +325,8 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
     });
     return "";
   };
+  wrap.preload = () => {};
+  return wrap;
 }
 
 function suspenseComplete(c: SuspenseContextType) {
