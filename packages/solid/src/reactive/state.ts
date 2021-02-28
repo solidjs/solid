@@ -104,6 +104,14 @@ export function proxyDescriptor(target: StateNode, property: string | number | s
   return desc;
 }
 
+export function createDataNode() {
+  const [s, set] = ("_SOLID_DEV_"
+    ? createSignal(undefined, false, { internal: true })
+    : createSignal()) as [{ (): void; set: () => void }, () => void];
+  s.set = set;
+  return s;
+}
+
 const proxyTraps: ProxyHandler<StateNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
@@ -115,20 +123,12 @@ const proxyTraps: ProxyHandler<StateNode> = {
     if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node =
-          nodes._ ||
-          (nodes._ = "_SOLID_DEV_"
-            ? createSignal(undefined, false, { internal: true })
-            : createSignal());
-        node[0]();
+        node = nodes._ || (nodes._ = createDataNode());
+        node();
       }
       nodes = getDataNodes(target);
-      node =
-        nodes[property] ||
-        (nodes[property] = "_SOLID_DEV_"
-          ? createSignal(undefined, false, { internal: true })
-          : createSignal());
-      node[0]();
+      node = nodes[property] || (nodes[property] = createDataNode());
+      node();
     }
     return wrappable
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
@@ -154,8 +154,8 @@ export function setProperty(state: StateNode, property: string | number, value: 
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && node[1](value);
-  notify && (node = nodes._) && node[1]();
+  (node = nodes[property]) && node.set();
+  notify && (node = nodes._) && node.set();
 }
 
 function mergeState(state: StateNode, value: Partial<StateNode>) {

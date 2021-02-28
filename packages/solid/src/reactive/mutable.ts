@@ -3,6 +3,7 @@ import {
   unwrap,
   isWrappable,
   getDataNodes,
+  createDataNode,
   $RAW,
   $NODE,
   $PROXY,
@@ -24,20 +25,12 @@ const proxyTraps: ProxyHandler<StateNode> = {
     if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
-        node =
-          nodes._ ||
-          (nodes._ = "_SOLID_DEV_"
-            ? createSignal(undefined, false, { internal: true })
-            : createSignal());
-        node[0]();
+        node = nodes._ || (nodes._ = createDataNode());
+        node();
       }
       nodes = getDataNodes(target);
-      node =
-        nodes[property] ||
-        (nodes[property] = "_SOLID_DEV_"
-          ? createSignal(undefined, false, { internal: true })
-          : createSignal());
-      node[0]();
+      node = nodes[property] || (nodes[property] = createDataNode());
+      node();
     }
     return wrappable
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
