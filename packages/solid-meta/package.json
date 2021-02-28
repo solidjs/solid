@@ -1,7 +1,7 @@
 {
   "name": "solid-meta",
   "description": "Solid wrapper for Styled JSX",
-  "version": "0.24.7",
+  "version": "0.24.9",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -32,6 +32,6 @@
     "solid-js": "^0.24.0"
   },
   "devDependencies": {
-    "solid-js": "^0.24.7"
+    "solid-js": "^0.24.9"
   }
 }
