@@ -9,8 +9,9 @@
     "type": "git",
     "url": "https://github.com/ryansolid/solid"
   },
-  "main": "dist/solid.cjs",
-  "module": "dist/solid.js",
+  "browser": "dist/solid.js",
+  "main": "dist/static.cjs",
+  "module": "dist/static.js",
   "types": "types/index.d.ts",
   "sideEffects": false,
   "type": "module",
