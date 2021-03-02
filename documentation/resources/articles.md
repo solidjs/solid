@@ -9,7 +9,8 @@
 
 ## Latest Articles
 
-- [A Hands-on Introduction to Fine-Grained Reactivity](https://dev.to/ryansolid/a-hands-on-introduction-to-fine-grained-reactivity-3ndf)
+- [Building a Reactive Library from Scratch](https://dev.to/ryansolid/building-a-reactive-library-from-scratch-1i0p) Build a reactive library in only 50 lines of code.
+- [A Hands-on Introduction to Fine-Grained Reactivity](https://dev.to/ryansolid/a-hands-on-introduction-to-fine-grained-reactivity-3ndf) Learn reactivity by example.
 - [5 Ways SolidJS Differs from Other JS Frameworks](https://dev.to/ryansolid/5-ways-solidjs-differs-from-other-js-frameworks-1g63) Discover what sets Solid apart from other JS frameworks
 - [SolidJS: The Tesla of JavaScript Frameworks?](https://medium.com/@ryansolid/solidjs-the-tesla-of-javascript-ui-frameworks-6a1d379bc05e) Tech built for Economy can be used for Performance
 - [The Journey to Isomorphic JavaScript Performance](https://indepth.dev/the-journey-to-isomorphic-rendering-performance) Finding the right SSR solution for Solid.
