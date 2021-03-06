@@ -32,5 +32,8 @@
   },
   "devDependencies": {
     "solid-js": "^0.24.12"
+  },
+  "jest": {
+    "preset": "solid-jest/preset/browser"
   }
 }

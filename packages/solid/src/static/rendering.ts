@@ -219,7 +219,7 @@ type SuspenseContextType = {
 };
 
 const SuspenseContext = createContext<SuspenseContextType>();
-let resourceContext = null;
+let resourceContext: any[] | null = null;
 export function createResource<T, U>(
   key: U | false | (() => U | false),
   fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
@@ -234,7 +234,7 @@ export function createResource<T, U>(
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.context!.id + sharedConfig.context!.count++;
   let resource: { ref?: any; data?: T } = {};
-  let p: Promise<T> | T;
+  let p: Promise<T> | T | null;
   if (sharedConfig.context!.async) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
@@ -243,7 +243,7 @@ export function createResource<T, U>(
     }
   }
   const read = () => {
-    if (resourceContext && p) resourceContext.push(p);
+    if (resourceContext && p) resourceContext.push(p!);
     const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
     if (sharedConfig.context!.async && !resolved) {
       const ctx = useContext(SuspenseContext);

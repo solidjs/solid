@@ -48,10 +48,11 @@
 - [Vite Template Solid](https://github.com/amoutonbrady/vite-template-solid) - Vite
 
 ## Tooling
+- [Solid Refresh](https://github.com/ryansolid/solid-refresh) Universal plugin for HMR
+- [Solid Jest](https://github.com/ryansolid/solid-jest) Presets to test Solid for Browser or Node
 - [Solid Testing Library](https://github.com/ryansolid/solid-testing-library) Solid's Testing Library
 - [Create Solid](https://github.com/ryansolid/create-solid) Solid's port of Create React App.
 - [Vite Plugin Solid](https://github.com/amoutonbrady/vite-plugin-solid) Solid plugin for Vite.
-- [Solid Hot Loader](https://github.com/ryansolid/solid-hot-loader) Webpack Loader for HMR for Solid Components.
 - [Solid Playground](https://github.com/ryansolid/solid-playground) A playground for Solid.
 - [Solid Debug](https://github.com/amoutonbrady/solid-debug) Simple visual debugger for Solid.
 - [Solid Esbuild Plugin](https://github.com/amoutonbrady/esbuild-plugin-solid) Solid plugin for Esbuild.
