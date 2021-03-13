@@ -30,7 +30,12 @@ jobs:
     run: |
       npm run test
       npm run test:coverage
-      npm run report:coverage
+
+  - name: Coveralls
+    uses: coverallsapp/github-action@master
+    with:
+      base-path: packages/solid
+      github-token: ${{ secrets.GITHUB_TOKEN }
 
   - name: Archive production artifacts
     uses: actions/upload-artifact@v2
