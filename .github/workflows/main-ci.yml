@@ -13,7 +13,7 @@ jobs:
   runs-on: ubuntu-latest
   strategy:
     matrix:
-      node: [ '12', '14' ]
+      node: '14'
   steps:
   - uses: actions/checkout@v2
   - uses: actions/setup-node@v2
@@ -35,6 +35,7 @@ jobs:
     uses: coverallsapp/github-action@master
     with:
       base-path: packages/solid
+      path-to-lcov: "./packages/solid/coverage/lcov.info"
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   - name: Archive production artifacts
