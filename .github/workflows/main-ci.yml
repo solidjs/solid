@@ -1,0 +1,41 @@
+name: 'Solid CI'
+
+on:
+  pull_request:
+    branches:
+      - '*'
+  push:
+    branches:
+      - master
+
+jobs:
+ job:
+  runs-on: ubuntu-latest
+  strategy:
+    matrix:
+      node: [ '12', '14' ]
+  steps:
+  - uses: actions/checkout@v2
+  - uses: actions/setup-node@v2
+    with:
+      node-version: ${{ matrix.node }}
+
+  - name: Installing deps
+    run: npm install
+
+  - name: Building
+    run: npm run build
+
+  - name: Testing & Coverage
+    run: |
+      npm run test
+      npm run test:coverage
+      npm run report:coverage
+
+  - name: Archive production artifacts
+    uses: actions/upload-artifact@v2
+    with:
+      name: dist-folder
+      path: |
+        '*/dist'
+        '*/types'
