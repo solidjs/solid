@@ -1,4 +1,5 @@
 import { untrack, createSignal, createResource, createMemo, $LAZY } from "../reactive/signal";
+import { $PROXY } from "../reactive/state";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
 
@@ -38,7 +39,8 @@ const propTraps: ProxyHandler<{
   has: (k: string | number | symbol) => boolean;
   keys: () => string[];
 }> = {
-  get(_, property) {
+  get(_, property, receiver) {
+    if (property === $PROXY) return receiver;
     return _.get(property);
   },
   has(_, property) {

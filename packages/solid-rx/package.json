@@ -21,8 +21,7 @@
     "prebuild": "npm run clean",
     "clean": "rimraf dist/ types/ coverage/",
     "build": "rollup -c && tsc",
-    "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test": "jest"
   },
   "bugs": {
     "url": "https://github.com/ryansolid/solid/issues"

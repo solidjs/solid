@@ -84,16 +84,16 @@ export function Match<T>(props: MatchProps<T>) {
 }
 
 export function ErrorBoundary(props: {
-  fallback: JSX.Element | ((err: any) => JSX.Element);
+  fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }) {
-  const [errored, setErrored] = createSignal();
+  const [errored, setErrored] = createSignal<any>();
   onError(setErrored);
   let e: any;
   return createMemo(() => {
     if ((e = errored()) != null) {
       const f = props.fallback;
-      return typeof f === "function" && f.length ? untrack(() => f(e)) : f;
+      return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(null))) : f;
     }
     return props.children;
   }) as () => JSX.Element;

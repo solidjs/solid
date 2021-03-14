@@ -1,6 +1,6 @@
 ## <img src="https://raw.githubusercontent.com/ryansolid/solid/master/assets/logo.png" alt="Solid" width="500"/><br>
 
-[![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
+[![Build Status](https://github.com/ryansolid/solid/workflows/Solid%20CI/badge.svg)](https://github.com/ryansolid/solid/actions/workflows/main-ci.yml)
 [![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)

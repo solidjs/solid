@@ -502,6 +502,7 @@ export function createResource<T, U>(
       loadEnd(pr, untrack(s)!);
       return;
     }
+    if (Transition && pr) Transition.promises.delete(pr);
     const p = initP || fetcher(lookup, s);
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {

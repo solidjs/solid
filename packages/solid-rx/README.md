@@ -1,5 +1,5 @@
 # `solid-rx`
-[![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
+[![Build Status](https://github.com/ryansolid/solid/workflows/Solid%20CI/badge.svg)](https://github.com/ryansolid/solid/actions/workflows/main-ci.yml)
 [![NPM Version](https://img.shields.io/npm/v/solid-rx.svg?style=flat)](https://www.npmjs.com/package/solid-rx)
 ![](https://img.shields.io/librariesio/release/npm/solid-rx)
 ![](https://img.shields.io/npm/dm/solid-rx.svg?style=flat)
