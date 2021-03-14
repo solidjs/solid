@@ -186,9 +186,9 @@ Catches uncaught errors and renders fallback content.
 
 ### Index
 
-> **Note:** You should never use this unless you know exactly what you are doing. Use `<For />` instead. Non-keyed or keyed by index is a dangerous anti-pattern that should never be used if it can be avoided. It can mangle DOM state breaking(or incurring extra cost) in CSS animations/transisions, Rich DOM elements, Web Components, and DOM level plugins. With Solid you do not need an explicit key. This exists for iterating over arrays of mutable primitive values or integration with poorly designed benchmarks and libraries which default to this behavior.
+Non-Keyed list iteration (rows keyed to index). This useful when there is no conceptual key, like if the data is primitives and it is the index that is fixed rather than the value. Useful nested reactivity when the data is simple strings/numbers and not models.
 
-Non-Keyed list iteration (rows keyed to index). Item is a signal:
+The item is a signal:
 ```jsx
 <Index each={state.list} fallback={<div>Loading...</div>}>
   {item => <div>{item()}</div>}

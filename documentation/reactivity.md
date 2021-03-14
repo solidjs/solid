@@ -25,7 +25,9 @@ render(() => <App />, document.getElementById("app"));
 
 ## Signals
 
-Signals are the glue that hold the library together. They are a simple primitive that contain values that change over time. With Signals you can track all sorts of changes from various sources in your applications. They are not tied to any specific component and can be used wherever whenever.
+Signals are the glue that hold the library together. They are a simple primitive that contain values that change over time. Each Signal comes with a separate setter in a tuple. This setter is the only way to update the Signal's value.
+
+With Signals you can track all sorts of changes from various sources in your applications. They are not tied to any specific component and can be used wherever whenever.
 
 ```js
 import { createSignal, onCleanup } from "solid-js";
@@ -37,59 +39,54 @@ function createTick(delay) {
   return getCount;
 }
 ```
+## Effects
 
-## Reactive Scope and Tracking
-
-Signals are special functions that when executed return their value. In addition they are trackable when executed under a reactive scope. This means that when their value is read (executed) the currently executing reactive scope is now subscribed to the Signal and will re-execute whenever the Signal is updated.
-
-This method of tracking wraps the execution stack so Signals can be accessed any number of levels deep. In so, by wrapping a Signal read in a thunk `() => signal()` you have effectively created a derived signal that can be tracked as well. The same holds true for accessing props or Solid's reactive State proxies. Want to use state as a signal just wrap it in a function:
+When we want our Signals to affect the world we use Effects. Effects wrap expressions that contain Signals and re-execute them everytime those Signals change. The most common ones are JSX bindings we can manually create them as well.
 
 ```js
-// I can be tracked later
-const firstName = () => state.user.firstName;
+import { createSignal, onCleanup } from "solid-js";
 
-return <div>{firstName()}</div>;
-```
+function logTick(delay) {
+  const [getCount, setCount] = createSignal(0),
+    handle = setInterval(() => setCount(getCount() + 1), delay);
+  onCleanup(() => clearInterval(handle));
 
-These are just functions that can be tracked and return a value. No additional primitive or method is needed for them to work as Signals in their own right. This is because Signals are readonly. Any pure function that wraps a signal is also a Signal.
-
-However, you need another primitive to actually execute the work and track the these signals.
-
-## Computations
-
-A computation is calculation over a function execution that automatically and dynamically tracks any child signals that are accessed during that execution. A computation goes through a cycle on execution where it releases its previous execution's dependencies, then executes grabbing the current dependencies.
-
-There are 2 main types of computations. Those that are pure and meant to derive a value called Memos and those that update the outside world and produce side effects, aptly called Effects.
-
-```js
-import { createSignal, createEffect, createMemo } from "solid-js";
-
-const [count, setCount] = createSignal(1),
-  doubleCount = createMemo(() => count() * 2);
-createEffect(() => console.log(doubleCount()));
-setCount(count() + 1);
-
-// 2
-// 4
+  // logs the count every `delay` interval
+  createEffect(() => console.log(getCount()));
+}
 ```
 
 Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX(code between the parenthesis `{}`), the compiler is wrapping it in a function and passing it to a `createEffect` call.
 
-Memos allow us to store and access values without re-evaluating them until their dependencies change. They are very similar to derived Signals mentioned above except they only re-evaluate when their dependencies change and return the last cached value on read.
+## Memos
 
-Keep in mind memos are only necessary if you wish to prevent re-evaluation when the value is read. Useful for expensive operations like DOM Node creation. Any example with a memo could also just be a function and effectively be the same without caching as it's just another signal.
+Wrapping a Signal read in a thunk `() => signal()` creates a derived signal that can be tracked as well. The same holds true for accessing props or Solid's reactive State proxies. Want to use state as a signal just wrap it in a function. Any pure function that wraps one ore more Signal executions is also a Signal.
 
 ```js
 import { createSignal, createEffect } from "solid-js";
 
-const [count, setCount] = createSignal(1),
-  doubleCount = () => count() * 2;
-// No memo still works
+const [count, setCount] = createSignal(1);
+const doubleCount = () => count() * 2;
+
 createEffect(() => console.log(doubleCount()));
 setCount(count() + 1);
 
 // 2
 // 4
+```
+
+Memos allow us to store and access values without re-evaluating them until their dependencies change. They are very similar to derived Signals mentioned above except they only re-evaluate when their dependencies change and return the last cached value on read.
+
+Keep in mind memos are only necessary if you wish to prevent re-evaluation when the value is read. Useful for expensive operations like DOM Node creation. Otherwise they are not very different from other Signals.
+
+```js
+import { createSignal, createMemo, createEffect } from "solid-js";
+
+const [count, setCount] = createSignal(1);
+const expensiveCount = createMemo(() => expensiveCalculation(count()));
+
+createEffect(() => console.log(expensiveCount()));
+setCount(count() + 1);
 ```
 
 Memos also pass the previous value on each execution. This is useful for reducing operations (obligatory Redux in a couple lines example):
@@ -121,7 +118,7 @@ That being said there are plenty of reasons to use actual Redux.
 
 ## Managing Dependencies and Updates
 
-Sometimes we want to be explicit about what triggers computations to update and nothing else. Solid offers ways to explicitly set dependencies or to not track under a tracking scope at all.
+Sometimes we want to be explicit about what triggers Effects and Memos to update and nothing else. Solid offers ways to explicitly set dependencies or to not track under a tracking scope at all.
 
 ```js
 const [a, setA] = createSignal(1);
@@ -167,17 +164,13 @@ Solid's primitives combine wonderfully. They encourage composing more sophistica
 
 ```js
 // Solid's fine-grained exivalent to React's `useReducer` Hook
-const useReducer = (reducer, init) => {
-  const [state, setState] = createState(init),
-    [getAction, dispatch] = createSignal();
-  createComputed(prevState => {
-    let action, next;
-    if (!(action = getAction())) return prevState;
-    next = reducer(prevState, action);
-    setState(reconcile(next));
-    return next;
-  }, init);
-  return [state, dispatch];
+const useReducer = (reducer, state) => {
+  const [store, setStore] = createState(state);
+  const dispatch = (action) => {
+    state = reducer(state, action);
+    setStore(reconcile(state));
+  }
+  return [store, dispatch];
 };
 ```
 
