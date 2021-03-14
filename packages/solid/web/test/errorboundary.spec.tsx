@@ -9,6 +9,15 @@ describe("Testing ErrorBoundary control flow", () => {
     throw new Error("Failure");
   };
 
+  let first = true;
+  const Component2 = () => {
+    if (first) {
+      first = false;
+      throw new Error("Failure");
+    }
+    return "Success";
+  };
+
   test("Create an Error", () => {
     createRoot(dispose => {
       disposer = dispose;
@@ -23,6 +32,19 @@ describe("Testing ErrorBoundary control flow", () => {
       <div ref={div}><ErrorBoundary fallback={e => e.message}><Component /></ErrorBoundary></div>;
     });
     expect(div.innerHTML).toBe("Failure");
+  });
+
+  test("Create an Error callback and reset", () => {
+    let r;
+    createRoot(dispose => {
+      disposer = dispose;
+      <div ref={div}><ErrorBoundary fallback={(e, reset) => {
+        r = reset;
+        return e.message;
+      }}><Component2 /></ErrorBoundary></div>;
+    });
+    expect(div.innerHTML).toBe("Failure");
+    r();
   });
 
   test("dispose", () => disposer());

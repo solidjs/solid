@@ -1,0 +1,13 @@
+{
+  "name": "test-integration",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:imports",
+    "test:integrations": "jest",
+    "test:imports": "node test-imports.mjs"
+  },
+  "dependencies": {
+    "solid-js": "^0.24.13",
+    "babel-preset-solid": "^0.24.13"
+  }
+}

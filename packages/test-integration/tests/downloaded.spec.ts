@@ -70,7 +70,7 @@ describe("Downloaded tests", () => {
   let packedSolidPkg: string, packedBabelSolidPkg: string, dependencies: string[];
   beforeAll(() => {
     // Check if solid is built
-    if (!existsSync(resolve(join(dirname(__dirname), "dist")))) {
+    if (!existsSync(resolve(join(__dirname, "../../solid/dist")))) {
       throw new Error("Solid is not built. Run `npm run build`");
     }
 
@@ -80,7 +80,7 @@ describe("Downloaded tests", () => {
     }
 
     // package solid and babel-preset-solid
-    packedSolidPkg = pack(dirname(__dirname));
+    packedSolidPkg = pack(resolve(__dirname, "../../solid"));
     packedBabelSolidPkg = pack(resolve(__dirname, "../../babel-preset-solid"));
     dependencies = [packedSolidPkg, packedBabelSolidPkg];
   });
