@@ -43,7 +43,7 @@ const { name } = state;
 
 ## Children
 
-Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array.
+Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array. Normally you pass them through to the JSX view. However if you want to interact with the suggested method is the `children` helper which resolves any downstream control flows and returns a memo.
 
 ```jsx
 // single child
@@ -52,16 +52,32 @@ const Label = (props) => <div class="label">Hi, { props.children }</div>
 <Label><span>Josie</span></Label>
 
 // multi child
-const List = (props) => <ul>{ props.children.map(item => <li>{item}</li>) }</ul>;
+const List = (props) => <div>{props.children}</div>;
 
 <List>
   <div>First</div>
   {state.expression}
   <Label>Judith</Label>
 </List>
+
+// map children
+const List = (props) => <ul>
+  <For each={props.children}>{item => <li>{item}</li>}</For>
+</ul>;
+
+// modify and map children using helper
+const List = (props) => {
+  const memo = children(() => props.children);
+  createEffect(() => {
+    const children = memo();
+    children.forEach((c) => c.classList.add("list-child"))
+  })
+  return <ul>
+    <For each={memo()}>{item => <li>{item}</li>}</For>
+  </ul>;
 ```
 
-**Important:** Solid treats child tags as expensive expressions and wraps them the same way as dynamic reactive expressions. This means they evaluate lazily on `prop` access. Be careful accessing them multiple times or destructuring before the place you would use them in the view. This is because Solid doesn't have luxury of creating Virtual DOM nodes ahead of time then diffing them so resolution of these `props` must be lazy and deliberate.
+**Important:** Solid treats child tags as expensive expressions and wraps them the same way as dynamic reactive expressions. This means they evaluate lazily on `prop` access. Be careful accessing them multiple times or destructuring before the place you would use them in the view. This is because Solid doesn't have luxury of creating Virtual DOM nodes ahead of time then diffing them so resolution of these `props` must be lazy and deliberate. Use `children` helper if you wish to do this as it memoizes them.
 
 ## Props
 
