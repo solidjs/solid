@@ -376,6 +376,42 @@ describe("createSelector", () => {
     });
   });
 
+  test("double selection", done => {
+    createRoot(() => {
+      const [s, set] = createSignal<number>(-1),
+        isSelected = createSelector<number, number>(s);
+      let count = 0;
+      const list = Array.from({ length: 100 }, (_, i) =>
+        [createMemo(() => {
+          count++;
+          return isSelected(i) ? "selected" : "no";
+        }),
+        createMemo(() => {
+          count++;
+          return isSelected(i) ? "oui" : "non";
+        })]
+      );
+      expect(count).toBe(200);
+      expect(list[3][0]()).toBe("no");
+      expect(list[3][1]()).toBe("non");
+      setTimeout(() => {
+        count = 0;
+        set(3);
+        expect(count).toBe(2);
+        expect(list[3][0]()).toBe("selected");
+        expect(list[3][1]()).toBe("oui");
+        count = 0;
+        set(6);
+        expect(count).toBe(4);
+        expect(list[3][0]()).toBe("no");
+        expect(list[6][0]()).toBe("selected");
+        expect(list[3][1]()).toBe("non");
+        expect(list[6][1]()).toBe("oui");
+        done();
+      });
+    });
+  });
+
   test("zero index", done => {
     createRoot(() => {
       const [s, set] = createSignal<number>(-1),

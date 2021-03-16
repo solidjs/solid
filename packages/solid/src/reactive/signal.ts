@@ -201,16 +201,18 @@ export function createSelector<T, U>(
   source: () => T,
   fn: (a: U, b: T) => boolean = equalFn as any
 ) {
-  let subs = new Map<U, Computation<any>>();
+  let subs = new Map<U, Set<Computation<any>>>();
   const node = createComputation(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
         if (fn(key, v) || (p !== undefined && fn(key, p))) {
-          const c = subs.get(key)!;
-          c.state = STALE;
-          if (c.pure) Updates!.push(c);
-          else Effects!.push(c);
+          const l = subs.get(key)!;
+          for (const c of l.values()) {
+            c.state = STALE;
+            if (c.pure) Updates!.push(c);
+            else Effects!.push(c);
+          }
         }
       return v;
     },
@@ -220,8 +222,12 @@ export function createSelector<T, U>(
   updateComputation(node);
   return (key: U) => {
     if (Listener) {
-      subs.set(key, Listener);
-      onCleanup(() => subs.delete(key));
+      let l: Set<Computation<any>> | undefined;
+      if ((l = subs.get(key))) l.add(Listener);
+      else subs.set(key, (l = new Set([Listener])));
+      onCleanup(() => {
+        l!.size > 1 ? l!.delete(Listener!) : subs.delete(key);
+      });
     }
     return fn(key, node.value!);
   };
