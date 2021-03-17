@@ -73,6 +73,7 @@ interface Transition {
   promises: Set<Promise<any>>;
   disposed: Set<Computation<any>>;
   running: boolean;
+  cb: (() => void)[];
 }
 
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Owner): T {
@@ -221,12 +222,13 @@ export function createSelector<T, U>(
   );
   updateComputation(node);
   return (key: U) => {
-    if (Listener) {
+    let listener: Computation<any> | null;
+    if (listener = Listener) {
       let l: Set<Computation<any>> | undefined;
-      if ((l = subs.get(key))) l.add(Listener);
-      else subs.set(key, (l = new Set([Listener])));
+      if ((l = subs.get(key))) l.add(listener);
+      else subs.set(key, (l = new Set([listener])));
       onCleanup(() => {
-        l!.size > 1 ? l!.delete(Listener!) : subs.delete(key);
+        l!.size > 1 ? l!.delete(listener!) : subs.delete(key);
       });
     }
     return fn(key, node.value!);
@@ -251,10 +253,10 @@ export function batch<T>(fn: () => T): T {
   return result;
 }
 
-export function useTransition(): [() => boolean, (fn: () => void) => void] {
+export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void] {
   return [
     transPending,
-    (fn: () => void) => {
+    (fn: () => void, cb?: () => void) => {
       if (SuspenseContext) {
         Transition ||
           (Transition = {
@@ -262,11 +264,14 @@ export function useTransition(): [() => boolean, (fn: () => void) => void] {
             effects: [],
             promises: new Set(),
             disposed: new Set(),
-            running: true
+            running: true,
+            cb: []
           });
+        cb && Transition.cb.push(cb)
         Transition.running = true;
       }
       batch(fn);
+      if (!SuspenseContext && cb) cb();
     }
   ];
 }
@@ -729,6 +734,7 @@ function completeUpdates(wait: boolean) {
     Updates = null;
   }
   if (wait) return;
+  let cbs;
   if (Transition && Transition.running) {
     if (Transition.promises.size) {
       Transition.running = false;
@@ -739,6 +745,7 @@ function completeUpdates(wait: boolean) {
     }
     // finish transition
     const sources = Transition.sources;
+    cbs = Transition.cb;
     Transition = null;
     batch(() => {
       sources.forEach(v => {
@@ -763,6 +770,7 @@ function completeUpdates(wait: boolean) {
     Effects = null;
     if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
   }
+  if (cbs) cbs.forEach(cb => cb());
 }
 
 function runQueue(queue: Computation<any>[]) {

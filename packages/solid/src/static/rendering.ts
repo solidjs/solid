@@ -427,7 +427,7 @@ export function awaitSuspense(fn: () => any) {
         if (value) cache[key] = value;
         registry.delete(key);
         if (!registry.size)
-          queueMicrotask(() => {
+          Promise.resolve().then(() => {
             let source = resolveSSRNode(res());
             let final = "";
             let match: any;

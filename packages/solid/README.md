@@ -95,7 +95,7 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 
 For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 ```js
-"compilerOptions" {
+"compilerOptions": {
   "jsx": "preserve",
   "jsxImportSource": "solid-js",
 }

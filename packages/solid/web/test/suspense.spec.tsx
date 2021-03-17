@@ -38,9 +38,11 @@ describe("Testing Suspense", () => {
 
   test("Toggle with refresh transition", done => {
     const [pending, start] = useTransition();
-    start(() => trigger(true));
+    let finished = false;
+    start(() => trigger(true), () => finished = true);
     expect(div.innerHTML).toBe("Hi, .Hello ");
     expect(pending()).toBe(true);
+    expect(finished).toBe(false);
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, .Hello ");
       expect(pending()).toBe(true);
@@ -48,6 +50,7 @@ describe("Testing Suspense", () => {
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
       expect(pending()).toBe(false);
+      expect(finished).toBe(true);
       done();
     }, 400);
   });
