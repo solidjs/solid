@@ -49,6 +49,7 @@ interface Owner {
   attached?: boolean;
   sourceMap?: Record<string, { value: unknown }>;
   name?: string;
+  componentName?: string;
 }
 
 interface Computation<T> extends Owner {
@@ -223,7 +224,7 @@ export function createSelector<T, U>(
   updateComputation(node);
   return (key: U) => {
     let listener: Computation<any> | null;
-    if (listener = Listener) {
+    if ((listener = Listener)) {
       let l: Set<Computation<any>> | undefined;
       if ((l = subs.get(key))) l.add(listener);
       else subs.set(key, (l = new Set([listener])));
@@ -267,7 +268,7 @@ export function useTransition(): [() => boolean, (fn: () => void, cb?: () => voi
             running: true,
             cb: []
           });
-        cb && Transition.cb.push(cb)
+        cb && Transition.cb.push(cb);
         Transition.running = true;
       }
       batch(fn);
@@ -353,6 +354,21 @@ export function runWithOwner(o: Owner, fn: () => any) {
   } finally {
     Owner = prev;
   }
+}
+
+export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+  const c: Partial<Memo<JSX.Element>> = createComputation(
+    () => untrack(() => Comp(props)),
+    undefined,
+    true
+  );
+  c.pending = NOTPENDING;
+  c.observers = null;
+  c.observerSlots = null;
+  c.state = 0;
+  c.componentName = Comp.name;
+  updateComputation(c as Memo<JSX.Element>);
+  return c.value;
 }
 
 export function hashValue(v: any) {
@@ -913,7 +929,7 @@ function serializeChildren(root: Owner): GraphRecord {
   const result: GraphRecord = {};
   for (let i = 0, len = root.owned!.length; i < len; i++) {
     const node = root.owned![i];
-    result[node.name!] = {
+    result[node.componentName ? `${node.componentName}:${node.name}` : node.name!] = {
       ...serializeValues(node.sourceMap),
       ...(node.owned ? serializeChildren(node) : {})
     };

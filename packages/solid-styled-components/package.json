@@ -21,8 +21,8 @@
     "test:types": "tsc --project tsconfig.test.json"
   },
   "dependencies": {
-    "csstype": "^3.0.3",
-    "goober": "^2.0.15"
+    "csstype": "^2.6.2",
+    "goober": "^2.0.35"
   },
   "peerDependencies": {
     "solid-js": "^0.24.0"

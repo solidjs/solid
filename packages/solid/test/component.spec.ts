@@ -1,4 +1,4 @@
-import { createComponent, mergeProps, splitProps, createState } from "../src";
+import { createRoot, createComponent, mergeProps, splitProps, createState } from "../src";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -16,8 +16,10 @@ const Comp2 = (props: { greeting: string; name: string, optional?: string }) => 
 
 describe("CreateComponent", () => {
   test("create simple component", () => {
-    const out = createComponent(Comp, { greeting: "Hi", get name() { return "dynamic" }});
-    expect(out).toBe("Hi dynamic");
+    createRoot(() => {
+      const out = createComponent(Comp, { greeting: "Hi", get name() { return "dynamic" }});
+      expect(out).toBe("Hi dynamic");
+    });
   });
 });
 
@@ -73,7 +75,9 @@ describe("Clone State", () => {
 
 describe("SplitProps Props", () => {
   test("SplitProps in two", () => {
-    const out = createComponent(Comp2, { greeting: "Hi", get name() { return "dynamic"; }});
-    expect(out).toBe("Hi dynamic");
+    createRoot(() => {
+      const out = createComponent(Comp2, { greeting: "Hi", get name() { return "dynamic"; }});
+      expect(out).toBe("Hi dynamic");
+    });
   })
 });

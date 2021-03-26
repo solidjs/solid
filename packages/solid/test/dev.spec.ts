@@ -4,7 +4,8 @@ import {
   createSignal,
   createState,
   createEffect,
-  serializeGraph
+  serializeGraph,
+  createComponent
 } from "../src";
 
 describe("Dev features", () => {
@@ -12,9 +13,14 @@ describe("Dev features", () => {
     let owner: ReturnType<typeof getOwner>, set1: (v: number) => number, setState1: any;
 
     const SNAPSHOTS = [
-      `{"s1773325850":5,"s1773325850-1":5,"s533736025":{"firstName":"John","lastName":"Smith"},"c-1":{"explicit":6}}`,
-      `{"s1773325850":7,"s1773325850-1":5,"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."},"c-1":{"explicit":6}}`
+      `{"s1773325850":5,"s1773325850-1":5,"c-1":{"explicit":6},"CustomComponent:c-2":{"s533736025":{"firstName":"John","lastName":"Smith"}}}`,
+      `{"s1773325850":7,"s1773325850-1":5,"c-1":{"explicit":6},"CustomComponent:c-2":{"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."}}}`
     ];
+    const CustomComponent = () => {
+      const [state, setState] = createState({ firstName: "John", lastName: "Smith" });
+      setState1 = setState;
+      return "";
+    }
     createRoot(() => {
       owner = getOwner();
       const [s, set] = createSignal(5);
@@ -22,9 +28,8 @@ describe("Dev features", () => {
       createEffect(() => {
         const [s] = createSignal(6, false, { name: "explicit" });
       });
-      const [state, setState] = createState({ firstName: "John", lastName: "Smith" });
+      createComponent(CustomComponent, {});
       set1 = set;
-      setState1 = setState;
     });
     expect(JSON.stringify(serializeGraph(owner!))).toBe(SNAPSHOTS[0]);
     set1!(7);

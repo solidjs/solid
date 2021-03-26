@@ -1,4 +1,4 @@
-import { untrack, createSignal, createResource, createMemo, $LAZY } from "../reactive/signal";
+import { untrack, createSignal, createResource, createMemo, $LAZY, devComponent } from "../reactive/signal";
 import { $PROXY } from "../reactive/state";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
@@ -23,10 +23,11 @@ export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): J
   if (sharedConfig.context) {
     const c = sharedConfig.context;
     setHydrateContext(nextHydrateContext());
-    const r = untrack(() => Comp(props as T));
+    const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props as T));
     setHydrateContext(c);
     return r;
   }
+  if ("_SOLID_DEV_") return devComponent(Comp, props);
   return untrack(() => Comp(props as T));
 }
 
