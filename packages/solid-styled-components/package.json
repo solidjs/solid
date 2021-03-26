@@ -1,7 +1,7 @@
 {
   "name": "solid-styled-components",
   "description": "Styled Components for Solid",
-  "version": "0.24.15",
+  "version": "0.24.16",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -28,8 +28,8 @@
     "solid-js": "^0.24.0"
   },
   "devDependencies": {
-    "babel-preset-solid": "^0.24.13",
-    "solid-js": "^0.24.15"
+    "babel-preset-solid": "^0.24.16",
+    "solid-js": "^0.24.16"
   },
   "jest": {
     "preset": "solid-jest/preset/browser"
