@@ -16,7 +16,6 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
-export const $LAZY = Symbol("lazy");
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false, true);
 export var Owner: Owner | null = null;
 export var Listener: Computation<any> | null = null;
@@ -443,19 +442,46 @@ export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
 }
-export function createResource<T, U>(
-  key: U | false | (() => U | false),
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  init?: T
-): [
+
+type ResourceReturn<T> = [
   Resource<T>,
   {
     mutate: (v: T | undefined) => T | undefined;
     refetch: () => void;
   }
-] {
+];
+
+export function createResource<T, U = true>(
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  options?: { initialValue?: T }
+): ResourceReturn<T>;
+export function createResource<T, U>(
+  fn: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  options?: { initialValue?: T }
+): ResourceReturn<T>;
+export function createResource<T, U>(
+  fn:
+    | U
+    | true
+    | false
+    | (() => U | false)
+    | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
+  fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
+  options: { initialValue?: T } = {}
+): ResourceReturn<T> {
+  if (arguments.length === 2) {
+    if (typeof fetcher === "object") {
+      options = fetcher;
+      fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+      fn = true;
+    };
+  } else if (arguments.length === 1) {
+    fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+    fn = true;
+  }
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal(init, true),
+    [s, set] = createSignal(options!.initialValue, true),
     [track, trigger] = createSignal<void>(),
     [loading, setLoading] = createSignal<boolean>(false, true);
 
@@ -464,7 +490,7 @@ export function createResource<T, U>(
     initP: Promise<T> | null = null,
     id: string | null = null,
     loadedUnderTransition = false,
-    dynamic = typeof key === "function";
+    dynamic = typeof fn === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -523,14 +549,15 @@ export function createResource<T, U>(
   }
   function load() {
     err = null;
-    let lookup = dynamic ? (key as () => U)() : (key as U);
+    let lookup = dynamic ? (fn as () => U)() : (fn as U);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
-    const p = initP || fetcher(lookup, s);
+    const p =
+      initP || (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(lookup, s);
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);

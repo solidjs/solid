@@ -200,7 +200,7 @@ Resource also returns actions that can be performed, like `refetch` and `mutate`
 ```js
 let [user, { refetch, mutate }] = createResource(
   () => `https://swapi.co/api/people/${props.userId}/`
-);
+fetchJSON);
 ```
 The first argument can be a unique string key or dynamically generated one that is automatically tracked in a function.
 
@@ -212,8 +212,8 @@ It is important to note that Suspense is tracked based on data requirements of t
 
 ```jsx
 // start loading data before any part of the page is executed.
-const [user] = createResource("user", fetchUser);
-const [posts] = createResource("posts", fetchPost);
+const [user] = createResource(fetchUser);
+const [posts] = createResource(fetchPost);
 
 function ProfilePage() {
   return (

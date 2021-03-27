@@ -1,4 +1,10 @@
-import { untrack, createSignal, createResource, createMemo, $LAZY, devComponent } from "../reactive/signal";
+import {
+  untrack,
+  createSignal,
+  createResource,
+  createMemo,
+  devComponent
+} from "../reactive/signal";
 import { $PROXY } from "../reactive/state";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
@@ -192,7 +198,7 @@ export function lazy<T extends Component<any>>(
       });
       comp = s;
     } else {
-      const [s] = createResource($LAZY, () => (p || (p = fn())).then(mod => mod.default));
+      const [s] = createResource(() => (p || (p = fn())).then(mod => mod.default));
       comp = s;
     }
     let Comp: T | undefined;

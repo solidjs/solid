@@ -218,22 +218,49 @@ type SuspenseContextType = {
   completed: () => void;
 };
 
-const SuspenseContext = createContext<SuspenseContextType>();
-let resourceContext: any[] | null = null;
-export function createResource<T, U>(
-  key: U | false | (() => U | false),
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  value?: T
-): [
+type ResourceReturn<T> = [
   Resource<T>,
   {
     mutate: (v: T | undefined) => T | undefined;
     refetch: () => void;
   }
-] {
+];
+
+const SuspenseContext = createContext<SuspenseContextType>();
+let resourceContext: any[] | null = null;
+export function createResource<T, U = true>(
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  options?: { initialValue?: T }
+): ResourceReturn<T>;
+export function createResource<T, U>(
+  fn: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  options?: { initialValue?: T }
+): ResourceReturn<T>;
+export function createResource<T, U>(
+  fn:
+    | U
+    | true
+    | false
+    | (() => U | false)
+    | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
+  fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
+  options: { initialValue?: T } = {}
+): ResourceReturn<T> {
+  if (arguments.length === 2) {
+    if (typeof fetcher === "object") {
+      options = fetcher;
+      fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+      fn = true;
+    }
+  } else if (arguments.length === 1) {
+    fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+    fn = true;
+  }
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.context!.id + sharedConfig.context!.count++;
   let resource: { ref?: any; data?: T } = {};
+  let value = options.initialValue;
   let p: Promise<T> | T | null;
   if (sharedConfig.context!.async) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
@@ -263,14 +290,22 @@ export function createResource<T, U>(
       return;
     }
     resourceContext = [];
-    const lookup = typeof key === "function" ? (key as () => U)() : key;
+    const lookup = typeof fn === "function" ? (fn as () => U)() : fn;
     if (resourceContext.length) {
-      p = Promise.all(resourceContext).then(() => fetcher((key as () => U)(), () => value));
+      p = Promise.all(resourceContext).then(() =>
+        (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(
+          (fn as () => U)(),
+          () => value
+        )
+      );
     }
     resourceContext = null;
     if (!p) {
       if (lookup == null || lookup === false) return;
-      p = fetcher(lookup, () => value);
+      p = (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(
+        lookup as U,
+        () => value
+      );
     }
     read.loading = true;
     if ("then" in p) {
@@ -279,7 +314,7 @@ export function createResource<T, U>(
         p.then(v => {
           value = v;
           read.loading = false;
-          p = null
+          p = null;
         });
         return;
       }
@@ -296,13 +331,7 @@ export function createResource<T, U>(
     p = null;
   }
   load();
-  return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as [
-    Resource<T>,
-    {
-      mutate: (v: T | undefined) => T | undefined;
-      refetch: () => void;
-    }
-  ]);
+  return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as ResourceReturn<T>);
 }
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
