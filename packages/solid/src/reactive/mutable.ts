@@ -1,4 +1,4 @@
-import { Listener, createSignal, hashValue, registerGraph, batch } from "./signal";
+import { Listener, hashValue, registerGraph, batch } from "./signal";
 import {
   unwrap,
   isWrappable,
@@ -37,13 +37,13 @@ const proxyTraps: ProxyHandler<StateNode> = {
       : value;
   },
 
-  set(target, property: string | number, value) {
-    setProperty(target, property, unwrap(value));
+  set(target, property, value) {
+    setProperty(target, property as string, unwrap(value));
     return true;
   },
 
-  deleteProperty(target, property: string | number) {
-    setProperty(target, property, undefined);
+  deleteProperty(target, property) {
+    setProperty(target, property as string, undefined);
     return true;
   },
 

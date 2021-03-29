@@ -53,7 +53,7 @@ render(() => <App />, document.getElementById("main"));
 
 ## Events
 
-`on_____` handlers are event handlers expecting a function. The compiler will delegate events where possible (Events that can be composed and bubble) else it will fall back to Level 1 spec "on_____" events.
+`on_____` handlers are event handlers expecting a function. The compiler will delegate events where possible (Events that can be composed and bubble) else it will fall back `el.addEventListener`.
 
 If you wish to bind a value to events pass an array handler instead and the second argument will be passed to your event handler as the first argument (the event will be second). This can improve performance in large lists when the event is delegated.
 
@@ -67,10 +67,10 @@ function handler(itemId, e) {/*...*/}
 
 This delegation solution works with Web Components and the Shadow DOM as well if the events are composed. That limits the list to custom events and most UA UI events like onClick, onKeyUp, onKeyDown, onDblClick, onInput, onMouseDown, onMouseUp, etc..
 
-To allow for casing to work all custom events should follow the all lowercase convention of native events. If you want to use different event convention (or use Level 3 Events "addEventListener") use the "on" or "onCapture" binding.
+To allow for casing to work all custom events should follow the all lowercase convention of native events. If you want to use different event convention (or use Level 3 Events "addEventListener") use the "on" or "oncapture" namespace binding.
 
 ```jsx
-<div on={{ "Weird-Event": e => alert(e.detail) }} />
+<div on:Weird-Event={e => alert(e.detail)} />
 ```
 
 ## Spreads
@@ -272,9 +272,9 @@ function App() {
 
 This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `ref` up a Component chain as you wish.
 
-## Custom Directives
+## Actions
 
-> Support for Namespaced JSX Attributes is coming to TypeScript in version 4.2
+> Support for Namespaced JSX Attributes is available in TypeScript 4.2
 
 Creating a Component is the cleanest way to package reusable functionality data and view behavior. Reactive primitive composition is often the best way to reuse data behavior. However sometimes there is a need for behavior that can be re-used cross DOM element.
 
@@ -294,6 +294,18 @@ function model(el, value) {
   const [field, setField] = value();
   createRenderEffect(() => el.value = field());
   el.addEventListener("input", e => setField(e.target.value));
+}
+```
+
+To register with TypeScript extend the JSX namespace.
+```ts
+declare module "solid-js" {
+  namespace JSX {
+    interface Actions {
+      draggable: boolean;
+      model: [() => any, (v: any) => any];
+    }
+  }
 }
 ```
 

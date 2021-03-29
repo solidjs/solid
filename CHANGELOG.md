@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.25.0 - 2021-03-28
+
+This release is about refining the the APIs as we approach the our release candidate for 1.0.
+
+### Breaking Changes
+
+#### Resource API
+
+Minor difference to allow the first argument to be optional and support more features in the future. New full signature is:
+
+```ts
+export function createResource<T, U>(
+  fn: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  options?: { initialValue?: T }
+): ResourceReturn<T>;
+```
+
+3rd argument is now an options object instead of just the initial value. This breaking. But this also allows the first argument to be optional for the non-tracking case. Need a promise that only loads once? Don't have need to re-use the fetcher. Do this:
+
+```js
+const [data] = createResource(
+  async () => (await fetch(`https://someapi.com/info`)).json()
+);
+```
+
+#### on/onCapture
+
+These are an escape hatch for unusual events. Previously these were custom attributes but now they are namespaced like:
+```jsx
+<div on:someUnusualEvent={e => console.log(e.target)} />
+```
+
+#### change `main` field to be node
+
+Now that we are supporting SSR for legacy(non-ESM) systems I need to use the main field to indicate a node env. We will be using the "browser" field for the client build in Solid. This straight up breaks Jest which doesn't respect that. I've created `solid-jest` to handle this.
+
+https://github.com/ryansolid/solid-jest
+
+### New Features
+
+#### Namespace Types
+Types added for Namespace attributes. You probably won't need most of these because they are for more advanced usage. However to use them you need to extend the JSX Namespace:
+
+```ts
+declare module "solid-js" {
+  namespace JSX {
+    interface Actions {  // use:____
+
+    }
+    interface ExplicitProperties { // prop:____
+
+    }
+    interface ExplicitAttributes { // attr:____
+
+    }
+    interface CustomEvents { // on:____
+
+    }
+    interface CustomCaptureEvents { // oncapture:____
+
+    }
+  }
+}
+```
+
+#### Lazy component preload
+Lazy components now have a preload function so you can pre-emptively load them.
+```js
+const LazyComp = lazy(() => import("./some-comp"))
+
+// load ahead of time
+LazyComp.preload();
+```
+
+#### Error Boundary reset
+Error boundaries now have the ability to reset themselves and try again. It is the second argument to the fallback.
+
+```js
+<ErrorBoundary fallback={(err, reset) => {
+  if (count++ < 3) return reset();
+  return "Failure";
+}}><Component /></ErrorBoundary>
+```
+
 ## 0.24.0 - 2021-02-03
 
 This release is the start of the rework of the SSR solution. Consolidating them under a single method. Unfortunately this one comes with several breaking changes.
@@ -47,6 +132,7 @@ Solid is now being more strict on what events it delegates. Limiting to standard
 #### State getters no longer memos
 
 Automatic memos put some constraints on the disposal system that get in the way of making the approach flexible to hold all manner of reactive primitives. Some previous limitations included not being able to have nested getters. You can still manually create a memo and put it in a getter but the default will not be memoized.
+
 ### New Features
 
 #### `children` helper
@@ -54,15 +140,16 @@ Automatic memos put some constraints on the disposal system that get in the way 
 Resolves children and returns a memo. This makes it much easier to deal with children. Using same mechanism `<Switch>` can now have dynamic children like `<For>` inside.
 
 #### "solid" Export Conidition
+
 This is the way to package the JSX components to be compiled to work on server or client. By putting the "solid" condition the source JSX will be prioritized over normal browser builds.
 
 ### Bug Fixes
 
-* Top level primitive values not working with `reconcile`
-* Fix Dynamic Components to handle SVG
-* Rename potentially conflicting properties for event delegtion
-* Fixed State spreads to not loose reactiviy. Added support for dynamically created properties to track in spreads and helpers
-* TypeScript, always TypeScript
+- Top level primitive values not working with `reconcile`
+- Fix Dynamic Components to handle SVG
+- Rename potentially conflicting properties for event delegtion
+- Fixed State spreads to not loose reactiviy. Added support for dynamically created properties to track in spreads and helpers
+- TypeScript, always TypeScript
 
 ## 0.23.0 - 2020-12-05
 
@@ -76,12 +163,15 @@ For users TS 4.1 or above add to your tsconfig to have JSX types in all your TSX
   "jsxImportSource": "solid-js",
 }
 ```
+
 Or mixing and matching? You can set JSX types per file using the pragma at the top of each file:
+
 ```js
 /* @jsxImportSource solid-js */
 ```
 
 You can now import `JSX` types directly from Solid as neccessary:
+
 ```js
 import { JSX } from "solid-js";
 ```

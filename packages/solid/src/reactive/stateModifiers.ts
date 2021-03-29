@@ -116,20 +116,20 @@ export function reconcile<T>(
   };
 }
 
-const setterTraps = {
-  get(target: StateNode, property: string | number | symbol): any {
+const setterTraps: ProxyHandler<StateNode> = {
+  get(target, property): any {
     if (property === $RAW) return target;
     const value = target[property as string | number];
     return isWrappable(value) ? new Proxy(value, setterTraps) : value;
   },
 
-  set(target: StateNode, property: string | number, value: any) {
-    setProperty(target, property, unwrap(value));
+  set(target, property, value) {
+    setProperty(target, property as string, unwrap(value));
     return true;
   },
 
-  deleteProperty(target: StateNode, property: string | number) {
-    setProperty(target, property, undefined);
+  deleteProperty(target, property) {
+    setProperty(target, property as string, undefined);
     return true;
   }
 };

@@ -8,7 +8,7 @@ export interface Task {
 
 // experimental new feature proposal stuff
 type NavigatorScheduling = Navigator & {
-  scheduling: { isInputPending: () => boolean };
+  scheduling: { isInputPending?: () => boolean };
 };
 
 let taskIdCounter = 1,
@@ -81,7 +81,7 @@ function setupScheduler() {
         // regardless, since there could be a pending paint that wasn't
         // accompanied by a call to `requestPaint`, or other main thread tasks
         // like network events.
-        if (scheduling.isInputPending()) {
+        if (scheduling.isInputPending!()) {
           return true;
         }
         // There's no pending input. Only yield if we've reached the max

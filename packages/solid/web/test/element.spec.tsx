@@ -1,6 +1,14 @@
 /* @jsxImportSource solid-js */
 import { createRoot, createSignal, JSX } from "../../src";
 
+declare module "solid-js" {
+  namespace JSX {
+    interface Actions {
+      getRef: boolean;
+    }
+  }     
+}
+
 describe("Basic element attributes", () => {
   test("spread", () => {
     let div: HTMLDivElement;
@@ -51,4 +59,12 @@ describe("Basic element attributes", () => {
       expect(div1).toBe(div2);
     });
   });
+
+  test("actions work properly", () => {
+    let ref: HTMLDivElement,
+      el: HTMLDivElement,
+      getRef = (el: HTMLDivElement) => ref = el,
+      d = (<div use:getRef ref={el} />) as HTMLDivElement;
+    expect(ref).toBe(el);
+  })
 });
