@@ -160,4 +160,4 @@ const Ticker = () => {
 
 Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
 
-[Solid Element](https://github.com/ryansolid/solid/tree/master/packages/solid-element) Provides an out of the box solution for wrapping your Solid Components as Custom Elements.
+[Solid Element](https://github.com/ryansolid/solid/tree/main/packages/solid-element) Provides an out of the box solution for wrapping your Solid Components as Custom Elements.

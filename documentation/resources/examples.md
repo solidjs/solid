@@ -25,8 +25,8 @@
 - [Hacker News App](https://github.com/ryansolid/solid-hackernews-app) Small application to showcase Solid Element
 
 ## Benchmarks
-- [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
+- [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/main/frameworks/keyed/solid) The one and only
 - [Sierpinski's Triangle Demo](https://github.com/ryansolid/solid-sierpinski-triangle-demo) Solid implementation of the React Fiber demo.
-- [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/master/solid) Showing off Solid Element
+- [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/main/solid) Showing off Solid Element
 - [UIBench Benchmark](https://github.com/ryansolid/solid-uibench) a benchmark tests a variety of UI scenarios.
 - [DBMon Benchmark](https://github.com/ryansolid/solid-dbmon) A benchmark testing ability of libraries to render unoptimized data.

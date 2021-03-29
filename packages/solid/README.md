@@ -1,7 +1,7 @@
-## <img src="https://raw.githubusercontent.com/ryansolid/solid/master/assets/logo.png" alt="Solid" width="500"/><br>
+## <img src="https://raw.githubusercontent.com/ryansolid/solid/main/assets/logo.png" alt="Solid" width="500"/><br>
 
 [![Build Status](https://github.com/ryansolid/solid/workflows/Solid%20CI/badge.svg)](https://github.com/ryansolid/solid/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=master)
+[![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=main)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510)](https://discord.com/invite/solidjs)
@@ -103,23 +103,23 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-- [Reactivity](https://github.com/ryansolid/solid/blob/master/documentation/reactivity.md)
-- [State](https://github.com/ryansolid/solid/blob/master/documentation/state.md)
-- [JSX Rendering](https://github.com/ryansolid/solid/blob/master/documentation/rendering.md)
-- [Components](https://github.com/ryansolid/solid/blob/master/documentation/components.md)
-- [Styling](https://github.com/ryansolid/solid/blob/master/documentation/styling.md)
-- [Context](https://github.com/ryansolid/solid/blob/master/documentation/context.md)
-- [Suspense](https://github.com/ryansolid/solid/blob/master/documentation/suspense.md)
-- [API](https://github.com/ryansolid/solid/blob/master/documentation/api.md)
-- [FAQ](https://github.com/ryansolid/solid/blob/master/documentation/faq.md)
-- [Comparison with other Libraries](https://github.com/ryansolid/solid/blob/master/documentation/comparison.md)
-- [Storybook](https://github.com/ryansolid/solid/blob/master/documentation/storybook.md)
+- [Reactivity](https://github.com/ryansolid/solid/blob/main/documentation/reactivity.md)
+- [State](https://github.com/ryansolid/solid/blob/main/documentation/state.md)
+- [JSX Rendering](https://github.com/ryansolid/solid/blob/main/documentation/rendering.md)
+- [Components](https://github.com/ryansolid/solid/blob/main/documentation/components.md)
+- [Styling](https://github.com/ryansolid/solid/blob/main/documentation/styling.md)
+- [Context](https://github.com/ryansolid/solid/blob/main/documentation/context.md)
+- [Suspense](https://github.com/ryansolid/solid/blob/main/documentation/suspense.md)
+- [API](https://github.com/ryansolid/solid/blob/main/documentation/api.md)
+- [FAQ](https://github.com/ryansolid/solid/blob/main/documentation/faq.md)
+- [Comparison with other Libraries](https://github.com/ryansolid/solid/blob/main/documentation/comparison.md)
+- [Storybook](https://github.com/ryansolid/solid/blob/main/documentation/storybook.md)
 
 ## Resources
 
-- [Examples](https://github.com/ryansolid/solid/blob/master/documentation/resources/examples.md)
-- [Articles](https://github.com/ryansolid/solid/blob/master/documentation/resources/articles.md)
-- [Projects](https://github.com/ryansolid/solid/blob/master/documentation/resources/projects.md)
+- [Examples](https://github.com/ryansolid/solid/blob/main/documentation/resources/examples.md)
+- [Articles](https://github.com/ryansolid/solid/blob/main/documentation/resources/articles.md)
+- [Projects](https://github.com/ryansolid/solid/blob/main/documentation/resources/projects.md)
 
 ## No Compilation?
 

@@ -4,7 +4,7 @@
   "version": "0.24.16",
   "author": "Ryan Carniato",
   "license": "MIT",
-  "homepage": "https://github.com/ryansolid/solid/blob/master/packages/react-solid-state#readme",
+  "homepage": "https://github.com/ryansolid/solid/blob/main/packages/react-solid-state#readme",
   "main": "lib/react-solid-state.js",
   "module": "src/index.js",
   "files": [

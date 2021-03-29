@@ -2,15 +2,15 @@
 
 ## Libraries
 
-- [Solid Element](https://github.com/ryansolid/solid/blob/master/packages/solid-element)
+- [Solid Element](https://github.com/ryansolid/solid/blob/main/packages/solid-element)
   Extensions to Solid.js that add a Web Component wrapper.
 - [Lume Element](https://github.com/lume/element) Build Web Components with simple templates and reactivity.
 - [Solid Standalone](https://github.com/ryansolid/solid-standalone) Premade packaged for the browser.
-- [Solid Styled Components](https://github.com/ryansolid/solid/blob/master/packages/solid-styled-components)
+- [Solid Styled Components](https://github.com/ryansolid/solid/blob/main/packages/solid-styled-components)
   Styled Components for Solid using 1kb library Goober.
-- [Solid Styled JSX](https://github.com/ryansolid/solid/blob/master/packages/solid-styled-jsx)
+- [Solid Styled JSX](https://github.com/ryansolid/solid/blob/main/packages/solid-styled-jsx)
   Wrapper for using Solid with Zeit's Styled JSX.
-- [Solid Meta](https://github.com/ryansolid/solid/blob/master/packages/solid-meta)
+- [Solid Meta](https://github.com/ryansolid/solid/blob/main/packages/solid-meta)
   Library for adding metadata tags to the document head.
 - [Solid Transition Group](https://github.com/ryansolid/solid-transition-group) Simple animations for Solid
 - [Storeon Solid](https://github.com/storeon/solidjs) Solid bindings for Storeon
@@ -20,9 +20,9 @@
 - [Solid i18n](https://github.com/amoutonbrady/solid-i18n) Tiny translation library for solid-js inspired by rosetta
 - [Solid Chart](https://github.com/MrFoxPro/solid-chart.js) Solid Chart.js wrapper
 - [Solid HeroIcons](https://github.com/amoutonbrady/solid-heroicons) HeroIcons for Solid
-- [Solid RX](https://github.com/ryansolid/solid/blob/master/packages/solid-rx)
+- [Solid RX](https://github.com/ryansolid/solid/blob/main/packages/solid-rx)
   Functional Reactive Programming extensions for SolidJS.
-- [React Solid State](https://github.com/ryansolid/solid/blob/master/packages/react-solid-state)
+- [React Solid State](https://github.com/ryansolid/solid/blob/main/packages/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Routers
@@ -61,11 +61,11 @@
 
 - [DOM Expressions](https://github.com/ryansolid/dom-expressions)
   The renderer behind Solid.js that enables lightning fast fine grained performance.
-- [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions)
+- [Babel Plugin JSX DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/babel-plugin-jsx-dom-expressions)
   Babel plugin that converts JSX to DOM Expressions.
-- [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/lit-dom-expressions)
+- [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/lit-dom-expressions)
   Tagged Template Literal API for DOM Expressions.
-- [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/hyper-dom-expressions)
+- [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/hyper-dom-expressions)
   HyperScript API for DOM Expressions.
 
 

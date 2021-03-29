@@ -14,7 +14,7 @@ Rendering involves precompilation of JSX templates into optimized native js code
 
 This approach both is more performant and produces less code then creating each element one by one with document.createElement.
 
-More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/dom-expressions/tree/master/packages/babel-plugin-jsx-dom-expressions)
+More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/babel-plugin-jsx-dom-expressions)
 
 ## Attributes and Props
 
@@ -311,4 +311,4 @@ declare module "solid-js" {
 
 ## Server Side Rendering (Experimental)
 
-See [solid-ssr](https://github.com/ryansolid/solid/blob/master/packages/solid-ssr)
+See [solid-ssr](https://github.com/ryansolid/solid/blob/main/packages/solid-ssr)

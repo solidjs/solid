@@ -3,7 +3,7 @@
   "version": "0.24.16",
   "description": "Functionally reactive extensions for Solid.js",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
-  "homepage": "https://github.com/ryansolid/solid/blob/master/packages/solid-rx#readme",
+  "homepage": "https://github.com/ryansolid/solid/blob/main/packages/solid-rx#readme",
   "license": "MIT",
   "type": "module",
   "main": "dist/solid-rx.js",

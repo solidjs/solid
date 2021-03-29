@@ -3,7 +3,7 @@
   "version": "0.24.16",
   "description": "Babel preset to transform JSX for Solid.js",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
-  "homepage": "https://github.com/ryansolid/solid/blob/master/packages/babel-preset-solid#readme",
+  "homepage": "https://github.com/ryansolid/solid/blob/main/packages/babel-preset-solid#readme",
   "license": "MIT",
   "repository": "ryansolid/babel-preset-solid",
   "main": "index.js",

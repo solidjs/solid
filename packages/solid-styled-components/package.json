@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ryansolid/solid/blob/master/packages/solid-styled-components"
+    "url": "https://github.com/ryansolid/solid/blob/main/packages/solid-styled-components"
   },
   "type": "module",
   "main": "src/index.js",
