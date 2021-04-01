@@ -6,7 +6,7 @@ This is the smallest and most primitive reactive atom used to track a single val
 
 ### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
 
-Creates a readonly derived signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes if you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+Creates a readonly derived signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes if you pass true to the third parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
 
 ### `createEffect(prev => <code>, initialValue): void`
 
