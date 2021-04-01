@@ -95,7 +95,7 @@ export function SuspenseList(props: {
   return comp;
 }
 
-export function Suspense(props: { fallback: JSX.Element; children: JSX.Element }) {
+export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }) {
   let counter = 0,
     showContent: () => boolean,
     showFallback: () => boolean;

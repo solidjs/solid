@@ -164,7 +164,7 @@ const App = () => {
 
 ## Data Loading
 
-Solid ships with a primitive to handle async data loading, `createResource`. It has a trackable `loading` property.
+Solid ships with a primitive to handle async data loading, `createResource`. It has a trackable `loading` and `error` properties as well.
 
 ```jsx
 import { createResource } from "solid-js";
@@ -178,7 +178,8 @@ export default const UserPanel = props => {
   return <div>
     <Switch fallback={"Failed to load User"}>
       <Match when={user.loading}>Loading...</Match>
-      <Match when={user()}>{ ({ name, height, mass, birthYear }) =>
+      <Match when={user.error}>Something Went Wrong</Match>
+      <Match when={user()}>{({ name, height, mass, birthYear }) =>
         <>
           <h1>{name}</h1>
           <ul>
@@ -202,6 +203,7 @@ let [user, { refetch, mutate }] = createResource(
   () => `https://swapi.co/api/people/${props.userId}/`
 fetchJSON);
 ```
+
 The first argument can be a unique string key or dynamically generated one that is automatically tracked in a function.
 
 > **For React Users:** At the time of writing this React has not completely settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.

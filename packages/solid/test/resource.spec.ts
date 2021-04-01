@@ -58,9 +58,11 @@ describe("Simulate a dynamic fetch", () => {
   test("promise rejection", async done => {
     trigger("4");
     expect(value.loading).toBe(true);
+    expect(value.error).toBeUndefined();
     reject("Because I said so");
     await Promise.resolve();
     expect(error).toBe("Because I said so");
+    expect(value.error).toBe("Because I said so");
     expect(value.loading).toBe(false);
     done();
   });

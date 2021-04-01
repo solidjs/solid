@@ -441,6 +441,7 @@ export function getSuspenseContext() {
 export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
+  error: any;
 }
 
 type ResourceReturn<T> = [
@@ -475,7 +476,7 @@ export function createResource<T, U>(
       options = fetcher;
       fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
       fn = true;
-    };
+    }
   } else if (arguments.length === 1) {
     fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
     fn = true;
@@ -483,9 +484,10 @@ export function createResource<T, U>(
   const contexts = new Set<SuspenseContextType>(),
     [s, set] = createSignal(options!.initialValue, true),
     [track, trigger] = createSignal<void>(),
-    [loading, setLoading] = createSignal<boolean>(false, true);
+    [loading, setLoading] = createSignal<boolean>(false, true),
+    [error, setError] = createSignal<any>(undefined, true);
 
-  let err: any = null,
+  let err: any = undefined,
     pr: Promise<T> | null = null,
     initP: Promise<T> | null = null,
     id: string | null = null,
@@ -503,7 +505,7 @@ export function createResource<T, U>(
   }
   function loadEnd(p: Promise<T> | null, v: T, e?: any) {
     if (pr === p) {
-      err = e;
+      setError((err = e));
       pr = null;
       if (Transition && p && loadedUnderTransition) {
         Transition.promises.delete(p);
@@ -548,7 +550,7 @@ export function createResource<T, U>(
     return v;
   }
   function load() {
-    err = null;
+    setError((err = undefined));
     let lookup = dynamic ? (fn as () => U)() : (fn as U);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
@@ -573,9 +575,16 @@ export function createResource<T, U>(
       e => loadEnd(p as Promise<T>, e, e)
     );
   }
-  Object.defineProperty(read, "loading", {
-    get() {
-      return loading();
+  Object.defineProperties(read, {
+    loading: {
+      get() {
+        return loading();
+      }
+    },
+    error: {
+      get() {
+        return error();
+      }
     }
   });
   if (dynamic) createComputed(load);
