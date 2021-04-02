@@ -36,6 +36,7 @@
 
 ## Components
 - [Lume](https://github.com/lume/lume) Toolkit that simplifies the creation of rich and interactive 2D or 3D experiences built with Solid
+- [solidjs-treeview-component](https://github.com/milahu/solidjs-treeview-component) Interactive tree of nodes, expand/collapse, fetch child nodes on demand
 
 ## Starters
 - [Solid TypeScript Rollup](https://github.com/high1/solid-typescript-rollup) - Rollup
