@@ -1,7 +1,7 @@
 {
   "name": "solid-meta",
   "description": "Solid wrapper for Styled JSX",
-  "version": "0.25.0",
+  "version": "0.25.1",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "babel-preset-solid": "^0.25.0",
-    "solid-js": "^0.25.0"
+    "solid-js": "^0.25.1"
   },
   "jest": {
     "preset": "solid-jest/preset/browser"
