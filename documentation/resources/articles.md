@@ -5,6 +5,9 @@
 - [The Deep Dive Ep#4 Reactive Frontend Frameworks](https://thedeepdive.simplecast.com/episodes/reactive-frontend-frameworks)
 
 ## Videos
+
+- [React to Solid](https://www.youtube.com/watch?v=p8e9ta269x8&t=4425s)
+- [UI Libraries, Improving React.js & Music](https://www.youtube.com/watch?v=Dq5EAcup044)
 - [Solid Video Series By Eric Schmucker](https://www.youtube.com/playlist?list=PLtLhzwNMDs1fMi43erQSzXD49Y4p0TniU)
 
 ## Latest Articles
