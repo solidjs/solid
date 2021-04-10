@@ -77,9 +77,9 @@ Creates a new computation that automatically tracks dependencies and runs during
 Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state.
 
 ### `createResource(fetcher, { initialValue }): [getValueFn, { mutate, refetch }]`
-### `createResource(fn, fetcher, { initialValue }): [getValueFn, { mutate, refetch }]`
+### `createResource(source, fetcher, { initialValue }): [getValueFn, { mutate, refetch }]`
 
-Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `fetcher` is a function that accepts return value of the `trackingFn` if provided and returns a Promise whose resolved value is set in the resource. The fetcher is not reactive so use the optional first argument if you want it to run more than once. If provided false, null, or undefined signals not to fetch.
+Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `fetcher` is a function that accepts return value of the `source` if provided and returns a Promise whose resolved value is set in the resource. The fetcher is not reactive so use the optional first argument if you want it to run more than once. If provided false, null, or undefined signals not to fetch.
 
 ### `lazy(() => <Promise>): Component`
 

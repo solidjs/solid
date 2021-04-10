@@ -125,7 +125,7 @@ export function mapArray<T, U>(
     function mapper(disposer: () => void) {
       disposers[j] = disposer;
       if (indexes) {
-        const [s, set] = createSignal(j, true);
+        const [s, set] = createSignal(j);
         indexes[j] = set;
         return mapFn(newItems[j], s);
       }
@@ -196,7 +196,7 @@ export function indexArray<T, U>(
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;
-      const [s, set] = createSignal(newItems[i]);
+      const [s, set] = createSignal(newItems[i], false);
       signals[i] = set;
       return mapFn(s, i);
     }

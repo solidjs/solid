@@ -10,7 +10,7 @@ export function For<T, U extends JSX.Element>(props: {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
     mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  );
+  , undefined, false);
 }
 
 // non-keyed
@@ -22,7 +22,7 @@ export function Index<T, U extends JSX.Element>(props: {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
     indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  );
+  , undefined, false);
 }
 
 export function Show<T>(props: {

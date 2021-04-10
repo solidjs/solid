@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.26.0 - 2021-04-09
+
+This release is about finalizing some API changes on the road to 1.0. This one has one breaking change and not much else.
+
+#### Signals no longer always notify by default
+
+Solid's original behavior has been to always notify on signal change even if the value hasn't changed. The idea was to simulate stream behavior. However, this has some downsides:
+
+1. Inconsistent with State.. I made the decision to make state equality check by default, it is weird signals and memo's do not.
+2. More likely to hit infinite loops. Equality check naturally stops infinite loops in some cases. While infinite loops aren't good and code that produces them suspect, it is nice to keep things clean.
+3. It is consistent with other modern reactive libraries like MobX and Vue.
+
+The API has not changed. You can opt out of the default behavior by passing in your own comparator or false to the 2nd parameter of `createSignal` and the 3rd parameter of `createMemo`.
+
+My hope this is the last release before I start making 1.0 RC's. This one has big enough impact I want to get this out first. I imagine the remaining changes will be just syntax.
+
 ## 0.25.0 - 2021-03-28
 
 This release is about refining the the APIs as we approach the our release candidate for 1.0.

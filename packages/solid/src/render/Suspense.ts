@@ -35,7 +35,7 @@ export function SuspenseList(props: {
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) {
-    const [inFallback, setFallback] = createSignal(false, true);
+    const [inFallback, setFallback] = createSignal(false);
     suspenseSetter = setFallback;
     [showContent, showFallback] = listContext.register(inFallback);
   }
@@ -44,8 +44,8 @@ export function SuspenseList(props: {
     comp = createComponent(SuspenseListContext.Provider, {
       value: {
         register: (inFallback: () => boolean) => {
-          const [showingContent, showContent] = createSignal(false, true),
-            [showingFallback, showFallback] = createSignal(false, true);
+          const [showingContent, showContent] = createSignal(false),
+            [showingFallback, showFallback] = createSignal(false);
           registry[index++] = { inFallback, showContent, showFallback };
           return [showingContent, showingFallback];
         }

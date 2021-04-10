@@ -4,15 +4,13 @@ describe("createMemo", () => {
   describe("executing propagating", () => {
     it("does not trigger downstream computations unless changed", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(1);
+        let [s1, set] = createSignal(1, false);
         let order = "";
         let t1 = createMemo(
           () => {
             order += "t1";
             return s1();
-          },
-          undefined,
-          true
+          }
         );
         createComputed(() => {
           order += "c1";
@@ -36,9 +34,7 @@ describe("createMemo", () => {
           () => {
             order += "t1";
             return s1() === 0;
-          },
-          undefined,
-          true
+          }
         );
         createComputed(() => {
           order += "c1";
@@ -65,9 +61,7 @@ describe("createMemo", () => {
           () => {
             order += "t1";
             return s1() === 0;
-          },
-          undefined,
-          true
+          }
         );
         createComputed(() => {
           order += "c1";
@@ -104,9 +98,7 @@ describe("createMemo", () => {
         () => {
           fevals++;
           return i() ? t() : e();
-        },
-        undefined,
-        true
+        }
       );
       fevals = 0;
     }
@@ -158,8 +150,6 @@ describe("createMemo", () => {
               order += "b";
               return a() + 1;
             },
-            undefined,
-            true
           ),
           c = createMemo(
             () => {
@@ -169,24 +159,18 @@ describe("createMemo", () => {
                 return check;
               }
               return e();
-            },
-            undefined,
-            true
+            }
           ),
           d = createMemo(
             () => {
               return a();
-            },
-            undefined,
-            true
+            }
           ),
           e = createMemo(
             () => {
               order += "d";
               return d() + 10;
-            },
-            undefined,
-            true
+            }
           );
 
         expect(order).toBe("bcd");
@@ -325,9 +309,7 @@ describe("createMemo", () => {
           () => {
             order += "t2";
             return s1();
-          },
-          undefined,
-          true
+          }
         );
         createComputed(() => {
           t1();
@@ -388,9 +370,7 @@ describe("createMemo", () => {
           () => {
             order += "t1";
             return s1();
-          },
-          undefined,
-          true
+          }
         );
         let c1 = createMemo(() => {
           order += "c1";
@@ -454,7 +434,7 @@ describe("createMemo", () => {
     it("throws when cycle created by modifying a branch", () => {
       createRoot(() => {
         var [d, set] = createSignal(1),
-          f: () => number = createMemo(() => (f ? f() : d()));
+          f: () => number = createMemo(() => (f ? f() : d()), undefined, false);
 
         expect(() => {
           set(0);

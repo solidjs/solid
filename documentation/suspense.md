@@ -204,7 +204,7 @@ let [user, { refetch, mutate }] = createResource(
 fetchJSON);
 ```
 
-The first argument can be a unique string key or dynamically generated one that is automatically tracked in a function.
+The first argument is the value to be passed into the fetcher. If it is a function it will be tracked. If it is null or undefined the fetcher will not be executed. It can be omitted commpletely as well if the resource only fires once and you wish to put all your logic in the fetcher.
 
 > **For React Users:** At the time of writing this React has not completely settled how their Data Fetching API will look. Solid ships with this feature today, and it might differ from what React ultimately lands on.
 

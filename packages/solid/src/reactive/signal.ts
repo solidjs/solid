@@ -16,7 +16,7 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
-const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false, true);
+const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export var Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
@@ -107,7 +107,7 @@ export function createSignal<T>(
 ): [() => T, (v: T) => T];
 export function createSignal<T>(
   value?: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean),
+  areEqual: boolean | ((prev: T, next: T) => boolean) = true,
   options?: { name?: string; internal?: boolean }
 ): [() => T, (v: T) => T] {
   const s: Signal<T> = {
@@ -165,7 +165,7 @@ export function createMemo<T>(
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
+  areEqual: boolean | ((prev: T, next: T) => boolean) = true
 ): () => T {
   const c: Partial<Memo<T>> = createComputation<T>(fn, value, true);
   c.pending = NOTPENDING;
@@ -367,7 +367,7 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   c.state = 0;
   c.componentName = Comp.name;
   updateComputation(c as Memo<JSX.Element>);
-  return c.value;
+  return c.tValue !== undefined ? c.tValue : c.value;;
 }
 
 export function hashValue(v: any) {
@@ -482,10 +482,10 @@ export function createResource<T, U>(
     fn = true;
   }
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal(options!.initialValue, true),
-    [track, trigger] = createSignal<void>(),
-    [loading, setLoading] = createSignal<boolean>(false, true),
-    [error, setError] = createSignal<any>(undefined, true);
+    [s, set] = createSignal(options!.initialValue),
+    [track, trigger] = createSignal<void>(undefined, false),
+    [loading, setLoading] = createSignal<boolean>(false),
+    [error, setError] = createSignal<any>();
 
   let err: any = undefined,
     pr: Promise<T> | null = null,
