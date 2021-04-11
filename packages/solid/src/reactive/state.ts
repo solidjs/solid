@@ -166,12 +166,14 @@ export function setProperty(
     node;
   (node = nodes[property]) && node.set();
   notify && (node = nodes._) && node.set();
-  traversedPath && traversedTargets && notifiers?.forEach(notifier =>
-    notifier(traversedPath, traversedTargets, StateChangeType.Property, {
-      oldValue,
-      newValue: value
-    })
-  );
+  traversedPath &&
+    traversedTargets &&
+    notifiers?.forEach(notifier =>
+      notifier(traversedPath, traversedTargets, StateChangeType.Property, {
+        oldValue,
+        newValue: value
+      })
+    );
 }
 
 export function updatePath(
@@ -248,12 +250,15 @@ export function updatePath(
   if (part === undefined && value == undefined) return;
   value = unwrap(value);
   if (part === undefined || (isWrappable(prev) && isWrappable(value) && !Array.isArray(value))) {
-    const keys = Object.keys(value);
-    for (let i = 0; i < keys.length; i += 1) {
-      const key = keys[i];
-      setProperty(current, key, value[key], traversedPath, traversedTargets, notifiers);
-    }
+    mergeState(prev, value);
   } else setProperty(current, part, value, traversedPath, traversedTargets, notifiers);
+}
+function mergeState(state: StateNode, value: Partial<StateNode>) {
+  const keys = Object.keys(value);
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    setProperty(state, key, value[key]);
+  }
 }
 enum StateChangeType {
   Property,
