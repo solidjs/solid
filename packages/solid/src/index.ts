@@ -26,7 +26,7 @@ export {
 } from "./reactive/signal";
 export type { Resource } from "./reactive/signal";
 
-export { createState, unwrap, $RAW } from "./reactive/state";
+export { createState, createNotifier, unwrap, $RAW } from "./reactive/state";
 export type { State, SetStateFunction } from "./reactive/state";
 export * from "./reactive/mutable";
 
