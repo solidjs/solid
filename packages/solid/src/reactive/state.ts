@@ -190,11 +190,11 @@ export function setProperty(
         }
       }
       notifiers.forEach(notifier =>
-        notifier(traversedPath, traversedTargets, StateChangeType.Collection, eventArgs)
+        notifier(traversedPath, traversedTargets, "Collection", eventArgs)
       );
     } else {
       notifiers.forEach(notifier =>
-        notifier(traversedPath, traversedTargets, StateChangeType.Property, {
+        notifier(traversedPath, traversedTargets, "Property", {
           oldValue,
           newValue: value
         })
@@ -287,10 +287,8 @@ function mergeState(state: StateNode, value: Partial<StateNode>) {
     setProperty(state, key, value[key]);
   }
 }
-enum StateChangeType {
-  Property,
-  Collection
-}
+type StateChangeType = "Property" | "Collection";
+
 type PropertyChangedEventArgs = {
   newValue: any;
   oldValue: any;
@@ -298,8 +296,8 @@ type PropertyChangedEventArgs = {
 type CollectionChangedAction = "Add" | "Remove" | "Replace";
 /**
  * @param action - Performed action
- * @param newItems - Added or replaced items  
- * @param oldItems - Removed or replaced items  
+ * @param newItems - Added or replaced items
+ * @param oldItems - Removed or replaced items
  * @param newStartingIndex - Index of inserted items
  * @param oldStartingIndex - Old index of inserted items
  */
