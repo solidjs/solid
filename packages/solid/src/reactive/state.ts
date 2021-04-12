@@ -296,6 +296,13 @@ type PropertyChangedEventArgs = {
   oldValue: any;
 };
 type CollectionChangedAction = "Add" | "Remove" | "Replace";
+/**
+ * @param action - Performed action
+ * @param newItems - Added or replaced items  
+ * @param oldItems - Removed or replaced items  
+ * @param newStartingIndex - Index of inserted items
+ * @param oldStartingIndex - Old index of inserted items
+ */
 type CollectionChangedEventArgs = {
   action: CollectionChangedAction;
   newItems?: any[];
@@ -303,6 +310,13 @@ type CollectionChangedEventArgs = {
   newStartingIndex: number;
   oldStartingIndex: number;
 };
+/**
+ * @param path - Artifacts of path to property, including arrays indices.
+ * @example ['foo', 'bar', 0, 'xyz']
+ * @param targets - Array of properties that form a path to target property.
+ * @param type - Type of change. Property or Collection.
+ * @param args - Detailed information about change.
+ */
 type StateChangedEventHandler = (
   path: (string | number)[],
   targets: object[],
@@ -310,6 +324,11 @@ type StateChangedEventHandler = (
   args: PropertyChangedEventArgs | CollectionChangedEventArgs
 ) => void;
 const Notifiers = new Map<object, StateChangedEventHandler[]>();
+/**
+ * Creates function that executes every time object or any children changes.
+ * @param target - Target to watch
+ * @param cb - Callback on target or target children change
+ */
 export function createNotifier(target: object, cb: StateChangedEventHandler) {
   target = unwrap(target);
   if (!Notifiers.has(target)) Notifiers.set(target, [cb]);
