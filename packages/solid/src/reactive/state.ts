@@ -169,7 +169,6 @@ export function setProperty(
   if (traversedPath && traversedTargets && notifiers) {
     if (Array.isArray(target[property])) {
       let eventArgs = {} as CollectionChangedEventArgs;
-      console.log("setProperty called on array");
       if (oldValue.length < target[property].length) {
         eventArgs.action = "Add";
         eventArgs.newItems = target[property].slice(oldValue.length, target[property].length);
