@@ -166,14 +166,41 @@ export function setProperty(
     node;
   (node = nodes[property]) && node.set();
   notify && (node = nodes._) && node.set();
-  traversedPath &&
-    traversedTargets &&
-    notifiers?.forEach(notifier =>
-      notifier(traversedPath, traversedTargets, StateChangeType.Property, {
-        oldValue,
-        newValue: value
-      })
-    );
+  if (traversedPath && traversedTargets && notifiers) {
+    if (Array.isArray(target[property])) {
+      let eventArgs = {} as CollectionChangedEventArgs;
+      console.log("setProperty called on array");
+      if (oldValue.length < target[property].length) {
+        eventArgs.action = "Add";
+        eventArgs.newItems = target[property].slice(oldValue.length, target[property].length);
+        eventArgs.newStartingIndex = oldValue.length;
+      } else if (oldValue.length > target[property].length) {
+        eventArgs.action = "Remove";
+        eventArgs.oldItems = oldValue.slice(target[property].length, oldValue.length);
+        eventArgs.oldStartingIndex = target[property].length;
+      } else {
+        eventArgs.action = "Replace";
+        eventArgs.oldItems = [];
+        eventArgs.newItems = [];
+        for (let i = 0; i < target[property].length; i++) {
+          if (target[property][i] !== oldValue[i]) {
+            eventArgs.oldItems.push(oldValue[i]);
+            eventArgs.newItems.push(target[property][i]);
+          }
+        }
+      }
+      notifiers.forEach(notifier =>
+        notifier(traversedPath, traversedTargets, StateChangeType.Collection, eventArgs)
+      );
+    } else {
+      notifiers.forEach(notifier =>
+        notifier(traversedPath, traversedTargets, StateChangeType.Property, {
+          oldValue,
+          newValue: value
+        })
+      );
+    }
+  }
 }
 
 export function updatePath(
@@ -268,13 +295,13 @@ type PropertyChangedEventArgs = {
   newValue: any;
   oldValue: any;
 };
-type CollectionChangedAction = "Add" | "Remove" | "Replace" | "Move" | "Reset";
+type CollectionChangedAction = "Add" | "Remove" | "Replace";
 type CollectionChangedEventArgs = {
   action: CollectionChangedAction;
   newItems?: any[];
   oldItems?: any[];
-  NewStartingIndex: number;
-  OldStartingIndex: number;
+  newStartingIndex: number;
+  oldStartingIndex: number;
 };
 type StateChangedEventHandler = (
   path: (string | number)[],
