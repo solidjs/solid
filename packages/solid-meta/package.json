@@ -1,6 +1,6 @@
 {
   "name": "solid-meta",
-  "description": "Solid wrapper for Styled JSX",
+  "description": "Write meta tags to the document head",
   "version": "0.26.0",
   "author": "Ryan Carniato",
   "license": "MIT",

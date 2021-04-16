@@ -24,7 +24,7 @@ interface MetaContextType {
 
   removeClientTag: (tag: string, index: number) => void;
 
-  addServerTag: (tagDesc: TagDescription) => void;
+  addServerTag?: (tagDesc: TagDescription) => void;
 }
 
 const MetaContext = createContext<MetaContextType>();
@@ -41,7 +41,7 @@ const MetaProvider: Component<{ tags?: Array<TagDescription> }> = props => {
     Array.prototype.forEach.call(ssrTags, (ssrTag: Node) => ssrTag.parentNode!.removeChild(ssrTag));
   });
 
-  const actions = {
+  const actions: MetaContextType = {
     addClientTag: (tag: string, name: string) => {
       // consider only cascading tags
       if (cascadingTags.indexOf(tag) !== -1) {
@@ -71,9 +71,11 @@ const MetaProvider: Component<{ tags?: Array<TagDescription> }> = props => {
         if (names) return { [index]: null };
         return names;
       });
-    },
+    }
+  };
 
-    addServerTag: (tagDesc: TagDescription) => {
+  if (isServer) {
+    actions.addServerTag = (tagDesc: TagDescription) => {
       const { tags = [] } = props;
       // tweak only cascading tags
       if (cascadingTags.indexOf(tagDesc.tag) !== -1) {
@@ -88,10 +90,10 @@ const MetaProvider: Component<{ tags?: Array<TagDescription> }> = props => {
       }
       tags.push(tagDesc);
     }
-  };
 
-  if (isServer && Array.isArray(props.tags) === false) {
-    throw Error("tags array should be passed to <MetaProvider /> in node");
+    if (Array.isArray(props.tags) === false) {
+      throw Error("tags array should be passed to <MetaProvider /> in node");
+    }
   }
 
   return <MetaContext.Provider value={actions}>{props.children}</MetaContext.Provider>;
@@ -110,7 +112,7 @@ const MetaTag: Component<{ [k: string]: any }> = props => {
 
   const [internal, rest] = splitProps(props, ["tag"]);
   if (isServer) {
-    addServerTag({ tag: internal.tag, props: rest });
+    addServerTag!({ tag: internal.tag, props: rest });
     return null;
   }
   return (
