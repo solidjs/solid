@@ -26,43 +26,27 @@ let taskIdCounter = 1,
 const maxSigned31BitInt = 1073741823;
 /* istanbul ignore next */
 function setupScheduler() {
-  if (window && window.MessageChannel) {
-    const channel = new MessageChannel(),
-      port = channel.port2;
-    scheduleCallback = () => port.postMessage(null);
-    channel.port1.onmessage = () => {
-      if (scheduledCallback !== null) {
-        const currentTime = performance.now();
-        deadline = currentTime + yieldInterval;
-        const hasTimeRemaining = true;
-        try {
-          const hasMoreWork = scheduledCallback(hasTimeRemaining, currentTime);
-          if (!hasMoreWork) {
-            scheduledCallback = null;
-          } else port.postMessage(null);
-        } catch (error) {
-          // If a scheduler task throws, exit the current browser task so the
-          // error can be observed.
-          port.postMessage(null);
-          throw error;
-        }
+  const channel = new MessageChannel(),
+    port = channel.port2;
+  scheduleCallback = () => port.postMessage(null);
+  channel.port1.onmessage = () => {
+    if (scheduledCallback !== null) {
+      const currentTime = performance.now();
+      deadline = currentTime + yieldInterval;
+      const hasTimeRemaining = true;
+      try {
+        const hasMoreWork = scheduledCallback(hasTimeRemaining, currentTime);
+        if (!hasMoreWork) {
+          scheduledCallback = null;
+        } else port.postMessage(null);
+      } catch (error) {
+        // If a scheduler task throws, exit the current browser task so the
+        // error can be observed.
+        port.postMessage(null);
+        throw error;
       }
-    };
-  } else {
-    let _callback: ((t: boolean, i: number) => boolean) | null;
-    scheduleCallback = () => {
-      if (!_callback) {
-        _callback = scheduledCallback!;
-        setTimeout(() => {
-          const currentTime = performance.now();
-          deadline = currentTime + yieldInterval;
-          const hasMoreWork = _callback!(true, currentTime);
-          _callback = null;
-          if (hasMoreWork) scheduleCallback!();
-        }, 0);
-      }
-    };
-  }
+    }
+  };
 
   if (
     navigator &&

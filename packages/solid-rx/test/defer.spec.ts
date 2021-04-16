@@ -1,5 +1,8 @@
 import { createRoot, createSignal, createMemo } from "solid-js";
 import { defer } from "../src";
+import { MessageChannel } from "worker_threads";
+//@ts-ignore
+global.MessageChannel = MessageChannel;
 
 describe("Defer operator", () => {
   test("simple defer", done => {
