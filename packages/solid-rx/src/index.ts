@@ -4,7 +4,7 @@ export { filter } from "./filter";
 export { from } from "./from";
 export { map } from "./map";
 export { mergeMap } from "./mergeMap";
-export { observable } from "./observable";
+export { observable, ObservableObserver } from "./observable";
 export { pairwise } from "./pairwise";
 export { pipe } from "./pipe";
 export { reduceArray } from "./reduceArray";
