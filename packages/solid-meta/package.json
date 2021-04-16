@@ -29,7 +29,7 @@
     "test:types": "tsc --project tsconfig.test.json"
   },
   "peerDependencies": {
-    "solid-js": ">= 0.25.0"
+    "solid-js": ">= 0.26.0"
   },
   "devDependencies": {
     "babel-preset-solid": "^0.26.0",
