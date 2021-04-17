@@ -16,9 +16,7 @@ import {
   useContext
 } from "../src";
 
-import { MessageChannel } from "worker_threads";
-//@ts-ignore
-global.MessageChannel = MessageChannel;
+import "./MessageChannel";
 
 describe("Create signals", () => {
   test("Create and read a Signal", () => {

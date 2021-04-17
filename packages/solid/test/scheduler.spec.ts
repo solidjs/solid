@@ -1,7 +1,6 @@
-import { MessageChannel } from "worker_threads";
+import "./MessageChannel";
 import { requestCallback } from "../src";
 //@ts-ignore
-global.MessageChannel = MessageChannel;
 
 describe("requestCallback basics", () => {
   test("queue a task", done => {
