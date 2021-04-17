@@ -18,6 +18,7 @@ export function useTheme() {
   return useContext(ThemeContext);
 }
 export function styled(tag) {
+  let _ctx = this || {};
   return (...args) => {
     return props => {
       const theme = useContext(ThemeContext);
@@ -26,7 +27,7 @@ export function styled(tag) {
           const pClassName = props.className,
             append = "className" in props && /^go[0-9]+/.test(pClassName);
           // Call `css` with the append flag and pass the props
-          let className = css.apply({ target: this.target, o: append, p: clone }, args);
+          let className = css.apply({ target: this.target, o: append, p: clone, g: _ctx.g }, args);
           return [pClassName, className].filter(Boolean).join(" ");
         },
         theme
@@ -49,5 +50,12 @@ export function styled(tag) {
       }
       return el;
     };
+  };
+}
+export function createGlobalStyles() {
+  const fn = styled.call({ g: 1 }, 'div').apply(null, arguments);
+  return function GlobalStyles(props) {
+    fn(props);
+    return null;
   };
 }
