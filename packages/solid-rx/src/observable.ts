@@ -1,9 +1,9 @@
 import { createComputed, untrack } from "solid-js";
 
 const SymbolCopy = Symbol as any;
-const $$observable = SymbolCopy.observable || (SymbolCopy.observable = Symbol("observable"));
+const $$observable = (() => (typeof SymbolCopy === 'function' && SymbolCopy.observable) || '@@observable')();
 
-type ObservableObserver<T> =
+export type ObservableObserver<T> =
   | ((v: T) => void)
   | {
       next: (v: T) => void;
