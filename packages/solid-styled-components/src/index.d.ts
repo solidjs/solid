@@ -52,3 +52,8 @@ export declare function styled<T extends keyof JSX.IntrinsicElements>(
       ) => string | number | CSSAttribute | undefined)
   )[]
 ) => (props: P & JSX.HTMLAttributes<JSX.IntrinsicElements[T]>) => JSX.Element;
+export declare function createGlobalStyles(
+  tag: CSSAttribute | TemplateStringsArray | string,
+  ...props: Array<string | number | Function>
+): Function;
+

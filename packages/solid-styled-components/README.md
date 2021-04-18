@@ -137,6 +137,28 @@ glob`
 `;
 ```
 
+### `createGlobalStyles`
+
+For a global style component, you call `createGlobalStyles` with your global tagged template.
+
+```js
+import { createGlobalStyles } from "solid-styled-components";
+
+const GlobalStyles = () => {
+  const Styles = createGlobalStyles`
+    html,
+    body {
+      background: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+  `;
+  return <Styles />;
+}
+```
+
 ### `Theme`
 You can set a Theme Provider (remember to use state or signals if you want it to be reactive)
 
