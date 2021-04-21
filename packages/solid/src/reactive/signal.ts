@@ -99,17 +99,17 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [() => T | undefined, <U extends T | undefined>(v?: U) => U];
+export function createSignal<T>(): [get: () => T | undefined, set: <U extends T | undefined>(v?: U) => U];
 export function createSignal<T>(
   value: T,
   areEqual?: boolean | ((prev: T, next: T) => boolean),
   options?: { name?: string; internal?: boolean }
-): [() => T, (v: T) => T];
+): [get: () => T, set: (v: T) => T];
 export function createSignal<T>(
   value?: T,
   areEqual: boolean | ((prev: T, next: T) => boolean) = true,
   options?: { name?: string; internal?: boolean }
-): [() => T, (v: T) => T] {
+): [get: () => T, set: (v: T) => T] {
   const s: Signal<T> = {
     value,
     observers: null,

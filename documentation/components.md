@@ -11,7 +11,7 @@ const Parent = () => (
   </section>
 );
 
-const Label = (props) => (
+const Label = props => (
   <>
     <div>{props.greeting}</div>
     {props.children}
@@ -52,7 +52,7 @@ const Parent = () => (
 Components can access properties passed to them via a `props` argument.
 
 ```jsx
-const Label = (props) => (
+const Label = props => (
   <>
     <div>{props.greeting}</div>
     {props.children}
@@ -60,68 +60,85 @@ const Label = (props) => (
 );
 ```
 
-Unlike in some other frameworks (e.g. React), you cannot use object destructuring on the `props` of a component. This is because the `props` object is, behind the scenes, a Proxy object that relies on getters to lazily retrieve values. Using object descructuring breaks the reactivity of `props`.
+Unlike in some other frameworks, you cannot use object destructuring on the `props` of a component. This is because the `props` object is, behind the scenes, a Proxy object that relies on getters to lazily retrieve values. Using object destructuring breaks the reactivity of `props`.
 
 This example shows the "correct" way of accessing props in Solidjs:
 
 ```jsx
 // Here, `props.name` will update like you'd expect
-const MyComponent = props => <div>{ props.name }</div>
+const MyComponent = props => <div>{props.name}</div>;
 ```
 
 This example shows the wrong way of accessing props in Solidjs:
 
-```
+```jsx
 // This is bad
 // Here, `props.name` will not update (i.e. is not reactive) as it is destructured into `name`
-const MyComponent = ({ name }) => <div>{ name }</div>
+const MyComponent = ({ name }) => <div>{name}</div>;
 ```
 
 While the props object looks like a normal object when you use it (and Typescript users will note that it is typed like a normal object), in reality it is reactive--somewhat similar to a Signal. This has a few implications.
 
-Because unlike, e.g. React, Solidjs function components are only executed once (rather than every render cycle), the following example will not work as desired.
+Because unlike most JSX frameworks, Solid's function components are only executed once (rather than every render cycle), the following example will not work as desired.
 
 ```jsx
-import { Component, createEffect, createMemo, createSignal } from 'solid-js';
+import { createSignal } from "solid-js";
 
-const BasicComponent = (props) => {
-  const value = props.value || 'default';
+const BasicComponent = props => {
+  const value = props.value || "default";
 
   return <div>{value}</div>;
 };
 
 export default function Form() {
-  const [value, setValue] = createSignal('');
+  const [value, setValue] = createSignal("");
 
   return (
     <div>
       <BasicComponent value={value()} />
-
-      <input type="text" oninput={(e) => setValue(e.currentTarget.value)} />
+      <input type="text" oninput={e => setValue(e.currentTarget.value)} />
     </div>
   );
 }
 ```
 
-In this example, what we probably want to happen is for the `BasicComponent` to display the current value typed into the `input`. But, as a reminder, the `BasicComponent` function will only be executed once when the component is initially mounted. At this time (i.e. when it's mounted), `props.value` will equal `''`. This means that `const value` in `BasicComponent` will resolve to `'default'` and never update. While the `props` object is reactive, accessing the props in `const value = props.value || 'default';` is outside the observable scope of Solidjs, so it isn't automatically re-evaluated when props change. 
+In this example, what we probably want to happen is for the `BasicComponent` to display the current value typed into the `input`. But, as a reminder, the `BasicComponent` function will only be executed once when the component is initially created. At this time (at creation), `props.value` will equal `''`. This means that `const value` in `BasicComponent` will resolve to `'default'` and never update. While the `props` object is reactive, accessing the props in `const value = props.value || 'default';` is outside the observable scope of Solid, so it isn't automatically re-evaluated when props change.
 
 So how can we fix out problem?
 
-Well, in general, we need to access `props` somewhere that `Solidjs` can observe it. Generally this means inside JSX or inside a `createMemo`, `createEffect`, etc callback. Here is one solution that works as expected:
+Well, in general, we need to access `props` somewhere that Solid can observe it. Generally this means inside JSX or inside a `createMemo`, `createEffect`, or thunk(`() => ...`). Here is one solution that works as expected:
 
 ```jsx
-const BasicComponent = (props) => {
-  return <div>{props.value || 'default'}</div>;
+const BasicComponent = props => {
+  return <div>{props.value || "default"}</div>;
 };
 ```
 
-Another option is to convert a prop to a Signal using `createMemo`. For example:
-
+This is equivalently can be hoisted into a function:
 ```jsx
-const BasicComponent = (props) => {
-  const value = createMemo(() => props.value || 'default');
+const BasicComponent = props => {
+  const value = () => props.value || "default";
 
   return <div>{value()}</div>;
+};
+```
+
+Another option if it is an expensive computation to use `createMemo`. For example:
+
+```jsx
+const BasicComponent = props => {
+  const value = createMemo(() => props.value || "default");
+
+  return <div>{value()}</div>;
+};
+```
+
+Or using a helper
+```jsx
+const BasicComponent = props => {
+  props = mergeProps({ value: "default" }, props);
+
+  return <div>{props.value}</div>;
 };
 ```
 
@@ -129,16 +146,16 @@ As a reminder, the following examples will _not_ work:
 
 ```jsx
 // bad
-const BasicComponent = (props) => {
+const BasicComponent = props => {
   const { value: valueProp } = props;
-  const value = createMemo(() => valueProp || 'default');
+  const value = createMemo(() => valueProp || "default");
   return <div>{value()}</div>;
 };
 
 // bad
-const BasicComponent = (props) => {
+const BasicComponent = props => {
   const valueProp = prop.value;
-  const value = createMemo(() => valueProp || 'default');
+  const value = createMemo(() => valueProp || "default");
   return <div>{value()}</div>;
 };
 ```
@@ -146,16 +163,20 @@ const BasicComponent = (props) => {
 Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components.
 
 ```jsx
-<Component prop1="static" prop2={state.dynamic} />
+<Component prop1="static" prop2={state.dynamic} />;
 
 // compiles roughly to:
 
 // we untrack the component body to isolate it and prevent costly updates
-untrack(() => Component({
-  prop1: "static",
-  // dynamic expression so we wrap in a getter
-  get prop2() { return state.dynamic }
-}))
+untrack(() =>
+  Component({
+    prop1: "static",
+    // dynamic expression so we wrap in a getter
+    get prop2() {
+      return state.dynamic;
+    }
+  })
+);
 ```
 
 To help maintain reactivity Solid has a couple prop helpers:
@@ -201,6 +222,7 @@ const List = (props) => <ul>
 
 // modify and map children using helper
 const List = (props) => {
+  // children helper memoizes value and resolves all intermediate reactivity
   const memo = children(() => props.children);
   createEffect(() => {
     const children = memo();
@@ -220,7 +242,7 @@ All lifecycles in Solid are tied to the lifecycle of the reactive system.
 If you wish to perform some side effect on mount or after update use `createEffect` after render has complete:
 
 ```jsx
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal, createEffect } from "solid-js";
 
 function Example() {
   const [count, setCount] = createSignal(0);
@@ -232,9 +254,7 @@ function Example() {
   return (
     <div>
       <p>You clicked {count()} times</p>
-      <button onClick={() => setCount(count() + 1)}>
-        Click me
-      </button>
+      <button onClick={() => setCount(count() + 1)}>Click me</button>
     </div>
   );
 }
@@ -252,8 +272,8 @@ const Ticker = () => {
   // remove interval when Component destroyed:
   onCleanup(() => clearInterval(t));
 
-  return <div>{state.count}</div>
-}
+  return <div>{state.count}</div>;
+};
 ```
 
 ## Web Components

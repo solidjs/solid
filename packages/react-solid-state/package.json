@@ -5,16 +5,16 @@
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/ryansolid/solid/blob/main/packages/react-solid-state#readme",
-  "main": "lib/react-solid-state.js",
-  "module": "src/index.js",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
-    "lib",
-    "src"
+    "dist"
   ],
   "scripts": {
     "prebuild": "npm run clean",
-    "clean": "rimraf lib/ coverage/",
-    "build": "rollup -c",
+    "clean": "rimraf dist/ coverage/",
+    "build": "tsc",
     "test": "jest"
   },
   "dependencies": {

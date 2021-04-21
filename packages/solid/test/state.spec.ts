@@ -299,3 +299,21 @@ describe("State wrapping", () => {
     expect(state.time).toBe(date);
   });
 });
+
+describe("Array length", () => {
+  test("Setting plain object", () => {
+    const [state, setState] = createState<{ list: number[] }>({ list: [] });
+    let length;
+    // isolate length tracking
+    let list = state.list
+    createRoot(() => {
+      createComputed(() => {
+        length = list.length;
+      });
+    });
+    expect(length).toBe(0);
+    // insert at index 0
+    setState("list", 0, 1);
+    expect(length).toBe(1);
+  });
+});

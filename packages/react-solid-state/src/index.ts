@@ -1,7 +1,20 @@
 import {memo, PropsWithChildren, ReactElement, useCallback as rCallback, useEffect as rEffect, useMemo as rMemo, useRef as rRef, useState as rState,} from 'react';
-import {createComputed, CreateComputed, createEffect, CreateEffect, createMemo, CreateMemo, createMutable, createRoot, createSignal, createState, onCleanup, State} from 'solid-js';
+import {createComputed, createEffect, createMemo, createMutable, createRoot, createSignal, createState, onCleanup, State} from 'solid-js';
 
 export {batch, reconcile, untrack} from 'solid-js';
+
+interface CreateComputed<T> {
+  (fn: (v?: T) => T, value: T): void;
+}
+
+interface CreateEffect<T> {
+  (fn: (v?: T) => T, value: T): void;
+}
+
+interface CreateMemo<T> {
+  (fn: (v?: T) => T, value?: undefined,
+   areEqual?: boolean|((prev: T, next: T) => boolean)): () => T;
+}
 
 let inSolidEffect = false;
 function trackNesting<T extends any[]>(args: T): T {

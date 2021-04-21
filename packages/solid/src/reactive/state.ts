@@ -148,13 +148,16 @@ const proxyTraps: ProxyHandler<StateNode> = {
 
 export function setProperty(state: StateNode, property: string | number, value: any) {
   if (state[property] === value) return;
-  const notify = Array.isArray(state) || !(property in state);
+  const array = Array.isArray(state);
+  const len = state.length;
+  const notify = array || !(property in state);
   if (value === undefined) {
     delete state[property];
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.set();
+  if (array && state.length !== len) (node = nodes.length) && node.set();
   notify && (node = nodes._) && node.set();
 }
 
