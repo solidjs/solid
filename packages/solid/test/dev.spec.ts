@@ -4,8 +4,8 @@ import {
   createSignal,
   createState,
   createEffect,
-  serializeGraph,
-  createComponent
+  createComponent,
+  DEV
 } from "../src";
 
 describe("Dev features", () => {
@@ -31,10 +31,10 @@ describe("Dev features", () => {
       createComponent(CustomComponent, {});
       set1 = set;
     });
-    expect(JSON.stringify(serializeGraph(owner!))).toBe(SNAPSHOTS[0]);
+    expect(JSON.stringify(DEV.serializeGraph(owner!))).toBe(SNAPSHOTS[0]);
     set1!(7);
     setState1({ middleInitial: "R.", firstName: "Matt" });
-    expect(JSON.stringify(serializeGraph(owner!))).toBe(SNAPSHOTS[1]);
+    expect(JSON.stringify(DEV.serializeGraph(owner!))).toBe(SNAPSHOTS[1]);
   });
 
   test("AfterUpdate Hook", () => {

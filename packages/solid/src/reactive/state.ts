@@ -63,26 +63,28 @@ export function isWrappable(obj: any) {
   );
 }
 
-export function unwrap<T extends StateNode>(item: any): T {
+export function unwrap<T extends StateNode>(item: any, set = new Set()): T {
   let result, unwrapped, v, prop;
   if ((result = item != null && item[$RAW])) return result;
-  if (!isWrappable(item)) return item;
+  if (!isWrappable(item) || set.has(item)) return item;
 
   if (Array.isArray(item)) {
     if (Object.isFrozen(item)) item = item.slice(0);
+    else set.add(item);
     for (let i = 0, l = item.length; i < l; i++) {
       v = item[i];
-      if ((unwrapped = unwrap(v)) !== v) item[i] = unwrapped;
+      if ((unwrapped = unwrap(v, set)) !== v) item[i] = unwrapped;
     }
   } else {
     if (Object.isFrozen(item)) item = Object.assign({}, item);
+    else set.add(item);
     let keys = Object.keys(item),
       desc = Object.getOwnPropertyDescriptors(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       prop = keys[i];
       if ((desc as any)[prop].get) continue;
       v = item[prop];
-      if ((unwrapped = unwrap(v)) !== v) item[prop] = unwrapped;
+      if ((unwrapped = unwrap(v, set)) !== v) item[prop] = unwrapped;
     }
   }
   return item;
@@ -321,7 +323,7 @@ export interface SetStateFunction<T> {
 export function createState<T extends StateNode>(
   state: T | State<T>,
   options?: { name?: string }
-): [State<T>, SetStateFunction<T>] {
+): [get: State<T>, set: SetStateFunction<T>] {
   const unwrappedState = unwrap<T>(state || {});
   const wrappedState = wrap(
     unwrappedState,

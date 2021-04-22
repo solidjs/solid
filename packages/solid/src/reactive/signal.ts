@@ -371,7 +371,14 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
 }
 
 export function hashValue(v: any) {
-  return "s" + (typeof v === "string" ? hash(v) : hash(JSON.stringify(v) || ""));
+  const s = new Set()
+  return "s" + (typeof v === "string" ? hash(v) : hash(JSON.stringify(v, (k, v) => {
+    if (typeof v === 'object' && v != null) {
+      if (s.has(v)) return;
+      s.add(v);
+    }
+    return v;
+  }) || ""));
 }
 
 export function registerGraph(name: string, value: { value: unknown }) {
@@ -622,7 +629,7 @@ function readSignal(this: Signal<any> | Memo<any>) {
   return this.value;
 }
 
-function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: boolean) {
+export function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: boolean) {
   if (this.comparator) {
     if (Transition && Transition.running && Transition.sources.has(this)) {
       if (this.comparator(this.tValue, value)) return value;

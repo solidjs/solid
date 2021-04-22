@@ -317,3 +317,13 @@ describe("Array length", () => {
     expect(length).toBe(1);
   });
 });
+
+describe("State recursion", () => {
+  test("there is no infinite loop", () => {
+    let x: { a: number, b: any } = { a: 1, b: undefined };
+    x.b = x;
+
+    const [state, setState] = createState(x);
+    expect(state.a).toBe(state.b.a);
+  });
+});

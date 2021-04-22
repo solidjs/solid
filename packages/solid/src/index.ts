@@ -21,8 +21,7 @@ export {
   children,
   getOwner,
   runWithOwner,
-  equalFn,
-  serializeGraph
+  equalFn
 } from "./reactive/signal";
 export type { Resource } from "./reactive/signal";
 
@@ -39,6 +38,14 @@ export type { JSX } from "./jsx";
 
 // mock server endpoint for dom-expressions
 export function awaitSuspense() {}
+
+// dev
+import { writeSignal, serializeGraph } from "./reactive/signal";
+let DEV: { writeSignal: typeof writeSignal, serializeGraph: typeof serializeGraph };
+if ("_SOLID_DEV_") {
+  DEV = { writeSignal, serializeGraph }
+}
+export { DEV };
 
 // handle multiple instance check
 declare global {

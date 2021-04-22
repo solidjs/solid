@@ -19,7 +19,7 @@ const Label = props => (
 );
 ```
 
-Since all nodes from JSX are actual DOM nodes, the only responsibility of top level Templates/Components is appending to the DOM.
+Since all nodes from JSX are actual DOM nodes, the only responsibility of top level Components is appending to the DOM.
 
 ## Props
 
@@ -38,15 +38,17 @@ const Parent = () => (
 In the above example, the value set on `greeting` is static, but we can also set dynamic values. For example:
 
 ```jsx
-const Parent = () => (
-  let value = Math.random().toString();
+const Parent = () => {
+  const [greeting, setGreeting] = createSignal("Hello");
 
-  <section>
-    <Label greeting={value}>
-      <div>John</div>
-    </Label>
-  </section>
-);
+  return (
+    <section>
+      <Label greeting={greeting()}>
+        <div>John</div>
+      </Label>
+    </section>
+  );
+};
 ```
 
 Components can access properties passed to them via a `props` argument.
@@ -60,16 +62,16 @@ const Label = props => (
 );
 ```
 
-Unlike in some other frameworks, you cannot use object destructuring on the `props` of a component. This is because the `props` object is, behind the scenes, a Proxy object that relies on getters to lazily retrieve values. Using object destructuring breaks the reactivity of `props`.
+Unlike in some other frameworks, you cannot use object destructuring on the `props` of a component. This is because the `props` object is, behind the scenes, relies on Object getters to lazily retrieve values. Using object destructuring breaks the reactivity of `props`.
 
-This example shows the "correct" way of accessing props in Solidjs:
+This example shows the "correct" way of accessing props in Solid:
 
 ```jsx
 // Here, `props.name` will update like you'd expect
 const MyComponent = props => <div>{props.name}</div>;
 ```
 
-This example shows the wrong way of accessing props in Solidjs:
+This example shows the wrong way of accessing props in Solid:
 
 ```jsx
 // This is bad
@@ -115,6 +117,7 @@ const BasicComponent = props => {
 ```
 
 This is equivalently can be hoisted into a function:
+
 ```jsx
 const BasicComponent = props => {
   const value = () => props.value || "default";
@@ -134,6 +137,7 @@ const BasicComponent = props => {
 ```
 
 Or using a helper
+
 ```jsx
 const BasicComponent = props => {
   props = mergeProps({ value: "default" }, props);
