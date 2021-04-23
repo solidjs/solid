@@ -1,0 +1,24 @@
+// For format details, see https://aka.ms/vscode-remote/devcontainer.json or this file's README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.122.1/containers/typescript-node-12
+{
+  "name": "Node.js 12 & TypeScript",
+  "image": "mcr.microsoft.com/vscode/devcontainers/typescript-node:0-12",
+
+  // Set *default* container specific settings.json values on container create.
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash"
+  },
+
+  // Add the IDs of extensions you want installed when the container is created.
+  "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "mutantdino.resourcemonitor"],
+
+  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+  // - 3000 needed for serving the app
+  "forwardPorts": [3000],
+
+  // Use 'postCreateCommand' to run commands after the container is created.
+  // "postCreateCommand": "yes | npm install @briebug/jest-schematic @angular/cli -g"
+
+  // Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root.
+  "remoteUser": "node"
+}
