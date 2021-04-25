@@ -28,8 +28,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 }
 
 export function createSignal<T>(
-  value?: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
+  value?: T
 ): [() => T, (v: T) => T] {
   return [() => value as T, (v: T) => (value = v)];
 }
@@ -46,8 +45,7 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
 export function createMemo<T>(
   fn: (v?: T) => T,
-  value?: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
+  value?: T
 ): () => T {
   Owner = { owner: Owner, context: null };
   const v = fn(value);
@@ -55,24 +53,22 @@ export function createMemo<T>(
   return () => v;
 }
 
-export function createDeferred<T>(source: () => T, options?: { timeoutMs: number }) {
+export function createDeferred<T>(source: () => T) {
   return source;
 }
 
 export function createSelector<T>(
   source: () => T,
-  fn: (k: T, value: T, prevValue: T | undefined) => boolean
+  fn: (k: T, value: T) => boolean
 ) {
-  return source;
+  return (k: T) => fn(k, source());
 }
 
 export function batch<T>(fn: () => T): T {
   return fn();
 }
 
-export function untrack<T>(fn: () => T): T {
-  return fn();
-}
+export const untrack = batch;
 
 type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends (() => infer U) ? U : never };
 export function on<T, X extends Array<() => T>, U>(

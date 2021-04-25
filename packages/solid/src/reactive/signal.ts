@@ -4,6 +4,7 @@ import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
+const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
 
@@ -99,23 +100,25 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [get: () => T | undefined, set: <U extends T | undefined>(v?: U) => U];
+export function createSignal<T>(): [
+  get: () => T | undefined,
+  set: <U extends T | undefined>(v?: U) => U
+];
 export function createSignal<T>(
   value: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean),
-  options?: { name?: string; internal?: boolean }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
 ): [get: () => T, set: (v: T) => T];
 export function createSignal<T>(
   value?: T,
-  areEqual: boolean | ((prev: T, next: T) => boolean) = true,
-  options?: { name?: string; internal?: boolean }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
 ): [get: () => T, set: (v: T) => T] {
+  options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
     value,
     observers: null,
     observerSlots: null,
     pending: NOTPENDING,
-    comparator: areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined
+    comparator: options?.equals || undefined
   };
   if ("_SOLID_DEV_" && (!options || !options.internal))
     s.name = registerGraph((options && options.name) || hashValue(value), s as { value: unknown });
@@ -123,69 +126,229 @@ export function createSignal<T>(
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
-export function createComputed<T>(fn: (v: T) => T, value: T): void;
 export function createComputed<T>(fn: (v?: T) => T | undefined): void;
-export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
-  updateComputation(createComputation(fn, value, true));
+export function createComputed<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
+export function createComputed<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
+  updateComputation(createComputation(fn, value, true, "_SOLID_DEV_" ? options : undefined));
 }
 
-export function createRenderEffect<T>(fn: (v: T) => T, value: T): void;
 export function createRenderEffect<T>(fn: (v?: T) => T | undefined): void;
-export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
-  updateComputation(createComputation(fn, value, false));
+export function createRenderEffect<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
+export function createRenderEffect<T>(
+  fn: (v?: T) => T,
+  value?: T,
+  options?: { name?: string }
+): void {
+  updateComputation(createComputation(fn, value, false, "_SOLID_DEV_" ? options : undefined));
 }
 
-export function createEffect<T>(fn: (v: T) => T, value: T): void;
 export function createEffect<T>(fn: (v?: T) => T | undefined): void;
-export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
+export function createEffect<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
+export function createEffect<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
   runEffects = runUserEffects;
-  const c = createComputation(fn, value, false),
+  const c = createComputation(fn, value, false, "_SOLID_DEV_" ? options : undefined),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
   Effects && Effects.push(c);
 }
 
-export function resumeEffects(e: Computation<any>[]) {
-  Transition && (Transition.running = true);
-  Effects!.push.apply(Effects, e);
-  e.length = 0;
-}
-
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: undefined,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
 ): () => T;
 export function createMemo<T>(
   fn: (v: T) => T,
   value: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
 ): () => T;
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: T,
-  areEqual: boolean | ((prev: T, next: T) => boolean) = true
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
 ): () => T {
-  const c: Partial<Memo<T>> = createComputation<T>(fn, value, true);
+  options = options ? Object.assign({}, signalOptions, options) : signalOptions;
+  const c: Partial<Memo<T>> = createComputation<T>(
+    fn,
+    value,
+    true,
+    "_SOLID_DEV_" ? options : undefined
+  );
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
   c.state = 0;
-  c.comparator = areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined;
+  c.comparator = options.equals || undefined;
   updateComputation(c as Memo<T>);
   return readSignal.bind(c as Memo<T>);
 }
 
-export function createDeferred<T>(source: () => T, options?: { timeoutMs: number }) {
+export interface Resource<T> {
+  (): T | undefined;
+  loading: boolean;
+  error: any;
+}
+
+type ResourceReturn<T> = [
+  Resource<T>,
+  {
+    mutate: (v: T | undefined) => T | undefined;
+    refetch: () => void;
+  }
+];
+
+export function createResource<T, U = true>(
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  options?: { initialValue?: T; name?: string }
+): ResourceReturn<T>;
+export function createResource<T, U>(
+  source: U | false | (() => U | false),
+  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  options?: { initialValue?: T; name?: string }
+): ResourceReturn<T>;
+export function createResource<T, U>(
+  source:
+    | U
+    | true
+    | false
+    | (() => U | false)
+    | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
+  fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
+  options: { initialValue?: T; name?: string } = {}
+): ResourceReturn<T> {
+  if (arguments.length === 2) {
+    if (typeof fetcher === "object") {
+      options = fetcher;
+      fetcher = source as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+      source = true;
+    }
+  } else if (arguments.length === 1) {
+    fetcher = source as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+    source = true;
+  }
+  const contexts = new Set<SuspenseContextType>(),
+    [s, set] = createSignal(options!.initialValue),
+    [track, trigger] = createSignal<void>(undefined, { equals: false }),
+    [loading, setLoading] = createSignal<boolean>(false),
+    [error, setError] = createSignal<any>();
+
+  let err: any = undefined,
+    pr: Promise<T> | null = null,
+    initP: Promise<T> | null = null,
+    id: string | null = null,
+    loadedUnderTransition = false,
+    dynamic = typeof source === "function";
+
+  if (sharedConfig.context) {
+    id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
+    if (sharedConfig.context.loadResource) {
+      initP = sharedConfig.context.loadResource!(id!);
+    } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
+      initP = sharedConfig.resources![id];
+      delete sharedConfig.resources![id];
+    }
+  }
+  function loadEnd(p: Promise<T> | null, v: T, e?: any) {
+    if (pr === p) {
+      setError((err = e));
+      pr = null;
+      if (Transition && p && loadedUnderTransition) {
+        Transition.promises.delete(p);
+        loadedUnderTransition = false;
+        runUpdates(() => {
+          Transition!.running = true;
+          if (!Transition!.promises.size) {
+            Effects!.push.apply(Effects, Transition!.effects);
+            Transition!.effects = [];
+          }
+          completeLoad(v);
+        }, false);
+      } else completeLoad(v);
+    }
+    return v;
+  }
+  function completeLoad(v: T) {
+    batch(() => {
+      set(v);
+      setLoading(false);
+      for (let c of contexts.keys()) c.decrement!();
+      contexts.clear();
+    });
+  }
+
+  function read() {
+    const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
+      v = s();
+    if (err) throw err;
+    if (Listener && !Listener.user && c) {
+      createComputed(() => {
+        track();
+        if (pr) {
+          if (c.resolved && Transition) Transition.promises.add(pr!);
+          else if (!contexts.has(c)) {
+            c.increment!();
+            contexts.add(c);
+          }
+        }
+      });
+    }
+    return v;
+  }
+  function load() {
+    setError((err = undefined));
+    let lookup = dynamic ? (source as () => U)() : (source as U);
+    loadedUnderTransition = (Transition && Transition.running) as boolean;
+    if (lookup == null || (lookup as any) === false) {
+      loadEnd(pr, untrack(s)!);
+      return;
+    }
+    if (Transition && pr) Transition.promises.delete(pr);
+    const p =
+      initP || (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(lookup, s);
+    initP = null;
+    if (typeof p !== "object" || !("then" in p)) {
+      loadEnd(pr, p);
+      return;
+    }
+    pr = p;
+    batch(() => {
+      setLoading(true);
+      trigger();
+    });
+    p.then(
+      v => loadEnd(p as Promise<T>, v),
+      e => loadEnd(p as Promise<T>, e, e)
+    );
+  }
+  Object.defineProperties(read, {
+    loading: {
+      get() {
+        return loading();
+      }
+    },
+    error: {
+      get() {
+        return error();
+      }
+    }
+  });
+  if (dynamic) createComputed(load);
+  else load();
+  return [read as Resource<T>, { refetch: load, mutate: set }];
+}
+
+export function createDeferred<T>(
+  source: () => T,
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; timeoutMs?: number }
+) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const [deferred, setDeferred] = createSignal();
   const node = createComputation(
     () => {
       if (!t || !t.fn)
         t = requestCallback(
-          () => setDeferred(node.value),
+          () => setDeferred(node.value as T),
           timeout !== undefined ? { timeout } : undefined
         );
       return source();
@@ -193,14 +356,16 @@ export function createDeferred<T>(source: () => T, options?: { timeoutMs: number
     undefined,
     true
   );
+  const [deferred, setDeferred] = createSignal(node.value as T, options);
   updateComputation(node);
-  setDeferred(node.value);
+  setDeferred(node.value as T);
   return deferred;
 }
 
 export function createSelector<T, U>(
   source: () => T,
-  fn: (a: U, b: T) => boolean = equalFn as any
+  fn: (a: U, b: T) => boolean = equalFn as any,
+  options?: { name?: string }
 ) {
   let subs = new Map<U, Set<Computation<any>>>();
   const node = createComputation(
@@ -218,7 +383,8 @@ export function createSelector<T, U>(
       return v;
     },
     undefined,
-    true
+    true,
+    "_SOLID_DEV_" ? options : undefined
   );
   updateComputation(node);
   return (key: U) => {
@@ -251,29 +417,6 @@ export function batch<T>(fn: () => T): T {
     }
   }, false);
   return result;
-}
-
-export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void] {
-  return [
-    transPending,
-    (fn: () => void, cb?: () => void) => {
-      if (SuspenseContext) {
-        Transition ||
-          (Transition = {
-            sources: new Set(),
-            effects: [],
-            promises: new Set(),
-            disposed: new Set(),
-            running: true,
-            cb: []
-          });
-        cb && Transition.cb.push(cb);
-        Transition.running = true;
-      }
-      batch(fn);
-      if (!SuspenseContext && cb) cb();
-    }
-  ];
 }
 
 export function untrack<T>(fn: () => T): T {
@@ -355,6 +498,37 @@ export function runWithOwner(o: Owner, fn: () => any) {
   }
 }
 
+// Transitions
+export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void] {
+  return [
+    transPending,
+    (fn: () => void, cb?: () => void) => {
+      if (SuspenseContext) {
+        Transition ||
+          (Transition = {
+            sources: new Set(),
+            effects: [],
+            promises: new Set(),
+            disposed: new Set(),
+            running: true,
+            cb: []
+          });
+        cb && Transition.cb.push(cb);
+        Transition.running = true;
+      }
+      batch(fn);
+      if (!SuspenseContext && cb) cb();
+    }
+  ];
+}
+
+export function resumeEffects(e: Computation<any>[]) {
+  Transition && (Transition.running = true);
+  Effects!.push.apply(Effects, e);
+  e.length = 0;
+}
+
+// Dev
 export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   const c: Partial<Memo<JSX.Element>> = createComputation(
     () => untrack(() => Comp(props)),
@@ -367,18 +541,25 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   c.state = 0;
   c.componentName = Comp.name;
   updateComputation(c as Memo<JSX.Element>);
-  return c.tValue !== undefined ? c.tValue : c.value;;
+  return c.tValue !== undefined ? c.tValue : c.value;
 }
 
 export function hashValue(v: any) {
-  const s = new Set()
-  return "s" + (typeof v === "string" ? hash(v) : hash(JSON.stringify(v, (k, v) => {
-    if (typeof v === 'object' && v != null) {
-      if (s.has(v)) return;
-      s.add(v);
-    }
-    return v;
-  }) || ""));
+  const s = new Set();
+  return (
+    "s" +
+    (typeof v === "string"
+      ? hash(v)
+      : hash(
+          JSON.stringify(v, (k, v) => {
+            if (typeof v === "object" && v != null) {
+              if (s.has(v)) return;
+              s.add(v);
+            }
+            return v;
+          }) || ""
+        ))
+  );
 }
 
 export function registerGraph(name: string, value: { value: unknown }) {
@@ -443,160 +624,6 @@ let SuspenseContext: Context<SuspenseContextType> & {
 
 export function getSuspenseContext() {
   return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>({}));
-}
-
-export interface Resource<T> {
-  (): T | undefined;
-  loading: boolean;
-  error: any;
-}
-
-type ResourceReturn<T> = [
-  Resource<T>,
-  {
-    mutate: (v: T | undefined) => T | undefined;
-    refetch: () => void;
-  }
-];
-
-export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  options?: { initialValue?: T }
-): ResourceReturn<T>;
-export function createResource<T, U>(
-  fn: U | false | (() => U | false),
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  options?: { initialValue?: T }
-): ResourceReturn<T>;
-export function createResource<T, U>(
-  fn:
-    | U
-    | true
-    | false
-    | (() => U | false)
-    | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
-  options: { initialValue?: T } = {}
-): ResourceReturn<T> {
-  if (arguments.length === 2) {
-    if (typeof fetcher === "object") {
-      options = fetcher;
-      fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
-      fn = true;
-    }
-  } else if (arguments.length === 1) {
-    fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
-    fn = true;
-  }
-  const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal(options!.initialValue),
-    [track, trigger] = createSignal<void>(undefined, false),
-    [loading, setLoading] = createSignal<boolean>(false),
-    [error, setError] = createSignal<any>();
-
-  let err: any = undefined,
-    pr: Promise<T> | null = null,
-    initP: Promise<T> | null = null,
-    id: string | null = null,
-    loadedUnderTransition = false,
-    dynamic = typeof fn === "function";
-
-  if (sharedConfig.context) {
-    id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
-    if (sharedConfig.context.loadResource) {
-      initP = sharedConfig.context.loadResource!(id!);
-    } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
-      initP = sharedConfig.resources![id];
-      delete sharedConfig.resources![id];
-    }
-  }
-  function loadEnd(p: Promise<T> | null, v: T, e?: any) {
-    if (pr === p) {
-      setError((err = e));
-      pr = null;
-      if (Transition && p && loadedUnderTransition) {
-        Transition.promises.delete(p);
-        loadedUnderTransition = false;
-        runUpdates(() => {
-          Transition!.running = true;
-          if (!Transition!.promises.size) {
-            Effects!.push.apply(Effects, Transition!.effects);
-            Transition!.effects = [];
-          }
-          completeLoad(v);
-        }, false);
-      } else completeLoad(v);
-    }
-    return v;
-  }
-  function completeLoad(v: T) {
-    batch(() => {
-      set(v);
-      setLoading(false);
-      for (let c of contexts.keys()) c.decrement!();
-      contexts.clear();
-    });
-  }
-
-  function read() {
-    const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
-      v = s();
-    if (err) throw err;
-    if (Listener && !Listener.user && c) {
-      createComputed(() => {
-        track();
-        if (pr) {
-          if (c.resolved && Transition) Transition.promises.add(pr!);
-          else if (!contexts.has(c)) {
-            c.increment!();
-            contexts.add(c);
-          }
-        }
-      });
-    }
-    return v;
-  }
-  function load() {
-    setError((err = undefined));
-    let lookup = dynamic ? (fn as () => U)() : (fn as U);
-    loadedUnderTransition = (Transition && Transition.running) as boolean;
-    if (lookup == null || (lookup as any) === false) {
-      loadEnd(pr, untrack(s)!);
-      return;
-    }
-    if (Transition && pr) Transition.promises.delete(pr);
-    const p =
-      initP || (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(lookup, s);
-    initP = null;
-    if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p);
-      return;
-    }
-    pr = p;
-    batch(() => {
-      setLoading(true);
-      trigger();
-    });
-    p.then(
-      v => loadEnd(p as Promise<T>, v),
-      e => loadEnd(p as Promise<T>, e, e)
-    );
-  }
-  Object.defineProperties(read, {
-    loading: {
-      get() {
-        return loading();
-      }
-    },
-    error: {
-      get() {
-        return error();
-      }
-    }
-  });
-  if (dynamic) createComputed(load);
-  else load();
-  return [read as Resource<T>, { refetch: load, mutate: set }];
 }
 
 function readSignal(this: Signal<any> | Memo<any>) {
@@ -702,7 +729,12 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
 }
 
-function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boolean) {
+function createComputation<T>(
+  fn: (v?: T) => T,
+  init: T | undefined,
+  pure: boolean,
+  options?: { name?: string }
+) {
   const c: Computation<T> = {
     fn,
     state: STALE,
@@ -731,9 +763,10 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
     }
     if ("_SOLID_DEV_")
       c.name =
+        (options && options.name) ||
         ((Owner as Computation<any>).name || "c") +
-        "-" +
-        (Owner.owned || (Owner as Memo<T>).tOwned!).length;
+          "-" +
+          (Owner.owned || (Owner as Memo<T>).tOwned!).length;
   }
   return c;
 }

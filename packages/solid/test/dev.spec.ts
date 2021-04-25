@@ -26,7 +26,7 @@ describe("Dev features", () => {
       const [s, set] = createSignal(5);
       const [s2] = createSignal(5);
       createEffect(() => {
-        const [s] = createSignal(6, false, { name: "explicit" });
+        const [s] = createSignal(6, { name: "explicit" });
       });
       createComponent(CustomComponent, {});
       set1 = set;
@@ -45,7 +45,7 @@ describe("Dev features", () => {
       const [s, set] = createSignal(5);
       const [s2] = createSignal(5);
       createEffect(() => {
-        const [s] = createSignal(6, false, { name: "explicit" });
+        const [s] = createSignal(6, { name: "explicit" });
       });
       const [state, setState] = createState({ firstName: "John", lastName: "Smith" });
       createEffect(() => {

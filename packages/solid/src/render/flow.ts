@@ -9,8 +9,10 @@ export function For<T, U extends JSX.Element>(props: {
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
-    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  , undefined, false);
+    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined),
+    undefined,
+    { equals: false }
+  );
 }
 
 // non-keyed
@@ -21,8 +23,10 @@ export function Index<T, U extends JSX.Element>(props: {
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
-    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  , undefined, false);
+    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined),
+    undefined,
+    { equals: false }
+  );
 }
 
 export function Show<T>(props: {
@@ -31,11 +35,9 @@ export function Show<T>(props: {
   children: JSX.Element | ((item: T) => JSX.Element);
 }) {
   let strictEqual = false;
-  const condition = createMemo<T | undefined | null | boolean>(
-    () => props.when,
-    undefined,
-    (a, b) => (strictEqual ? a === b : !a === !b)
-  );
+  const condition = createMemo<T | undefined | null | boolean>(() => props.when, undefined, {
+    equals: (a, b) => (strictEqual ? a === b : !a === !b)
+  });
   return createMemo(() => {
     const c = condition();
     if (c) {
@@ -62,8 +64,10 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
         return [-1];
       },
       undefined,
-      (a: [number, unknown?, unknown?], b: [number, unknown?, unknown?]) =>
-        a && a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
+      {
+        equals: (a: [number, unknown?, unknown?], b: [number, unknown?, unknown?]) =>
+          a && a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
+      }
     );
   return createMemo(() => {
     const [index, when, cond] = evalConditions();

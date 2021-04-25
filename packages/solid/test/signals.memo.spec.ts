@@ -4,14 +4,12 @@ describe("createMemo", () => {
   describe("executing propagating", () => {
     it("does not trigger downstream computations unless changed", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(1, false);
+        let [s1, set] = createSignal(1, { equals: false });
         let order = "";
-        let t1 = createMemo(
-          () => {
-            order += "t1";
-            return s1();
-          }
-        );
+        let t1 = createMemo(() => {
+          order += "t1";
+          return s1();
+        });
         createComputed(() => {
           order += "c1";
           t1();
@@ -30,12 +28,10 @@ describe("createMemo", () => {
       createRoot(() => {
         let [s1, set] = createSignal(0);
         let order = "";
-        let t1 = createMemo(
-          () => {
-            order += "t1";
-            return s1() === 0;
-          }
-        );
+        let t1 = createMemo(() => {
+          order += "t1";
+          return s1() === 0;
+        });
         createComputed(() => {
           order += "c1";
           return s1();
@@ -57,12 +53,10 @@ describe("createMemo", () => {
         let [s1, set] = createSignal(0);
         let [s2] = createSignal(0);
         let order = "";
-        let t1 = createMemo(
-          () => {
-            order += "t1";
-            return s1() === 0;
-          }
-        );
+        let t1 = createMemo(() => {
+          order += "t1";
+          return s1() === 0;
+        });
         createComputed(() => {
           order += "c1";
           return s1();
@@ -94,12 +88,10 @@ describe("createMemo", () => {
       [t, setT] = createSignal(1);
       [e, setE] = createSignal(2);
       fevals = 0;
-      f = createMemo(
-        () => {
-          fevals++;
-          return i() ? t() : e();
-        }
-      );
+      f = createMemo(() => {
+        fevals++;
+        return i() ? t() : e();
+      });
       fevals = 0;
     }
 
@@ -145,33 +137,25 @@ describe("createMemo", () => {
       createRoot(() => {
         var order = "",
           [a, setA] = createSignal(0),
-          b = createMemo(
-            () => {
-              order += "b";
-              return a() + 1;
-            },
-          ),
-          c = createMemo(
-            () => {
-              order += "c";
-              const check = b();
-              if (check) {
-                return check;
-              }
-              return e();
+          b = createMemo(() => {
+            order += "b";
+            return a() + 1;
+          }),
+          c = createMemo(() => {
+            order += "c";
+            const check = b();
+            if (check) {
+              return check;
             }
-          ),
-          d = createMemo(
-            () => {
-              return a();
-            }
-          ),
-          e = createMemo(
-            () => {
-              order += "d";
-              return d() + 10;
-            }
-          );
+            return e();
+          }),
+          d = createMemo(() => {
+            return a();
+          }),
+          e = createMemo(() => {
+            order += "d";
+            return d() + 10;
+          });
 
         expect(order).toBe("bcd");
 
@@ -205,18 +189,14 @@ describe("createMemo", () => {
                    c3
              [PN,PN,STL,void]
         */
-        let t1 = createMemo(() => s1() > 0, undefined, true);
-        let t2 = createMemo(() => s1() > 0, undefined, true);
+        let t1 = createMemo(() => s1() > 0);
+        let t2 = createMemo(() => s1() > 0);
         let c1 = createMemo(() => s1());
-        let t3 = createMemo(
-          () => {
-            let a = s1();
-            let b = s2();
-            return a && b;
-          },
-          undefined,
-          true
-        );
+        let t3 = createMemo(() => {
+          let a = s1();
+          let b = s2();
+          return a && b;
+        });
         createComputed(() => {
           t1();
           t2();
@@ -276,14 +256,10 @@ describe("createMemo", () => {
         let [s2] = createSignal(1);
         let count = 0;
         let c1: () => number;
-        createMemo(
-          () => {
-            c1 = createMemo(() => s2(), undefined, true);
-            return s1();
-          },
-          undefined,
-          true
-        );
+        createMemo(() => {
+          c1 = createMemo(() => s2());
+          return s1();
+        });
         createComputed(() => {
           count++;
           c1();
@@ -297,20 +273,14 @@ describe("createMemo", () => {
       createRoot(() => {
         let [s1, set] = createSignal(true);
         let order = "";
-        let t1 = createMemo(
-          () => {
-            order += "t1";
-            return s1();
-          },
-          undefined,
-          true
-        );
-        let t2 = createMemo(
-          () => {
-            order += "t2";
-            return s1();
-          }
-        );
+        let t1 = createMemo(() => {
+          order += "t1";
+          return s1();
+        });
+        let t2 = createMemo(() => {
+          order += "t2";
+          return s1();
+        });
         createComputed(() => {
           t1();
           t2();
@@ -333,22 +303,14 @@ describe("createMemo", () => {
             c2();
           }
         });
-        let t1 = createMemo(
-          () => {
-            order += "t1";
-            return s1() < 3;
-          },
-          undefined,
-          true
-        );
-        let t2 = createMemo(
-          () => {
-            order += "t2";
-            return t1();
-          },
-          undefined,
-          true
-        );
+        let t1 = createMemo(() => {
+          order += "t1";
+          return s1() < 3;
+        });
+        let t2 = createMemo(() => {
+          order += "t2";
+          return t1();
+        });
         c2 = createMemo(() => {
           order += "c2";
           return t2();
@@ -366,12 +328,10 @@ describe("createMemo", () => {
       createRoot(() => {
         let [s1, set] = createSignal(1);
         let order = "";
-        let t1 = createMemo(
-          () => {
-            order += "t1";
-            return s1();
-          }
-        );
+        let t1 = createMemo(() => {
+          order += "t1";
+          return s1();
+        });
         let c1 = createMemo(() => {
           order += "c1";
           return t1();
@@ -397,13 +357,9 @@ describe("createMemo", () => {
         var [d, set] = createSignal(1);
 
         expect(() => {
-          createMemo(
-            () => {
-              return set(d() + 1);
-            },
-            undefined,
-            true
-          );
+          createMemo(() => {
+            return set(d() + 1);
+          });
         }).toThrow();
       });
     });
@@ -412,19 +368,15 @@ describe("createMemo", () => {
       createRoot(() => {
         let i = 2;
         var [d, set] = createSignal(1),
-          f1 = createMemo(() => d(), undefined, true),
-          f2 = createMemo(() => f1(), undefined, true),
-          f3 = createMemo(() => f2(), undefined, true);
+          f1 = createMemo(() => d()),
+          f2 = createMemo(() => f1()),
+          f3 = createMemo(() => f2());
 
         expect(() => {
-          createMemo(
-            () => {
-              f3();
-              set(i++);
-            },
-            undefined,
-            true
-          );
+          createMemo(() => {
+            f3();
+            set(i++);
+          });
         }).toThrow();
       });
     });
@@ -434,7 +386,7 @@ describe("createMemo", () => {
     it("throws when cycle created by modifying a branch", () => {
       createRoot(() => {
         var [d, set] = createSignal(1),
-          f: () => number = createMemo(() => (f ? f() : d()), undefined, false);
+          f: () => number = createMemo(() => (f ? f() : d()), undefined, { equals: false });
 
         expect(() => {
           set(0);

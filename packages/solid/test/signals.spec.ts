@@ -24,7 +24,7 @@ describe("Create signals", () => {
     expect(value()).toBe(5);
   });
   test("Create and read a Signal with comparator", () => {
-    const [value] = createSignal(5, (a, b) => a === b);
+    const [value] = createSignal(5, { equals: (a, b) => a === b });
     expect(value()).toBe(5);
   });
   test("Create and read a Memo", () => {
@@ -70,13 +70,13 @@ describe("Update signals", () => {
     setValue(10);
     expect(value()).toBe(10);
   });
-  test("Create Signal with comparator and set different value", () => {
-    const [value, setValue] = createSignal(5, (a, b) => a === b);
+  test("Create Signal and set different value", () => {
+    const [value, setValue] = createSignal(5);
     setValue(10);
     expect(value()).toBe(10);
   });
-  test("Create Signal with comparator and set equivalent value", () => {
-    const [value, setValue] = createSignal(5, (a, b) => a > b);
+  test("Create Signal and set equivalent value", () => {
+    const [value, setValue] = createSignal(5, { equals: (a, b) => a > b });
     setValue(3);
     expect(value()).toBe(5);
   });
@@ -383,16 +383,16 @@ describe("createSelector", () => {
       const [s, set] = createSignal<number>(-1),
         isSelected = createSelector<number, number>(s);
       let count = 0;
-      const list = Array.from({ length: 100 }, (_, i) =>
-        [createMemo(() => {
+      const list = Array.from({ length: 100 }, (_, i) => [
+        createMemo(() => {
           count++;
           return isSelected(i) ? "selected" : "no";
         }),
         createMemo(() => {
           count++;
           return isSelected(i) ? "oui" : "non";
-        })]
-      );
+        })
+      ]);
       expect(count).toBe(200);
       expect(list[3][0]()).toBe("no");
       expect(list[3][1]()).toBe("non");
@@ -444,8 +444,8 @@ describe("createSelector", () => {
 
 describe("create and use context", () => {
   test("createContext without arguments defaults to undefined", () => {
-    const context = createContext<number>()
+    const context = createContext<number>();
     const res = useContext(context);
-    expect(res).toBe<typeof res>(undefined)
-  })
-})
+    expect(res).toBe<typeof res>(undefined);
+  });
+});

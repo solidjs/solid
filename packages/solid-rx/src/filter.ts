@@ -11,13 +11,13 @@ export function filter<T>(input: any, fn?: (v: T) => boolean): any {
 
   function filter(input: () => T) {
     let value: T;
-    const trigger = createMemo(
+    const trigger = createMemo<boolean>(
       () => {
         value = input();
         return untrack(() => fn!(value));
       },
       undefined,
-      (_, next) => next === false
+      { equals: (_: boolean, next: boolean) => next === false }
     );
     return () => trigger() && value;
   }

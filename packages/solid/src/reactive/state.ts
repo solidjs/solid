@@ -108,8 +108,8 @@ export function proxyDescriptor(target: StateNode, property: string | number | s
 
 export function createDataNode() {
   const [s, set] = ("_SOLID_DEV_"
-    ? createSignal(undefined, false, { internal: true })
-    : createSignal(undefined, false)) as [{ (): void; set: () => void }, () => void];
+    ? createSignal(undefined, { equals: false, internal: true })
+    : createSignal(undefined, { equals: false })) as [{ (): void; set: () => void }, () => void];
   s.set = set;
   return s;
 }

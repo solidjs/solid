@@ -196,7 +196,7 @@ export function indexArray<T, U>(
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;
-      const [s, set] = createSignal(newItems[i], false);
+      const [s, set] = createSignal(newItems[i]);
       signals[i] = set;
       return mapFn(s, i);
     }

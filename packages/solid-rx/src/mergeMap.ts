@@ -13,7 +13,7 @@ export function mergeMap<T, U>(input: any, fn?: (v: T) => () => U): any {
     const mapped = createMemo(() => {
       const value = input();
       return untrack(() => fn!(value));
-    });
+    }, undefined, { equals: false });
     return () => {
       const m = mapped();
       return m ? m() : undefined;

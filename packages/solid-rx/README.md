@@ -21,7 +21,7 @@ const doubleEven = pipe(
   map(t => t * 2)
 );
 
-const [number, setNumber] = createSignal(0),
+const [number, setNumber] = createSignal(0, { equals: false }),
   result = createMemo(doubleEven(number));
 // 0
 
