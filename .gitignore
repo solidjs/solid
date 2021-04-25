@@ -4,6 +4,7 @@ lib/
 .vscode/
 coverage/
 types/
+.DS_store
 
 packages/solid/src/jsx.d.ts
 packages/solid/web/server/server.d.ts
