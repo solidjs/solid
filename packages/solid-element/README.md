@@ -1,10 +1,10 @@
 # Solid Element
-[![Build Status](https://github.com/ryansolid/solid/workflows/Solid%20CI/badge.svg)](https://github.com/ryansolid/solid/actions/workflows/main-ci.yml)
+[![Build Status](https://github.com/solidui/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidui/solid/actions/workflows/main-ci.yml)
 [![NPM Version](https://img.shields.io/npm/v/solid-element.svg?style=flat)](https://www.npmjs.com/package/solid-element)
 ![](https://img.shields.io/librariesio/release/npm/solid-element)
 ![](https://img.shields.io/npm/dm/solid-element.svg?style=flat)
 
-This library extends [Solid](https://github.com/ryansolid/solid) by adding Custom Web Components and extensions to manage modular behaviors and composition. It uses [Component Register](https://github.com/ryansolid/component-register) to create Web Components and its composed mixin pattern to construct modular re-usable behaviors. This allows your code to available as simple HTML elements for library interopt and to leverage Shadow DOM style isolation. Solid already supports binding to Web Components so this fills the gap allowing full modular applications to be built out of nested Web Components. Component Register makes use of the V1 Standards and on top of being compatible with the common webcomponent.js polyfills, has a solution for Polyfilling Shadow DOM CSS using the ShadyCSS Parser from Polymer in a generic framework agnostic way (unlike the ShadyCSS package).
+This library extends [Solid](https://github.com/solidui/solid) by adding Custom Web Components and extensions to manage modular behaviors and composition. It uses [Component Register](https://github.com/ryansolid/component-register) to create Web Components and its composed mixin pattern to construct modular re-usable behaviors. This allows your code to available as simple HTML elements for library interopt and to leverage Shadow DOM style isolation. Solid already supports binding to Web Components so this fills the gap allowing full modular applications to be built out of nested Web Components. Component Register makes use of the V1 Standards and on top of being compatible with the common webcomponent.js polyfills, has a solution for Polyfilling Shadow DOM CSS using the ShadyCSS Parser from Polymer in a generic framework agnostic way (unlike the ShadyCSS package).
 
 ## Example
 

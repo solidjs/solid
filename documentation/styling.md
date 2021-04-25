@@ -2,7 +2,7 @@
 
 Styling is not any different in Solid than most libraries. You can use CSS inserted in the head of your document. Or you can use CSS Modules with your Webpack or Rollup config, you can use preprocessor like SASS or PostCSS. Libraries like Bootstrap or Tailwind are compatible. Solid also supports generic CSS in JS libraries like Emotion.
 
-In addition Solid has 2 libraries to support some more common CSS in JS patterns with [solid-styled-components](https://github.com/ryansolid/solid/blob/main/packages/solid-styled-components), a Styled Component library that works with Solid's Component system and [solid-styled-jsx](https://github.com/ryansolid/solid/blob/main/packages/solid-styled-jsx) a wrapper on Zeit's Styled JSX to work with Solid.
+In addition Solid has 2 libraries to support some more common CSS in JS patterns with [solid-styled-components](https://github.com/solidui/solid/blob/main/packages/solid-styled-components), a Styled Component library that works with Solid's Component system and [solid-styled-jsx](https://github.com/solidui/solid/blob/main/packages/solid-styled-jsx) a wrapper on Zeit's Styled JSX to work with Solid.
 
 Styled Components:
 

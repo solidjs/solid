@@ -311,4 +311,4 @@ declare module "solid-js" {
 
 ## Server Side Rendering (Experimental)
 
-See [solid-ssr](https://github.com/ryansolid/solid/blob/main/packages/solid-ssr)
+See [solid-ssr](https://github.com/solidui/solid/blob/main/packages/solid-ssr)

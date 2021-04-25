@@ -4,7 +4,7 @@
   "version": "0.26.3",
   "author": "Ryan Carniato",
   "license": "MIT",
-  "homepage": "https://github.com/ryansolid/solid/blob/main/packages/react-solid-state#readme",
+  "homepage": "https://github.com/solidui/solid/blob/main/packages/react-solid-state#readme",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

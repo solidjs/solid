@@ -3,7 +3,7 @@
   "version": "0.26.3",
   "description": "Functionally reactive extensions for Solid.js",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
-  "homepage": "https://github.com/ryansolid/solid/blob/main/packages/solid-rx#readme",
+  "homepage": "https://github.com/solidui/solid/blob/main/packages/solid-rx#readme",
   "license": "MIT",
   "type": "module",
   "main": "dist/solid-rx.js",
@@ -15,7 +15,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ryansolid/solid.git"
+    "url": "git+https://github.com/solidui/solid.git"
   },
   "scripts": {
     "prebuild": "npm run clean",
@@ -24,7 +24,7 @@
     "test": "jest"
   },
   "bugs": {
-    "url": "https://github.com/ryansolid/solid/issues"
+    "url": "https://github.com/solidui/solid/issues"
   },
   "peerDependencies": {
     "solid-js": ">= 0.26.0"

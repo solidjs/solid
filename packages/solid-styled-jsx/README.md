@@ -1,5 +1,5 @@
 # Solid Styled JSX
-[![Build Status](https://img.shields.io/travis/com/ryansolid/solid.svg?style=flat)](https://travis-ci.com/ryansolid/solid)
+[![Build Status](https://img.shields.io/travis/com/solidui/solid.svg?style=flat)](https://travis-ci.com/solidui/solid)
 [![NPM Version](https://img.shields.io/npm/v/solid-styled-jsx.svg?style=flat)](https://www.npmjs.com/package/solid-styled-jsx)
 ![](https://img.shields.io/librariesio/release/npm/solid-styled-jsx)
 ![](https://img.shields.io/npm/dm/solid-styled-jsx.svg?style=flat)

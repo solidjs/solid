@@ -1,7 +1,7 @@
-## <img src="https://raw.githubusercontent.com/ryansolid/solid/main/assets/logo.png" alt="Solid" width="500"/><br>
+## <img src="https://raw.githubusercontent.com/solidui/solid/main/assets/logo.png" alt="Solid" width="500"/><br>
 
-[![Build Status](https://github.com/ryansolid/solid/workflows/Solid%20CI/badge.svg)](https://github.com/ryansolid/solid/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/ryansolid/solid.svg?style=flat)](https://coveralls.io/github/ryansolid/solid?branch=main)
+[![Build Status](https://github.com/solidui/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidui/solid/actions/workflows/main-ci.yml)
+[![Coverage Status](https://img.shields.io/coveralls/github/solidui/solid.svg?style=flat)](https://coveralls.io/github/solidui/solid?branch=main)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510)](https://discord.com/invite/solidjs)
@@ -94,6 +94,7 @@ The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or ba
 ```
 
 For TypeScript remember to set your TSConfig to handle Solid's JSX by:
+
 ```js
 "compilerOptions": {
   "jsx": "preserve",
@@ -103,23 +104,23 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-- [Reactivity](https://github.com/ryansolid/solid/blob/main/documentation/reactivity.md)
-- [State](https://github.com/ryansolid/solid/blob/main/documentation/state.md)
-- [JSX Rendering](https://github.com/ryansolid/solid/blob/main/documentation/rendering.md)
-- [Components](https://github.com/ryansolid/solid/blob/main/documentation/components.md)
-- [Styling](https://github.com/ryansolid/solid/blob/main/documentation/styling.md)
-- [Context](https://github.com/ryansolid/solid/blob/main/documentation/context.md)
-- [Suspense](https://github.com/ryansolid/solid/blob/main/documentation/suspense.md)
-- [API](https://github.com/ryansolid/solid/blob/main/documentation/api.md)
-- [FAQ](https://github.com/ryansolid/solid/blob/main/documentation/faq.md)
-- [Comparison with other Libraries](https://github.com/ryansolid/solid/blob/main/documentation/comparison.md)
-- [Storybook](https://github.com/ryansolid/solid/blob/main/documentation/storybook.md)
+- [Reactivity](https://github.com/solidui/solid/blob/main/documentation/reactivity.md)
+- [State](https://github.com/solidui/solid/blob/main/documentation/state.md)
+- [JSX Rendering](https://github.com/solidui/solid/blob/main/documentation/rendering.md)
+- [Components](https://github.com/solidui/solid/blob/main/documentation/components.md)
+- [Styling](https://github.com/solidui/solid/blob/main/documentation/styling.md)
+- [Context](https://github.com/solidui/solid/blob/main/documentation/context.md)
+- [Suspense](https://github.com/solidui/solid/blob/main/documentation/suspense.md)
+- [API](https://github.com/solidui/solid/blob/main/documentation/api.md)
+- [FAQ](https://github.com/solidui/solid/blob/main/documentation/faq.md)
+- [Comparison with other Libraries](https://github.com/solidui/solid/blob/main/documentation/comparison.md)
+- [Storybook](https://github.com/solidui/solid/blob/main/documentation/storybook.md)
 
 ## Resources
 
-- [Examples](https://github.com/ryansolid/solid/blob/main/documentation/resources/examples.md)
-- [Articles](https://github.com/ryansolid/solid/blob/main/documentation/resources/articles.md)
-- [Projects](https://github.com/ryansolid/solid/blob/main/documentation/resources/projects.md)
+- [Examples](https://github.com/solidui/solid/blob/main/documentation/resources/examples.md)
+- [Articles](https://github.com/solidui/solid/blob/main/documentation/resources/articles.md)
+- [Projects](https://github.com/solidui/solid/blob/main/documentation/resources/projects.md)
 
 ## No Compilation?
 
@@ -147,7 +148,7 @@ You can run them straight from the browser using SkyPack:
 </html>
 ```
 
-Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/hyper-dom-expressions).
+Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/solidui/dom-expressions/tree/main/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/solidui/dom-expressions/tree/main/packages/hyper-dom-expressions).
 
 ## Browser Support
 
@@ -161,7 +162,7 @@ Come chat with us on [Discord](https://discord.com/invite/solidjs)
 
 ### Contributors
 
-<a href="https://github.com/ryansolid/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
+<a href="https://github.com/solidui/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
 
 ### Open Collective
 

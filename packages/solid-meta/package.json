@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ryansolid/solid/blob/main/packages/solid-meta"
+    "url": "https://github.com/solidui/solid/blob/main/packages/solid-meta"
   },
   "type": "module",
   "main": "dist/index.js",
