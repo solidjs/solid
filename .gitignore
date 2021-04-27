@@ -9,6 +9,6 @@ packages/solid/src/jsx.d.ts
 packages/solid/web/server/server.d.ts
 packages/solid/web/src/client.d.ts
 
-# vscode devcontainers
+# vscode devcontainers see issues #419 and #421 for context
 /.devcontainer.json
 /devcontainer
