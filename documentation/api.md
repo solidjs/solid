@@ -1,28 +1,37 @@
 # Core API
 
-### `createSignal(initialValue, boolean | comparatorFn): [getValueFn, setValueFn]`
+### `createSignal(initialValue, { equals, name }): [getValueFn, setValue]`
 
-This is the smallest and most primitive reactive atom used to track a single value. By default signals always notify on setting a value. You can have it only notify on changes if you pass true to the second parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+This is the smallest and most primitive reactive atom used to track a single value. The create function returns a get and set pair of functions to access and update the signal.
 
-### `createMemo(prev => <code>, initialValue, boolean | comparatorFn): getValueFn`
+### `createState(initValue, { name }): [state, setState]`
 
-Creates a readonly derived signal that recalculates it's value whenever the executed codes dependencies update. By default memos always notify on updating a value. You can have it only notify on changes if you pass true to the third parameter. Or a custom comparator can be passed in to indicate whether the values should be considered equal and listeners not notified.
+This creates a tree of signals as proxy that allows individual values in nested data structures to be independently tracked. The create function returns a readonly proxy object, and a state setter function.
 
-### `createEffect(prev => <code>, initialValue): void`
+### `createMemo(prev => <code>, initialValue, { equals, name }): getValueFn`
+
+Creates a readonly derived signal that recalculates it's value whenever the executed codes dependencies update.
+
+### `createEffect(prev => <code>, initialValue, { name }): void`
 
 Creates a new computation that automatically tracks dependencies and runs after each render where a dependency has changed. Ideal for using `ref`s and managing other side effects. 2nd argument is the initial value.
 
+### `createResource(fetcher, { initialValue, name }): [getValueFn, { mutate, refetch }]`
+### `createResource(source, fetcher, { initialValue, name }): [getValueFn, { mutate, refetch }]`
+
+Creates a new resource signal that can manage async requests. The `fetcher` is a function that accepts return value of the `source` if provided and returns a Promise whose resolved value is set in the resource. The fetcher is not reactive so use the optional first argument if you want it to run more than once. If the source resolves to false, null, or undefined will not to fetch.
+
 ### `onMount(() => <code>)`
 
-Registers a method that runs after initial render and elements have been mounted. Ideal for using `ref`s and managing other one time side effects.
+Registers a method that runs after initial render and elements have been mounted. Ideal for using `ref`s and managing other one time side effects. It is equivalent to a `createEffect` which does not have any dependencies.
 
 ### `onCleanup(() => <code>)`
 
-Registers a cleanup method that executes on disposal or recalculation of the current context. Can be used in components or computations.
+Registers a cleanup method that executes on disposal or recalculation of the current reactive scope. Can be used in any component or computation.
 
-### `createState(initValue): [state, setState]`
+# Additional API
 
-Creates a new State proxy object and setState pair. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
+The following are not required to build simple applications but allow a lot more power and control.
 
 ### `createContext(defaultContext): Context`
 
@@ -31,14 +40,6 @@ Creates a new context object that can be used with useContext and the Provider c
 ### `useContext(Context): any`
 
 Hook to grab context to allow for deep passing of props with hierarchal resolution of dependencies without having to pass them through each Component function.
-
-# Additional API
-
-The following are not required to build simple applications but allow a lot more power and control.
-
-### `createRoot(disposer => <code>)`
-
-Creates a new non-tracked context that doesn't auto-dispose. All Solid code should be wrapped in one of these top level as they ensure that all memory/computations are freed up.
 
 ### `untrack(() => <code>): any`
 
@@ -56,6 +57,9 @@ Ensures that all notification of updates within the block happen at the same tim
 
 Registers an error handler method that executes when child context errors. Only nearest context error handlers execute. Rethrow to trigger up the line.
 
+### `createRoot(disposer => <code>)`
+
+Creates a new non-tracked context that doesn't auto-dispose. All Solid code should be wrapped in one of these top level as they ensure that all memory/computations are freed up.
 ### `createMutable(initValue): state`
 
 Creates a new mutable State proxy object. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
@@ -66,7 +70,7 @@ Creates memo that only notifies downstream changes when the browser is idle. `ti
 
 ### `createComputed(prev => <code>, initialValue): void`
 
-Creates a new computation that automatically tracks dependencies and runs immediately. Use this to write to other reactive primitives or to reactively trigger async data loading before render. 2nd argument is the initial value.
+Creates a new computation that automatically tracks dependencies and runs immediately. Use this to write to other reactive primitives. 2nd argument is the initial value.
 
 ### `createRenderEffect(prev => <code>, initialValue): void`
 
@@ -75,11 +79,6 @@ Creates a new computation that automatically tracks dependencies and runs during
 ### `createSelector(() => <code>, comparatorFn?): (key) => boolean`
 
 Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state.
-
-### `createResource(fetcher, { initialValue }): [getValueFn, { mutate, refetch }]`
-### `createResource(source, fetcher, { initialValue }): [getValueFn, { mutate, refetch }]`
-
-Creates a new resource signal that can hold an async resource. Resources when read while loading trigger Suspense. The `fetcher` is a function that accepts return value of the `source` if provided and returns a Promise whose resolved value is set in the resource. The fetcher is not reactive so use the optional first argument if you want it to run more than once. If provided false, null, or undefined signals not to fetch.
 
 ### `lazy(() => <Promise>): Component`
 

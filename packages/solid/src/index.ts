@@ -8,7 +8,6 @@ export {
   createSelector,
   createMemo,
   createResource,
-  getListener,
   onMount,
   onCleanup,
   onError,
@@ -19,6 +18,7 @@ export {
   createContext,
   useContext,
   children,
+  getListener,
   getOwner,
   runWithOwner,
   equalFn
@@ -28,6 +28,7 @@ export type { Resource } from "./reactive/signal";
 export { createState, unwrap, $RAW } from "./reactive/state";
 export type { State, SetStateFunction } from "./reactive/state";
 export * from "./reactive/mutable";
+export * from "./reactive/observable";
 
 export { reconcile, produce } from "./reactive/stateModifiers";
 
