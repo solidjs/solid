@@ -19,8 +19,6 @@
 - [Solid i18n](https://github.com/amoutonbrady/solid-i18n) Tiny translation library for solid-js inspired by rosetta
 - [Solid Chart](https://github.com/MrFoxPro/solid-chart.js) Solid Chart.js wrapper
 - [Solid HeroIcons](https://github.com/amoutonbrady/solid-heroicons) HeroIcons for Solid
-- [Solid RX](https://github.com/solidui/solid/blob/main/packages/solid-rx)
-  Functional Reactive Programming extensions for SolidJS.
 - [React Solid State](https://github.com/solidui/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
 

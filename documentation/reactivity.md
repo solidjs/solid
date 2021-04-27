@@ -173,9 +173,3 @@ const useReducer = (reducer, state) => {
   return [store, dispatch];
 };
 ```
-
-## Operators and FRP
-
-Solid signals can also be used as a basis for streams and work as powerful primitives to compose complicated transformations. Operators are the key to composing these behaviors. They are not computations themselves and are designed to be passed into a computation. The possibilities of operators are endless.
-
-The `solid-rx` package contains operators that can be used with Solid.
