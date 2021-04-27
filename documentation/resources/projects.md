@@ -5,9 +5,9 @@
 - [Solid Element](https://github.com/solidui/solid/blob/main/packages/solid-element)
   Extensions to Solid.js that add a Web Component wrapper.
 - [Lume Element](https://github.com/lume/element) Build Web Components with simple templates and reactivity.
-- [Solid Styled Components](https://github.com/solidui/solid/blob/main/packages/solid-styled-components)
+- [Solid Styled Components](https://github.com/solidui/solid-styled-components)
   Styled Components for Solid using 1kb library Goober.
-- [Solid Styled JSX](https://github.com/solidui/solid/blob/main/packages/solid-styled-jsx)
+- [Solid Styled JSX](https://github.com/solidui/solid-styled-jsx)
   Wrapper for using Solid with Zeit's Styled JSX.
 - [Solid Meta](https://github.com/solidui/solid/blob/main/packages/solid-meta)
   Library for adding metadata tags to the document head.
@@ -21,7 +21,7 @@
 - [Solid HeroIcons](https://github.com/amoutonbrady/solid-heroicons) HeroIcons for Solid
 - [Solid RX](https://github.com/solidui/solid/blob/main/packages/solid-rx)
   Functional Reactive Programming extensions for SolidJS.
-- [React Solid State](https://github.com/solidui/solid/blob/main/packages/react-solid-state)
+- [React Solid State](https://github.com/solidui/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
 
 ## Routers

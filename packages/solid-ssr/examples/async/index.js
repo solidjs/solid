@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 
 import { renderToStringAsync } from "solid-js/web";
-import { extractCss } from "solid-styled-components";
 import App from "../shared/src/components/App";
 
 const app = express();
@@ -15,7 +14,6 @@ app.get("*", async (req, res) => {
   let result;
   try {
     const { html, script } = await renderToStringAsync(() => <App url={req.url} />);
-    const style = extractCss();
     result = `<html lang="${lang}">
       <head>
         <title>🔥 Solid SSR 🔥</title>
@@ -23,7 +21,6 @@ app.get("*", async (req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="stylesheet" href="/styles.css" />
         ${script}
-        ${style ? `<style id="_goober">${style}</style>` : ""}
       </head>
       <body><div id="app">${html}</div></body>
       <script type="module" src="/js/index.js"></script>

@@ -1,4 +1,7 @@
-# `solid-rx`
+# `solid-rx`(Deprecated)
+
+This package is no longer maintained.
+
 [![Build Status](https://github.com/solidui/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidui/solid/actions/workflows/main-ci.yml)
 [![NPM Version](https://img.shields.io/npm/v/solid-rx.svg?style=flat)](https://www.npmjs.com/package/solid-rx)
 ![](https://img.shields.io/librariesio/release/npm/solid-rx)
