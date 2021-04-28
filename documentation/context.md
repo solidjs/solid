@@ -73,3 +73,35 @@ export default const Nested = () => {
   );
 };
 ```
+# Global State without Context
+
+It is possible to do global state without Context. Solid Signals/State can be imported from a separate file.
+
+```jsx
+// direct
+export const counter = createSignal(0);
+
+// use
+import { counter } from "./store";
+const [count, setCount] = counter;
+
+// named
+const [count, setCount] = createSignal(0);
+export { count, setCount };
+
+// use
+import { count, setCount } from "./store";
+```
+
+However, computations must be created under a reactive root.
+
+```jsx
+const { count, doubleCount, dispose } = createRoot(dispose => {
+  const [count, setCount] = createSignal(0);
+  const doubleCount = createMemo(() => count() * 2);
+  const t = setInterval(() => setCount(count() + 1), 1000);
+  onCleanup(() => clearInterval(t));
+  return { count, doubleCount, dispose };
+})
+export { count, doubleCount, dispose };
+```

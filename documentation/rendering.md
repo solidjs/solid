@@ -272,7 +272,7 @@ function App() {
 
 This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `ref` up a Component chain as you wish.
 
-## Actions
+## Directives
 
 > Support for Namespaced JSX Attributes is available in TypeScript 4.2
 
@@ -301,7 +301,7 @@ To register with TypeScript extend the JSX namespace.
 ```ts
 declare module "solid-js" {
   namespace JSX {
-    interface Actions {
+    interface Directives {
       draggable: boolean;
       model: [() => any, (v: any) => any];
     }
