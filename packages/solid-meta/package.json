@@ -1,7 +1,7 @@
 {
   "name": "solid-meta",
   "description": "Write meta tags to the document head",
-  "version": "0.26.4",
+  "version": "0.26.5-beta.0",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "babel-preset-solid": "^0.26.4",
-    "solid-js": "^0.26.4"
+    "solid-js": "^0.26.5-beta.0"
   },
   "jest": {
     "preset": "solid-jest/preset/browser"
