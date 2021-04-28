@@ -8,7 +8,6 @@
     "type": "git",
     "url": "https://github.com/solidui/solid"
   },
-  "private": true,
   "scripts": {
     "postinstall": "lerna bootstrap --hoist --no-ci",
     "clean": "npm run clean:artifacts && npm run clean:packages && npm run clean:root",
