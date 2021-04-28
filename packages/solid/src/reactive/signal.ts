@@ -203,16 +203,17 @@ export function createResource<T, U = true>(
   options?: { initialValue?: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
-  source: U | false | (() => U | false),
+  source: U | false | null | (() => U | false | null),
   fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
   options?: { initialValue?: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
   source:
     | U
-    | true
     | false
-    | (() => U | false)
+    | true
+    | null
+    | (() => U | false | null)
     | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
   fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
   options: { initialValue?: T; name?: string } = {}
