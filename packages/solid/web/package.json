@@ -1,8 +1,11 @@
 {
   "name": "solid-js/web",
-  "browser": "./dist/web.cjs",
   "main": "./dist/server.cjs",
   "module": "./dist/server.js",
+  "browser": {
+    "./dist/server.cjs": "./dist/web.cjs",
+    "./dist/server.js": "./dist/web.js"
+  },
   "types": "./types/index.d.ts",
   "type": "module",
   "sideEffects": false
