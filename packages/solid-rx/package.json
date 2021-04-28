@@ -1,6 +1,6 @@
 {
   "name": "solid-rx",
-  "version": "0.26.5-beta.0",
+  "version": "0.26.5",
   "description": "Functionally reactive extensions for Solid.js",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
   "homepage": "https://github.com/solidui/solid/blob/main/packages/solid-rx#readme",
@@ -30,7 +30,7 @@
     "solid-js": ">= 0.26.0"
   },
   "devDependencies": {
-    "solid-js": "^0.26.5-beta.0"
+    "solid-js": "^0.26.5"
   },
   "jest": {
     "preset": "solid-jest/preset/browser"
