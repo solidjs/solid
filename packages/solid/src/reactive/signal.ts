@@ -367,7 +367,7 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   c.state = 0;
   c.componentName = Comp.name;
   updateComputation(c as Memo<JSX.Element>);
-  return c.tValue !== undefined ? c.tValue : c.value;;
+  return c.tValue !== undefined ? c.tValue : c.value;
 }
 
 export function hashValue(v: any) {

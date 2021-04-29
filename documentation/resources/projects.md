@@ -8,7 +8,7 @@
 - [Solid Styled Components](https://github.com/solidui/solid-styled-components)
   Styled Components for Solid using 1kb library Goober.
 - [Solid Styled JSX](https://github.com/solidui/solid-styled-jsx)
-  Wrapper for using Solid with Zeit's Styled JSX.
+  Wrapper for using Solid with Vercel's Styled JSX.
 - [Solid Meta](https://github.com/solidui/solid/blob/main/packages/solid-meta)
   Library for adding metadata tags to the document head.
 - [Solid Transition Group](https://github.com/solidui/solid-transition-group) Simple animations for Solid
