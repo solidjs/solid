@@ -1,7 +1,7 @@
 {
   "name": "solid-ssr",
   "description": "Utilities to help with SSR",
-  "version": "0.26.5",
+  "version": "1.0.0-rc.0",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -28,9 +28,9 @@
     "start:example:stream": "node examples/stream/lib/index.js"
   },
   "devDependencies": {
-    "babel-preset-solid": "^0.26.5",
+    "babel-preset-solid": "^1.0.0-rc.0",
     "express": "^4.17.1",
-    "solid-js": "^0.26.5",
+    "solid-js": "^1.0.0-rc.0",
     "solid-styled-components": "^0.26.3"
   }
 }
