@@ -118,7 +118,7 @@ export function createSignal<T>(
     observers: null,
     observerSlots: null,
     pending: NOTPENDING,
-    comparator: options?.equals || undefined
+    comparator: options.equals || undefined
   };
   if ("_SOLID_DEV_" && (!options || !options.internal))
     s.name = registerGraph((options && options.name) || hashValue(value), s as { value: unknown });
