@@ -39,7 +39,7 @@ describe("Create signals", () => {
       expect(memo()).toBe("Hello John");
     });
   });
-  test("Create an Effect", () => {
+  test("Create onMount", () => {
     let temp: string;
     createRoot(() => {
       onMount(() => (temp = "unpure"));

@@ -1,3 +1,4 @@
+import type { JSX } from "../jsx";
 export const equalFn = <T>(a: T, b: T) => a === b;
 const ERROR = Symbol("error");
 
@@ -27,9 +28,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(
-  value?: T
-): [() => T, (v: T) => T] {
+export function createSignal<T>(value?: T): [() => T, (v: T) => T] {
   return [() => value as T, (v: T) => (value = v)];
 }
 
@@ -43,10 +42,7 @@ export const createRenderEffect = createComputed;
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
-export function createMemo<T>(
-  fn: (v?: T) => T,
-  value?: T
-): () => T {
+export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
   Owner = { owner: Owner, context: null };
   const v = fn(value);
   Owner = Owner.owner;
@@ -57,10 +53,7 @@ export function createDeferred<T>(source: () => T) {
   return source;
 }
 
-export function createSelector<T>(
-  source: () => T,
-  fn: (k: T, value: T) => boolean
-) {
+export function createSelector<T>(source: () => T, fn: (k: T, value: T) => boolean) {
   return (k: T) => fn(k, source());
 }
 
@@ -70,9 +63,9 @@ export function batch<T>(fn: () => T): T {
 
 export const untrack = batch;
 
-type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends (() => infer U) ? U : never };
+type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends () => infer U ? U : never };
 export function on<T, X extends Array<() => T>, U>(
-  ...args: X['length'] extends 1
+  ...args: X["length"] extends 1
     ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
     : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
 ): (prev?: U) => U {
@@ -133,7 +126,7 @@ export function getOwner() {
 }
 
 export function children(fn: () => any) {
-  return resolveChildren(fn())
+  return createMemo(() => resolveChildren(fn()));
 }
 
 export function runWithOwner(o: Owner, fn: () => any) {
@@ -152,8 +145,8 @@ export function lookup(owner: Owner | null, key: symbol | string): any {
   );
 }
 
-function resolveChildren(children: any): any {
-  if (typeof children === "function") return resolveChildren(children());
+function resolveChildren(children: any): unknown {
+  if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
@@ -167,12 +160,10 @@ function resolveChildren(children: any): any {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    let rendered;
-    createRenderEffect(() => {
+    return (createMemo(() => {
       Owner!.context = { [id]: props.value };
-      rendered = resolveChildren(props.children);
-    });
-    return rendered;
+      return children(() => props.children);
+    }) as unknown) as JSX.Element;
   };
 }
 
