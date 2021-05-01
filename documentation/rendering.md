@@ -29,6 +29,7 @@ However, it is possible to control this behavior directly with namespace directi
 ```jsx
 <my-element prop:UniqACC={state.value} attr:title={state.title} />
 ```
+
 > Support for namespace in JSX is coming in TS 4.2.
 
 ### Note on binding order
@@ -58,11 +59,13 @@ render(() => <App />, document.getElementById("main"));
 If you wish to bind a value to events pass an array handler instead and the second argument will be passed to your event handler as the first argument (the event will be second). This can improve performance in large lists when the event is delegated.
 
 ```jsx
-function handler(itemId, e) {/*...*/}
+function handler(itemId, e) {
+  /*...*/
+}
 
 <ul>
   <For each={state.list}>{item => <li onClick={[handler, item.id]} />}</For>
-</ul>
+</ul>;
 ```
 
 This delegation solution works with Web Components and the Shadow DOM as well if the events are composed. That limits the list to custom events and most UA UI events like onClick, onKeyUp, onKeyDown, onDblClick, onInput, onMouseDown, onMouseUp, etc..
@@ -79,7 +82,7 @@ Solid supports spread operator on native elements and Components. While not able
 
 ```js
 function MyDiv(props) {
-  return <div {...props} />
+  return <div {...props} />;
 }
 ```
 
@@ -109,6 +112,7 @@ Control flows can be imported from `solid-js` but as a convenience the compiler 
 ### For
 
 Keyed list iteration:
+
 ```jsx
 <For each={state.list} fallback={<div>Loading...</div>}>
   {item => <div>{item}</div>}
@@ -116,15 +120,21 @@ Keyed list iteration:
 ```
 
 Optional second argument is an index signal:
+
 ```jsx
 <For each={state.list} fallback={<div>Loading...</div>}>
-  {(item, index) => <div>#{index()} {item}</div>}
+  {(item, index) => (
+    <div>
+      #{index()} {item}
+    </div>
+  )}
 </For>
 ```
 
 ### Show
 
 Conditionally control content (make sure `when` is boolean):
+
 ```jsx
 <Show when={state.count > 0} fallback={<div>Loading...</div>}>
   <div>My Content</div>
@@ -132,6 +142,7 @@ Conditionally control content (make sure `when` is boolean):
 ```
 
 Or as a way of keying blocks:
+
 ```jsx
 <Show when={state.user} fallback={<div>Loading...</div>}>
   {user => <div>{user.firstName}</div>}
@@ -178,6 +189,7 @@ _Note Show is designed to handle more complex scenarios like Component insertion
 ### ErrorBoundary
 
 Catches uncaught errors and renders fallback content.
+
 ```jsx
 <ErrorBoundary fallback={<div>Something went terribly wrong</div>}>
   <MyComp />
@@ -189,6 +201,7 @@ Catches uncaught errors and renders fallback content.
 Non-Keyed list iteration (rows keyed to index). This useful when there is no conceptual key, like if the data is primitives and it is the index that is fixed rather than the value. Useful nested reactivity when the data is simple strings/numbers and not models.
 
 The item is a signal:
+
 ```jsx
 <Index each={state.list} fallback={<div>Loading...</div>}>
   {item => <div>{item()}</div>}
@@ -196,9 +209,14 @@ The item is a signal:
 ```
 
 Optional second argument is an index number:
+
 ```jsx
 <Index each={state.list} fallback={<div>Loading...</div>}>
-  {(item, index) => <div>#{index} {item()}</div>}
+  {(item, index) => (
+    <div>
+      #{index} {item()}
+    </div>
+  )}
 </Index>
 ```
 
@@ -281,10 +299,10 @@ Creating a Component is the cleanest way to package reusable functionality data 
 Solid provides a custom directive syntax for adding additional behavior to native elements as a syntax sugar over `ref` making it easy to combine multiple on a single element.
 
 ```jsx
-<div use:draggable use:pannable />
+<div use:draggable use:pannable />;
 
 const [name, setName] = createSignal("");
-<input type="text" use:model={[name, setName]} />
+<input type="text" use:model={[name, setName]} />;
 ```
 
 To create a directive simply expose a function with this signature `(el: HTMLElement, valueAccessor: () => /*binding value*/) => {}`. Value accessor lets you track it if you wish to. And you can register `onCleanup` methods to cleanup any side effects you create.
@@ -292,12 +310,13 @@ To create a directive simply expose a function with this signature `(el: HTMLEle
 ```jsx
 function model(el, value) {
   const [field, setField] = value();
-  createRenderEffect(() => el.value = field());
+  createRenderEffect(() => (el.value = field()));
   el.addEventListener("input", e => setField(e.target.value));
 }
 ```
 
 To register with TypeScript extend the JSX namespace.
+
 ```ts
 declare module "solid-js" {
   namespace JSX {
@@ -308,7 +327,3 @@ declare module "solid-js" {
   }
 }
 ```
-
-## Server Side Rendering (Experimental)
-
-See [solid-ssr](https://github.com/solidui/solid/blob/main/packages/solid-ssr)

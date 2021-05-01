@@ -111,6 +111,7 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 - [Styling](https://github.com/solidui/solid/blob/main/documentation/styling.md)
 - [Context](https://github.com/solidui/solid/blob/main/documentation/context.md)
 - [Suspense](https://github.com/solidui/solid/blob/main/documentation/suspense.md)
+- [SSR](https://github.com/solidui/solid/blob/main/documentation/server.md)
 - [API](https://github.com/solidui/solid/blob/main/documentation/api.md)
 - [FAQ](https://github.com/solidui/solid/blob/main/documentation/faq.md)
 - [Comparison with other Libraries](https://github.com/solidui/solid/blob/main/documentation/comparison.md)
@@ -195,7 +196,3 @@ Become a sponsor and get your logo on our README on GitHub with a link to your s
 <a href="https://opencollective.com/solid/sponsor/8/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/8/avatar.svg"></a>
 <a href="https://opencollective.com/solid/sponsor/9/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/9/avatar.svg"></a>
 <a href="https://opencollective.com/solid/sponsor/10/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/10/avatar.svg"></a>
-
-## Status
-
-Solid is mostly feature complete for its v1.0.0 release. The next releases will be mostly bug fixes and API tweaks on the road to stability.
