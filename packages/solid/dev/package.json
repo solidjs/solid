@@ -1,7 +1,0 @@
-{
-  "name": "solid-js/dev",
-  "main": "./dist/dev.cjs",
-  "module": "./dist/dev.js",
-  "type": "module",
-  "sideEffects": false
-}

@@ -76,11 +76,11 @@ export default [
     input: "src/index.ts",
     output: [
       {
-        file: "dev/dist/dev.cjs",
+        file: "dist/dev.cjs",
         format: "cjs"
       },
       {
-        file: "dev/dist/dev.js",
+        file: "dist/dev.js",
         format: "es"
       }
     ],
@@ -100,6 +100,10 @@ export default [
     ],
     external: ["solid-js"],
     plugins: [
+      replace({
+        '"_DX_DEV_"': false,
+        delimiters: ["", ""]
+      }),
       copy({
         targets: [
           {
@@ -110,6 +114,43 @@ export default [
         ]
       })
     ].concat(plugins)
+  }, {
+    input: "web/server/index.ts",
+    output: [
+      {
+        file: "web/dist/server.cjs",
+        format: "cjs"
+      },
+      {
+        file: "web/dist/server.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js", "stream"],
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: ["../../node_modules/dom-expressions/src/server.d.ts"],
+            dest: "./web/server"
+          }
+        ]
+      })
+    ].concat(plugins)
+  }, {
+    input: "web/src/index.ts",
+    output: [
+      {
+        file: "web/dist/dev.cjs",
+        format: "cjs"
+      },
+      {
+        file: "web/dist/dev.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins
   },
   {
     input: "html/src/index.ts",
@@ -142,29 +183,5 @@ export default [
     ],
     external: ["solid-js/web"],
     plugins
-  },
-  {
-    input: "web/server/index.ts",
-    output: [
-      {
-        file: "web/dist/server.cjs",
-        format: "cjs"
-      },
-      {
-        file: "web/dist/server.js",
-        format: "es"
-      }
-    ],
-    external: ["solid-js", "stream"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/server.d.ts"],
-            dest: "./web/server"
-          }
-        ]
-      })
-    ].concat(plugins)
   }
 ];
