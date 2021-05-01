@@ -25,8 +25,8 @@ function checkError(error) {
 }
 
 Promise.all([
-  import("solid-js/dev").catch(checkError),
-  import("solid-js/dev/dist/dev.js").catch(checkError),
+  import("solid-js").catch(checkError),
+  import("solid-js/dist/solid.js").catch(checkError),
 
   import("solid-js/web").catch(checkError),
   import("solid-js/web/dist/web.js").catch(checkError),
