@@ -687,7 +687,8 @@ export function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: 
       }
       if (Updates!.length > 10e5) {
         Updates = [];
-        throw new Error("Potential Infinite Loop Detected.");
+        if ("_SOLID_DEV_") throw new Error("Potential Infinite Loop Detected.");
+        throw new Error;
       }
     }, false);
   }

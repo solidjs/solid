@@ -2,7 +2,7 @@
 
 Solid handles Server rendering by compiling JSX templates to ultra efficient string appending code. This can be achieved through the babel plugin or preset by passing in `generate: "ssr"`. For both client and server you need to pass in `hydratable: true` to generate the hydration compatible code.
 
-The `solid-js` and `solid-js/web` runtimes are swapped for non-reactive counterparts when running in a node environment. For other environments you will need to bundle the server code with conditional exports set to `node`. Most bundlers have a way of doing this. In general we also recommend using the `solid` export conditions as well as it is recommend that libraries shop their source under the `solid` export.
+The `solid-js` and `solid-js/web` runtimes are swapped for non-reactive counterparts when running in a node environment. For other environments you will need to bundle the server code with conditional exports set to `node`. Most bundlers have a way of doing this. In general we also recommend using the `solid` export conditions as well as it is recommend that libraries ship their source under the `solid` export.
 
 Building for SSR definitely takes a bit more configuration because we will be generating 2 separate bundles. The client entry should use `hydrate`:
 

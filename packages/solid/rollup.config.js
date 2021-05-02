@@ -25,6 +25,7 @@ const plugins = [
     ]
   }),
   cleanup({
+    comments: ["some", /PURE/],
     extensions: [".js", ".ts"]
   })
 ];
