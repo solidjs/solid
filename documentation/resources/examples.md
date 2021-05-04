@@ -17,6 +17,7 @@
 - [Redux Undoable Todos](https://codesandbox.io/s/pkjw38r8mj) Example from Redux site done with Solid.
 - [Simple Todos Template Literals](https://codesandbox.io/s/jpm68z1q33) Simple Todos using Lit DOM Expressions
 - [Simple Todos HyperScript](https://codesandbox.io/s/0vmjlmq94v) Simple Todos using Hyper DOM Expressions
+- [Simple async resource for calling graphql endpoint](https://codesandbox.io/s/async-resource-graphql-r4rcx?file=/index.js) Simple async resource for handling graphql endpoint.
 
 ## Demos
 - [TodoMVC](https://github.com/solidui/solid-todomvc) Classic TodoMVC example
