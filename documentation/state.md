@@ -8,7 +8,7 @@ Through the use of proxies and explicit setters it gives the control of an immut
 
 > Note: State objects themselves aren't reactive. Only the property access on them are. So destructuring in non-tracked scopes will not track updates. Also passing the state object directly to bindings will not track unless those bindings explicitly access properties. Finally, while nested state objects will be notified when new properties are added, top level state cannot be tracked so adding properties will not trigger updates when iterating over keys. This is the primary reason state does benefit from being created as a top level array.
 
-### `createState(object)`
+## createState
 
 Solid's state object are deeply nested reactive data trees useful for global stores, model caches, and 3rd party immutable data interopt. They have a much more powerful setter that allows to specify nested changes and use value and function forms for updates.
 
@@ -42,94 +42,6 @@ render(() => <App />, document.getElementById("app"));
 Remember if you destructure or spread a state object outside of a computation or JSX reactivity is lost. However, unlike Vue we don't separate our `setup` from our view code so there is little concern about transforming or transfering these reactive atoms around. Just access the properties where you need them.
 
 With Solid State and Context API you really don't need 3rd party global stores. These proxies are optimized part of the reactive system and lend to creating controlled unidirectional patterns.
-
-### `setState(changes)`
-
-### `setState(...path, changes)`
-
-This merges the changes into the path on the state object. All changes made in a single setState command are applied syncronously (ie all changes see each other at the same time). Changes can take the form of function that passes previous state and returns new state or a value. Objects are always merged. Set values to `undefined` to delete them from state.
-
-```js
-const [state, setState] = createState({ firstName: "John", lastName: "Miller" });
-
-setState({ firstName: "Johnny", middleName: "Lee" });
-// ({ firstName: 'Johnny', middleName: 'Lee', lastName: 'Miller' })
-
-setState(state => ({ preferredName: state.firstName, lastName: "Milner" }));
-// ({ firstName: 'Johnny', preferredName: 'Johnny', middleName: 'Lee', lastName: 'Milner' })
-```
-
-setState also supports nested setting where you can indicate the path to the change. When nested the state you are updating may be other non Object values. Objects are still merged but other values (including Arrays) are replaced.
-
-```js
-const [state, setState] = createState({
-  counter: 2,
-  list: [
-    { id: 23, title: 'Birds' }
-    { id: 27, title: 'Fish' }
-  ]
-});
-
-setState('counter', c => c + 1);
-setState('list', l => [...l, {id: 43, title: 'Marsupials'}]);
-setState('list', 2, 'read', true);
-// {
-//   counter: 3,
-//   list: [
-//     { id: 23, title: 'Birds' }
-//     { id: 27, title: 'Fish' }
-//     { id: 43, title: 'Marsupials', read: true }
-//   ]
-// }
-```
-
-Path can be string keys, array of keys, iterating objects ({from, to, by}), or filter functions. This gives incredible expressive power to describe state changes.
-
-```js
-const [state, setState] = createState({
-  todos: [
-    { task: 'Finish work', completed: false }
-    { task: 'Go grocery shopping', completed: false }
-    { task: 'Make dinner', completed: false }
-  ]
-});
-
-setState('todos', [0, 2], 'completed', true);
-// {
-//   todos: [
-//     { task: 'Finish work', completed: true }
-//     { task: 'Go grocery shopping', completed: false }
-//     { task: 'Make dinner', completed: true }
-//   ]
-// }
-
-setState('todos', { from: 0, to: 1 }, 'completed', c => !c);
-// {
-//   todos: [
-//     { task: 'Finish work', completed: false }
-//     { task: 'Go grocery shopping', completed: true }
-//     { task: 'Make dinner', completed: true }
-//   ]
-// }
-
-setState('todos', todo => todo.completed, 'task', t => t + '!')
-// {
-//   todos: [
-//     { task: 'Finish work', completed: false }
-//     { task: 'Go grocery shopping!', completed: true }
-//     { task: 'Make dinner!', completed: true }
-//   ]
-// }
-
-setState('todos', {}, todo => ({ marked: true, completed: !todo.completed }))
-// {
-//   todos: [
-//     { task: 'Finish work', completed: true, marked: true }
-//     { task: 'Go grocery shopping!', completed: false, marked: true }
-//     { task: 'Make dinner!', completed: false, marked: true }
-//   ]
-// }
-```
 
 ## Modifiers
 
@@ -191,11 +103,11 @@ setState('users', reconcile(
 ))
 ```
 
-### Mutable State
+## Mutable State
 
-Sometimes it makes sense especially when interopting with 3rd parties or legacy systems to use mutable state. Solid provides a `createMutable` for this purpose. It allows direct mutation much like MobX's Observables and Vue's Reactive. While less than ideal for managing global state, passing data to component children, these can often the most unobtrusive way to deal with an external library.
+Sometimes it makes sense especially when interopting with 3rd parties or legacy systems to use mutable state. Solid provides a `createMutable` for this purpose. It allows direct mutation much like MobX's Observables and Vue's Reactive. While less than ideal for passing data to component children, these can often the most unobtrusive way to deal with an external library.
 
-> Use with caution as it can promote difficult to reason about code, anti-patterns, and unexpected performance cliffs. Keep in mind Vue and MobX care less about these inefficient patterns since they have a VDOM safety net. We do not. For advanced users only.
+> Use with caution as it can promote difficult to reason about code, and unexpected performance cliffs. Keep in mind Vue and MobX care less about these inefficient patterns since they have a VDOM safety net. We do not. For advanced users only.
 
 ```js
 const user = createMutable({
@@ -205,15 +117,11 @@ const user = createMutable({
     return `${this.firstName} ${this.lastName}`;
   },
   set fullName(value) {
-    const parts = value.split(" ");
-    batch(() => {
-      this.firstName = parts[0];
-      this.lastName = parts[1];
-    });
+    [this.firstName, this.lastName] = value.split(" ");
   }
 });
 
-user.firstName = "Jake";
+user.fullName = "Jake Snake";
 ```
 
-Along with getters Mutable state supports setters. Setters are atomic but remember that you need to `batch` your changes if you don't want to waste work on multiple updates. `setState` does this automatically with Immutable State.
+Along with getters Mutable state supports setters. Setters are automatically batched.

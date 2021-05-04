@@ -35,7 +35,10 @@ export { reconcile, produce } from "./reactive/stateModifiers";
 export * from "./reactive/scheduler";
 export * from "./reactive/array";
 export * from "./render";
-export type { JSX } from "./jsx";
+
+import type { JSX } from "./jsx";
+type JSXElement = JSX.Element;
+export type { JSXElement, JSX };
 
 // mock server endpoint for dom-expressions
 export function awaitSuspense() {}
