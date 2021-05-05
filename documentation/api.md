@@ -21,7 +21,7 @@ getValue();
 setValue(nextValue);
 ```
 
-Remember to access signals under a tracking scope if you wish them to be react to updates.
+Remember to access signals under a tracking scope if you wish them to react to updates.
 
 ## `createEffect`
 
@@ -305,6 +305,10 @@ export function createMutable<T extends StateNode>(
 
 Creates a new mutable State proxy object. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
 
+Useful for integrating external systems or as a compatibility layer with MobX/Vue.
+
+> **Note:** As mutable state can be passed around and mutated anywhere, which can make it harder to follow and break unidirectional flow, it generally recommended to use `createState` instead. The `produce` state modifier can give many of the same benefits without any of the downsides.
+
 ```js
 const state = createMutable(initialValue);
 
@@ -381,46 +385,287 @@ const isSelected = createSelector(selectedId);
 <For each={list()}>{item => <li classList={{ active: isSelected(item.id) }}>{item.name}</li>}</For>;
 ```
 
-# Reactivity Helpers
+# Reactive Utilities
 
 ## `untrack`
+
+```ts
+export function untrack<T>(fn: () => T): T;
+```
 
 Ignores tracking any of the dependencies in the executing code block and returns the value.
 
 ## `batch`
 
-Ensures that all notification of updates within the block happen at the same time to prevent unnecessary recalculation. Solid State's setState method and computations(useEffect, useMemo) automatically wrap their code in a batch.
+```ts
+export function batch<T>(fn: () => T): T;
+```
+
+Holds committing updates within the block until the end to prevent unnecessary recalculation. This means that reading values on the next line will not have updated yet. Solid State's `setState` method and Effects automatically wrap their code in a batch.
 
 ## `on`
 
-`on` is designed to be passed into a computation to make its deps explicit. If more than one dep is passed, value and prevValue are arrays.
+```ts
+type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends () => infer U ? U : never };
+export function on<T, X extends Array<() => T>, U>(
+  ...args: X["length"] extends 1
+    ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
+    : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
+): (prev?: U) => U;
+```
+
+`on` is designed to be passed into a computation to make its dependencies explicit. If more than one dependency is passed, value and prevValue are arrays.
+
+```js
+createEffect(on(a, v => console.log(v, b())));
+
+// is equivalent to:
+createEffect(() => {
+  const v = a();
+  untrack(() => console.log(v, b()));
+});
+```
 
 ## `createRoot`
 
-Creates a new non-tracked context that doesn't auto-dispose. All Solid code should be wrapped in one of these top level as they ensure that all memory/computations are freed up.
+```ts
+export function createRoot<T>(fn: (dispose: () => void) => T): T;
+```
+
+Creates a new non-tracked context that doesn't auto-dispose. This useful for nested reactive context that you do not wish to release when the parent re-evaluates. This is a powerful pattern for caching.
+
+All Solid code should be wrapped in one of these top level as they ensure that all memory/computations are freed up. Normally you do not need to worry about this as `createRoot` is embedded into all `render` entry functions.
 
 ## `mergeProps`
 
+```ts
+export function mergeProps(...sources: any): any;
+```
+
 A reactive object `merge` method. Useful for setting default props for components in case caller doesn't provide them. Or cloning the props object including reactive properties.
+
+This method works by using a proxy and resolving properties in reverse order. This allows for dynamic tracking of properties that aren't present when the prop object is first merged.
+
+```js
+// default props
+props = mergeProps({ name: "Smith" }, props);
+
+// clone props
+newProps = mergeProps(props);
+
+// merge props
+props = mergeProps(props, otherProps);
+```
 
 ## `splitProps`
 
-Splits a reactive object by keys while maintaining reactivity.
+```ts
+export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>): [...parts: Partial<T>];
+```
 
-# Additional API
+This is the replacement for destructuring. It splits a reactive object by keys while maintaining reactivity.
 
-## `createContext`
+```js
+const [local, others] = splitProps(props, ["children"]);
 
-Creates a new context object that can be used with useContext and the Provider control flow. Default Context is used when no Provider is found above in the hierarchy.
-
-## `useContext`
-
-Hook to grab context to allow for deep passing of props with hierarchal resolution of dependencies without having to pass them through each Component function.
-
-## `lazy`
-
-Used to lazy load components to allow for things like code splitting and Suspense.
+<>
+  <Child {...others} />
+  <div>{local.children}<div>
+</>
+```
 
 ## `useTransition`
 
-Used to batch async updates deferring commit until all async processes are complete.
+```ts
+export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void];
+```
+
+Used to batch async updates in a transaction deferring commit until all async processes are complete. This is tied into Suspense and only tracks resources read under Suspense boundaries.
+
+```js
+const [isPending, start] = createTransition();
+
+// check if transitioning
+isPending();
+
+// wrap in transition
+start(() => setSignal(newValue), () => /* transition is done */)
+```
+
+# State Modifiers
+
+Used to add additional behavior to `setState` function created with `createState`.
+
+## `produce`
+
+```ts
+export function produce<T>(
+  fn: (state: T) => void
+): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T>;
+```
+Immer inspired API for Solid's state objects that allows for localized mutation.
+
+```js
+setState(produce(s => {
+  s.user.name = "Frank";
+  s.list.push("Pencil Crayon");
+}))
+```
+
+## `reconcile`
+
+```ts
+export function reconcile<T>(
+  value: T | State<T>,
+  options?: {
+    key?: string | null;
+    merge?: boolean;
+  } = { key; "id" }
+): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T>;
+```
+
+Diffs data changes when we can't apply granular updates. Useful for when dealing with immutable data from stores or large API responses.
+
+```js
+```
+
+# Component APIs
+
+## `createContext`
+
+```ts
+interface Context<T> {
+  id: symbol;
+  Provider: (props: { value: T; children: any }) => any;
+  defaultValue: T;
+}
+export function createContext<T>(defaultValue?: T): Context<T | undefined>;
+```
+
+Context provides a form of dependency injection in Solid. It is used to save from needing to pass data as props through intermediate components.
+
+This function creates a new context object that can be used with `useContext` and provides the `Provider` control flow. Default Context is used when no `Provider` is found above in the hierarchy.
+
+```js
+export const CounterContext = createContext([{ count: 0 }, {}]);
+
+export function CounterProvider(props) {
+  const [state, setState] = createState({ count: props.count || 0 });
+  const store = [
+    state,
+    {
+      increment() {
+        setState("count", c => c + 1);
+      },
+      decrement() {
+        setState("count", c => c - 1);
+      }
+    }
+  ];
+
+  return <CounterContext.Provider value={store}>{props.children}</CounterContext.Provider>;
+}
+```
+
+## `useContext`
+
+```ts
+export function useContext<T>(context: Context<T>): T;
+```
+
+Used to grab context to allow for deep passing of props without having to pass them through each Component function.
+
+```js
+const [state, { increment, decrement }] = useContext(CounterContext);
+```
+
+## `children`
+
+```ts
+export function children(fn: () => any): () => any;
+```
+
+Used to make it easier to interact with `props.children`. This helper resolves any nested reactivity and returns a memo. Recommended approach to using `props.children` in anything other than passing directly through to JSX.
+
+```js
+const list = children(() => props.children);
+
+// do something with them
+createEffect(() => list());
+```
+
+## `lazy`
+
+```ts
+export function lazy<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>
+): T & { preload: () => Promise<T> };
+```
+
+Used to lazy load components to allow for code splitting. Components are not loaded until rendered. Lazy loaded components can be used the same as its statically imported counterpart, receiving props etc... Lazy components trigger `<Suspense>`
+
+```js
+// wrap import
+const ComponentA = lazy(() => import("./ComponentA"));
+
+// use in JSX
+<ComponentA title={props.title} />;
+```
+
+# Rendering
+
+These imports are exposed from `solid-js/web`.
+
+## `render`
+
+## `hydrate`
+
+## `renderToString`
+
+## `renderToStringAsync`
+
+## `renderToNodeStream`
+
+## `renderToWebStream`
+
+## `isServer`
+
+# Control Flow
+
+## `<For>`
+
+## `<Show>`
+
+## `<Switch>`/`<Match>`
+
+## `<Dynamic>`
+
+## `<Index>`
+
+## `<ErrorBoundary>`
+
+## `<Suspense>`
+
+## `<SuspenseList>`
+
+## `<Portal>`
+
+# Special JSX Attributes
+
+## `ref`
+
+## `classList`
+
+## `style`
+
+## `innerHTML`
+
+## `textContent`
+
+## `on:___`
+
+## `use:___`
+
+## `prop:___`
+
+## `attr:___`
