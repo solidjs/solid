@@ -27,11 +27,10 @@ export {
 
 export * from "./server-mock";
 export const isServer = false;
-const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-function createElement(tagName: string, isSVG = false): HTMLElement|SVGElement {
-  return isSVG ? document.createElementNS(SVG_NAMESPACE, tagName) :
-                 document.createElement(tagName);
+function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement {
+  return isSVG ? document.createElementNS(SVG_NAMESPACE, tagName) : document.createElement(tagName);
 }
 
 export function Portal(props: {
@@ -79,15 +78,15 @@ export function Portal(props: {
   return marker;
 }
 
-type DynamicProps<T> = T&{
+type DynamicProps<T> = T & {
   children?: any;
-  component?: Component<T>|string|keyof JSX.IntrinsicElements;
+  component?: Component<T> | string | keyof JSX.IntrinsicElements;
 };
 
 export function Dynamic<T>(props: DynamicProps<T>): () => JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
   return createMemo(() => {
-    const component = p.component as Function|string;
+    const component = p.component as Function | string;
     switch (typeof component) {
       case "function":
         return untrack(() => component(others));

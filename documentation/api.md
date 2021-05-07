@@ -307,7 +307,7 @@ Creates a new mutable State proxy object. State only triggers update on values c
 
 Useful for integrating external systems or as a compatibility layer with MobX/Vue.
 
-> **Note:** As mutable state can be passed around and mutated anywhere, which can make it harder to follow and break unidirectional flow, it generally recommended to use `createState` instead. The `produce` state modifier can give many of the same benefits without any of the downsides.
+> **Note:** As mutable state can be passed around and mutated anywhere, which can make it harder to follow and easier to break unidirectional flow, it generally recommended to use `createState` instead. The `produce` state modifier can give many of the same benefits without any of the downsides.
 
 ```js
 const state = createMutable(initialValue);
@@ -386,6 +386,8 @@ const isSelected = createSelector(selectedId);
 ```
 
 # Reactive Utilities
+
+These helpers provide the ability to better schedule updates and control how reactivity is tracked.
 
 ## `untrack`
 
@@ -492,6 +494,85 @@ isPending();
 start(() => setSignal(newValue), () => /* transition is done */)
 ```
 
+## `observable`
+
+```ts
+export function observable<T>(input: () => T): Observable<T>;
+```
+
+This method takes a signal and produces a simple Observable. Consume it from the Observable library of your choice with typically with the `from` operator.
+
+```js
+import { from } from "rxjs";
+
+const [s, set] = createSignal(0);
+
+const obsv$ = from(observable(s));
+
+obsv$.subscribe(v => console.log(v));
+```
+
+## `mapArray`
+
+```ts
+export function mapArray<T, U>(
+  list: () => readonly T[],
+  mapFn: (v: T, i: () => number) => U
+): () => U[];
+```
+
+Reactive map helper that caches each item by reference to reduce unnecessary mapping on updates. It only runs the mapping function once per value and then moves or removes it as needed. The index argument is a signal. The map function itself is not tracking.
+
+Underlying helper for the `<For>` control flow.
+
+```js
+const mapped = mapArray(source, (model) => {
+  const [name, setName] = createSignal(model.name);
+  const [description, setDescription] = createSignal(model.description);
+
+  return {
+    id: model.id,
+    get name() {
+      return name();
+    },
+    get description() {
+      return description();
+    }
+    setName,
+    setDescription
+  }
+});
+```
+
+## `indexArray`
+
+```ts
+export function indexArray<T, U>(
+  list: () => readonly T[],
+  mapFn: (v: () => T, i: number) => U
+): () => U[];
+```
+
+Similar to `mapArray` except it maps by index. The item is a signal and the index is now the constant.
+
+Underlying helper for the `<Index>` control flow.
+
+```js
+const mapped = indexArray(source, (model) => {
+  return {
+    get id() {
+      return model().id
+    }
+    get firstInitial() {
+      return model().firstName[0];
+    },
+    get fullName() {
+      return `${model().firstName} ${model().lastName}`;
+    },
+  }
+});
+```
+
 # State Modifiers
 
 Used to add additional behavior to `setState` function created with `createState`.
@@ -503,13 +584,16 @@ export function produce<T>(
   fn: (state: T) => void
 ): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T>;
 ```
+
 Immer inspired API for Solid's state objects that allows for localized mutation.
 
 ```js
-setState(produce(s => {
-  s.user.name = "Frank";
-  s.list.push("Pencil Crayon");
-}))
+setState(
+  produce(s => {
+    s.user.name = "Frank";
+    s.list.push("Pencil Crayon");
+  })
+);
 ```
 
 ## `reconcile`
@@ -520,13 +604,16 @@ export function reconcile<T>(
   options?: {
     key?: string | null;
     merge?: boolean;
-  } = { key; "id" }
+  } = { key: "id" }
 ): (state: T extends NotWrappable ? T : State<T>) => T extends NotWrappable ? T : State<T>;
 ```
 
 Diffs data changes when we can't apply granular updates. Useful for when dealing with immutable data from stores or large API responses.
 
+The key is used when available to match items. By default `merge` false does referential checks where possible to determine equality and replaces where items are not referentially equal. `merge` true pushes all diffing to the leaves and effectively morphs the previous data to the new value.
+
 ```js
+setState(reconcile(nextData));
 ```
 
 # Component APIs
@@ -618,37 +705,360 @@ These imports are exposed from `solid-js/web`.
 
 ## `render`
 
+```ts
+export function render(code: () => JSX.Element, element: MountableElement): () => void;
+```
+
+This is the browser app entry point. Provide a top level component definition or function and an element to mount to. It is recommended this element be empty as the returned dispose function will wipe all children.
+
+```js
+const dispose = render(App, document.getElementById("app"));
+```
+
 ## `hydrate`
+
+```ts
+export function hydrate(fn: () => JSX.Element, node: MountableElement): () => void;
+```
+
+This method is similar to `render` except it attempts to rehydrate what is already rendered to the DOM. When initializing in the browser a page has already been server rendered.
+
+```js
+const dispose = hydrate(App, document.getElementById("app"));
+```
 
 ## `renderToString`
 
+```ts
+export function renderToString<T>(
+  fn: () => T,
+  options?: {
+    eventNames?: string[];
+    nonce?: string;
+  }
+): { html: string; script: string };
+```
+
+Renders to a string synchronously. The function also generates a script tag for progressive hydration. Options include eventNames to listen to before the page loads and play back on hydration, and nonce to put on the script tag.
+
+```js
+const { html, script } = renderToString(App);
+```
+
 ## `renderToStringAsync`
+
+```ts
+export function renderToStringAsync<T>(
+  fn: () => T,
+  options?: {
+    eventNames?: string[];
+    timeoutMs?: number;
+    nonce?: string;
+  }
+): Promise<{ html: string; script: string }>;
+```
+
+Same as `renderToString` except it wait for all `<Suspense>` boundaries to resolve before returning the results. Resource data is automatically serialized into the script tag and will be hydrated on client load.
+
+```js
+const { html, script } = await renderToStringAsync(App);
+```
 
 ## `renderToNodeStream`
 
+```ts
+export function renderToNodeStream<T>(
+  fn: () => T,
+  options?: {
+    eventNames?: string[];
+    nonce?: string;
+  }
+): {
+  stream: NodeJS.ReadableStream;
+  script: string;
+};
+```
+
+This method renders to a Node stream. It renders the content synchronously including any Suspense fallback placeholders, and then continues to stream the data from any async resource as it completes.
+
+```js
+const { stream, script } = renderToNodeStream(App);
+```
+
 ## `renderToWebStream`
+
+```ts
+export function renderToWebStream<T>(
+  fn: () => T,
+  options?: {
+    eventNames?: string[];
+    nonce?: string;
+  }
+): {
+  writeTo: (writer: WritableStreamDefaultWriter) => Promise<void>;
+  script: string;
+};
+```
+
+This method renders to a web stream. It renders the content synchronously including any Suspense fallback placeholders, and then continues to stream the data from any async resource as it completes. The `writeTo` method takes a WritableStream writer.
+
+```js
+const { readable, writable } = new TransformStream();
+const writer = writable.getWriter();
+const encoder = new TextEncoder();
+
+const { writeTo, script } = renderToWebStream(App);
+
+// Write the head of your document
+writer.write(encoder.encode(htmlStart));
+writeTo(writer).then(() => {
+  // Write the end of your document
+  writer.write(encoder.encode(htmlEnd));
+  writer.close();
+});
+```
 
 ## `isServer`
 
+```ts
+export const isServer: boolean;
+```
+
+This indicates that the code is being run as the server or browser bundle. As the underlying runtimes export this as a constant boolean it allows bundlers to eliminate the code and their used imports from the respective bundles.
+
+```js
+if (isServer) {
+  // I will never make it to the browser bundle
+} else {
+  // won't be run on the server;
+}
+```
+
 # Control Flow
+
+Solid uses components for control flow. The reason is that with reactivity to be performant we have to control how elements are created. For example with a list a simple `map` is inefficient as it always maps everything. This means helper functions.
+
+Wrapping these in components is convenient way for terse templating and allows users to compose and build their own control flows.
+
+These built-in control flows will be automatically imported. All except `Portal` and `Dynamic` are exported from `solid-js`. Those two which are DOM specific are exported by `solid-js/web`.
+
+> Note: All callback/render function children of control flow are non-tracking. This allows for nesting state creation, and better isolates reactions.
 
 ## `<For>`
 
+```ts
+export function For<T, U extends JSX.Element>(props: {
+  each: readonly T[];
+  fallback?: JSX.Element;
+  children: (item: T, index: () => number) => U;
+}): () => U[];
+```
+
+Simple referentially keyed loop control flow.
+
+```jsx
+<For each={state.list} fallback={<div>Loading...</div>}>
+  {item => <div>{item}</div>}
+</For>
+```
+
+Optional second argument is an index signal:
+
+```jsx
+<For each={state.list} fallback={<div>Loading...</div>}>
+  {(item, index) => (
+    <div>
+      #{index()} {item}
+    </div>
+  )}
+</For>
+```
+
 ## `<Show>`
+
+```ts
+function Show<T>(props: {
+  when: T | undefined | null | false;
+  fallback?: JSX.Element;
+  children: JSX.Element | ((item: T) => JSX.Element);
+}): () => JSX.Element;
+```
+
+The Show control flow is used to conditional render part of the view. It is similar to the ternary operator(`a ? b : c`) but is ideal for templating JSX.
+
+```jsx
+<Show when={state.count > 0} fallback={<div>Loading...</div>}>
+  <div>My Content</div>
+</Show>
+```
+
+Show can also be used as a way of keying blocks to a specific data model. Ex the function is re-executed whenever the user model is replaced.
+
+```jsx
+<Show when={state.user} fallback={<div>Loading...</div>}>
+  {user => <div>{user.firstName}</div>}
+</Show>
+```
 
 ## `<Switch>`/`<Match>`
 
-## `<Dynamic>`
+```ts
+export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): () => JSX.Element;
+
+type MatchProps<T> = {
+  when: T | undefined | null | false;
+  children: JSX.Element | ((item: T) => JSX.Element);
+};
+export function Match<T>(props: MatchProps<T>);
+```
+
+Useful for when there are more than 2 mutual exclusive conditions. Can be used to do things like simple routing.
+
+```jsx
+<Switch fallback={<div>Not Found</div>}>
+  <Match when={state.route === "home"}>
+    <Home />
+  </Match>
+  <Match when={state.route === "settings"}>
+    <Settings />
+  </Match>
+</Switch>
+```
+
+Match also supports function children to serve as keyed flow.
 
 ## `<Index>`
 
+```ts
+export function Index<T, U extends JSX.Element>(props: {
+  each: readonly T[];
+  fallback?: JSX.Element;
+  children: (item: () => T, index: number) => U;
+}): () => U[];
+```
+
+Non-Keyed list iteration (rows keyed to index). This useful when there is no conceptual key, like if the data is primitives and it is the index that is fixed rather than the value.
+
+The item is a signal:
+
+```jsx
+<Index each={state.list} fallback={<div>Loading...</div>}>
+  {item => <div>{item()}</div>}
+</Index>
+```
+
+Optional second argument is an index number:
+
+```jsx
+<Index each={state.list} fallback={<div>Loading...</div>}>
+  {(item, index) => (
+    <div>
+      #{index} {item()}
+    </div>
+  )}
+</Index>
+```
+
 ## `<ErrorBoundary>`
+
+```ts
+function ErrorBoundary(props: {
+  fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
+  children: JSX.Element;
+}): () => JSX.Element;
+```
+
+Catches uncaught errors and renders fallback content.
+
+```jsx
+<ErrorBoundary fallback={<div>Something went terribly wrong</div>}>
+  <MyComp />
+</ErrorBoundary>
+```
+
+Also supports callback form which passes in error and a reset function.
+
+```jsx
+<ErrorBoundary fallback={(err, reset) => <div onClick={reset}>Error: {err}</div>}>
+  <MyComp />
+</ErrorBoundary>
+```
 
 ## `<Suspense>`
 
-## `<SuspenseList>`
+```ts
+export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element;
+```
+
+A component that tracks all resources read under it and shows a fallback placeholder state until they are resolved. What makes `Suspense` different than `Show` is it is non-blocking in that both branches exist at the same time even if not currently in the DOM.
+
+```jsx
+<Suspense fallback={<div>Loading...</div>}>
+  <AsyncComponent />
+</Suspense>
+```
+
+## `<SuspenseList>` (Experimental)
+
+```ts
+function SuspenseList(props: {
+  children: JSX.Element;
+  revealOrder: "forwards" | "backwards" | "together";
+  tail?: "collapsed" | "hidden";
+}): JSX.Element;
+```
+
+`SuspenseList` allows for coordinating multiple parallel `Suspense` and `SuspenseList` components. It controls the order in which content is revealed to reduce layout thrashing and has an option to collapse or hide fallback states.
+
+```jsx
+<SuspenseList revealOrder="forwards" tail="collapsed">
+  <ProfileDetails user={resource.user} />
+  <Suspense fallback={<h2>Loading posts...</h2>}>
+    <ProfileTimeline posts={resource.posts} />
+  </Suspense>
+  <Suspense fallback={<h2>Loading fun facts...</h2>}>
+    <ProfileTrivia trivia={resource.trivia} />
+  </Suspense>
+</SuspenseList>
+```
+
+## `<Dynamic>`
+
+```ts
+function Dynamic<T>(
+  props: T & {
+    children?: any;
+    component?: Component<T> | string | keyof JSX.IntrinsicElements;
+  }
+): () => JSX.Element;
+```
+
+This component lets you insert an arbitrary Component or tag and passes the props through to it.
+
+```jsx
+<Dynamic component={state.component} someProp={state.something} />
+```
 
 ## `<Portal>`
+
+```ts
+export function Portal(props: {
+  mount?: Node;
+  useShadow?: boolean;
+  isSVG?: boolean;
+  children: JSX.Element;
+}): Text;
+```
+
+This inserts the element in the mount node. Useful for inserting Modals outside of the page layout. Events still propagate through the Component Hierarchy.
+
+The portal is mounted in a `<div>` unless the target is the document head. `useShadow` places the element in a Shadow Root for style isolation, and `isSVG` is required if inserting into an SVG element so that the `<div>` is not inserted.
+
+```jsx
+<Portal mount={document.getElementById("modal")}>
+  <div>My Content</div>
+</Portal>
+```
 
 # Special JSX Attributes
 
