@@ -2,6 +2,8 @@
 
 ## Reactivity is not working
 
+- Check your code for destructuring or use of `Object.assign`. If you use these on state or prop objects it is likely you have lost reactivity.
+
 - If you application has duplicate instances of the `solid-js` package inside `node_modules`, this can cause reactivity to break.
   - This can happen when you've `npm link`ed dependencies into your project.
     - If you're using Webpack with `babel-preset-solid`, you may have luck fixing the issue with using the  [`RootMostResolvePlugin`](https://github.com/webpack/webpack/issues/985#issuecomment-260230782)

@@ -63,7 +63,7 @@ Types added for Namespace attributes. You probably won't need most of these beca
 ```ts
 declare module "solid-js" {
   namespace JSX {
-    interface Actions {  // use:____
+    interface Directives {  // use:____
 
     }
     interface ExplicitProperties { // prop:____

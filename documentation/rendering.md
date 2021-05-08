@@ -2,8 +2,6 @@
 
 Solid supports templating in 3 forms JSX, Tagged Template Literals, and Solid's HyperScript variant. Although JSX is the predominate form. Why? JSX is a great DSL made for compilation. It has clear syntax, supports TypeScript, works with Babel, supports other tooling like Code Syntax Highlighting and Prettier. It was only pragmatic to use a tool that basically gives you that all for free. As a compiled solution it provides great DX. Why struggle with custom Syntax DSLs when you can use one so widely supported?
 
-Still there is some confusion as to what JSX is and is not. JSX is an XML-like syntax extension to EcmaScript (https://facebook.github.io/jsx/). It is not a language or runtime. Those can be refered to as HyperScript. So while Solid's JSX and might resemble React it by no means works like React and there should be no illusions that a JSX library will just work with Solid. Afterall, there are no JSX libraries, as they all work without JSX, only HyperScript ones.
-
 ## JSX Compilation
 
 Rendering involves precompilation of JSX templates into optimized native js code. The JSX code constructs:
@@ -13,8 +11,6 @@ Rendering involves precompilation of JSX templates into optimized native js code
 - Fine grained computations to update the created elements.
 
 This approach both is more performant and produces less code then creating each element one by one with document.createElement.
-
-More documentation is available at: [babel-plugin-jsx-dom-expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/babel-plugin-jsx-dom-expressions)
 
 ## Attributes and Props
 
@@ -30,17 +26,7 @@ However, it is possible to control this behavior directly with namespace directi
 <my-element prop:UniqACC={state.value} attr:title={state.title} />
 ```
 
-> Support for namespace in JSX is coming in TS 4.2.
-
-### Note on binding order
-
-Static attributes are created as part of the html template together. Expressions fixed and dynamic are applied afterwards in JSX binding order. While this is fine for most DOM elements there are some like input elements with `type='range'` where order matters. Keep this in mind when binding elements.
-
-### Note on forms
-
-Solid expects the UI to reflect its state. This means updating state on form actions. Failing to do so can cause unexpected behavior as setting state to the same value will not trigger an update even if the DOM value has diverged. In general it is recommended you handle forms in this "controlled" manner.
-
-In some cases it might make sense to manage the form state outside of Solid via refs. These "uncontrolled" forms can also work. Just be conscious of the difference as mixing approaches can lead to unexpected results.
+> **Note:** Static attributes are created as part of the html template that is cloned. Expressions fixed and dynamic are applied afterwards in JSX binding order. While this is fine for most DOM elements there are some like input elements with `type='range'` where order matters. Keep this in mind when binding elements.
 
 ## Entry
 
@@ -51,279 +37,290 @@ import { render } from "solid-js/web";
 
 render(() => <App />, document.getElementById("main"));
 ```
+## Components
 
-## Events
-
-`on_____` handlers are event handlers expecting a function. The compiler will delegate events where possible (Events that can be composed and bubble) else it will fall back `el.addEventListener`.
-
-If you wish to bind a value to events pass an array handler instead and the second argument will be passed to your event handler as the first argument (the event will be second). This can improve performance in large lists when the event is delegated.
+Components in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and they return real DOM nodes.
 
 ```jsx
-function handler(itemId, e) {
-  /*...*/
-}
+const Parent = () => (
+  <section>
+    <Label greeting="Hello">
+      <div>John</div>
+    </Label>
+  </section>
+);
 
-<ul>
-  <For each={state.list}>{item => <li onClick={[handler, item.id]} />}</For>
-</ul>;
+const Label = props => (
+  <>
+    <div>{props.greeting}</div>
+    {props.children}
+  </>
+);
 ```
 
-This delegation solution works with Web Components and the Shadow DOM as well if the events are composed. That limits the list to custom events and most UA UI events like onClick, onKeyUp, onKeyDown, onDblClick, onInput, onMouseDown, onMouseUp, etc..
+Since all nodes from JSX are actual DOM nodes, the only responsibility of top level Components is appending to the DOM.
 
-To allow for casing to work all custom events should follow the all lowercase convention of native events. If you want to use different event convention (or use Level 3 Events "addEventListener") use the "on" or "oncapture" namespace binding.
+## Props
+
+Much like React, Vue, Angular, and other frameworks, you can define properties on your components which allow a parent component to pass data to a child component. Here a parent is passing the string "Hello" to the `Label` component via a `greeting` property.
 
 ```jsx
-<div on:Weird-Event={e => alert(e.detail)} />
+const Parent = () => (
+  <section>
+    <Label greeting="Hello">
+      <div>John</div>
+    </Label>
+  </section>
+);
 ```
 
-## Spreads
-
-Solid supports spread operator on native elements and Components. While not able to be optimized by the compiler these are useful for forwarding data through. Especially when the intermediary is unsure of what possible props are being passed down.
-
-```js
-function MyDiv(props) {
-  return <div {...props} />;
-}
-```
-
-Solid supports dynamically changing which values are on the spread object value on native elements. However, currently there is a limitation on Components that while they support dynamic changes, all properties must be on the props object at first render.
-
-## Control Flow
-
-While you could use a map function to loop, they aren't optimized. It is perhaps not as big of a deal in VDOM-based libraries (like React), since they always execute all the code from top down repeatedly anyway. But Solid is designed to _avoid_ doing that, so we rely on techniques like isolated contexts and memoization. This is complicated and require special methods which Solid exposes through JSX control flow syntax.
+In the above example, the value set on `greeting` is static, but we can also set dynamic values. For example:
 
 ```jsx
-<ul>
-  <For each={state.users} fallback={<div>No Users</div>}>
-    {user => (
-      <li>
-        <div>{user.firstName}</div>
-        <Show when={user.stars > 100}>
-          <div>Verified</div>
-        </Show>
-      </li>
-    )}
-  </For>
-</ul>
+const Parent = () => {
+  const [greeting, setGreeting] = createSignal("Hello");
+
+  return (
+    <section>
+      <Label greeting={greeting()}>
+        <div>John</div>
+      </Label>
+    </section>
+  );
+};
 ```
 
-Control flows can be imported from `solid-js` but as a convenience the compiler will automatically import them from `solid-js/web`.
-
-### For
-
-Keyed list iteration:
+Components can access properties passed to them via a `props` argument.
 
 ```jsx
-<For each={state.list} fallback={<div>Loading...</div>}>
-  {item => <div>{item}</div>}
-</For>
+const Label = props => (
+  <>
+    <div>{props.greeting}</div>
+    {props.children}
+  </>
+);
 ```
 
-Optional second argument is an index signal:
+Unlike in some other frameworks, you cannot use object destructuring on the `props` of a component. This is because the `props` object is, behind the scenes, relies on Object getters to lazily retrieve values. Using object destructuring breaks the reactivity of `props`.
+
+This example shows the "correct" way of accessing props in Solid:
 
 ```jsx
-<For each={state.list} fallback={<div>Loading...</div>}>
-  {(item, index) => (
+// Here, `props.name` will update like you'd expect
+const MyComponent = props => <div>{props.name}</div>;
+```
+
+This example shows the wrong way of accessing props in Solid:
+
+```jsx
+// This is bad
+// Here, `props.name` will not update (i.e. is not reactive) as it is destructured into `name`
+const MyComponent = ({ name }) => <div>{name}</div>;
+```
+
+While the props object looks like a normal object when you use it (and Typescript users will note that it is typed like a normal object), in reality it is reactive--somewhat similar to a Signal. This has a few implications.
+
+Because unlike most JSX frameworks, Solid's function components are only executed once (rather than every render cycle), the following example will not work as desired.
+
+```jsx
+import { createSignal } from "solid-js";
+
+const BasicComponent = props => {
+  const value = props.value || "default";
+
+  return <div>{value}</div>;
+};
+
+export default function Form() {
+  const [value, setValue] = createSignal("");
+
+  return (
     <div>
-      #{index()} {item}
+      <BasicComponent value={value()} />
+      <input type="text" oninput={e => setValue(e.currentTarget.value)} />
     </div>
-  )}
-</For>
-```
-
-### Show
-
-Conditionally control content (make sure `when` is boolean):
-
-```jsx
-<Show when={state.count > 0} fallback={<div>Loading...</div>}>
-  <div>My Content</div>
-</Show>
-```
-
-Or as a way of keying blocks:
-
-```jsx
-<Show when={state.user} fallback={<div>Loading...</div>}>
-  {user => <div>{user.firstName}</div>}
-</Show>
-```
-
-_Note Show is designed to handle more complex scenarios like Component insertions. For simple dynamic expressions use boolean or ternary operator._
-
-### Switch/Match
-
-```jsx
-<Switch fallback={<div>Not Found</div>}>
-  <Match when={state.route === "home"}>
-    <Home />
-  </Match>
-  <Match when={state.route === "settings"}>
-    <Settings />
-  </Match>
-</Switch>
-```
-
-### Suspense
-
-```jsx
-<Suspense fallback={<div>Loading...</div>}>
-  <AsyncComponent />
-</Suspense>
-```
-
-### SuspenseList
-
-```jsx
-<SuspenseList revealOrder="forwards" tail="collapsed">
-  <ProfileDetails user={resource.user} />
-  <Suspense fallback={<h2>Loading posts...</h2>}>
-    <ProfileTimeline posts={resource.posts} />
-  </Suspense>
-  <Suspense fallback={<h2>Loading fun facts...</h2>}>
-    <ProfileTrivia trivia={resource.trivia} />
-  </Suspense>
-</SuspenseList>
-```
-
-### ErrorBoundary
-
-Catches uncaught errors and renders fallback content.
-
-```jsx
-<ErrorBoundary fallback={<div>Something went terribly wrong</div>}>
-  <MyComp />
-</ErrorBoundary>
-```
-
-### Index
-
-Non-Keyed list iteration (rows keyed to index). This useful when there is no conceptual key, like if the data is primitives and it is the index that is fixed rather than the value. Useful nested reactivity when the data is simple strings/numbers and not models.
-
-The item is a signal:
-
-```jsx
-<Index each={state.list} fallback={<div>Loading...</div>}>
-  {item => <div>{item()}</div>}
-</Index>
-```
-
-Optional second argument is an index number:
-
-```jsx
-<Index each={state.list} fallback={<div>Loading...</div>}>
-  {(item, index) => (
-    <div>
-      #{index} {item()}
-    </div>
-  )}
-</Index>
-```
-
-Also available from `solid-js/web`:
-
-### Dynamic
-
-This component lets you insert an arbitrary Component or tag and passes the props through to it.
-
-```jsx
-<Dynamic component={state.component} someProp={state.something} />
-```
-
-### Portal
-
-This inserts the element in the mount node. Useful for inserting Modals outside of the page layout. Events still propagate through the Component Hierarchy.
-
-```jsx
-<Portal mount={document.getElementById("modal")}>
-  <div>My Content</div>
-</Portal>
-```
-
-## Refs
-
-Refs come in 2 flavours. `ref` which directly assigns the value, and which calls a callback `(ref) => void` with the reference.
-
-### `ref`
-
-```jsx
-function MyComp() {
-  let myDiv;
-  createEffect(() => console.log(myDiv.clientWidth));
-  return <div ref={myDiv} />;
+  );
 }
 ```
 
-On a native intrinsic element as the element executes the provided variable will be assigned. This form usually is used in combination with `createEffect` to do work after the component has mounted. Like do a DOM measurement or attach DOM plugins etc...
+In this example, what we probably want to happen is for the `BasicComponent` to display the current value typed into the `input`. But, as a reminder, the `BasicComponent` function will only be executed once when the component is initially created. At this time (at creation), `props.value` will equal `''`. This means that `const value` in `BasicComponent` will resolve to `'default'` and never update. While the `props` object is reactive, accessing the props in `const value = props.value || 'default';` is outside the observable scope of Solid, so it isn't automatically re-evaluated when props change.
 
-When applied to a Component it acts similarly but also passes a prop in that is a function that is expected to be called with a ref to forward the ref (more on this in the next section):
+So how can we fix out problem?
 
-```jsx
-function App() {
-  let myDiv;
-  createEffect(() => console.log(myDiv.clientWidth));
-  return <MyComp ref={myDiv} />;
-}
-```
-
-Callback form expects a function like React's callback refs. Original use case is like described above:
+Well, in general, we need to access `props` somewhere that Solid can observe it. Generally this means inside JSX or inside a `createMemo`, `createEffect`, or thunk(`() => ...`). Here is one solution that works as expected:
 
 ```jsx
-function MyComp(props) {
-  return <div ref={props.ref} />;
-}
-
-function App() {
-  let myDiv;
-  createEffect(() => console.log(myDiv.clientWidth));
-  return <MyComp ref={myDiv} />;
-}
+const BasicComponent = props => {
+  return <div>{props.value || "default"}</div>;
+};
 ```
 
-You can also apply a callback `ref` on a Component:
+This is equivalently can be hoisted into a function:
 
 ```jsx
-function App() {
-  return <MyComp ref={ref => console.log(ref.clientWidth)} />;
-}
+const BasicComponent = props => {
+  const value = () => props.value || "default";
+
+  return <div>{value()}</div>;
+};
 ```
 
-This just passes the function through as `props.ref` again and work similar to the example above except it would run synchronously during render. You can use this to chain as many `ref` up a Component chain as you wish.
-
-## Directives
-
-> Support for Namespaced JSX Attributes is available in TypeScript 4.2
-
-Creating a Component is the cleanest way to package reusable functionality data and view behavior. Reactive primitive composition is often the best way to reuse data behavior. However sometimes there is a need for behavior that can be re-used cross DOM element.
-
-Solid provides a custom directive syntax for adding additional behavior to native elements as a syntax sugar over `ref` making it easy to combine multiple on a single element.
+Another option if it is an expensive computation to use `createMemo`. For example:
 
 ```jsx
-<div use:draggable use:pannable />;
+const BasicComponent = props => {
+  const value = createMemo(() => props.value || "default");
 
-const [name, setName] = createSignal("");
-<input type="text" use:model={[name, setName]} />;
+  return <div>{value()}</div>;
+};
 ```
 
-To create a directive simply expose a function with this signature `(el: HTMLElement, valueAccessor: () => /*binding value*/) => {}`. Value accessor lets you track it if you wish to. And you can register `onCleanup` methods to cleanup any side effects you create.
+Or using a helper
 
 ```jsx
-function model(el, value) {
-  const [field, setField] = value();
-  createRenderEffect(() => (el.value = field()));
-  el.addEventListener("input", e => setField(e.target.value));
-}
+const BasicComponent = props => {
+  props = mergeProps({ value: "default" }, props);
+
+  return <div>{props.value}</div>;
+};
 ```
 
-To register with TypeScript extend the JSX namespace.
+As a reminder, the following examples will _not_ work:
 
-```ts
-declare module "solid-js" {
-  namespace JSX {
-    interface Directives {
-      draggable: boolean;
-      model: [() => any, (v: any) => any];
+```jsx
+// bad
+const BasicComponent = props => {
+  const { value: valueProp } = props;
+  const value = createMemo(() => valueProp || "default");
+  return <div>{value()}</div>;
+};
+
+// bad
+const BasicComponent = props => {
+  const valueProp = prop.value;
+  const value = createMemo(() => valueProp || "default");
+  return <div>{value()}</div>;
+};
+```
+
+Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components.
+
+```jsx
+<Component prop1="static" prop2={state.dynamic} />;
+
+// compiles roughly to:
+
+// we untrack the component body to isolate it and prevent costly updates
+untrack(() =>
+  Component({
+    prop1: "static",
+    // dynamic expression so we wrap in a getter
+    get prop2() {
+      return state.dynamic;
     }
-  }
+  })
+);
+```
+
+To help maintain reactivity Solid has a couple prop helpers:
+
+```jsx
+// default props
+props = mergeProps({ name: "Smith" }, props);
+
+// clone props
+const newProps = mergeProps(props);
+
+// merge props
+props = mergeProps(props, otherProps);
+
+// split props into multiple props objects
+const [local, others] = splitProps(props, ["className"])
+<div {...others} className={cx(local.className, theme.component)} />
+```
+
+## Children
+
+Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array. Normally you pass them through to the JSX view. However if you want to interact with them the suggested method is the `children` helper which resolves any downstream control flows and returns a memo.
+
+```jsx
+// single child
+const Label = (props) => <div class="label">Hi, { props.children }</div>
+
+<Label><span>Josie</span></Label>
+
+// multi child
+const List = (props) => <div>{props.children}</div>;
+
+<List>
+  <div>First</div>
+  {state.expression}
+  <Label>Judith</Label>
+</List>
+
+// map children
+const List = (props) => <ul>
+  <For each={props.children}>{item => <li>{item}</li>}</For>
+</ul>;
+
+// modify and map children using helper
+const List = (props) => {
+  // children helper memoizes value and resolves all intermediate reactivity
+  const memo = children(() => props.children);
+  createEffect(() => {
+    const children = memo();
+    children.forEach((c) => c.classList.add("list-child"))
+  })
+  return <ul>
+    <For each={memo()}>{item => <li>{item}</li>}</For>
+  </ul>;
+```
+
+**Important:** Solid treats child tags as expensive expressions and wraps them the same way as dynamic reactive expressions. This means they evaluate lazily on `prop` access. Be careful accessing them multiple times or destructuring before the place you would use them in the view. This is because Solid doesn't have luxury of creating Virtual DOM nodes ahead of time then diffing them so resolution of these `props` must be lazy and deliberate. Use `children` helper if you wish to do this as it memoizes them.
+
+## Lifecycle
+
+All lifecycles in Solid are tied to the lifecycle of the reactive system.
+
+If you wish to perform some side effect on mount or after update use `createEffect` after render has complete:
+
+```jsx
+import { createSignal, createEffect } from "solid-js";
+
+function Example() {
+  const [count, setCount] = createSignal(0);
+
+  createEffect(() => {
+    document.title = `You clicked ${count()} times`;
+  });
+
+  return (
+    <div>
+      <p>You clicked {count()} times</p>
+      <button onClick={() => setCount(count() + 1)}>Click me</button>
+    </div>
+  );
 }
 ```
+
+For convenience if you need to only run it once you can use `onMount` which is the same as `createEffect` but will only run once. Keep in mind Solid's cleanup is independent of this mechanism. So if you aren't reading the DOM you don't need to use these.
+
+If you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`.
+
+```jsx
+const Ticker = () => {
+  const [state, setState] = createState({ count: 0 }),
+    t = setInterval(() => setState({ count: state.count + 1 }), 1000);
+
+  // remove interval when Component destroyed:
+  onCleanup(() => clearInterval(t));
+
+  return <div>{state.count}</div>;
+};
+```
+
+## Web Components
+
+Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
+
+[Solid Element](https://github.com/solidui/solid/tree/main/packages/solid-element) Provides an out of the box solution for wrapping your Solid Components as Custom Elements.

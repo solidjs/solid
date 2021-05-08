@@ -41,7 +41,7 @@ The biggest difference might be that Solid's approach to batching changes which 
 #### Advice for migrating:
 If you are used Knockout, Solid's primitives might look strange to you. The read/write separation is intentional and not just to make life hard. Look to group adopting a state/action (Flux) mental model. While the libraries look similar they ppromote different best practices.
 
-## lit-html & LighterHTML
+## Lit & LighterHTML
 
 These libraries are incredibly similar and have had some influence on Solid. Mostly that Solid's compiled code uses a very similar method to performantly initially render the DOM. Cloning Template elements and using comment placeholders are something that Solid and these libraries share in common.
 

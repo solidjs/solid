@@ -116,6 +116,38 @@ dispatch({ type: "LIST/ADD", payload: { id: 1, title: "New Value" } });
 
 That being said there are plenty of reasons to use actual Redux.
 
+## State
+
+Sometimes there is a desire to have deeply nested signals and that is where state comes in. It is composed of many on demand reactive Signals through a proxy object. It is deeply nested reactivity, and lazily creates Signals on demand.
+
+The advantage is that it is automatically reactive and resembles data structures you may already have. It removes the classic issues with fine-grained reactivity around mapping reactive structures and serializing JSON. And as a structure itself it can be diffed allowing interaction with immutable data and snapshots.
+
+Through the use of proxies and explicit setters it gives the control of an immutable interface and the performance of a mutable one.
+
+```jsx
+import { createState } from "solid-js";
+import { render } from "solid-js/web";
+
+export default function App() {
+  const [state, setState] = createState({
+    user: {
+      firstName: "John",
+      lastName: "Smith",
+      get fullName() {
+        return `${this.firstName} ${this.lastName}`;
+      }
+    }
+  });
+
+  return (
+    <div onClick={() => setState("user", "lastName", value => value + "!")}>
+      {state.user.fullName}
+    </div>
+  );
+};
+```
+
+> Note: State objects themselves aren't reactive. Only the property access on them are. So destructuring in non-tracked scopes will not track updates. Also passing the state object directly to bindings will not track unless those bindings explicitly access properties. Finally, while nested state objects will be notified when new properties are added, top level state cannot be tracked so adding properties will not trigger updates when iterating over keys. This is the primary reason state does benefit from being created as a top level array.
 ## Managing Dependencies and Updates
 
 Sometimes we want to be explicit about what triggers Effects and Memos to update and nothing else. Solid offers ways to explicitly set dependencies or to not track under a tracking scope at all.

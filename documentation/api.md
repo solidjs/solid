@@ -613,7 +613,11 @@ Diffs data changes when we can't apply granular updates. Useful for when dealing
 The key is used when available to match items. By default `merge` false does referential checks where possible to determine equality and replaces where items are not referentially equal. `merge` true pushes all diffing to the leaves and effectively morphs the previous data to the new value.
 
 ```js
-setState(reconcile(nextData));
+// subscribing to an observable
+const unsubscribe = store.subscribe(({ todos }) => (
+  setState('todos', reconcile(todos)));
+);
+onCleanup(() => unsubscribe());
 ```
 
 # Component APIs
@@ -1062,20 +1066,178 @@ The portal is mounted in a `<div>` unless the target is the document head. `useS
 
 # Special JSX Attributes
 
+In general Solid attempts to stick to DOM conventions. Most props are treated as attributes on native elements and properties on Web Components, but a few of them have special behavior.
+
+For custom namespaced attributes with TypeScript you need to extend Solid's JSX namespace:
+
+```ts
+declare module "solid-js" {
+  namespace JSX {
+    interface Directives {
+      // use:____
+    }
+    interface ExplicitProperties {
+      // prop:____
+    }
+    interface ExplicitAttributes {
+      // attr:____
+    }
+    interface CustomEvents {
+      // on:____
+    }
+    interface CustomCaptureEvents {
+      // oncapture:____
+    }
+  }
+}
+```
+
 ## `ref`
+
+Refs are a way of getting access to underlying DOM elements in our JSX. While it is true one could just assign an element to a variable, it is more optimal to leave components in the flow of JSX. Refs are assigned at render time but before the elements are connected to the DOM. They come in 2 flavors.
+
+```js
+// simple assignment
+let myDiv;
+
+// use onMount or createEffect to read after connected to DOM
+onMount(() => console.log(myDiv));
+<div ref={myDiv} />
+
+// Or, callback function (called before connected to DOM)
+<div ref={el => console.log(el)} />
+```
+
+Refs can also be used on Components. They still need to be attached on the otherside.
+
+```jsx
+function MyComp(props) {
+  return <div ref={props.ref} />;
+}
+
+function App() {
+  let myDiv;
+  onMount(() => console.log(myDiv.clientWidth));
+  return <MyComp ref={myDiv} />;
+}
+```
 
 ## `classList`
 
+A helper that leverages `element.classList.toggle`. It takes an object whose keys are class names and assigns them when the resolved value is true.
+
+```jsx
+<div classList={{ active: state.active, editing: state.currentId === row.id }} />
+```
+
 ## `style`
 
-## `innerHTML`
+Solid's style helper works with either a string or with an object. Unlike React's version Solid uses `element.style.setProperty` under the hood. This means support for CSS vars, but it also means we use the lower, dash-case version of properties. This actually leads to better performance and consistency with SSR output.
 
-## `textContent`
+```jsx
+// string
+<div style={`color: green; background-color: ${state.color}; height: ${state.height}px`} />
 
-## `on:___`
+// object
+<div style={{
+  color: "green",
+  "background-color": state.color,
+  height: state.height + "px" }}
+/>
+
+// css variable
+<div style={{ "--my-custom-color": state.themeColor }} />
+```
+
+## `innerHTML`/`textContent`
+
+These work the same as their property equivalent. Set a string and they will be set. **Be careful!!** Setting `innerHTML` with any data that could be exposed to an end user as it could be a vector for malicious attack. `textContent` while generally not needed is actually a performance optimization when you know the children will only be text as it bypasses the generic diffing routine.
+
+```jsx
+<div textContent={state.text} />
+```
+
+## `on___`
+
+Event handlers in Solid typically take the form of `onclick` or `onClick` depending on style. The event name is always lowercased. Solid uses semi-synthetic event delegation for common UI events that are composed and bubble. This improves performance for these common events.
+
+```jsx
+<div onClick={e => console.log(e.currentTarget)} />
+```
+
+Solid also supports passing an array to the event handler to bind a value to the first argument of the event handler. This doesn't use `bind` or create an additional closure, so it is highly optimized way delegating events.
+
+```jsx
+function handler(itemId, e) {
+  /*...*/
+}
+
+<ul>
+  <For each={state.list}>{item => <li onClick={[handler, item.id]} />}</For>
+</ul>;
+```
+
+Events can not be rebound and the bindings are not reactive. The reason is that it is generally more expensive to attach/detach listeners. Since events naturally are called there is no need for reactivity simply shortcut your handler if desired.
+
+```jsx
+// if defined call it, otherwised don't.
+<div onClick={() => props.handleClick?.()} />
+```
+
+## `on:___`/`oncapture:___`
+
+For any other events, perhaps ones with unusual names, or ones you wish not to be delegated there are the `on` namespace events. This simply adds an event listener verbatim.
+
+```jsx
+<div on:Weird-Event={e => alert(e.detail)} />
+```
 
 ## `use:___`
 
+These are custom directives. In a sense this is just syntax sugar over ref but allows us to easily attach multiple directives to a single element. A directive is simply a function with the following signature:
+
+```ts
+function directive(element: Element, accessor: () => any): void;
+```
+
+These functions run at render time and you can do whatever you want in them. Create signals and effects, register cleanup functions, whatever you desire.
+
+```js
+const [name, setName] = createSignal("");
+
+function model(el, value) {
+  const [field, setField] = value();
+  createRenderEffect(() => (el.value = field()));
+  el.addEventListener("input", e => setField(e.target.value));
+}
+
+<input type="text" use:model={[name, setName]} />;
+```
+
+To register with TypeScript extend the JSX namespace.
+
+```ts
+declare module "solid-js" {
+  namespace JSX {
+    interface Directives {
+      model: [() => any, (v: any) => any];
+    }
+  }
+}
+```
+
 ## `prop:___`
 
+Forces the prop to be treated as a property instead of an attribute.
+
+```jsx
+<div prop:scrollTop={props.scrollPos + "px"} />
+```
+
 ## `attr:___`
+
+Forces the prop to be treated as a attribute instead of an property. Useful for Web Components where you want to set attributes.
+
+```jsx
+<my-element attr:status={props.status} />
+```

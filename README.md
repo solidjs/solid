@@ -105,10 +105,7 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 ## Documentation
 
 - [Reactivity](https://github.com/solidui/solid/blob/main/documentation/reactivity.md)
-- [State](https://github.com/solidui/solid/blob/main/documentation/state.md)
-- [JSX Rendering](https://github.com/solidui/solid/blob/main/documentation/rendering.md)
-- [Components](https://github.com/solidui/solid/blob/main/documentation/components.md)
-- [Styling](https://github.com/solidui/solid/blob/main/documentation/styling.md)
+- [Rendering](https://github.com/solidui/solid/blob/main/documentation/rendering.md)
 - [Context](https://github.com/solidui/solid/blob/main/documentation/context.md)
 - [Suspense](https://github.com/solidui/solid/blob/main/documentation/suspense.md)
 - [SSR](https://github.com/solidui/solid/blob/main/documentation/server.md)
