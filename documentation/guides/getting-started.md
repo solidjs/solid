@@ -55,19 +55,19 @@ You can also view our full [API Reference](../api.md)
 
 Solid's design carries several opinions on what principles and values help us best make websites and applications. It is easier to learn and use Solid when aware of the philosophy behind it.
 
-1. Declarative Data
+### 1. Declarative Data
 
 Declarative data is the practice of tying the description of data’s behavior to its declaration. This allows for easy composition by packaging all aspects of data’s behavior in a single place.
 
-2. Component-less
+### 2. Component-less
 
 The decision of how you modularize your code should be your own and not be restricted by performance or state update concerns. Component boundaries should have minimal impact on how your application functions.
 
-3. Read/Write segregation
+### 3. Read/Write segregation
 
 Precise control and predictability make for better systems. We don't need true immutability to enforce unidirectional flow, just the ability to make the conscious decision which consumers may write and which may not.
 
-4. Simple is better than easy
+### 4. Simple is better than easy
 
 A lesson that comes hard for fine-grained reactivity. Explicit and consistent conventions even if they require more effort are worth it. The aim is to provide minimal tools to serve as the basis to built upon.
 
