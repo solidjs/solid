@@ -610,9 +610,9 @@ const ComponentA = lazy(() => import("./ComponentA"));
 <ComponentA title={props.title} />;
 ```
 
-# Advanced Primitives
+# Secondary Primitives
 
-You probably won't need them for your first app, but useful tools to have.
+You probably won't need them for your first app, but these useful tools to have.
 
 ## `createMutable`
 

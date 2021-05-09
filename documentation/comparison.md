@@ -39,7 +39,7 @@ Knockout's bindings are just strings in HTML which are walked over at runtime. T
 The biggest difference might be that Solid's approach to batching changes which ensures synchronicity whereas Knockout has deferUpdates which uses a deferred microtask queue.
 
 #### Advice for migrating:
-If you are used Knockout, Solid's primitives might look strange to you. The read/write separation is intentional and not just to make life hard. Look to group adopting a state/action (Flux) mental model. While the libraries look similar they ppromote different best practices.
+If you are used Knockout, Solid's primitives might look strange to you. The read/write separation is intentional and not just to make life hard. Look to adopting a state/action (Flux) mental model. While the libraries look similar they ppromote different best practices.
 
 ## Lit & LighterHTML
 

@@ -20,6 +20,7 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 - Small! Completely tree-shakeable Solid's compiler will only include parts of the library you use.
 - Supports and is built on TypeScript.
 - Supports modern features like JSX, Fragments, Context, Portals, Suspense, Streaming SSR, Progressive Hydration, Error Boundaries and Concurrent Rendering.
+- Works in serverless environments including AWS Lambda and Cloudflare Workers.
 - Webcomponent friendly and can author Custom Elements
   - Context API that spans Custom Elements
   - Implicit event delegation with Shadow DOM Retargeting
@@ -109,12 +110,12 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 - [Comparison with other Libraries](https://github.com/solidui/solid/blob/main/documentation/comparison.md)
 
 ### Guides
+- [Getting Started](https://github.com/solidui/solid/blob/main/documentation/guides/getting-started.md)
 - [Reactivity](https://github.com/solidui/solid/blob/main/documentation/guides/reactivity.md)
 - [Rendering](https://github.com/solidui/solid/blob/main/documentation/guides/rendering.md)
 - [Context](https://github.com/solidui/solid/blob/main/documentation/guides/context.md)
 - [Suspense](https://github.com/solidui/solid/blob/main/documentation/guides/suspense.md)
 - [SSR](https://github.com/solidui/solid/blob/main/documentation/guides/server.md)
-- [Storybook](https://github.com/solidui/solid/blob/main/documentation/guides/storybook.md)
 
 ### Resources
 
