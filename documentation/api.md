@@ -292,99 +292,6 @@ export function onError(fn: (err: any) => void): void;
 
 Registers an error handler method that executes when child scope errors. Only the nearest scope error handlers execute. Rethrow to trigger up the line.
 
-# Other Primitives
-
-## `createMutable`
-
-```ts
-export function createMutable<T extends StateNode>(
-  state: T | State<T>,
-  options?: { name?: string }
-): State<T> {
-```
-
-Creates a new mutable State proxy object. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
-
-Useful for integrating external systems or as a compatibility layer with MobX/Vue.
-
-> **Note:** As mutable state can be passed around and mutated anywhere, which can make it harder to follow and easier to break unidirectional flow, it generally recommended to use `createState` instead. The `produce` state modifier can give many of the same benefits without any of the downsides.
-
-```js
-const state = createMutable(initialValue);
-
-// read value
-state.someValue;
-
-// set value
-state.someValue = 5;
-
-state.list.push(anotherValue);
-```
-
-Mutables support setters along with getters.
-
-```js
-const user = createMutable({
-  firstName: "John",
-  lastName: "Smith",
-  get fullName() {
-    return `${this.firstName} ${this.lastName}`;
-  },
-  set fullName(value) {
-    [this.firstName, this.lastName] = value.split(" ");
-  }
-});
-```
-
-## `createDeferred`
-
-```ts
-export function createDeferred<T>(
-  source: () => T,
-  options?: { timeoutMs?: number; name?: string; equals?: false | ((prev: T, next: T) => boolean) }
-): () => T;
-```
-
-Creates a readonly that only notifies downstream changes when the browser is idle. `timeoutMs` is the maximum time to wait before forcing the update.
-
-## `createComputed`
-
-```ts
-export function createComputed<T>(fn: (v: T) => T, value?: T, options?: { name?: string }): void;
-```
-
-Creates a new computation that automatically tracks dependencies and runs immediately before render. Use this to write to other reactive primitives. When possible use `createMemo` instead as writing to a signal mid update can cause other computations to need to re-calculate.
-
-## `createRenderEffect`
-
-```ts
-export function createRenderEffect<T>(
-  fn: (v: T) => T,
-  value?: T,
-  options?: { name?: string }
-): void;
-```
-
-Creates a new computation that automatically tracks dependencies and runs during the render phase as DOM elements are created and updated but not necessarily connected. All internal DOM updates happen at this time.
-
-## `createSelector`
-
-```ts
-export function createSelector<T, U>(
-  source: () => T,
-  fn?: (a: U, b: T) => boolean,
-  options?: { name?: string }
-): (k: U) => boolean;
-```
-
-Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state. As it makes the operation O(2) instead of O(n).
-
-```js
-const isSelected = createSelector(selectedId);
-
-<For each={list()}>{item => <li classList={{ active: isSelected(item.id) }}>{item.name}</li>}</For>;
-```
-
 # Reactive Utilities
 
 These helpers provide the ability to better schedule updates and control how reactivity is tracked.
@@ -701,6 +608,101 @@ const ComponentA = lazy(() => import("./ComponentA"));
 
 // use in JSX
 <ComponentA title={props.title} />;
+```
+
+# Advanced Primitives
+
+You probably won't need them for your first app, but useful tools to have.
+
+## `createMutable`
+
+```ts
+export function createMutable<T extends StateNode>(
+  state: T | State<T>,
+  options?: { name?: string }
+): State<T> {
+```
+
+Creates a new mutable State proxy object. State only triggers update on values changing. Tracking is done by intercepting property access and automatically tracks deep nesting via proxy.
+
+Useful for integrating external systems or as a compatibility layer with MobX/Vue.
+
+> **Note:** As mutable state can be passed around and mutated anywhere, which can make it harder to follow and easier to break unidirectional flow, it generally recommended to use `createState` instead. The `produce` state modifier can give many of the same benefits without any of the downsides.
+
+```js
+const state = createMutable(initialValue);
+
+// read value
+state.someValue;
+
+// set value
+state.someValue = 5;
+
+state.list.push(anotherValue);
+```
+
+Mutables support setters along with getters.
+
+```js
+const user = createMutable({
+  firstName: "John",
+  lastName: "Smith",
+  get fullName() {
+    return `${this.firstName} ${this.lastName}`;
+  },
+  set fullName(value) {
+    [this.firstName, this.lastName] = value.split(" ");
+  }
+});
+```
+
+## `createDeferred`
+
+```ts
+export function createDeferred<T>(
+  source: () => T,
+  options?: { timeoutMs?: number; name?: string; equals?: false | ((prev: T, next: T) => boolean) }
+): () => T;
+```
+
+Creates a readonly that only notifies downstream changes when the browser is idle. `timeoutMs` is the maximum time to wait before forcing the update.
+
+## `createComputed`
+
+```ts
+export function createComputed<T>(fn: (v: T) => T, value?: T, options?: { name?: string }): void;
+```
+
+Creates a new computation that automatically tracks dependencies and runs immediately before render. Use this to write to other reactive primitives. When possible use `createMemo` instead as writing to a signal mid update can cause other computations to need to re-calculate.
+
+## `createRenderEffect`
+
+```ts
+export function createRenderEffect<T>(
+  fn: (v: T) => T,
+  value?: T,
+  options?: { name?: string }
+): void;
+```
+
+Creates a new computation that automatically tracks dependencies and runs during the render phase as DOM elements are created and updated but not necessarily connected. All internal DOM updates happen at this time.
+
+## `createSelector`
+
+```ts
+export function createSelector<T, U>(
+  source: () => T,
+  fn?: (a: U, b: T) => boolean,
+  options?: { name?: string }
+): (k: U) => boolean;
+```
+
+Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value. Useful for delegated selection state. As it makes the operation O(2) instead of O(n).
+
+```js
+const isSelected = createSelector(selectedId);
+
+<For each={list()}>{item => <li classList={{ active: isSelected(item.id) }}>{item.name}</li>}</For>;
 ```
 
 # Rendering

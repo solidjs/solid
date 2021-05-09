@@ -14,6 +14,6 @@
     "test": "node test.js"
   },
   "dependencies": {
-    "babel-plugin-jsx-dom-expressions": "^0.27.0"
+    "babel-plugin-jsx-dom-expressions": "^0.27.4"
   }
 }

@@ -65,7 +65,7 @@ Want to see what code Solid generates:
 
 ### [Try it Online](https://playground.solidjs.com/)
 
-## Getting Started
+## Quick Start
 
 > _`npm init solid <project-type> <project-name>` is available with npm 6+._
 
@@ -104,17 +104,19 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-- [Reactivity](https://github.com/solidui/solid/blob/main/documentation/reactivity.md)
-- [Rendering](https://github.com/solidui/solid/blob/main/documentation/rendering.md)
-- [Context](https://github.com/solidui/solid/blob/main/documentation/context.md)
-- [Suspense](https://github.com/solidui/solid/blob/main/documentation/suspense.md)
-- [SSR](https://github.com/solidui/solid/blob/main/documentation/server.md)
 - [API](https://github.com/solidui/solid/blob/main/documentation/api.md)
 - [FAQ](https://github.com/solidui/solid/blob/main/documentation/faq.md)
 - [Comparison with other Libraries](https://github.com/solidui/solid/blob/main/documentation/comparison.md)
-- [Storybook](https://github.com/solidui/solid/blob/main/documentation/storybook.md)
 
-## Resources
+### Guides
+- [Reactivity](https://github.com/solidui/solid/blob/main/documentation/guides/reactivity.md)
+- [Rendering](https://github.com/solidui/solid/blob/main/documentation/guides/rendering.md)
+- [Context](https://github.com/solidui/solid/blob/main/documentation/guides/context.md)
+- [Suspense](https://github.com/solidui/solid/blob/main/documentation/guides/suspense.md)
+- [SSR](https://github.com/solidui/solid/blob/main/documentation/guides/server.md)
+- [Storybook](https://github.com/solidui/solid/blob/main/documentation/guides/storybook.md)
+
+### Resources
 
 - [Examples](https://github.com/solidui/solid/blob/main/documentation/resources/examples.md)
 - [Articles](https://github.com/solidui/solid/blob/main/documentation/resources/articles.md)
