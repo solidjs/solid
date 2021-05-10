@@ -59,9 +59,9 @@ Solid's design carries several opinions on what principles and values help us be
 
 Declarative data is the practice of tying the description of data’s behavior to its declaration. This allows for easy composition by packaging all aspects of data’s behavior in a single place.
 
-### 2. Component-less
+### 2. Vanishing Components
 
-The decision of how you modularize your code should be your own and not be restricted by performance or state update concerns. Component boundaries should have minimal impact on how your application functions.
+It's hard enough to structure your components without taking updates into consideration. Solid updates completely independent of the components. Component functions are called once and then cease to exist. Components exists to organize your code and not much else.
 
 ### 3. Read/Write segregation
 
@@ -73,7 +73,7 @@ A lesson that comes hard for fine-grained reactivity. Explicit and consistent co
 
 ## Web Components
 
-Solid was born out of Web Components as first class citizens. Over time it's design has evolved and goals have changed. However, Solid is still a great way to author Web Components. [Solid Element](https://github.com/solidui/solid/tree/main/packages/solid-element) let's you to write and wrap Solid's function components to produce small and performant Web Components. Inside Solid apps Solid Element is able to still leverage Solid's Context API and Solid's Portals support Shadow DOM isolated styling.
+Solid was born with the desire to have Web Components as first class citizens. Over time its design has evolved and goals have changed. However, Solid is still a great way to author Web Components. [Solid Element](https://github.com/solidui/solid/tree/main/packages/solid-element) let's you to write and wrap Solid's function components to produce small and performant Web Components. Inside Solid apps Solid Element is able to still leverage Solid's Context API and Solid's Portals support Shadow DOM isolated styling.
 
 ## Server Rendering
 
