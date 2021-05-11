@@ -3,6 +3,7 @@ import { requestCallback, Task } from "./scheduler";
 import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
+export type Accessor<T> = () => T;
 export const equalFn = <T>(a: T, b: T) => a === b;
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
@@ -101,17 +102,17 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 }
 
 export function createSignal<T>(): [
-  get: () => T | undefined,
+  get: Accessor<T | undefined>,
   set: <U extends T | undefined>(v?: U) => U
 ];
 export function createSignal<T>(
   value: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
-): [get: () => T, set: (v: T) => T];
+): [get: Accessor<T>, set: (v: T) => T];
 export function createSignal<T>(
   value?: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
-): [get: () => T, set: (v: T) => T] {
+): [get: Accessor<T>, set: (v: T) => T] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
     value,
@@ -157,17 +158,17 @@ export function createMemo<T>(
   fn: (v?: T) => T,
   value?: undefined,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): () => T;
+): Accessor<T>;
 export function createMemo<T>(
   fn: (v: T) => T,
   value: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): () => T;
+): Accessor<T>;
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): () => T {
+): Accessor<T> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const c: Partial<Memo<T>> = createComputation<T>(
     fn,
@@ -184,8 +185,7 @@ export function createMemo<T>(
   return readSignal.bind(c as Memo<T>);
 }
 
-export interface Resource<T> {
-  (): T | undefined;
+export interface Resource<T> extends Accessor<T | undefined> {
   loading: boolean;
   error: any;
 }
@@ -199,12 +199,12 @@ export type ResourceReturn<T> = [
 ];
 
 export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
   options?: { initialValue?: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
   source: U | false | null | (() => U | false | null),
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
   options?: { initialValue?: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
@@ -214,18 +214,18 @@ export function createResource<T, U>(
     | true
     | null
     | (() => U | false | null)
-    | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
+    | ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>),
+  fetcher?: ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>) | { initialValue?: T },
   options: { initialValue?: T; name?: string } = {}
 ): ResourceReturn<T> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher;
-      fetcher = source as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+      fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
       source = true;
     }
   } else if (arguments.length === 1) {
-    fetcher = source as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
+    fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
     source = true;
   }
   const contexts = new Set<SuspenseContextType>(),
@@ -306,7 +306,7 @@ export function createResource<T, U>(
     }
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
-      initP || (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(lookup, s);
+      initP || (fetcher as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>)(lookup, s);
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);
@@ -340,7 +340,7 @@ export function createResource<T, U>(
 }
 
 export function createDeferred<T>(
-  source: () => T,
+  source: Accessor<T>,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; timeoutMs?: number }
 ) {
   let t: Task,
@@ -364,10 +364,10 @@ export function createDeferred<T>(
 }
 
 export function createSelector<T, U>(
-  source: () => T,
+  source: Accessor<T>,
   fn: (a: U, b: T) => boolean = equalFn as any,
   options?: { name?: string }
-) {
+): (key: U) => boolean {
   let subs = new Map<U, Set<Computation<any>>>();
   const node = createComputation(
     (p: T | undefined) => {
@@ -420,7 +420,7 @@ export function batch<T>(fn: () => T): T {
   return result;
 }
 
-export function untrack<T>(fn: () => T): T {
+export function untrack<T>(fn: Accessor<T>): T {
   let result: T,
     listener = Listener;
 
@@ -500,7 +500,7 @@ export function runWithOwner(o: Owner, fn: () => any) {
 }
 
 // Transitions
-export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void] {
+export function useTransition(): [Accessor<boolean>, (fn: () => void, cb?: () => void) => void] {
   return [
     transPending,
     (fn: () => void, cb?: () => void) => {
@@ -545,7 +545,7 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   return c.tValue !== undefined ? c.tValue : c.value;
 }
 
-export function hashValue(v: any) {
+export function hashValue(v: any): string {
   const s = new Set();
   return (
     "s" +
@@ -563,7 +563,7 @@ export function hashValue(v: any) {
   );
 }
 
-export function registerGraph(name: string, value: { value: unknown }) {
+export function registerGraph(name: string, value: { value: unknown }): string {
   let tryName = name;
   if (Owner) {
     let i = 0;
@@ -603,7 +603,7 @@ export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
-export function children(fn: () => any) {
+export function children(fn: Accessor<any>): Accessor<unknown> {
   const children = createMemo(fn);
   return createMemo(() => resolveChildren(children()));
 }
@@ -688,7 +688,7 @@ export function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: 
       if (Updates!.length > 10e5) {
         Updates = [];
         if ("_SOLID_DEV_") throw new Error("Potential Infinite Loop Detected.");
-        throw new Error;
+        throw new Error();
       }
     }, false);
   }

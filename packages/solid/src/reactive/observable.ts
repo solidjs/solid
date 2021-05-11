@@ -1,4 +1,4 @@
-import { createComputed, untrack } from "./signal";
+import { createComputed, untrack, Accessor } from "./signal";
 
 function getSymbol() {
   const SymbolCopy = Symbol as any;
@@ -12,7 +12,7 @@ export type ObservableObserver<T> =
       error?: (v: any) => void;
       complete?: (v: boolean) => void;
     };
-export function observable<T>(input: () => T) {
+export function observable<T>(input: Accessor<T>) {
   const $$observable = getSymbol();
   return {
     subscribe(observer: ObservableObserver<T>) {

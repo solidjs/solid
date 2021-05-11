@@ -8,7 +8,8 @@ import {
   Component,
   JSX,
   createRoot,
-  sharedConfig
+  sharedConfig,
+  Accessor
 } from "solid-js";
 
 export * from "./client";
@@ -83,7 +84,7 @@ type DynamicProps<T> = T & {
   component?: Component<T> | string | keyof JSX.IntrinsicElements;
 };
 
-export function Dynamic<T>(props: DynamicProps<T>): () => JSX.Element {
+export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
   return createMemo(() => {
     const component = p.component as Function | string;

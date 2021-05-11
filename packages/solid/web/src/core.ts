@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 
 // reactive injection for dom-expressions
-function memo(fn: () => any, equals: boolean) {
+function memo<T>(fn: () => T, equals: boolean) {
   return createMemo(fn, undefined, !equals ? { equals } : undefined);
 }
 

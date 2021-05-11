@@ -23,7 +23,7 @@ export {
   runWithOwner,
   equalFn
 } from "./reactive/signal";
-export type { Resource, ResourceReturn } from "./reactive/signal";
+export type { Accessor, Resource, ResourceReturn } from "./reactive/signal";
 
 export { createState, unwrap, $RAW } from "./reactive/state";
 export type {

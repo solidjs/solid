@@ -7,18 +7,19 @@ import {
   useContext,
   getSuspenseContext,
   resumeEffects,
-  createMemo
+  createMemo,
+  Accessor
 } from "../reactive/signal";
 import type { JSX } from "../jsx";
 
 type SuspenseListRegistryItem = {
-  inFallback: () => boolean;
+  inFallback: Accessor<boolean>;
   showContent: (v: boolean) => void;
   showFallback: (v: boolean) => void;
 };
 
 type SuspenseListContextType = {
-  register: (inFallback: () => boolean) => [() => boolean, () => boolean];
+  register: (inFallback: Accessor<boolean>) => [Accessor<boolean>, Accessor<boolean>];
 };
 const SuspenseListContext = createContext<SuspenseListContextType>();
 
@@ -29,8 +30,8 @@ export function SuspenseList(props: {
 }) {
   let index = 0,
     suspenseSetter: (s: boolean) => void,
-    showContent: () => boolean,
-    showFallback: () => boolean;
+    showContent: Accessor<boolean>,
+    showFallback: Accessor<boolean>;
 
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
@@ -43,7 +44,7 @@ export function SuspenseList(props: {
   const registry: SuspenseListRegistryItem[] = [],
     comp = createComponent(SuspenseListContext.Provider, {
       value: {
-        register: (inFallback: () => boolean) => {
+        register: (inFallback: Accessor<boolean>) => {
           const [showingContent, showContent] = createSignal(false),
             [showingFallback, showFallback] = createSignal(false);
           registry[index++] = { inFallback, showContent, showFallback };
@@ -97,8 +98,8 @@ export function SuspenseList(props: {
 
 export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }) {
   let counter = 0,
-    showContent: () => boolean,
-    showFallback: () => boolean;
+    showContent: Accessor<boolean>,
+    showFallback: Accessor<boolean>;
   const [inFallback, setFallback] = createSignal<boolean>(false),
     SuspenseContext = getSuspenseContext(),
     store = {

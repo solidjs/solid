@@ -1,11 +1,11 @@
-import { createMemo, untrack, createSignal, onError, children } from "../reactive/signal";
+import { createMemo, untrack, createSignal, onError, children, Accessor } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import type { JSX } from "../jsx";
 
 export function For<T, U extends JSX.Element>(props: {
   each: readonly T[];
   fallback?: JSX.Element;
-  children: (item: T, index: () => number) => U;
+  children: (item: T, index: Accessor<number>) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
@@ -19,7 +19,7 @@ export function For<T, U extends JSX.Element>(props: {
 export function Index<T, U extends JSX.Element>(props: {
   each: readonly T[];
   fallback?: JSX.Element;
-  children: (item: () => T, index: number) => U;
+  children: (item: Accessor<T>, index: number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
@@ -50,7 +50,10 @@ export function Show<T>(props: {
   }) as () => JSX.Element;
 }
 
-export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }) {
+export function Switch(props: {
+  fallback?: JSX.Element;
+  children: JSX.Element;
+}): Accessor<JSX.Element> {
   let strictEqual = false;
   const conditions = children(() => props.children) as () => MatchProps<unknown>[],
     evalConditions = createMemo<[number, unknown?, MatchProps<unknown>?]>(
@@ -90,7 +93,7 @@ export function Match<T>(props: MatchProps<T>) {
 export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
-}) {
+}): Accessor<JSX.Element> {
   const [errored, setErrored] = createSignal<any>();
   onError(setErrored);
   let e: any;
@@ -100,5 +103,5 @@ export function ErrorBoundary(props: {
       return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(null))) : f;
     }
     return props.children;
-  }) as () => JSX.Element;
+  }) as Accessor<JSX.Element>;
 }
