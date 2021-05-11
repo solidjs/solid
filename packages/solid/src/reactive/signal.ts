@@ -190,7 +190,7 @@ export interface Resource<T> {
   error: any;
 }
 
-type ResourceReturn<T> = [
+export type ResourceReturn<T> = [
   Resource<T>,
   {
     mutate: (v: T | undefined) => T | undefined;

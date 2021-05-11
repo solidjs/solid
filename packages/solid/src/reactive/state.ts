@@ -218,19 +218,19 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
   } else setProperty(current, part, value);
 }
 
-type StateSetter<T> =
+export type StateSetter<T> =
   | Partial<T>
   | ((
       prevState: T extends NotWrappable ? T : State<T>,
       traversed?: (string | number)[]
     ) => Partial<T> | void);
-type StatePathRange = { from?: number; to?: number; by?: number };
+export type StatePathRange = { from?: number; to?: number; by?: number };
 
-type ArrayFilterFn<T> = (item: T extends any[] ? T[number] : never, index: number) => boolean;
+export type ArrayFilterFn<T> = (item: T extends any[] ? T[number] : never, index: number) => boolean;
 
-type Part<T> = keyof T | Array<keyof T> | StatePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
+export type Part<T> = keyof T | Array<keyof T> | StatePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
 
-type Next<T, K> = K extends keyof T
+export type Next<T, K> = K extends keyof T
   ? T[K]
   : K extends Array<keyof T>
   ? T[K[number]]

@@ -1,6 +1,6 @@
 import { setProperty, unwrap, isWrappable, State, NotWrappable, StateNode, $RAW } from "./state";
 
-type ReconcileOptions = {
+export type ReconcileOptions = {
   key?: string | null;
   merge?: boolean;
 };

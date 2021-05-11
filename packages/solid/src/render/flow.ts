@@ -79,7 +79,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
   });
 }
 
-type MatchProps<T> = {
+export type MatchProps<T> = {
   when: T | undefined | null | false;
   children: JSX.Element | ((item: T) => JSX.Element);
 };
