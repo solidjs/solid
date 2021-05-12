@@ -44,7 +44,7 @@ function createTick(delay) {
 When we want our Signals to affect the world we use Effects. Effects wrap expressions that contain Signals and re-execute them everytime those Signals change. The most common ones are JSX bindings we can manually create them as well.
 
 ```js
-import { createSignal, onCleanup } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 
 function logTick(delay) {
   const [getCount, setCount] = createSignal(0),
