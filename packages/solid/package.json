@@ -15,6 +15,7 @@
     "./dist/static.cjs": "./dist/solid.cjs",
     "./dist/static.js": "./dist/solid.js"
   },
+  "unpkg": "./dist/solid.cjs",
   "types": "types/index.d.ts",
   "sideEffects": false,
   "type": "module",

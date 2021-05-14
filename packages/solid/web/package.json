@@ -6,6 +6,7 @@
     "./dist/server.cjs": "./dist/web.cjs",
     "./dist/server.js": "./dist/web.js"
   },
+  "unpkg": "./dist/web.cjs",
   "types": "./types/index.d.ts",
   "type": "module",
   "sideEffects": false
