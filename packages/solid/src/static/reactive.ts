@@ -63,28 +63,21 @@ export function batch<T>(fn: () => T): T {
 
 export const untrack = batch;
 
-type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends () => infer U ? U : never };
-export function on<T, X extends Array<() => T>, U>(
-  ...args: X["length"] extends 1
-    ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
-    : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
-): (prev?: U) => U {
-  const fn = args.pop() as (v: T | Array<T>, p?: T | Array<T>, r?: U) => U;
-  let deps: (() => T) | Array<() => T>;
-  let isArray = true;
-  let prev: T | T[];
-  if (args.length < 2) {
-    deps = args[0] as () => T;
-    isArray = false;
-  } else deps = args as Array<() => T>;
-  return prevResult => {
-    let value: T | Array<T>;
+export function on<T, U>(
+  deps: Array<() => T> | (() => T),
+  fn: (value: Array<T> | T, prev: Array<T> | T, prevResults?: U) => U,
+  options: { defer?: boolean } = {}
+): (prev?: U) => U | undefined {
+  let isArray = Array.isArray(deps);
+  let defer = options.defer;
+  return () => {
+    if (defer) return undefined;
+    let value: Array<T> | T;
     if (isArray) {
       value = [];
-      if (!prev) prev = [];
       for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
     } else value = (deps as () => T)();
-    return fn!(value, prev, prevResult);
+    return fn!(value, undefined);
   };
 }
 

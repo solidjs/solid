@@ -157,7 +157,17 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
     const clone = {};
     for (let i = 0; i < k.length; i++) {
       const key = k[i];
-      if (descriptors[key]) Object.defineProperty(clone, key, descriptors[key]);
+      Object.defineProperty(
+        clone,
+        key,
+        descriptors[key]
+          ? descriptors[key]
+          : {
+              get() {
+                return props[key];
+              }
+            }
+      );
     }
     return clone;
   });

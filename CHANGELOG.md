@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0
+
+### Breaking Changes
+
+#### Options Objects
+
+Most non-essential arguments on reactive primitives are now living on an options object. This was done to homogenize the API and make it easier to make future additions while remaining backwards compatible.
+
+#### on
+
+No longer uses rest parameters for multiple dependencies. Instead pass an array. This facilitates new option to defer execution until dependencies change.
+
 ## 0.26.0 - 2021-04-09
 
 This release is about finalizing some API changes on the road to 1.0. This one has one breaking change and not much else.

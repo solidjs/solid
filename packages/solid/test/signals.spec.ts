@@ -42,24 +42,34 @@ describe("Create signals", () => {
   test("Create onMount", () => {
     let temp: string;
     createRoot(() => {
-      onMount(() => (temp = "unpure"));
+      onMount(() => (temp = "impure"));
     });
-    expect(temp!).toBe("unpure");
+    expect(temp!).toBe("impure");
   });
   test("Create a Computed with explicit deps", () => {
     createRoot(() => {
       let temp: string;
       const [sign] = createSignal("thoughts");
-      createComputed(on(sign, v => (temp = "unpure " + v)));
-      expect(temp!).toBe("unpure thoughts");
+      createComputed(on(sign, v => (temp = "impure " + v)));
+      expect(temp!).toBe("impure thoughts");
     });
   });
   test("Create a Computed with multiple explicit deps", () => {
     createRoot(() => {
       let temp: string;
       const [sign] = createSignal("thoughts");
-      createComputed(on(sign, sign, v => (temp = "unpure " + v[1])));
-      expect(temp!).toBe("unpure thoughts");
+      createComputed(on([sign, sign], v => (temp = "impure " + v[1])));
+      expect(temp!).toBe("impure thoughts");
+    });
+  });
+  test("Create a Computed with explicit deps and lazy evaluation", () => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, set] = createSignal("thoughts");
+      createComputed(on(sign, v => (temp = "impure " + v), { defer: true }));
+      expect(temp!).toBeUndefined();
+      set("minds");
+      expect(temp!).toBe("impure minds");
     });
   });
 });

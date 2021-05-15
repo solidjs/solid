@@ -315,15 +315,14 @@ Holds committing updates within the block until the end to prevent unnecessary r
 ## `on`
 
 ```ts
-type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends () => infer U ? U : never };
-export function on<T, X extends Array<() => T>, U>(
-  ...args: X["length"] extends 1
-    ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
-    : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
-): (prev?: U) => U;
+export function on<T extends Array<() => any> | (() => any), U>(
+  deps: T,
+  fn: (value: T, prev: T, prevResults?: U) => U,
+  options: { defer?: boolean } = {}
+): (prev?: U) => U | undefined;
 ```
 
-`on` is designed to be passed into a computation to make its dependencies explicit. If more than one dependency is passed, value and prevValue are arrays.
+`on` is designed to be passed into a computation to make its dependencies explicit. If an array of dependencies is passed, value and prevValue are arrays.
 
 ```js
 createEffect(on(a, v => console.log(v, b())));
@@ -333,6 +332,15 @@ createEffect(() => {
   const v = a();
   untrack(() => console.log(v, b()));
 });
+```
+
+You can also not run the compoutation immediately and instead opt in for it to only run on change by setting the defer option to true.
+
+```js
+// doesn't run immediately
+createEffect(on(a, v => console.log(v), { defer: true }));
+
+setA("new"); // now it runs
 ```
 
 ## `createRoot`
