@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/solidui/solid"
+    "url": "https://github.com/solidjs/solid"
   },
   "private": true,
   "scripts": {

@@ -1,7 +1,7 @@
-## <img src="https://raw.githubusercontent.com/solidui/solid/main/assets/logo.png" alt="Solid" width="500"/><br>
+## <img src="https://raw.githubusercontent.com/solidjs/solid/main/assets/logo.png" alt="Solid" width="350"/><br>
 
-[![Build Status](https://github.com/solidui/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidui/solid/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/solidui/solid.svg?style=flat)](https://coveralls.io/github/solidui/solid?branch=main)
+[![Build Status](https://github.com/solidjs/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
+[![Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=flat)](https://coveralls.io/github/solidjs/solid?branch=main)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510)](https://discord.com/invite/solidjs)
@@ -105,23 +105,23 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-- [API](https://github.com/solidui/solid/blob/main/documentation/api.md)
-- [FAQ](https://github.com/solidui/solid/blob/main/documentation/faq.md)
-- [Comparison with other Libraries](https://github.com/solidui/solid/blob/main/documentation/comparison.md)
+- [API](https://github.com/solidjs/solid/blob/main/documentation/api.md)
+- [FAQ](https://github.com/solidjs/solid/blob/main/documentation/faq.md)
+- [Comparison with other Libraries](https://github.com/solidjs/solid/blob/main/documentation/comparison.md)
 
 ### Guides
-- [Getting Started](https://github.com/solidui/solid/blob/next/documentation/guides/getting-started.md)
-- [Reactivity](https://github.com/solidui/solid/blob/next/documentation/guides/reactivity.md)
-- [Rendering](https://github.com/solidui/solid/blob/next/documentation/guides/rendering.md)
-- [Context](https://github.com/solidui/solid/blob/next/documentation/guides/context.md)
-- [Suspense](https://github.com/solidui/solid/blob/next/documentation/guides/suspense.md)
-- [SSR](https://github.com/solidui/solid/blob/next/documentation/guides/server.md)
+- [Getting Started](https://github.com/solidjs/solid/blob/next/documentation/guides/getting-started.md)
+- [Reactivity](https://github.com/solidjs/solid/blob/next/documentation/guides/reactivity.md)
+- [Rendering](https://github.com/solidjs/solid/blob/next/documentation/guides/rendering.md)
+- [Context](https://github.com/solidjs/solid/blob/next/documentation/guides/context.md)
+- [Suspense](https://github.com/solidjs/solid/blob/next/documentation/guides/suspense.md)
+- [SSR](https://github.com/solidjs/solid/blob/next/documentation/guides/server.md)
 
 ### Resources
 
-- [Examples](https://github.com/solidui/solid/blob/main/documentation/resources/examples.md)
-- [Articles](https://github.com/solidui/solid/blob/main/documentation/resources/articles.md)
-- [Projects](https://github.com/solidui/solid/blob/main/documentation/resources/projects.md)
+- [Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
+- [Articles](https://github.com/solidjs/solid/blob/main/documentation/resources/articles.md)
+- [Projects](https://github.com/solidjs/solid/blob/main/documentation/resources/projects.md)
 
 ## No Compilation?
 
@@ -149,7 +149,7 @@ You can run them straight from the browser using SkyPack:
 </html>
 ```
 
-Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/solidui/dom-expressions/tree/main/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/solidui/dom-expressions/tree/main/packages/hyper-dom-expressions).
+Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/solidjs/dom-expressions/tree/main/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/solidjs/dom-expressions/tree/main/packages/hyper-dom-expressions).
 
 ## Browser Support
 
@@ -163,7 +163,7 @@ Come chat with us on [Discord](https://discord.com/invite/solidjs)
 
 ### Contributors
 
-<a href="https://github.com/solidui/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
+<a href="https://github.com/solidjs/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
 
 ### Open Collective
 
