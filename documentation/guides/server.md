@@ -52,7 +52,7 @@ if (isServer) {
 
 ## Async and Streaming SSR
 
-These mechanisms are built on Solid's knowledge of how your application works. It does so by using Suspense and the Resource API on the server. Instead of fetching ahead and then rendering. Solid fetches as it renders on the server just like it does on the client. Same execution patterns and your code is written exactly the same.
+These mechanisms are built on Solid's knowledge of how your application works. It does so by using Suspense and the Resource API on the server, instead of fetching ahead and then rendering. Solid fetches as it renders on the server just like it does on the client. Your code and execution patterns is written exactly the same way.
 
 Async rendering waits until all Suspense boundaries resolve and then sends the results (or writes them to a file in the case of Static Site Generation).
 
@@ -65,15 +65,15 @@ The advantage of this approach:
 
 ## SSR Caveats
 
-Solid's Isomorphic SSR solution is very powerful in that you can write your code mostly as single code base that runs similarly in both environments. However there are expectations this puts on hydration. Mostly that the rendered view in the client is the same as it would be rendered on the server. It doesn't need to be exact in terms of text, but structurally the markup should be the same.
+Solid's Isomorphic SSR solution is very powerful in that you can write your code mostly as single code base that runs similarly in both environments. However there are expectations that this puts on hydration. Mostly that the rendered view in the client is the same as it would be rendered on the server. It doesn't need to be exact in terms of text, but structurally the markup should be the same.
 
-We use markers rendered in the server to match elements and resource locations on server. For this reason the Client and Server should have the same components. This is not typically a problem given how Solid renders the same way on client and server. But currently there is no means to render something on the server that does not get hydrated on the client. We can not choose not to hydrate a whole page, and not generate hydration markers for it. But it is all or nothing. Partial Hydration is something we want to explore in the future.
+We use markers rendered in the server to match elements and resource locations on server. For this reason the Client and Server should have the same components. This is not typically a problem given that Solid renders the same way on client and server. But currently there is no means to render something on the server that does not get hydrated on the client. Currently, there is no way to partially hydrate a whole page, and not generate hydration markers for it. It is all or nothing. Partial Hydration is something we want to explore in the future.
 
 ## Getting Started with SSR
 
 SSR configurations are tricky. We have a few examples in the [solid-ssr](https://github.com/solidjs/solid/blob/main/packages/solid-ssr) package.
 
-But a new starter is in the works [SolidStart](https://github.com/solidjs/solid-start) that aims to make this experience much smoother.
+However, a new starter is in the works [SolidStart](https://github.com/solidjs/solid-start) that aims to make this experience much smoother.
 
 ## Getting Started with Static Site Generation
 
