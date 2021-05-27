@@ -22,9 +22,9 @@ Or for a TypeScript starter:
 
 ## Learn Solid
 
-Solid is all about small composable pieces that serve as building blocks for our applications. These pieces are mostly functions with many shallow-top level APIs. Fortunately to start you won't need to know about most of them.
+Solid is all about small composable pieces that serve as building blocks for our applications. These pieces are mostly functions which make up many shallow top-level APIs. Fortunately to start you won't need to know about most of them.
 
-The two main types of blocks you have at your disposal are Components and Reactive Primitves.
+The two main types of building blocks you have at your disposal are Components and Reactive Primitves.
 
 Components are functions that accept a props object and return JSX elements including native DOM elements and other components. They can be expressed as Pascal Cased JSX Elements:
 
