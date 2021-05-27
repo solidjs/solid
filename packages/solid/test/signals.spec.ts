@@ -7,6 +7,7 @@ import {
   createDeferred,
   createMemo,
   createSelector,
+  batch,
   untrack,
   on,
   onMount,
@@ -149,6 +150,63 @@ describe("Untrack signals", () => {
         expect(temp).toBe("unpure thoughts");
         setSign("mind");
         expect(temp).toBe("unpure thoughts");
+        done();
+      });
+    });
+  });
+});
+
+describe("Batch signals", () => {
+  test("Groups updates", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      const [b, setB] = createSignal(0);
+      createEffect(() => {
+        batch(() => {
+          setA(1);
+          setB(1);
+        });
+      });
+      createRenderEffect(() => {
+        count += 1;
+      });
+      createComputed(() => a() + b(), 0);
+      setTimeout(() => {
+        expect(count).toBe(1);
+        done();
+      });
+    });
+  });
+  test("Handles errors gracefully", done => {
+    createRoot(() => {
+      let error: Error;
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      const [b, setB] = createSignal(0);
+      createEffect(() => {
+        try {
+          batch(() => {
+            setA(1);
+            throw new Error("test");
+            setB(1);
+          });
+        } catch(e) {
+          error = e
+        }
+      });
+      createRenderEffect(() => {
+        count += 1;
+      });
+      createComputed(() => a() + b(), 0);
+      setTimeout(() => {
+        expect(count).toBe(1);
+        expect(a()).toBe(1);
+        expect(b()).toBe(0);
+        setA(2);
+        expect(a()).toBe(2);
+        expect(error).toBeInstanceOf(Error);
+        expect(error.message).toBe("test");
         done();
       });
     });
