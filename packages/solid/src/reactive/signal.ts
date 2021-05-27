@@ -237,9 +237,14 @@ export function createSelector<T, U>(
 
 export function batch<T>(fn: () => T): T {
   if (Pending) return fn();
-  const q: Signal<any>[] = (Pending = []),
+  let result;
+  const q: Signal<any>[] = Pending = [];
+  try {
     result = fn();
-  Pending = null;
+  } finally {
+    Pending = null;
+  }
+
   runUpdates(() => {
     for (let i = 0; i < q.length; i += 1) {
       const data = q[i];
@@ -250,6 +255,7 @@ export function batch<T>(fn: () => T): T {
       }
     }
   }, false);
+
   return result;
 }
 
