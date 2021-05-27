@@ -237,9 +237,17 @@ export function createSelector<T, U>(
 
 export function batch<T>(fn: () => T): T {
   if (Pending) return fn();
-  const q: Signal<any>[] = (Pending = []),
+  let result;
+  let error;
+  const q: Signal<any>[] = Pending = [];
+  try {
     result = fn();
-  Pending = null;
+  } catch (e) {
+    error = e;
+  } finally {
+    Pending = null;
+  }
+
   runUpdates(() => {
     for (let i = 0; i < q.length; i += 1) {
       const data = q[i];
@@ -250,7 +258,12 @@ export function batch<T>(fn: () => T): T {
       }
     }
   }, false);
-  return result;
+
+  if (error)
+    throw error
+
+  // result might be undefined only if `fn()` threw, but we rethrow above
+  return result as T;
 }
 
 export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void] {
