@@ -20,9 +20,9 @@
 - [Simple Todos HyperScript](https://codesandbox.io/s/0vmjlmq94v) Simple Todos using Hyper DOM Expressions
 
 ## Demos
-- [TodoMVC](https://github.com/solidui/solid-todomvc) Classic TodoMVC example
-- [Real World Demo](https://github.com/solidui/solid-realworld) Real World Demo for Solid
-- [Hacker News](https://github.com/solidui/solid-hackernews) Hacker News Clone for Solid
+- [TodoMVC](https://github.com/solidjs/solid-todomvc) Classic TodoMVC example
+- [Real World Demo](https://github.com/solidjs/solid-realworld) Real World Demo for Solid
+- [Hacker News](https://github.com/solidjs/solid-hackernews) Hacker News Clone for Solid
 - [Storybook](https://github.com/rturnq/storybook-solid) Solid with Storybook
 
 ## Benchmarks

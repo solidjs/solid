@@ -4,7 +4,7 @@
   "author": "Ryan Carniato",
   "license": "MIT",
   "version": "1.0.0-rc.1",
-  "homepage": "https://github.com/solidui/solid/blob/main/packages/solid-element#readme",
+  "homepage": "https://github.com/solidjs/solid/blob/main/packages/solid-element#readme",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",

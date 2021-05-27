@@ -71,10 +71,10 @@ We use markers rendered in the server to match elements and resource locations o
 
 ## Getting Started with SSR
 
-SSR configurations are tricky. We have a few examples in the [solid-ssr](https://github.com/solidui/solid/blob/main/packages/solid-ssr) package.
+SSR configurations are tricky. We have a few examples in the [solid-ssr](https://github.com/solidjs/solid/blob/main/packages/solid-ssr) package.
 
-But a new starter is in the works [SolidStart](https://github.com/solidui/solid-start) that aims to make this experience much smoother.
+But a new starter is in the works [SolidStart](https://github.com/solidjs/solid-start) that aims to make this experience much smoother.
 
 ## Getting Started with Static Site Generation
 
-[solid-ssr](https://github.com/solidui/solid/blob/main/packages/solid-ssr) also ships with a simple utility for generating static or prerendered sites. Read the README for more information.
+[solid-ssr](https://github.com/solidjs/solid/blob/main/packages/solid-ssr) also ships with a simple utility for generating static or prerendered sites. Read the README for more information.

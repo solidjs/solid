@@ -113,8 +113,6 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 - [Getting Started](https://github.com/solidjs/solid/blob/next/documentation/guides/getting-started.md)
 - [Reactivity](https://github.com/solidjs/solid/blob/next/documentation/guides/reactivity.md)
 - [Rendering](https://github.com/solidjs/solid/blob/next/documentation/guides/rendering.md)
-- [Context](https://github.com/solidjs/solid/blob/next/documentation/guides/context.md)
-- [Suspense](https://github.com/solidjs/solid/blob/next/documentation/guides/suspense.md)
 - [SSR](https://github.com/solidjs/solid/blob/next/documentation/guides/server.md)
 
 ### Resources

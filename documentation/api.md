@@ -1251,3 +1251,17 @@ Forces the prop to be treated as a attribute instead of an property. Useful for 
 ```jsx
 <my-element attr:status={props.status} />
 ```
+
+## `/* @once */`
+
+Solid's compiler uses a simple heuristic for reactive wrapping and lazy evaluation of JSX expressions. Does it contain a function call, a property access, or JSX? If yes we wrap it in a getter when passed to components or in an effect if passed to native elements.
+
+Knowing this we can reduce overhead of things we know will never change simply by accessing them outside of the JSX. A simple variable will never be wrapped. We can also tell the compiler not to wrap them by starting the expression with a comment decorator `/* @once */.
+
+```jsx
+<MyComponent static={/*@once*/state.wontUpdate} />
+```
+This also works on children.
+```jsx
+<MyComponent>{/*@once*/state.wontUpdate}</MyComponent>
+```

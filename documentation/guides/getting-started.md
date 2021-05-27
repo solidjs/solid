@@ -73,7 +73,7 @@ A lesson that comes hard for fine-grained reactivity. Explicit and consistent co
 
 ## Web Components
 
-Solid was born with the desire to have Web Components as first class citizens. Over time its design has evolved and goals have changed. However, Solid is still a great way to author Web Components. [Solid Element](https://github.com/solidui/solid/tree/main/packages/solid-element) let's you to write and wrap Solid's function components to produce small and performant Web Components. Inside Solid apps Solid Element is able to still leverage Solid's Context API and Solid's Portals support Shadow DOM isolated styling.
+Solid was born with the desire to have Web Components as first class citizens. Over time its design has evolved and goals have changed. However, Solid is still a great way to author Web Components. [Solid Element](https://github.com/solidjs/solid/tree/main/packages/solid-element) let's you to write and wrap Solid's function components to produce small and performant Web Components. Inside Solid apps Solid Element is able to still leverage Solid's Context API and Solid's Portals support Shadow DOM isolated styling.
 
 ## Server Rendering
 

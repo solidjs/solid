@@ -4,10 +4,10 @@
   "version": "1.0.0-rc.1",
   "author": "Ryan Carniato",
   "license": "MIT",
-  "homepage": "https://github.com/solidui/solid#readme",
+  "homepage": "https://github.com/solidjs/solid#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/solidui/solid"
+    "url": "https://github.com/solidjs/solid"
   },
   "main": "dist/static.cjs",
   "module": "dist/static.js",

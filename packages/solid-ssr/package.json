@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/solidui/solid/solid-ssr"
+    "url": "https://github.com/solidjs/solid/blob/main/packages/solid-ssr"
   },
   "exports": {
     "./static": {

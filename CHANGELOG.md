@@ -65,7 +65,7 @@ These are an escape hatch for unusual events. Previously these were custom attri
 
 Now that we are supporting SSR for legacy(non-ESM) systems I need to use the main field to indicate a node env. We will be using the "browser" field for the client build in Solid. This straight up breaks Jest which doesn't respect that. I've created `solid-jest` to handle this.
 
-https://github.com/solidui/solid-jest
+https://github.com/solidjs/solid-jest
 
 ### New Features
 

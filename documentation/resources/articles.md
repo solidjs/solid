@@ -12,6 +12,7 @@
 
 ## Latest Articles
 
+- [Components are Pure Overhead](https://dev.to/this-is-learning/components-are-pure-overhead-hpm) Unnecessary boundaries have real cost.
 - [5 Places SolidJS is not the Best](https://dev.to/this-is-learning/5-places-solidjs-is-not-the-best-5019) It's important to know the limitations of your tools.
 - [Building a Reactive Library from Scratch](https://dev.to/ryansolid/building-a-reactive-library-from-scratch-1i0p) Build a reactive library in only 50 lines of code.
 - [A Hands-on Introduction to Fine-Grained Reactivity](https://dev.to/ryansolid/a-hands-on-introduction-to-fine-grained-reactivity-3ndf) Learn reactivity by example.
