@@ -41,7 +41,7 @@ function createTick(delay) {
 ```
 ## Effects
 
-When we want our Signals to affect the world we use Effects. Effects wrap expressions that contain Signals and re-execute them everytime those Signals change. The most common ones are JSX bindings we can manually create them as well.
+When we want our Signals to affect the world we use Effects. Effects wrap expressions that contain Signals and re-execute them everytime those Signals change. The most common ones, created automatically for us, are JSX bindings, but they can also be created manually.
 
 ```js
 import { createEffect, createSignal, onCleanup } from "solid-js";
@@ -56,7 +56,7 @@ function logTick(delay) {
 }
 ```
 
-Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX(code between the parenthesis `{}`), the compiler is wrapping it in a function and passing it to a `createEffect` call.
+Effects are what allow the DOM to stay up to date. While you don't see them, everytime you write an expression in the JSX (code between the parenthesis `{}`), the compiler is wrapping it in a function and passing it to a `createEffect` call.
 
 ## Memos
 
@@ -184,7 +184,7 @@ batch(() => {
 
 ## Cleanup
 
-While Solid does not have Component lifecyles in the traditional sense, it still needs to handle cleaning up reactive dependencies. The way Solid works is that each nested computation is owned by it's parent reactive scope. In so all computations must be created as part of a root. This detail is generally taken care of for you as the `render` method contains a `createRoot` call. But it can be called directly for cases where you need to control disposal outside of this cycle.
+While Solid does not have Component lifecyles in the traditional sense, it still needs to handle cleaning up reactive dependencies. The way Solid works is that each nested computation is owned by its parent reactive scope. This means that all computations must be created as part of a root. This detail is generally taken care of for you as the `render` method contains a `createRoot` call. But it can be called directly for cases where you need to control disposal outside of this cycle.
 
 Once inside a scope whenever the scope is re-evaluated or disposed of itself, all children computations will be disposed. In addition you can register a `onCleanup` method that will execute as part of this disposal cycle.
 
@@ -195,7 +195,7 @@ _Note: Solid's graph is synchronously executed so any starting point that isn't 
 Solid's primitives combine wonderfully. They encourage composing more sophisticated patterns to fit developer need.
 
 ```js
-// Solid's fine-grained exivalent to React's `useReducer` Hook
+// Solid's fine-grained equivalent to React's `useReducer` Hook
 const useReducer = (reducer, state) => {
   const [store, setStore] = createState(state);
   const dispatch = (action) => {
