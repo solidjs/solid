@@ -1036,6 +1036,8 @@ function SuspenseList(props: {
 </SuspenseList>
 ```
 
+SuspenseList is still experimental and does not have full SSR support.
+
 ## `<Dynamic>`
 
 ```ts
