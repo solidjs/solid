@@ -1,6 +1,6 @@
 # Rendering
 
-Solid supports templating in 3 forms JSX, Tagged Template Literals, and Solid's HyperScript variant. Although JSX is the predominate form. Why? JSX is a great DSL made for compilation. It has clear syntax, supports TypeScript, works with Babel, supports other tooling like Code Syntax Highlighting and Prettier. It was only pragmatic to use a tool that basically gives you that all for free. As a compiled solution it provides great DX. Why struggle with custom Syntax DSLs when you can use one so widely supported?
+Solid supports templating in 3 forms JSX, Tagged Template Literals and Solid's HyperScript variant, although JSX is the predominate form. Why? JSX is a great DSL made for compilation. It has clear syntax, supports TypeScript, works with Babel and supports other tooling like Code Syntax Highlighting and Prettier. It was only pragmatic to use a tool that basically gives you that all for free. As a compiled solution it provides great DX. Why struggle with custom Syntax DSLs when you can use one so widely supported?
 
 ## JSX Compilation
 
@@ -10,7 +10,7 @@ Rendering involves precompilation of JSX templates into optimized native js code
 - A series of reference declarations using only firstChild and nextSibling
 - Fine grained computations to update the created elements.
 
-This approach both is more performant and produces less code then creating each element one by one with document.createElement.
+This approach is both more performant and produces less code than creating each element, one by one, with document.createElement.
 
 ## Attributes and Props
 
@@ -26,7 +26,7 @@ However, it is possible to control this behavior directly with namespace directi
 <my-element prop:UniqACC={state.value} attr:title={state.title} />
 ```
 
-> **Note:** Static attributes are created as part of the html template that is cloned. Expressions fixed and dynamic are applied afterwards in JSX binding order. While this is fine for most DOM elements there are some like input elements with `type='range'` where order matters. Keep this in mind when binding elements.
+> **Note:** Static attributes are created as part of the html template that is cloned. Expressions fixed and dynamic are applied afterwards in JSX binding order. While this is fine for most DOM elements there are some, like input elements with `type='range'`, where order matters. Keep this in mind when binding elements.
 
 ## Entry
 
@@ -39,7 +39,7 @@ render(() => <App />, document.getElementById("main"));
 ```
 ## Components
 
-Components in Solid are just Pascal(Capital) cased functions. Their first argument is an props object and they return real DOM nodes.
+Components in Solid are just Pascal (Capital) cased functions. Their first argument is a props object and they return real DOM nodes.
 
 ```jsx
 const Parent = () => (
@@ -58,11 +58,11 @@ const Label = props => (
 );
 ```
 
-Since all nodes from JSX are actual DOM nodes, the only responsibility of top level Components is appending to the DOM.
+Since all JSX nodes are actual DOM nodes, the only responsibility of top level Components is to append them to the DOM.
 
 ## Props
 
-Much like React, Vue, Angular, and other frameworks, you can define properties on your components which allow a parent component to pass data to a child component. Here a parent is passing the string "Hello" to the `Label` component via a `greeting` property.
+Much like React, Vue, Angular and other frameworks, Solid allows you to define properties on your components to pass data to child components. Here a parent is passing the string "Hello" to the `Label` component via a `greeting` property.
 
 ```jsx
 const Parent = () => (
@@ -101,7 +101,7 @@ const Label = props => (
 );
 ```
 
-Unlike in some other frameworks, you cannot use object destructuring on the `props` of a component. This is because the `props` object is, behind the scenes, relies on Object getters to lazily retrieve values. Using object destructuring breaks the reactivity of `props`.
+Unlike in some other frameworks, you cannot use object destructuring on the `props` of a component. This is because the `props` object, behind the scenes, relies on Object getters to lazily retrieve values. Using object destructuring breaks the reactivity of `props`.
 
 This example shows the "correct" way of accessing props in Solid:
 
@@ -118,9 +118,9 @@ This example shows the wrong way of accessing props in Solid:
 const MyComponent = ({ name }) => <div>{name}</div>;
 ```
 
-While the props object looks like a normal object when you use it (and Typescript users will note that it is typed like a normal object), in reality it is reactive--somewhat similar to a Signal. This has a few implications.
+While the props object looks like a normal object when you use it (and Typescript users will note that it is typed like a normal object), in reality it is reactive – somewhat similar to a Signal. This has a few implications.
 
-Because unlike most JSX frameworks, Solid's function components are only executed once (rather than every render cycle), the following example will not work as desired.
+Because unlike most JSX frameworks, Solid's function components are only executed once (rather than every render cycle), the following example will not work as expected.
 
 ```jsx
 import { createSignal } from "solid-js";
@@ -155,7 +155,7 @@ const BasicComponent = props => {
 };
 ```
 
-This is equivalently can be hoisted into a function:
+This, equivalently, can be hoisted into a function:
 
 ```jsx
 const BasicComponent = props => {
@@ -165,7 +165,7 @@ const BasicComponent = props => {
 };
 ```
 
-Another option if it is an expensive computation to use `createMemo`. For example:
+Another option, if it is an expensive computation, is to use `createMemo`. For example:
 
 ```jsx
 const BasicComponent = props => {
@@ -203,7 +203,7 @@ const BasicComponent = props => {
 };
 ```
 
-Solid's Components are the key part of its performance. Solid's approach is "Vanishing" Components made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. In so we defer execution until the last moment typically right in the DOM bindings maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components.
+Solid's Components are the key part of its performance. Solid's approach of "Vanishing" Components is made possible by lazy prop evaluation. Instead of evaluating prop expressions immediately and passing in values, execution is deferred until the prop is accessed in the child. Doing so we postpone execution until the last moment, typically right in the DOM bindings, maximizing performance. This flattens the hierarchy and removes the need to maintain a tree of Components.
 
 ```jsx
 <Component prop1="static" prop2={state.dynamic} />;
@@ -222,7 +222,7 @@ untrack(() =>
 );
 ```
 
-To help maintain reactivity Solid has a couple prop helpers:
+To help maintain reactivity Solid has a couple of prop helpers:
 
 ```jsx
 // default props
@@ -241,7 +241,7 @@ const [local, others] = splitProps(props, ["className"])
 
 ## Children
 
-Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple is an array. Normally you pass them through to the JSX view. However if you want to interact with them the suggested method is the `children` helper which resolves any downstream control flows and returns a memo.
+Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple children is handled an array of values. Normally you pass them through to the JSX view. However, if you want to interact with them the suggested method is the `children` helper which resolves any downstream control flows and returns a memo.
 
 ```jsx
 // single child
@@ -276,7 +276,7 @@ const List = (props) => {
   </ul>;
 ```
 
-**Important:** Solid treats child tags as expensive expressions and wraps them the same way as dynamic reactive expressions. This means they evaluate lazily on `prop` access. Be careful accessing them multiple times or destructuring before the place you would use them in the view. This is because Solid doesn't have luxury of creating Virtual DOM nodes ahead of time then diffing them so resolution of these `props` must be lazy and deliberate. Use `children` helper if you wish to do this as it memoizes them.
+**Important:** Solid treats child tags as expensive expressions and wraps them the same way as dynamic reactive expressions. This means they evaluate lazily on `prop` access. Be careful accessing them multiple times or destructuring before the place you would use them in the view. This is because Solid doesn't have the luxury of creating Virtual DOM nodes ahead of time and then diffing them, so resolution of these `props` must be lazy and deliberate. Use `children` helper if you wish to do this as it memoizes them.
 
 ## Lifecycle
 
@@ -303,9 +303,9 @@ function Example() {
 }
 ```
 
-For convenience if you need to only run it once you can use `onMount` which is the same as `createEffect` but will only run once. Keep in mind Solid's cleanup is independent of this mechanism. So if you aren't reading the DOM you don't need to use these.
+For convenience if you need to only run it once you can use `onMount` which is the same as `createEffect` but it will only run once. Keep in mind that Solid's cleanup is independent of this mechanism. So if you aren't reading the DOM you don't need to use these.
 
-If you wish to release something on the Component being destroyed, simply wrap in an `onCleanup`.
+If you wish to release resources on the Component being destroyed, simply wrap in an `onCleanup`.
 
 ```jsx
 const Ticker = () => {
@@ -321,6 +321,6 @@ const Ticker = () => {
 
 ## Web Components
 
-Since change management is independent of code modularization, Solid Templates are sufficient as is to act as Components, or Solid fits easily into other Component structures like Web Components.
+Since change management is independent of code modularization, Solid Templates are sufficient to act as Components. Solid fits easily into other Component structures like Web Components.
 
 [Solid Element](https://github.com/solidjs/solid/tree/main/packages/solid-element) Provides an out of the box solution for wrapping your Solid Components as Custom Elements.
