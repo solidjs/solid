@@ -14,7 +14,7 @@ No longer uses rest parameters for multiple dependencies. Instead pass an array.
 
 #### Actions renamed to Directives
 
-To remove future confusion with other uses of actions the JSX.Actions interace is now the JSX.Directives interface.
+To remove future confusion with other uses of actions the `JSX.Actions` interace is now the `JSX.Directives` interface.
 
 ## 0.26.0 - 2021-04-09
 

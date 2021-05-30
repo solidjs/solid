@@ -122,35 +122,6 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 - [Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
 - [Articles](https://github.com/solidjs/solid/blob/main/documentation/resources/articles.md)
 - [Projects](https://github.com/solidjs/solid/blob/main/documentation/resources/projects.md)
-
-## No Compilation?
-
-Dislike JSX? Don't mind doing manual work to wrap expressions, worse performance, and having larger bundle sizes? Alternatively in non-compiled environments you can use Tagged Template Literals or HyperScript.
-
-You can run them straight from the browser using SkyPack:
-
-```html
-<html>
-  <body>
-    <script type="module">
-      import { createSignal, onCleanup } from "https://cdn.skypack.dev/solid-js";
-      import { render } from "https://cdn.skypack.dev/solid-js/web";
-      import html from "https://cdn.skypack.dev/solid-js/html";
-
-      const App = () => {
-        const [count, setCount] = createSignal(0),
-          timer = setInterval(() => setCount(count() + 1), 1000);
-        onCleanup(() => clearInterval(timer));
-        return html`<div>${count}</div>`;
-      };
-      render(App, document.body);
-    </script>
-  </body>
-</html>
-```
-
-Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/solidjs/dom-expressions/tree/main/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/solidjs/dom-expressions/tree/main/packages/hyper-dom-expressions).
-
 ## Browser Support
 
 The last 2 versions of modern evergreen browsers and Node LTS.

@@ -82,3 +82,31 @@ Solid has a dynamic server side rendering solution that enables a truly isomorph
 Since Solid supports asynchronous and streaming rendering on the server you get to write your code one way and have it execute on the server. Things like [render-as-you-fetch](https://reactjs.org/docs/concurrent-mode-suspense.html#approach-3-render-as-you-fetch-using-suspense) and code splitting just work.
 
 For more information read the [SSR guide](./server.md)
+
+## No Compilation?
+
+Dislike JSX? Don't mind doing manual work to wrap expressions, worse performance, and having larger bundle sizes? Alternatively in non-compiled environments you can use Tagged Template Literals or HyperScript.
+
+You can run them straight from the browser using SkyPack:
+
+```html
+<html>
+  <body>
+    <script type="module">
+      import { createSignal, onCleanup } from "https://cdn.skypack.dev/solid-js";
+      import { render } from "https://cdn.skypack.dev/solid-js/web";
+      import html from "https://cdn.skypack.dev/solid-js/html";
+
+      const App = () => {
+        const [count, setCount] = createSignal(0),
+          timer = setInterval(() => setCount(count() + 1), 1000);
+        onCleanup(() => clearInterval(timer));
+        return html`<div>${count}</div>`;
+      };
+      render(App, document.body);
+    </script>
+  </body>
+</html>
+```
+
+Remember you still need the corresponding DOM Expressions library for these to work with TypeScript. Tagged Template Literals [Lit DOM Expressions](https://github.com/solidjs/dom-expressions/tree/main/packages/lit-dom-expressions) or HyperScript with [Hyper DOM Expressions](https://github.com/solidjs/dom-expressions/tree/main/packages/hyper-dom-expressions).
