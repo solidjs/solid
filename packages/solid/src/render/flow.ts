@@ -1,28 +1,32 @@
-import { createMemo, untrack, createSignal, onError, children } from "../reactive/signal";
+import { createMemo, untrack, createSignal, onError, children, Accessor } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import type { JSX } from "../jsx";
 
 export function For<T, U extends JSX.Element>(props: {
   each: readonly T[];
   fallback?: JSX.Element;
-  children: (item: T, index: () => number) => U;
+  children: (item: T, index: Accessor<number>) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
-    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  , undefined, false);
+    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined),
+    undefined,
+    { equals: false }
+  );
 }
 
 // non-keyed
 export function Index<T, U extends JSX.Element>(props: {
   each: readonly T[];
   fallback?: JSX.Element;
-  children: (item: () => T, index: number) => U;
+  children: (item: Accessor<T>, index: number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
-    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  , undefined, false);
+    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined),
+    undefined,
+    { equals: false }
+  );
 }
 
 export function Show<T>(props: {
@@ -31,11 +35,9 @@ export function Show<T>(props: {
   children: JSX.Element | ((item: T) => JSX.Element);
 }) {
   let strictEqual = false;
-  const condition = createMemo<T | undefined | null | boolean>(
-    () => props.when,
-    undefined,
-    (a, b) => (strictEqual ? a === b : !a === !b)
-  );
+  const condition = createMemo<T | undefined | null | boolean>(() => props.when, undefined, {
+    equals: (a, b) => (strictEqual ? a === b : !a === !b)
+  });
   return createMemo(() => {
     const c = condition();
     if (c) {
@@ -48,7 +50,10 @@ export function Show<T>(props: {
   }) as () => JSX.Element;
 }
 
-export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }) {
+export function Switch(props: {
+  fallback?: JSX.Element;
+  children: JSX.Element;
+}): Accessor<JSX.Element> {
   let strictEqual = false;
   const conditions = children(() => props.children) as () => MatchProps<unknown>[],
     evalConditions = createMemo<[number, unknown?, MatchProps<unknown>?]>(
@@ -62,8 +67,10 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
         return [-1];
       },
       undefined,
-      (a: [number, unknown?, unknown?], b: [number, unknown?, unknown?]) =>
-        a && a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
+      {
+        equals: (a: [number, unknown?, unknown?], b: [number, unknown?, unknown?]) =>
+          a && a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
+      }
     );
   return createMemo(() => {
     const [index, when, cond] = evalConditions();
@@ -75,7 +82,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
   });
 }
 
-type MatchProps<T> = {
+export type MatchProps<T> = {
   when: T | undefined | null | false;
   children: JSX.Element | ((item: T) => JSX.Element);
 };
@@ -86,7 +93,7 @@ export function Match<T>(props: MatchProps<T>) {
 export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
-}) {
+}): Accessor<JSX.Element> {
   const [errored, setErrored] = createSignal<any>();
   onError(setErrored);
   let e: any;
@@ -96,5 +103,5 @@ export function ErrorBoundary(props: {
       return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(null))) : f;
     }
     return props.children;
-  }) as () => JSX.Element;
+  }) as Accessor<JSX.Element>;
 }

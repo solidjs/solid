@@ -3,10 +3,10 @@ import { createRoot, createSignal, JSX } from "../../src";
 
 declare module "solid-js" {
   namespace JSX {
-    interface Actions {
+    interface Directives {
       getRef: boolean;
     }
-  }     
+  }
 }
 
 describe("Basic element attributes", () => {
@@ -60,11 +60,11 @@ describe("Basic element attributes", () => {
     });
   });
 
-  test("actions work properly", () => {
+  test("directives work properly", () => {
     let ref: HTMLDivElement,
-      el: HTMLDivElement,
+      el!: HTMLDivElement,
       getRef = (el: HTMLDivElement) => ref = el,
       d = (<div use:getRef ref={el} />) as HTMLDivElement;
-    expect(ref).toBe(el);
+    expect(ref!).toBe(el);
   })
 });

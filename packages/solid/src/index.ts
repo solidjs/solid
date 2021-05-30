@@ -8,7 +8,6 @@ export {
   createSelector,
   createMemo,
   createResource,
-  getListener,
   onMount,
   onCleanup,
   onError,
@@ -19,31 +18,44 @@ export {
   createContext,
   useContext,
   children,
+  getListener,
   getOwner,
   runWithOwner,
   equalFn
 } from "./reactive/signal";
-export type { Resource } from "./reactive/signal";
+export type { Accessor, Resource, ResourceReturn, Context } from "./reactive/signal";
 
 export { createState, unwrap, $RAW } from "./reactive/state";
-export type { State, SetStateFunction } from "./reactive/state";
+export type {
+  State,
+  SetStateFunction,
+  NotWrappable,
+  StateNode,
+  StateSetter,
+  StatePathRange,
+  ArrayFilterFn,
+  Part,
+  Next
+} from "./reactive/state";
 export * from "./reactive/mutable";
-
-export { reconcile, produce } from "./reactive/stateModifiers";
-
+export * from "./reactive/observable";
+export * from "./reactive/stateModifiers";
 export * from "./reactive/scheduler";
 export * from "./reactive/array";
 export * from "./render";
-export type { JSX } from "./jsx";
+
+import type { JSX } from "./jsx";
+type JSXElement = JSX.Element;
+export type { JSXElement, JSX };
 
 // mock server endpoint for dom-expressions
 export function awaitSuspense() {}
 
 // dev
 import { writeSignal, serializeGraph } from "./reactive/signal";
-let DEV: { writeSignal: typeof writeSignal, serializeGraph: typeof serializeGraph };
+let DEV: { writeSignal: typeof writeSignal; serializeGraph: typeof serializeGraph };
 if ("_SOLID_DEV_") {
-  DEV = { writeSignal, serializeGraph }
+  DEV = { writeSignal, serializeGraph };
 }
 export { DEV };
 

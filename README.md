@@ -1,7 +1,7 @@
 ## <img src="https://raw.githubusercontent.com/solidjs/solid/main/assets/logo.png" alt="Solid" width="350"/><br>
 
 [![Build Status](https://github.com/solidjs/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/solidui/solid.svg?style=flat)](https://coveralls.io/github/solidui/solid?branch=main)
+[![Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=flat)](https://coveralls.io/github/solidjs/solid?branch=main)
 [![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510)](https://discord.com/invite/solidjs)
@@ -20,6 +20,7 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 - Small! Completely tree-shakeable Solid's compiler will only include parts of the library you use.
 - Supports and is built on TypeScript.
 - Supports modern features like JSX, Fragments, Context, Portals, Suspense, Streaming SSR, Progressive Hydration, Error Boundaries and Concurrent Rendering.
+- Works in serverless environments including AWS Lambda and Cloudflare Workers.
 - Webcomponent friendly and can author Custom Elements
   - Context API that spans Custom Elements
   - Implicit event delegation with Shadow DOM Retargeting
@@ -65,7 +66,7 @@ Want to see what code Solid generates:
 
 ### [Try it Online](https://playground.solidjs.com/)
 
-## Getting Started
+## Quick Start
 
 > _`npm init solid <project-type> <project-name>` is available with npm 6+._
 
@@ -104,19 +105,19 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-- [Reactivity](https://github.com/solidjs/solid/blob/main/documentation/reactivity.md)
-- [State](https://github.com/solidjs/solid/blob/main/documentation/state.md)
-- [JSX Rendering](https://github.com/solidjs/solid/blob/main/documentation/rendering.md)
-- [Components](https://github.com/solidjs/solid/blob/main/documentation/components.md)
-- [Styling](https://github.com/solidjs/solid/blob/main/documentation/styling.md)
-- [Context](https://github.com/solidjs/solid/blob/main/documentation/context.md)
-- [Suspense](https://github.com/solidjs/solid/blob/main/documentation/suspense.md)
+> This is the documentation for the 1.0.0 RC. THese are significantly slimmed down from what was here previously as we are moving things to the new Docs site. If you wish to see the older docs in the mean time [look here](https://github.com/solidjs/solid/tree/0.x/#documentation).
+
 - [API](https://github.com/solidjs/solid/blob/main/documentation/api.md)
 - [FAQ](https://github.com/solidjs/solid/blob/main/documentation/faq.md)
 - [Comparison with other Libraries](https://github.com/solidjs/solid/blob/main/documentation/comparison.md)
-- [Storybook](https://github.com/solidjs/solid/blob/main/documentation/storybook.md)
 
-## Resources
+### Guides
+- [Getting Started](https://github.com/solidjs/solid/blob/main/documentation/guides/getting-started.md)
+- [Reactivity](https://github.com/solidjs/solid/blob/main/documentation/guides/reactivity.md)
+- [Rendering](https://github.com/solidjs/solid/blob/main/documentation/guides/rendering.md)
+- [SSR](https://github.com/solidjs/solid/blob/main/documentation/guides/server.md)
+
+### Resources
 
 - [Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
 - [Articles](https://github.com/solidjs/solid/blob/main/documentation/resources/articles.md)
@@ -195,7 +196,3 @@ Become a sponsor and get your logo on our README on GitHub with a link to your s
 <a href="https://opencollective.com/solid/sponsor/8/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/8/avatar.svg"></a>
 <a href="https://opencollective.com/solid/sponsor/9/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/9/avatar.svg"></a>
 <a href="https://opencollective.com/solid/sponsor/10/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/10/avatar.svg"></a>
-
-## Status
-
-Solid is mostly feature complete for its v1.0.0 release. The next releases will be mostly bug fixes and API tweaks on the road to stability.

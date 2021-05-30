@@ -3,7 +3,9 @@ import { requestCallback, Task } from "./scheduler";
 import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
+export type Accessor<T> = () => T;
 export const equalFn = <T>(a: T, b: T) => a === b;
+const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
 
@@ -99,23 +101,25 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [get: () => T | undefined, set: <U extends T | undefined>(v?: U) => U];
+export function createSignal<T>(): [
+  get: Accessor<T | undefined>,
+  set: <U extends T | undefined>(v?: U) => U
+];
 export function createSignal<T>(
   value: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean),
-  options?: { name?: string; internal?: boolean }
-): [get: () => T, set: (v: T) => T];
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
+): [get: Accessor<T>, set: (v: T) => T];
 export function createSignal<T>(
   value?: T,
-  areEqual: boolean | ((prev: T, next: T) => boolean) = true,
-  options?: { name?: string; internal?: boolean }
-): [get: () => T, set: (v: T) => T] {
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
+): [get: Accessor<T>, set: (v: T) => T] {
+  options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
     value,
     observers: null,
     observerSlots: null,
     pending: NOTPENDING,
-    comparator: areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined
+    comparator: options.equals || undefined
   };
   if ("_SOLID_DEV_" && (!options || !options.internal))
     s.name = registerGraph((options && options.name) || hashValue(value), s as { value: unknown });
@@ -123,341 +127,70 @@ export function createSignal<T>(
   return [readSignal.bind(s), writeSignal.bind(s)];
 }
 
-export function createComputed<T>(fn: (v: T) => T, value: T): void;
 export function createComputed<T>(fn: (v?: T) => T | undefined): void;
-export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
-  updateComputation(createComputation(fn, value, true));
+export function createComputed<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
+export function createComputed<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
+  updateComputation(createComputation(fn, value, true, "_SOLID_DEV_" ? options : undefined));
 }
 
-export function createRenderEffect<T>(fn: (v: T) => T, value: T): void;
 export function createRenderEffect<T>(fn: (v?: T) => T | undefined): void;
-export function createRenderEffect<T>(fn: (v?: T) => T, value?: T): void {
-  updateComputation(createComputation(fn, value, false));
+export function createRenderEffect<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
+export function createRenderEffect<T>(
+  fn: (v?: T) => T,
+  value?: T,
+  options?: { name?: string }
+): void {
+  updateComputation(createComputation(fn, value, false, "_SOLID_DEV_" ? options : undefined));
 }
 
-export function createEffect<T>(fn: (v: T) => T, value: T): void;
 export function createEffect<T>(fn: (v?: T) => T | undefined): void;
-export function createEffect<T>(fn: (v?: T) => T, value?: T): void {
+export function createEffect<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
+export function createEffect<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
   runEffects = runUserEffects;
-  const c = createComputation(fn, value, false),
+  const c = createComputation(fn, value, false, "_SOLID_DEV_" ? options : undefined),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
   Effects && Effects.push(c);
 }
 
-export function resumeEffects(e: Computation<any>[]) {
-  Transition && (Transition.running = true);
-  Effects!.push.apply(Effects, e);
-  e.length = 0;
-}
-
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: undefined,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
-): () => T;
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
+): Accessor<T>;
 export function createMemo<T>(
   fn: (v: T) => T,
   value: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
-): () => T;
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
+): Accessor<T>;
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: T,
-  areEqual: boolean | ((prev: T, next: T) => boolean) = true
-): () => T {
-  const c: Partial<Memo<T>> = createComputation<T>(fn, value, true);
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
+): Accessor<T> {
+  options = options ? Object.assign({}, signalOptions, options) : signalOptions;
+  const c: Partial<Memo<T>> = createComputation<T>(
+    fn,
+    value,
+    true,
+    "_SOLID_DEV_" ? options : undefined
+  );
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
   c.state = 0;
-  c.comparator = areEqual ? (typeof areEqual === "function" ? areEqual : equalFn) : undefined;
+  c.comparator = options.equals || undefined;
   updateComputation(c as Memo<T>);
   return readSignal.bind(c as Memo<T>);
 }
 
-export function createDeferred<T>(source: () => T, options?: { timeoutMs: number }) {
-  let t: Task,
-    timeout = options ? options.timeoutMs : undefined;
-  const [deferred, setDeferred] = createSignal();
-  const node = createComputation(
-    () => {
-      if (!t || !t.fn)
-        t = requestCallback(
-          () => setDeferred(node.value),
-          timeout !== undefined ? { timeout } : undefined
-        );
-      return source();
-    },
-    undefined,
-    true
-  );
-  updateComputation(node);
-  setDeferred(node.value);
-  return deferred;
-}
-
-export function createSelector<T, U>(
-  source: () => T,
-  fn: (a: U, b: T) => boolean = equalFn as any
-) {
-  let subs = new Map<U, Set<Computation<any>>>();
-  const node = createComputation(
-    (p: T | undefined) => {
-      const v = source();
-      for (const key of subs.keys())
-        if (fn(key, v) || (p !== undefined && fn(key, p))) {
-          const l = subs.get(key)!;
-          for (const c of l.values()) {
-            c.state = STALE;
-            if (c.pure) Updates!.push(c);
-            else Effects!.push(c);
-          }
-        }
-      return v;
-    },
-    undefined,
-    true
-  );
-  updateComputation(node);
-  return (key: U) => {
-    let listener: Computation<any> | null;
-    if ((listener = Listener)) {
-      let l: Set<Computation<any>> | undefined;
-      if ((l = subs.get(key))) l.add(listener);
-      else subs.set(key, (l = new Set([listener])));
-      onCleanup(() => {
-        l!.size > 1 ? l!.delete(listener!) : subs.delete(key);
-      });
-    }
-    return fn(key, node.value!);
-  };
-}
-
-export function batch<T>(fn: () => T): T {
-  if (Pending) return fn();
-  let result;
-  const q: Signal<any>[] = Pending = [];
-  try {
-    result = fn();
-  } finally {
-    Pending = null;
-  }
-
-  runUpdates(() => {
-    for (let i = 0; i < q.length; i += 1) {
-      const data = q[i];
-      if (data.pending !== NOTPENDING) {
-        const pending = data.pending;
-        data.pending = NOTPENDING;
-        writeSignal.call(data, pending);
-      }
-    }
-  }, false);
-
-  return result;
-}
-
-export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void] {
-  return [
-    transPending,
-    (fn: () => void, cb?: () => void) => {
-      if (SuspenseContext) {
-        Transition ||
-          (Transition = {
-            sources: new Set(),
-            effects: [],
-            promises: new Set(),
-            disposed: new Set(),
-            running: true,
-            cb: []
-          });
-        cb && Transition.cb.push(cb);
-        Transition.running = true;
-      }
-      batch(fn);
-      if (!SuspenseContext && cb) cb();
-    }
-  ];
-}
-
-export function untrack<T>(fn: () => T): T {
-  let result: T,
-    listener = Listener;
-
-  Listener = null;
-  result = fn();
-  Listener = listener;
-
-  return result;
-}
-
-type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends () => infer U ? U : never };
-export function on<T, X extends Array<() => T>, U>(
-  ...args: X["length"] extends 1
-    ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
-    : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
-): (prev?: U) => U {
-  const fn = args.pop() as (v: T | Array<T>, p?: T | Array<T>, r?: U) => U;
-  let deps: (() => T) | Array<() => T>;
-  let isArray = true;
-  let prev: T | T[];
-  if (args.length < 2) {
-    deps = args[0] as () => T;
-    isArray = false;
-  } else deps = args as Array<() => T>;
-  return prevResult => {
-    let value: T | Array<T>;
-    if (isArray) {
-      value = [];
-      if (!prev) prev = [];
-      for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
-    } else value = (deps as () => T)();
-    const result = untrack<U>(() => fn!(value, prev, prevResult));
-    prev = value;
-    return result;
-  };
-}
-
-export function onMount(fn: () => void) {
-  createEffect(() => untrack(fn));
-}
-
-export function onCleanup(fn: () => void) {
-  if (Owner === null)
-    "_SOLID_DEV_" &&
-      console.warn("cleanups created outside a `createRoot` or `render` will never be run");
-  else if (Owner.cleanups === null) Owner.cleanups = [fn];
-  else Owner.cleanups.push(fn);
-  return fn;
-}
-
-export function onError(fn: (err: any) => void): void {
-  ERROR || (ERROR = Symbol("error"));
-  if (Owner === null)
-    "_SOLID_DEV_" &&
-      console.warn("error handlers created outside a `createRoot` or `render` will never be run");
-  else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
-  else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
-  else Owner.context[ERROR].push(fn);
-}
-
-export function getListener() {
-  return Listener;
-}
-
-export function getOwner() {
-  return Owner;
-}
-
-export function runWithOwner(o: Owner, fn: () => any) {
-  const prev = Owner;
-  Owner = o;
-  try {
-    return fn();
-  } finally {
-    Owner = prev;
-  }
-}
-
-export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
-  const c: Partial<Memo<JSX.Element>> = createComputation(
-    () => untrack(() => Comp(props)),
-    undefined,
-    true
-  );
-  c.pending = NOTPENDING;
-  c.observers = null;
-  c.observerSlots = null;
-  c.state = 0;
-  c.componentName = Comp.name;
-  updateComputation(c as Memo<JSX.Element>);
-  return c.tValue !== undefined ? c.tValue : c.value;;
-}
-
-export function hashValue(v: any) {
-  const s = new Set()
-  return "s" + (typeof v === "string" ? hash(v) : hash(JSON.stringify(v, (k, v) => {
-    if (typeof v === 'object' && v != null) {
-      if (s.has(v)) return;
-      s.add(v);
-    }
-    return v;
-  }) || ""));
-}
-
-export function registerGraph(name: string, value: { value: unknown }) {
-  let tryName = name;
-  if (Owner) {
-    let i = 0;
-    Owner.sourceMap || (Owner.sourceMap = {});
-    while (Owner.sourceMap[tryName]) tryName = name + "-" + ++i;
-    Owner.sourceMap[tryName] = value;
-  }
-  return tryName;
-}
-interface GraphRecord {
-  [k: string]: GraphRecord | unknown;
-}
-export function serializeGraph(owner?: Owner | null): GraphRecord {
-  owner || (owner = Owner);
-  if (!"_SOLID_DEV_" || !owner) return {};
-  return {
-    ...serializeValues(owner.sourceMap),
-    ...(owner.owned ? serializeChildren(owner) : {})
-  };
-}
-
-// Context API
-export interface Context<T> {
-  id: symbol;
-  Provider: (props: { value: T; children: any }) => any;
-  defaultValue: T;
-}
-
-export function createContext<T>(): Context<T | undefined>;
-export function createContext<T>(defaultValue: T): Context<T>;
-export function createContext<T>(defaultValue?: T): Context<T | undefined> {
-  const id = Symbol("context");
-  return { id, Provider: createProvider(id), defaultValue };
-}
-
-export function useContext<T>(context: Context<T>): T {
-  return lookup(Owner, context.id) || context.defaultValue;
-}
-
-export function children(fn: () => any) {
-  const children = createMemo(fn);
-  return createMemo(() => resolveChildren(children()));
-}
-
-// Resource API
-type SuspenseContextType = {
-  increment?: () => void;
-  decrement?: () => void;
-  inFallback?: () => boolean;
-  effects?: Computation<any>[];
-  resolved?: boolean;
-};
-
-let SuspenseContext: Context<SuspenseContextType> & {
-  active?(): boolean;
-  increment?(): void;
-  decrement?(): void;
-};
-
-export function getSuspenseContext() {
-  return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>({}));
-}
-
-export interface Resource<T> {
-  (): T | undefined;
+export interface Resource<T> extends Accessor<T | undefined> {
   loading: boolean;
   error: any;
 }
 
-type ResourceReturn<T> = [
+export type ResourceReturn<T> = [
   Resource<T>,
   {
     mutate: (v: T | undefined) => T | undefined;
@@ -466,37 +199,38 @@ type ResourceReturn<T> = [
 ];
 
 export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  options?: { initialValue?: T }
+  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
+  options?: { initialValue?: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
-  fn: U | false | (() => U | false),
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  options?: { initialValue?: T }
+  source: U | false | null | (() => U | false | null),
+  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
+  options?: { initialValue?: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
-  fn:
+  source:
     | U
-    | true
     | false
-    | (() => U | false)
-    | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
-  options: { initialValue?: T } = {}
+    | true
+    | null
+    | (() => U | false | null)
+    | ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>),
+  fetcher?: ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>) | { initialValue?: T },
+  options: { initialValue?: T; name?: string } = {}
 ): ResourceReturn<T> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher;
-      fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
-      fn = true;
+      fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
+      source = true;
     }
   } else if (arguments.length === 1) {
-    fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
-    fn = true;
+    fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
+    source = true;
   }
   const contexts = new Set<SuspenseContextType>(),
     [s, set] = createSignal(options!.initialValue),
-    [track, trigger] = createSignal<void>(undefined, false),
+    [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
 
@@ -505,7 +239,7 @@ export function createResource<T, U>(
     initP: Promise<T> | null = null,
     id: string | null = null,
     loadedUnderTransition = false,
-    dynamic = typeof fn === "function";
+    dynamic = typeof source === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -564,7 +298,7 @@ export function createResource<T, U>(
   }
   function load() {
     setError((err = undefined));
-    let lookup = dynamic ? (fn as () => U)() : (fn as U);
+    let lookup = dynamic ? (source as () => U)() : (source as U);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
@@ -572,7 +306,7 @@ export function createResource<T, U>(
     }
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
-      initP || (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(lookup, s);
+      initP || (fetcher as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>)(lookup, s);
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);
@@ -605,6 +339,298 @@ export function createResource<T, U>(
   return [read as Resource<T>, { refetch: load, mutate: set }];
 }
 
+export function createDeferred<T>(
+  source: Accessor<T>,
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; timeoutMs?: number }
+) {
+  let t: Task,
+    timeout = options ? options.timeoutMs : undefined;
+  const node = createComputation(
+    () => {
+      if (!t || !t.fn)
+        t = requestCallback(
+          () => setDeferred(node.value as T),
+          timeout !== undefined ? { timeout } : undefined
+        );
+      return source();
+    },
+    undefined,
+    true
+  );
+  const [deferred, setDeferred] = createSignal(node.value as T, options);
+  updateComputation(node);
+  setDeferred(node.value as T);
+  return deferred;
+}
+
+export function createSelector<T, U>(
+  source: Accessor<T>,
+  fn: (a: U, b: T) => boolean = equalFn as any,
+  options?: { name?: string }
+): (key: U) => boolean {
+  let subs = new Map<U, Set<Computation<any>>>();
+  const node = createComputation(
+    (p: T | undefined) => {
+      const v = source();
+      for (const key of subs.keys())
+        if (fn(key, v) || (p !== undefined && fn(key, p))) {
+          const l = subs.get(key)!;
+          for (const c of l.values()) {
+            c.state = STALE;
+            if (c.pure) Updates!.push(c);
+            else Effects!.push(c);
+          }
+        }
+      return v;
+    },
+    undefined,
+    true,
+    "_SOLID_DEV_" ? options : undefined
+  );
+  updateComputation(node);
+  return (key: U) => {
+    let listener: Computation<any> | null;
+    if ((listener = Listener)) {
+      let l: Set<Computation<any>> | undefined;
+      if ((l = subs.get(key))) l.add(listener);
+      else subs.set(key, (l = new Set([listener])));
+      onCleanup(() => {
+        l!.size > 1 ? l!.delete(listener!) : subs.delete(key);
+      });
+    }
+    return fn(key, node.value!);
+  };
+}
+
+export function batch<T>(fn: () => T): T {
+  if (Pending) return fn();
+  let result;
+  const q: Signal<any>[] = Pending = [];
+  try {
+    result = fn();
+  } finally {
+    Pending = null;
+  }
+
+  runUpdates(() => {
+    for (let i = 0; i < q.length; i += 1) {
+      const data = q[i];
+      if (data.pending !== NOTPENDING) {
+        const pending = data.pending;
+        data.pending = NOTPENDING;
+        writeSignal.call(data, pending);
+      }
+    }
+  }, false);
+
+  return result;
+}
+
+export function untrack<T>(fn: Accessor<T>): T {
+  let result: T,
+    listener = Listener;
+
+  Listener = null;
+  result = fn();
+  Listener = listener;
+
+  return result;
+}
+
+export function on<T, U>(
+  deps: Array<() => T> | (() => T),
+  fn: (value: Array<T> | T, prev: Array<T> | T, prevResults?: U) => U,
+  options?: { defer?: boolean }
+): (prev?: U) => U | undefined {
+  let isArray = Array.isArray(deps);
+  let prev: Array<T> | T;
+  let defer = options && options.defer;
+  return prevResult => {
+    let value: T | Array<T>;
+    if (isArray) {
+      value = [];
+      for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
+    } else value = (deps as () => T)();
+    if (defer) {
+      defer = false;
+      return undefined;
+    }
+    const result = untrack<U>(() => fn!(value, prev, prevResult));
+    prev = value;
+    return result;
+  };
+}
+
+export function onMount(fn: () => void) {
+  createEffect(() => untrack(fn));
+}
+
+export function onCleanup(fn: () => void) {
+  if (Owner === null)
+    "_SOLID_DEV_" &&
+      console.warn("cleanups created outside a `createRoot` or `render` will never be run");
+  else if (Owner.cleanups === null) Owner.cleanups = [fn];
+  else Owner.cleanups.push(fn);
+  return fn;
+}
+
+export function onError(fn: (err: any) => void): void {
+  ERROR || (ERROR = Symbol("error"));
+  if (Owner === null)
+    "_SOLID_DEV_" &&
+      console.warn("error handlers created outside a `createRoot` or `render` will never be run");
+  else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
+  else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
+  else Owner.context[ERROR].push(fn);
+}
+
+export function getListener() {
+  return Listener;
+}
+
+export function getOwner() {
+  return Owner;
+}
+
+export function runWithOwner(o: Owner, fn: () => any) {
+  const prev = Owner;
+  Owner = o;
+  try {
+    return fn();
+  } finally {
+    Owner = prev;
+  }
+}
+
+// Transitions
+export function useTransition(): [Accessor<boolean>, (fn: () => void, cb?: () => void) => void] {
+  return [
+    transPending,
+    (fn: () => void, cb?: () => void) => {
+      if (SuspenseContext) {
+        Transition ||
+          (Transition = {
+            sources: new Set(),
+            effects: [],
+            promises: new Set(),
+            disposed: new Set(),
+            running: true,
+            cb: []
+          });
+        cb && Transition.cb.push(cb);
+        Transition.running = true;
+      }
+      batch(fn);
+      if (!SuspenseContext && cb) cb();
+    }
+  ];
+}
+
+export function resumeEffects(e: Computation<any>[]) {
+  Transition && (Transition.running = true);
+  Effects!.push.apply(Effects, e);
+  e.length = 0;
+}
+
+// Dev
+export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+  const c: Partial<Memo<JSX.Element>> = createComputation(
+    () => untrack(() => Comp(props)),
+    undefined,
+    true
+  );
+  c.pending = NOTPENDING;
+  c.observers = null;
+  c.observerSlots = null;
+  c.state = 0;
+  c.componentName = Comp.name;
+  updateComputation(c as Memo<JSX.Element>);
+  return c.tValue !== undefined ? c.tValue : c.value;
+}
+
+export function hashValue(v: any): string {
+  const s = new Set();
+  return (
+    "s" +
+    (typeof v === "string"
+      ? hash(v)
+      : hash(
+          JSON.stringify(v, (k, v) => {
+            if (typeof v === "object" && v != null) {
+              if (s.has(v)) return;
+              s.add(v);
+            }
+            return v;
+          }) || ""
+        ))
+  );
+}
+
+export function registerGraph(name: string, value: { value: unknown }): string {
+  let tryName = name;
+  if (Owner) {
+    let i = 0;
+    Owner.sourceMap || (Owner.sourceMap = {});
+    while (Owner.sourceMap[tryName]) tryName = name + "-" + ++i;
+    Owner.sourceMap[tryName] = value;
+  }
+  return tryName;
+}
+interface GraphRecord {
+  [k: string]: GraphRecord | unknown;
+}
+export function serializeGraph(owner?: Owner | null): GraphRecord {
+  owner || (owner = Owner);
+  if (!"_SOLID_DEV_" || !owner) return {};
+  return {
+    ...serializeValues(owner.sourceMap),
+    ...(owner.owned ? serializeChildren(owner) : {})
+  };
+}
+
+// Context API
+export interface Context<T> {
+  id: symbol;
+  Provider: (props: { value: T; children: any }) => any;
+  defaultValue: T;
+}
+
+export function createContext<T>(): Context<T | undefined>;
+export function createContext<T>(defaultValue: T): Context<T>;
+export function createContext<T>(defaultValue?: T): Context<T | undefined> {
+  const id = Symbol("context");
+  return { id, Provider: createProvider(id), defaultValue };
+}
+
+export function useContext<T>(context: Context<T>): T {
+  return lookup(Owner, context.id) || context.defaultValue;
+}
+
+export function children(fn: Accessor<any>): Accessor<unknown> {
+  const children = createMemo(fn);
+  return createMemo(() => resolveChildren(children()));
+}
+
+// Resource API
+type SuspenseContextType = {
+  increment?: () => void;
+  decrement?: () => void;
+  inFallback?: () => boolean;
+  effects?: Computation<any>[];
+  resolved?: boolean;
+};
+
+let SuspenseContext: Context<SuspenseContextType> & {
+  active?(): boolean;
+  increment?(): void;
+  decrement?(): void;
+};
+
+export function getSuspenseContext() {
+  return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>({}));
+}
+
+// Internal
 function readSignal(this: Signal<any> | Memo<any>) {
   if ((this as Memo<any>).state && (this as Memo<any>).sources) {
     const updates = Updates;
@@ -665,7 +691,8 @@ export function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: 
       }
       if (Updates!.length > 10e5) {
         Updates = [];
-        throw new Error("Potential Infinite Loop Detected.");
+        if ("_SOLID_DEV_") throw new Error("Potential Infinite Loop Detected.");
+        throw new Error();
       }
     }, false);
   }
@@ -708,7 +735,12 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
 }
 
-function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boolean) {
+function createComputation<T>(
+  fn: (v?: T) => T,
+  init: T | undefined,
+  pure: boolean,
+  options?: { name?: string }
+) {
   const c: Computation<T> = {
     fn,
     state: STALE,
@@ -737,9 +769,10 @@ function createComputation<T>(fn: (v?: T) => T, init: T | undefined, pure: boole
     }
     if ("_SOLID_DEV_")
       c.name =
+        (options && options.name) ||
         ((Owner as Computation<any>).name || "c") +
-        "-" +
-        (Owner.owned || (Owner as Memo<T>).tOwned!).length;
+          "-" +
+          (Owner.owned || (Owner as Memo<T>).tOwned!).length;
   }
   return c;
 }

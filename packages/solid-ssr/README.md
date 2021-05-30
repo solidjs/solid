@@ -1,10 +1,36 @@
 # `solid-ssr`
 
-This library provides tools to help with SSR. So far it's a simple Static Generator. This project is still in progress.
+This library provides tools to help with SSR. So far it's a simple Static Generator. But will add more tools in the future.
+
+## solid-ssr/static
+
+This is a simple runner that renders files and writes them to disk. It exports a single export that can be used in either CJS or ESM.
+
+```js
+renderStatic(
+  PAGES.map(p => ({
+    entry: pathToServer,
+    output: path.join(pathToPublic, `${p}.html`),
+    url: `/${p}`
+  }))
+);
+```
+
+Each entry expects 3 values:
+* entry: path to the server entry point you will be using to render the page
+* output: path to the location of the html file you wish to write
+* url: the url that will be passed on the faux request object
+
+Entry files should be async functions that return the html string in the form:
+```js
+export default async function(req) {
+  return "<html>My Page</html>"
+}
+```
+
+## Examples
 
 Look at the examples to best understand how to use it. Important I make use of conditional export maps here in node. You need the latest version of Node 14 (or latest Node 12 but this example doesn't work in Node 12, sorry).
-
-### Examples
 
 There are 4 examples all using the same shared source. It is an isomorphically routed tab navigation using Suspense, Lazy Components, and Data Fetching. They are just compiled differently and have slightly different server entry points.
 

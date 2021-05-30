@@ -35,7 +35,7 @@ describe("Testing ErrorBoundary control flow", () => {
   });
 
   test("Create an Error callback and reset", () => {
-    let r;
+    let r: () => void;
     createRoot(dispose => {
       disposer = dispose;
       <div ref={div}><ErrorBoundary fallback={(e, reset) => {
@@ -44,7 +44,7 @@ describe("Testing ErrorBoundary control flow", () => {
       }}><Component2 /></ErrorBoundary></div>;
     });
     expect(div.innerHTML).toBe("Failure");
-    r();
+    r!();
   });
 
   test("dispose", () => disposer());

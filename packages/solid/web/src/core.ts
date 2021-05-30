@@ -10,6 +10,16 @@ import {
 } from "solid-js";
 
 // reactive injection for dom-expressions
-function memo(fn: () => any, equal: boolean) { return createMemo(fn, undefined, equal); }
+function memo<T>(fn: () => T, equals: boolean) {
+  return createMemo(fn, undefined, !equals ? { equals } : undefined);
+}
 
-export { getOwner, createComponent, createRoot as root, createRenderEffect as effect, memo, sharedConfig, awaitSuspense as asyncWrap }
+export {
+  getOwner,
+  createComponent,
+  createRoot as root,
+  createRenderEffect as effect,
+  memo,
+  sharedConfig,
+  awaitSuspense as asyncWrap
+};

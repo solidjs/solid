@@ -11,18 +11,19 @@
 - [Styled JSX](https://codesandbox.io/s/solid-styled-jsx-xgx6b) A simple example of using Styled JSX with Solid.
 - [Counter Context](https://codesandbox.io/s/counter-context-gur76) Implement a global store with Context API
 - [Async Resource](https://codesandbox.io/s/2o4wmxj9zy) Ajax requests to SWAPI with Promise cancellation
+- [Async Resource GraphQL](https://codesandbox.io/s/async-resource-graphql-r4rcx?file=/index.js) Simple resource for handling graphql request.
 - [Suspense](https://codesandbox.io/s/5v67oym224) Various Async loading with Solid's Suspend control flow
 - [Suspense Tabs](https://codesandbox.io/s/solid-suspense-tabs-vkgpj) Defered loading spinners for smooth UX.
 - [SuspenseList](https://codesandbox.io/s/solid-suspenselist-eorvk) Orchestrating multiple Suspense Components.
 - [Redux Undoable Todos](https://codesandbox.io/s/pkjw38r8mj) Example from Redux site done with Solid.
 - [Simple Todos Template Literals](https://codesandbox.io/s/jpm68z1q33) Simple Todos using Lit DOM Expressions
 - [Simple Todos HyperScript](https://codesandbox.io/s/0vmjlmq94v) Simple Todos using Hyper DOM Expressions
-- [Simple async resource for calling graphql endpoint](https://codesandbox.io/s/async-resource-graphql-r4rcx?file=/index.js) Simple async resource for handling graphql endpoint.
 
 ## Demos
-- [TodoMVC](https://github.com/solidui/solid-todomvc) Classic TodoMVC example
-- [Real World Demo](https://github.com/solidui/solid-realworld) Real World Demo for Solid
-- [Hacker News](https://github.com/solidui/solid-hackernews) Hacker News Clone for Solid
+- [TodoMVC](https://github.com/solidjs/solid-todomvc) Classic TodoMVC example
+- [Real World Demo](https://github.com/solidjs/solid-realworld) Real World Demo for Solid
+- [Hacker News](https://github.com/solidjs/solid-hackernews) Hacker News Clone for Solid
+- [Storybook](https://github.com/rturnq/storybook-solid) Solid with Storybook
 
 ## Benchmarks
 - [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/main/frameworks/keyed/solid) The one and only

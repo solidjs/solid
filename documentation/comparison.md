@@ -9,7 +9,7 @@ React has had a big influence on Solid. Its unidirectional flow and explicit seg
 However, as much as Solid aligns with React's design philosophy, it works fundamentally different. React uses a Virtual DOM, and Solid does not. React's abstraction is top down component partition where render methods are called repeatedly and diffed. Whereas Solid renders each Template once in entirety constructing its reactive graph and afterwords only executes instructions related to fine-grained changes.
 
 #### Advice for migrating:
-Solid's update model is nothing like React. Or even React + MobX. Instead of thinking of function components as the `render` function, think of them as a `constructor`. Watch out for destructuring or early property access losing reactivity. You don't need explicit keys on list rows to have "keyed" behavior. Finally, there is no VDOM so imperative VDOM APIs like `React.Children` and `React.cloneElement` make no sense. I encourage finding different ways to solve problems that use these declaratively.
+Solid's update model is nothing like React. Or even React + MobX. Instead of thinking of function components as the `render` function, think of them as a `constructor`. Watch out for destructuring or early property access losing reactivity. Solid's primitives have no restrictions like the Hook Rules so you are free to nest them as you see fit. You don't need explicit keys on list rows to have "keyed" behavior. Finally, there is no VDOM so imperative VDOM APIs like `React.Children` and `React.cloneElement` make no sense. I encourage finding different ways to solve problems that use these declaratively.
 
 ## Vue
 
@@ -39,9 +39,9 @@ Knockout's bindings are just strings in HTML which are walked over at runtime. T
 The biggest difference might be that Solid's approach to batching changes which ensures synchronicity whereas Knockout has deferUpdates which uses a deferred microtask queue.
 
 #### Advice for migrating:
-If you are used Knockout, Solid's primitives might look strange to you. The read/write separation is intentional and not just to make life hard. Look to group adopting a state/action (Flux) mental model. While the libraries look similar they ppromote different best practices.
+If you are used Knockout, Solid's primitives might look strange to you. The read/write separation is intentional and not just to make life hard. Look to adopting a state/action (Flux) mental model. While the libraries look similar they ppromote different best practices.
 
-## lit-html & LighterHTML
+## Lit & LighterHTML
 
 These libraries are incredibly similar and have had some influence on Solid. Mostly that Solid's compiled code uses a very similar method to performantly initially render the DOM. Cloning Template elements and using comment placeholders are something that Solid and these libraries share in common.
 

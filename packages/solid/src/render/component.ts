@@ -9,7 +9,7 @@ import { $PROXY } from "../reactive/state";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
 
-type PropsWithChildren<P> = P & { children?: JSX.Element };
+export type PropsWithChildren<P> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
 /**
  * Takes the props of the passed component and returns its type
@@ -157,7 +157,17 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
     const clone = {};
     for (let i = 0; i < k.length; i++) {
       const key = k[i];
-      if (descriptors[key]) Object.defineProperty(clone, key, descriptors[key]);
+      Object.defineProperty(
+        clone,
+        key,
+        descriptors[key]
+          ? descriptors[key]
+          : {
+              get() {
+                return props[key];
+              }
+            }
+      );
     }
     return clone;
   });

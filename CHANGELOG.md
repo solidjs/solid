@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0
+
+### Breaking Changes
+
+#### Options Objects
+
+Most non-essential arguments on reactive primitives are now living on an options object. This was done to homogenize the API and make it easier to make future additions while remaining backwards compatible.
+
+#### on
+
+No longer uses rest parameters for multiple dependencies. Instead pass an array. This facilitates new option to defer execution until dependencies change.
+
+#### Actions renamed to Directives
+
+To remove future confusion with other uses of actions the JSX.Actions interace is now the JSX.Directives interface.
+
 ## 0.26.0 - 2021-04-09
 
 This release is about finalizing some API changes on the road to 1.0. This one has one breaking change and not much else.
@@ -53,7 +69,7 @@ These are an escape hatch for unusual events. Previously these were custom attri
 
 Now that we are supporting SSR for legacy(non-ESM) systems I need to use the main field to indicate a node env. We will be using the "browser" field for the client build in Solid. This straight up breaks Jest which doesn't respect that. I've created `solid-jest` to handle this.
 
-https://github.com/solidui/solid-jest
+https://github.com/solidjs/solid-jest
 
 ### New Features
 
@@ -63,7 +79,7 @@ Types added for Namespace attributes. You probably won't need most of these beca
 ```ts
 declare module "solid-js" {
   namespace JSX {
-    interface Actions {  // use:____
+    interface Directives {  // use:____
 
     }
     interface ExplicitProperties { // prop:____

@@ -1,3 +1,4 @@
+import type { JSX } from "../jsx";
 export const equalFn = <T>(a: T, b: T) => a === b;
 const ERROR = Symbol("error");
 
@@ -27,10 +28,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(
-  value?: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
-): [() => T, (v: T) => T] {
+export function createSignal<T>(value?: T): [() => T, (v: T) => T] {
   return [() => value as T, (v: T) => (value = v)];
 }
 
@@ -44,58 +42,42 @@ export const createRenderEffect = createComputed;
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
-export function createMemo<T>(
-  fn: (v?: T) => T,
-  value?: T,
-  areEqual?: boolean | ((prev: T, next: T) => boolean)
-): () => T {
+export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
   Owner = { owner: Owner, context: null };
   const v = fn(value);
   Owner = Owner.owner;
   return () => v;
 }
 
-export function createDeferred<T>(source: () => T, options?: { timeoutMs: number }) {
+export function createDeferred<T>(source: () => T) {
   return source;
 }
 
-export function createSelector<T>(
-  source: () => T,
-  fn: (k: T, value: T, prevValue: T | undefined) => boolean
-) {
-  return source;
+export function createSelector<T>(source: () => T, fn: (k: T, value: T) => boolean) {
+  return (k: T) => fn(k, source());
 }
 
 export function batch<T>(fn: () => T): T {
   return fn();
 }
 
-export function untrack<T>(fn: () => T): T {
-  return fn();
-}
+export const untrack = batch;
 
-type ReturnTypeArray<T> = { [P in keyof T]: T[P] extends (() => infer U) ? U : never };
-export function on<T, X extends Array<() => T>, U>(
-  ...args: X['length'] extends 1
-    ? [w: () => T, fn: (v: T, prev: T | undefined, prevResults?: U) => U]
-    : [...w: X, fn: (v: ReturnTypeArray<X>, prev: ReturnTypeArray<X> | [], prevResults?: U) => U]
-): (prev?: U) => U {
-  const fn = args.pop() as (v: T | Array<T>, p?: T | Array<T>, r?: U) => U;
-  let deps: (() => T) | Array<() => T>;
-  let isArray = true;
-  let prev: T | T[];
-  if (args.length < 2) {
-    deps = args[0] as () => T;
-    isArray = false;
-  } else deps = args as Array<() => T>;
-  return prevResult => {
-    let value: T | Array<T>;
+export function on<T, U>(
+  deps: Array<() => T> | (() => T),
+  fn: (value: Array<T> | T, prev: Array<T> | T, prevResults?: U) => U,
+  options: { defer?: boolean } = {}
+): (prev?: U) => U | undefined {
+  let isArray = Array.isArray(deps);
+  let defer = options.defer;
+  return () => {
+    if (defer) return undefined;
+    let value: Array<T> | T;
     if (isArray) {
       value = [];
-      if (!prev) prev = [];
       for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
     } else value = (deps as () => T)();
-    return fn!(value, prev, prevResult);
+    return fn!(value, undefined);
   };
 }
 
@@ -137,7 +119,7 @@ export function getOwner() {
 }
 
 export function children(fn: () => any) {
-  return resolveChildren(fn())
+  return createMemo(() => resolveChildren(fn()));
 }
 
 export function runWithOwner(o: Owner, fn: () => any) {
@@ -156,8 +138,8 @@ export function lookup(owner: Owner | null, key: symbol | string): any {
   );
 }
 
-function resolveChildren(children: any): any {
-  if (typeof children === "function") return resolveChildren(children());
+function resolveChildren(children: any): unknown {
+  if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
@@ -171,12 +153,10 @@ function resolveChildren(children: any): any {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    let rendered;
-    createRenderEffect(() => {
+    return (createMemo(() => {
       Owner!.context = { [id]: props.value };
-      rendered = resolveChildren(props.children);
-    });
-    return rendered;
+      return children(() => props.children);
+    }) as unknown) as JSX.Element;
   };
 }
 

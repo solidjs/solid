@@ -1,15 +1,19 @@
 {
   "name": "solid-ssr",
-  "description": "Patches node to work with Solid's SSR",
-  "version": "0.26.5",
+  "description": "Utilities to help with SSR",
+  "version": "1.0.0-rc.1",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/solidui/solid/solid-ssr"
+    "url": "https://github.com/solidjs/solid/blob/main/packages/solid-ssr"
   },
-  "main": "index.js",
-  "types": "index.d.ts",
+  "exports": {
+    "./static": {
+      "require": "./static/index.js",
+      "import": "./static/index.mjs"
+    }
+  },
   "files": [
     "static"
   ],
@@ -24,12 +28,9 @@
     "start:example:stream": "node examples/stream/lib/index.js"
   },
   "devDependencies": {
-    "babel-preset-solid": "^0.26.5",
+    "babel-preset-solid": "^1.0.0-rc.1",
     "express": "^4.17.1",
-    "solid-js": "^0.26.5",
+    "solid-js": "^1.0.0-rc.1",
     "solid-styled-components": "^0.26.3"
-  },
-  "peerDependencies": {
-    "solid-js": "*"
   }
 }

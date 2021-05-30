@@ -1,12 +1,12 @@
-import { onCleanup, createRoot, untrack, createSignal, Owner } from "./signal";
+import { onCleanup, createRoot, untrack, createSignal, Owner, Accessor } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function mapArray<T, U>(
-  list: () => readonly T[],
-  mapFn: (v: T, i: () => number) => U,
-  options: { fallback?: () => any } = {}
+  list: Accessor<readonly T[]>,
+  mapFn: (v: T, i: Accessor<number>) => U,
+  options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
   let items: (T | typeof FALLBACK)[] = [],
     mapped: U[] = [],
@@ -135,9 +135,9 @@ export function mapArray<T, U>(
 }
 
 export function indexArray<T, U>(
-  list: () => readonly T[],
-  mapFn: (v: () => T, i: number) => U,
-  options: { fallback?: () => any } = {}
+  list: Accessor<readonly T[]>,
+  mapFn: (v: Accessor<T>, i: number) => U,
+  options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
   let items: (T | typeof FALLBACK)[] = [],
     mapped: U[] = [],
@@ -196,7 +196,7 @@ export function indexArray<T, U>(
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;
-      const [s, set] = createSignal(newItems[i], false);
+      const [s, set] = createSignal(newItems[i]);
       signals[i] = set;
       return mapFn(s, i);
     }
