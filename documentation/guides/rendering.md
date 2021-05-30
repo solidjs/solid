@@ -37,6 +37,8 @@ import { render } from "solid-js/web";
 
 render(() => <App />, document.getElementById("main"));
 ```
+
+> **Important** The first argument needs to be a function. Otherwise we can't properly track and schedule the reactive system. This simple ommission will cause your Effects not to run.
 ## Components
 
 Components in Solid are just Pascal (Capital) cased functions. Their first argument is a props object and they return real DOM nodes.
@@ -277,50 +279,3 @@ const List = (props) => {
 ```
 
 **Important:** Solid treats child tags as expensive expressions and wraps them the same way as dynamic reactive expressions. This means they evaluate lazily on `prop` access. Be careful accessing them multiple times or destructuring before the place you would use them in the view. This is because Solid doesn't have the luxury of creating Virtual DOM nodes ahead of time and then diffing them, so resolution of these `props` must be lazy and deliberate. Use `children` helper if you wish to do this as it memoizes them.
-
-## Lifecycle
-
-All lifecycles in Solid are tied to the lifecycle of the reactive system.
-
-If you wish to perform some side effect on mount or after update use `createEffect` after render has complete:
-
-```jsx
-import { createSignal, createEffect } from "solid-js";
-
-function Example() {
-  const [count, setCount] = createSignal(0);
-
-  createEffect(() => {
-    document.title = `You clicked ${count()} times`;
-  });
-
-  return (
-    <div>
-      <p>You clicked {count()} times</p>
-      <button onClick={() => setCount(count() + 1)}>Click me</button>
-    </div>
-  );
-}
-```
-
-For convenience if you need to only run it once you can use `onMount` which is the same as `createEffect` but it will only run once. Keep in mind that Solid's cleanup is independent of this mechanism. So if you aren't reading the DOM you don't need to use these.
-
-If you wish to release resources on the Component being destroyed, simply wrap in an `onCleanup`.
-
-```jsx
-const Ticker = () => {
-  const [state, setState] = createState({ count: 0 }),
-    t = setInterval(() => setState({ count: state.count + 1 }), 1000);
-
-  // remove interval when Component destroyed:
-  onCleanup(() => clearInterval(t));
-
-  return <div>{state.count}</div>;
-};
-```
-
-## Web Components
-
-Since change management is independent of code modularization, Solid Templates are sufficient to act as Components. Solid fits easily into other Component structures like Web Components.
-
-[Solid Element](https://github.com/solidjs/solid/tree/main/packages/solid-element) Provides an out of the box solution for wrapping your Solid Components as Custom Elements.

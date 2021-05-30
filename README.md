@@ -105,15 +105,17 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
+> This is the documentation for the 1.0.0 RC. THese are significantly slimmed down from what was here previously as we are moving things to the new Docs site. If you wish to see the older docs in the mean time [look here](https://github.com/solidjs/solid/tree/0.x/#documentation).
+
 - [API](https://github.com/solidjs/solid/blob/main/documentation/api.md)
 - [FAQ](https://github.com/solidjs/solid/blob/main/documentation/faq.md)
 - [Comparison with other Libraries](https://github.com/solidjs/solid/blob/main/documentation/comparison.md)
 
 ### Guides
-- [Getting Started](https://github.com/solidjs/solid/blob/next/documentation/guides/getting-started.md)
-- [Reactivity](https://github.com/solidjs/solid/blob/next/documentation/guides/reactivity.md)
-- [Rendering](https://github.com/solidjs/solid/blob/next/documentation/guides/rendering.md)
-- [SSR](https://github.com/solidjs/solid/blob/next/documentation/guides/server.md)
+- [Getting Started](https://github.com/solidjs/solid/blob/main/documentation/guides/getting-started.md)
+- [Reactivity](https://github.com/solidjs/solid/blob/main/documentation/guides/reactivity.md)
+- [Rendering](https://github.com/solidjs/solid/blob/main/documentation/guides/rendering.md)
+- [SSR](https://github.com/solidjs/solid/blob/main/documentation/guides/server.md)
 
 ### Resources
 

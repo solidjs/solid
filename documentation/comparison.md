@@ -9,7 +9,7 @@ React has had a big influence on Solid. Its unidirectional flow and explicit seg
 However, as much as Solid aligns with React's design philosophy, it works fundamentally different. React uses a Virtual DOM, and Solid does not. React's abstraction is top down component partition where render methods are called repeatedly and diffed. Whereas Solid renders each Template once in entirety constructing its reactive graph and afterwords only executes instructions related to fine-grained changes.
 
 #### Advice for migrating:
-Solid's update model is nothing like React. Or even React + MobX. Instead of thinking of function components as the `render` function, think of them as a `constructor`. Watch out for destructuring or early property access losing reactivity. You don't need explicit keys on list rows to have "keyed" behavior. Finally, there is no VDOM so imperative VDOM APIs like `React.Children` and `React.cloneElement` make no sense. I encourage finding different ways to solve problems that use these declaratively.
+Solid's update model is nothing like React. Or even React + MobX. Instead of thinking of function components as the `render` function, think of them as a `constructor`. Watch out for destructuring or early property access losing reactivity. Solid's primitives have no restrictions like the Hook Rules so you are free to nest them as you see fit. You don't need explicit keys on list rows to have "keyed" behavior. Finally, there is no VDOM so imperative VDOM APIs like `React.Children` and `React.cloneElement` make no sense. I encourage finding different ways to solve problems that use these declaratively.
 
 ## Vue
 

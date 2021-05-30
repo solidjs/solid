@@ -12,6 +12,10 @@ Most non-essential arguments on reactive primitives are now living on an options
 
 No longer uses rest parameters for multiple dependencies. Instead pass an array. This facilitates new option to defer execution until dependencies change.
 
+#### Actions renamed to Directives
+
+To remove future confusion with other uses of actions the JSX.Actions interace is now the JSX.Directives interface.
+
 ## 0.26.0 - 2021-04-09
 
 This release is about finalizing some API changes on the road to 1.0. This one has one breaking change and not much else.
