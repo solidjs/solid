@@ -2,13 +2,13 @@
 
 ## Try Solid
 
-By far the easiest way to get started with Solid is trying it online. Our REPL at https://playground.solidjs.com is the perfect way to try out ideas. As is https://codesandbox.io/ where you can modify any of our [examples](../resources/examples.md).
+By far the easiest way to get started with Solid is to. try it online. Our REPL at https://playground.solidjs.com is the perfect way to try out ideas. As is https://codesandbox.io/ where you can modify any of our [examples](../resources/examples.md).
 
-Alternatively you can use our CLI to bootstrap client-side a project (based on [Create React App](https://github.com/facebook/create-react-app)).
+Alternatively, you can use our CLI to bootstrap client-side a project (based on [Create React App](https://github.com/facebook/create-react-app)).
 
 > _`npm init solid <project-type> <project-name>` is available with npm 6+._
 
-You can get started with a simple app with the CLI with by running:
+You can get started with a simple CLI app by running:
 
 ```sh
 > npm init solid app my-app
@@ -22,7 +22,7 @@ Or for a TypeScript starter:
 
 ## Learn Solid
 
-Solid is all about small composable pieces that serve as building blocks for our applications. These pieces are mostly functions which make up many shallow top-level APIs. Fortunately to start you won't need to know about most of them.
+Solid is all about small composable pieces that serve as building blocks for applications. These pieces are mostly functions which make up many shallow top-level APIs. Fortunately, to start, you won't need to know about most of them.
 
 The two main types of building blocks you have at your disposal are Components and Reactive Primitves.
 
@@ -36,7 +36,7 @@ function MyComponent(props) {
 <MyComponent name="Solid" />
 ```
 
-Components are lightweight as they are not stateful themselves and have no instances but instead serve as factory functions for our DOM elements and reactive primitives.
+Components are lightweight in that they are not stateful themselves and have no instances but instead serve as factory functions for DOM elements and reactive primitives.
 
 Solid's fine-grained reactivity is built on 3 simple primitives, Signals, Memos, and Effects. They form an auto-tracking synchronization engine that ensures your view stays up to date. Reactive computations take the form of simple function-wrapped expressions that execute synchronously.
 
@@ -47,13 +47,13 @@ const [last, setLast] = createSignal("Bourne");
 createEffect(() => console.log(`${first()} ${last()}`))
 ```
 
-You can learn more here about [Solid's Reactivity](reactivity.md) and [Solid's Rendering](rendering.md).
+You can learn more about them here [Solid's Reactivity](reactivity.md) and [Solid's Rendering](rendering.md).
 
-You can also view our full [API Reference](../api.md)
+You can also view full [API Reference](../api.md)
 
 ## Think Solid
 
-Solid's design carries several opinions on what principles and values help us best make websites and applications. It is easier to learn and use Solid when aware of the philosophy behind it.
+Solid's design carries several opinions and principles on how to create websites and applications. It is easier to learn and use Solid knowing the philosophy behind it.
 
 ### 1. Declarative Data
 
@@ -61,7 +61,7 @@ Declarative data is the practice of tying the description of data’s behavior t
 
 ### 2. Vanishing Components
 
-It's hard enough to structure your components without taking updates into consideration. Solid updates are completely independent of the components. Component functions are called once and then cease to exist. Components exists to organize your code and not much else.
+It's hard enough to structure your components without taking updates into consideration. Solid updates are completely independent of the components. Component functions are called once and then cease to exist. Components exist to organize your code and not much else.
 
 ### 3. Read/Write segregation
 
