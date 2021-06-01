@@ -104,23 +104,23 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-- [Reactivity](https://github.com/solidui/solid/blob/main/documentation/reactivity.md)
-- [State](https://github.com/solidui/solid/blob/main/documentation/state.md)
-- [JSX Rendering](https://github.com/solidui/solid/blob/main/documentation/rendering.md)
-- [Components](https://github.com/solidui/solid/blob/main/documentation/components.md)
-- [Styling](https://github.com/solidui/solid/blob/main/documentation/styling.md)
-- [Context](https://github.com/solidui/solid/blob/main/documentation/context.md)
-- [Suspense](https://github.com/solidui/solid/blob/main/documentation/suspense.md)
-- [API](https://github.com/solidui/solid/blob/main/documentation/api.md)
-- [FAQ](https://github.com/solidui/solid/blob/main/documentation/faq.md)
-- [Comparison with other Libraries](https://github.com/solidui/solid/blob/main/documentation/comparison.md)
-- [Storybook](https://github.com/solidui/solid/blob/main/documentation/storybook.md)
+- [Reactivity](https://github.com/solidjs/solid/blob/0.x/documentation/reactivity.md)
+- [State](https://github.com/solidjs/solid/blob/0.x/documentation/state.md)
+- [JSX Rendering](https://github.com/solidjs/solid/blob/0.x/documentation/rendering.md)
+- [Components](https://github.com/solidjs/solid/blob/0.x/documentation/components.md)
+- [Styling](https://github.com/solidjs/solid/blob/0.x/documentation/styling.md)
+- [Context](https://github.com/solidjs/solid/blob/0.x/documentation/context.md)
+- [Suspense](https://github.com/solidjs/solid/blob/0.x/documentation/suspense.md)
+- [API](https://github.com/solidjs/solid/blob/0.x/documentation/api.md)
+- [FAQ](https://github.com/solidjs/solid/blob/0.x/documentation/faq.md)
+- [Comparison with other Libraries](https://github.com/solidjs/solid/blob/0.x/documentation/comparison.md)
+- [Storybook](https://github.com/solidjs/solid/blob/0.x/documentation/storybook.md)
 
 ## Resources
 
-- [Examples](https://github.com/solidui/solid/blob/main/documentation/resources/examples.md)
-- [Articles](https://github.com/solidui/solid/blob/main/documentation/resources/articles.md)
-- [Projects](https://github.com/solidui/solid/blob/main/documentation/resources/projects.md)
+- [Examples](https://github.com/solidjs/solid/blob/0.x/documentation/resources/examples.md)
+- [Articles](https://github.com/solidjs/solid/blob/0.x/documentation/resources/articles.md)
+- [Projects](https://github.com/solidjs/solid/blob/0.x/documentation/resources/projects.md)
 
 ## No Compilation?
 
