@@ -147,7 +147,7 @@ export default function Form() {
 
 In this example, what we probably want to happen is for the `BasicComponent` to display the current value typed into the `input`. But, as a reminder, the `BasicComponent` function will only be executed once when the component is initially created. At this time (at creation), `props.value` will equal `''`. This means that `const value` in `BasicComponent` will resolve to `'default'` and never update. While the `props` object is reactive, accessing the props in `const value = props.value || 'default';` is outside the observable scope of Solid, so it isn't automatically re-evaluated when props change.
 
-So how can we fix out problem?
+So how can we fix our problem?
 
 Well, in general, we need to access `props` somewhere that Solid can observe it. Generally this means inside JSX or inside a `createMemo`, `createEffect`, or thunk(`() => ...`). Here is one solution that works as expected:
 
