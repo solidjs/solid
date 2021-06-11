@@ -9,9 +9,7 @@ export function For<T, U extends JSX.Element>(props: {
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
-    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined),
-    undefined,
-    { equals: false }
+    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
   );
 }
 
@@ -23,9 +21,7 @@ export function Index<T, U extends JSX.Element>(props: {
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return createMemo(
-    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined),
-    undefined,
-    { equals: false }
+    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
   );
 }
 
@@ -87,7 +83,7 @@ export type MatchProps<T> = {
   children: JSX.Element | ((item: T) => JSX.Element);
 };
 export function Match<T>(props: MatchProps<T>) {
-  return (props as unknown) as JSX.Element;
+  return props as unknown as JSX.Element;
 }
 
 export function ErrorBoundary(props: {

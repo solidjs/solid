@@ -334,7 +334,7 @@ createEffect(() => {
 });
 ```
 
-You can also not run the compoutation immediately and instead opt in for it to only run on change by setting the defer option to true.
+You can also not run the computation immediately and instead opt in for it to only run on change by setting the defer option to true.
 
 ```js
 // doesn't run immediately
@@ -750,13 +750,13 @@ export function renderToString<T>(
     eventNames?: string[];
     nonce?: string;
   }
-): { html: string; script: string };
+): string;
 ```
 
 Renders to a string synchronously. The function also generates a script tag for progressive hydration. Options include eventNames to listen to before the page loads and play back on hydration, and nonce to put on the script tag.
 
 ```js
-const { html, script } = renderToString(App);
+const html = renderToString(App);
 ```
 
 ## `renderToStringAsync`
@@ -769,68 +769,72 @@ export function renderToStringAsync<T>(
     timeoutMs?: number;
     nonce?: string;
   }
-): Promise<{ html: string; script: string }>;
+): Promise<string>;
 ```
 
 Same as `renderToString` except it wait for all `<Suspense>` boundaries to resolve before returning the results. Resource data is automatically serialized into the script tag and will be hydrated on client load.
 
 ```js
-const { html, script } = await renderToStringAsync(App);
+const html = await renderToStringAsync(App);
 ```
 
-## `renderToNodeStream`
+## `pipeToNodeWritable`
 
 ```ts
-export function renderToNodeStream<T>(
+export type PipeToWritableResults = {
+  startWriting: () => void;
+  write: (v: string) => void;
+  abort: () => void;
+};
+export function pipeToNodeWritable<T>(
   fn: () => T,
+  writable: { write: (v: string) => void },
   options?: {
     eventNames?: string[];
     nonce?: string;
+    noScript?: boolean;
+    onReady?: (r: PipeToWritableResults) => void;
+    onComplete?: (r: PipeToWritableResults) => void | Promise<void>;
   }
-): {
-  stream: NodeJS.ReadableStream;
-  script: string;
-};
+): void;
 ```
 
 This method renders to a Node stream. It renders the content synchronously including any Suspense fallback placeholders, and then continues to stream the data from any async resource as it completes.
 
 ```js
-const { stream, script } = renderToNodeStream(App);
+pipeToNodeWritable(App, res);
 ```
+The `onReady` option is useful for writing into the stream around the the core app rendering. Remember if you use `onReady` to manually call `startWriting`
 
-## `renderToWebStream`
+## `pipeToWritable`
 
 ```ts
-export function renderToWebStream<T>(
+export type PipeToWritableResults = {
+  write: (v: string) => void;
+  abort: () => void;
+  script: string;
+};
+export function pipeToWritable<T>(
   fn: () => T,
+  writable: WritableStream,
   options?: {
     eventNames?: string[];
     nonce?: string;
+    noScript?: boolean;
+    onReady?: (writable: { write: (v: string) => void }, r: PipeToWritableResults) => void;
+    onComplete?: (writable: { write: (v: string) => void }, r: PipeToWritableResults) => void;
   }
-): {
-  writeTo: (writer: WritableStreamDefaultWriter) => Promise<void>;
-  script: string;
-};
+): void;
 ```
 
-This method renders to a web stream. It renders the content synchronously including any Suspense fallback placeholders, and then continues to stream the data from any async resource as it completes. The `writeTo` method takes a WritableStream writer.
+This method renders to a web stream. It renders the content synchronously including any Suspense fallback placeholders, and then continues to stream the data from any async resource as it completes.
 
 ```js
 const { readable, writable } = new TransformStream();
-const writer = writable.getWriter();
-const encoder = new TextEncoder();
-
-const { writeTo, script } = renderToWebStream(App);
-
-// Write the head of your document
-writer.write(encoder.encode(htmlStart));
-writeTo(writer).then(() => {
-  // Write the end of your document
-  writer.write(encoder.encode(htmlEnd));
-  writer.close();
-});
+pipeToWritable(App, writable);
 ```
+
+The `onReady` option is useful for writing into the stream around the the core app rendering. Remember if you use `onReady` to manually call `startWriting`
 
 ## `isServer`
 

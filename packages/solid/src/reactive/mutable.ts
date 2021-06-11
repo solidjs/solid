@@ -1,4 +1,4 @@
-import { Listener, hashValue, registerGraph, batch } from "./signal";
+import { Listener, hashValue, registerGraph, batch, readSignal } from "./signal";
 import {
   unwrap,
   isWrappable,
@@ -26,11 +26,11 @@ const proxyTraps: ProxyHandler<StateNode> = {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = createDataNode());
-        node();
+        readSignal.call(node);
       }
       nodes = getDataNodes(target);
       node = nodes[property] || (nodes[property] = createDataNode());
-      node();
+      readSignal.call(node);
     }
     return wrappable
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)

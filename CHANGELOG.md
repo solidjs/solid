@@ -4,6 +4,10 @@
 
 ### Breaking Changes
 
+#### SSR Entry points
+
+`renderToString` and `renderToStringAsync` now auto insert there scripts and only return their markup. There is a new option `noScript` to not include the scripts in the output. `renderToNodeStream` and `renderToWebStream` have been replaced with `pipeToNodeWritable` and `pipeToWritable`.
+
 #### Options Objects
 
 Most non-essential arguments on reactive primitives are now living on an options object. This was done to homogenize the API and make it easier to make future additions while remaining backwards compatible.

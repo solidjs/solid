@@ -1,4 +1,12 @@
-import { Listener, createSignal, batch, hashValue, registerGraph } from "./signal";
+import {
+  Listener,
+  batch,
+  hashValue,
+  registerGraph,
+  NOTPENDING,
+  readSignal,
+  writeSignal
+} from "./signal";
 export const $RAW = Symbol("state-raw"),
   $NODE = Symbol("state-node"),
   $PROXY = Symbol("state-proxy"),
@@ -107,11 +115,12 @@ export function proxyDescriptor(target: StateNode, property: string | number | s
 }
 
 export function createDataNode() {
-  const [s, set] = ("_SOLID_DEV_"
-    ? createSignal(undefined, { equals: false, internal: true })
-    : createSignal(undefined, { equals: false })) as [{ (): void; set: () => void }, () => void];
-  s.set = set;
-  return s;
+  return {
+    value: undefined,
+    observers: null,
+    observerSlots: null,
+    pending: NOTPENDING
+  };
 }
 
 const proxyTraps: ProxyHandler<StateNode> = {
@@ -126,11 +135,11 @@ const proxyTraps: ProxyHandler<StateNode> = {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = createDataNode());
-        node();
+        readSignal.call(node);
       }
       nodes = getDataNodes(target);
       node = nodes[property] || (nodes[property] = createDataNode());
-      node();
+      readSignal.call(node);
     }
     return wrappable
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
@@ -158,9 +167,9 @@ export function setProperty(state: StateNode, property: string | number, value: 
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && node.set();
-  if (array && state.length !== len) (node = nodes.length) && node.set();
-  notify && (node = nodes._) && node.set();
+  (node = nodes[property]) && writeSignal.call(node, undefined);
+  if (array && state.length !== len) (node = nodes.length) && writeSignal.call(node, undefined);
+  notify && (node = nodes._) && writeSignal.call(node, undefined);
 }
 
 function mergeState(state: StateNode, value: Partial<StateNode>) {
@@ -226,7 +235,10 @@ export type StateSetter<T> =
     ) => Partial<T> | void);
 export type StatePathRange = { from?: number; to?: number; by?: number };
 
-export type ArrayFilterFn<T> = (item: T extends any[] ? T[number] : never, index: number) => boolean;
+export type ArrayFilterFn<T> = (
+  item: T extends any[] ? T[number] : never,
+  index: number
+) => boolean;
 
 export type Part<T> = keyof T | Array<keyof T> | StatePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
 

@@ -65,7 +65,7 @@ export const untrack = batch;
 
 export function on<T, U>(
   deps: Array<() => T> | (() => T),
-  fn: (value: Array<T> | T, prev: Array<T> | T, prevResults?: U) => U,
+  fn: (value: Array<T> | T, prev?: Array<T> | T, prevResults?: U) => U,
   options: { defer?: boolean } = {}
 ): (prev?: U) => U | undefined {
   let isArray = Array.isArray(deps);
@@ -77,7 +77,7 @@ export function on<T, U>(
       value = [];
       for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
     } else value = (deps as () => T)();
-    return fn!(value, undefined);
+    return fn!(value);
   };
 }
 

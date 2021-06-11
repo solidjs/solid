@@ -1,6 +1,17 @@
-import { onCleanup, createRoot, untrack, createSignal, Owner, Accessor } from "./signal";
+import {
+  onCleanup,
+  createRoot,
+  untrack,
+  createSignal,
+  Owner,
+  Accessor,
+  Transition
+} from "./signal";
 
 const FALLBACK = Symbol("fallback");
+function dispose(d: (() => void)[]) {
+  for (let i = 0; i < d.length; i++) d[i]();
+}
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function mapArray<T, U>(
@@ -15,9 +26,7 @@ export function mapArray<T, U>(
     indexes: ((v: number) => number)[] | null = mapFn.length > 1 ? [] : null,
     ctx = Owner!;
 
-  onCleanup(() => {
-    for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
-  });
+  onCleanup(() => dispose(disposers));
   return () => {
     let newItems = list() || [],
       i: number,
@@ -37,7 +46,10 @@ export function mapArray<T, U>(
       // fast path for empty arrays
       if (newLen === 0) {
         if (len !== 0) {
-          for (i = 0; i < len; i++) disposers[i]();
+          if (!Transition) {
+            const d = disposers;
+            setTimeout(() => dispose(d));
+          } else dispose(disposers);
           disposers = [];
           items = [];
           mapped = [];
@@ -55,6 +67,7 @@ export function mapArray<T, U>(
       }
       // fast path for new create
       else if (len === 0) {
+        mapped = new Array(newLen);
         for (j = 0; j < newLen; j++) {
           items[j] = newItems[j];
           mapped[j] = createRoot(mapper, ctx);
@@ -116,7 +129,7 @@ export function mapArray<T, U>(
           } else mapped[j] = createRoot(mapper, ctx);
         }
         // 3) in case the new set is shorter than the old, set the length of the mapped array
-        len = mapped.length = newLen;
+        mapped = mapped.slice(0, (len = newLen));
         // 4) save a copy of the mapped items for the next update
         items = newItems.slice(0);
       }
@@ -147,15 +160,16 @@ export function indexArray<T, U>(
     i: number,
     ctx = Owner!;
 
-  onCleanup(() => {
-    for (let i = 0, length = disposers.length; i < length; i++) disposers[i]();
-  });
+  onCleanup(() => dispose(disposers));
   return () => {
     const newItems = list() || [];
     return untrack(() => {
       if (newItems.length === 0) {
         if (len !== 0) {
-          for (i = 0; i < len; i++) disposers[i]();
+          if (!Transition) {
+            const d = disposers;
+            setTimeout(() => dispose(d));
+          } else dispose(disposers);
           disposers = [];
           items = [];
           mapped = [];
@@ -190,9 +204,9 @@ export function indexArray<T, U>(
       for (; i < items.length; i++) {
         disposers[i]();
       }
-      len = mapped.length = signals.length = disposers.length = newItems.length;
+      len = signals.length = disposers.length = newItems.length;
       items = newItems.slice(0);
-      return mapped;
+      return (mapped = mapped.slice(0, len));
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;

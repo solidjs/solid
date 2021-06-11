@@ -9,8 +9,9 @@ Building for SSR definitely takes a bit more configuration because we will be ge
 ```jsx
 import { hydrate } from "solid-js/web";
 
-hydrate(() => <App />, document.getElementById("main"));
+hydrate(() => <App />, document);
 ```
+*Note: It is possible to render and hydrate from the Document root. This allows us to describe our full view in JSX.*
 
 The server entry can use one of the four rendering options offered by Solid. Each produces the output and a script tag to be inserted in the head of the document.
 
@@ -23,20 +24,17 @@ import {
 } from "solid-js/web";
 
 // Synchronous string rendering
-const { html, script } = renderToString(() => <App />);
+const html = renderToString(() => <App />);
 
 // Asynchronous string rendering
-const { html, script } = await renderToStringAsync(() => <App />);
+const html = await renderToStringAsync(() => <App />);
 
 // Node Stream API
-const { stream, script } = renderToNodeStream(() => <App />);
-stream.pipe(res, { end: false }); // pipe it to the response
+pipeToNodeWritable(App, res);
 
 // Web Stream API (for like Cloudflare Workers)
-const { writeTo, script } = renderToWebStream(() => <App />);
 const { readable, writable } = new TransformStream();
-const writer = writable.getWriter();
-writeTo(writer).then(() => writer.close());
+pipeToWritable(() => <App />, writable);
 ```
 For your convenience `solid-js/web` exports an `isServer` flag. This is useful as most bundlers will be able to treeshake anything under this flag or imports only used by code under this flag out of your client bundle.
 

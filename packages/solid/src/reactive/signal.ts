@@ -9,7 +9,7 @@ const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
 
-const NOTPENDING = {};
+export const NOTPENDING = {};
 const STALE = 1;
 const PENDING = 2;
 const UNOWNED: Owner = {
@@ -24,7 +24,7 @@ export var Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
-let Transition: Transition | null = null;
+export let Transition: Transition | null = null;
 let ExecCount = 0;
 let rootCount = 0;
 
@@ -107,11 +107,11 @@ export function createSignal<T>(): [
 ];
 export function createSignal<T>(
   value: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; }
 ): [get: Accessor<T>, set: (v: T) => T];
 export function createSignal<T>(
   value?: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; }
 ): [get: Accessor<T>, set: (v: T) => T] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
@@ -121,7 +121,7 @@ export function createSignal<T>(
     pending: NOTPENDING,
     comparator: options.equals || undefined
   };
-  if ("_SOLID_DEV_" && (!options || !options.internal))
+  if ("_SOLID_DEV_")
     s.name = registerGraph((options && options.name) || hashValue(value), s as { value: unknown });
 
   return [readSignal.bind(s), writeSignal.bind(s)];
@@ -631,7 +631,7 @@ export function getSuspenseContext() {
 }
 
 // Internal
-function readSignal(this: Signal<any> | Memo<any>) {
+export function readSignal(this: Signal<any> | Memo<any>) {
   if ((this as Memo<any>).state && (this as Memo<any>).sources) {
     const updates = Updates;
     Updates = null;
