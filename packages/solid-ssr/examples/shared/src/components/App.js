@@ -1,4 +1,5 @@
 import { useContext, lazy } from "solid-js";
+import { HydrationScript } from "solid-js/web";
 import { Link, RouteHOC, RouterContext } from "../router";
 // import stub as main package to allowing fetch as you load
 import Profile from "./Profile";
@@ -15,6 +16,7 @@ const App = RouteHOC(() => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="stylesheet" href="/styles.css" />
+        <HydrationScript />
       </head>
       <body>
         <div id="app">

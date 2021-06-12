@@ -11,7 +11,8 @@ import { hydrate } from "solid-js/web";
 
 hydrate(() => <App />, document);
 ```
-*Note: It is possible to render and hydrate from the Document root. This allows us to describe our full view in JSX.*
+
+_Note: It is possible to render and hydrate from the Document root. This allows us to describe our full view in JSX._
 
 The server entry can use one of the four rendering options offered by Solid. Each produces the output and a script tag to be inserted in the head of the document.
 
@@ -36,15 +37,56 @@ pipeToNodeWritable(App, res);
 const { readable, writable } = new TransformStream();
 pipeToWritable(() => <App />, writable);
 ```
+
 For your convenience `solid-js/web` exports an `isServer` flag. This is useful as most bundlers will be able to treeshake anything under this flag or imports only used by code under this flag out of your client bundle.
 
 ```jsx
-import { isServer } from "solid-js/web"
+import { isServer } from "solid-js/web";
 
 if (isServer) {
   // only do this on the server
 } else {
   // only do this in the browser
+}
+```
+
+## Hydration Script
+
+In order to progressively hydrate even before Solid's runtime loads, a special script needs to be inserted on the page. It can either be generated and inserted via `generateHydrationScript`or included as part of the JSX using the `<HydrationScript />` tag.
+
+```js
+import { generateHydrationScript } from "solid-js/web";
+
+const app = renderToString(() => <App />);
+
+const html = `
+  <html lang="en">
+    <head>
+      <title>🔥 Solid SSR 🔥</title>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="stylesheet" href="/styles.css" />
+      ${generateHydrationScript()}
+    </head>
+    <body>${app}</body>
+  </html>
+`
+```
+
+```jsx
+import { HydrationScript } from "solid-js/web";
+
+const App = () => {
+  return <html lang="en">
+    <head>
+      <title>🔥 Solid SSR 🔥</title>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="stylesheet" href="/styles.css" />
+      <HydrationScript />
+    </head>
+    <body>{/*... rest of App*/}</body>
+  </html>
 }
 ```
 
@@ -57,9 +99,10 @@ Async rendering waits until all Suspense boundaries resolve and then sends the r
 Streaming starts flushing synchronous content to the browser immediately rendering your Suspense Fallbacks on the server. Then as the async data finishes on the server it sends the data over the same stream to the client to resolve Suspense where the browser finishes the job and replaces the fallback with real content.
 
 The advantage of this approach:
-* Server doesn't have to wait for Async data to respond. Assets can start loading sooner in the browser, and the user can start seeing content sooner.
-* Compared to client fetching like JAMStack, data loading starts on the server immediately and doesn't have to wait for client JavaScript to load.
-* All data is serialized and transported from server to client automatically.
+
+- Server doesn't have to wait for Async data to respond. Assets can start loading sooner in the browser, and the user can start seeing content sooner.
+- Compared to client fetching like JAMStack, data loading starts on the server immediately and doesn't have to wait for client JavaScript to load.
+- All data is serialized and transported from server to client automatically.
 
 ## SSR Caveats
 
