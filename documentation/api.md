@@ -145,6 +145,15 @@ setState({ merge: "thisValue" });
 
 setState("path", "to", "value", newValue);
 ```
+State objects being proxies only track on property access. And on access State recursively produces nested State objects on nested data. However it only wraps arrays and plain objects. Classes are not wrapped. So things like `Date`, `HTMLElement`, `Regexp`, `Map`, `Set` are not granularly reactive. Additionally, the top level state object cannot be tracked without accessing a property on it. So it is not suitable to use for things you iterate over as adding new keys or indexes cannot trigger updates. So put any lists on a key of state rather than trying to use the state object itself.
+
+```js
+// put the list as a key on the state object
+const [state, setState] = createState({ list: [] });
+
+// access the `list` property on the state object
+<For each={state.list}>{item => /*...*/}</For>
+```
 
 ### Getters
 
@@ -180,7 +189,7 @@ fullName = createMemo(() => `${state.firstName} ${state.lastName}`);
 
 ### Setting State
 
-Changes can take the form of function that passes previous state and returns new state or a value. Objects are always merged. Set values to `undefined` to delete them from state.
+Changes can take the form of function that passes previous state and returns new state or a value. Objects are always shallowly merged. Set values to `undefined` to delete them from state.
 
 ```js
 const [state, setState] = createState({ firstName: "John", lastName: "Miller" });
