@@ -107,11 +107,11 @@ export function createSignal<T>(): [
 ];
 export function createSignal<T>(
   value: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
 ): [get: Accessor<T>, set: (v: T) => T];
 export function createSignal<T>(
   value?: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
 ): [get: Accessor<T>, set: (v: T) => T] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
@@ -306,7 +306,10 @@ export function createResource<T, U>(
     }
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
-      initP || (fetcher as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>)(lookup, s);
+      initP ||
+      untrack(() =>
+        (fetcher as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>)(lookup, s)
+      );
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);
@@ -405,7 +408,7 @@ export function createSelector<T, U>(
 export function batch<T>(fn: () => T): T {
   if (Pending) return fn();
   let result;
-  const q: Signal<any>[] = Pending = [];
+  const q: Signal<any>[] = (Pending = []);
   try {
     result = fn();
   } finally {
@@ -985,10 +988,10 @@ function resolveChildren(children: any): unknown {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    return (createMemo(() => {
+    return createMemo(() => {
       Owner!.context = { [id]: props.value };
       return children(() => props.children);
-    }) as unknown) as JSX.Element;
+    }) as unknown as JSX.Element;
   };
 }
 
