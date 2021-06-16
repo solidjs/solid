@@ -203,7 +203,7 @@ export function lazy<T extends Component<any>>(
       const [s, set] = createSignal<T>();
       (p || (p = fn())).then(mod => {
         setHydrateContext(ctx);
-        set(mod.default);
+        set(() => mod.default);
         setHydrateContext(undefined);
       });
       comp = s;

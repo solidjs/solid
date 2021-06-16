@@ -81,6 +81,11 @@ describe("Update signals", () => {
     setValue(10);
     expect(value()).toBe(10);
   });
+  test("Create and update a Signal with fn", () => {
+    const [value, setValue] = createSignal(5);
+    setValue(p => p + 5);
+    expect(value()).toBe(10);
+  });
   test("Create Signal and set different value", () => {
     const [value, setValue] = createSignal(5);
     setValue(10);
@@ -168,12 +173,27 @@ describe("Batch signals", () => {
           setB(1);
         });
       });
-      createRenderEffect(() => {
-        count += 1;
-      });
-      createComputed(() => a() + b(), 0);
+      createComputed(() => count = a() + b());
       setTimeout(() => {
-        expect(count).toBe(1);
+        expect(count).toBe(2);
+        done();
+      });
+    });
+  });
+  test("Groups updates with fn setSignal", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      const [b, setB] = createSignal(0);
+      createEffect(() => {
+        batch(() => {
+          setA(a => a + 1);
+          setB(b => b + 1);
+        });
+      });
+      createComputed(() => count = a() + b());
+      setTimeout(() => {
+        expect(count).toBe(2);
         done();
       });
     });
@@ -181,7 +201,6 @@ describe("Batch signals", () => {
   test("Handles errors gracefully", done => {
     createRoot(() => {
       let error: Error;
-      let count = 0;
       const [a, setA] = createSignal(0);
       const [b, setB] = createSignal(0);
       createEffect(() => {
@@ -195,12 +214,8 @@ describe("Batch signals", () => {
           error = e
         }
       });
-      createRenderEffect(() => {
-        count += 1;
-      });
-      createComputed(() => a() + b(), 0);
+      createComputed(() => a() + b());
       setTimeout(() => {
-        expect(count).toBe(1);
         expect(a()).toBe(1);
         expect(b()).toBe(0);
         setA(2);

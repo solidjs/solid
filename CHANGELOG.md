@@ -4,9 +4,32 @@
 
 ### Breaking Changes
 
+### setSignal now supports function form
+
+While that in itself is a great new feature as you can do:
+```js
+const [count, setCount] = createSignal(0);
+
+setCount(c => c + 1);
+```
+This promotes immutable patterns, let's you access the previous value without it being tracked, and makes Signals consistent with State.
+
+It means that when functions are stored in signals you need to use this form to remove ambiguity
+```js
+const [count, setCount] = createSignal(ComponentA);
+
+// Do this:
+setCount(() => ComponentB);
+
+// Don't do this as it will call the function immediately:
+setCount(ComponentB);
+```
+
 #### SSR Entry points
 
-`renderToString` and `renderToStringAsync` now auto insert there scripts and only return their markup. There is a new option `noScript` to not include the scripts in the output. `renderToNodeStream` and `renderToWebStream` have been replaced with `pipeToNodeWritable` and `pipeToWritable`.
+`renderToString` and `renderToStringAsync` now only return their stringified markup. To insert scripts you need to call `generateHydrationScript` or use the new `<HydrationScript>` component.
+
+`renderToNodeStream` and `renderToWebStream` have been replaced with `pipeToNodeWritable` and `pipeToWritable`, respectively.
 
 #### Options Objects
 

@@ -44,7 +44,7 @@ I know other libraries have been adding support for these features but that has 
 
 ### 7. When do I use a Signal vs State? Why are these different?
 
-It's never particularly clear and it's a matter of style to a point. Generally, I find state invaluable in stores or components with lots of fields like when dealing with model data. For most other things signals are lightweight and do the job wonderfully.
+State automatically wraps nested values making it ideal for deep data structures, and for things like models. For most other things Signals are lightweight and do the job wonderfully.
 
 As much I'd love to wrap these together as a single thing, you can't proxy primitives. Functions are the simplest interface and any reactive expression (including state access) can be wrapped in one on transport so this provides a universal API. You can name your signals and state as you choose and it stays minimal. Last thing I'd want to do is force typing `.get()` `.set()` on the end-user or even worse `.value`. At least the former can be aliased for brevity, whereas the latter is just the least terse way to call a function.
 

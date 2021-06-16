@@ -155,7 +155,7 @@ export function indexArray<T, U>(
   let items: (T | typeof FALLBACK)[] = [],
     mapped: U[] = [],
     disposers: (() => void)[] = [],
-    signals: ((v: T) => T)[] = [],
+    signals: ((v: (prev: T) => T) => T)[] = [],
     len = 0,
     i: number,
     ctx = Owner!;
@@ -196,7 +196,7 @@ export function indexArray<T, U>(
 
       for (i = 0; i < newItems.length; i++) {
         if (i < items.length && items[i] !== newItems[i]) {
-          signals[i](newItems[i]);
+          signals[i](() => newItems[i]);
         } else if (i >= items.length) {
           mapped[i] = createRoot(mapper, ctx);
         }

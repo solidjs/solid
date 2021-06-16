@@ -19,9 +19,17 @@ getValue();
 
 // set value
 setValue(nextValue);
+
+// set value with a function setter
+setValue(prev => prev + next);
 ```
 
-Remember to access signals under a tracking scope if you wish them to react to updates.
+Remember to access signals under a tracking scope if you wish them to react to updates. Tracking scopes are functions that are passed to computations like `createEffect` or JSX expressions.
+
+> If you wish to store a function in a Signal you must use the function form:
+> ```js
+> setValue(() => myFunction)
+> ```
 
 ## `createEffect`
 

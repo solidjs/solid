@@ -29,11 +29,11 @@ describe("Testing Dynamic control flow", () => {
 
   test("Toggle Dynamic control flow", () => {
     expect(div.innerHTML).toBe("");
-    setComp(CompA);
+    setComp(() => CompA);
     expect(div.innerHTML).toBe("<div>Hi Smith</div>");
     setName("Smithers");
     expect(div.innerHTML).toBe("<div>Hi Smithers</div>");
-    setComp(CompB);
+    setComp(() => CompB);
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
     expect(div.innerHTML).toBe(`<h1 title="Smithers"></h1>`);
@@ -80,11 +80,11 @@ describe("Testing Dynamic with state spread", () => {
 
   test("Toggle Dynamic control flow", () => {
     expect(div.innerHTML).toBe("");
-    setComp(CompA);
+    setComp(() => CompA);
     expect(div.innerHTML).toBe("<div>Hi Smith</div>");
     setState("title", "Smithers");
     expect(div.innerHTML).toBe("<div>Hi Smithers</div>");
-    setComp(CompB);
+    setComp(() => CompB);
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
     expect(div.innerHTML).toBe(`<h1 title="Smithers"></h1>`);

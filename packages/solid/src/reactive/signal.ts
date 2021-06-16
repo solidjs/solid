@@ -103,16 +103,16 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 
 export function createSignal<T>(): [
   get: Accessor<T | undefined>,
-  set: <U extends T | undefined>(v?: U) => U
+  set: <U extends T | undefined>(v?: (U extends Function ? never : U) | ((prev: U) => U)) => U
 ];
 export function createSignal<T>(
   value: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): [get: Accessor<T>, set: (v: T) => T];
+): [get: Accessor<T>, set: (v: (T extends Function ? never : T) | ((prev: T) => T)) => T];
 export function createSignal<T>(
   value?: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): [get: Accessor<T>, set: (v: T) => T] {
+): [get: Accessor<T>, set: (v: (T extends Function ? never : T) | ((prev: T) => T)) => T] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
     value,
@@ -193,7 +193,7 @@ export interface Resource<T> extends Accessor<T | undefined> {
 export type ResourceReturn<T> = [
   Resource<T>,
   {
-    mutate: (v: T | undefined) => T | undefined;
+    mutate: (v: (T extends Function ? never : T) | ((prev?: T) => T | undefined)) => T | undefined;
     refetch: () => void;
   }
 ];
@@ -271,7 +271,7 @@ export function createResource<T, U>(
   }
   function completeLoad(v: T) {
     batch(() => {
-      set(v);
+      set(() => v);
       setLoading(false);
       for (let c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -352,7 +352,7 @@ export function createDeferred<T>(
     () => {
       if (!t || !t.fn)
         t = requestCallback(
-          () => setDeferred(node.value as T),
+          () => setDeferred(() => node.value as T),
           timeout !== undefined ? { timeout } : undefined
         );
       return source();
@@ -362,7 +362,7 @@ export function createDeferred<T>(
   );
   const [deferred, setDeferred] = createSignal(node.value as T, options);
   updateComputation(node);
-  setDeferred(node.value as T);
+  setDeferred(() => node.value as T);
   return deferred;
 }
 
@@ -665,15 +665,20 @@ export function readSignal(this: Signal<any> | Memo<any>) {
 }
 
 export function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: boolean) {
-  if (this.comparator) {
-    if (Transition && Transition.running && Transition.sources.has(this)) {
-      if (this.comparator(this.tValue, value)) return value;
-    } else if (this.comparator(this.value, value)) return value;
-  }
   if (Pending) {
     if (this.pending === NOTPENDING) Pending.push(this);
     this.pending = value;
     return value;
+  }
+  if (!isComp && typeof value === "function") {
+    if (Transition && Transition.running && Transition.sources.has(this))
+      value = value(this.tValue);
+    else value = value(this.value);
+  }
+  if (this.comparator) {
+    if (Transition && Transition.running && Transition.sources.has(this)) {
+      if (this.comparator(this.tValue, value)) return value;
+    } else if (this.comparator(this.value, value)) return value;
   }
   if (Transition) {
     if (Transition.running || (!isComp && Transition.sources.has(this))) {
