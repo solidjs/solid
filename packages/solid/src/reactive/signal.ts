@@ -440,20 +440,25 @@ export function untrack<T>(fn: Accessor<T>): T {
   return result;
 }
 
-export function on<T, U>(
-  deps: Array<() => T> | (() => T),
-  fn: (value: Array<T> | T, prev: Array<T> | T, prevResults?: U) => U,
+export type OnParams<T> = T extends Array<() => infer R>
+  ? R[]
+  : T extends () => infer R
+  ? R
+  : never;
+export function on<T extends Array<() => any> | (() => any), U>(
+  deps: T,
+  fn: (value: OnParams<T>, prev: OnParams<T>, prevResults?: U) => U,
   options?: { defer?: boolean }
 ): (prev?: U) => U | undefined {
   let isArray = Array.isArray(deps);
-  let prev: Array<T> | T;
+  let prev: OnParams<T>;
   let defer = options && options.defer;
   return prevResult => {
-    let value: T | Array<T>;
+    let value: OnParams<T>;
     if (isArray) {
-      value = [];
+      value = [] as any;
       for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
-    } else value = (deps as () => T)();
+    } else value = (deps as () => T)() as any;
     if (defer) {
       defer = false;
       return undefined;
