@@ -59,7 +59,8 @@ describe("Create signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign] = createSignal("thoughts");
-      createComputed(on([sign, sign], v => (temp = "impure " + v[1])));
+      const [num] = createSignal(3);
+      createComputed(on([sign, num], v => (temp = "impure " + v[1])));
       expect(temp!).toBe("impure thoughts");
     });
   });

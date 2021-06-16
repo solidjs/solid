@@ -440,12 +440,27 @@ export function untrack<T>(fn: Accessor<T>): T {
   return result;
 }
 
-export type OnParams<T> = T extends Array<() => infer R>
-  ? R[]
-  : T extends () => infer R
-  ? R
+type MaybeReturnType<T> = T extends () => any ? ReturnType<T> : never;
+export type OnParams<T extends Array<() => any> | (() => any)> = T extends () => any
+  ? ReturnType<T>
+  : T extends Array<() => any>
+  ? {
+      [I in keyof T]: MaybeReturnType<T[I]>;
+    }
   : never;
-export function on<T extends Array<() => any> | (() => any), U>(
+export function on<
+  T extends
+    | [() => any, () => any, () => any, () => any, () => any, () => any, () => any, () => any]
+    | [() => any, () => any, () => any, () => any, () => any, () => any, () => any]
+    | [() => any, () => any, () => any, () => any, () => any, () => any]
+    | [() => any, () => any, () => any, () => any, () => any]
+    | [() => any, () => any, () => any, () => any]
+    | [() => any, () => any, () => any]
+    | [() => any, () => any]
+    | [() => any]
+    | (() => any),
+  U
+>(
   deps: T,
   fn: (value: OnParams<T>, prev: OnParams<T>, prevResults?: U) => U,
   options?: { defer?: boolean }
