@@ -61,7 +61,7 @@ describe("Create signals", () => {
       const [sign] = createSignal("thoughts");
       const [num] = createSignal(3);
       createComputed(on([sign, num], v => (temp = "impure " + v[1])));
-      expect(temp!).toBe("impure thoughts");
+      expect(temp!).toBe("impure 3");
     });
   });
   test("Create a Computed with explicit deps and lazy evaluation", () => {
