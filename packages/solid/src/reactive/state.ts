@@ -161,8 +161,9 @@ export function setProperty(state: StateNode, property: string | number, value: 
   if (state[property] === value) return;
   const array = Array.isArray(state);
   const len = state.length;
-  const notify = array || !(property in state);
-  if (value === undefined) {
+  const isUndefined = value === undefined;
+  const notify = array || isUndefined === property in state;
+  if (isUndefined) {
     delete state[property];
   } else state[property] = value;
   let nodes = getDataNodes(state),

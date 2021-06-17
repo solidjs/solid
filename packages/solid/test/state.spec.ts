@@ -5,6 +5,7 @@ import {
   createComputed,
   createMemo,
   unwrap,
+  on,
   $RAW
 } from "../src";
 
@@ -231,6 +232,33 @@ describe("Tracking State changes", () => {
       setState("user", "firstName", "Jake");
     });
   });
+
+  test("Tracking Object key addition/removal", () => {
+    createRoot(() => {
+      var [state, setState] = createState<{ obj: { item?: number } }>({ obj: {} }),
+        executionCount = 0;
+
+      createComputed(on(() => state.obj, (v) => {
+        if (executionCount === 0) expect(v.item).toBeUndefined();
+        else if (executionCount === 1) {
+          expect(v.item).toBe(5);
+        } else if (executionCount === 2) {
+          expect(v.item).toBeUndefined();
+        } else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      }));
+
+      // add
+      setState("obj", "item", 5);
+
+      // delete
+      setState("obj", "item", undefined);
+    });
+    expect.assertions(3);
+  });
 });
 
 describe("Handling functions in state", () => {
@@ -305,7 +333,7 @@ describe("Array length", () => {
     const [state, setState] = createState<{ list: number[] }>({ list: [] });
     let length;
     // isolate length tracking
-    let list = state.list
+    let list = state.list;
     createRoot(() => {
       createComputed(() => {
         length = list.length;
@@ -320,7 +348,7 @@ describe("Array length", () => {
 
 describe("State recursion", () => {
   test("there is no infinite loop", () => {
-    let x: { a: number, b: any } = { a: 1, b: undefined };
+    let x: { a: number; b: any } = { a: 1, b: undefined };
     x.b = x;
 
     const [state, setState] = createState(x);

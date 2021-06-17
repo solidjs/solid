@@ -440,36 +440,32 @@ export function untrack<T>(fn: Accessor<T>): T {
   return result;
 }
 
-type MaybeReturnType<T> = T extends () => any ? ReturnType<T> : never;
-export type OnParams<T extends Array<() => any> | (() => any)> = T extends () => any
+export type ReturnTypes<T> = T extends (() => any)[]
+  ? { [I in keyof T]: ReturnTypes<T[I]> }
+  : T extends () => any
   ? ReturnType<T>
-  : T extends Array<() => any>
-  ? {
-      [I in keyof T]: MaybeReturnType<T[I]>;
-    }
   : never;
-export function on<
-  T extends
-    | [() => any, () => any, () => any, () => any, () => any, () => any, () => any, () => any]
-    | [() => any, () => any, () => any, () => any, () => any, () => any, () => any]
-    | [() => any, () => any, () => any, () => any, () => any, () => any]
-    | [() => any, () => any, () => any, () => any, () => any]
-    | [() => any, () => any, () => any, () => any]
-    | [() => any, () => any, () => any]
-    | [() => any, () => any]
-    | [() => any]
-    | (() => any),
-  U
->(
+
+export function on<T extends (() => any)[], U>(
+  deps: [...T],
+  fn: (values: ReturnTypes<T>, prev: ReturnTypes<T>, prevResults?: U) => U,
+  options?: { defer?: boolean }
+): (prev?: U) => U | undefined;
+export function on<T extends () => any, U>(
   deps: T,
-  fn: (value: OnParams<T>, prev: OnParams<T>, prevResults?: U) => U,
+  fn: (values: ReturnType<T>, prev: ReturnType<T>, prevResults?: U) => U,
+  options?: { defer?: boolean }
+): (prev?: U) => U | undefined;
+export function on<T extends (() => any) | (() => any)[], U>(
+  deps: T,
+  fn: (values: ReturnTypes<T>, prev: ReturnTypes<T>, prevResults?: U) => U,
   options?: { defer?: boolean }
 ): (prev?: U) => U | undefined {
   let isArray = Array.isArray(deps);
-  let prev: OnParams<T>;
+  let prev: ReturnTypes<T>;
   let defer = options && options.defer;
   return prevResult => {
-    let value: OnParams<T>;
+    let value: ReturnTypes<T>;
     if (isArray) {
       value = [] as any;
       for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());

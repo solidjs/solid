@@ -386,7 +386,7 @@ export function reconcile<T>(
       const key = targetKeys[i];
       setProperty(state, key as string, value[key]);
     }
-    const previousKeys = Object.keys(state) as (keyof T)[];
+    const previousKeys = Object.keys(state as object) as (keyof T)[];
     for (let i = 0, len = previousKeys.length; i < len; i++) {
       if (value[previousKeys[i]] === undefined)
         setProperty(state, previousKeys[i] as string, undefined);

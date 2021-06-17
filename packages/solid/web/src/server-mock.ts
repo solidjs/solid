@@ -3,14 +3,13 @@ export type PipeToWritableResults = {
   startWriting: () => void;
   write: (v: string) => void;
   abort: () => void;
-}
+};
 
 export function renderToString<T>(
   fn: () => T,
   options?: {
     eventNames?: string[];
     nonce?: string;
-    noScript?: boolean;
   }
 ): string {}
 export function renderToStringAsync<T>(
@@ -19,7 +18,6 @@ export function renderToStringAsync<T>(
     eventNames?: string[];
     timeoutMs?: number;
     nonce?: string;
-    noScript?: boolean;
   }
 ): Promise<string> {}
 export function pipeToNodeWritable<T>(
@@ -28,7 +26,6 @@ export function pipeToNodeWritable<T>(
   options?: {
     eventNames?: string[];
     nonce?: string;
-    noScript?: boolean;
     onReady?: (r: PipeToWritableResults) => void;
     onComplete?: (r: PipeToWritableResults) => void | Promise<void>;
   }
@@ -39,7 +36,6 @@ export function pipeToWritable<T>(
   options?: {
     eventNames?: string[];
     nonce?: string;
-    noScript?: boolean;
     onReady?: (r: PipeToWritableResults) => void;
     onComplete?: (r: PipeToWritableResults) => void | Promise<void>;
   }
@@ -51,3 +47,4 @@ export function ssrStyle(value: { [k: string]: string }): string {}
 export function ssrSpread(accessor: any): () => string {}
 export function ssrBoolean(key: string, value: boolean): string {}
 export function escape(html: string): string {}
+export function generateHydrationScript(): string {}

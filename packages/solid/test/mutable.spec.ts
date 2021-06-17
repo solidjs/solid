@@ -5,8 +5,7 @@ import {
   createComputed,
   createMemo,
   unwrap,
-  $RAW,
-  batch
+  $RAW
 } from "../src";
 
 describe("State Mutablity", () => {
@@ -36,7 +35,7 @@ describe("State Getter/Setters", () => {
           return `Hi, ${this.name}`;
         }
       });
-    })
+    });
     expect(user.greeting).toBe("Hi, John");
     user.name = "Jake";
     expect(user.greeting).toBe("Hi, Jake");
@@ -48,18 +47,16 @@ describe("State Getter/Setters", () => {
       user = createMutable({
         firstName: "John",
         lastName: "Smith",
-        get fullName() {
+        get fullName(): string {
           return `${this.firstName} ${this.lastName}`;
         },
         set fullName(value) {
           const parts = value.split(" ");
-          batch(() => {
-            this.firstName = parts[0];
-            this.lastName = parts[1];
-          });
+          this.firstName = parts[0];
+          this.lastName = parts[1];
         }
       });
-    })
+    });
     expect(user.fullName).toBe("John Smith");
     user.fullName = "Jake Murray";
     expect(user.firstName).toBe("Jake");

@@ -19,7 +19,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "component-register": "~0.8.0"
+    "component-register": "~0.8.1"
   },
   "peerDependencies": {
     "solid-js": ">= 0.26.0"
