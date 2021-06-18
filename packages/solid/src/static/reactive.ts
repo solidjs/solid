@@ -28,8 +28,16 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(value?: T): [() => T, (v: T) => T] {
-  return [() => value as T, (v: T) => (value = v)];
+export function createSignal<T>(
+  value: T,
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
+): [get: () => T, set: (v: (T extends Function ? never : T) | ((prev: T) => T)) => T] {
+  return [
+    () => value as T,
+    v => {
+      return (value = typeof v === "function" ? (v as (prev: T) => T)(value) : v);
+    }
+  ];
 }
 
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
@@ -153,10 +161,10 @@ function resolveChildren(children: any): unknown {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    return (createMemo(() => {
+    return createMemo(() => {
       Owner!.context = { [id]: props.value };
       return children(() => props.children);
-    }) as unknown) as JSX.Element;
+    }) as unknown as JSX.Element;
   };
 }
 

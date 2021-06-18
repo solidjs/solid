@@ -168,9 +168,9 @@ export function setProperty(state: StateNode, property: string | number, value: 
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && writeSignal.call(node, undefined);
-  if (array && state.length !== len) (node = nodes.length) && writeSignal.call(node, undefined);
-  notify && (node = nodes._) && writeSignal.call(node, undefined);
+  (node = nodes[property]) && writeSignal(node, undefined);
+  if (array && state.length !== len) (node = nodes.length) && writeSignal(node, undefined);
+  notify && (node = nodes._) && writeSignal(node, undefined);
 }
 
 function mergeState(state: StateNode, value: Partial<StateNode>) {

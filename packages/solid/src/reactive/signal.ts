@@ -124,7 +124,20 @@ export function createSignal<T>(
   if ("_SOLID_DEV_")
     s.name = registerGraph((options && options.name) || hashValue(value), s as { value: unknown });
 
-  return [readSignal.bind(s), writeSignal.bind(s)];
+  return [
+    readSignal.bind(s),
+    value => {
+      if (typeof value === "function") {
+        if (Transition && Transition.running && Transition.sources.has(s))
+          value = (value as (p?: T) => T)(s.tValue) as any;
+        else
+          value = (value as (p?: T) => T)(
+            s.pending !== NOTPENDING ? (s.pending as T) : s.value
+          ) as any;
+      }
+      return writeSignal(s, value);
+    }
+  ];
 }
 
 export function createComputed<T>(fn: (v?: T) => T | undefined): void;
@@ -421,7 +434,7 @@ export function batch<T>(fn: () => T): T {
       if (data.pending !== NOTPENDING) {
         const pending = data.pending;
         data.pending = NOTPENDING;
-        writeSignal.call(data, pending);
+        writeSignal(data, pending);
       }
     }
   }, false);
@@ -680,33 +693,28 @@ export function readSignal(this: Signal<any> | Memo<any>) {
   return this.value;
 }
 
-export function writeSignal(this: Signal<any> | Memo<any>, value: any, isComp?: boolean) {
+export function writeSignal(node: Signal<any> | Memo<any>, value: any, isComp?: boolean) {
+  if (node.comparator) {
+    if (Transition && Transition.running && Transition.sources.has(node)) {
+      if (node.comparator(node.tValue, value)) return value;
+    } else if (node.comparator(node.value, value)) return value;
+  }
   if (Pending) {
-    if (this.pending === NOTPENDING) Pending.push(this);
-    this.pending = value;
+    if (node.pending === NOTPENDING) Pending.push(node);
+    node.pending = value;
     return value;
   }
-  if (!isComp && typeof value === "function") {
-    if (Transition && Transition.running && Transition.sources.has(this))
-      value = value(this.tValue);
-    else value = value(this.value);
-  }
-  if (this.comparator) {
-    if (Transition && Transition.running && Transition.sources.has(this)) {
-      if (this.comparator(this.tValue, value)) return value;
-    } else if (this.comparator(this.value, value)) return value;
-  }
   if (Transition) {
-    if (Transition.running || (!isComp && Transition.sources.has(this))) {
-      Transition.sources.add(this);
-      this.tValue = value;
+    if (Transition.running || (!isComp && Transition.sources.has(node))) {
+      Transition.sources.add(node);
+      node.tValue = value;
     }
-    if (!Transition.running) this.value = value;
-  } else this.value = value;
-  if (this.observers && (!Updates || this.observers.length)) {
+    if (!Transition.running) node.value = value;
+  } else node.value = value;
+  if (node.observers && (!Updates || node.observers.length)) {
     runUpdates(() => {
-      for (let i = 0; i < this.observers!.length; i += 1) {
-        const o = this.observers![i];
+      for (let i = 0; i < node.observers!.length; i += 1) {
+        const o = node.observers![i];
         if (Transition && Transition.running && Transition.disposed.has(o)) continue;
         if ((o as Memo<any>).observers && o.state !== PENDING) markUpstream(o as Memo<any>);
         o.state = STALE;
@@ -750,7 +758,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
   if (!node.updatedAt || node.updatedAt <= time) {
     if ((node as Memo<any>).observers && (node as Memo<any>).observers!.length) {
-      writeSignal.call(node as Memo<any>, nextValue, true);
+      writeSignal(node as Memo<any>, nextValue, true);
     } else if (Transition && Transition.running && node.pure) {
       Transition.sources.add(node as Memo<any>);
       (node as Memo<any>).tValue = nextValue;

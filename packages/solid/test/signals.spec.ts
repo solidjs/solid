@@ -169,14 +169,27 @@ describe("Batch signals", () => {
       const [a, setA] = createSignal(0);
       const [b, setB] = createSignal(0);
       createEffect(() => {
-        batch(() => {
-          setA(1);
-          setB(1);
-        });
+        setA(1);
+        setB(1);
       });
-      createComputed(() => count = a() + b());
+      createComputed(() => (count = a() + b()));
       setTimeout(() => {
         expect(count).toBe(2);
+        done();
+      });
+    });
+  });
+  test("Groups updates with repeated sets", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      createEffect(() => {
+        setA(1);
+        setA(4);
+      });
+      createComputed(() => (count = a()));
+      setTimeout(() => {
+        expect(count).toBe(4);
         done();
       });
     });
@@ -187,16 +200,47 @@ describe("Batch signals", () => {
       const [a, setA] = createSignal(0);
       const [b, setB] = createSignal(0);
       createEffect(() => {
-        batch(() => {
-          setA(a => a + 1);
-          setB(b => b + 1);
-        });
+        setA(a => a + 1);
+        setB(b => b + 1);
       });
-      createComputed(() => count = a() + b());
+      createComputed(() => (count = a() + b()));
       setTimeout(() => {
         expect(count).toBe(2);
         done();
       });
+    });
+  });
+  test("Groups updates with fn setSignal with repeated sets", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      createEffect(() => {
+        setA(a => a + 1);
+        setA(a => a + 2);
+      });
+      createComputed(() => (count = a()));
+      setTimeout(() => {
+        expect(count).toBe(3);
+        done();
+      });
+    });
+  });
+  test("Test cross setting in a batched update", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(1);
+      const [b, setB] = createSignal(0);
+      createEffect(() => {
+        setA(a => a + b());
+      });
+      createComputed(() => (count = a()));
+      setTimeout(() => {
+        setB(b => b + 1);
+        setTimeout(() => {
+          expect(count).toBe(2);
+          done();
+        });
+      })
     });
   });
   test("Handles errors gracefully", done => {
@@ -206,13 +250,11 @@ describe("Batch signals", () => {
       const [b, setB] = createSignal(0);
       createEffect(() => {
         try {
-          batch(() => {
-            setA(1);
-            throw new Error("test");
-            setB(1);
-          });
-        } catch(e) {
-          error = e
+          setA(1);
+          throw new Error("test");
+          setB(1);
+        } catch (e) {
+          error = e;
         }
       });
       createComputed(() => a() + b());
