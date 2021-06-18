@@ -129,7 +129,9 @@ export function createSignal<T>(
     value => {
       if (typeof value === "function") {
         if (Transition && Transition.running && Transition.sources.has(s))
-          value = (value as (p?: T) => T)(s.tValue) as any;
+          value = (value as (p?: T) => T)(
+            s.pending !== NOTPENDING ? (s.pending as T) : s.tValue
+          ) as any;
         else
           value = (value as (p?: T) => T)(
             s.pending !== NOTPENDING ? (s.pending as T) : s.value
