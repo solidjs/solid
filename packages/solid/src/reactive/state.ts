@@ -228,12 +228,33 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
   } else setProperty(current, part, value);
 }
 
+export declare type Readonly<T> = { readonly [K in keyof T]: DeepReadonly<T[K]> };
+export declare type DeepReadonly<T> = T extends [infer A]
+  ? Readonly<[A]>
+  : T extends [infer A, infer B]
+  ? Readonly<[A, B]>
+  : T extends [infer A, infer B, infer C]
+  ? Readonly<[A, B, C]>
+  : T extends [infer A, infer B, infer C, infer D]
+  ? Readonly<[A, B, C, D]>
+  : T extends [infer A, infer B, infer C, infer D, infer E]
+  ? Readonly<[A, B, C, D, E]>
+  : T extends [infer A, infer B, infer C, infer D, infer E, infer F]
+  ? Readonly<[A, B, C, D, E, F]>
+  : T extends [infer A, infer B, infer C, infer D, infer E, infer F, infer G]
+  ? Readonly<[A, B, C, D, E, F, G]>
+  : T extends [infer A, infer B, infer C, infer D, infer E, infer F, infer G, infer H]
+  ? Readonly<[A, B, C, D, E, F, G, H]>
+  : T extends object
+  ? Readonly<T>
+  : T;
+
 export type StateSetter<T> =
   | Partial<T>
   | ((
-      prevState: T extends NotWrappable ? T : State<T>,
+      prevState: T extends NotWrappable ? T : State<DeepReadonly<T>>,
       traversed?: (string | number)[]
-    ) => Partial<T> | void);
+    ) => Partial<T | DeepReadonly<T>> | void);
 export type StatePathRange = { from?: number; to?: number; by?: number };
 
 export type ArrayFilterFn<T> = (
