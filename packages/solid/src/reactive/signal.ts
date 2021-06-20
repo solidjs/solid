@@ -1019,10 +1019,14 @@ function resolveChildren(children: any): unknown {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    return createMemo(() => {
-      Owner!.context = { [id]: props.value };
-      return children(() => props.children);
-    }) as unknown as JSX.Element;
+    let res;
+    createComputed(() =>
+      res = untrack(() => {
+        Owner!.context = { [id]: props.value };
+        return children(() => props.children);
+      })
+    );
+    return res as JSX.Element;
   };
 }
 

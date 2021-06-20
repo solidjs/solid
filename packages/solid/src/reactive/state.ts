@@ -228,8 +228,8 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
   } else setProperty(current, part, value);
 }
 
-export declare type Readonly<T> = { readonly [K in keyof T]: DeepReadonly<T[K]> };
-export declare type DeepReadonly<T> = T extends [infer A]
+export type Readonly<T> = { readonly [K in keyof T]: DeepReadonly<T[K]> };
+export type DeepReadonly<T> = T extends [infer A]
   ? Readonly<[A]>
   : T extends [infer A, infer B]
   ? Readonly<[A, B]>

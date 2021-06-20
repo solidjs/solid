@@ -590,6 +590,8 @@ export function CounterProvider(props) {
 }
 ```
 
+The value passed to provider is passed to `useContext` as is. That means wrapping as a reactive expression will not work. You should pass in Signals and State directly instead of accessing them in the JSX.
+
 ## `useContext`
 
 ```ts

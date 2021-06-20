@@ -35,7 +35,9 @@ export type {
   StatePathRange,
   ArrayFilterFn,
   Part,
-  Next
+  Next,
+  Readonly,
+  DeepReadonly
 } from "./reactive/state";
 export * from "./reactive/mutable";
 export * from "./reactive/observable";

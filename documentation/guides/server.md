@@ -70,24 +70,36 @@ const html = `
     </head>
     <body>${app}</body>
   </html>
-`
+`;
 ```
 
 ```jsx
 import { HydrationScript } from "solid-js/web";
 
 const App = () => {
-  return <html lang="en">
-    <head>
-      <title>🔥 Solid SSR 🔥</title>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <link rel="stylesheet" href="/styles.css" />
-      <HydrationScript />
-    </head>
-    <body>{/*... rest of App*/}</body>
-  </html>
-}
+  return (
+    <html lang="en">
+      <head>
+        <title>🔥 Solid SSR 🔥</title>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="/styles.css" />
+        <HydrationScript />
+      </head>
+      <body>{/*... rest of App*/}</body>
+    </html>
+  );
+};
+```
+
+When hydrating from the document inserting assets that aren't available in the client run also can mess things up. Solid provides a `<NoHydration>` component whose children will work as normal on the server, but not hydrate in the browser.
+
+```jsx
+<NoHydration>
+  {manifest.map(m => (
+    <link rel="modulepreload" href={m.href} />
+  ))}
+</NoHydration>
 ```
 
 ## Async and Streaming SSR
