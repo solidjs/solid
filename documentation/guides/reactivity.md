@@ -73,6 +73,14 @@ function createSignal(value) {
 ```
 Now whenever we update the Signal we know which Effects to re-run. Simple yet effective. The actual implementation is much more complicated but that is the guts of what is going on.
 
+For more detailed understanding of how Reactivity works these are useful articles:
+
+[A Hands-on Introduction to Fine-Grained Reactivity](https://dev.to/ryansolid/a-hands-on-introduction-to-fine-grained-reactivity-3ndf)
+
+[Building a Reactive Library from Scratch](https://dev.to/ryansolid/building-a-reactive-library-from-scratch-1i0p)
+
+[SolidJS: Reactivity to Rendering](https://indepth.dev/posts/1289/solidjs-reactivity-to-rendering)
+
 # Considerations
 
 This approach to reactivity is very powerful and dynamic. It can handle dependencies changing on the fly through executing different branches of conditional code. It also works through many levels of indirection. Any function executed inside a tracking scope is also being tracked.
