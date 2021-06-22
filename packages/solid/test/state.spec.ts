@@ -122,7 +122,7 @@ describe("Array setState modes", () => {
     const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
     setState(
       "rows",
-      (r, i) => !!(i % 2),
+      (r, i) => Boolean(i % 2),
       r => r * 2
     );
     expect(state.rows[0]).toBe(1);

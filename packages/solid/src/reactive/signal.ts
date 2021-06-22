@@ -85,7 +85,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
     root: Owner =
       fn.length === 0 && !"_SOLID_DEV_"
         ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner, attached: !!detachedOwner };
+        : { owned: null, cleanups: null, context: null, owner, attached: Boolean(detachedOwner) };
 
   if ("_SOLID_DEV_" && owner) root.name = (owner as Computation<any>).name + "-r" + rootCount++;
   Owner = root;
