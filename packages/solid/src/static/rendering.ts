@@ -359,7 +359,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
 }
 
 function suspenseComplete(c: SuspenseContextType) {
-  for (let r of c.resources.values()) {
+  for (const r of c.resources.values()) {
     if (r.loading) return false;
   }
   return true;

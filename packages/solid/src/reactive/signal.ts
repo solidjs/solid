@@ -288,7 +288,7 @@ export function createResource<T, U>(
     batch(() => {
       set(() => v);
       setLoading(false);
-      for (let c of contexts.keys()) c.decrement!();
+      for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     });
   }
@@ -313,7 +313,7 @@ export function createResource<T, U>(
   }
   function load() {
     setError((err = undefined));
-    let lookup = dynamic ? (source as () => U)() : (source as U);
+    const lookup = dynamic ? (source as () => U)() : (source as U);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
@@ -386,7 +386,7 @@ export function createSelector<T, U>(
   fn: (a: U, b: T) => boolean = equalFn as any,
   options?: { name?: string }
 ): (key: U) => boolean {
-  let subs = new Map<U, Set<Computation<any>>>();
+  const subs = new Map<U, Set<Computation<any>>>();
   const node = createComputation(
     (p: T | undefined) => {
       const v = source();
@@ -476,7 +476,7 @@ export function on<T extends (() => any) | (() => any)[], U>(
   fn: (values: ReturnTypes<T>, prev: ReturnTypes<T>, prevResults?: U) => U,
   options?: { defer?: boolean }
 ): (prev?: U) => U | undefined {
-  let isArray = Array.isArray(deps);
+  const isArray = Array.isArray(deps);
   let prev: ReturnTypes<T>;
   let defer = options && options.defer;
   return prevResult => {
@@ -1009,7 +1009,7 @@ function resolveChildren(children: any): unknown {
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
-      let result = resolveChildren(children[i]);
+      const result = resolveChildren(children[i]);
       Array.isArray(result) ? results.push.apply(results, result) : results.push(result);
     }
     return results;

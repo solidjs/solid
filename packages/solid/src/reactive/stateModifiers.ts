@@ -21,7 +21,7 @@ function applyState(
   merge: boolean | undefined,
   key: string | null
 ) {
-  let previous = parent[property];
+  const previous = parent[property];
   if (target === previous) return;
   if (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key])) {
     target !== previous && setProperty(parent, property, target);

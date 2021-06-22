@@ -76,8 +76,8 @@ export function on<T, U>(
   fn: (value: Array<T> | T, prev?: Array<T> | T, prevResults?: U) => U,
   options: { defer?: boolean } = {}
 ): (prev?: U) => U | undefined {
-  let isArray = Array.isArray(deps);
-  let defer = options.defer;
+  const isArray = Array.isArray(deps);
+  const defer = options.defer;
   return () => {
     if (defer) return undefined;
     let value: Array<T> | T;
@@ -151,7 +151,7 @@ function resolveChildren(children: any): unknown {
   if (Array.isArray(children)) {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
-      let result = resolveChildren(children[i]);
+      const result = resolveChildren(children[i]);
       Array.isArray(result) ? results.push.apply(results, result) : results.push(result);
     }
     return results;

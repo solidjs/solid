@@ -54,7 +54,7 @@ function wrap<T extends StateNode>(value: T, name?: string): State<T> {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
-    let keys = Object.keys(value),
+    const keys = Object.keys(value),
       desc = Object.getOwnPropertyDescriptors(value);
     for (let i = 0, l = keys.length; i < l; i++) {
       const prop = keys[i];
