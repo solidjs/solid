@@ -99,7 +99,7 @@ describe("Testing an multi child each control flow", () => {
 
   function apply(array: string[]) {
     setList(array);
-    expect(div.innerHTML).toBe(array.join("") + "z");
+    expect(div.innerHTML).toBe(`${array.join("")}z`);
     setList([n1, n2, n3, n4]);
     expect(div.innerHTML).toBe("abcdz");
   }

@@ -87,7 +87,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
         ? UNOWNED
         : { owned: null, cleanups: null, context: null, owner, attached: Boolean(detachedOwner) };
 
-  if ("_SOLID_DEV_" && owner) root.name = (owner as Computation<any>).name + "-r" + rootCount++;
+  if ("_SOLID_DEV_" && owner) root.name = `${(owner as Computation<any>).name}-r${rootCount++}`;
   Owner = root;
   Listener = null;
   let result: T;
@@ -585,8 +585,8 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
 export function hashValue(v: any): string {
   const s = new Set();
   return (
-    "s" +
-    (typeof v === "string"
+    `s${
+    typeof v === "string"
       ? hash(v)
       : hash(
           JSON.stringify(v, (k, v) => {
@@ -596,7 +596,7 @@ export function hashValue(v: any): string {
             }
             return v;
           }) || ""
-        ))
+        )}`
   );
 }
 
@@ -605,7 +605,7 @@ export function registerGraph(name: string, value: { value: unknown }): string {
   if (Owner) {
     let i = 0;
     Owner.sourceMap || (Owner.sourceMap = {});
-    while (Owner.sourceMap[tryName]) tryName = name + "-" + ++i;
+    while (Owner.sourceMap[tryName]) tryName = `${name}-${++i}`;
     Owner.sourceMap[tryName] = value;
   }
   return tryName;
@@ -804,9 +804,9 @@ function createComputation<T>(
     if ("_SOLID_DEV_")
       c.name =
         (options && options.name) ||
-        ((Owner as Computation<any>).name || "c") +
-          "-" +
-          (Owner.owned || (Owner as Memo<T>).tOwned!).length;
+        `${(Owner as Computation<any>).name || "c"}-${
+          (Owner.owned || (Owner as Memo<T>).tOwned!).length
+        }`;
   }
   return c;
 }
