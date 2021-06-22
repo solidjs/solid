@@ -21,12 +21,20 @@
   "type": "module",
   "files": [
     "dist",
+    "src",
+    "web/package.json",
     "web/dist",
     "web/types",
+    "web/src",
+    "web/server",
+    "h/package.json",
     "h/dist",
     "h/types",
+    "h/src",
+    "html/package.json",
     "html/dist",
     "html/types",
+    "html/src",
     "types",
     "jsx-runtime.d.ts"
   ],
@@ -76,6 +84,7 @@
     },
     "./html/dist/*": "./html/dist/*"
   },
+  "source": "./src/index.ts",
   "scripts": {
     "prebuild": "npm run clean",
     "clean": "rimraf dist/ types/ coverage/ web/dist/ web/types/ h/dist/ h/types/ html/dist/ html/types/",

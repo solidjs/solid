@@ -2,6 +2,7 @@
   "name": "solid-js/html",
   "main": "./dist/html.cjs",
   "module": "./dist/html.js",
+  "source": "./src/index.ts",
   "types": "./types/index.d.ts",
   "type": "module",
   "sideEffects": false
