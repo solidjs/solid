@@ -9,7 +9,7 @@ describe("Testing Suspense", () => {
     [triggered, trigger] = createSignal(false);
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
-      let [value] = createResource<string, string>(
+      const [value] = createResource<string, string>(
         () =>  triggered() && "child",
         () => new Promise(r => setTimeout(() => r("Jo"), 300)),
         { initialValue: "" }

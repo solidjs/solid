@@ -95,7 +95,7 @@ describe("Simple update modes", () => {
 
 describe("Unwrapping Edge Cases", () => {
   test("Unwrap nested frozen state object", () => {
-    var state = createMutable({
+    const state = createMutable({
         data: Object.freeze({ user: { firstName: "John", lastName: "Snow" } })
       }),
       s = unwrap({ ...state });
@@ -105,7 +105,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data.user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen array", () => {
-    var state = createMutable({
+    const state = createMutable({
         data: [{ user: { firstName: "John", lastName: "Snow" } }]
       }),
       s = unwrap({ data: state.data.slice(0) });
@@ -115,7 +115,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data[0].user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen state array", () => {
-    var state = createMutable({
+    const state = createMutable({
         data: Object.freeze([{ user: { firstName: "John", lastName: "Snow" } }])
       }),
       s = unwrap({ ...state });
@@ -129,8 +129,8 @@ describe("Unwrapping Edge Cases", () => {
 describe("Tracking State changes", () => {
   test("Track a state change", () => {
     createRoot(() => {
-      var state = createMutable({ data: 2 }),
-        executionCount = 0;
+      const state = createMutable({ data: 2 })
+      let executionCount = 0;
 
       expect.assertions(2);
       createComputed(() => {
@@ -152,10 +152,10 @@ describe("Tracking State changes", () => {
 
   test("Track a nested state change", () => {
     createRoot(() => {
-      var state = createMutable({
+      const state = createMutable({
           user: { firstName: "John", lastName: "Smith" }
-        }),
-        executionCount = 0;
+        })
+      let executionCount = 0;
 
       expect.assertions(2);
       createComputed(() => {
@@ -178,7 +178,7 @@ describe("Tracking State changes", () => {
 describe("Handling functions in state", () => {
   test("Array Native Methods: Array.Filter", () => {
     createRoot(() => {
-      var state = createMutable({ list: [0, 1, 2] }),
+      const state = createMutable({ list: [0, 1, 2] }),
         getFiltered = createMemo(() => state.list.filter(i => i % 2));
       expect(getFiltered()).toStrictEqual([1]);
     });
@@ -186,7 +186,7 @@ describe("Handling functions in state", () => {
 
   test("Track function change", () => {
     createRoot(() => {
-      var state = createMutable<{ fn: () => number }>({
+      const state = createMutable<{ fn: () => number }>({
           fn: () => 1
         }),
         getValue = createMemo(() => state.fn());
@@ -199,7 +199,7 @@ describe("Handling functions in state", () => {
 describe("Setting state from Effects", () => {
   test("Setting state from signal", () => {
     createRoot(() => {
-      var [getData, setData] = createSignal("init"),
+      const [getData, setData] = createSignal("init"),
         state = createMutable({ data: "" });
       createComputed(() => (state.data = getData()));
       setData("signal");
@@ -209,7 +209,7 @@ describe("Setting state from Effects", () => {
 
   test("Select Promise", done => {
     createRoot(async () => {
-      var p = new Promise<string>(resolve => {
+      const p = new Promise<string>(resolve => {
           setTimeout(resolve, 20, "promised");
         }),
         state = createMutable({ data: "" });
