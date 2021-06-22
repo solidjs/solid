@@ -8,7 +8,7 @@ describe("Testing a single match switch control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Switch fallback={"fallback"}>
-        <Match when={!!count() && count() < 2}>1</Match>
+        <Match when={Boolean(count()) && count() < 2}>1</Match>
       </Switch>
     </div>
   );
@@ -38,9 +38,9 @@ describe("Testing an only child Switch control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Switch fallback={"fallback"}>
-        <Match when={!!count() && count() < 2}>1</Match>
-        <Match when={!!count() && count() < 5}>2</Match>
-        <Match when={!!count() && count() < 8}>3</Match>
+        <Match when={Boolean(count()) && count() < 2}>1</Match>
+        <Match when={Boolean(count()) && count() < 5}>2</Match>
+        <Match when={Boolean(count()) && count() < 8}>3</Match>
       </Switch>
     </div>
   );
@@ -160,7 +160,7 @@ describe("Test top level switch control flow", () => {
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <Switch fallback={"fallback"}>
-      <Match when={!!count() && count() < 2}>1</Match>
+      <Match when={Boolean(count()) && count() < 2}>1</Match>
     </Switch>
   );
 

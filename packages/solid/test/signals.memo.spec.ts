@@ -4,9 +4,9 @@ describe("createMemo", () => {
   describe("executing propagating", () => {
     it("does not trigger downstream computations unless changed", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(1, { equals: false });
+        const [s1, set] = createSignal(1, { equals: false });
         let order = "";
-        let t1 = createMemo(() => {
+        const t1 = createMemo(() => {
           order += "t1";
           return s1();
         });
@@ -26,9 +26,9 @@ describe("createMemo", () => {
 
     it("applies updates to changed dependees in same order as createComputed", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(0);
+        const [s1, set] = createSignal(0);
         let order = "";
-        let t1 = createMemo(() => {
+        const t1 = createMemo(() => {
           order += "t1";
           return s1() === 0;
         });
@@ -50,10 +50,10 @@ describe("createMemo", () => {
 
     it("updates downstream pending computations", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(0);
-        let [s2] = createSignal(0);
+        const [s1, set] = createSignal(0);
+        const [s2] = createSignal(0);
         let order = "";
-        let t1 = createMemo(() => {
+        const t1 = createMemo(() => {
           order += "t1";
           return s1() === 0;
         });
@@ -77,11 +77,11 @@ describe("createMemo", () => {
   });
 
   describe("with changing dependencies", () => {
-    var i: () => boolean, setI: (v: boolean) => void;
-    var t: () => number, setT: (v: number) => void;
-    var e: () => number, setE: (v: number) => void;
-    var fevals: number;
-    var f: () => number;
+    let i: () => boolean, setI: (v: boolean) => void;
+    let t: () => number, setT: (v: number) => void;
+    let e: () => number, setE: (v: number) => void;
+    let fevals: number;
+    let f: () => number;
 
     function init() {
       [i, setI] = createSignal<boolean>(true);
@@ -177,8 +177,8 @@ describe("createMemo", () => {
   describe("with intercepting computations", () => {
     it("does not update subsequent pending computations after stale invocations", () => {
       createRoot(() => {
-        let [s1, set1] = createSignal(1);
-        let [s2, set2] = createSignal(false);
+        const [s1, set1] = createSignal(1);
+        const [s2, set2] = createSignal(false);
         let count = 0;
         /*
                     s1
@@ -189,12 +189,12 @@ describe("createMemo", () => {
                    c3
              [PN,PN,STL,void]
         */
-        let t1 = createMemo(() => s1() > 0);
-        let t2 = createMemo(() => s1() > 0);
-        let c1 = createMemo(() => s1());
-        let t3 = createMemo(() => {
-          let a = s1();
-          let b = s2();
+        const t1 = createMemo(() => s1() > 0);
+        const t2 = createMemo(() => s1() > 0);
+        const c1 = createMemo(() => s1());
+        const t3 = createMemo(() => {
+          const a = s1();
+          const b = s2();
           return a && b;
         });
         createComputed(() => {
@@ -252,8 +252,8 @@ describe("createMemo", () => {
 
     it("evaluates nested trackings", () => {
       createRoot(() => {
-        let [s1, set1] = createSignal(1);
-        let [s2] = createSignal(1);
+        const [s1, set1] = createSignal(1);
+        const [s2] = createSignal(1);
         let count = 0;
         let c1: () => number;
         createMemo(() => {
@@ -271,13 +271,13 @@ describe("createMemo", () => {
 
     it("propagates in topological order", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(true);
+        const [s1, set] = createSignal(true);
         let order = "";
-        let t1 = createMemo(() => {
+        const t1 = createMemo(() => {
           order += "t1";
           return s1();
         });
-        let t2 = createMemo(() => {
+        const t2 = createMemo(() => {
           order += "t2";
           return s1();
         });
@@ -294,7 +294,7 @@ describe("createMemo", () => {
 
     it("does not evaluate dependencies with tracking sources that have not changed", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(1);
+        const [s1, set] = createSignal(1);
         let order = "";
         let c2: () => boolean;
         createComputed(() => {
@@ -303,11 +303,11 @@ describe("createMemo", () => {
             c2();
           }
         });
-        let t1 = createMemo(() => {
+        const t1 = createMemo(() => {
           order += "t1";
           return s1() < 3;
         });
-        let t2 = createMemo(() => {
+        const t2 = createMemo(() => {
           order += "t2";
           return t1();
         });
@@ -326,17 +326,17 @@ describe("createMemo", () => {
 
     it("correctly marks downstream computations as stale on change", () => {
       createRoot(() => {
-        let [s1, set] = createSignal(1);
+        const [s1, set] = createSignal(1);
         let order = "";
-        let t1 = createMemo(() => {
+        const t1 = createMemo(() => {
           order += "t1";
           return s1();
         });
-        let c1 = createMemo(() => {
+        const c1 = createMemo(() => {
           order += "c1";
           return t1();
         });
-        let c2 = createMemo(() => {
+        const c2 = createMemo(() => {
           order += "c2";
           return c1();
         });
@@ -354,7 +354,7 @@ describe("createMemo", () => {
   describe("with unending changes", () => {
     it("throws when continually setting a direct dependency", () => {
       createRoot(() => {
-        var [d, set] = createSignal(1);
+        const [d, set] = createSignal(1);
 
         expect(() => {
           createMemo(() => {
@@ -367,7 +367,7 @@ describe("createMemo", () => {
     it("throws when continually setting an indirect dependency", () => {
       createRoot(() => {
         let i = 2;
-        var [d, set] = createSignal(1),
+        const [d, set] = createSignal(1),
           f1 = createMemo(() => d()),
           f2 = createMemo(() => f1()),
           f3 = createMemo(() => f2());

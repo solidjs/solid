@@ -89,8 +89,8 @@ function enqueue(taskQueue: Task[], task: Task) {
     let n = taskQueue.length - 1;
 
     while (m <= n) {
-      let k = (n + m) >> 1;
-      let cmp = task.expirationTime - taskQueue[k].expirationTime;
+      const k = (n + m) >> 1;
+      const cmp = task.expirationTime - taskQueue[k].expirationTime;
       if (cmp > 0) m = k + 1;
       else if (cmp < 0) n = k - 1;
       else return k;

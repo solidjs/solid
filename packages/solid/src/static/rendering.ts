@@ -359,7 +359,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
 }
 
 function suspenseComplete(c: SuspenseContextType) {
-  for (let r of c.resources.values()) {
+  for (const r of c.resources.values()) {
     if (r.loading) return false;
   }
   return true;
@@ -440,7 +440,7 @@ export function Suspense(props: { fallback: string; children: string }) {
   return sharedConfig.context!.async ? { t: `<#${id}#>` } : props.fallback;
 }
 
-const SUSPENSE_REPLACE = /<#([0-9\.]+)\#>/;
+const SUSPENSE_REPLACE = /<#([\d.]+)#>/;
 export function awaitSuspense(fn: () => any) {
   return new Promise(resolve => {
     const registry = new Set<string>();

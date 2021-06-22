@@ -47,7 +47,7 @@ function wrap<T extends StateNode>(value: T, name?: string): State<T> {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
-    let keys = Object.keys(value),
+    const keys = Object.keys(value),
       desc = Object.getOwnPropertyDescriptors(value);
     for (let i = 0, l = keys.length; i < l; i++) {
       const prop = keys[i];
@@ -86,7 +86,7 @@ export function unwrap<T extends StateNode>(item: any, set = new Set()): T {
   } else {
     if (Object.isFrozen(item)) item = Object.assign({}, item);
     else set.add(item);
-    let keys = Object.keys(item),
+    const keys = Object.keys(item),
       desc = Object.getOwnPropertyDescriptors(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       prop = keys[i];

@@ -36,7 +36,7 @@ describe("Create signals", () => {
   });
   test("Create and read a Memo with initial value", () => {
     createRoot(() => {
-      const memo = createMemo(i => i + " John", "Hello");
+      const memo = createMemo(i => `${i} John`, "Hello");
       expect(memo()).toBe("Hello John");
     });
   });
@@ -51,7 +51,7 @@ describe("Create signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign] = createSignal("thoughts");
-      createComputed(on(sign, v => (temp = "impure " + v)));
+      createComputed(on(sign, v => (temp = `impure ${v}`)));
       expect(temp!).toBe("impure thoughts");
     });
   });
@@ -60,7 +60,7 @@ describe("Create signals", () => {
       let temp: string;
       const [sign] = createSignal("thoughts");
       const [num] = createSignal(3);
-      createComputed(on([sign, num], v => (temp = "impure " + v[1])));
+      createComputed(on([sign, num], v => (temp = `impure ${v[1]}`)));
       expect(temp!).toBe("impure 3");
     });
   });
@@ -68,7 +68,7 @@ describe("Create signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign, set] = createSignal("thoughts");
-      createComputed(on(sign, v => (temp = "impure " + v), { defer: true }));
+      createComputed(on(sign, v => (temp = `impure ${v}`), { defer: true }));
       expect(temp!).toBeUndefined();
       set("minds");
       expect(temp!).toBe("impure minds");
@@ -100,7 +100,7 @@ describe("Update signals", () => {
   test("Create and trigger a Memo", () => {
     createRoot(() => {
       const [name, setName] = createSignal("John"),
-        memo = createMemo(() => "Hello " + name());
+        memo = createMemo(() => `Hello ${name()}`);
       expect(memo()).toBe("Hello John");
       setName("Jake");
       expect(memo()).toBe("Hello Jake");
@@ -110,8 +110,8 @@ describe("Update signals", () => {
     createRoot(() => {
       let temp: string;
       const [name, setName] = createSignal("John"),
-        memo = createMemo(() => "Hello " + name());
-      createEffect(() => (temp = memo() + "!!!"));
+        memo = createMemo(() => `Hello ${name()}`);
+      createEffect(() => (temp = `${memo()}!!!`));
       setTimeout(() => {
         expect(temp).toBe("Hello John!!!");
         setName("Jake");
@@ -124,7 +124,7 @@ describe("Update signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign, setSign] = createSignal("thoughts");
-      createEffect(() => (temp = "unpure " + sign()));
+      createEffect(() => (temp = `unpure ${sign()}`));
       setTimeout(() => {
         expect(temp).toBe("unpure thoughts");
         setSign("mind");
@@ -151,7 +151,7 @@ describe("Untrack signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign, setSign] = createSignal("thoughts");
-      createEffect(() => (temp = "unpure " + untrack(sign)));
+      createEffect(() => (temp = `unpure ${untrack(sign)}`));
       setTimeout(() => {
         expect(temp).toBe("unpure thoughts");
         setSign("mind");
@@ -240,7 +240,7 @@ describe("Batch signals", () => {
           expect(count).toBe(2);
           done();
         });
-      })
+      });
     });
   });
   test("Handles errors gracefully", done => {
