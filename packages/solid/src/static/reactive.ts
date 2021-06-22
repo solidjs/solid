@@ -377,6 +377,12 @@ export function createState<T>(state: T | State<T>): [State<T>, SetStateFunction
   return [state as State<T>, setState];
 }
 
+export function createMutable<T>(
+  state: T | State<T>
+): State<T> {
+  return state as State<T>;
+}
+
 type ReconcileOptions = {
   key?: string | null;
   merge?: boolean;
