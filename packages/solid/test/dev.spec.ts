@@ -2,11 +2,11 @@ import {
   createRoot,
   getOwner,
   createSignal,
-  createState,
   createEffect,
   createComponent,
   DEV
 } from "../src";
+import { createStore } from "../store/src";
 
 describe("Dev features", () => {
   test("Reactive graph serialization", () => {
@@ -17,7 +17,7 @@ describe("Dev features", () => {
       `{"s1773325850":7,"s1773325850-1":5,"c-1":{"explicit":6},"CustomComponent:c-2":{"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."}}}`
     ];
     const CustomComponent = () => {
-      const [state, setState] = createState({ firstName: "John", lastName: "Smith" });
+      const [state, setState] = createStore({ firstName: "John", lastName: "Smith" });
       setState1 = setState;
       return "";
     }
@@ -47,7 +47,7 @@ describe("Dev features", () => {
       createEffect(() => {
         const [s] = createSignal(6, { name: "explicit" });
       });
-      const [state, setState] = createState({ firstName: "John", lastName: "Smith" });
+      const [state, setState] = createStore({ firstName: "John", lastName: "Smith" });
       createEffect(() => {
         s();
         s2();

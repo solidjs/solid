@@ -1,6 +1,7 @@
 /* @jsxImportSource solid-js */
 import { render, Switch, Match, For } from "../src";
-import { createRoot, createSignal, createState } from "../../src";
+import { createRoot, createSignal } from "../../src";
+import { createStore } from "../../store/src";
 
 describe("Testing a single match switch control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -117,7 +118,7 @@ describe("Testing function handler Switch control flow", () => {
 
 describe("Testing a For in a Switch control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
-  const [state, setState] = createState({
+  const [state, setState] = createStore({
     users: [
       { firstName: "Jerry", certified: false },
       { firstName: "Janice", certified: false }

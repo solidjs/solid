@@ -3,13 +3,12 @@ import {
   createSignal,
   createResource,
   createComputed,
-  createState,
   createRenderEffect,
   onError,
-  Resource,
-  reconcile,
-  State
+  Resource
 } from "../src";
+
+import { createStore, reconcile, Store } from "../store/src";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
@@ -84,7 +83,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
   function fetcher(_: string, getPrev: () => User | undefined) {
     return new Promise<User>(r => {
       resolve = r;
-    }).then(value => reconcile(value)(getPrev() as State<User>));
+    }).then(value => reconcile(value)(getPrev() as Store<User>));
   }
   const data: User[] = [];
   data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } });
@@ -93,7 +92,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
   test("initial async resource", async done => {
     createRoot(() => {
       [user, { refetch }] = createResource("user", fetcher);
-      [state] = createState<{ user?: User; userLoading: boolean }>({
+      [state] = createStore<{ user?: User; userLoading: boolean }>({
         get user() {
           return user();
         },

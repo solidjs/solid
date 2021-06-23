@@ -3,9 +3,9 @@ import {
   createSignal,
   createResource,
   createMemo,
-  devComponent
+  devComponent,
+  $PROXY
 } from "../reactive/signal";
-import { $PROXY } from "../reactive/state";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
 

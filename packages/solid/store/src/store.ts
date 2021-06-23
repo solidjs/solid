@@ -1,18 +1,15 @@
 import {
-  Listener,
+  getListener,
   batch,
-  hashValue,
-  registerGraph,
-  NOTPENDING,
-  readSignal,
-  writeSignal
-} from "./signal";
-export const $RAW = Symbol("state-raw"),
-  $NODE = Symbol("state-node"),
-  $PROXY = Symbol("state-proxy"),
-  $NAME = Symbol("state-name");
+  DEV,
+  $PROXY,
+  Accessor, createSignal
+} from "solid-js";
+export const $RAW = Symbol("store-raw"),
+  $NODE = Symbol("store-node"),
+  $NAME = Symbol("store-name");
 
-export type StateNode = {
+export type StoreNode = {
   [$NODE]?: any;
   [$PROXY]?: any;
   [$NAME]?: string;
@@ -34,8 +31,8 @@ type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters
 
 export type NotWrappable = string | number | boolean | Function | null;
 // Intersection for missing fields https://github.com/microsoft/TypeScript/issues/13543
-export type State<T> = {
-  [P in keyof T]: T[P] extends object ? State<T[P]> & T[P] : T[P];
+export type Store<T> = {
+  [P in keyof T]: T[P] extends object ? Store<T[P]> & T[P] : T[P];
 } & {
   [$RAW]?: T;
 } & AddSymbolToPrimitive<T> &
@@ -43,7 +40,7 @@ export type State<T> = {
   AddSymbolToStringTag<T> &
   AddCallable<T>;
 
-function wrap<T extends StateNode>(value: T, name?: string): State<T> {
+function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -71,7 +68,7 @@ export function isWrappable(obj: any) {
   );
 }
 
-export function unwrap<T extends StateNode>(item: any, set = new Set()): T {
+export function unwrap<T extends StoreNode>(item: any, set = new Set()): T {
   let result, unwrapped, v, prop;
   if ((result = item != null && item[$RAW])) return result;
   if (!isWrappable(item) || set.has(item)) return item;
@@ -98,13 +95,13 @@ export function unwrap<T extends StateNode>(item: any, set = new Set()): T {
   return item;
 }
 
-export function getDataNodes(target: StateNode) {
+export function getDataNodes(target: StoreNode) {
   let nodes = target[$NODE];
   if (!nodes) Object.defineProperty(target, $NODE, { value: (nodes = {}) });
   return nodes;
 }
 
-export function proxyDescriptor(target: StateNode, property: string | number | symbol) {
+export function proxyDescriptor(target: StoreNode, property: string | number | symbol) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
   if (!desc || desc.get || property === $PROXY || property === $NODE || property === $NAME)
     return desc;
@@ -115,15 +112,12 @@ export function proxyDescriptor(target: StateNode, property: string | number | s
 }
 
 export function createDataNode() {
-  return {
-    value: undefined,
-    observers: null,
-    observerSlots: null,
-    pending: NOTPENDING
-  };
+  const [s, set] = createSignal<void>(undefined, { equals: false });
+  (s as Accessor<void> & { $: () => void }).$ = set;
+  return s as Accessor<void> & { $: () => void };
 }
 
-const proxyTraps: ProxyHandler<StateNode> = {
+const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
@@ -131,15 +125,15 @@ const proxyTraps: ProxyHandler<StateNode> = {
     if (property === $NODE || property === "__proto__") return value;
 
     const wrappable = isWrappable(value);
-    if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
+    if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = createDataNode());
-        readSignal.call(node);
+        node();
       }
       nodes = getDataNodes(target);
       node = nodes[property] || (nodes[property] = createDataNode());
-      readSignal.call(node);
+      node();
     }
     return wrappable
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
@@ -147,17 +141,19 @@ const proxyTraps: ProxyHandler<StateNode> = {
   },
 
   set() {
+    if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
     return true;
   },
 
   deleteProperty() {
+    if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
     return true;
   },
 
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(state: StateNode, property: string | number, value: any) {
+export function setProperty(state: StoreNode, property: string | number, value: any) {
   if (state[property] === value) return;
   const array = Array.isArray(state);
   const len = state.length;
@@ -168,12 +164,12 @@ export function setProperty(state: StateNode, property: string | number, value: 
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && writeSignal(node, undefined);
-  if (array && state.length !== len) (node = nodes.length) && writeSignal(node, undefined);
-  notify && (node = nodes._) && writeSignal(node, undefined);
+  (node = nodes[property]) && node.$();
+  if (array && state.length !== len) (node = nodes.length) && node.$(node, undefined);
+  notify && (node = nodes._) && node.$(node, undefined);
 }
 
-function mergeState(state: StateNode, value: Partial<StateNode>) {
+function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
   const keys = Object.keys(value);
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];
@@ -181,7 +177,7 @@ function mergeState(state: StateNode, value: Partial<StateNode>) {
   }
 }
 
-export function updatePath(current: StateNode, path: any[], traversed: (number | string)[] = []) {
+export function updatePath(current: StoreNode, path: any[], traversed: (number | string)[] = []) {
   let part,
     prev = current;
   if (path.length > 1) {
@@ -224,7 +220,7 @@ export function updatePath(current: StateNode, path: any[], traversed: (number |
   if (part === undefined && value == undefined) return;
   value = unwrap(value);
   if (part === undefined || (isWrappable(prev) && isWrappable(value) && !Array.isArray(value))) {
-    mergeState(prev, value);
+    mergeStoreNode(prev, value);
   } else setProperty(current, part, value);
 }
 
@@ -249,40 +245,40 @@ export type DeepReadonly<T> = T extends [infer A]
   ? Readonly<T>
   : T;
 
-export type StateSetter<T> =
+export type StoreSetter<T> =
   | Partial<T>
   | ((
-      prevState: T extends NotWrappable ? T : State<DeepReadonly<T>>,
+      prevState: T extends NotWrappable ? T : Store<DeepReadonly<T>>,
       traversed?: (string | number)[]
     ) => Partial<T | DeepReadonly<T>> | void);
-export type StatePathRange = { from?: number; to?: number; by?: number };
+export type StorePathRange = { from?: number; to?: number; by?: number };
 
 export type ArrayFilterFn<T> = (
   item: T extends any[] ? T[number] : never,
   index: number
 ) => boolean;
 
-export type Part<T> = keyof T | Array<keyof T> | StatePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
+export type Part<T> = keyof T | Array<keyof T> | StorePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
 
 export type Next<T, K> = K extends keyof T
   ? T[K]
   : K extends Array<keyof T>
   ? T[K[number]]
   : T extends any[]
-  ? K extends StatePathRange
+  ? K extends StorePathRange
     ? T[number]
     : K extends ArrayFilterFn<T>
     ? T[number]
     : never
   : never;
 
-export interface SetStateFunction<T> {
-  <Setter extends StateSetter<T>>(...args: [Setter]): void;
-  <K1 extends Part<T>, Setter extends StateSetter<Next<T, K1>>>(...args: [K1, Setter]): void;
+export interface SetStoreFunction<T> {
+  <Setter extends StoreSetter<T>>(...args: [Setter]): void;
+  <K1 extends Part<T>, Setter extends StoreSetter<Next<T, K1>>>(...args: [K1, Setter]): void;
   <
     K1 extends Part<T>,
     K2 extends Part<Next<T, K1>>,
-    Setter extends StateSetter<Next<Next<T, K1>, K2>>
+    Setter extends StoreSetter<Next<Next<T, K1>, K2>>
   >(
     ...args: [K1, K2, Setter]
   ): void;
@@ -290,7 +286,7 @@ export interface SetStateFunction<T> {
     K1 extends Part<T>,
     K2 extends Part<Next<T, K1>>,
     K3 extends Part<Next<Next<T, K1>, K2>>,
-    Setter extends StateSetter<Next<Next<Next<T, K1>, K2>, K3>>
+    Setter extends StoreSetter<Next<Next<Next<T, K1>, K2>, K3>>
   >(
     ...args: [K1, K2, K3, Setter]
   ): void;
@@ -299,7 +295,7 @@ export interface SetStateFunction<T> {
     K2 extends Part<Next<T, K1>>,
     K3 extends Part<Next<Next<T, K1>, K2>>,
     K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    Setter extends StateSetter<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>
+    Setter extends StoreSetter<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>
   >(
     ...args: [K1, K2, K3, K4, Setter]
   ): void;
@@ -309,7 +305,7 @@ export interface SetStateFunction<T> {
     K3 extends Part<Next<Next<T, K1>, K2>>,
     K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
     K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    Setter extends StateSetter<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
+    Setter extends StoreSetter<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
   >(
     ...args: [K1, K2, K3, K4, K5, Setter]
   ): void;
@@ -320,7 +316,7 @@ export interface SetStateFunction<T> {
     K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
     K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
     K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    Setter extends StateSetter<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>
+    Setter extends StoreSetter<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>
   >(
     ...args: [K1, K2, K3, K4, K5, K6, Setter]
   ): void;
@@ -332,7 +328,7 @@ export interface SetStateFunction<T> {
     K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
     K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
     K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
-    Setter extends StateSetter<
+    Setter extends StoreSetter<
       Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>
     >
   >(
@@ -350,26 +346,26 @@ export interface SetStateFunction<T> {
     K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
     K8 extends Part<Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>>
   >(
-    ...args: [K1, K2, K3, K4, K5, K6, K7, K8, ...(Part<any> | StateSetter<any>)[]]
+    ...args: [K1, K2, K3, K4, K5, K6, K7, K8, ...(Part<any> | StoreSetter<any>)[]]
   ): void;
 }
 
-export function createState<T extends StateNode>(
-  state: T | State<T>,
+export function createStore<T extends StoreNode>(
+  store: T | Store<T>,
   options?: { name?: string }
-): [get: State<T>, set: SetStateFunction<T>] {
-  const unwrappedState = unwrap<T>(state || {});
-  const wrappedState = wrap(
-    unwrappedState,
-    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState))
+): [get: Store<T>, set: SetStoreFunction<T>] {
+  const unwrappedStore = unwrap<T>(store || {});
+  const wrappedStore = wrap(
+    unwrappedStore,
+    "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
   );
   if ("_SOLID_DEV_") {
-    const name = (options && options.name) || hashValue(unwrappedState);
-    registerGraph(name, { value: unwrappedState });
+    const name = (options && options.name) || DEV.hashValue(unwrappedStore);
+    DEV.registerGraph(name, { value: unwrappedStore });
   }
-  function setState(...args: any[]): void {
-    batch(() => updatePath(unwrappedState, args));
+  function setStore(...args: any[]): void {
+    batch(() => updatePath(unwrappedStore, args));
   }
 
-  return [wrappedState, setState];
+  return [wrappedStore, setStore];
 }

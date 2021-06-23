@@ -1,4 +1,4 @@
-import { Listener, hashValue, registerGraph, batch, readSignal } from "./signal";
+import { batch, getListener, DEV, $PROXY } from "solid-js";
 import {
   unwrap,
   isWrappable,
@@ -6,15 +6,14 @@ import {
   createDataNode,
   $RAW,
   $NODE,
-  $PROXY,
   $NAME,
-  StateNode,
-  State,
+  StoreNode,
+  Store,
   setProperty,
   proxyDescriptor
-} from "./state";
+} from "./store";
 
-const proxyTraps: ProxyHandler<StateNode> = {
+const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
@@ -22,15 +21,15 @@ const proxyTraps: ProxyHandler<StateNode> = {
     if (property === $NODE || property === "__proto__") return value;
 
     const wrappable = isWrappable(value);
-    if (Listener && (typeof value !== "function" || target.hasOwnProperty(property))) {
+    if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       let nodes, node;
       if (wrappable && (nodes = getDataNodes(value))) {
         node = nodes._ || (nodes._ = createDataNode());
-        readSignal.call(node);
+        node();
       }
       nodes = getDataNodes(target);
       node = nodes[property] || (nodes[property] = createDataNode());
-      readSignal.call(node);
+      node();
     }
     return wrappable
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
@@ -50,7 +49,7 @@ const proxyTraps: ProxyHandler<StateNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-function wrap<T extends StateNode>(value: T, name?: string): State<T> {
+function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -77,18 +76,18 @@ function wrap<T extends StateNode>(value: T, name?: string): State<T> {
   return p;
 }
 
-export function createMutable<T extends StateNode>(
-  state: T | State<T>,
+export function createMutable<T extends StoreNode>(
+  state: T | Store<T>,
   options?: { name?: string }
-): State<T> {
-  const unwrappedState = unwrap<T>(state || {});
-  const wrappedState = wrap(
-    unwrappedState,
-    "_SOLID_DEV_" && ((options && options.name) || hashValue(unwrappedState))
+): Store<T> {
+  const unwrappedStore = unwrap<T>(state || {});
+  const wrappedStore = wrap(
+    unwrappedStore,
+    "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
   );
   if ("_SOLID_DEV_") {
-    const name = (options && options.name) || hashValue(unwrappedState);
-    registerGraph(name, { value: unwrappedState });
+    const name = (options && options.name) || DEV.hashValue(unwrappedStore);
+    DEV.registerGraph(name, { value: unwrappedStore });
   }
-  return wrappedState as State<T>;
+  return wrappedStore as Store<T>;
 }

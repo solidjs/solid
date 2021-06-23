@@ -32,7 +32,7 @@ Developer experience is different enough that while some things are analogous it
 
 ## Knockout.js
 
-This library owes its existence to Knockout. Modernizing its model for fine grained dependency detection was the motivation for this project. Knockout was released in 2010 and supports Microsoft Explorer back to IE6 while much of Solid doesn't support IE at all (although you can use Signals in Solid without using the Proxy State object).
+This library owes its existence to Knockout. Modernizing its model for fine grained dependency detection was the motivation for this project. Knockout was released in 2010 and supports Microsoft Explorer back to IE6 while much of Solid doesn't support IE at all.
 
 Knockout's bindings are just strings in HTML which are walked over at runtime. They depend on cloning context ($parent etc...). Whereas Solid uses JSX or Tagged Template Literals for templating opting for an in JavaScript API.
 

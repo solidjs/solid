@@ -2,12 +2,12 @@ import {
   setProperty,
   unwrap,
   isWrappable,
-  State,
+  Store,
   NotWrappable,
-  StateNode,
+  StoreNode,
   DeepReadonly,
   $RAW,
-} from "./state";
+} from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -113,22 +113,22 @@ function applyState(
 
 // Diff method for setState
 export function reconcile<T>(
-  value: T | State<T>,
+  value: T | Store<T>,
   options: ReconcileOptions = {}
 ): (
-  state: T extends NotWrappable ? T : State<DeepReadonly<T>>
-) => T extends NotWrappable ? T : State<T> {
+  state: T extends NotWrappable ? T : Store<DeepReadonly<T>>
+) => T extends NotWrappable ? T : Store<T> {
   const { merge, key = "id" } = options,
     v = unwrap(value);
   return s => {
-    const state = s as T extends NotWrappable ? T : State<T>;
-    if (!isWrappable(state) || !isWrappable(v)) return v as T extends NotWrappable ? T : State<T>;
+    const state = s as T extends NotWrappable ? T : Store<T>;
+    if (!isWrappable(state) || !isWrappable(v)) return v as T extends NotWrappable ? T : Store<T>;
     applyState(v, { state }, "state", merge, key);
     return state;
   };
 }
 
-const setterTraps: ProxyHandler<StateNode> = {
+const setterTraps: ProxyHandler<StoreNode> = {
   get(target, property): any {
     if (property === $RAW) return target;
     const value = target[property as string | number];
@@ -150,10 +150,10 @@ const setterTraps: ProxyHandler<StateNode> = {
 export function produce<T>(
   fn: (state: T) => void
 ): (
-  state: T extends NotWrappable ? T : State<DeepReadonly<T>>
-) => T extends NotWrappable ? T : State<T> {
+  state: T extends NotWrappable ? T : Store<DeepReadonly<T>>
+) => T extends NotWrappable ? T : Store<T> {
   return s => {
-    const state = s as T extends NotWrappable ? T : State<T>;
+    const state = s as T extends NotWrappable ? T : Store<T>;
     if (isWrappable(state)) fn(new Proxy(state as object, setterTraps) as unknown as T);
     return state;
   };

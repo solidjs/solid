@@ -24,7 +24,7 @@ Vue-compat on the other hand, that'd be doable. Although there are no plans to i
 
 ### 4. Why does destructuring not work? I realized I can fix it by wrapping my whole component in a function.
 
-Reactivity occurs on property access on Prop and State objects. Referencing them outside of a binding or reactive computation will not be tracked. Destructuring is perfectly fine inside of those.
+Reactivity occurs on property access on Prop and Store objects. Referencing them outside of a binding or reactive computation will not be tracked. Destructuring is perfectly fine inside of those.
 
 However, wrapping your whole component in a function is not what you want to be doing irresponsibly. Solid does not have a VDOM. So any tracked change will run the whole function again recreating everything. Don't do it.
 
@@ -42,13 +42,13 @@ It's good to have options, but Solid's JSX is really the best solution here. A T
 
 I know other libraries have been adding support for these features but that has been an enormous effort and is still imperfect and a constant maintenance headache. This is really taking a pragmatic stance.
 
-### 7. When do I use a Signal vs State? Why are these different?
+### 7. When do I use a Signal vs Store? Why are these different?
 
-State automatically wraps nested values making it ideal for deep data structures, and for things like models. For most other things Signals are lightweight and do the job wonderfully.
+Stores automatically wrap nested values making it ideal for deep data structures, and for things like models. For most other things Signals are lightweight and do the job wonderfully.
 
 As much I'd love to wrap these together as a single thing, you can't proxy primitives. Functions are the simplest interface and any reactive expression (including state access) can be wrapped in one on transport so this provides a universal API. You can name your signals and state as you choose and it stays minimal. Last thing I'd want to do is force typing `.get()` `.set()` on the end-user or even worse `.value`. At least the former can be aliased for brevity, whereas the latter is just the least terse way to call a function.
 
-### 8. Why can I not just assign a value to Solid's State as I can in Vue. Svelte, or MobX? Where is the 2-way binding?
+### 8. Why can I not just assign a value to Solid's Store as I can in Vue. Svelte, or MobX? Where is the 2-way binding?
 
 Reactivity is a powerful tool but also a dangerous one. MobX knows this and introduced Strict mode and Actions to limit where/when updates occur. In Solid which deals with whole Component trees of data, I realized we can learn something from React here. You don't need to be actually immutable as long as you provide the means to have the same contract.
 

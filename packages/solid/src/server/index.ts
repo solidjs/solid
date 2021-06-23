@@ -20,12 +20,9 @@ export {
   runWithOwner,
   equalFn,
   requestCallback,
-  createState,
-  unwrap,
-  $RAW,
-  reconcile,
-  produce,
-  mapArray
+  mapArray,
+  $PROXY,
+  DEV
 } from "./reactive";
 
 export {
@@ -47,7 +44,6 @@ export {
   sharedConfig
 } from "./rendering";
 
-export type { State, SetStateFunction } from "./reactive";
 export type { Component, Resource } from "./rendering";
 
 

@@ -5,6 +5,7 @@ import type { JSX } from "../jsx";
 
 export type Accessor<T> = () => T;
 export const equalFn = <T>(a: T, b: T) => a === b;
+export const $PROXY = Symbol("solid-proxy");
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
@@ -20,11 +21,11 @@ const UNOWNED: Owner = {
 };
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
-export var Listener: Computation<any> | null = null;
+export let Transition: Transition | null = null;
+let Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
-export let Transition: Transition | null = null;
 let ExecCount = 0;
 let rootCount = 0;
 
@@ -463,34 +464,34 @@ export type ReturnTypes<T> = T extends (() => any)[]
 
 export function on<T extends (() => any)[], U>(
   deps: [...T],
-  fn: (values: ReturnTypes<T>, prev: ReturnTypes<T>, prevResults?: U) => U,
+  fn: (input: ReturnTypes<T>, prevInput: ReturnTypes<T>, prevValue?: U) => U,
   options?: { defer?: boolean }
-): (prev?: U) => U | undefined;
+): (prevValue?: U) => U | undefined;
 export function on<T extends () => any, U>(
   deps: T,
-  fn: (values: ReturnType<T>, prev: ReturnType<T>, prevResults?: U) => U,
+  fn: (input: ReturnType<T>, prevInput: ReturnType<T>, prevValue?: U) => U,
   options?: { defer?: boolean }
-): (prev?: U) => U | undefined;
+): (prevValue?: U) => U | undefined;
 export function on<T extends (() => any) | (() => any)[], U>(
   deps: T,
-  fn: (values: ReturnTypes<T>, prev: ReturnTypes<T>, prevResults?: U) => U,
+  fn: (input: ReturnTypes<T>, prevInput: ReturnTypes<T>, prevValue?: U) => U,
   options?: { defer?: boolean }
-): (prev?: U) => U | undefined {
+): (prevValue?: U) => U | undefined {
   const isArray = Array.isArray(deps);
-  let prev: ReturnTypes<T>;
+  let prevInput: ReturnTypes<T>;
   let defer = options && options.defer;
-  return prevResult => {
-    let value: ReturnTypes<T>;
+  return prevValue => {
+    let input: ReturnTypes<T>;
     if (isArray) {
-      value = [] as any;
-      for (let i = 0; i < deps.length; i++) value.push((deps as Array<() => T>)[i]());
-    } else value = (deps as () => T)() as any;
+      input = [] as any;
+      for (let i = 0; i < deps.length; i++) input.push((deps as Array<() => T>)[i]());
+    } else input = (deps as () => T)() as any;
     if (defer) {
       defer = false;
       return undefined;
     }
-    const result = untrack<U>(() => fn!(value, prev, prevResult));
-    prev = value;
+    const result = untrack<U>(() => fn!(input, prevInput, prevValue));
+    prevInput = input;
     return result;
   };
 }

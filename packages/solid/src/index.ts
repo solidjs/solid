@@ -21,27 +21,12 @@ export {
   getListener,
   getOwner,
   runWithOwner,
-  equalFn
+  equalFn,
+  $PROXY
 } from "./reactive/signal";
 export type { Accessor, Resource, ResourceReturn, Context, ReturnTypes } from "./reactive/signal";
 
-export { createState, unwrap, $RAW } from "./reactive/state";
-export type {
-  State,
-  SetStateFunction,
-  NotWrappable,
-  StateNode,
-  StateSetter,
-  StatePathRange,
-  ArrayFilterFn,
-  Part,
-  Next,
-  Readonly,
-  DeepReadonly
-} from "./reactive/state";
-export * from "./reactive/mutable";
 export * from "./reactive/observable";
-export * from "./reactive/stateModifiers";
 export * from "./reactive/scheduler";
 export * from "./reactive/array";
 export * from "./render";
@@ -54,10 +39,15 @@ export type { JSXElement, JSX };
 export function awaitSuspense() {}
 
 // dev
-import { writeSignal, serializeGraph } from "./reactive/signal";
-let DEV: { writeSignal: typeof writeSignal; serializeGraph: typeof serializeGraph };
+import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal";
+let DEV: {
+  writeSignal: typeof writeSignal;
+  serializeGraph: typeof serializeGraph;
+  registerGraph: typeof registerGraph;
+  hashValue: typeof hashValue;
+};
 if ("_SOLID_DEV_") {
-  DEV = { writeSignal, serializeGraph };
+  DEV = { writeSignal, serializeGraph, registerGraph, hashValue };
 }
 export { DEV };
 

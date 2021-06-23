@@ -25,6 +25,10 @@ setCount(() => ComponentB);
 setCount(ComponentB);
 ```
 
+#### `createState` moved and renamed
+
+`createState` has been renamed to `createStore` and moved to `solid-js/store`. Also moved to `solid-js/store`: `createMutable`, `produce`, `reconcile`
+
 #### SSR Entry points
 
 `renderToString` and `renderToStringAsync` now only return their stringified markup. To insert scripts you need to call `generateHydrationScript` or use the new `<HydrationScript>` component.

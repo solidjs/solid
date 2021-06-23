@@ -1,8 +1,8 @@
-import { createState, reconcile, produce, unwrap } from "../src";
+import { createStore, reconcile, produce, unwrap } from "../src";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {
-    const [state, setState] = createState({ data: 2, missing: "soon" });
+    const [state, setState] = createStore({ data: 2, missing: "soon" });
     expect(state.data).toBe(2);
     expect(state.missing).toBe("soon");
     setState(reconcile({ data: 5 }));
@@ -11,7 +11,7 @@ describe("setState with reconcile", () => {
   });
 
   test("Reconcile a simple object on a nested path", () => {
-    const [state, setState] = createState({
+    const [state, setState] = createStore({
       data: { user: { firstName: "John", middleName: "", lastName: "Snow" } }
     });
     expect(state.data.user.firstName).toBe("John");
@@ -23,7 +23,7 @@ describe("setState with reconcile", () => {
   });
 
   test("Reconcile a simple object on a nested path with no prev state", () => {
-    const [state, setState] = createState<{ user?: { firstName: string; middleName: string } }>({});
+    const [state, setState] = createStore<{ user?: { firstName: string; middleName: string } }>({});
     expect(state.user).toBeUndefined();
     setState("user", reconcile({ firstName: "Jake", middleName: "R" }));
     expect(state.user!.firstName).toBe("Jake");
@@ -35,7 +35,7 @@ describe("setState with reconcile", () => {
       NED = { id: 2, firstName: "Ned", lastName: "Stark" },
       BRANDON = { id: 3, firstName: "Brandon", lastName: "Start" },
       ARYA = { id: 4, firstName: "Arya", lastName: "Start" };
-    const [state, setState] = createState({ users: [JOHN, NED, BRANDON] });
+    const [state, setState] = createStore({ users: [JOHN, NED, BRANDON] });
     expect(Object.is(unwrap(state.users[0]), JOHN)).toBe(true);
     expect(Object.is(unwrap(state.users[1]), NED)).toBe(true);
     expect(Object.is(unwrap(state.users[2]), BRANDON)).toBe(true);
@@ -62,7 +62,7 @@ describe("setState with reconcile", () => {
     const JOHN = { id: 1, firstName: "John", lastName: "Snow" },
       NED = { id: 2, firstName: "Ned", lastName: "Stark" },
       BRANDON = { id: 3, firstName: "Brandon", lastName: "Start" };
-    const [state, setState] = createState({
+    const [state, setState] = createStore({
       users: [{ ...JOHN }, { ...NED }, { ...BRANDON }]
     });
     expect(state.users[0].id).toBe(1);
@@ -92,7 +92,7 @@ describe("setState with produce", () => {
     data: { ending?: number, starting: number }
   }
   test("Top Level Mutation", () => {
-    const [state, setState] = createState<DataState>({ data: { starting: 1, ending: 1 } });
+    const [state, setState] = createStore<DataState>({ data: { starting: 1, ending: 1 } });
     setState(produce<DataState>(s => {
       s.data.ending = s.data.starting + 1;
     }));
@@ -100,7 +100,7 @@ describe("setState with produce", () => {
     expect(state.data.ending).toBe(2);
   });
   test("Nested Level Mutation", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    const [state, setState] = createStore({ data: { starting: 1, ending: 1 } });
     setState("data", produce<DataState["data"]>(s => {
       s.ending = s.starting + 1;
     }));
@@ -108,7 +108,7 @@ describe("setState with produce", () => {
     expect(state.data.ending).toBe(2);
   });
   test("Top Level Deletion", () => {
-    const [state, setState] = createState<DataState>({ data: { starting: 1, ending: 1 } });
+    const [state, setState] = createStore<DataState>({ data: { starting: 1, ending: 1 } });
     setState(produce<DataState>(s => {
       delete s.data.ending;
     }));
@@ -116,7 +116,7 @@ describe("setState with produce", () => {
     expect(state.data.ending).not.toBeDefined();
   });
   test("Top Level Object Mutation", () => {
-    const [state, setState] = createState<DataState>({ data: { starting: 1, ending: 1 } }),
+    const [state, setState] = createStore<DataState>({ data: { starting: 1, ending: 1 } }),
       next = { starting: 3, ending: 6 };
     setState(produce<DataState>(s => {
       s.data = next;
@@ -129,7 +129,7 @@ describe("setState with produce", () => {
     interface TodoState {
       todos: ({ id: number, title: string, done: boolean })[]
     }
-    const [state, setState] = createState<TodoState>({
+    const [state, setState] = createStore<TodoState>({
       todos: [
         { id: 1, title: "Go To Work", done: true },
         { id: 2, title: "Eat Lunch", done: false }

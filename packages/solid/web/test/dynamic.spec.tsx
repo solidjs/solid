@@ -1,5 +1,6 @@
 /* @jsxImportSource solid-js */
-import { createRoot, createSignal, createState, Component, JSX } from "../../src";
+import { createRoot, createSignal, Component, JSX } from "../../src";
+import { createStore } from "../../store/src";
 import { Dynamic } from "../src";
 
 describe("Testing Dynamic control flow", () => {
@@ -58,7 +59,7 @@ describe("Testing Dynamic with state spread", () => {
     title: string;
   }
   const [comp, setComp] = createSignal<Component<DynamicProps> | keyof JSX.IntrinsicElements>(),
-    [state, setState] = createState({
+    [state, setState] = createStore({
       title: "Smith"
     });
   const Component = () => (

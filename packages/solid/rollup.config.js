@@ -59,14 +59,14 @@ export default [
     ].concat(plugins)
   },
   {
-    input: "src/static/index.ts",
+    input: "src/server/index.ts",
     output: [
       {
-        file: "dist/static.cjs",
+        file: "dist/server.cjs",
         format: "cjs"
       },
       {
-        file: "dist/static.js",
+        file: "dist/server.js",
         format: "es"
       }
     ],
@@ -85,6 +85,56 @@ export default [
         format: "es"
       }
     ],
+    plugins
+  },
+  {
+    input: "store/src/index.ts",
+    output: [
+      {
+        file: "store/dist/store.cjs",
+        format: "cjs"
+      },
+      {
+        file: "store/dist/store.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins: [
+      replace({
+        '"_SOLID_DEV_"': false,
+        delimiters: ["", ""]
+      })
+    ].concat(plugins)
+  },
+  {
+    input: "store/src/server.ts",
+    output: [
+      {
+        file: "store/dist/server.cjs",
+        format: "cjs"
+      },
+      {
+        file: "store/dist/server.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins
+  },
+  {
+    input: "store/src/index.ts",
+    output: [
+      {
+        file: "store/dist/dev.cjs",
+        format: "cjs"
+      },
+      {
+        file: "store/dist/dev.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
     plugins
   },
   {

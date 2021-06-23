@@ -1,24 +1,22 @@
 import {
   createRoot,
-  createState,
   createSignal,
   createComputed,
   createMemo,
-  unwrap,
-  on,
-  $RAW
-} from "../src";
+  on
+} from "../../src";
+import { createStore, unwrap, $RAW } from "../src"
 
 describe("State immutablity", () => {
   test("Setting a property", () => {
-    const [state] = createState({ name: "John" });
+    const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
     state.name = "Jake";
     expect(state.name).toBe("John");
   });
 
   test("Deleting a property", () => {
-    const [state] = createState({ name: "John" });
+    const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
     // @ts-ignore
     delete state.name;
@@ -26,7 +24,7 @@ describe("State immutablity", () => {
   });
 
   test("Immutable state is not mutable even inside setter", () => {
-    const [state, setState] = createState({ name: "John" });
+    const [state, setState] = createStore({ name: "John" });
     expect(state.name).toBe("John");
     setState(() => {
       state.name = "Jake";
@@ -39,7 +37,7 @@ describe("State Getters", () => {
   test("Testing an update from state", () => {
     let state: any, setState: Function;
     createRoot(() => {
-      [state, setState] = createState({
+      [state, setState] = createStore({
         name: "John",
         get greeting(): string {
           return `Hi, ${this.name}`;
@@ -54,47 +52,47 @@ describe("State Getters", () => {
 
 describe("Simple setState modes", () => {
   test("Simple Key Value", () => {
-    const [state, setState] = createState({ key: "" });
+    const [state, setState] = createStore({ key: "" });
     setState("key", "value");
     expect(state.key).toBe("value");
   });
 
   test("Top level merge", () => {
-    const [state, setState] = createState({ starting: 1, ending: 1 });
+    const [state, setState] = createStore({ starting: 1, ending: 1 });
     setState({ ending: 2 });
     expect(state.starting).toBe(1);
     expect(state.ending).toBe(2);
   });
 
   test("Top level merge no arguments", () => {
-    const [state, setState] = createState({ starting: 1 });
+    const [state, setState] = createStore({ starting: 1 });
     setState({});
     expect(state.starting).toBe(1);
   });
 
   test("Top level state function merge", () => {
-    const [state, setState] = createState({ starting: 1, ending: 1 });
+    const [state, setState] = createStore({ starting: 1, ending: 1 });
     setState(s => ({ ending: s.starting + 1 }));
     expect(state.starting).toBe(1);
     expect(state.ending).toBe(2);
   });
 
   test("Nested merge", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    const [state, setState] = createStore({ data: { starting: 1, ending: 1 } });
     setState("data", { ending: 2 });
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
 
   test("Nested state function merge", () => {
-    const [state, setState] = createState({ data: { starting: 1, ending: 1 } });
+    const [state, setState] = createStore({ data: { starting: 1, ending: 1 } });
     setState("data", d => ({ ending: d.starting + 1 }));
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
 
   test("Test Array", () => {
-    const [state, setState] = createState({
+    const [state, setState] = createStore({
       todos: [
         { id: 1, title: "Go To Work", done: true },
         { id: 2, title: "Eat Lunch", done: false }
@@ -110,7 +108,7 @@ describe("Simple setState modes", () => {
 
 describe("Array setState modes", () => {
   test("Update Specific", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
+    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
     setState("rows", [1, 3], r => r * 2);
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
@@ -119,7 +117,7 @@ describe("Array setState modes", () => {
     expect(state.rows[4]).toBe(5);
   });
   test("Update filterFn", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
+    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
     setState(
       "rows",
       (r, i) => Boolean(i % 2),
@@ -132,7 +130,7 @@ describe("Array setState modes", () => {
     expect(state.rows[4]).toBe(5);
   });
   test("Update traversal range", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
+    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
     setState("rows", { from: 1, to: 4, by: 2 }, r => r * 2);
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
@@ -141,7 +139,7 @@ describe("Array setState modes", () => {
     expect(state.rows[4]).toBe(5);
   });
   test("Update traversal range defaults", () => {
-    const [state, setState] = createState({ rows: [1, 2, 3, 4, 5] });
+    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
     setState("rows", {}, r => r * 2);
     expect(state.rows[0]).toBe(2);
     expect(state.rows[1]).toBe(4);
@@ -153,7 +151,7 @@ describe("Array setState modes", () => {
 
 describe("Unwrapping Edge Cases", () => {
   test("Unwrap nested frozen state object", () => {
-    const [state] = createState({
+    const [state] = createStore({
         data: Object.freeze({ user: { firstName: "John", lastName: "Snow" } })
       }),
       s = unwrap({ ...state });
@@ -163,7 +161,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data.user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen array", () => {
-    const [state] = createState({
+    const [state] = createStore({
         data: [{ user: { firstName: "John", lastName: "Snow" } }]
       }),
       s = unwrap({ data: state.data.slice(0) });
@@ -173,7 +171,7 @@ describe("Unwrapping Edge Cases", () => {
     expect(s.data[0].user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen state array", () => {
-    const [state] = createState({
+    const [state] = createStore({
         data: Object.freeze([{ user: { firstName: "John", lastName: "Snow" } }])
       }),
       s = unwrap({ ...state });
@@ -187,7 +185,7 @@ describe("Unwrapping Edge Cases", () => {
 describe("Tracking State changes", () => {
   test("Track a state change", () => {
     createRoot(() => {
-      const [state, setState] = createState({ data: 2 });
+      const [state, setState] = createStore({ data: 2 });
       let executionCount = 0;
 
       expect.assertions(2);
@@ -211,7 +209,7 @@ describe("Tracking State changes", () => {
 
   test("Track a nested state change", () => {
     createRoot(() => {
-      const [state, setState] = createState({
+      const [state, setState] = createStore({
           user: { firstName: "John", lastName: "Smith" }
         });
       let executionCount = 0;
@@ -235,7 +233,7 @@ describe("Tracking State changes", () => {
 
   test("Tracking Object key addition/removal", () => {
     createRoot(() => {
-      const [state, setState] = createState<{ obj: { item?: number } }>({ obj: {} });
+      const [state, setState] = createStore<{ obj: { item?: number } }>({ obj: {} });
       let executionCount = 0;
 
       createComputed(on(() => state.obj, (v) => {
@@ -264,7 +262,7 @@ describe("Tracking State changes", () => {
 describe("Handling functions in state", () => {
   test("Array Native Methods: Array.Filter", () => {
     createRoot(() => {
-      const [state] = createState({ list: [0, 1, 2] }),
+      const [state] = createStore({ list: [0, 1, 2] }),
         getFiltered = createMemo(() => state.list.filter(i => i % 2));
       expect(getFiltered()).toStrictEqual([1]);
     });
@@ -272,7 +270,7 @@ describe("Handling functions in state", () => {
 
   test("Track function change", () => {
     createRoot(() => {
-      const [state, setState] = createState<{ fn: () => number }>({
+      const [state, setState] = createStore<{ fn: () => number }>({
           fn: () => 1
         }),
         getValue = createMemo(() => state.fn());
@@ -286,7 +284,7 @@ describe("Setting state from Effects", () => {
   test("Setting state from signal", () => {
     createRoot(() => {
       const [getData, setData] = createSignal("init"),
-        [state, setState] = createState({ data: "" });
+        [state, setState] = createStore({ data: "" });
       createComputed(() => setState("data", getData()));
       setData("signal");
       expect(state.data).toBe("signal");
@@ -298,7 +296,7 @@ describe("Setting state from Effects", () => {
       const p = new Promise<string>(resolve => {
           setTimeout(resolve, 20, "promised");
         });
-      const [state, setState] = createState({ data: "" });
+      const [state, setState] = createStore({ data: "" });
       p.then(v => setState("data", v));
       await p;
       expect(state.data).toBe("promised");
@@ -310,19 +308,19 @@ describe("Setting state from Effects", () => {
 describe("State wrapping", () => {
   test("Setting plain object", () => {
     const data = { withProperty: "y" },
-      [state] = createState({ data });
+      [state] = createStore({ data });
     // not wrapped
     expect(state.data).not.toBe(data);
   });
   test("Setting plain array", () => {
     const data = [1, 2, 3],
-      [state] = createState({ data });
+      [state] = createStore({ data });
     // not wrapped
     expect(state.data).not.toBe(data);
   });
   test("Setting non-wrappable", () => {
     const date = new Date(),
-      [state] = createState({ time: date });
+      [state] = createStore({ time: date });
     // not wrapped
     expect(state.time).toBe(date);
   });
@@ -330,7 +328,7 @@ describe("State wrapping", () => {
 
 describe("Array length", () => {
   test("Setting plain object", () => {
-    const [state, setState] = createState<{ list: number[] }>({ list: [] });
+    const [state, setState] = createStore<{ list: number[] }>({ list: [] });
     let length;
     // isolate length tracking
     const list = state.list;
@@ -351,7 +349,7 @@ describe("State recursion", () => {
     const x: { a: number; b: any } = { a: 1, b: undefined };
     x.b = x;
 
-    const [state, setState] = createState(x);
+    const [state, setState] = createStore(x);
     expect(state.a).toBe(state.b.a);
   });
 });

@@ -1,12 +1,5 @@
-import {
-  createRoot,
-  createMutable,
-  createSignal,
-  createComputed,
-  createMemo,
-  unwrap,
-  $RAW
-} from "../src";
+import { createRoot, createSignal, createComputed, createMemo } from "../../src";
+import { createMutable, unwrap, $RAW } from "../src";
 
 describe("State Mutablity", () => {
   test("Setting a property", () => {

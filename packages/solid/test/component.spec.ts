@@ -1,4 +1,5 @@
-import { createRoot, createComponent, mergeProps, splitProps, createState } from "../src";
+import { createRoot, createComponent, mergeProps, splitProps } from "../src";
+import { createStore } from "../store/src";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -62,8 +63,8 @@ describe("Clone Props", () => {
   });
 });
 
-describe("Clone State", () => {
-  const [state, setState] = createState<{a: string, b: string, c?: string}>({ a: "Hi", b: "Jo" });
+describe("Clone Store", () => {
+  const [state, setState] = createStore<{a: string, b: string, c?: string}>({ a: "Hi", b: "Jo" });
   const clone = mergeProps(state);
   expect(clone.a).toBe("Hi");
   expect(clone.b).toBe("Jo");

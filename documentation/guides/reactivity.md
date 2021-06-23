@@ -89,6 +89,6 @@ However, there are some key behaviors and tradeoffs we must be aware of.
 
 1. All reactivity is tracked from function calls whether directly or hidden beneath getter/proxy and triggered by property access. This means where you access properties on reactive objects is important.
 
-2. Components and callbacks from control flows are not tracking scopes and only execute once. This means destructuring or doing logic top-level in your components will not re-execute. You must access these Signals, State, and props from within other reactive primitives or the JSX for that part of the code to re-evaluate.
+2. Components and callbacks from control flows are not tracking scopes and only execute once. This means destructuring or doing logic top-level in your components will not re-execute. You must access these Signals, Stores, and props from within other reactive primitives or the JSX for that part of the code to re-evaluate.
 
 3. This approach only tracks synchronously. If you have a setTimeout or use an async function in your Effect the code that executes async after the fact won't be tracked.

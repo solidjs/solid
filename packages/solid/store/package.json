@@ -1,0 +1,13 @@
+{
+  "name": "solid-js/store",
+  "main": "./dist/server.cjs",
+  "module": "./dist/server.js",
+  "browser": {
+    "./dist/server.cjs": "./dist/store.cjs",
+    "./dist/server.js": "./dist/store.js"
+  },
+  "unpkg": "./dist/store.cjs",
+  "types": "./types/index.d.ts",
+  "type": "module",
+  "sideEffects": false
+}
