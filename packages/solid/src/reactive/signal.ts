@@ -86,7 +86,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
     root: Owner =
       fn.length === 0 && !"_SOLID_DEV_"
         ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner, attached: Boolean(detachedOwner) };
+        : { owned: null, cleanups: null, context: null, owner, attached: !!detachedOwner };
 
   if ("_SOLID_DEV_" && owner) root.name = `${(owner as Computation<any>).name}-r${rootCount++}`;
   Owner = root;
@@ -405,7 +405,7 @@ export function createSelector<T, U>(
     undefined,
     true,
     "_SOLID_DEV_" ? options : undefined
-  );
+  ) as Memo<any>;
   updateComputation(node);
   return (key: U) => {
     let listener: Computation<any> | null;
@@ -417,7 +417,10 @@ export function createSelector<T, U>(
         l!.size > 1 ? l!.delete(listener!) : subs.delete(key);
       });
     }
-    return fn(key, node.value!);
+    return fn(
+      key,
+      Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value!
+    );
   };
 }
 
@@ -585,8 +588,7 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
 
 export function hashValue(v: any): string {
   const s = new Set();
-  return (
-    `s${
+  return `s${
     typeof v === "string"
       ? hash(v)
       : hash(
@@ -597,8 +599,8 @@ export function hashValue(v: any): string {
             }
             return v;
           }) || ""
-        )}`
-  );
+        )
+  }`;
 }
 
 export function registerGraph(name: string, value: { value: unknown }): string {
@@ -1021,11 +1023,12 @@ function resolveChildren(children: any): unknown {
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     let res;
-    createComputed(() =>
-      res = untrack(() => {
-        Owner!.context = { [id]: props.value };
-        return children(() => props.children);
-      })
+    createComputed(
+      () =>
+        (res = untrack(() => {
+          Owner!.context = { [id]: props.value };
+          return children(() => props.children);
+        }))
     );
     return res as JSX.Element;
   };
