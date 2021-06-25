@@ -266,7 +266,7 @@ export function useTransition(): [() => boolean, (fn: () => void, cb?: () => voi
 Used to batch async updates in a transaction deferring commit until all async processes are complete. This is tied into Suspense and only tracks resources read under Suspense boundaries.
 
 ```js
-const [isPending, start] = createTransition();
+const [isPending, start] = useTransition();
 
 // check if transitioning
 isPending();

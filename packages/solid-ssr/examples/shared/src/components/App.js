@@ -34,7 +34,7 @@ const App = RouteHOC(() => {
           <div class="tab" classList={{ pending: pending() }}>
             <Suspense
               fallback={
-                <span class="loader" style="opacity: 0">
+                <span $ServerOnly class="loader" style="opacity: 0">
                   Loading...
                 </span>
               }

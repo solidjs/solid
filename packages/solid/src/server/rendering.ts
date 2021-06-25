@@ -404,8 +404,10 @@ const SUSPENSE_GLOBAL = Symbol("suspense-global");
 export function Suspense(props: { fallback: string; children: string }) {
   const ctx = sharedConfig.context!;
   // TODO: look at not always going to fallback
-  if (ctx.streaming) createComponent(() => props.children, {});
-  if (!ctx.async) return props.fallback;
+  if (!ctx.async) return createComponent(() => {
+    props.children;
+    return props.fallback;
+  }, {});
 
   const id = ctx.id + ctx.count;
   const done = ctx.async ? lookup(Owner, SUSPENSE_GLOBAL)(id) : () => {};
