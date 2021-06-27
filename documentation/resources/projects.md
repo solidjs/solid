@@ -33,6 +33,8 @@
 - [solidjs-treeview-component](https://github.com/milahu/solidjs-treeview-component) Interactive tree of nodes, expand/collapse, fetch child nodes on demand
 
 ## Starters
+- [Solid Templates](https://github.com/solidjs/templates) - Official Solid Templates powered by [Vite](https://vitejs.dev/)
+- [Create Solid](https://github.com/solidjs/create-solid) Solid's port of Create React App.
 - [Solid TypeScript Rollup](https://github.com/high1/solid-typescript-rollup) - Rollup
 - [Solid Rollup Boilerplate](https://github.com/MrFoxPro/solid-rollup-boilerplate) - Rollup
 - [Solid TypeScript Starter](https://github.com/high1/solid-typescript-starter) - Webpack
@@ -40,13 +42,12 @@
 - [Solid Parcel Starter](https://gitlab.com/enom/solid-parcel-starter) - Parcel
 - [Parcel 2 Solid TS Starter](https://github.com/amoutonbrady/parcel2-solid-ts-starter) - Parcel
 - [Solid Snowpack Starter](https://github.com/amoutonbrady/solid-snowpack-starter) - Snowpack
-- [Vite Template Solid](https://github.com/amoutonbrady/vite-template-solid) - Vite
+
 
 ## Tooling
 - [Solid Refresh](https://github.com/solidjs/solid-refresh) Universal plugin for HMR
 - [Solid Jest](https://github.com/solidjs/solid-jest) Presets to test Solid for Browser or Node
 - [Solid Testing Library](https://github.com/solidjs/solid-testing-library) Solid's Testing Library
-- [Create Solid](https://github.com/solidjs/create-solid) Solid's port of Create React App.
 - [Vite Plugin Solid](https://github.com/amoutonbrady/vite-plugin-solid) Solid plugin for Vite.
 - [Solid Playground](https://github.com/solidjs/solid-playground) A playground for Solid.
 - [Solid Debug](https://github.com/amoutonbrady/solid-debug) Simple visual debugger for Solid.

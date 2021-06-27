@@ -4,20 +4,22 @@
 
 By far the easiest way to get started with Solid is to try it online. Our REPL at https://playground.solidjs.com is the perfect way to try out ideas. As is https://codesandbox.io/ where you can modify any of our [examples](../resources/examples.md).
 
-Alternatively, you can use our CLI to bootstrap client-side a project (based on [Create React App](https://github.com/facebook/create-react-app)).
-
-> _`npm init solid <project-type> <project-name>` is available with npm 6+._
-
-You can get started with a simple CLI app by running:
+Alternatively, you can use our simple [Vite](https://vitejs.dev/) templates by runnings these commands in your terminal:
 
 ```sh
-> npm init solid app my-app
+> npx degit solidjs/templates/js my-app
+> cd my-app
+> npm i # or yarn or pnpm
+> npm run dev # or yarn or pnpm
 ```
 
-Or for a TypeScript starter:
+Or for TypeScript:
 
 ```sh
-> npm init solid app-ts my-app
+> npx degit solidjs/templates/ts my-app
+> cd my-app
+> npm i # or yarn or pnpm
+> npm run dev # or yarn or pnpm
 ```
 
 ## Learn Solid

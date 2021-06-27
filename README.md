@@ -27,7 +27,8 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
   - Shadow DOM Portals
 - Transparent debugging: a `<div>` is just a div.
 
-[Top 5 Things You Should Know about Solid](https://dev.to/ryansolid/introducing-the-solidjs-ui-library-4mck)
+### Learn more on the [Solid Website](https//solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+
 
 ## The Gist
 
@@ -68,19 +69,25 @@ Want to see what code Solid generates:
 
 ## Quick Start
 
-> _`npm init solid <project-type> <project-name>` is available with npm 6+._
-
-You can get started with a simple app with the CLI with by running:
+You can get started with a simple app by running the following in your terminal:
 
 ```sh
-> npm init solid app my-app
+> npx degit solidjs/templates/js my-app
+> cd my-app
+> npm i # or yarn or pnpm
+> npm run dev # or yarn or pnpm
 ```
 
-Or for a TypeScript starter:
+Or for TypeScript:
 
 ```sh
-> npm init solid app-ts my-app
+> npx degit solidjs/templates/ts my-app
+> cd my-app
+> npm i # or yarn or pnpm
+> npm run dev # or yarn or pnpm
 ```
+
+This will create a minimal client-rendered application powered by [Vite](https://vitejs.dev/).
 
 Or you can install the dependencies in your own project. To use Solid with JSX (recommended) run:
 
@@ -104,8 +111,6 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 ```
 
 ## Documentation
-
-> This is the documentation for the 1.0.0 RC. THese are significantly slimmed down from what was here previously as we are moving things to the new Docs site. If you wish to see the older docs in the mean time [look here](https://github.com/solidjs/solid/tree/0.x/#documentation).
 
 - [API](https://github.com/solidjs/solid/blob/main/documentation/api.md)
 - [FAQ](https://github.com/solidjs/solid/blob/main/documentation/faq.md)
