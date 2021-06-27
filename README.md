@@ -27,7 +27,7 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
   - Shadow DOM Portals
 - Transparent debugging: a `<div>` is just a div.
 
-### Learn more on the [Solid Website](https//solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
 
 
 ## The Gist
