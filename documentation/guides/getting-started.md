@@ -2,7 +2,7 @@
 
 ## Try Solid
 
-By far the easiest way to get started with Solid is to try it online. Our REPL at https://playground.solidjs.com is the perfect way to try out ideas. As is https://codesandbox.io/ where you can modify any of our [examples](../resources/examples.md).
+By far the easiest way to get started with Solid is to try it online. Our REPL at https://playground.solidjs.com is the perfect way to try out ideas. As is https://codesandbox.io/ where you can modify any of our Examples.
 
 Alternatively, you can use our simple [Vite](https://vitejs.dev/) templates by runnings these commands in your terminal:
 
@@ -49,9 +49,7 @@ const [last, setLast] = createSignal("Bourne");
 createEffect(() => console.log(`${first()} ${last()}`))
 ```
 
-You can learn more about [Solid's Reactivity](reactivity.md) and [Solid's Rendering](rendering.md).
-
-You can also view our full [API Reference](../api.md).
+You can learn more in the Reactivity and Rendering sections.
 
 ## Think Solid
 
@@ -83,7 +81,7 @@ Solid has a dynamic server side rendering solution that enables a truly isomorph
 
 Since Solid supports asynchronous and streaming rendering on the server, you get to write your code one way and have it execute on the server. This means that features like [render-as-you-fetch](https://reactjs.org/docs/concurrent-mode-suspense.html#approach-3-render-as-you-fetch-using-suspense) and code splitting just work in Solid.
 
-For more information, read the [SSR guide](./server.md).
+For more information, read the Server guide.
 
 ## No Compilation?
 

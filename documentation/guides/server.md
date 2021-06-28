@@ -122,6 +122,8 @@ Solid's Isomorphic SSR solution is very powerful in that you can write your code
 
 We use markers rendered in the server to match elements and resource locations on server. For this reason the Client and Server should have the same components. This is not typically a problem given that Solid renders the same way on client and server. But currently there is no means to render something on the server that does not get hydrated on the client. Currently, there is no way to partially hydrate a whole page, and not generate hydration markers for it. It is all or nothing. Partial Hydration is something we want to explore in the future.
 
+Finally, all resources need to be defined under the `render` tree. They are automatically serialized and picked up in the browser, but that works because the `render` or `pipeTo` methods keep track of the progress of the render. Something we cannot do if they are created in isolated context. Similarly there is no reactivity on the server so do not update signals on initial render and expect them to reflect higher up the tree. While we have Suspense boundaries Solid's SSR is basically top down.
+
 ## Getting Started with SSR
 
 SSR configurations are tricky. We have a few examples in the [solid-ssr](https://github.com/solidjs/solid/blob/main/packages/solid-ssr) package.
