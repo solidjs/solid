@@ -18,7 +18,7 @@ function createProps<T>(raw: T) {
     const [get, set] = createSignal(raw[keys[i]]);
     Object.defineProperty(props, keys[i], {
       get,
-      set
+      set(v) { set(() => v); }
     });
   }
   return props as T;
