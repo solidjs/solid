@@ -46,10 +46,7 @@ export function mapArray<T, U>(
       // fast path for empty arrays
       if (newLen === 0) {
         if (len !== 0) {
-          if (!Transition) {
-            const d = disposers;
-            setTimeout(() => dispose(d));
-          } else dispose(disposers);
+          dispose(disposers);
           disposers = [];
           items = [];
           mapped = [];
@@ -166,10 +163,7 @@ export function indexArray<T, U>(
     return untrack(() => {
       if (newItems.length === 0) {
         if (len !== 0) {
-          if (!Transition) {
-            const d = disposers;
-            setTimeout(() => dispose(d));
-          } else dispose(disposers);
+          dispose(disposers);
           disposers = [];
           items = [];
           mapped = [];
