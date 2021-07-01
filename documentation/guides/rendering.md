@@ -243,7 +243,7 @@ const [local, others] = splitProps(props, ["className"])
 
 ## Children
 
-Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple children is handled an array of values. Normally you pass them through to the JSX view. However, if you want to interact with them the suggested method is the `children` helper which resolves any downstream control flows and returns a memo.
+Solid handles JSX Children similar to React. A single child is a single value on `props.children` and multiple children is handled via an array of values. Normally, you pass them through to the JSX view. However, if you want to interact with them the suggested method is the `children` helper which resolves any downstream control flows and returns a memo.
 
 ```jsx
 // single child
