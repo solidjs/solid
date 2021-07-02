@@ -69,17 +69,17 @@ Precise control and predictability make for better systems. We don't need true i
 
 ### 4. Simple is better than easy
 
-A lesson that comes hard for fine-grained reactivity. Explicit and consistent conventions even if they require more effort are worth it. The aim is to provide minimal tools to serve as the basis to built upon.
+A lesson that comes hard for fine-grained reactivity. Explicit and consistent conventions even if they require more effort are worth it. The aim is to provide minimal tools to serve as the basis to build upon.
 
 ## Web Components
 
-Solid was born with the desire to have Web Components as first class citizens. Over time its design has evolved and goals have changed. However, Solid is still a great way to author Web Components. [Solid Element](https://github.com/solidjs/solid/tree/main/packages/solid-element) lets you to write and wrap Solid's function components to produce small and performant Web Components. Inside Solid apps Solid Element is able to still leverage Solid's Context API and Solid's Portals support Shadow DOM isolated styling.
+Solid was born with the desire to have Web Components as first class citizens. Over time its design has evolved and goals have changed. However, Solid is still a great way to author Web Components. [Solid Element](https://github.com/solidjs/solid/tree/main/packages/solid-element) allows you to write and wrap Solid's function components to produce small and performant Web Components. Inside Solid apps Solid Element is able to still leverage Solid's Context API, and Solid's Portals support Shadow DOM isolated styling.
 
 ## Server Rendering
 
-Solid has a dynamic server side rendering solution that enables a truly isomorphic development experience. Through the use of our Resource primitive async data requests are easily made, and more importantly automatically serialized and synchronized between client and browser.
+Solid has a dynamic server side rendering solution that enables a truly isomorphic development experience. Through the use of our Resource primitive, async data requests are easily made and, more importantly, automatically serialized and synchronized between client and browser.
 
-Since Solid supports asynchronous and streaming rendering on the server, you get to write your code one way and have it execute on the server. This means that features like [render-as-you-fetch](https://reactjs.org/docs/concurrent-mode-suspense.html#approach-3-render-as-you-fetch-using-suspense) and code splitting just work in Solid.
+Since Solid supports asynchronous and stream rendering on the server, you get to write your code one way and have it execute on the server. This means that features like [render-as-you-fetch](https://reactjs.org/docs/concurrent-mode-suspense.html#approach-3-render-as-you-fetch-using-suspense) and code splitting just work in Solid.
 
 For more information, read the [Server guide](https://www.solidjs.com/docs/latest#server-side-rendering).
 
