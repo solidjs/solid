@@ -9,7 +9,7 @@ import {
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
 
-export type PropsWithChildren<P> = P & { children?: JSX.Element };
+export type PropsWithChildren<P = {}> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
 /**
  * Takes the props of the passed component and returns its type
