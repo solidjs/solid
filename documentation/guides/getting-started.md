@@ -49,7 +49,7 @@ const [last, setLast] = createSignal("Bourne");
 createEffect(() => console.log(`${first()} ${last()}`))
 ```
 
-You can learn more in the Reactivity and Rendering sections.
+You can learn more about [Solid's Reactivity](https://www.solidjs.com/docs/latest#reactivity) and [Solid's Rendering](https://www.solidjs.com/docs/latest#rendering).
 
 ## Think Solid
 
@@ -81,7 +81,7 @@ Solid has a dynamic server side rendering solution that enables a truly isomorph
 
 Since Solid supports asynchronous and streaming rendering on the server, you get to write your code one way and have it execute on the server. This means that features like [render-as-you-fetch](https://reactjs.org/docs/concurrent-mode-suspense.html#approach-3-render-as-you-fetch-using-suspense) and code splitting just work in Solid.
 
-For more information, read the Server guide.
+For more information, read the [Server guide](https://www.solidjs.com/docs/latest#server-side-rendering).
 
 ## No Compilation?
 

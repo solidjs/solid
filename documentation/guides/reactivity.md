@@ -44,7 +44,7 @@ Finally, Memos are cached derived values. They share the properties of both Sign
 const fullName = createMemo(() => `${firstName()} ${lastName()}`);
 ```
 
-# How it Works
+## How it Works
 
 Signals are event emitters that hold a list of subscriptions. They notify their subscribers whenever their value changes.
 
@@ -81,7 +81,7 @@ For more detailed understanding of how Reactivity works these are useful article
 
 [SolidJS: Reactivity to Rendering](https://indepth.dev/posts/1289/solidjs-reactivity-to-rendering)
 
-# Considerations
+## Considerations
 
 This approach to reactivity is very powerful and dynamic. It can handle dependencies changing on the fly through executing different branches of conditional code. It also works through many levels of indirection. Any function executed inside a tracking scope is also being tracked.
 
