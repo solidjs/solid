@@ -32,7 +32,7 @@ Signals are the simplest primitive. They contain value, and get and set function
 const [count, setCount] = createSignal(0);
 ```
 
-Effects are functions that wrap reads of our signal and re-execute when ever a dependent Signal's value changes. This is useful for creating side effects, like rendering.
+Effects are functions that wrap reads of our signal and re-execute whenever a dependent Signal's value changes. This is useful for creating side effects, like rendering.
 
 ```js
 createEffect(() => console.log("The latest count is", count()));
@@ -50,7 +50,7 @@ Signals are event emitters that hold a list of subscriptions. They notify their 
 
 Where things get more interesting is how these subscriptions happen. Solid uses automatic dependency tracking. Updates happen automatically as the data changes.
 
-The trick is a global stack at runtime. Before a Effect or Memo executes (or re-executes) its developer-provided function, it pushes itself on to that stack. Then any Signal that is read checks if there is a current listener on the stack and if so adds the listener to its subscriptions.
+The trick is a global stack at runtime. Before an Effect or Memo executes (or re-executes) its developer-provided function, it pushes itself on to that stack. Then any Signal that is read checks if there is a current listener on the stack and if so adds the listener to its subscriptions.
 
 You can think of it like this:
 ```js
