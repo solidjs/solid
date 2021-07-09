@@ -10,7 +10,8 @@ import {
   StoreNode,
   Store,
   setProperty,
-  proxyDescriptor
+  proxyDescriptor,
+  ownKeys
 } from "./store";
 
 const proxyTraps: ProxyHandler<StoreNode> = {
@@ -45,6 +46,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     setProperty(target, property as string, undefined);
     return true;
   },
+
+  ownKeys: ownKeys,
 
   getOwnPropertyDescriptor: proxyDescriptor
 };

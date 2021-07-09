@@ -193,23 +193,25 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
 // lazy load a function component asynchronously
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
-): T & { preload: () => Promise<T> } {
-  let p: Promise<{ default: T }>;
-  const wrap: T & { preload?: () => Promise<T> } = ((props: any) => {
+): T & { preload: () => void } {
+  let comp: () => T | undefined;
+  const wrap: T & { preload?: () => void } = ((props: any) => {
     const ctx = sharedConfig.context;
-    let comp: () => T | undefined;
     if (ctx && sharedConfig.resources) {
       ctx.count++; // increment counter for hydration
       const [s, set] = createSignal<T>();
-      (p || (p = fn())).then(mod => {
+      fn().then(mod => {
         setHydrateContext(ctx);
         set(() => mod.default);
         setHydrateContext(undefined);
       });
       comp = s;
-    } else {
-      const [s] = createResource(() => (p || (p = fn())).then(mod => mod.default));
+    } else if (!comp) {
+      const [s] = createResource(() => fn().then(mod => mod.default));
       comp = s;
+    } else {
+      const c = comp()
+      if(c) return c(props);
     }
     let Comp: T | undefined;
     return createMemo(
@@ -225,6 +227,6 @@ export function lazy<T extends Component<any>>(
         })
     );
   }) as T;
-  wrap.preload = () => (p || (p = fn())).then(mod => mod.default);
-  return wrap as T & { preload: () => Promise<T> };
+  wrap.preload = () => comp || fn().then(mod => comp = () => mod.default);
+  return wrap as T & { preload: () => void };
 }

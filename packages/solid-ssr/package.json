@@ -26,7 +26,7 @@
     "start:example:ssr": "node examples/ssr/lib/index.js",
     "build:example:stream": "rollup -c examples/stream/rollup.config.js",
     "start:example:stream": "node examples/stream/lib/index.js",
-    "clean": "shx rm -rf examples/**/lib/ examples/**/public/"
+    "clean": "rimraf examples/**/lib/ examples/**/public/"
   },
   "devDependencies": {
     "@babel/core": "^7.14.5",

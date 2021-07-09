@@ -111,6 +111,14 @@ export function proxyDescriptor(target: StoreNode, property: string | number | s
   return desc;
 }
 
+export function ownKeys(target: StoreNode) {
+  if (getListener()) {
+    const nodes = getDataNodes(target);
+    (nodes._ || (nodes._ = createDataNode()))();
+  }
+  return Reflect.ownKeys(target);
+}
+
 export function createDataNode() {
   const [s, set] = createSignal<void>(undefined, { equals: false });
   (s as Accessor<void> & { $: () => void }).$ = set;
@@ -149,6 +157,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
     return true;
   },
+
+  ownKeys: ownKeys,
 
   getOwnPropertyDescriptor: proxyDescriptor
 };

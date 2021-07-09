@@ -1,12 +1,4 @@
-import {
-  onCleanup,
-  createRoot,
-  untrack,
-  createSignal,
-  Owner,
-  Accessor,
-  Transition
-} from "./signal";
+import { onCleanup, createRoot, untrack, createSignal, Owner, Accessor } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 function dispose(d: (() => void)[]) {

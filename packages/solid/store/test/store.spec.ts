@@ -1,11 +1,5 @@
-import {
-  createRoot,
-  createSignal,
-  createComputed,
-  createMemo,
-  on
-} from "../../src";
-import { createStore, unwrap, $RAW } from "../src"
+import { createRoot, createSignal, createComputed, createMemo, on } from "../../src";
+import { createStore, unwrap, $RAW } from "../src";
 
 describe("State immutablity", () => {
   test("Setting a property", () => {
@@ -210,8 +204,8 @@ describe("Tracking State changes", () => {
   test("Track a nested state change", () => {
     createRoot(() => {
       const [state, setState] = createStore({
-          user: { firstName: "John", lastName: "Smith" }
-        });
+        user: { firstName: "John", lastName: "Smith" }
+      });
       let executionCount = 0;
 
       expect.assertions(2);
@@ -236,18 +230,23 @@ describe("Tracking State changes", () => {
       const [state, setState] = createStore<{ obj: { item?: number } }>({ obj: {} });
       let executionCount = 0;
 
-      createComputed(on(() => state.obj, (v) => {
-        if (executionCount === 0) expect(v.item).toBeUndefined();
-        else if (executionCount === 1) {
-          expect(v.item).toBe(5);
-        } else if (executionCount === 2) {
-          expect(v.item).toBeUndefined();
-        } else {
-          // should never get here
-          expect(executionCount).toBe(-1);
-        }
-        executionCount++;
-      }));
+      createComputed(
+        on(
+          () => state.obj,
+          v => {
+            if (executionCount === 0) expect(v.item).toBeUndefined();
+            else if (executionCount === 1) {
+              expect(v.item).toBe(5);
+            } else if (executionCount === 2) {
+              expect(v.item).toBeUndefined();
+            } else {
+              // should never get here
+              expect(executionCount).toBe(-1);
+            }
+            executionCount++;
+          }
+        )
+      );
 
       // add
       setState("obj", "item", 5);
@@ -256,6 +255,58 @@ describe("Tracking State changes", () => {
       setState("obj", "item", undefined);
     });
     expect.assertions(3);
+  });
+
+  test("Tracking Top level iteration Object key addition/removal", () => {
+    createRoot(() => {
+      const [state, setState] = createStore<{ item?: number }>({});
+      let executionCount = 0;
+
+      createComputed(() => {
+        const keys = Object.keys(state);
+        if (executionCount === 0) expect(keys.length).toBe(0);
+        else if (executionCount === 1) {
+          expect(keys.length).toBe(1);
+          expect(keys[0]).toBe("item");
+        } else if (executionCount === 2) {
+          expect(keys.length).toBe(0);
+        } else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      });
+
+      // add
+      setState("item", 5);
+
+      // delete
+      setState("item", undefined);
+    });
+    expect.assertions(4);
+  });
+
+  test("Not Tracking Top level key addition/removal", () => {
+    createRoot(() => {
+      const [state, setState] = createStore<{ item?: number; item2?: number }>({});
+      let executionCount = 0;
+
+      createComputed(() => {
+        if (executionCount === 0) expect(state.item2).toBeUndefined();
+        else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      });
+
+      // add
+      setState("item", 5);
+
+      // delete
+      setState("item", undefined);
+    });
+    expect.assertions(1);
   });
 });
 
@@ -294,8 +345,8 @@ describe("Setting state from Effects", () => {
   test("Select Promise", done => {
     createRoot(async () => {
       const p = new Promise<string>(resolve => {
-          setTimeout(resolve, 20, "promised");
-        });
+        setTimeout(resolve, 20, "promised");
+      });
       const [state, setState] = createStore({ data: "" });
       p.then(v => setState("data", v));
       await p;
