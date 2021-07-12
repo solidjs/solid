@@ -1,7 +1,7 @@
 {
   "name": "solid-ssr",
   "description": "Utilities to help with SSR",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
@@ -38,7 +38,7 @@
     "rollup": "^2.51.1",
     "rollup-plugin-copy": "^3.4.0",
     "shx": "^0.3.3",
-    "solid-js": "^1.0.1",
+    "solid-js": "^1.0.2",
     "solid-styled-components": "^0.26.3"
   }
 }
