@@ -22,7 +22,7 @@
     "component-register": "~0.8.1"
   },
   "peerDependencies": {
-    "solid-js": ">= 0.26.0"
+    "solid-js": "^1.0.0"
   },
   "devDependencies": {
     "solid-js": "^1.0.1"

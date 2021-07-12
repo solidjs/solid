@@ -48,7 +48,6 @@ interface Owner {
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
-  attached?: boolean;
   sourceMap?: Record<string, { value: unknown }>;
   name?: string;
   componentName?: string;
@@ -86,7 +85,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
     root: Owner =
       fn.length === 0 && !"_SOLID_DEV_"
         ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner, attached: !!detachedOwner };
+        : { owned: null, cleanups: null, context: null, owner };
 
   if ("_SOLID_DEV_" && owner) root.name = `${(owner as Computation<any>).name}-r${rootCount++}`;
   Owner = root;
@@ -820,10 +819,7 @@ function runTop(node: Computation<any>) {
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const runningTransition = Transition && Transition.running;
-  while (
-    (node.fn || (runningTransition && node.attached)) &&
-    (node = node.owner as Computation<any>)
-  ) {
+  while ((node = node.owner as Computation<any>)) {
     if (runningTransition && Transition!.disposed.has(node)) return;
     if (node.state === PENDING) pending = node;
     else if (node.state === STALE) {
@@ -839,7 +835,7 @@ function runTop(node: Computation<any>) {
     if (!top || top.state !== STALE) return;
     if (runningTransition) {
       node = top;
-      while ((node.fn || node.attached) && (node = node.owner as Computation<any>)) {
+      while ((node = node.owner as Computation<any>)) {
         if (Transition!.disposed.has(node)) return;
       }
     }
