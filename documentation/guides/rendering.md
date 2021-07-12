@@ -16,7 +16,7 @@ This approach is both more performant and produces less code than creating each 
 
 Solid attempts to reflect HTML conventions as much as possible including case insensitivity of attributes.
 
-The majority of all attributes on native element JSX are set as DOM attributes. Static values are built right into the template that is cloned. There a number of exceptions like `class`, `style`, `value`, `innerHTML` which provide extra functionality.
+The majority of all attributes on native element JSX are set as DOM attributes. Static values are built right into the template that is cloned. There are a number of exceptions like `class`, `style`, `value`, `innerHTML` which provide extra functionality.
 
 However, custom elements (with exception of native built-ins) default to properties when dynamic. This is to handle more complex data types. It does this conversion by camel casing standard snake case attribute names `some-attr` to `someAttr`.
 
