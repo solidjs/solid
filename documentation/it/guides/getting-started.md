@@ -22,9 +22,9 @@ O per TypeScript:
 > npm run dev # o fyarn o pnpm
 ```
 
-## Impara Solido
+## Impara Solid
 
-Il solido è composto da piccoli pezzi componibili che fungono da elementi costitutivi nelle applicazioni. Questi pezzi sono per lo più funzioni che costituiscono molte API superficiali di alto livello. Fortunatamente, non avrai bisogno di conoscerne la maggior parte per iniziare con la libreria.
+Il Solid è composto da piccoli pezzi componibili che fungono da elementi costitutivi nelle applicazioni. Questi pezzi sono per lo più funzioni che costituiscono molte API superficiali di alto livello. Fortunatamente, non avrai bisogno di conoscerne la maggior parte per iniziare con la libreria.
 
 I due principali tipi di blocchi a tua disposizione sono i componenti e le primitive reattive.
 
@@ -99,7 +99,7 @@ Puoi eseguirli direttamente dal browser utilizzando [Skypack](https://www.skypac
 
       const App = () => {
         const [counteggio, impostatoConteggio] = createSignal(0),
-          timer = setInterval(() => setCount(counteggio() + 1), 1000);
+          timer = setInterval(() => setConteggio(counteggio() + 1), 1000);
         onCleanup(() => clearInterval(timer));
         return html`<div>${counteggio}</div>`;
       };
