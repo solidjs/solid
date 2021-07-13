@@ -627,7 +627,7 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
 // Context API
 export interface Context<T> {
   id: symbol;
-  Provider: (props: { value: T; children: any }) => any;
+  Provider: (props: { value: T; children?: any }) => any;
   defaultValue: T;
 }
 
