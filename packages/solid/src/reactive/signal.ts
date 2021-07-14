@@ -596,6 +596,9 @@ export function hashValue(v: any): string {
               if (s.has(v)) return;
               s.add(v);
             }
+            if (typeof v === "bigint") {
+              return `${v.toString()}n`;
+            }
             return v;
           }) || ""
         )
