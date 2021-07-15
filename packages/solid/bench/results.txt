@@ -2,25 +2,25 @@ Solid
 
 createDataSignals: 4
 createComputations0to1: 6
-createComputations1to1: 24
-createComputations2to1: 20
-createComputations4to1: 14
+createComputations1to1: 25
+createComputations2to1: 21
+createComputations4to1: 15
 createComputations1000to1: 10
-createComputations1to2: 27
+createComputations1to2: 28
 createComputations1to4: 21
 createComputations1to8: 20
 createComputations1to1000: 39
-create total: 185
+create total: 189
 ---
-updateComputations1to1: 61
-updateComputations2to1: 37
-updateComputations4to1: 25
-updateComputations1000to1: 24
-updateComputations1to2: 54
-updateComputations1to4: 48
-updateComputations1to1000: 44
-update total: 292
-total: 477
+updateComputations1to1: 56
+updateComputations2to1: 31
+updateComputations4to1: 21
+updateComputations1000to1: 25
+updateComputations1to2: 44
+updateComputations1to4: 40
+updateComputations1to1000: 38
+update total: 256
+total: 445
 
 S.js
 

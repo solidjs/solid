@@ -215,12 +215,21 @@ export type ResourceReturn<T> = [
 
 export function createResource<T, U = true>(
   fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
-  options?: { initialValue?: T; name?: string }
+  options?: { initialValue?: undefined; name?: string }
+): ResourceReturn<T | undefined>;
+export function createResource<T, U = true>(
+  fetcher: (k: U, getPrev: Accessor<T>) => T | Promise<T>,
+  options: { initialValue: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
   source: U | false | null | (() => U | false | null),
   fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
-  options?: { initialValue?: T; name?: string }
+  options?: { initialValue?: undefined; name?: string }
+): ResourceReturn<T | undefined>;
+export function createResource<T, U>(
+  source: U | false | null | (() => U | false | null),
+  fetcher: (k: U, getPrev: Accessor<T>) => T | Promise<T>,
+  options: { initialValue: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
   source:
@@ -818,23 +827,28 @@ function createComputation<T>(
 
 function runTop(node: Computation<any>) {
   let top = node.state === STALE && node,
-    pending;
+    pending = [];
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const runningTransition = Transition && Transition.running;
-  while ((node = node.owner as Computation<any>)) {
+  while (
+    (node = node.owner as Computation<any>) &&
+    (!node.updatedAt || node.updatedAt < ExecCount)
+  ) {
     if (runningTransition && Transition!.disposed.has(node)) return;
-    if (node.state === PENDING) pending = node;
+    if (node.state === PENDING) pending.push(node);
     else if (node.state === STALE) {
       top = node;
-      pending = undefined;
+      pending = [];
     }
   }
-  if (pending) {
-    const updates = Updates;
-    Updates = null;
-    lookDownstream(pending);
-    Updates = updates;
+  if (pending.length) {
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const updates = Updates;
+      Updates = null;
+      lookDownstream(pending[i]);
+      Updates = updates;
+    }
     if (!top || top.state !== STALE) return;
     if (runningTransition) {
       node = top;

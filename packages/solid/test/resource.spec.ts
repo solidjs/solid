@@ -14,7 +14,7 @@ describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: string) => void,
-    value: Resource<string>,
+    value: Resource<string | undefined>,
     error: string;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
@@ -77,7 +77,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
   }
   let resolve: (v: User) => void,
     refetch: () => void,
-    user: Resource<User>,
+    user: Resource<User | undefined>,
     state: { user?: User; userLoading: boolean },
     count = 0;
   function fetcher(_: string, getPrev: () => User | undefined) {
@@ -132,5 +132,34 @@ describe("using Resource with no root", () => {
       createResource("error", () => new Promise(r => (resolve = r)));
       resolve!("Hi");
     }).not.toThrow();
+  });
+});
+
+describe("using Resource with initial Value", () => {
+  let resolve: (v: string) => void,
+    reject: (r: string) => void,
+    trigger: (v: string) => void,
+    value: Resource<string>,
+    error: string;
+  function fetcher(id: string) {
+    return new Promise<string>((r, f) => {
+      resolve = r;
+      reject = f;
+    });
+  }
+  test("loads default value", async () => {
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      onError(e => (error = e));
+      [value] = createResource(id, fetcher, { initialValue: "Loading" });
+      createRenderEffect(value);
+    });
+    expect(value()).toBe("Loading");
+    expect(value.loading).toBe(true);
+    resolve("John");
+    await Promise.resolve();
+    expect(value()).toBe("John");
+    expect(value.loading).toBe(false);
   });
 });
