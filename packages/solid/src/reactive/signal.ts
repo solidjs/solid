@@ -477,17 +477,17 @@ export function on<T extends (() => any)[], U>(
   deps: [...T],
   fn: (input: ReturnTypes<T>, prevInput: ReturnTypes<T>, prevValue?: U) => U,
   options?: { defer?: boolean }
-): (prevValue?: U) => U | undefined;
+): (prevValue?: U) => U;
 export function on<T extends () => any, U>(
   deps: T,
   fn: (input: ReturnType<T>, prevInput: ReturnType<T>, prevValue?: U) => U,
   options?: { defer?: boolean }
-): (prevValue?: U) => U | undefined;
+): (prevValue?: U) => U;
 export function on<T extends (() => any) | (() => any)[], U>(
   deps: T,
   fn: (input: ReturnTypes<T>, prevInput: ReturnTypes<T>, prevValue?: U) => U,
   options?: { defer?: boolean }
-): (prevValue?: U) => U | undefined {
+): (prevValue?: U) => U {
   const isArray = Array.isArray(deps);
   let prevInput: ReturnTypes<T>;
   let defer = options && options.defer;
@@ -499,7 +499,8 @@ export function on<T extends (() => any) | (() => any)[], U>(
     } else input = (deps as () => T)() as any;
     if (defer) {
       defer = false;
-      return undefined;
+      // this aspect of first run on deferred is hidden from end user and should not affect types
+      return undefined as unknown as U;
     }
     const result = untrack<U>(() => fn!(input, prevInput, prevValue));
     prevInput = input;
