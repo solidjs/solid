@@ -67,4 +67,4 @@
   用于 DOM 表达式的 HyperScript API。
 - [Surplus](https://github.com/adamhaile/surplus) 原始的响应式 JSX 库
 
-知道任何其他优秀的 Solid 项目和库吗？ 请提交它们。 我们很高兴看到你在做什么。
+知道任何其他优秀的 Solid 项目和库吗？请提交它们。我们很高兴看到你在做什么。

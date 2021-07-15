@@ -73,7 +73,7 @@ Solid 的设计提出了一些可以帮助我们最好地构建网站和应用�
 
 ## Web 组件
 
-Solid 生而将 Web 组件作为一等公民。随着时间的推移，它的设计不断发展，目标也发生了变化。然而，Solid 仍然是编写 Web 组件的好选择。 [Solid Element](https://github.com/solidjs/solid/tree/main/packages/solid-element) 允许你编写和包装 Solid 的函数组件以生成小型且高性能的 Web 组件。在 Solid 应用程序中，Solid Element 仍然能够利用 Solid 的 Context API，并且 Solid 的 Portals 支持隔离样式的 Shadow DOM 。
+Solid 生而将 Web 组件作为一等公民。随着时间的推移，它的设计不断发展，目标也发生了变化。然而，Solid 仍然是编写 Web 组件的好选择。[Solid Element](https://github.com/solidjs/solid/tree/main/packages/solid-element) 允许你编写和包装 Solid 的函数组件以生成小型且高性能的 Web 组件。在 Solid 应用程序中，Solid Element 仍然能够利用 Solid 的 Context API，并且 Solid 的 Portals 支持隔离样式的 Shadow DOM 。
 
 ## 服务端渲染
 
@@ -109,4 +109,4 @@ Solid 拥有动态的服务器端渲染解决方案，可实现真正的同构�
 </html>
 ```
 
-请记住，你仍然需要相应的 DOM 表达式库才能配合 TypeScript 使用。 你也可以搭配 [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/lit-dom-expressions) 使用标签模板字面量或者搭配 [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/hyper-dom-expressions) 使用 HyperScript。
+请记住，你仍然需要相应的 DOM 表达式库才能配合 TypeScript 使用。你也可以搭配 [Lit DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/lit-dom-expressions) 使用标签模板字面量或者搭配 [Hyper DOM Expressions](https://github.com/ryansolid/dom-expressions/tree/main/packages/hyper-dom-expressions) 使用 HyperScript。

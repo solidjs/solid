@@ -9,7 +9,7 @@ export function createSignal<T>(
 ): [get: () => T, set: (v: T) => T];
 ```
 
-这是最基本的响应式 primitive，用于跟踪后续可能变化的单个值。 create 函数返回一对 get 和 set 函数来访问和更新 signal。
+这是最基本的响应式 primitive，用于跟踪后续可能变化的单个值。create 函数返回一对 get 和 set 函数来访问和更新 signal。
 
 ```js
 const [getValue, setValue] = createSignal(initialValue);
@@ -24,9 +24,9 @@ setValue(nextValue);
 setValue(prev => prev + next);
 ```
 
-如果你希望值对更新做出响应，请记住在跟踪范围内访问信号。 跟踪范围是指可以被传递然后计算的函数之内，如 `createEffect` 或 JSX 表达式。
+如果你希望值对更新做出响应，请记住在跟踪范围内访问信号。跟踪范围是指可以被传递然后计算的函数之内，如 `createEffect` 或 JSX 表达式。
 
-> 如果您希望在 Signal 中存储函数，则必须使用函数的形式：
+> 如果你希望在 Signal 中存储函数，则必须使用函数的形式：
 >
 > ```js
 > setValue(() => myFunction);
@@ -38,7 +38,7 @@ setValue(prev => prev + next);
 export function createEffect<T>(fn: (v: T) => T, value?: T, options?: { name?: string }): void;
 ```
 
-创建一个新的计算来自动跟踪依赖项并在每次依赖项发生变化导致的渲染之后运行。 非常适合使用 `ref` 或者管理其他副作用。
+创建一个新的计算来自动跟踪依赖项并在每次依赖项发生变化导致的渲染之后运行。非常适合使用 `ref` 或者管理其他副作用。
 
 ```js
 const [a, setA] = createSignal(initialValue);
@@ -47,7 +47,7 @@ const [a, setA] = createSignal(initialValue);
 createEffect(() => doSideEffect(a()));
 ```
 
-effect 函数可以拿到上次执行返回的值。 可以在第二个可选参数设置该值得初始化值。 这可以让我们不用创建额外闭包的情况下就可以进行差异对比。
+effect 函数可以拿到上次执行返回的值。可以在第二个可选参数设置该值得初始化值。这可以让我们不用创建额外闭包的情况下就可以进行差异对比。
 
 ```js
 createEffect(prev => {
@@ -76,7 +76,7 @@ const getValue = createMemo(() => computeExpensiveValue(a(), b()));
 getValue();
 ```
 
-使用 memo 函数上次执行返回的值调用 memo 函数。 该值可以初始化为可选的第二个参数。 这对于减少计算很有用。
+使用 memo 函数上次执行返回的值调用 memo 函数。该值可以初始化为可选的第二个参数。这对于减少计算很有用。
 
 ```js
 const sum = createMemo(prev => input() + prev, 0);
@@ -109,7 +109,7 @@ export function createResource<T, U>(
 ): ResourceReturn<T>;
 ```
 
-创建一个可以管理异步请求的 signal。 `fetcher` 是一个异步函数，它接收 `source` 的返回值（如果提供）并返回一个 Promise，其解析值设置在 resource 中。 fetcher 不是响应式的，因此如果希望它运行多次，请传入第一个可选参数。 如果源解析为 false、null 或 undefined，则不会执行获取操作。
+创建一个可以管理异步请求的 signal。`fetcher` 是一个异步函数，它接收 `source` 的返回值（如果提供）并返回一个 Promise，其解析值设置在 resource 中。fetcher 不是响应式的，因此如果希望它运行多次，请传入第一个可选参数。如果源解析为 false、null 或 undefined，则不会执行获取操作。
 
 ```js
 const [data, { mutate, refetch }] = createResource(getQuery, fetchData);
@@ -140,7 +140,7 @@ refetch();
 export function onMount(fn: () => void): void;
 ```
 
-注册一个在初始话化渲染和元素挂载完成后运行的方法。 非常适合使用 `ref` 或者管理其他的一次性副作用。 它相当于一个没有任何依赖的 `createEffect`。
+注册一个在初始话化渲染和元素挂载完成后运行的方法。非常适合使用 `ref` 或者管理其他的一次性副作用。它相当于一个没有任何依赖的 `createEffect`。
 
 ## `onCleanup`
 
@@ -188,7 +188,7 @@ export function on<T extends Array<() => any> | (() => any), U>(
 ): (prevValue?: U) => U | undefined;
 ```
 
-`on` 主要用来将其传递到计算行为中以使其依赖项更加清晰明了。 如果传递依赖项是数组，则 `input` 和 `prevInput` 也是数组。
+`on` 主要用来将其传递到计算行为中以使其依赖项更加清晰明了。如果传递依赖项是数组，则 `input` 和 `prevInput` 也是数组。
 
 ```js
 createEffect(on(a, v => console.log(v, b())));
@@ -200,7 +200,7 @@ createEffect(() => {
 });
 ```
 
-您也可以不用立即执行计算，而是通过将 defer 选项设置为 true 来选择仅在更改时运行计算。
+你也可以不用立即执行计算，而是通过将 defer 选项设置为 true 来选择仅在更改时运行计算。
 
 ```js
 // 不会立即运行
@@ -217,7 +217,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T;
 
 创建一个崭新的，不自动处理的，非跟踪上下文。在嵌套响应式上下文的情况下，如果你不希望在父级重新求值时释放资源这个特性会很有用。这是一种强大的缓存模式。
 
-所有 Solid 代码都应被 createRoot 包裹，因为它们确保释放所有内存/计算。 通常你不需要担心这个，因为 `createRoot` 被嵌入到所有的 `render` 入口函数中。
+所有 Solid 代码都应被 createRoot 包裹，因为它们确保释放所有内存/计算。通常你不需要担心这个，因为 `createRoot` 被嵌入到所有的 `render` 入口函数中。
 
 ## `mergeProps`
 
@@ -248,7 +248,7 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>): [...parts:
 
 This is the replacement for destructuring. It splits a reactive object by keys while maintaining reactivity.
 
-这是解构的替代品。 `splitProps` 在保持响应性的同时通过键来拆分响应式对象。
+这是解构的替代品。`splitProps` 在保持响应性的同时通过键来拆分响应式对象。
 
 ```js
 const [local, others] = splitProps(props, ["children"]);
@@ -265,7 +265,7 @@ const [local, others] = splitProps(props, ["children"]);
 export function useTransition(): [() => boolean, (fn: () => void, cb?: () => void) => void];
 ```
 
-用于在所有异步处理完成后在延迟提交事务中批量异步更新。 这与 Suspense 有所关联，并且仅跟踪在 Suspense 边界下读取的资源。
+用于在所有异步处理完成后在延迟提交事务中批量异步更新。这与 Suspense 有所关联，并且仅跟踪在 Suspense 边界下读取的资源。
 
 ```js
 const [isPending, start] = useTransition();
@@ -369,7 +369,7 @@ export function createStore<T extends StoreNode>(
 ): [get: Store<T>, set: SetStoreFunction<T>];
 ```
 
-`createStore` 创建一个 Signal 树作为代理，允许独立跟踪嵌套数据结构中的各个值。 create 函数返回一个只读代理对象和一个 setter 函数。
+`createStore` 创建一个 Signal 树作为代理，允许独立跟踪嵌套数据结构中的各个值。create 函数返回一个只读代理对象和一个 setter 函数。
 
 ```js
 const [state, setState] = createStore(initialValue);
@@ -383,7 +383,7 @@ setState({ merge: "thisValue" });
 setState("path", "to", "value", newValue);
 ```
 
-Store 代理对象仅跟踪访问的属性。并在访问 Store 时递归地生成嵌套数据上的嵌套 Store 对象。但是它只包装数组和普通对象。类不包装。 所以像 `Date`、`HTMLElement`、`Regexp`、`Map`、`Set` 之类的东西都不是响应式粒度的。此外，如果不访问对象上的属性，则无法跟踪顶级状态对象。因此它不适用于迭代对象，因为添加新键或索引无法触发更新。因此，将数组放在键上，而不是尝试使用状态对象本身。
+Store 代理对象仅跟踪访问的属性。并在访问 Store 时递归地生成嵌套数据上的嵌套 Store 对象。但是它只包装数组和普通对象。类不包装。所以像 `Date`、`HTMLElement`、`Regexp`、`Map`、`Set` 之类的东西都不是响应式粒度的。此外，如果不访问对象上的属性，则无法跟踪顶级状态对象。因此它不适用于迭代对象，因为添加新键或索引无法触发更新。因此，将数组放在键上，而不是尝试使用状态对象本身。
 
 ```js
 // 将列表作为状态对象的键
@@ -569,7 +569,7 @@ export function createMutable<T extends StoreNode>(
 
 `createMutable` 用于集成外部系统或作为与 MobX/Vue 的兼容层会很有用。
 
-> **注意：** 由于可变状态可以在任何地方传递和修改，这会使其更难以遵循并且更容易打破单向流，因此通常建议使用 `createStore` 代替。 `produce` 修饰符可以提供许多相同的好处而没有任何缺点。
+> **注意：** 由于可变状态可以在任何地方传递和修改，这会使其更难以遵循并且更容易打破单向流，因此通常建议使用 `createStore` 代替。`produce` 修饰符可以提供许多相同的好处而没有任何缺点。
 
 ```js
 const state = createMutable(initialValue);
@@ -636,7 +636,7 @@ export function CounterProvider(props) {
 }
 ```
 
-传递给 provider 的值按原样传递给 `useContext`。 这意味着包装为响应性的表达式将不起作用。 你应该直接传入 Signal 和 Store，而不是在 JSX 中访问它们。
+传递给 provider 的值按原样传递给 `useContext`。这意味着包装为响应性的表达式将不起作用。你应该直接传入 Signal 和 Store，而不是在 JSX 中访问它们。
 
 ## `useContext`
 
@@ -658,7 +658,7 @@ export function children(fn: () => any): () => any;
 
 Used to make it easier to interact with `props.children`. This helper resolves any nested reactivity and returns a memo. Recommended approach to using `props.children` in anything other than passing directly through to JSX.
 
-用于更容易地与`props.children`交互。 这个工具函数解决层级嵌套的响应性并返回一个 Memo。 除了直接传递值给 JSX 这种情况之外，推荐使用 `props.children` 的方法。
+用于更容易地与`props.children`交互。这个工具函数解决层级嵌套的响应性并返回一个 Memo。除了直接传递值给 JSX 这种情况之外，推荐使用 `props.children` 的方法。
 
 ```js
 const list = children(() => props.children);
@@ -687,7 +687,7 @@ const ComponentA = lazy(() => import("./ComponentA"));
 
 # 第二 Primitive
 
-您的第一个 app 可能不需要它们，但这些有用的工具也不可或缺。
+你的第一个 app 可能不需要它们，但这些有用的工具也不可或缺。
 
 ## `createDeferred`
 
@@ -855,14 +855,14 @@ export function pipeToWritable<T>(
 ): void;
 ```
 
-此方法渲染到 Web 流。 它同步渲染内容，包括任何 Suspense 回退占位符，然后在完成时继续从任何异步资源流式传输数据。
+此方法渲染到 Web 流。它同步渲染内容，包括任何 Suspense 回退占位符，然后在完成时继续从任何异步资源流式传输数据。
 
 ```js
 const { readable, writable } = new TransformStream();
 pipeToWritable(App, writable);
 ```
 
-`onReady` 选项对于写入围绕核心应用程序渲染的流很有用。 请记住，如果您需要使用 `onReady` 手动调用 `startWriting`
+`onReady` 选项对于写入围绕核心应用程序渲染的流很有用。请记住，如果你需要使用 `onReady` 手动调用 `startWriting`
 
 ## `isServer`
 
@@ -870,7 +870,7 @@ pipeToWritable(App, writable);
 export const isServer: boolean;
 ```
 
-这指明了代码是在服务器运行还是在浏览器运行。 由于底层运行时将其导出为常量布尔值，所以它允许构建工具从相应的包中消除代码及其使用的导入代码。
+这指明了代码是在服务器运行还是在浏览器运行。由于底层运行时将其导出为常量布尔值，所以它允许构建工具从相应的包中消除代码及其使用的导入代码。
 
 ```js
 if (isServer) {
@@ -881,11 +881,11 @@ if (isServer) {
 
 # 控制流
 
-Solid 使用组件来控制流。原因是为了提高响应式性能，我们必须控制元素的创建方式。 例如，对于列表而言，简单的 `map` 效率低下，因为它总是映射所有内容。 这意味着需要一个辅助函数。
+Solid 使用组件来控制流。原因是为了提高响应式性能，我们必须控制元素的创建方式。例如，对于列表而言，简单的 `map` 效率低下，因为它总是映射所有内容。这意味着需要一个辅助函数。
 
 将这些包装在组件中既能很方便地简化模板，也允许用户组合和构建自己的控制流。
 
-这些内置的控制流将被自动导入。除了 `Portal` 和 `Dynamic` 之外的所有内容都是从 `solid-js` 导出的。 这两个 DOM 特定的组件由 `solid-js/web` 导出。
+这些内置的控制流将被自动导入。除了 `Portal` 和 `Dynamic` 之外的所有内容都是从 `solid-js` 导出的。这两个 DOM 特定的组件由 `solid-js/web` 导出。
 
 > 注意：控制流的所有回调/渲染函数子项都是非跟踪性的。这允许创建嵌套状态，并更好地隔离响应。
 
@@ -929,7 +929,7 @@ function Show<T>(props: {
 }): () => JSX.Element;
 ```
 
-Show 控制流用于有条件地渲染视图的一部分。 它跟三元运算符（`a ? b : c`）类似，但非常适合模板 JSX。
+Show 控制流用于有条件地渲染视图的一部分。它跟三元运算符（`a ? b : c`）类似，但非常适合模板 JSX。
 
 ```jsx
 <Show when={state.count > 0} fallback={<div>Loading...</div>}>
@@ -1053,7 +1053,7 @@ function SuspenseList(props: {
 }): JSX.Element;
 ```
 
-`SuspenseList` 可以协调多个并行的 `Suspense` 和 `SuspenseList` 组件。 它控制显示内容的顺序以减少布局抖动，并且可以通过选项控制折叠或隐藏回退状态。
+`SuspenseList` 可以协调多个并行的 `Suspense` 和 `SuspenseList` 组件。它控制显示内容的顺序以减少布局抖动，并且可以通过选项控制折叠或隐藏回退状态。
 
 ```jsx
 <SuspenseList revealOrder="forwards" tail="collapsed">
@@ -1080,7 +1080,7 @@ function Dynamic<T>(
 ): () => JSX.Element;
 ```
 
-该组件允许您插入任意组件或标签并将 props 传递给它。
+该组件允许你插入任意组件或标签并将 props 传递给它。
 
 ```jsx
 <Dynamic component={state.component} someProp={state.something} />
@@ -1097,9 +1097,9 @@ export function Portal(props: {
 }): Text;
 ```
 
-`<Portal>` 会在挂载节点中插入元素。 用于在页面布局之外插入模态框。事件仍然通过组件层次结构传播。
+`<Portal>` 会在挂载节点中插入元素。用于在页面布局之外插入模态框。事件仍然通过组件层次结构传播。
 
-除非目标是 document head，否则 portal 挂载在`<div>` 中。 `useShadow` 将元素放在 Shadow Root 中以进行样式隔离，如果插入到 SVG 元素中，则需要 `isSVG` 避免不插入 `<div>`。
+除非目标是 document head，否则 portal 挂载在`<div>` 中。`useShadow` 将元素放在 Shadow Root 中以进行样式隔离，如果插入到 SVG 元素中，则需要 `isSVG` 避免不插入 `<div>`。
 
 ```jsx
 <Portal mount={document.getElementById("modal")}>
@@ -1109,9 +1109,9 @@ export function Portal(props: {
 
 # 特殊的 JSX 属性
 
-一般来说，Solid 试图和 DOM 习惯保持一致。 大多数 props 被视为原生元素的属性和 Web Components 的属性，但其中一些具有特殊的行为。
+一般来说，Solid 试图和 DOM 习惯保持一致。大多数 props 被视为原生元素的属性和 Web Components 的属性，但其中一些具有特殊的行为。
 
-使用 TypeScript 自定义命名空间属性时，您需要扩展 Solid 的 JSX 命名空间：
+使用 TypeScript 自定义命名空间属性时，你需要扩展 Solid 的 JSX 命名空间：
 
 ```ts
 declare module "solid-js" {
@@ -1137,7 +1137,7 @@ declare module "solid-js" {
 
 ## `ref`
 
-Refs 是一种访问 JSX 中底层 DOM 元素的方式。虽然确实可以将一个元素分配给一个变量，但将组件留在 JSX 流中更为理想。 Refs 在渲染时（在元素连接到 DOM 之前）分配。 它有 2 种写法。
+Refs 是一种访问 JSX 中底层 DOM 元素的方式。虽然确实可以将一个元素分配给一个变量，但将组件留在 JSX 流中更为理想。Refs 在渲染时（在元素连接到 DOM 之前）分配。它有 2 种写法。
 
 ```js
 // 简单赋值
@@ -1151,7 +1151,7 @@ onMount(() => console.log(myDiv));
 <div ref={el => console.log(el)} />
 ```
 
-Refs 也可以用于组件。 它们仍然需要连接到另一侧。
+Refs 也可以用于组件。它们仍然需要连接到另一侧。
 
 ```jsx
 function MyComp(props) {
@@ -1175,7 +1175,7 @@ function App() {
 
 ## `style`
 
-Solid 的样式工具可以处理字符串或对象。 与 React 的版本不同，Solid 在底层使用了 `element.style.setProperty`。这意味着支持 CSS 变量，但也意味着我们使用较底层的、破折号版本的属性。这实际上会带来更好的性能并能 SSR 输出保持一致。
+Solid 的样式工具可以处理字符串或对象。与 React 的版本不同，Solid 在底层使用了 `element.style.setProperty`。这意味着支持 CSS 变量，但也意味着我们使用较底层的、破折号版本的属性。这实际上会带来更好的性能并能 SSR 输出保持一致。
 
 ```jsx
 // 字符串
@@ -1195,7 +1195,7 @@ Solid 的样式工具可以处理字符串或对象。 与 React 的版本不同
 ## `innerHTML`/`textContent`
 
 
-它们的工作原理与它们的等效属性相同。设置一个字符串，它们将被设置到 HTML 中。 **小心!!** 任何数据设置为 `innerHTML` 都可能暴露给终端用户，因此它可能成为恶意攻击的载体。`textContent` 虽然通常不需要，但实际上是一种性能优化，因为它绕过了通用对比差异例程，因此子项将只是文本。
+它们的工作原理与它们的等效属性相同。设置一个字符串，它们将被设置到 HTML 中。**小心!!** 任何数据设置为 `innerHTML` 都可能暴露给终端用户，因此它可能成为恶意攻击的载体。`textContent` 虽然通常不需要，但实际上是一种性能优化，因为它绕过了通用对比差异例程，因此子项将只是文本。
 
 ```jsx
 <div textContent={state.text} />
@@ -1209,7 +1209,7 @@ Solid 中的事件处理程序通常采用 `onclick` 或 `onClick` 形式，具�
 <div onClick={e => console.log(e.currentTarget)} />
 ```
 
-Solid 还支持将数组传递给事件处理句柄以将值绑定到事件处理句柄的第一个参数。 这不用使用`bind` 或创建额外的闭包，因此它是一种高度优化的事件委托方式。
+Solid 还支持将数组传递给事件处理句柄以将值绑定到事件处理句柄的第一个参数。这不用使用`bind` 或创建额外的闭包，因此它是一种高度优化的事件委托方式。
 
 ```jsx
 function handler(itemId, e) {
@@ -1221,7 +1221,7 @@ function handler(itemId, e) {
 </ul>;
 ```
 
-事件不能被重新绑定并且绑定不是响应式。原因是添加/移除侦听器通常更消耗性能。由于事件自然地会被调用，因此不需要响应性，如果需要，只需跟下面一样简单处理您的事件句柄。
+事件不能被重新绑定并且绑定不是响应式。原因是添加/移除侦听器通常更消耗性能。由于事件自然地会被调用，因此不需要响应性，如果需要，只需跟下面一样简单处理你的事件句柄。
 
 ```jsx
 // 如果定义了就会调用，否则不会。
@@ -1238,13 +1238,13 @@ function handler(itemId, e) {
 
 ## `use:___`
 
-`use:___` 是自定义指令。 从某种意义上说，这只是 ref 上的语法糖，但允许我们轻松地将多个指令附加到单个元素。 指令只是一个具有以下签名的函数：
+`use:___` 是自定义指令。从某种意义上说，这只是 ref 上的语法糖，但允许我们轻松地将多个指令附加到单个元素。指令只是一个具有以下签名的函数：
 
 ```ts
 function directive(element: Element, accessor: () => any): void;
 ```
 
-这些函数在渲染时运行，您可以在其中执行任何操作。创建 signal 和 effects，注册清理函数，随心所欲。
+这些函数在渲染时运行，你可以在其中执行任何操作。创建 signal 和 effects，注册清理函数，随心所欲。
 
 ```js
 const [name, setName] = createSignal("");
@@ -1280,7 +1280,7 @@ declare module "solid-js" {
 
 ## `attr:___`
 
-强制将 prop 视为 attribute 而不是 property。 对于要设置 attribute 的 Web 组件很有用。
+强制将 prop 视为 attribute 而不是 property。对于要设置 attribute 的 Web 组件很有用。
 
 ```jsx
 <my-element attr:status={props.status} />

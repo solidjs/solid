@@ -23,7 +23,7 @@
 - [Why I am not a fan of Single File Components](https://dev.to/ryansolid/why-i-m-not-a-fan-of-single-file-components-3bfl) 探索 Solid 模板的优势
 - [How we wrote the Fastest JavaScript Framework, Again!](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) 这次我们征服了服务器
 - [Solid - The best JavaScript UI library?](https://areknawo.com/solid-the-best-javascript-ui-library/)
-- [SolidJS: Reactivity to Rendering](https://indepth.dev/solidjs-reactivity-to-rendering/) 从头开始构建 Solid 的响应式式渲染器
+- [SolidJS: Reactivity to Rendering](https://indepth.dev/solidjs-reactivity-to-rendering/) 从头开始构建 Solid 的响应式渲染器
 - [Comparing reactivity models - React vs Vue vs Svelte vs MobX vs Solid vs Redux](https://dev.to/lloyds-digital/comparing-reactivity-models-react-vs-vue-vs-svelte-vs-mobx-vs-solid-29m8)
 - [Best React-like JSX UI Libraries in 2020](https://areknawo.com/best-react-like-jsx-ui-libraries-in-2020/)
 - [Exploring Reactivity Patterns in 2020](https://indepth.dev/exploring-the-state-of-reactivity-patterns-in-2020/) 前端的最新趋势是什么？
