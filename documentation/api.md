@@ -176,7 +176,7 @@ Ignores tracking any of the dependencies in the executing code block and returns
 export function batch<T>(fn: () => T): T;
 ```
 
-Holds committing updates within the block until the end to prevent unnecessary recalculation. This means that reading values on the next line will not have updated yet. Solid Store's set method and Effects automatically wrap their code in a batch.
+Holds committing updates within the block until the end to prevent unnecessary recalculation. This means that reading values on the next line will not have updated yet. [Solid Store](#createstore)'s set method and Effects automatically wrap their code in a batch.
 
 ## `on`
 
