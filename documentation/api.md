@@ -567,7 +567,7 @@ Creates a new mutable Store proxy object. Stores only trigger updates on values 
 
 Useful for integrating external systems or as a compatibility layer with MobX/Vue.
 
-> **Note:** As mutable state can be passed around and mutated anywhere, which can make it harder to follow and easier to break unidirectional flow, it generally recommended to use `createStore` instead. The `produce` modifier can give many of the same benefits without any of the downsides.
+> **Note:** A mutable state can be passed around and mutated anywhere, which can make it harder to follow and easier to break unidirectional flow. It is generally recommended to use `createStore` instead. The `produce` modifier can give many of the same benefits without any of the downsides.
 
 ```js
 const state = createMutable(initialValue);
