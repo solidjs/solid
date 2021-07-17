@@ -215,7 +215,7 @@ setA("new"); // now it runs
 export function createRoot<T>(fn: (dispose: () => void) => T): T;
 ```
 
-Creates a new non-tracked context that doesn't auto-dispose. This useful for nested reactive context that you do not wish to release when the parent re-evaluates. This is a powerful pattern for caching.
+Creates a new non-tracked context that doesn't auto-dispose. This is useful for nested reactive contexts that you do not wish to release when the parent re-evaluates. It is a powerful pattern for caching.
 
 All Solid code should be wrapped in one of these top level as they ensure that all memory/computations are freed up. Normally you do not need to worry about this as `createRoot` is embedded into all `render` entry functions.
 
