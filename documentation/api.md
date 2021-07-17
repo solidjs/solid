@@ -793,7 +793,7 @@ export function renderToStringAsync<T>(
 ): Promise<string>;
 ```
 
-Same as `renderToString` except it wait for all `<Suspense>` boundaries to resolve before returning the results. Resource data is automatically serialized into the script tag and will be hydrated on client load.
+Same as `renderToString` except it will wait for all `<Suspense>` boundaries to resolve before returning the results. Resource data is automatically serialized into the script tag and will be hydrated on client load.
 
 ```js
 const html = await renderToStringAsync(App);
