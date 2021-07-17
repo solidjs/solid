@@ -98,8 +98,8 @@ Puoi eseguirli direttamente dal browser utilizzando [Skypack](https://www.skypac
       import html from "https://cdn.skypack.dev/solid-js/html";
 
       const App = () => {
-        const [counteggio, impostatoConteggio] = createSignal(0),
-          timer = setInterval(() => setConteggio(counteggio() + 1), 1000);
+        const [counteggio, assegnaValore] = createSignal(0),
+          timer = setInterval(() => assegnaValore(counteggio() + 1), 1000);
         onCleanup(() => clearInterval(timer));
         return html`<div>${counteggio}</div>`;
       };
