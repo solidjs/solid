@@ -826,7 +826,7 @@ This method renders to a Node stream. It renders the content synchronously inclu
 pipeToNodeWritable(App, res);
 ```
 
-The `onReady` option is useful for writing into the stream around the the core app rendering. Remember if you use `onReady` to manually call `startWriting`
+The `onReady` option is useful for writing into the stream around the the core app rendering. Remember if you use `onReady` to manually call `startWriting`.
 
 ## `pipeToWritable`
 
@@ -856,7 +856,7 @@ const { readable, writable } = new TransformStream();
 pipeToWritable(App, writable);
 ```
 
-The `onReady` option is useful for writing into the stream around the the core app rendering. Remember if you use `onReady` to manually call `startWriting`
+The `onReady` option is useful for writing into the stream around the the core app rendering. Remember if you use `onReady` to manually call `startWriting`.
 
 ## `isServer`
 
@@ -876,7 +876,7 @@ if (isServer) {
 
 # Control Flow
 
-Solid uses components for control flow. The reason is that with reactivity to be performant we have to control how elements are created. For example with a list a simple `map` is inefficient as it always maps everything. This means helper functions.
+Solid uses components for control flow. The reason is that with reactivity to be performant we have to control how elements are created. For example with lists, a simple `map` is inefficient as it always maps everything. This means helper functions.
 
 Wrapping these in components is convenient way for terse templating and allows users to compose and build their own control flows.
 
@@ -977,7 +977,7 @@ export function Index<T, U extends JSX.Element>(props: {
 }): () => U[];
 ```
 
-Non-Keyed list iteration (rows keyed to index). This useful when there is no conceptual key, like if the data is primitives and it is the index that is fixed rather than the value.
+Non-keyed list iteration (rows keyed to index). This is useful when there is no conceptual key, like if the data consists of primitives and it is the index that is fixed rather than the value.
 
 The item is a signal:
 
@@ -1215,7 +1215,7 @@ function handler(itemId, e) {
 </ul>;
 ```
 
-Events can not be rebound and the bindings are not reactive. The reason is that it is generally more expensive to attach/detach listeners. Since events naturally are called there is no need for reactivity simply shortcut your handler if desired.
+Events cannot be rebound and the bindings are not reactive. The reason is that it is generally more expensive to attach/detach listeners. Since events naturally are called there is no need for reactivity simply shortcut your handler if desired.
 
 ```jsx
 // if defined call it, otherwised don't.
