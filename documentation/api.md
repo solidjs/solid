@@ -1019,7 +1019,7 @@ Catches uncaught errors and renders fallback content.
 Also supports callback form which passes in error and a reset function.
 
 ```jsx
-<ErrorBoundary fallback={(err, reset) => <div onClick={reset}>Error: {err}</div>}>
+<ErrorBoundary fallback={(err, reset) => <div onClick={reset}>Error: {err.toString()}</div>}>
   <MyComp />
 </ErrorBoundary>
 ```
