@@ -1238,7 +1238,7 @@ These are custom directives. In a sense this is just syntax sugar over ref but a
 function directive(element: Element, accessor: () => any): void;
 ```
 
-These functions run at render time and you can do whatever you want in them. Create signals and effects, register cleanup functions, whatever you desire.
+Directive functions are called at render time but before being added to the DOM. You can do whatever you'd like in them including create signals, effects, register clean-up etc.
 
 ```js
 const [name, setName] = createSignal("");
