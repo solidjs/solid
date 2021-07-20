@@ -46,6 +46,7 @@ export default [
     plugins: [
       replace({
         '"_SOLID_DEV_"': false,
+        preventAssignment: true,
         delimiters: ["", ""]
       }),
       copy({
@@ -103,6 +104,7 @@ export default [
     plugins: [
       replace({
         '"_SOLID_DEV_"': false,
+        preventAssignment: true,
         delimiters: ["", ""]
       })
     ].concat(plugins)
@@ -153,6 +155,7 @@ export default [
     plugins: [
       replace({
         '"_DX_DEV_"': false,
+        preventAssignment: true,
         delimiters: ["", ""]
       }),
       copy({
