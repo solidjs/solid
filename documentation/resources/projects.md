@@ -24,8 +24,7 @@
 
 ## Routers
 
-- [Solid Router](https://github.com/rturnq/solid-router) A React Router inspired router for Solid
-- [Solid App Router](https://github.com/solidjs/solid-app-router) A configuration driven nested router for Solid
+- [Solid App Router](https://github.com/solidjs/solid-app-router) A universal nested router for Solid
 - [Solid TypeFu Router5](https://github.com/mikeplus64/solid-typefu-router5) A TypeScript forward router
 
 ## Components

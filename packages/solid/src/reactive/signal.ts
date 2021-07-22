@@ -655,7 +655,7 @@ export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
-export function children(fn: Accessor<any>): Accessor<unknown> {
+export function children(fn: Accessor<JSX.Element>): Accessor<JSX.Element> {
   const children = createMemo(fn);
   return createMemo(() => resolveChildren(children()));
 }
@@ -1021,7 +1021,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
   );
 }
 
-function resolveChildren(children: any): unknown {
+function resolveChildren(children: JSX.Element): JSX.Element {
   if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
@@ -1035,7 +1035,7 @@ function resolveChildren(children: any): unknown {
 }
 
 function createProvider(id: symbol) {
-  return function provider(props: { value: unknown; children: any }) {
+  return function provider(props: { value: unknown; children: JSX.Element }) {
     let res;
     createComputed(
       () =>

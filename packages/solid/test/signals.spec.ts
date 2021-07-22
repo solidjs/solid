@@ -7,7 +7,6 @@ import {
   createDeferred,
   createMemo,
   createSelector,
-  batch,
   untrack,
   on,
   onMount,

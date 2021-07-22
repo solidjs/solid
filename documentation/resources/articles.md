@@ -6,12 +6,19 @@
 
 ## Videos
 
+- [REACTive Context in Solid.js](https://www.youtube.com/watch?v=j8ANWdE7wfY)
+- [SolidJS: the NEXT React? In-depth code analysis](https://www.youtube.com/watch?v=_ne2BsvFBH0)
 - [React to Solid](https://www.youtube.com/watch?v=p8e9ta269x8&t=4425s)
 - [UI Libraries, Improving React.js & Music](https://www.youtube.com/watch?v=Dq5EAcup044)
 - [Solid Video Series By Eric Schmucker](https://www.youtube.com/playlist?list=PLtLhzwNMDs1fMi43erQSzXD49Y4p0TniU)
 
 ## Latest Articles
 
+- [JavaScript Frameworks and Metagaming](https://dev.to/this-is-learning/javascript-frameworks-and-metagaming-pb5)
+- [Solid vs React - the Fastest VS the Most Popular UI Library](https://blog.openreplay.com/solid-vs-react-the-fastest-vs-the-most-popular-ui-library)
+- [SolidJS Official Release: The long road to 1.0](https://dev.to/ryansolid/solidjs-official-release-the-long-road-to-1-0-4ldd)
+- [A Look at Compilation in JavaScript Frameworks](https://dev.to/this-is-learning/a-look-at-compilation-in-javascript-frameworks-3caj)
+- [The Real Cost of UI Components Revisted](https://dev.to/this-is-learning/the-real-cost-of-ui-components-revisited-4d23)
 - [Components are Pure Overhead](https://dev.to/this-is-learning/components-are-pure-overhead-hpm) Unnecessary boundaries have real cost.
 - [5 Places SolidJS is not the Best](https://dev.to/this-is-learning/5-places-solidjs-is-not-the-best-5019) It's important to know the limitations of your tools.
 - [Building a Reactive Library from Scratch](https://dev.to/ryansolid/building-a-reactive-library-from-scratch-1i0p) Build a reactive library in only 50 lines of code.

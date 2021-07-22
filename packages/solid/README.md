@@ -114,16 +114,7 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-- [API](https://github.com/solidjs/solid/blob/main/documentation/api.md)
-- [FAQ](https://github.com/solidjs/solid/blob/main/documentation/faq.md)
-- [Comparison with other Libraries](https://github.com/solidjs/solid/blob/main/documentation/comparison.md)
-
-### Guides
-- [Getting Started](https://github.com/solidjs/solid/blob/main/documentation/guides/getting-started.md)
-- [Reactivity](https://github.com/solidjs/solid/blob/main/documentation/guides/reactivity.md)
-- [Rendering](https://github.com/solidjs/solid/blob/main/documentation/guides/rendering.md)
-- [SSR](https://github.com/solidjs/solid/blob/main/documentation/guides/server.md)
-
+Check out the [Documentation](https://www.solidjs.com/guide) website.
 ### Resources
 
 - [Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)

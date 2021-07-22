@@ -51,7 +51,7 @@ export function Switch(props: {
   children: JSX.Element;
 }): Accessor<JSX.Element> {
   let strictEqual = false;
-  const conditions = children(() => props.children) as () => MatchProps<unknown>[],
+  const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
     evalConditions = createMemo<[number, unknown?, MatchProps<unknown>?]>(
       () => {
         let conds = conditions();
