@@ -4,6 +4,7 @@ import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export type Accessor<T> = () => T;
+export type Setter<T> = <U extends T | undefined>(v?: (U extends Function ? never : U) | ((prev: U) => U)) => U;
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 const signalOptions = { equals: equalFn };
@@ -103,16 +104,16 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 
 export function createSignal<T>(): [
   get: Accessor<T | undefined>,
-  set: <U extends T | undefined>(v?: (U extends Function ? never : U) | ((prev: U) => U)) => U
+  set: Setter<T>
 ];
 export function createSignal<T>(
   value: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): [get: Accessor<T>, set: (v: (T extends Function ? never : T) | ((prev: T) => T)) => T];
+): [get: Accessor<T>, set: Setter<T>];
 export function createSignal<T>(
   value?: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): [get: Accessor<T>, set: (v: (T extends Function ? never : T) | ((prev: T) => T)) => T] {
+): [get: Accessor<T>, set: Setter<T>] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
     value,
@@ -129,11 +130,11 @@ export function createSignal<T>(
     value => {
       if (typeof value === "function") {
         if (Transition && Transition.running && Transition.sources.has(s))
-          value = (value as (p?: T) => T)(
+          value = ((value as unknown) as (p?: T) => T)(
             s.pending !== NOTPENDING ? (s.pending as T) : s.tValue
           ) as any;
         else
-          value = (value as (p?: T) => T)(
+          value = ((value as unknown) as (p?: T) => T)(
             s.pending !== NOTPENDING ? (s.pending as T) : s.value
           ) as any;
       }

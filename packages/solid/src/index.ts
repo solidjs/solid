@@ -24,7 +24,7 @@ export {
   equalFn,
   $PROXY
 } from "./reactive/signal";
-export type { Accessor, Resource, ResourceReturn, Context, ReturnTypes } from "./reactive/signal";
+export type { Accessor, Setter, Resource, ResourceReturn, Context, ReturnTypes } from "./reactive/signal";
 
 export * from "./reactive/observable";
 export * from "./reactive/scheduler";

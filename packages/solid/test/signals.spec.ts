@@ -83,7 +83,7 @@ describe("Update signals", () => {
   });
   test("Create and update a Signal with fn", () => {
     const [value, setValue] = createSignal(5);
-    setValue(p => p + 5);
+    setValue((p: number) => p + 5);
     expect(value()).toBe(10);
   });
   test("Create Signal and set different value", () => {
@@ -199,8 +199,8 @@ describe("Batch signals", () => {
       const [a, setA] = createSignal(0);
       const [b, setB] = createSignal(0);
       createEffect(() => {
-        setA(a => a + 1);
-        setB(b => b + 1);
+        setA((a: number) => a + 1);
+        setB((b: number) => b + 1);
       });
       createComputed(() => (count = a() + b()));
       setTimeout(() => {
@@ -214,8 +214,8 @@ describe("Batch signals", () => {
       let count = 0;
       const [a, setA] = createSignal(0);
       createEffect(() => {
-        setA(a => a + 1);
-        setA(a => a + 2);
+        setA((a: number) => a + 1);
+        setA((a: number) => a + 2);
       });
       createComputed(() => (count = a()));
       setTimeout(() => {
@@ -230,11 +230,11 @@ describe("Batch signals", () => {
       const [a, setA] = createSignal(1);
       const [b, setB] = createSignal(0);
       createEffect(() => {
-        setA(a => a + b());
+        setA((a: number) => a + b());
       });
       createComputed(() => (count = a()));
       setTimeout(() => {
-        setB(b => b + 1);
+        setB((b: number) => b + 1);
         setTimeout(() => {
           expect(count).toBe(2);
           done();
