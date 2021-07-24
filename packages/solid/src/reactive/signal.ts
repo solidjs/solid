@@ -125,19 +125,14 @@ export function createSignal<T>(
 
   return [
     readSignal.bind(s),
-    (value?: any) => {
+    ((value: T extends Function ? never : T | ((p?: T) => T)) => {
       if (typeof value === "function") {
         if (Transition && Transition.running && Transition.sources.has(s))
-          value = (value as (p?: T) => T)(
-            s.pending !== NOTPENDING ? (s.pending as T) : s.tValue
-          ) as any;
-        else
-          value = (value as (p?: T) => T)(
-            s.pending !== NOTPENDING ? (s.pending as T) : s.value
-          ) as any;
+          value = value(s.pending !== NOTPENDING ? (s.pending as T) : s.tValue);
+        else value = value(s.pending !== NOTPENDING ? (s.pending as T) : s.value);
       }
       return writeSignal(s, value);
-    }
+    }) as Setter<T>
   ];
 }
 
@@ -237,22 +232,22 @@ export function createResource<T, U>(
     | true
     | null
     | (() => U | false | null)
-    | ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>) | { initialValue?: T },
+    | ((k: U, getPrev: Accessor<T>) => T | Promise<T>),
+  fetcher?: ((k: U, getPrev: Accessor<T>) => T | Promise<T>) | { initialValue?: T },
   options: { initialValue?: T; name?: string } = {}
 ): ResourceReturn<T> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher;
-      fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
+      fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
       source = true;
     }
   } else if (arguments.length === 1) {
-    fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
+    fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
     source = true;
   }
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal(options!.initialValue),
+    [s, set] = createSignal(options!.initialValue as T),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
@@ -330,9 +325,7 @@ export function createResource<T, U>(
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
       initP ||
-      untrack(() =>
-        (fetcher as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>)(lookup, s)
-      );
+      untrack(() => (fetcher as (k: U, getPrev: Accessor<T>) => T | Promise<T>)(lookup, s));
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);
@@ -362,7 +355,7 @@ export function createResource<T, U>(
   });
   if (dynamic) createComputed(load);
   else load();
-  return [read as Resource<T>, { refetch: load, mutate: set as any }];
+  return [read as Resource<T>, { refetch: load, mutate: set }];
 }
 
 export function createDeferred<T>(
