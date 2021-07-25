@@ -827,38 +827,36 @@ function createComputation<T>(
 }
 
 function runTop(node: Computation<any>) {
-  let top = node.state === STALE && node,
-    pending = [];
+  if (node.state !== STALE) return;
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
-  const runningTransition = Transition && Transition.running;
+  const ancestors = [node],
+    runningTransition = Transition && Transition.running;
   while (
     (node = node.owner as Computation<any>) &&
     (!node.updatedAt || node.updatedAt < ExecCount)
   ) {
     if (runningTransition && Transition!.disposed.has(node)) return;
-    if (node.state === PENDING) pending.push(node);
-    else if (node.state === STALE) {
-      top = node;
-      pending = [];
-    }
+    if (node.state === STALE || node.state === PENDING) ancestors.push(node);
   }
-  if (pending.length) {
-    for (let i = pending.length - 1; i >= 0; i--) {
-      const updates = Updates;
-      Updates = null;
-      lookDownstream(pending[i]);
-      Updates = updates;
-    }
-    if (!top || top.state !== STALE) return;
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    node = ancestors[i];
     if (runningTransition) {
-      node = top;
-      while ((node = node.owner as Computation<any>)) {
-        if (Transition!.disposed.has(node)) return;
+      let top = node,
+        prev = ancestors[i + 1];
+      while ((top = top.owner as Computation<any>) && top !== prev) {
+        if (Transition!.disposed.has(top)) return;
       }
     }
+    if (node.state === STALE) {
+      updateComputation(node);
+    } else if (node.state === PENDING) {
+      const updates = Updates;
+      Updates = null;
+      lookDownstream(node);
+      Updates = updates;
+    }
   }
-  top && updateComputation(top);
 }
 
 function runUpdates(fn: () => void, init: boolean) {
