@@ -4,12 +4,14 @@ import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export type Accessor<T> = () => T;
+export type Setter<T> = undefined extends T
+  ? <U extends T>(v?: (U extends Function ? never : U) | ((prev?: U) => U)) => U
+  : <U extends T>(v: (U extends Function ? never : U) | ((prev: U) => U)) => U;
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
-
 export const NOTPENDING = {};
 const STALE = 1;
 const PENDING = 2;
@@ -101,18 +103,15 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
-export function createSignal<T>(): [
-  get: Accessor<T | undefined>,
-  set: <U extends T | undefined>(v?: (U extends Function ? never : U) | ((prev: U) => U)) => U
-];
+export function createSignal<T>(): [get: Accessor<T | undefined>, set: Setter<T | undefined>];
 export function createSignal<T>(
   value: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): [get: Accessor<T>, set: (v: (T extends Function ? never : T) | ((prev: T) => T)) => T];
+): [get: Accessor<T>, set: Setter<T>];
 export function createSignal<T>(
   value?: T,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
-): [get: Accessor<T>, set: (v: (T extends Function ? never : T) | ((prev: T) => T)) => T] {
+): [get: Accessor<T>, set: Setter<T>] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
     value,
@@ -126,19 +125,14 @@ export function createSignal<T>(
 
   return [
     readSignal.bind(s),
-    value => {
+    ((value: T extends Function ? never : T | ((p?: T) => T)) => {
       if (typeof value === "function") {
         if (Transition && Transition.running && Transition.sources.has(s))
-          value = (value as (p?: T) => T)(
-            s.pending !== NOTPENDING ? (s.pending as T) : s.tValue
-          ) as any;
-        else
-          value = (value as (p?: T) => T)(
-            s.pending !== NOTPENDING ? (s.pending as T) : s.value
-          ) as any;
+          value = value(s.pending !== NOTPENDING ? (s.pending as T) : s.tValue);
+        else value = value(s.pending !== NOTPENDING ? (s.pending as T) : s.value);
       }
       return writeSignal(s, value);
-    }
+    }) as Setter<T>
   ];
 }
 
@@ -208,7 +202,7 @@ export interface Resource<T> extends Accessor<T | undefined> {
 export type ResourceReturn<T> = [
   Resource<T>,
   {
-    mutate: (v: (T extends Function ? never : T) | ((prev?: T) => T | undefined)) => T | undefined;
+    mutate: Setter<T>;
     refetch: () => void;
   }
 ];
@@ -238,22 +232,22 @@ export function createResource<T, U>(
     | true
     | null
     | (() => U | false | null)
-    | ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>) | { initialValue?: T },
+    | ((k: U, getPrev: Accessor<T>) => T | Promise<T>),
+  fetcher?: ((k: U, getPrev: Accessor<T>) => T | Promise<T>) | { initialValue?: T },
   options: { initialValue?: T; name?: string } = {}
 ): ResourceReturn<T> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher;
-      fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
+      fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
       source = true;
     }
   } else if (arguments.length === 1) {
-    fetcher = source as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>;
+    fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
     source = true;
   }
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal(options!.initialValue),
+    [s, set] = createSignal(options!.initialValue as T),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
@@ -331,9 +325,7 @@ export function createResource<T, U>(
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
       initP ||
-      untrack(() =>
-        (fetcher as (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>)(lookup, s)
-      );
+      untrack(() => (fetcher as (k: U, getPrev: Accessor<T>) => T | Promise<T>)(lookup, s));
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);

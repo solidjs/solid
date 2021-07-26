@@ -1,4 +1,4 @@
-import { onCleanup, createRoot, untrack, createSignal, Owner, Accessor } from "./signal";
+import { onCleanup, createRoot, untrack, createSignal, Owner, Accessor, Setter } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 function dispose(d: (() => void)[]) {
@@ -143,7 +143,7 @@ export function indexArray<T, U>(
   let items: (T | typeof FALLBACK)[] = [],
     mapped: U[] = [],
     disposers: (() => void)[] = [],
-    signals: ((v: (prev: T) => T) => T)[] = [],
+    signals: Setter<T>[] = [],
     len = 0,
     i: number;
 
