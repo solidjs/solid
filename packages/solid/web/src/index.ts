@@ -1,4 +1,4 @@
-import { insert, spread, SVGElements } from "./client";
+import { getNextElement, insert, spread, SVGElements } from "./client";
 import {
   createSignal,
   createMemo,
@@ -94,7 +94,7 @@ export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
 
       case "string":
         const isSvg = SVGElements.has(component);
-        const el = createElement(component, isSvg);
+        const el = sharedConfig.context ? getNextElement() : createElement(component, isSvg);
         spread(el, others, isSvg);
         return el;
 

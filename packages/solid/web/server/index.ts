@@ -1,4 +1,4 @@
-import { ssr, ssrSpread } from "./server";
+import { ssr, ssrSpread, ssrHydrationKey } from "./server";
 import { splitProps, Component, JSX } from "solid-js";
 
 export * from "./server";
@@ -30,7 +30,12 @@ export function Dynamic<T>(
     if (t === "function") return (comp as Function)(others);
     else if (t === "string") {
       const [local, sOthers] = splitProps(others, ["children"]);
-      return ssr([`<${comp} `, ">", `</${comp}>`], ssrSpread(sOthers), local.children || "");
+      return ssr(
+        [`<${comp}`, ' ', ">", `</${comp}>`],
+        ssrHydrationKey(),
+        ssrSpread(sOthers),
+        local.children || ""
+      );
     }
   }
 }
