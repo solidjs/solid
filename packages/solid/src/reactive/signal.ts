@@ -106,11 +106,11 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 export function createSignal<T>(): [get: Accessor<T | undefined>, set: Setter<T | undefined>];
 export function createSignal<T>(
   value: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string, internal?: boolean }
 ): [get: Accessor<T>, set: Setter<T>];
 export function createSignal<T>(
   value?: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string, internal?: boolean }
 ): [get: Accessor<T>, set: Setter<T>] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
@@ -120,8 +120,8 @@ export function createSignal<T>(
     pending: NOTPENDING,
     comparator: options.equals || undefined
   };
-  if ("_SOLID_DEV_")
-    s.name = registerGraph((options && options.name) || hashValue(value), s as { value: unknown });
+  if ("_SOLID_DEV_" && !options.internal)
+    s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
 
   return [
     readSignal.bind(s),

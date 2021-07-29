@@ -120,7 +120,7 @@ export function ownKeys(target: StoreNode) {
 }
 
 export function createDataNode() {
-  const [s, set] = createSignal<void>(undefined, { equals: false });
+  const [s, set] = createSignal<void>(undefined, { equals: false, internal: true });
   (s as Accessor<void> & { $: () => void }).$ = set;
   return s as Accessor<void> & { $: () => void };
 }
