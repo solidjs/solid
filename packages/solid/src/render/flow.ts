@@ -91,13 +91,13 @@ export function ErrorBoundary(props: {
   children: JSX.Element;
 }): Accessor<JSX.Element> {
   const [errored, setErrored] = createSignal<any>();
-  onError(setErrored);
   let e: any;
   return createMemo(() => {
     if ((e = errored()) != null) {
       const f = props.fallback;
       return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(null))) : f;
     }
+    onError(setErrored);
     return props.children;
   }) as Accessor<JSX.Element>;
 }

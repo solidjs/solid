@@ -21,7 +21,11 @@ describe("Testing ErrorBoundary control flow", () => {
   test("Create an Error", () => {
     createRoot(dispose => {
       disposer = dispose;
-      <div ref={div}><ErrorBoundary fallback="Failed Miserably"><Component /></ErrorBoundary></div>;
+      <div ref={div}>
+        <ErrorBoundary fallback="Failed Miserably">
+          <Component />
+        </ErrorBoundary>
+      </div>;
     });
     expect(div.innerHTML).toBe("Failed Miserably");
   });
@@ -29,7 +33,11 @@ describe("Testing ErrorBoundary control flow", () => {
   test("Create an Error callback", () => {
     createRoot(dispose => {
       disposer = dispose;
-      <div ref={div}><ErrorBoundary fallback={e => e.message}><Component /></ErrorBoundary></div>;
+      <div ref={div}>
+        <ErrorBoundary fallback={e => e.message}>
+          <Component />
+        </ErrorBoundary>
+      </div>;
     });
     expect(div.innerHTML).toBe("Failure");
   });
@@ -38,13 +46,33 @@ describe("Testing ErrorBoundary control flow", () => {
     let r: () => void;
     createRoot(dispose => {
       disposer = dispose;
-      <div ref={div}><ErrorBoundary fallback={(e, reset) => {
-        r = reset;
-        return e.message;
-      }}><Component2 /></ErrorBoundary></div>;
+      <div ref={div}>
+        <ErrorBoundary
+          fallback={(e, reset) => {
+            r = reset;
+            return e.message;
+          }}
+        >
+          <Component2 />
+        </ErrorBoundary>
+      </div>;
     });
     expect(div.innerHTML).toBe("Failure");
     r!();
+  });
+
+  test("Create an Error in an Error Fallback", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <div ref={div}>
+        <ErrorBoundary fallback="Failed Miserably">
+          <ErrorBoundary fallback={<Component />}>
+            <Component />
+          </ErrorBoundary>
+        </ErrorBoundary>
+      </div>;
+    });
+    expect(div.innerHTML).toBe("Failed Miserably");
   });
 
   test("dispose", () => disposer());

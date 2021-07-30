@@ -106,11 +106,11 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
 export function createSignal<T>(): [get: Accessor<T | undefined>, set: Setter<T | undefined>];
 export function createSignal<T>(
   value: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string, internal?: boolean }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
 ): [get: Accessor<T>, set: Setter<T>];
 export function createSignal<T>(
   value?: T,
-  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string, internal?: boolean }
+  options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; internal?: boolean }
 ): [get: Accessor<T>, set: Setter<T>] {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s: Signal<T> = {
