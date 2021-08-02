@@ -7,7 +7,7 @@ function dispose(d: (() => void)[]) {
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 export function mapArray<T, U>(
-  list: Accessor<readonly T[]>,
+  list: Accessor<readonly T[] | undefined | null | false>,
   mapFn: (v: T, i: Accessor<number>) => U,
   options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
@@ -136,7 +136,7 @@ export function mapArray<T, U>(
 }
 
 export function indexArray<T, U>(
-  list: Accessor<readonly T[]>,
+  list: Accessor<readonly T[] | undefined | null | false>,
   mapFn: (v: Accessor<T>, i: number) => U,
   options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
