@@ -3,7 +3,7 @@ import { mapArray, indexArray } from "../reactive/array";
 import type { JSX } from "../jsx";
 
 export function For<T, U extends JSX.Element>(props: {
-  each: readonly T[];
+  each: readonly T[] | undefined | null | false;
   fallback?: JSX.Element;
   children: (item: T, index: Accessor<number>) => U;
 }) {
@@ -15,7 +15,7 @@ export function For<T, U extends JSX.Element>(props: {
 
 // non-keyed
 export function Index<T, U extends JSX.Element>(props: {
-  each: readonly T[];
+  each: readonly T[] | undefined | null | false;
   fallback?: JSX.Element;
   children: (item: Accessor<T>, index: number) => U;
 }) {

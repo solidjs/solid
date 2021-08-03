@@ -194,7 +194,7 @@ export function createMemo<T>(
   return readSignal.bind(c as Memo<T>);
 }
 
-export interface Resource<T> extends Accessor<T | undefined> {
+export interface Resource<T> extends Accessor<T> {
   loading: boolean;
   error: any;
 }
