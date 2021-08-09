@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0
+## 1.1.0 - 2021-08-09
 
 Expanding Solid's concurrency to include scheduling. Bug fixes around Types and around reactive execution order guarantees.
 
@@ -9,9 +9,11 @@ Expanding Solid's concurrency to include scheduling. Bug fixes around Types and 
 ### `createUniqueId`
 
 A universal id generator that works across server/browser.
+
 ```js
 const id = createUniqueId();
 ```
+
 > **Note** on the server this only works under hydratable components
 
 ### `from`
@@ -19,40 +21,54 @@ const id = createUniqueId();
 A simple helper to make it easier to interopt with external producers like RxJS observables or with Svelte Stores. This basically turns any subscribable (object with a `subscribe` method) into a Signal and manages subscription and disposal.
 
 ```js
-const signal = from(obsv$)
+const signal = from(obsv$);
 ```
 
 It can also take a custom producer function where the function is passed a setter function returns a unsubscribe function:
+
 ```js
-const clock = from((set) => {
-  const t = setInterval(() => set(1), 1000)
+const clock = from(set => {
+  const t = setInterval(() => set(1), 1000);
   return () => clearIntercal(t);
-})
+});
 ```
 
 > Note: Signals created by `from` have equality checks turned off to interface better with external streams and sources.
+
 ### `enableScheduling` (experimental)
 
 By default Solid's concurrent rendering/Transitions doesn't schedule work differently and just runs synchronously. It's purpose is to smooth out IO situations like Navigation. However now you can opt into similar to React's behavior by calling this once at your programs entry. I've yet to see a realworld scenario where this makes a big difference but now we can do cool demos too and start testing it.
+
 #### `startTransition`
 
 Works like it's counterpart in `useTransition`, this useful when you don't need pending state.
 
-## 1.0.0
+```js
+import { startTransition } from "solid-js";
+
+function clickHandler(e) {
+  startTransition(() => setSignal("Holla"));
+}
+```
+
+## 1.0.0 - 2021-06-27
 
 ### Breaking Changes
 
 ### setSignal now supports function form
 
 While that in itself is a great new feature as you can do:
+
 ```js
 const [count, setCount] = createSignal(0);
 
 setCount(c => c + 1);
 ```
+
 This promotes immutable patterns, let's you access the previous value without it being tracked, and makes Signals consistent with State.
 
 It means that when functions are stored in signals you need to use this form to remove ambiguity
+
 ```js
 const [count, setCount] = createSignal(ComponentA);
 
@@ -122,14 +138,13 @@ export function createResource<T, U>(
 3rd argument is now an options object instead of just the initial value. This breaking. But this also allows the first argument to be optional for the non-tracking case. Need a promise that only loads once? Don't have need to re-use the fetcher. Do this:
 
 ```js
-const [data] = createResource(
-  async () => (await fetch(`https://someapi.com/info`)).json()
-);
+const [data] = createResource(async () => (await fetch(`https://someapi.com/info`)).json());
 ```
 
 #### on/onCapture
 
 These are an escape hatch for unusual events. Previously these were custom attributes but now they are namespaced like:
+
 ```jsx
 <div on:someUnusualEvent={e => console.log(e.target)} />
 ```
@@ -143,47 +158,55 @@ https://github.com/solidjs/solid-jest
 ### New Features
 
 #### Namespace Types
+
 Types added for Namespace attributes. You probably won't need most of these because they are for more advanced usage. However to use them you need to extend the JSX Namespace:
 
 ```ts
 declare module "solid-js" {
   namespace JSX {
-    interface Directives {  // use:____
-
+    interface Directives {
+      // use:____
     }
-    interface ExplicitProperties { // prop:____
-
+    interface ExplicitProperties {
+      // prop:____
     }
-    interface ExplicitAttributes { // attr:____
-
+    interface ExplicitAttributes {
+      // attr:____
     }
-    interface CustomEvents { // on:____
-
+    interface CustomEvents {
+      // on:____
     }
-    interface CustomCaptureEvents { // oncapture:____
-
+    interface CustomCaptureEvents {
+      // oncapture:____
     }
   }
 }
 ```
 
 #### Lazy component preload
+
 Lazy components now have a preload function so you can pre-emptively load them.
+
 ```js
-const LazyComp = lazy(() => import("./some-comp"))
+const LazyComp = lazy(() => import("./some-comp"));
 
 // load ahead of time
 LazyComp.preload();
 ```
 
 #### Error Boundary reset
+
 Error boundaries now have the ability to reset themselves and try again. It is the second argument to the fallback.
 
 ```js
-<ErrorBoundary fallback={(err, reset) => {
-  if (count++ < 3) return reset();
-  return "Failure";
-}}><Component /></ErrorBoundary>
+<ErrorBoundary
+  fallback={(err, reset) => {
+    if (count++ < 3) return reset();
+    return "Failure";
+  }}
+>
+  <Component />
+</ErrorBoundary>
 ```
 
 ## 0.24.0 - 2021-02-03
