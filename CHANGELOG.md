@@ -29,7 +29,7 @@ It can also take a custom producer function where the function is passed a sette
 ```js
 const clock = from(set => {
   const t = setInterval(() => set(1), 1000);
-  return () => clearIntercal(t);
+  return () => clearInterval(t);
 });
 ```
 
@@ -37,17 +37,22 @@ const clock = from(set => {
 
 ### `enableScheduling` (experimental)
 
-By default Solid's concurrent rendering/Transitions doesn't schedule work differently and just runs synchronously. It's purpose is to smooth out IO situations like Navigation. However now you can opt into similar to React's behavior by calling this once at your programs entry. I've yet to see a realworld scenario where this makes a big difference but now we can do cool demos too and start testing it.
+By default Solid's concurrent rendering/Transitions doesn't schedule work differently and just runs synchronously. It's purpose is to smooth out IO situations like Navigation. However now you can opt into interruptible scheduling similar to React's behavior by calling this once at your programs entry. I've yet to see a realworld scenario where this makes a big difference but now we can do cool demos too and start testing it.
 
 #### `startTransition`
 
 Works like it's counterpart in `useTransition`, this useful when you don't need pending state.
 
 ```js
-import { startTransition } from "solid-js";
+import { createSignal, startTransition } from "solid-js";
 
-function clickHandler(e) {
-  startTransition(() => setSignal("Holla"));
+function App() {
+  const [signal, setSignal] = createSignal("Howdy");
+  function clickHandler(e) {
+    startTransition(() => setSignal("Holla"));
+  }
+
+  /* ...stuff */
 }
 ```
 
