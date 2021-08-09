@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.1.0
+
+Expanding Solid's concurrency to include scheduling. Bug fixes around Types and around reactive execution order guarantees.
+
+### New Features
+
+### `createUniqueId`
+
+A universal id generator that works across server/browser.
+```js
+const id = createUniqueId();
+```
+> **Note** on the server this only works under hydratable components
+
+### `from`
+
+A simple helper to make it easier to interopt with external producers like RxJS observables or with Svelte Stores. This basically turns any subscribable (object with a `subscribe` method) into a Signal and manages subscription and disposal.
+
+```js
+const signal = from(obsv$)
+```
+
+It can also take a custom producer function where the function is passed a setter function returns a unsubscribe function:
+```js
+const clock = from((set) => {
+  const t = setInterval(() => set(1), 1000)
+  return () => clearIntercal(t);
+})
+```
+
+> Note: Signals created by `from` have equality checks turned off to interface better with external streams and sources.
+### `enableScheduling` (experimental)
+
+By default Solid's concurrent rendering/Transitions doesn't schedule work differently and just runs synchronously. It's purpose is to smooth out IO situations like Navigation. However now you can opt into similar to React's behavior by calling this once at your programs entry. I've yet to see a realworld scenario where this makes a big difference but now we can do cool demos too and start testing it.
+#### `startTransition`
+
+Works like it's counterpart in `useTransition`, this useful when you don't need pending state.
+
 ## 1.0.0
 
 ### Breaking Changes

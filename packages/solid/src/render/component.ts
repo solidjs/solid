@@ -230,3 +230,9 @@ export function lazy<T extends Component<any>>(
   wrap.preload = () => comp || fn().then(mod => comp = () => mod.default);
   return wrap as T & { preload: () => void };
 }
+
+let counter = 0;
+export function createUniqueId(): string {
+  const ctx = sharedConfig.context;
+  return ctx ? `${ctx.id}${ctx.count++}` : `cl:${counter++}`;
+}

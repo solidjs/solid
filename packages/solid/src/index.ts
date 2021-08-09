@@ -14,6 +14,8 @@ export {
   untrack,
   batch,
   on,
+  enableScheduling,
+  startTransition,
   useTransition,
   createContext,
   useContext,

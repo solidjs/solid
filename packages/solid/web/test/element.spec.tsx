@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createRoot, createSignal, JSX } from "../../src";
+import { createRoot, createSignal, createUniqueId, JSX } from "../../src";
 
 declare module "solid-js" {
   namespace JSX {
@@ -35,7 +35,7 @@ describe("Basic element attributes", () => {
     expect(d.className).toBe("first third fourth");
   });
 
-  test("ternary expression triggered", (done) => {
+  test("ternary expression triggered", done => {
     let div: HTMLDivElement;
     createRoot(() => {
       const [s, setS] = createSignal(0);
@@ -63,8 +63,24 @@ describe("Basic element attributes", () => {
   test("directives work properly", () => {
     let ref: HTMLDivElement,
       el!: HTMLDivElement,
-      getRef = (el: HTMLDivElement) => ref = el,
+      getRef = (el: HTMLDivElement) => (ref = el),
       d = (<div use:getRef ref={el} />) as HTMLDivElement;
     expect(ref!).toBe(el);
-  })
+  });
+
+  test("uniqueId", () => {
+    let div: HTMLDivElement;
+    createRoot(() => {
+      const id = createUniqueId();
+      div = (
+        <div>
+          <label for={id}>Hi</label>
+          <input type="text" id={id} />
+        </div>
+      ) as HTMLDivElement;
+    });
+    expect((div!.firstChild as HTMLLabelElement).htmlFor).toBe(
+      (div!.firstChild!.nextSibling as HTMLInputElement).id
+    );
+  });
 });

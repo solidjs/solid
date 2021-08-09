@@ -24,6 +24,7 @@ const UNOWNED: Owner = {
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: Transition | null = null;
+let Scheduler: ((fn: () => void) => any) | null = null;
 let Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
@@ -58,6 +59,7 @@ interface Owner {
 interface Computation<T> extends Owner {
   fn: (v?: T) => T;
   state: number;
+  tState?: number;
   sources: Signal<T>[] | null;
   sourceSlots: number[] | null;
   value?: T;
@@ -76,6 +78,8 @@ interface Transition {
   effects: Computation<any>[];
   promises: Set<Promise<any>>;
   disposed: Set<Computation<any>>;
+  queue: Set<Computation<any>>;
+  scheduler?: (fn: () => void) => unknown;
   running: boolean;
   cb: (() => void)[];
 }
@@ -139,7 +143,7 @@ export function createSignal<T>(
 export function createComputed<T>(fn: (v?: T) => T | undefined): void;
 export function createComputed<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
 export function createComputed<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
-  updateComputation(createComputation(fn, value, true, "_SOLID_DEV_" ? options : undefined));
+  updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
 }
 
 export function createRenderEffect<T>(fn: (v?: T) => T | undefined): void;
@@ -149,14 +153,14 @@ export function createRenderEffect<T>(
   value?: T,
   options?: { name?: string }
 ): void {
-  updateComputation(createComputation(fn, value, false, "_SOLID_DEV_" ? options : undefined));
+  updateComputation(createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined));
 }
 
 export function createEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createEffect<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
 export function createEffect<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
   runEffects = runUserEffects;
-  const c = createComputation(fn, value, false, "_SOLID_DEV_" ? options : undefined),
+  const c = createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
@@ -183,12 +187,12 @@ export function createMemo<T>(
     fn,
     value,
     true,
+    0,
     "_SOLID_DEV_" ? options : undefined
   );
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
-  c.state = 0;
   c.comparator = options.equals || undefined;
   updateComputation(c as Memo<T>);
   return readSignal.bind(c as Memo<T>);
@@ -404,6 +408,7 @@ export function createSelector<T, U>(
     },
     undefined,
     true,
+    STALE,
     "_SOLID_DEV_" ? options : undefined
   ) as Memo<any>;
   updateComputation(node);
@@ -542,27 +547,31 @@ export function runWithOwner(o: Owner, fn: () => any) {
 }
 
 // Transitions
+export function enableScheduling(scheduler = requestCallback) {
+  Scheduler = scheduler;
+}
+
+export function startTransition(fn: () => void, cb?: () => void) {
+  if (Scheduler || SuspenseContext) {
+    Transition ||
+      (Transition = {
+        sources: new Set(),
+        effects: [],
+        promises: new Set(),
+        disposed: new Set(),
+        queue: new Set(),
+        running: true,
+        cb: []
+      });
+    cb && Transition.cb.push(cb);
+    Transition.running = true;
+  }
+  batch(fn);
+  if (!Scheduler && !SuspenseContext && cb) cb();
+}
+
 export function useTransition(): [Accessor<boolean>, (fn: () => void, cb?: () => void) => void] {
-  return [
-    transPending,
-    (fn: () => void, cb?: () => void) => {
-      if (SuspenseContext) {
-        Transition ||
-          (Transition = {
-            sources: new Set(),
-            effects: [],
-            promises: new Set(),
-            disposed: new Set(),
-            running: true,
-            cb: []
-          });
-        cb && Transition.cb.push(cb);
-        Transition.running = true;
-      }
-      batch(fn);
-      if (!SuspenseContext && cb) cb();
-    }
-  ];
+  return [transPending, startTransition];
 }
 
 export function resumeEffects(e: Computation<any>[]) {
@@ -676,7 +685,8 @@ export function readSignal(this: Signal<any> | Memo<any>) {
   if ((this as Memo<any>).state && (this as Memo<any>).sources) {
     const updates = Updates;
     Updates = null;
-    (this as Memo<any>).state === STALE
+    (this as Memo<any>).state === STALE ||
+    (Transition && Transition.running && (this as Memo<any>).tState)
       ? updateComputation(this as Memo<any>)
       : lookDownstream(this as Memo<any>);
     Updates = updates;
@@ -713,20 +723,23 @@ export function writeSignal(node: Signal<any> | Memo<any>, value: any, isComp?: 
     node.pending = value;
     return value;
   }
+  let TransitionRunning = false;
   if (Transition) {
-    if (Transition.running || (!isComp && Transition.sources.has(node))) {
+    TransitionRunning = Transition.running;
+    if (TransitionRunning || (!isComp && Transition.sources.has(node))) {
       Transition.sources.add(node);
       node.tValue = value;
     }
-    if (!Transition.running) node.value = value;
+    if (!TransitionRunning) node.value = value;
   } else node.value = value;
   if (node.observers && (!Updates || node.observers.length)) {
     runUpdates(() => {
       for (let i = 0; i < node.observers!.length; i += 1) {
         const o = node.observers![i];
-        if (Transition && Transition.running && Transition.disposed.has(o)) continue;
+        if (TransitionRunning && Transition!.disposed.has(o)) continue;
         if ((o as Memo<any>).observers && o.state !== PENDING) markUpstream(o as Memo<any>);
-        o.state = STALE;
+        if (TransitionRunning) o.tState = STALE;
+        else o.state = STALE;
         if (o.pure) Updates!.push(o);
         else Effects!.push(o);
       }
@@ -780,11 +793,12 @@ function createComputation<T>(
   fn: (v?: T) => T,
   init: T | undefined,
   pure: boolean,
+  state: number = STALE,
   options?: { name?: string }
 ) {
   const c: Computation<T> = {
     fn,
-    state: STALE,
+    state: state,
     updatedAt: null,
     owned: null,
     sources: null,
@@ -795,6 +809,10 @@ function createComputation<T>(
     context: null,
     pure
   };
+  if (Transition && Transition.running) {
+    c.state = 0;
+    c.tState = state;
+  }
   if (Owner === null)
     "_SOLID_DEV_" &&
       console.warn(
@@ -819,17 +837,17 @@ function createComputation<T>(
 }
 
 function runTop(node: Computation<any>) {
-  if (node.state !== STALE) return;
+  const runningTransition = Transition && Transition.running;
+  if (node.state !== STALE && !(runningTransition && node.tState)) return;
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
-  const ancestors = [node],
-    runningTransition = Transition && Transition.running;
+  const ancestors = [node];
   while (
     (node = node.owner as Computation<any>) &&
     (!node.updatedAt || node.updatedAt < ExecCount)
   ) {
     if (runningTransition && Transition!.disposed.has(node)) return;
-    if (node.state === STALE || node.state === PENDING) ancestors.push(node);
+    if (node.state || (runningTransition && node.tState)) ancestors.push(node);
   }
   for (let i = ancestors.length - 1; i >= 0; i--) {
     node = ancestors[i];
@@ -840,7 +858,7 @@ function runTop(node: Computation<any>) {
         if (Transition!.disposed.has(top)) return;
       }
     }
-    if (node.state === STALE) {
+    if (node.state === STALE || (runningTransition && node.tState)) {
       updateComputation(node);
     } else if (node.state === PENDING) {
       const updates = Updates;
@@ -869,13 +887,14 @@ function runUpdates(fn: () => void, init: boolean) {
 
 function completeUpdates(wait: boolean) {
   if (Updates) {
-    runQueue(Updates);
+    if (Scheduler && Transition && Transition.running) scheduleQueue(Updates);
+    else runQueue(Updates);
     Updates = null;
   }
   if (wait) return;
   let cbs;
   if (Transition && Transition.running) {
-    if (Transition.promises.size) {
+    if (Transition.promises.size || Transition.queue.size) {
       Transition.running = false;
       Transition.effects.push.apply(Transition.effects, Effects!);
       Effects = null;
@@ -885,6 +904,10 @@ function completeUpdates(wait: boolean) {
     // finish transition
     const sources = Transition.sources;
     cbs = Transition.cb;
+    Effects!.forEach(e => {
+      e.state = STALE;
+      delete e.tState;
+    });
     Transition = null;
     batch(() => {
       sources.forEach(v => {
@@ -896,6 +919,7 @@ function completeUpdates(wait: boolean) {
         if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
         delete v.tValue;
         delete (v as Memo<any>).tOwned;
+        (v as Memo<any>).tState = 0;
       });
       setTransPending(false);
     });
@@ -916,6 +940,28 @@ function runQueue(queue: Computation<any>[]) {
   for (let i = 0; i < queue.length; i++) runTop(queue[i]);
 }
 
+function scheduleQueue(queue: Computation<any>[]) {
+  for (let i = 0; i < queue.length; i++) {
+    const item = queue[i];
+    const tasks = Transition!.queue;
+    if (!tasks.has(item)) {
+      tasks.add(item);
+      Scheduler!(() => {
+        tasks.delete(item);
+        runUpdates(() => {
+          Transition!.running = true;
+          runTop(item);
+          if (!tasks.size) {
+            Effects!.push.apply(Effects, Transition!.effects);
+            Transition!.effects = [];
+          }
+        }, false);
+        Transition && (Transition.running = false);
+      });
+    }
+  }
+}
+
 function runUserEffects(queue: Computation<any>[]) {
   let i,
     userLength = 0;
@@ -934,7 +980,8 @@ function lookDownstream(node: Computation<any>) {
   for (let i = 0; i < node.sources!.length; i += 1) {
     const source = node.sources![i] as Memo<any>;
     if (source.sources) {
-      if (source.state === STALE) runTop(source);
+      if (source.state === STALE || (Transition && Transition.running && source.tState))
+        runTop(source);
       else if (source.state === PENDING) lookDownstream(source);
     }
   }
@@ -985,13 +1032,14 @@ function cleanNode(node: Owner) {
     for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
     node.cleanups = null;
   }
-  (node as Computation<any>).state = 0;
+  if (Transition && Transition.running) (node as Computation<any>).tState = 0;
+  else (node as Computation<any>).state = 0;
   node.context = null;
 }
 
 function reset(node: Computation<any>, top?: boolean) {
   if (!top) {
-    node.state = 0;
+    node.tState = 0;
     Transition!.disposed.add(node);
   }
   if (node.owned) {

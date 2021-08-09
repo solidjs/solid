@@ -21,6 +21,8 @@ export {
   equalFn,
   requestCallback,
   mapArray,
+  observable,
+  from,
   $PROXY,
   DEV
 } from "./reactive";
@@ -39,7 +41,10 @@ export {
   Suspense,
   SuspenseList,
   createResource,
+  enableScheduling,
+  startTransition,
   useTransition,
+  createUniqueId,
   lazy,
   sharedConfig
 } from "./rendering";

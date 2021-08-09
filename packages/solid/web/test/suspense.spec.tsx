@@ -1,6 +1,9 @@
 /* @jsxImportSource solid-js */
-import { lazy, createSignal, createResource, useTransition } from "../../src";
+import "../../test/MessageChannel";
+import { lazy, createSignal, createResource, useTransition, enableScheduling } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
+
+enableScheduling()
 
 describe("Testing Suspense", () => {
   let div = document.createElement("div"),

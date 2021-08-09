@@ -37,6 +37,12 @@ function nextHydrateContext(): HydrationContext | undefined {
     : undefined;
 }
 
+export function createUniqueId(): string {
+  const ctx = sharedConfig.context;
+  if (!ctx) throw new Error(`createUniqueId cannot be used under non-hydrating context`);
+  return `${ctx.id}${ctx.count++}`;
+}
+
 export function createComponent<T>(
   Comp: (props: T) => JSX.Element,
   props: PossiblyWrapped<T>
@@ -370,6 +376,12 @@ function notifySuspense(contexts: Set<SuspenseContextType>) {
     if (suspenseComplete(c)) c.completed();
   }
   contexts.clear();
+}
+
+export function enableScheduling() {}
+
+export function startTransition(fn: () => any): void {
+  fn();
 }
 
 export function useTransition(): [() => boolean, (fn: () => any) => void] {

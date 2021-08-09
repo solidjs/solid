@@ -1,4 +1,4 @@
-import { createRoot, createComponent, mergeProps, splitProps } from "../src";
+import { createRoot, createComponent, mergeProps, splitProps, createUniqueId } from "../src";
 import { createStore } from "../store/src";
 
 type SimplePropTypes = {
@@ -82,3 +82,14 @@ describe("SplitProps Props", () => {
     });
   })
 });
+
+describe("createUniqueId", () => {
+  test("creating some", () => {
+    const id1 = createUniqueId();
+    const id2 = createUniqueId();
+
+    expect(id1).toBeDefined();
+    expect(id2).toBeDefined();
+    expect(id1).not.toEqual(id2);
+  })
+})
