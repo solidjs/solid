@@ -153,7 +153,9 @@ export function createRenderEffect<T>(
   value?: T,
   options?: { name?: string }
 ): void {
-  updateComputation(createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined));
+  updateComputation(
+    createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined)
+  );
 }
 
 export function createEffect<T>(fn: (v?: T) => T | undefined): void;
@@ -732,16 +734,20 @@ export function writeSignal(node: Signal<any> | Memo<any>, value: any, isComp?: 
     }
     if (!TransitionRunning) node.value = value;
   } else node.value = value;
-  if (node.observers && (!Updates || node.observers.length)) {
+  if (node.observers && node.observers.length) {
     runUpdates(() => {
       for (let i = 0; i < node.observers!.length; i += 1) {
         const o = node.observers![i];
         if (TransitionRunning && Transition!.disposed.has(o)) continue;
-        if ((o as Memo<any>).observers && o.state !== PENDING) markUpstream(o as Memo<any>);
-        if (TransitionRunning) o.tState = STALE;
-        else o.state = STALE;
         if (o.pure) Updates!.push(o);
         else Effects!.push(o);
+        if (
+          (o as Memo<any>).observers &&
+          ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state))
+        )
+          markUpstream(o as Memo<any>);
+        if (TransitionRunning) o.tState = STALE;
+        else o.state = STALE;
       }
       if (Updates!.length > 10e5) {
         Updates = [];
@@ -838,7 +844,8 @@ function createComputation<T>(
 
 function runTop(node: Computation<any>) {
   const runningTransition = Transition && Transition.running;
-  if (node.state !== STALE && !(runningTransition && node.tState)) return;
+  if (!runningTransition && node.state !== STALE) return (node.state = 0);
+  if (runningTransition && node.tState !== STALE) return (node.tState = 0);
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const ancestors = [node];
@@ -988,10 +995,14 @@ function lookDownstream(node: Computation<any>) {
 }
 
 function markUpstream(node: Memo<any>) {
+  const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.observers!.length; i += 1) {
     const o = node.observers![i];
-    if (!o.state) {
-      o.state = PENDING;
+    if (!o.state || (runningTransition && !o.tState)) {
+      if (runningTransition) o.tState = PENDING;
+      else o.state = PENDING;
+      if (o.pure) Updates!.push(o);
+      else Effects!.push(o);
       (o as Memo<any>).observers && markUpstream(o as Memo<any>);
     }
   }
