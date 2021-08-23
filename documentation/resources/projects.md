@@ -21,6 +21,8 @@
 - [Solid HeroIcons](https://github.com/amoutonbrady/solid-heroicons) HeroIcons for Solid
 - [React Solid State](https://github.com/solidjs/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
+- [Solid Validated Form](https://www.npmjs.com/package/solid-validated-form)
+  Easily create forms with client side validation for Solid. Inspired by Ember Validated Form.
 
 ## Routers
 
