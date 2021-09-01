@@ -21,6 +21,8 @@
 - [Solid HeroIcons](https://github.com/amoutonbrady/solid-heroicons) HeroIcons for Solid
 - [React Solid State](https://github.com/solidjs/react-solid-state)
   React Hooks API to use Solid.js paradigm in your existing React apps.
+- [Solid Validated Form](https://www.npmjs.com/package/solid-validated-form)
+  Easily create forms with client side validation for Solid. Inspired by Ember Validated Form.
 
 ## Routers
 
@@ -44,7 +46,7 @@
 
 
 ## Tooling
-- [JSX-Lite](https://github.com/builderio/jsx-lite) Generalized JSX that transpiles into Solid, React, Angular, Vue, etc.  They have plugins for Figma, VSCode, & Builder.io.
+- [Mitosis](https://github.com/BuilderIO/mitosis) Generalized JSX that transpiles into Solid, React, Angular, Vue, etc.  They have plugins for Figma, VSCode, & Builder.io.
 - [Solid Refresh](https://github.com/solidjs/solid-refresh) Universal plugin for HMR
 - [Solid Jest](https://github.com/solidjs/solid-jest) Presets to test Solid for Browser or Node
 - [Solid Testing Library](https://github.com/solidjs/solid-testing-library) Solid's Testing Library
