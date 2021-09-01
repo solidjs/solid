@@ -865,9 +865,9 @@ function runTop(node: Computation<any>) {
         if (Transition!.disposed.has(top)) return;
       }
     }
-    if (node.state === STALE || (runningTransition && node.tState)) {
+    if (node.state === STALE || (runningTransition && node.tState === STALE)) {
       updateComputation(node);
-    } else if (node.state === PENDING) {
+    } else if (node.state === PENDING || (runningTransition && node.tState === PENDING)) {
       const updates = Updates;
       Updates = null;
       lookDownstream(node);
