@@ -1,10 +1,4 @@
-import {
-  getListener,
-  batch,
-  DEV,
-  $PROXY,
-  Accessor, createSignal
-} from "solid-js";
+import { getListener, batch, DEV, $PROXY, Accessor, createSignal } from "solid-js";
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $NAME = Symbol("store-name");
@@ -270,7 +264,7 @@ export type ArrayFilterFn<T> = (
 
 export type Part<T> = keyof T | Array<keyof T> | StorePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
 
-export type Next<T, K> = K extends keyof T
+export type NullableNext<T, K> = K extends keyof T
   ? T[K]
   : K extends Array<keyof T>
   ? T[K[number]]
@@ -282,13 +276,17 @@ export type Next<T, K> = K extends keyof T
     : never
   : never;
 
+export type Next<T, K> = NonNullable<NullableNext<T, K>>;
+
 export interface SetStoreFunction<T> {
   <Setter extends StoreSetter<T>>(...args: [Setter]): void;
-  <K1 extends Part<T>, Setter extends StoreSetter<Next<T, K1>>>(...args: [K1, Setter]): void;
+  <K1 extends Part<T>, Setter extends StoreSetter<NullableNext<T, K1>>>(
+    ...args: [K1, Setter]
+  ): void;
   <
     K1 extends Part<T>,
     K2 extends Part<Next<T, K1>>,
-    Setter extends StoreSetter<Next<Next<T, K1>, K2>>
+    Setter extends StoreSetter<NullableNext<Next<T, K1>, K2>>
   >(
     ...args: [K1, K2, Setter]
   ): void;
@@ -296,7 +294,7 @@ export interface SetStoreFunction<T> {
     K1 extends Part<T>,
     K2 extends Part<Next<T, K1>>,
     K3 extends Part<Next<Next<T, K1>, K2>>,
-    Setter extends StoreSetter<Next<Next<Next<T, K1>, K2>, K3>>
+    Setter extends StoreSetter<NullableNext<Next<Next<T, K1>, K2>, K3>>
   >(
     ...args: [K1, K2, K3, Setter]
   ): void;
@@ -305,7 +303,7 @@ export interface SetStoreFunction<T> {
     K2 extends Part<Next<T, K1>>,
     K3 extends Part<Next<Next<T, K1>, K2>>,
     K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    Setter extends StoreSetter<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>
+    Setter extends StoreSetter<NullableNext<Next<Next<Next<T, K1>, K2>, K3>, K4>>
   >(
     ...args: [K1, K2, K3, K4, Setter]
   ): void;
@@ -315,7 +313,7 @@ export interface SetStoreFunction<T> {
     K3 extends Part<Next<Next<T, K1>, K2>>,
     K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
     K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    Setter extends StoreSetter<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
+    Setter extends StoreSetter<NullableNext<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
   >(
     ...args: [K1, K2, K3, K4, K5, Setter]
   ): void;
@@ -326,7 +324,9 @@ export interface SetStoreFunction<T> {
     K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
     K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
     K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    Setter extends StoreSetter<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>
+    Setter extends StoreSetter<
+      NullableNext<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>
+    >
   >(
     ...args: [K1, K2, K3, K4, K5, K6, Setter]
   ): void;
@@ -339,7 +339,7 @@ export interface SetStoreFunction<T> {
     K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
     K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
     Setter extends StoreSetter<
-      Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>
+      NullableNext<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>
     >
   >(
     ...args: [K1, K2, K3, K4, K5, K6, K7, Setter]
