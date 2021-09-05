@@ -28,7 +28,7 @@ export function Index<T, U extends JSX.Element>(props: {
 export function Show<T>(props: {
   when: T | undefined | null | false;
   fallback?: JSX.Element;
-  children: JSX.Element | ((item: T) => JSX.Element);
+  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
 }) {
   let strictEqual = false;
   const condition = createMemo<T | undefined | null | boolean>(() => props.when, undefined, {
@@ -80,7 +80,7 @@ export function Switch(props: {
 
 export type MatchProps<T> = {
   when: T | undefined | null | false;
-  children: JSX.Element | ((item: T) => JSX.Element);
+  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
 };
 export function Match<T>(props: MatchProps<T>) {
   return props as unknown as JSX.Element;
