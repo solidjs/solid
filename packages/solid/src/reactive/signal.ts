@@ -199,6 +199,10 @@ export interface Resource<T> extends Accessor<T | undefined> {
   error: any;
 }
 
+export type SimpleResourceFetcher<T, U, A> = (k: U, getPrev: Accessor<A>) => T | Promise<T>;
+export type AbortableResourceFetcher<T, U, A> = (k: U, getPrev: Accessor<A>, abort: AbortController) => T | Promise<T>;
+export type ResourceFetcher<T, U, A> = SimpleResourceFetcher<T, U, A> | AbortableResourceFetcher<T, U, A>;
+
 export type ResourceReturn<T> = [
   Resource<T>,
   {
@@ -207,43 +211,64 @@ export type ResourceReturn<T> = [
   }
 ];
 
+export type AbortableResourceReturn<T> = [
+  Resource<T>,
+  {
+    mutate: Setter<T>;
+    refetch: () => void;
+    abort: () => void;
+  }
+]
+
 export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
+  fetcher: SimpleResourceFetcher<T, U, T | undefined>,
   options?: { initialValue?: undefined; name?: string }
 ): ResourceReturn<T | undefined>;
 export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: Accessor<T>) => T | Promise<T>,
+  fetcher: AbortableResourceFetcher<T, U, T | undefined>,
+  options?: { initialValue?: undefined; name?: string }
+): AbortableResourceReturn<T | undefined>;
+export function createResource<T, U = true>(
+  fetcher: SimpleResourceFetcher<T, U, T>,
+  options: { initialValue: T; name?: string }
+): ResourceReturn<T>;
+export function createResource<T, U = true>(
+  fetcher: AbortableResourceFetcher<T, U, T>,
+  options: { initialValue: T; name?: string }
+): AbortableResourceReturn<T>;
+export function createResource<T, U>(
+  source: U | false | null | (() => U | false | null),
+  fetcher: SimpleResourceFetcher<T, U, T | undefined>,
+  options?: { initialValue?: undefined; name?: string }
+): ResourceReturn<T | undefined>;
+export function createResource<T, U>(
+  source: U | false | null | (() => U | false | null),
+  fetcher: AbortableResourceFetcher<T, U, T | undefined>,
+  options?: { initialValue?: undefined; name?: string }
+): AbortableResourceReturn<T | undefined>;
+export function createResource<T, U>(
+  source: U | false | null | (() => U | false | null),
+  fetcher: SimpleResourceFetcher<T, U, T>,
   options: { initialValue: T; name?: string }
 ): ResourceReturn<T>;
 export function createResource<T, U>(
   source: U | false | null | (() => U | false | null),
-  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
-  options?: { initialValue?: undefined; name?: string }
-): ResourceReturn<T | undefined>;
-export function createResource<T, U>(
-  source: U | false | null | (() => U | false | null),
-  fetcher: (k: U, getPrev: Accessor<T>) => T | Promise<T>,
+  fetcher: AbortableResourceFetcher<T, U, T>,
   options: { initialValue: T; name?: string }
-): ResourceReturn<T>;
+): AbortableResourceReturn<T>;
 export function createResource<T, U>(
-  source:
-    | U
-    | false
-    | true
-    | null
-    | (() => U | false | null)
-    | ((k: U, getPrev: Accessor<T>) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: Accessor<T>) => T | Promise<T>) | { initialValue?: T },
+  source: U | false | true | null | (() => U | false | null) | ResourceFetcher<T, U, T>,
+  fetcher?: ResourceFetcher<T, U, T> | { initialValue?: T },
   options: { initialValue?: T; name?: string } = {}
-): ResourceReturn<T> {
+): ResourceReturn<T> | AbortableResourceReturn<T> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher;
-      fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
+      fetcher = source as ResourceFetcher<T, U, T>;
       source = true;
     }
   } else if (arguments.length === 1) {
-    fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
+    fetcher = source as ResourceFetcher<T, U, T>;
     source = true;
   }
   const contexts = new Set<SuspenseContextType>(),
@@ -257,7 +282,8 @@ export function createResource<T, U>(
     initP: Promise<T> | null = null,
     id: string | null = null,
     loadedUnderTransition = false,
-    dynamic = typeof source === "function";
+    dynamic = typeof source === "function",
+    abort: AbortController | undefined;
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -325,7 +351,13 @@ export function createResource<T, U>(
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
       initP ||
-      untrack(() => (fetcher as (k: U, getPrev: Accessor<T>) => T | Promise<T>)(lookup, s));
+      untrack(() => {
+        abort?.abort();
+        if (typeof fetcher === "function" && fetcher.length === 3) {
+          abort = new AbortController();
+        }
+        return (fetcher as AbortableResourceFetcher<T, U, T>)(lookup, s, abort as AbortController);
+      });
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p);
@@ -355,7 +387,10 @@ export function createResource<T, U>(
   });
   if (dynamic) createComputed(load);
   else load();
-  return [read as Resource<T>, { refetch: load, mutate: set }];
+  const controls = abort
+    ? { refetch: load, mutate: set, abort: abort.abort.bind(abort) }
+    : { refetch: load, mutate: set }
+  return [read as Resource<T>, controls]
 }
 
 export function createDeferred<T>(

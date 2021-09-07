@@ -9,6 +9,7 @@ import {
 } from "../src";
 
 import { createStore, reconcile, Store } from "../store/src";
+import { Accessor } from "../types";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
@@ -157,6 +158,46 @@ describe("using Resource with initial Value", () => {
     });
     expect(value()).toBe("Loading");
     expect(value.loading).toBe(true);
+    resolve("John");
+    await Promise.resolve();
+    expect(value()).toBe("John");
+    expect(value.loading).toBe(false);
+  });
+});
+
+describe("abortable resource fetching", () => {
+  let resolve: (v: string) => void,
+    reject: (r: string) => void,
+    trigger: (v: string) => void,
+    value: Resource<string>,
+    refetch: () => void,
+    error: string,
+    aborted = false;
+  const AbortedError = new DOMException("Aborted", "AbortError");
+  function fetcher(_id: string, _getPrev: Accessor<string>, abort: AbortController) {
+    return new Promise<string>((r, f) => {
+      resolve = r;
+      reject = f;
+      abort.signal.addEventListener("abort", () => {
+        aborted = true;
+        f(AbortedError);
+      });
+    });
+  }
+  test("aborts on refetch", async () => {
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      onError(e => (error = e));
+      [value, { refetch }] = createResource(id, fetcher, { initialValue: "Loading" });
+      createRenderEffect(value);
+    });
+    expect(value()).toBe("Loading");
+    expect(value.loading).toBe(true);
+    expect(error).toBeUndefined();
+    refetch();
+    await Promise.resolve();
+    expect(aborted).toBe(true);
     resolve("John");
     await Promise.resolve();
     expect(value()).toBe("John");
