@@ -174,7 +174,7 @@ describe("abortable resource fetching", () => {
     error: string,
     aborted = false;
   const AbortedError = new DOMException("Aborted", "AbortError");
-  function fetcher(_id: string, _getPrev: Accessor<string>, abort: AbortController) {
+  function fetcher(_id: string, _getPrev: Accessor<string>, { abort }: { abort : AbortController }) {
     return new Promise<string>((r, f) => {
       resolve = r;
       reject = f;
@@ -189,7 +189,7 @@ describe("abortable resource fetching", () => {
       const [id, setId] = createSignal("1");
       trigger = setId;
       onError(e => (error = e));
-      [value, { refetch }] = createResource(id, fetcher, { initialValue: "Loading" });
+      [value, { refetch }] = createResource(id, fetcher, { initialValue: "Loading", abort: true });
       createRenderEffect(value);
     });
     expect(value()).toBe("Loading");
