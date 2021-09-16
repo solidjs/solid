@@ -912,7 +912,7 @@ function completeUpdates(wait: boolean) {
     const sources = Transition.sources;
     cbs = Transition.cb;
     Effects!.forEach(e => {
-      e.state = STALE;
+      "tState" in e && (e.state = e.tState!);
       delete e.tState;
     });
     Transition = null;
