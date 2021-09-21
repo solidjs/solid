@@ -262,7 +262,11 @@ export type ArrayFilterFn<T> = (
   index: number
 ) => boolean;
 
-export type Part<T> = keyof T | Array<keyof T> | StorePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
+export type Part<T> = T extends any[]
+  ? keyof T | Array<keyof T> | ArrayFilterFn<T> | StorePathRange
+  : T extends object
+  ? keyof T | Array<keyof T>
+  : never;
 
 export type NullableNext<T, K> = K extends keyof T
   ? T[K]
