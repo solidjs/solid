@@ -608,6 +608,15 @@ export function hashValue(v: any): string {
             if (typeof v === "object" && v != null) {
               if (s.has(v)) return;
               s.add(v);
+              const keys = Object.keys(v);
+              const desc = Object.getOwnPropertyDescriptors(v);
+              const newDesc = keys.reduce((memo, key) => {
+                const value = desc[key];
+                // skip getters
+                if (!value.get) memo[key] = value;
+                return memo;
+              }, {} as any)
+              v = Object.create({}, newDesc);
             }
             if (typeof v === "bigint") {
               return `${v.toString()}n`;

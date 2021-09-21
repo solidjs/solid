@@ -253,7 +253,7 @@ describe("Batch signals", () => {
           throw new Error("test");
           setB(1);
         } catch (e) {
-          error = e;
+          error = e as Error;
         }
       });
       createComputed(() => a() + b());

@@ -169,8 +169,8 @@ export function setProperty(state: StoreNode, property: string | number, value: 
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.$();
-  if (array && state.length !== len) (node = nodes.length) && node.$(node, undefined);
-  notify && (node = nodes._) && node.$(node, undefined);
+  if (array && state.length !== len) (node = nodes.length) && node.$();
+  notify && (node = nodes._) && node.$();
 }
 
 function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {

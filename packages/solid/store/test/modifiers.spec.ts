@@ -1,3 +1,4 @@
+import { createRoot, createSignal, createEffect } from "../../src";
 import { createStore, reconcile, produce, unwrap } from "../src";
 
 describe("setState with reconcile", () => {
@@ -98,6 +99,19 @@ describe("setState with produce", () => {
     }));
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
+  });
+  test("Top Level Mutation in computation", () => {
+    createRoot(() => {
+      const [s, set] = createSignal(1);
+      const [state, setState] = createStore({ data: [] });
+      createEffect(() => {
+        setState(produce<{ data: number[]}>(state => {
+          state.data.push(s());
+        }));
+      })
+      createEffect(() => state.data.length)
+    })
+    expect(true).toBe(true)
   });
   test("Nested Level Mutation", () => {
     const [state, setState] = createStore({ data: { starting: 1, ending: 1 } });
