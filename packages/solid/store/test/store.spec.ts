@@ -42,6 +42,23 @@ describe("State Getters", () => {
     setState!({ name: "Jake" });
     expect(state!.greeting).toBe("Hi, Jake");
   });
+
+  test("Testing an update from state", () => {
+    let state: any, setState: Function;
+    createRoot(() => {
+      let greeting;
+      [state, setState] = createStore({
+        name: "John",
+        get greeting(): string {
+          return greeting();
+        }
+      });
+      greeting = createMemo(() => `Hi, ${state.name}`)
+    });
+    expect(state!.greeting).toBe("Hi, John");
+    setState!({ name: "Jake" });
+    expect(state!.greeting).toBe("Hi, Jake");
+  });
 });
 
 describe("Simple setState modes", () => {
