@@ -71,15 +71,14 @@ const propTraps: ProxyHandler<{
   }
 };
 
-export function mergeProps<T>(source: T): T;
-export function mergeProps<T, U>(source: T, source1: U): T & U;
-export function mergeProps<T, U, V>(source: T, source1: U, source2: V): T & U & V;
-export function mergeProps<T, U, V, W>(
-  source: T,
-  source1: U,
-  source2: V,
-  source3: W
-): T & U & V & W;
+type BoxedTupleTypes<T extends any[]> =
+  { [P in keyof T]: [T[P]] }[Exclude<keyof T, keyof any[]>]
+type UnionToIntersection<U> =
+  (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
+type UnboxIntersection<T> = T extends { 0: infer U } ? U : never;
+type MergeProps<T extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleTypes<T>>>;
+
+export function mergeProps<T extends any[]>(...sources: T): MergeProps<T>;
 export function mergeProps(...sources: any): any {
   return new Proxy(
     {
