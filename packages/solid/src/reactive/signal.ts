@@ -126,7 +126,7 @@ export type SignalOptions<T> = { name?: string, equals?: false | ((prev: T, next
  *  options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
  * )
  * ```
- * @param value inital value of the state; if empty, the state's type will automatically extended with undefined; otherwise you need to extend the type manually if you want setting to undefined not be an error
+ * @param value initial value of the state; if empty, the state's type will automatically extended with undefined; otherwise you need to extend the type manually if you want setting to undefined not be an error
  * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
  * 
  * @returns ```typescript
@@ -301,6 +301,8 @@ export interface Resource<T> extends Accessor<T> {
 
 export type ResourceActions<T> = { mutate: Setter<T>; refetch: () => void; };
 
+export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
+
 export type ResourceSource<S> = S | false | null | (() => S | false | null);
 
 export type ResourceFetcher<S, T> = (k: S, getPrev: Accessor<T>) => T | Promise<T>;
@@ -334,8 +336,8 @@ export type ResourceOptions<T> = T extends undefined
  * 
  * @description https://www.solidjs.com/docs/latest/api#createresource
  */
-export function createResource<T, S = true>(
-  fetcher: ResourceFetcher<S, T | undefined>,
+export function createResource<T extends any, S = true>(
+  fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
 ): [Resource<T | undefined>, ResourceActions<T | undefined>];
 export function createResource<T, S = true>(
@@ -344,8 +346,8 @@ export function createResource<T, S = true>(
 ): [Resource<T>, ResourceActions<T>];
 export function createResource<T, S>(
   source: ResourceSource<S>,
-  fetcher: ResourceFetcher<S, T | undefined>,
-  options?: ResourceOptions<T | undefined>
+  fetcher: ResourceFetcher<S, T>,
+  options?: ResourceOptions<undefined>
 ): [Resource<T | undefined>, ResourceActions<T | undefined>];
 export function createResource<T, S>(
   source: ResourceSource<S>,
@@ -353,23 +355,22 @@ export function createResource<T, S>(
   options: ResourceOptions<T>
 ): [Resource<T>, ResourceActions<T>];
 export function createResource<T, S>(
-  source: ResourceSource<S> | ResourceFetcher<S, T> | ResourceFetcher<S, T | undefined>,
-  fetcher?: ResourceFetcher<S, T> | ResourceFetcher<S, T | undefined> | ResourceOptions<T> | ResourceOptions<T | undefined>,
-  options?: ResourceOptions<T> | ResourceOptions<T | undefined>
-): [Resource<T>, ResourceActions<T>] |
-  [Resource<T | undefined>, ResourceActions<T | undefined>] {
+  source: ResourceSource<S> | ResourceFetcher<S, T>,
+  fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
+  options?: ResourceOptions<T> | ResourceOptions<undefined>
+): [Resource<T>, ResourceActions<T>] | [Resource<T | undefined>, ResourceActions<T | undefined>] {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher as ResourceOptions<T> | ResourceOptions<T | undefined>;
-      fetcher = source as ResourceFetcher<S, T> | ResourceFetcher<S, T | undefined>;
+      fetcher = source as ResourceFetcher<S, T>;
       source = true as ResourceSource<S>;
     }
   } else if (arguments.length === 1) {
-    fetcher = source as ResourceFetcher<S, T> | ResourceFetcher<S, T | undefined>;
+    fetcher = source as ResourceFetcher<S, T>;
     source = true as ResourceSource<S>;
   }
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal(options?.initialValue),
+    [s, set] = createSignal<T | undefined>(options?.initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
@@ -447,10 +448,10 @@ export function createResource<T, S>(
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
       initP ||
-      untrack(() => (fetcher as ResourceFetcher<S, T | undefined>)(lookup, s));
+      untrack(() => (fetcher as ResourceFetcher<S, T>)(lookup, s as Accessor<T>));
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p);
+      loadEnd(pr, (p as unknown) as T | undefined);
       return;
     }
     pr = p as Promise<T>;
@@ -477,7 +478,7 @@ export function createResource<T, S>(
   });
   if (dynamic) createComputed(load);
   else load();
-  return [read as Resource<T>, { refetch: load, mutate: set }];
+  return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
 }
 
 /**
@@ -520,7 +521,7 @@ export function createDeferred<T>(
 }
 
 /**
- * Creates a conditional signal that only notifies subscribers when entereing or exiting their key matching the value
+ * Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value
  * ```typescript
  * export function createRenderEffect<T, U>(
  *   source: () => T
