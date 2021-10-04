@@ -84,6 +84,15 @@ interface Transition {
   cb: (() => void)[];
 }
 
+/**
+ * Creates a new non-tracked reactive context that doesn't auto-dispose
+ * 
+ * @param fn a function in which the reactive state is scoped
+ * @param detachedOwner optional reactive context to bind the root to
+ * @returns the output of `fn`.
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createroot
+ */
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Owner): T {
   detachedOwner && (Owner = detachedOwner);
   const listener = Listener,
@@ -107,6 +116,31 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   return result!;
 }
 
+export type SignalOptions<T> = { name?: string, equals?: false | ((prev: T, next: T) => boolean )}
+
+/**
+ * Creates a simple reactive state with a getter and setter
+ * ```typescript
+ * const [state: Accessor<T>, setState: Setter<T>] = createSignal<T>(
+ *  value: T,
+ *  options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
+ * )
+ * ```
+ * @param value initial value of the state; if empty, the state's type will automatically extended with undefined; otherwise you need to extend the type manually if you want setting to undefined not be an error
+ * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
+ * 
+ * @returns ```typescript
+ * [state: Accessor<T>, setState: Setter<T>]
+ * ```
+ * * the Accessor is merely a function that returns the current value and registers each call to the reactive root
+ * * the Setter is a function that allows directly setting or mutating the value:
+ * ```typescript
+ * const [count, setCount] = createSignal(0);
+ * setCount(count => count + 1);
+ * ```
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createsignal
+ */
 export function createSignal<T>(): [get: Accessor<T | undefined>, set: Setter<T | undefined>];
 export function createSignal<T>(
   value: T,
@@ -140,12 +174,42 @@ export function createSignal<T>(
   ];
 }
 
+/**
+ * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
+ * ```typescript
+ * export function createComputed<T>(
+ *   fn: (v: T) => T,
+ *   value?: T,
+ *   options?: { name?: string }
+ * ): void;
+ * ```
+ * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createcomputed
+ */
 export function createComputed<T>(fn: (v?: T) => T | undefined): void;
 export function createComputed<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
 export function createComputed<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
   updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
 }
 
+/**
+ * Creates a reactive computation that runs during the render phase as DOM elements are created and updated but not necessarily connected
+ * ```typescript
+ * export function createRenderEffect<T>(
+ *   fn: (v: T) => T,
+ *   value?: T,
+ *   options?: { name?: string }
+ * ): void; 
+ * ```
+ * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createrendereffect
+ */
 export function createRenderEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createRenderEffect<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
 export function createRenderEffect<T>(
@@ -158,6 +222,21 @@ export function createRenderEffect<T>(
   );
 }
 
+/**
+ * Creates a reactive computation that runs after the render phase
+ * ```typescript
+ * export function createEffect<T>(
+ *   fn: (v: T) => T,
+ *   value?: T,
+ *   options?: { name?: string }
+ * ): void; 
+ * ```
+ * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createeffect
+ */
 export function createEffect<T>(fn: (v?: T) => T | undefined): void;
 export function createEffect<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
 export function createEffect<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
@@ -169,6 +248,21 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T, options?: { name?: 
   Effects && Effects.push(c);
 }
 
+/**
+ * Creates a readonly derived reactive memoized signal
+ * ```typescript
+ * export function createMemo<T>(
+ *   fn: (v: T) => T,
+ *   value?: T,
+ *   options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
+ * ): T; 
+ * ```
+ * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes and use a custom comparison function in equals
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#creatememo
+ */
 export function createMemo<T>(
   fn: (v?: T) => T,
   value?: undefined,
@@ -203,57 +297,80 @@ export function createMemo<T>(
 export interface Resource<T> extends Accessor<T> {
   loading: boolean;
   error: any;
-}
+};
 
-export type ResourceReturn<T> = [
-  Resource<T>,
-  {
-    mutate: Setter<T>;
-    refetch: () => void;
-  }
-];
+export type ResourceActions<T> = { mutate: Setter<T>; refetch: () => void; };
 
-export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
-  options?: { initialValue?: undefined; name?: string }
-): ResourceReturn<T | undefined>;
-export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: Accessor<T>) => T | Promise<T>,
-  options: { initialValue: T; name?: string }
-): ResourceReturn<T>;
-export function createResource<T, U>(
-  source: U | false | null | (() => U | false | null),
-  fetcher: (k: U, getPrev: Accessor<T | undefined>) => T | Promise<T>,
-  options?: { initialValue?: undefined; name?: string }
-): ResourceReturn<T | undefined>;
-export function createResource<T, U>(
-  source: U | false | null | (() => U | false | null),
-  fetcher: (k: U, getPrev: Accessor<T>) => T | Promise<T>,
-  options: { initialValue: T; name?: string }
-): ResourceReturn<T>;
-export function createResource<T, U>(
-  source:
-    | U
-    | false
-    | true
-    | null
-    | (() => U | false | null)
-    | ((k: U, getPrev: Accessor<T>) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: Accessor<T>) => T | Promise<T>) | { initialValue?: T },
-  options: { initialValue?: T; name?: string } = {}
-): ResourceReturn<T> {
+export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
+
+export type ResourceSource<S> = S | false | null | (() => S | false | null);
+
+export type ResourceFetcher<S, T> = (k: S, getPrev: Accessor<T>) => T | Promise<T>;
+
+export type ResourceOptions<T> = T extends undefined
+  ? { initialValue?: T; name?: string }
+  : { initialValue: T; name?: string };
+
+/**
+ * Creates a resource that wraps a repeated promise in a reactive pattern:
+ * ```typescript
+ * const [resource, { mutate, refetch }] = crateResource(source, fetcher, options);
+ * ```
+ * @param source - reactive data function to toggle the request, optional
+ * @param fetcher - function that receives the source (or true) and an accessor for the last or initial value and returns a value or a Promise with the value:
+ * ```typescript
+ * const fetcher: ResourceFetcher<S, T, > = (
+ *   sourceOutput: ReturnValue<typeof source>,
+ *   getPrev: Accessor<T>
+ * ) => T | Promise<T>;
+ * ```
+ * @param options - an optional object with the initialValue and the name (for debugging purposes)
+ * 
+ * @returns ```typescript
+ * [Resource<T>, { mutate: Setter<T>, refetch: () => void }]
+ * ```
+ * 
+ * * Setting an `initialValue` in the options will mean that both the prev() accessor and the resource should never return undefined (if that is wanted, you need to extend the type with undefined)
+ * * `mutate` allows to manually overwrite the resource without calling the fetcher
+ * * `refetch` will re-run the fetcher without changing the source
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createresource
+ */
+export function createResource<T extends any, S = true>(
+  fetcher: ResourceFetcher<S, T>,
+  options?: ResourceOptions<undefined>
+): [Resource<T | undefined>, ResourceActions<T | undefined>];
+export function createResource<T, S = true>(
+  fetcher: ResourceFetcher<S, T>,
+  options: ResourceOptions<T>
+): [Resource<T>, ResourceActions<T>];
+export function createResource<T, S>(
+  source: ResourceSource<S>,
+  fetcher: ResourceFetcher<S, T>,
+  options?: ResourceOptions<undefined>
+): [Resource<T | undefined>, ResourceActions<T | undefined>];
+export function createResource<T, S>(
+  source: ResourceSource<S>,
+  fetcher: ResourceFetcher<S, T>,
+  options: ResourceOptions<T>
+): [Resource<T>, ResourceActions<T>];
+export function createResource<T, S>(
+  source: ResourceSource<S> | ResourceFetcher<S, T>,
+  fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
+  options?: ResourceOptions<T> | ResourceOptions<undefined>
+): [Resource<T>, ResourceActions<T>] | [Resource<T | undefined>, ResourceActions<T | undefined>] {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
-      options = fetcher;
-      fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
-      source = true;
+      options = fetcher as ResourceOptions<T> | ResourceOptions<T | undefined>;
+      fetcher = source as ResourceFetcher<S, T>;
+      source = true as ResourceSource<S>;
     }
   } else if (arguments.length === 1) {
-    fetcher = source as (k: U, getPrev: Accessor<T>) => T | Promise<T>;
-    source = true;
+    fetcher = source as ResourceFetcher<S, T>;
+    source = true as ResourceSource<S>;
   }
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal(options!.initialValue as T),
+    [s, set] = createSignal<T | undefined>(options?.initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
@@ -274,7 +391,7 @@ export function createResource<T, U>(
       delete sharedConfig.resources![id];
     }
   }
-  function loadEnd(p: Promise<T> | null, v: T, e?: any) {
+  function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any) {
     if (pr === p) {
       setError((err = e));
       pr = null;
@@ -287,9 +404,9 @@ export function createResource<T, U>(
             Effects!.push.apply(Effects, Transition!.effects);
             Transition!.effects = [];
           }
-          completeLoad(v);
+          completeLoad(v as T);
         }, false);
-      } else completeLoad(v);
+      } else completeLoad(v as T);
     }
     return v;
   }
@@ -322,7 +439,7 @@ export function createResource<T, U>(
   }
   function load() {
     setError((err = undefined));
-    const lookup = dynamic ? (source as () => U)() : (source as U);
+    const lookup = dynamic ? (source as () => S)() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
@@ -331,13 +448,13 @@ export function createResource<T, U>(
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
       initP ||
-      untrack(() => (fetcher as (k: U, getPrev: Accessor<T>) => T | Promise<T>)(lookup, s));
+      untrack(() => (fetcher as ResourceFetcher<S, T>)(lookup, s as Accessor<T>));
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p);
+      loadEnd(pr, (p as unknown) as T | undefined);
       return;
     }
-    pr = p;
+    pr = p as Promise<T>;
     batch(() => {
       setLoading(true);
       trigger();
@@ -361,9 +478,24 @@ export function createResource<T, U>(
   });
   if (dynamic) createComputed(load);
   else load();
-  return [read as Resource<T>, { refetch: load, mutate: set }];
+  return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
 }
 
+/**
+ * Creates a reactive computation that only runs and notifies the reactive context when the browser is idle
+ * ```typescript
+ * export function createDeferred<T>(
+ *   fn: (v: T) => T,
+ *   value?: T,
+ *   options?: { timeoutMs?: number, name?: string, equals?: false | ((prev: T, next: T) => boolean) }
+ * ): () => T); 
+ * ```
+ * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set the timeout in milliseconds, use a custom comparison function and set a name in dev mode for debugging purposes
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createdeferred
+ */
 export function createDeferred<T>(
   source: Accessor<T>,
   options?: { equals?: false | ((prev: T, next: T) => boolean); name?: string; timeoutMs?: number }
@@ -388,6 +520,30 @@ export function createDeferred<T>(
   return deferred;
 }
 
+/**
+ * Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value
+ * ```typescript
+ * export function createRenderEffect<T, U>(
+ *   source: () => T
+ *   fn: (a: U, b: T) => boolean,
+ *   options?: { name?: string }
+ * ): (k: U) => boolean; 
+ * ```
+ * @param source 
+ * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param options allows to set a name in dev mode for debugging purposes, optional
+ * 
+ * ```typescript
+ * const isSelected = createSelector(selectedId);
+ * <For each={list()}>
+ *   {(item) => <li classList={{ active: isSelected(item.id) }}>{item.name}</li>}
+ * </For>
+ * ```
+ * 
+ * This makes the operation O(2) instead of O(n).
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createrendereffect
+ */
 export function createSelector<T, U>(
   source: Accessor<T>,
   fn: (a: U, b: T) => boolean = equalFn as any,
@@ -431,6 +587,13 @@ export function createSelector<T, U>(
   };
 }
 
+/**
+ * Holds changes inside the block before the reactive context is updated
+ * @param fn wraps the reactive updates that should be batched
+ * @returns the return value from `fn`
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#batch
+ */
 export function batch<T>(fn: () => T): T {
   if (Pending) return fn();
   let result;
@@ -455,6 +618,13 @@ export function batch<T>(fn: () => T): T {
   return result;
 }
 
+/**
+ * Ignores tracking context inside its scope
+ * @param fn the scope that is out of the tracking context
+ * @returns the return value of `fn`
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#untrack
+ */
 export function untrack<T>(fn: Accessor<T>): T {
   let result: T,
     listener = Listener;
@@ -472,6 +642,30 @@ export type ReturnTypes<T> = T extends (() => any)[]
   ? ReturnType<T>
   : never;
 
+/**
+ * on - make dependencies of a computation explicit
+ * ```typescript
+ * export function on<T extends Array<() => any> | (() => any), U>(
+ *   deps: T | T[],
+ *   fn: (input: T, prevInput: T, prevValue?: U) => U,
+ *   options?: { defer?: boolean } = {}
+ * ): (prevValue?: U) => U | undefined;
+ * ```
+ * @param deps list of reactive dependencies or a single reactive dependency
+ * @param fn computation on input; the current previous content(s) of input and the previous value are given as arguments and it returns a new value
+ * @param options optional, allows deferred computation until at the end of the next change
+ * ```typescript
+ * createEffect(on(a, (v) => console.log(v, b())));
+ *
+ * // is equivalent to:
+ * createEffect(() => {
+ *   const v = a();
+ *   untrack(() => console.log(v, b()));
+ * });
+ * ```
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#on
+ */
 export function on<T extends (() => any)[], U>(
   deps: [...T],
   fn: (input: ReturnTypes<T>, prevInput: ReturnTypes<T>, prevValue?: U) => U,
@@ -507,10 +701,22 @@ export function on<T extends (() => any) | (() => any)[], U>(
   };
 }
 
+/**
+ * onMount - run an effect only after initial render on mount 
+ * @param fn an effect that should run only once on mount
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#onmount
+ */
 export function onMount(fn: () => void) {
   createEffect(() => untrack(fn));
 }
 
+/**
+ * onCleanup - run an effect once before the reactive scope is disposed
+ * @param fn an effect that should run only once on cleanup
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#oncleanup
+ */
 export function onCleanup(fn: () => void) {
   if (Owner === null)
     "_SOLID_DEV_" &&
@@ -520,6 +726,14 @@ export function onCleanup(fn: () => void) {
   return fn;
 }
 
+/**
+ * onError - run an effect whenever an error is thrown within the context of the child scopes
+ * @param fn an error handler that receives the error
+ * 
+ * * If the error is thrown again inside the error handler, it will trigger the next available parent handler
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#onerror
+ */
 export function onError(fn: (err: any) => void): void {
   ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
@@ -572,6 +786,16 @@ export function startTransition(fn: () => void, cb?: () => void) {
   if (!Scheduler && !SuspenseContext && cb) cb();
 }
 
+/**
+ * ```typescript
+ * export function useTransition(): [
+ *   () => boolean,
+ *   (fn: () => void, cb?: () => void) => void
+ * ];
+ * @returns a tuple; first value is an accessor if the transition is pending and a callback to start the transition
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#usetransition
+ */
 export function useTransition(): [Accessor<boolean>, (fn: () => void, cb?: () => void) => void] {
   return [transPending, startTransition];
 }
@@ -656,6 +880,21 @@ export interface Context<T> {
   defaultValue: T;
 }
 
+/**
+ * Creates a Context to handle a state scoped for the children of a component
+ * ```typescript
+ * interface Context<T> {
+ *   id: symbol;
+ *   Provider: (props: { value: T; children: any }) => any;
+ *   defaultValue: T;
+ * }
+ * export function createContext<T>(defaultValue?: T): Context<T | undefined>;
+ * ```
+ * @param defaultValue optional default to inject into context
+ * @returns The context that contains the Provider Component and that can be used with `useContext`
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#createcontext
+ */
 export function createContext<T>(): Context<T | undefined>;
 export function createContext<T>(defaultValue: T): Context<T>;
 export function createContext<T>(defaultValue?: T): Context<T | undefined> {
@@ -663,10 +902,26 @@ export function createContext<T>(defaultValue?: T): Context<T | undefined> {
   return { id, Provider: createProvider(id), defaultValue };
 }
 
+/**
+ * use a context to receive a scoped state from a parent's Context.Provider
+ *
+ * @param context Context object made by `createContext`
+ * @returns the current or `defaultValue`, if present
+ *
+ * @description https://www.solidjs.com/docs/latest/api#usecontext 
+ */
 export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
+/**
+ * Resolves child elements to help interact with children
+ * 
+ * @param fn an accessor for the children
+ * @returns a accessor of the same children, but resolved
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#children
+ */
 export function children(fn: Accessor<JSX.Element>): Accessor<JSX.Element> {
   const children = createMemo(fn);
   return createMemo(() => resolveChildren(children()));
