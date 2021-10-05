@@ -34,6 +34,13 @@ function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement
   return isSVG ? document.createElementNS(SVG_NAMESPACE, tagName) : document.createElement(tagName);
 }
 
+/**
+ * renders components somewhere else in the DOM
+ * 
+ * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#%3Cportal%3E
+ */
 export function Portal(props: {
   mount?: Node;
   useShadow?: boolean;
@@ -83,7 +90,13 @@ type DynamicProps<T> = T & {
   children?: any;
   component?: Component<T> | string | keyof JSX.IntrinsicElements;
 };
-
+/**
+ * renders an arbitrary custom or native component and passes the other props
+ * ```typescript
+ * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
+ * ```
+ * @description https://www.solidjs.com/docs/latest/api#%3Cdynamic%3E
+ */
 export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
   return createMemo(() => {

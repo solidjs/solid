@@ -12,6 +12,16 @@ export type ObservableObserver<T> =
       error?: (v: any) => void;
       complete?: (v: boolean) => void;
     };
+/**
+ * creates a simple observable from a signal's accessor to be used with the `from` operator of observable libraries like e.g. rxjs
+ * ```typescript
+ * import { from } from "rxjs";
+ * const [s, set] = createSignal(0);
+ * const obsv$ = from(observable(s));
+ * obsv$.subscribe((v) => console.log(v));
+ * ```
+ * description https://www.solidjs.com/docs/latest/api#observable
+ */
 export function observable<T>(input: Accessor<T>) {
   const $$observable = getSymbol();
   return {

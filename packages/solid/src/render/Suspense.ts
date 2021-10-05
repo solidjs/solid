@@ -23,6 +23,11 @@ type SuspenseListContextType = {
 };
 const SuspenseListContext = createContext<SuspenseListContextType>();
 
+/**
+ * **[experimental]** controls the order in which suspended content is rendered
+ * 
+ * @description https://www.solidjs.com/docs/latest/api#%3Csuspenselist%3E-(experimental)
+ */
 export function SuspenseList(props: {
   children: JSX.Element;
   revealOrder: "forwards" | "backwards" | "together";
@@ -96,6 +101,17 @@ export function SuspenseList(props: {
   return comp;
 }
 
+/**
+ * tracks all resources inside a component and renders a fallback until they are all resolved
+ * ```typescript
+ * const AsyncComponent = lazy(() => import('./component'));
+ * 
+ * <Suspense fallback={<LoadingIndicator />}>
+ *   <AsyncComponent />
+ * </Suspense>
+ * ```
+ * @description https://www.solidjs.com/docs/latest/api#%3Csuspense%3E
+ */
 export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }) {
   let counter = 0,
     showContent: Accessor<boolean>,
