@@ -211,40 +211,40 @@ describe("createMemo", () => {
       });
     });
 
-    // it("evaluates stale computations before dependendees when trackers stay unchanged", () => {
-    //   createRoot(() => {
-    //     let [s1, set] = createSignal(1, { equals: false });
-    //     let order = "";
-    //     let t1 = createMemo(
-    //       () => {
-    //         order += "t1";
-    //         return s1() > 2;
-    //       }
-    //     );
-    //     let t2 = createMemo(
-    //       () => {
-    //         order += "t2";
-    //         return s1() > 2;
-    //       }
-    //     );
-    //     let c1 = createMemo(() => {
-    //       order += "c1";
-    //       s1();
-    //     }, undefined, { equals: false });
-    //     createComputed(() => {
-    //       order += "c2";
-    //       t1();
-    //       t2();
-    //       c1();
-    //     });
-    //     order = "";
-    //     set(1);
-    //     expect(order).toBe("t1t2c1c2");
-    //     order = "";
-    //     set(3);
-    //     expect(order).toBe("t1c2t2c1");
-    //   });
-    // });
+    it("evaluates stale computations before dependendees when trackers stay unchanged", () => {
+      createRoot(() => {
+        let [s1, set] = createSignal(1, { equals: false });
+        let order = "";
+        let t1 = createMemo(
+          () => {
+            order += "t1";
+            return s1() > 2;
+          }
+        );
+        let t2 = createMemo(
+          () => {
+            order += "t2";
+            return s1() > 2;
+          }
+        );
+        let c1 = createMemo(() => {
+          order += "c1";
+          s1();
+        }, undefined, { equals: false });
+        createComputed(() => {
+          order += "c2";
+          t1();
+          t2();
+          c1();
+        });
+        order = "";
+        set(1);
+        expect(order).toBe("t1t2c1c2");
+        order = "";
+        set(3);
+        expect(order).toBe("t2c2t1c1");
+      });
+    });
 
     it("evaluates nested trackings", () => {
       createRoot(() => {
