@@ -792,7 +792,7 @@ function computed(getterOrOptions) {
 }
 
 function createSignal(value) {
-  const r = ref(value);
+  const r = shallowRef(value);
   return [() => r.value, v => r.value = v];
 }
 

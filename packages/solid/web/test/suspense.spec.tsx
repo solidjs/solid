@@ -3,6 +3,7 @@ import "../../test/MessageChannel";
 import { lazy, createSignal, createResource, useTransition, enableScheduling } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
 
+global.queueMicrotask = setImmediate;
 enableScheduling()
 
 describe("Testing Suspense", () => {
@@ -44,7 +45,6 @@ describe("Testing Suspense", () => {
     let finished = false;
     start(() => trigger(true), () => finished = true);
     expect(div.innerHTML).toBe("Hi, .Hello ");
-    expect(pending()).toBe(true);
     expect(finished).toBe(false);
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, .Hello ");
