@@ -5,8 +5,8 @@ import type { JSX } from "../jsx";
 
 export type Accessor<T> = () => T;
 export type Setter<T> = undefined extends T
-  ? <U extends T>(v?: (U extends Function ? never : U) | ((prev?: U) => U)) => U
-  : <U extends T>(v: (U extends Function ? never : U) | ((prev: U) => U)) => U;
+  ? <U extends T>(v?: (U extends Function ? never : U) | ((prev?: T) => U)) => U
+  : <U extends T>(v: (U extends Function ? never : U) | ((prev: T) => U)) => U;
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 const signalOptions = { equals: equalFn };
@@ -166,8 +166,8 @@ export function createSignal<T>(
     ((value: T extends Function ? never : T | ((p?: T) => T)) => {
       if (typeof value === "function") {
         if (Transition && Transition.running && Transition.sources.has(s))
-          value = value(s.pending !== NOTPENDING ? (s.pending as T) : s.tValue);
-        else value = value(s.pending !== NOTPENDING ? (s.pending as T) : s.value);
+          value = value(s.pending !== NOTPENDING ? s.pending : s.tValue);
+        else value = value(s.pending !== NOTPENDING ? s.pending : s.value);
       }
       return writeSignal(s, value);
     }) as Setter<T>
