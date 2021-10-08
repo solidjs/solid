@@ -376,5 +376,18 @@ describe("createMemo", () => {
         }).toThrow();
       });
     });
+
+    describe("with circular dependencies", () => {
+      it("throws when cycle created by modifying a branch", () => {
+        createRoot(() => {
+          var [d, set] = createSignal(1),
+            f: () => number = createMemo(() => (f ? f() : d()), undefined, { equals: false });
+
+          expect(() => {
+            set(0);
+          }).toThrow();
+        });
+      });
+    });
   });
 });
