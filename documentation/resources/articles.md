@@ -6,7 +6,7 @@
 
 ## Videos
 
-- [REACTive Context in Solid.js](https://www.youtube.com/watch?v=j8ANWdE7wfY)
+- [Reactive Context in Solid.js](https://www.youtube.com/watch?v=j8ANWdE7wfY)
 - [SolidJS: the NEXT React? In-depth code analysis](https://www.youtube.com/watch?v=_ne2BsvFBH0)
 - [React to Solid](https://www.youtube.com/watch?v=p8e9ta269x8&t=4425s)
 - [UI Libraries, Improving React.js & Music](https://www.youtube.com/watch?v=Dq5EAcup044)
@@ -18,13 +18,13 @@
 - [Solid vs React - the Fastest VS the Most Popular UI Library](https://blog.openreplay.com/solid-vs-react-the-fastest-vs-the-most-popular-ui-library)
 - [SolidJS Official Release: The long road to 1.0](https://dev.to/ryansolid/solidjs-official-release-the-long-road-to-1-0-4ldd)
 - [A Look at Compilation in JavaScript Frameworks](https://dev.to/this-is-learning/a-look-at-compilation-in-javascript-frameworks-3caj)
-- [The Real Cost of UI Components Revisted](https://dev.to/this-is-learning/the-real-cost-of-ui-components-revisited-4d23)
+- [The Real Cost of UI Components Revisited](https://dev.to/this-is-learning/the-real-cost-of-ui-components-revisited-4d23)
 - [Components are Pure Overhead](https://dev.to/this-is-learning/components-are-pure-overhead-hpm) Unnecessary boundaries have real cost.
 - [5 Places SolidJS is not the Best](https://dev.to/this-is-learning/5-places-solidjs-is-not-the-best-5019) It's important to know the limitations of your tools.
 - [Building a Reactive Library from Scratch](https://dev.to/ryansolid/building-a-reactive-library-from-scratch-1i0p) Build a reactive library in only 50 lines of code.
 - [A Hands-on Introduction to Fine-Grained Reactivity](https://dev.to/ryansolid/a-hands-on-introduction-to-fine-grained-reactivity-3ndf) Learn reactivity by example.
 - [5 Ways SolidJS Differs from Other JS Frameworks](https://dev.to/ryansolid/5-ways-solidjs-differs-from-other-js-frameworks-1g63) Discover what sets Solid apart from other JS frameworks.
-- [JavaScript Frameworks, Performance Comparisopn 2020](https://javascript.plainenglish.io/javascript-frameworks-performance-comparison-2020-cd881ac21fce) Solid conquers them all.
+- [JavaScript Frameworks, Performance Comparison 2020](https://javascript.plainenglish.io/javascript-frameworks-performance-comparison-2020-cd881ac21fce) Solid conquers them all.
 - [SolidJS: The Tesla of JavaScript Frameworks?](https://medium.com/@ryansolid/solidjs-the-tesla-of-javascript-ui-frameworks-6a1d379bc05e) Tech built for Economy can be used for Performance
 - [The Journey to Isomorphic JavaScript Performance](https://indepth.dev/the-journey-to-isomorphic-rendering-performance) Finding the right SSR solution for Solid.
 - [Why I am not a fan of Single File Components](https://dev.to/ryansolid/why-i-m-not-a-fan-of-single-file-components-3bfl) Exploring the advantages of Solid's templates
