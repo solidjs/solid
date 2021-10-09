@@ -370,7 +370,7 @@ export function createResource<T, S>(
     source = true as ResourceSource<S>;
   }
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal<T | undefined>(options?.initialValue),
+    [s, set] = createSignal<T | undefined>((options || {}).initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
