@@ -521,7 +521,7 @@ export function createDeferred<T>(
 /**
  * Creates a conditional signal that only notifies subscribers when entering or exiting their key matching the value
  * ```typescript
- * export function createRenderEffect<T, U>(
+ * export function createSelector<T, U>(
  *   source: () => T
  *   fn: (a: U, b: T) => boolean,
  *   options?: { name?: string }
@@ -540,7 +540,7 @@ export function createDeferred<T>(
  *
  * This makes the operation O(2) instead of O(n).
  *
- * @description https://www.solidjs.com/docs/latest/api#createrendereffect
+ * @description https://www.solidjs.com/docs/latest/api#createselector
  */
 export function createSelector<T, U>(
   source: Accessor<T>,
