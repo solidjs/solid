@@ -115,11 +115,9 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 ## Documentation
 
 Check out the [Documentation](https://www.solidjs.com/guide) website.
-### Resources
 
-- [Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
-- [Articles](https://github.com/solidjs/solid/blob/main/documentation/resources/articles.md)
-- [Projects](https://github.com/solidjs/solid/blob/main/documentation/resources/projects.md)
+[Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
+
 ## Browser Support
 
 The last 2 versions of modern evergreen browsers and Node LTS.
