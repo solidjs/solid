@@ -766,6 +766,11 @@ export function enableScheduling(scheduler = requestCallback) {
 }
 
 export function startTransition(fn: () => void, cb?: () => void) {
+  if (Transition && Transition.running) {
+    fn();
+    cb && Transition.cb.push(cb);
+    return;
+  }
   queueMicrotask(() => {
     if (Scheduler || SuspenseContext) {
       Transition ||

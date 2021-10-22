@@ -29,6 +29,8 @@
     "h/types",
     "html/dist",
     "html/types",
+    "universal/dist",
+    "universal/types",
     "types",
     "jsx-runtime.d.ts"
   ],
@@ -84,6 +86,15 @@
       "require": "./web/dist/web.cjs"
     },
     "./web/dist/*": "./web/dist/*",
+    "./universal": {
+      "development": {
+        "import": "./universal/dist/dev.js",
+        "require": "./universal/dist/dev.cjs"
+      },
+      "import": "./universal/dist/universal.js",
+      "require": "./universal/dist/universal.cjs"
+    },
+    "./universal/dist/*": "./universal/dist/*",
     "./h": {
       "import": "./h/dist/h.js",
       "require": "./h/dist/h.cjs"
@@ -106,6 +117,7 @@
     "build:types-web": "tsc --project ./web/tsconfig.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",
     "build:types-h": "tsc --project ./h/tsconfig.json",
+    "build:types-universal": "tsc --project ./universal/tsconfig.json",
     "bench": "node --allow-natives-syntax bench/bench.cjs",
     "test": "jest && npm run test:types",
     "test:coverage": "jest --coverage && npm run test:types",

@@ -9,6 +9,7 @@ types/
 packages/solid/src/jsx.d.ts
 packages/solid/web/server/server.d.ts
 packages/solid/web/src/client.d.ts
+packages/solid/universal/src/universal.d.ts
 
 # vscode devcontainers see issues #419 and #421 for context
 /.devcontainer.json

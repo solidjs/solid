@@ -18,13 +18,12 @@ export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<
-  T extends keyof JSX.IntrinsicElements | Component<any>
-> = T extends Component<infer P>
-  ? P
-  : T extends keyof JSX.IntrinsicElements
-  ? JSX.IntrinsicElements[T]
-  : {};
+export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any>> =
+  T extends Component<infer P>
+    ? P
+    : T extends keyof JSX.IntrinsicElements
+    ? JSX.IntrinsicElements[T]
+    : {};
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
   if (sharedConfig.context) {
     const c = sharedConfig.context;
@@ -71,12 +70,16 @@ const propTraps: ProxyHandler<{
   }
 };
 
-type BoxedTupleTypes<T extends any[]> =
-  { [P in keyof T]: [T[P]] }[Exclude<keyof T, keyof any[]>]
-type UnionToIntersection<U> =
-  (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
+type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [T[P]] }[Exclude<keyof T, keyof any[]>];
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
+  ? I
+  : never;
 type UnboxIntersection<T> = T extends { 0: infer U } ? U : never;
 type MergeProps<T extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleTypes<T>>>;
+
+function resolveSource(s: any) {
+  return typeof s === "function" ? s() : s;
+}
 
 export function mergeProps<T extends any[]>(...sources: T): MergeProps<T>;
 export function mergeProps(...sources: any): any {
@@ -84,19 +87,20 @@ export function mergeProps(...sources: any): any {
     {
       get(property: string | number | symbol) {
         for (let i = sources.length - 1; i >= 0; i--) {
-          const v = sources[i][property];
+          const v = resolveSource(sources[i])[property];
           if (v !== undefined) return v;
         }
       },
       has(property: string | number | symbol) {
         for (let i = sources.length - 1; i >= 0; i--) {
-          if (property in sources[i]) return true;
+          if (property in resolveSource(sources[i])) return true;
         }
         return false;
       },
       keys() {
         const keys = [];
-        for (let i = 0; i < sources.length; i++) keys.push(...Object.keys(sources[i]));
+        for (let i = 0; i < sources.length; i++)
+          keys.push(...Object.keys(resolveSource(sources[i])));
         return [...new Set(keys)];
       }
     },
@@ -209,8 +213,8 @@ export function lazy<T extends Component<any>>(
       const [s] = createResource(() => fn().then(mod => mod.default));
       comp = s;
     } else {
-      const c = comp()
-      if(c) return c(props);
+      const c = comp();
+      if (c) return c(props);
     }
     let Comp: T | undefined;
     return createMemo(
@@ -226,7 +230,7 @@ export function lazy<T extends Component<any>>(
         })
     );
   }) as T;
-  wrap.preload = () => comp || fn().then(mod => comp = () => mod.default);
+  wrap.preload = () => comp || fn().then(mod => (comp = () => mod.default));
   return wrap as T & { preload: () => void };
 }
 

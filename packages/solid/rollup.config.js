@@ -207,6 +207,50 @@ export default [
     plugins
   },
   {
+    input: "universal/src/index.ts",
+    output: [
+      {
+        file: "universal/dist/universal.cjs",
+        format: "cjs"
+      },
+      {
+        file: "universal/dist/universal.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins: [
+      replace({
+        '"_DX_DEV_"': false,
+        preventAssignment: true,
+        delimiters: ["", ""]
+      }),
+      copy({
+        targets: [
+          {
+            src: ["../../node_modules/dom-expressions/src/universal.d.ts"],
+            dest: "./universal/src/"
+          },
+          { src: "../../node_modules/dom-expressions/src/universal.d.ts", dest: "./universal/types/" }
+        ]
+      })
+    ].concat(plugins)
+  }, {
+    input: "universal/src/index.ts",
+    output: [
+      {
+        file: "universal/dist/dev.cjs",
+        format: "cjs"
+      },
+      {
+        file: "universal/dist/dev.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins
+  },
+  {
     input: "html/src/index.ts",
     output: [
       {

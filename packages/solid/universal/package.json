@@ -1,0 +1,8 @@
+{
+  "name": "solid-js/universal",
+  "main": "./dist/universal.cjs",
+  "module": "./dist/universal.js",
+  "types": "./types/index.d.ts",
+  "type": "module",
+  "sideEffects": false
+}
