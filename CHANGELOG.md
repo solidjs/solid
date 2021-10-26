@@ -1,12 +1,57 @@
 # Changelog
 
+## 1.2.0 - 2021-10-25
+
+### New Features
+#### Custom Renderers
+
+This release adds support custom renderers through a new "universal" transform. Solid now provides a sub module `solid-js/universal` that exports a `createRenderer` method that allows you to create your own runtimes. This will enable things like native mobile and desktop, canvas and webgl, or even rendering to the terminal. This is still new so very much looking for feedback.
+
+#### Spreads Added to Solid's `html`
+
+It's been a long time coming but Solid's Tagged Template Literals now support element and component spreads using htm inspired syntax.
+```js
+html`<div ...${props} />`
+```
+
+### Fixes
+
+#### Dynamic Spreads now work on Components
+
+Previously spreads on components would only track property changes on bound objects and not when the whole object changed. This now works:
+```js
+<MyComponent {...getStuff()} />
+```
+
+#### ClassList properly merges multiple classnames in the key
+
+It is common in libraries like Tailwind to apply multiple classes at the same time. There was an issue where true and false resolutions were cancelling each other out. This would only set `text-sm`.
+
+```js
+<div
+  classList={{
+    "px-2.5 py-1.5 text-xs": false,
+    "px-3 py-2 text-sm": false,
+    "px-4 py-2 text-sm": true,
+    "px-4 py-2 text-base": false,
+    "px-6 py-3 text-base": false
+  }}
+/>
+```
+#### Consistent handling of HTMLEntities
+
+Things like `&nbsp;` used to render differently depending if in elements or components(or fragments). This has been made consistent across all three.
+#### Various improvements to Types and Transitions
+
+A lot of bugs from the last minor release were around Transitions that have been addressed. And as always Types have been gradually improving.
+
 ## 1.1.0 - 2021-08-09
 
 Expanding Solid's concurrency to include scheduling. Bug fixes around Types and around reactive execution order guarantees.
 
 ### New Features
 
-### `createUniqueId`
+#### `createUniqueId`
 
 A universal id generator that works across server/browser.
 
@@ -16,7 +61,7 @@ const id = createUniqueId();
 
 > **Note** on the server this only works under hydratable components
 
-### `from`
+#### `from`
 
 A simple helper to make it easier to interopt with external producers like RxJS observables or with Svelte Stores. This basically turns any subscribable (object with a `subscribe` method) into a Signal and manages subscription and disposal.
 
@@ -35,7 +80,7 @@ const clock = from(set => {
 
 > Note: Signals created by `from` have equality checks turned off to interface better with external streams and sources.
 
-### `enableScheduling` (experimental)
+#### `enableScheduling` (experimental)
 
 By default Solid's concurrent rendering/Transitions doesn't schedule work differently and just runs synchronously. Its purpose is to smooth out IO situations like Navigation. However now you can opt into interruptible scheduling similar to React's behavior by calling this once at your programs entry. I've yet to see a realworld scenario where this makes a big difference but now we can do cool demos too and start testing it.
 
