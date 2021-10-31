@@ -30,7 +30,7 @@ export type {
   Accessor,
   Setter,
   Resource,
-  ResourceReturn,
+  ResourceState,
   Context,
   ReturnTypes
 } from "./reactive/signal";

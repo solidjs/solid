@@ -5,7 +5,7 @@ import {
   createComputed,
   createRenderEffect,
   onError,
-  Resource
+  ResourceState
 } from "../src";
 
 import { createStore, reconcile, Store } from "../store/src";
@@ -14,7 +14,7 @@ describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: string) => void,
-    value: Resource<string | undefined>,
+    value: ResourceState<string | undefined>,
     error: string;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
@@ -77,7 +77,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
   }
   let resolve: (v: User) => void,
     refetch: () => void,
-    user: Resource<User | undefined>,
+    user: ResourceState<User | undefined>,
     state: { user?: User; userLoading: boolean },
     count = 0;
   function fetcher(_: string, getPrev: () => User | undefined) {
@@ -139,7 +139,7 @@ describe("using Resource with initial Value", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: string) => void,
-    value: Resource<string>,
+    value: ResourceState<string>,
     error: string;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
