@@ -134,7 +134,7 @@ describe("Update signals", () => {
   });
   test("Set signal returns argument", () => {
     const [_, setValue] = createSignal<number>();
-    const res1 = setValue(undefined);
+    const res1: undefined = setValue(undefined);
     expect(res1).toBe(undefined);
     const res2: number = setValue(12);
     expect(res2).toBe(12);
