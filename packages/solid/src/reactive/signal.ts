@@ -120,8 +120,8 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
 export type Accessor<T> = () => T;
 
 export type Setter<T> = undefined extends T
-  ? (value?: NonNullable<T> extends Function ? (prev?: T) => T : T | ((prev?: T) => T)) => T
-  : (value: NonNullable<T> extends Function ? (prev: T) => T : T | ((prev: T) => T)) => T;
+  ? <U extends T>(value?: (U extends Function ? never : U) | ((prev?: T) => U)) => U
+  : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
