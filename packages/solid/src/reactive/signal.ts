@@ -1031,11 +1031,16 @@ export function getSuspenseContext() {
 
 // Internal
 export function readSignal(this: SignalState<any> | Memo<any>) {
-  if ((this as Memo<any>).state && (this as Memo<any>).sources) {
+  const runningTransition = Transition && Transition.running;
+  if (
+    (this as Memo<any>).sources &&
+    ((!runningTransition && (this as Memo<any>).state) ||
+      (runningTransition && (this as Memo<any>).tState))
+  ) {
     const updates = Updates;
     Updates = null;
-    (this as Memo<any>).state === STALE ||
-    (Transition && Transition.running && (this as Memo<any>).tState)
+    (!runningTransition && (this as Memo<any>).state === STALE) ||
+    (runningTransition && (this as Memo<any>).tState === STALE)
       ? updateComputation(this as Memo<any>)
       : lookDownstream(this as Memo<any>);
     Updates = updates;
@@ -1057,7 +1062,7 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
       this.observerSlots!.push(Listener.sources.length - 1);
     }
   }
-  if (Transition && Transition.running && Transition.sources.has(this)) return this.tValue;
+  if (runningTransition && Transition!.sources.has(this)) return this.tValue;
   return this.value;
 }
 
@@ -1113,7 +1118,13 @@ function updateComputation(node: Computation<any, any>) {
     listener = Listener,
     time = ExecCount;
   Listener = Owner = node;
-  runComputation(node, node.value, time);
+  runComputation(
+    node,
+    Transition && Transition.running && Transition.sources.has(node as Memo<any>)
+      ? (node as Memo<any>).tValue
+      : node.value,
+    time
+  );
 
   if (Transition && !Transition.running && Transition.sources.has(node as Memo<any>)) {
     queueMicrotask(() => {
@@ -1207,7 +1218,8 @@ function runTop(node: Computation<any, any>) {
     (!node.updatedAt || node.updatedAt < ExecCount)
   ) {
     if (runningTransition && Transition!.disposed.has(node)) return;
-    if (node.state || (runningTransition && node.tState)) ancestors.push(node);
+    if ((!runningTransition && node.state) || (runningTransition && node.tState))
+      ancestors.push(node);
   }
   for (let i = ancestors.length - 1; i >= 0; i--) {
     node = ancestors[i];
@@ -1218,9 +1230,15 @@ function runTop(node: Computation<any, any>) {
         if (Transition!.disposed.has(top)) return;
       }
     }
-    if (node.state === STALE || (runningTransition && node.tState === STALE)) {
+    if (
+      (!runningTransition && node.state === STALE) ||
+      (runningTransition && node.tState === STALE)
+    ) {
       updateComputation(node);
-    } else if (node.state === PENDING || (runningTransition && node.tState === PENDING)) {
+    } else if (
+      (!runningTransition && node.state === PENDING) ||
+      (runningTransition && node.tState === PENDING)
+    ) {
       const updates = Updates;
       Updates = null;
       lookDownstream(node);
@@ -1337,12 +1355,20 @@ function runUserEffects(queue: Computation<any, any>[]) {
 
 function lookDownstream(node: Computation<any, any>) {
   node.state = 0;
+  const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.sources!.length; i += 1) {
     const source = node.sources![i] as Memo<any>;
     if (source.sources) {
-      if (source.state === STALE || (Transition && Transition.running && source.tState))
+      if (
+        (!runningTransition && source.state === STALE) ||
+        (runningTransition && source.tState === STALE)
+      )
         runTop(source);
-      else if (source.state === PENDING) lookDownstream(source);
+      else if (
+        (!runningTransition && source.state === PENDING) ||
+        (runningTransition && source.tState === PENDING)
+      )
+        lookDownstream(source);
     }
   }
 }
@@ -1351,7 +1377,7 @@ function markUpstream(node: Memo<any>) {
   const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.observers!.length; i += 1) {
     const o = node.observers![i];
-    if (!o.state || (runningTransition && !o.tState)) {
+    if ((!runningTransition && !o.state) || (runningTransition && !o.tState)) {
       if (runningTransition) o.tState = PENDING;
       else o.state = PENDING;
       if (o.pure) Updates!.push(o);
