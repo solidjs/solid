@@ -96,6 +96,12 @@ describe("Update signals", () => {
     setValue(3);
     expect(value()).toBe(5);
   });
+  test("Create and read a Signal with function value", () => {
+    const [value, setValue] = createSignal<() => string>(() => "Hi");
+    expect(value()()).toBe("Hi");
+    setValue(() => () => "Hello");
+    expect(value()()).toBe("Hello");
+  });
   test("Create and trigger a Memo", () => {
     createRoot(() => {
       const [name, setName] = createSignal("John"),
@@ -127,6 +133,19 @@ describe("Update signals", () => {
       setTimeout(() => {
         expect(temp).toBe("unpure thoughts");
         setSign("mind");
+        expect(temp).toBe("unpure mind");
+        done();
+      });
+    });
+  });
+  test("Create and trigger an Effect with function signals", done => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, setSign] = createSignal<() => string>(() => "thoughts");
+      createEffect(() => (temp = `unpure ${sign()()}`));
+      setTimeout(() => {
+        expect(temp).toBe("unpure thoughts");
+        setSign(() => () => "mind");
         expect(temp).toBe("unpure mind");
         done();
       });
