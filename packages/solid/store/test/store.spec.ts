@@ -53,7 +53,7 @@ describe("State Getters", () => {
           return greeting();
         }
       });
-      greeting = createMemo(() => `Hi, ${state.name}`)
+      greeting = createMemo(() => `Hi, ${state.name}`);
     });
     expect(state!.greeting).toBe("Hi, John");
     setState!({ name: "Jake" });
@@ -126,6 +126,7 @@ describe("Array setState modes", () => {
     expect(state.rows[2]).toBe(3);
     expect(state.rows[3]).toBe(8);
     expect(state.rows[4]).toBe(5);
+    expect(Object.keys(state.rows)).toStrictEqual(["0", "1", "2", "3", "4"]);
   });
   test("Update filterFn", () => {
     const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });

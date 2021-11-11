@@ -1,5 +1,6 @@
 import { createComponent } from "./component";
 import {
+  createRoot,
   createSignal,
   untrack,
   createComputed,
@@ -8,7 +9,9 @@ import {
   getSuspenseContext,
   resumeEffects,
   createMemo,
-  Accessor
+  Accessor,
+  onCleanup,
+  getOwner
 } from "../reactive/signal";
 import type { JSX } from "../jsx";
 
@@ -105,7 +108,7 @@ export function SuspenseList(props: {
  * tracks all resources inside a component and renders a fallback until they are all resolved
  * ```typescript
  * const AsyncComponent = lazy(() => import('./component'));
- * 
+ *
  * <Suspense fallback={<LoadingIndicator />}>
  *   <AsyncComponent />
  * </Suspense>
@@ -128,11 +131,14 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       inFallback,
       effects: [],
       resolved: false
-    };
+    },
+    owner = getOwner();
 
   // SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) [showContent, showFallback] = listContext.register(store.inFallback);
+  let dispose: () => void;
+  onCleanup(() => dispose && dispose())
 
   return createComponent(SuspenseContext.Provider, {
     value: store,
@@ -142,13 +148,17 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
         const inFallback = store.inFallback(),
           visibleContent = showContent ? showContent() : true,
           visibleFallback = showFallback ? showFallback() : true;
+        dispose && dispose()
         if (!inFallback && visibleContent) {
           store.resolved = true;
           resumeEffects(store.effects);
           return rendered;
         }
         if (!visibleFallback) return;
-        return props.fallback;
+        return createRoot(disposer => {
+          dispose = disposer;
+          return props.fallback;
+        }, owner!)
       });
     }
   });
