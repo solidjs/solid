@@ -14,6 +14,7 @@ export {
   untrack,
   batch,
   on,
+  children,
   createContext,
   useContext,
   getOwner,

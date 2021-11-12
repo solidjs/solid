@@ -97,7 +97,14 @@ export function getDataNodes(target: StoreNode) {
 
 export function proxyDescriptor(target: StoreNode, property: string | number | symbol) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
-  if (!desc || desc.get || property === $PROXY || property === $NODE || property === $NAME)
+  if (
+    !desc ||
+    desc.get ||
+    !desc.configurable ||
+    property === $PROXY ||
+    property === $NODE ||
+    property === $NAME
+  )
     return desc;
   delete desc.value;
   delete desc.writable;
