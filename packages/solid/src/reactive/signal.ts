@@ -351,14 +351,14 @@ export function createMemo<T, Optional = true>(
   return readSignal.bind(c as Memo<T>);
 }
 
-export interface ResourceState<T> extends Accessor<T> {
+export interface Resource<T> extends Accessor<T> {
   loading: boolean;
   error: any;
 }
 
 export type ResourceActions<T> = { mutate: Setter<T>; refetch: () => void };
 
-export type Resource<T> = [ResourceState<T>, ResourceActions<T>];
+export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
 export type ResourceSource<S> = S | false | null | (() => S | false | null);
 
@@ -396,26 +396,26 @@ export type ResourceOptions<T> = T extends undefined
 export function createResource<T, S = true>(
   fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
-): Resource<T | undefined>;
+): ResourceReturn<T | undefined>;
 export function createResource<T, S = true>(
   fetcher: ResourceFetcher<S, T>,
   options: ResourceOptions<T>
-): Resource<T>;
+): ResourceReturn<T>;
 export function createResource<T, S>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
-): Resource<T | undefined>;
+): ResourceReturn<T | undefined>;
 export function createResource<T, S>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T>,
   options: ResourceOptions<T>
-): Resource<T>;
+): ResourceReturn<T>;
 export function createResource<T, S>(
   source: ResourceSource<S> | ResourceFetcher<S, T>,
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options?: ResourceOptions<T> | ResourceOptions<undefined>
-): Resource<T> | Resource<T | undefined> {
+): ResourceReturn<T> | ResourceReturn<T | undefined> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher as ResourceOptions<T> | ResourceOptions<T | undefined>;
@@ -533,7 +533,7 @@ export function createResource<T, S>(
   });
   if (dynamic) createComputed(load);
   else load();
-  return [read as ResourceState<T>, { refetch: load, mutate: set } as ResourceActions<T>];
+  return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
 }
 
 export interface DeferredOptions<T> {
