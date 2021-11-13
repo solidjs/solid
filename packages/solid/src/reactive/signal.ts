@@ -1,4 +1,5 @@
-// Inspired by S.js[https://github.com/adamhaile/S] by Adam Haile
+// Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
+
 import { requestCallback, Task } from "./scheduler";
 import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
@@ -32,7 +33,7 @@ declare global {
   var _$afterUpdate: () => void;
 }
 
-interface SignalState<T> {
+export interface SignalState<T> {
   value?: T;
   observers: Computation<any, any>[] | null;
   observerSlots: number[] | null;
@@ -42,7 +43,7 @@ interface SignalState<T> {
   name?: string;
 }
 
-interface Owner {
+export interface Owner {
   owned: Computation<any, any>[] | null;
   cleanups: (() => void)[] | null;
   owner: Owner | null;
@@ -52,8 +53,8 @@ interface Owner {
   componentName?: string;
 }
 
-interface Computation<T, Initial = undefined> extends Owner {
-  fn: EffectFunction<T, Initial>;
+export interface Computation<T, Optional = true> extends Owner {
+  fn: EffectFunction<T, Optional>;
   state: number;
   tState?: number;
   sources: SignalState<T>[] | null;
@@ -65,11 +66,7 @@ interface Computation<T, Initial = undefined> extends Owner {
   suspense?: SuspenseContextType;
 }
 
-interface Memo<T, Init = undefined> extends SignalState<T>, Computation<T, Init> {
-  tOwned?: Computation<any, any>[];
-}
-
-interface TransitionState {
+export interface TransitionState {
   sources: Set<SignalState<any>>;
   effects: Computation<any, any>[];
   promises: Set<Promise<any>>;
@@ -186,8 +183,8 @@ export interface BaseOptions {
 
 export interface EffectOptions extends BaseOptions {}
 
-export type EffectFunction<T, Init = undefined> = Init extends undefined
-  ? (v?: T) => T | undefined
+export type EffectFunction<T, Optional = true> = true extends Optional
+  ? (v?: T) => T | void
   : (v: T) => T;
 
 /**
@@ -205,19 +202,19 @@ export type EffectFunction<T, Init = undefined> = Init extends undefined
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
-export function createComputed<T, Init = undefined>(fn: EffectFunction<T, Init>): void;
-export function createComputed<T, Init = T>(
-  fn: EffectFunction<T, Init>,
+export function createComputed<T, Optional = true>(fn: EffectFunction<T, Optional>): void;
+export function createComputed<T, Optional = false>(
+  fn: EffectFunction<T, Optional>,
   value: T,
   options?: EffectOptions
 ): void;
-export function createComputed<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+export function createComputed<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   value: undefined,
   options?: EffectOptions
 ): void;
-export function createComputed<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+export function createComputed<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   value?: T,
   options?: EffectOptions
 ): void {
@@ -239,19 +236,19 @@ export function createComputed<T, Init = undefined>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
-export function createRenderEffect<T, Init = undefined>(fn: EffectFunction<T, Init>): void;
-export function createRenderEffect<T, Init = T>(
-  fn: EffectFunction<T, Init>,
+export function createRenderEffect<T, Optional = true>(fn: EffectFunction<T, Optional>): void;
+export function createRenderEffect<T, Optional = false>(
+  fn: EffectFunction<T, Optional>,
   value: T,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+export function createRenderEffect<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   value: undefined,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+export function createRenderEffect<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   value?: T,
   options?: EffectOptions
 ): void {
@@ -275,19 +272,19 @@ export function createRenderEffect<T, Init = undefined>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
-export function createEffect<T, Init = undefined>(fn: EffectFunction<T, Init>): void;
-export function createEffect<T, Init = T>(
-  fn: EffectFunction<T, Init>,
+export function createEffect<T, Optional = true>(fn: EffectFunction<T, Optional>): void;
+export function createEffect<T, Optional = false>(
+  fn: EffectFunction<T, Optional>,
   value: T,
   options?: EffectOptions
 ): void;
-export function createEffect<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
-  value: T,
+export function createEffect<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
+  value: undefined,
   options?: EffectOptions
 ): void;
-export function createEffect<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+export function createEffect<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   value?: T,
   options?: EffectOptions
 ): void {
@@ -297,6 +294,10 @@ export function createEffect<T, Init = undefined>(
   if (s) c.suspense = s;
   c.user = true;
   Effects && Effects.push(c);
+}
+
+interface Memo<T, Optional = true> extends SignalState<T>, Computation<T, Optional> {
+  tOwned?: Computation<any, any>[];
 }
 
 export interface MemoOptions<T> extends EffectOptions {
@@ -318,24 +319,24 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<T, Init = undefined>(fn: EffectFunction<T, Init>): Accessor<T>;
-export function createMemo<T, Init = T>(
-  fn: EffectFunction<T, Init>,
+export function createMemo<T, Optional = true>(fn: EffectFunction<T, Optional>): Accessor<T>;
+export function createMemo<T, Optional = false>(
+  fn: EffectFunction<T, Optional>,
   value: T,
   options?: MemoOptions<T>
 ): Accessor<T>;
-export function createMemo<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+export function createMemo<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   value: undefined,
   options?: MemoOptions<T>
 ): Accessor<T>;
-export function createMemo<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+export function createMemo<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   value?: T,
   options?: MemoOptions<T>
 ): Accessor<T> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
-  const c: Partial<Memo<T, Init>> = createComputation(
+  const c: Partial<Memo<T, Optional>> = createComputation(
     fn,
     value,
     true,
@@ -1009,7 +1010,7 @@ export function children(fn: Accessor<JSX.Element>): Accessor<JSX.Element> {
 }
 
 // Resource API
-type SuspenseContextType = {
+export type SuspenseContextType = {
   increment?: () => void;
   decrement?: () => void;
   inFallback?: () => boolean;
@@ -1156,14 +1157,14 @@ function runComputation(node: Computation<any, any>, value: any, time: number) {
   }
 }
 
-function createComputation<T, Init = undefined>(
-  fn: EffectFunction<T, Init>,
+function createComputation<T, Optional = true>(
+  fn: EffectFunction<T, Optional>,
   init: T | undefined,
   pure: boolean,
   state: number = STALE,
   options?: EffectOptions
-): Computation<T, Init> {
-  const c: Computation<T, Init> = {
+): Computation<T, Optional> {
+  const c: Computation<T, Optional> = {
     fn,
     state: state,
     updatedAt: null,
