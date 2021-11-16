@@ -22,10 +22,10 @@ const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
-let Listener: Computation<any, any> | null = null;
+let Listener: Computation<any> | null = null;
 let Pending: SignalState<any>[] | null = null;
-let Updates: Computation<any, any>[] | null = null;
-let Effects: Computation<any, any>[] | null = null;
+let Updates: Computation<any>[] | null = null;
+let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
 let rootCount = 0;
 
@@ -35,7 +35,7 @@ declare global {
 
 export interface SignalState<T> {
   value?: T;
-  observers: Computation<any, any>[] | null;
+  observers: Computation<any>[] | null;
   observerSlots: number[] | null;
   pending: T | {};
   tValue?: T;
@@ -44,7 +44,7 @@ export interface SignalState<T> {
 }
 
 export interface Owner {
-  owned: Computation<any, any>[] | null;
+  owned: Computation<any>[] | null;
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
@@ -53,13 +53,13 @@ export interface Owner {
   componentName?: string;
 }
 
-export interface Computation<T, Optional = true> extends Owner {
-  fn: EffectFunction<T, Optional>;
+export interface Computation<T extends U, U = T> extends Owner {
+  fn: EffectFunction<T, U>;
   state: number;
   tState?: number;
   sources: SignalState<T>[] | null;
   sourceSlots: number[] | null;
-  value?: T;
+  value?: U;
   updatedAt: number | null;
   pure: boolean;
   user?: boolean;
@@ -68,10 +68,10 @@ export interface Computation<T, Optional = true> extends Owner {
 
 export interface TransitionState {
   sources: Set<SignalState<any>>;
-  effects: Computation<any, any>[];
+  effects: Computation<any>[];
   promises: Set<Promise<any>>;
-  disposed: Set<Computation<any, any>>;
-  queue: Set<Computation<any, any>>;
+  disposed: Set<Computation<any>>;
+  queue: Set<Computation<any>>;
   scheduler?: (fn: () => void) => unknown;
   running: boolean;
   cb: (() => void)[];
@@ -98,8 +98,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
         ? UNOWNED
         : { owned: null, cleanups: null, context: null, owner };
 
-  if ("_SOLID_DEV_" && owner)
-    root.name = `${(owner as Computation<any, any>).name}-r${rootCount++}`;
+  if ("_SOLID_DEV_" && owner) root.name = `${(owner as Computation<any>).name}-r${rootCount++}`;
 
   Owner = root;
   Listener = null;
@@ -183,9 +182,8 @@ export interface BaseOptions {
 
 export interface EffectOptions extends BaseOptions {}
 
-export type EffectFunction<T, Optional = true> = true extends Optional
-  ? (v?: T) => T | void
-  : (v: T) => T;
+// Also similar to OnFunction
+export type EffectFunction<T extends U = any, U = T> = (v: U) => T;
 
 /**
  * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
@@ -202,20 +200,20 @@ export type EffectFunction<T, Optional = true> = true extends Optional
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
-export function createComputed<T, Optional = true>(fn: EffectFunction<T, Optional>): void;
-export function createComputed<T, Optional = false>(
-  fn: EffectFunction<T, Optional>,
-  value: T,
-  options?: EffectOptions
-): void;
-export function createComputed<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
+export function createComputed<T extends U, U = T>(fn: EffectFunction<T, U>): void;
+export function createComputed<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
   value: undefined,
   options?: EffectOptions
 ): void;
-export function createComputed<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
-  value?: T,
+export function createComputed<T extends U, U = T>(
+  fn: EffectFunction<T, U>,
+  value: U extends U ? U : never,
+  options?: EffectOptions
+): void;
+export function createComputed<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
+  value?: U,
   options?: EffectOptions
 ): void {
   updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
@@ -236,20 +234,20 @@ export function createComputed<T, Optional = true>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
-export function createRenderEffect<T, Optional = true>(fn: EffectFunction<T, Optional>): void;
-export function createRenderEffect<T, Optional = false>(
-  fn: EffectFunction<T, Optional>,
-  value: T,
-  options?: EffectOptions
-): void;
-export function createRenderEffect<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
+export function createRenderEffect<T extends U, U = T>(fn: EffectFunction<T, U>): void;
+export function createRenderEffect<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
   value: undefined,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
-  value?: T,
+export function createRenderEffect<T extends U, U = T>(
+  fn: EffectFunction<T, U>,
+  value: U extends U ? U : never,
+  options?: EffectOptions
+): void;
+export function createRenderEffect<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
+  value?: U,
   options?: EffectOptions
 ): void {
   updateComputation(
@@ -272,20 +270,20 @@ export function createRenderEffect<T, Optional = true>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
-export function createEffect<T, Optional = true>(fn: EffectFunction<T, Optional>): void;
-export function createEffect<T, Optional = false>(
-  fn: EffectFunction<T, Optional>,
-  value: T,
-  options?: EffectOptions
-): void;
-export function createEffect<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
+export function createEffect<T extends U, U = T>(fn: EffectFunction<T, U>): void;
+export function createEffect<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
   value: undefined,
   options?: EffectOptions
 ): void;
-export function createEffect<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
-  value?: T,
+export function createEffect<T extends U, U = T>(
+  fn: EffectFunction<T, U>,
+  value: U extends U ? U : never,
+  options?: EffectOptions
+): void;
+export function createEffect<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
+  value?: U,
   options?: EffectOptions
 ): void {
   runEffects = runUserEffects;
@@ -296,8 +294,8 @@ export function createEffect<T, Optional = true>(
   Effects && Effects.push(c);
 }
 
-interface Memo<T, Optional = true> extends SignalState<T>, Computation<T, Optional> {
-  tOwned?: Computation<any, any>[];
+interface Memo<T> extends SignalState<T>, Computation<T> {
+  tOwned?: Computation<any>[];
 }
 
 export interface MemoOptions<T> extends EffectOptions {
@@ -319,30 +317,32 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<T, Optional = true>(fn: EffectFunction<T, Optional>): Accessor<T>;
-export function createMemo<T, Optional = false>(
-  fn: EffectFunction<T, Optional>,
-  value: T,
-  options?: MemoOptions<T>
-): Accessor<T>;
-export function createMemo<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
+export function createMemo<T extends U, U = T>(fn: EffectFunction<T, U>): Accessor<T>;
+export function createMemo<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
   value: undefined,
   options?: MemoOptions<T>
 ): Accessor<T>;
-export function createMemo<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
-  value?: T,
+export function createMemo<T extends U, U = T>(
+  fn: EffectFunction<T, U>,
+  value: U extends U ? U : never,
+  options?: MemoOptions<T>
+): Accessor<T>;
+export function createMemo<T extends U, U = T>(
+  fn: EffectFunction<T, U | undefined>,
+  value?: U,
   options?: MemoOptions<T>
 ): Accessor<T> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
-  const c: Partial<Memo<T, Optional>> = createComputation(
+
+  const c: Partial<Memo<T>> = createComputation(
     fn,
     value,
     true,
     0,
     "_SOLID_DEV_" ? options : undefined
-  );
+  ) as Partial<Memo<T>>;
+
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
@@ -542,17 +542,17 @@ export interface DeferredOptions<T> {
   timeoutMs?: number;
 }
 
+// TODO should createDeferred accept EffectFunctions instead of only Accessors, similar to other effect creation APIs?
+
 /**
  * Creates a reactive computation that only runs and notifies the reactive context when the browser is idle
  * ```typescript
  * export function createDeferred<T>(
  *   fn: (v: T) => T,
- *   value?: T,
  *   options?: { timeoutMs?: number, name?: string, equals?: false | ((prev: T, next: T) => boolean) }
  * ): () => T);
  * ```
  * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
- * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
  * @param options allows to set the timeout in milliseconds, use a custom comparison function and set a name in dev mode for debugging purposes
  *
  * @description https://www.solidjs.com/docs/latest/api#createdeferred
@@ -560,7 +560,7 @@ export interface DeferredOptions<T> {
 export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions<T>) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const node = createComputation(
+  const node = createComputation<T, T | undefined>(
     () => {
       if (!t || !t.fn)
         t = requestCallback(
@@ -610,7 +610,7 @@ export function createSelector<T, U>(
   options?: BaseOptions
 ): (key: U) => boolean {
   const subs = new Map<U, Set<Computation<any>>>();
-  const node = createComputation(
+  const node = createComputation<T, T | undefined>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
@@ -702,11 +702,12 @@ export type ReturnTypes<T> = T extends (() => any)[]
   ? ReturnType<T>
   : never;
 
-export type OnFunction<T, U> = (
-  input: ReturnTypes<T>,
-  prevInput: ReturnTypes<T>,
+// Also similar to EffectFunction
+export type OnFunction<S, T extends U, U = T> = (
+  input: ReturnTypes<S>,
+  prevInput: ReturnTypes<S>,
   prevValue?: U
-) => U;
+) => T;
 
 export interface OnOptions {
   defer?: boolean;
@@ -738,36 +739,36 @@ export interface OnOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#on
  */
-export function on<T extends (() => any)[], U>(
-  deps: [...T],
-  fn: OnFunction<T, U>,
+export function on<S extends Accessor<unknown>[], T extends U, U = T>(
+  deps: [...S],
+  fn: OnFunction<S, T, U | undefined>,
   options?: OnOptions
-): (prevValue?: U) => U;
-export function on<T extends () => any, U>(
-  deps: T,
-  fn: OnFunction<T, U>,
+): EffectFunction<T, U | undefined>;
+export function on<S extends Accessor<any>, T extends U, U = T>(
+  deps: S,
+  fn: OnFunction<S, T, U | undefined>,
   options?: OnOptions
-): (prevValue?: U) => U;
-export function on<T extends (() => any) | (() => any)[], U>(
-  deps: T,
-  fn: OnFunction<T, U>,
+): EffectFunction<T, U | undefined>;
+export function on<S extends (() => any) | (() => any)[], T extends U, U = T>(
+  deps: S,
+  fn: OnFunction<S, T, U | undefined>,
   options?: OnOptions
-): EffectFunction<U> {
+): EffectFunction<T, U | undefined> {
   const isArray = Array.isArray(deps);
-  let prevInput: ReturnTypes<T>;
+  let prevInput: ReturnTypes<S>;
   let defer = options && options.defer;
-  return prevValue => {
-    let input: ReturnTypes<T>;
+  return (prevValue: U | undefined) => {
+    let input: ReturnTypes<S>;
     if (isArray) {
       input = [] as TODO;
-      for (let i = 0; i < deps.length; i++) input.push((deps as Array<() => T>)[i]());
-    } else input = (deps as () => T)() as TODO;
+      for (let i = 0; i < deps.length; i++) input.push((deps as Array<() => S>)[i]());
+    } else input = (deps as () => S)() as TODO;
     if (defer) {
       defer = false;
       // this aspect of first run on deferred is hidden from end user and should not affect types
-      return undefined as unknown as U;
+      return undefined as unknown as T;
     }
-    const result = untrack<U>(() => fn!(input, prevInput, prevValue));
+    const result = untrack<T>(() => fn(input, prevInput, prevValue));
     prevInput = input;
     return result;
   };
@@ -888,7 +889,7 @@ export function resumeEffects(e: Computation<any>[]) {
 
 // Dev
 export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
-  const c: Partial<Memo<JSX.Element>> = createComputation(
+  const c: Partial<Memo<JSX.Element>> = createComputation<JSX.Element>(
     () => untrack(() => Comp(props)),
     undefined,
     true
@@ -1112,7 +1113,7 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
   return value;
 }
 
-function updateComputation(node: Computation<any, any>) {
+function updateComputation(node: Computation<any>) {
   if (!node.fn) return;
   cleanNode(node);
   const owner = Owner,
@@ -1139,7 +1140,7 @@ function updateComputation(node: Computation<any, any>) {
   Owner = owner;
 }
 
-function runComputation(node: Computation<any, any>, value: any, time: number) {
+function runComputation(node: Computation<any>, value: any, time: number) {
   let nextValue;
   try {
     nextValue = node.fn(value);
@@ -1157,14 +1158,14 @@ function runComputation(node: Computation<any, any>, value: any, time: number) {
   }
 }
 
-function createComputation<T, Optional = true>(
-  fn: EffectFunction<T, Optional>,
-  init: T | undefined,
+function createComputation<T extends U, U = T>(
+  fn: EffectFunction<T, U>,
+  init: U,
   pure: boolean,
   state: number = STALE,
   options?: EffectOptions
-): Computation<T, Optional> {
-  const c: Computation<T, Optional> = {
+): Computation<T, U> {
+  const c: Computation<T, U> = {
     fn,
     state: state,
     updatedAt: null,
@@ -1199,7 +1200,7 @@ function createComputation<T, Optional = true>(
     if ("_SOLID_DEV_")
       c.name =
         (options && options.name) ||
-        `${(Owner as Computation<any, any>).name || "c"}-${
+        `${(Owner as Computation<any>).name || "c"}-${
           (Owner.owned || (Owner as Memo<T>).tOwned!).length
         }`;
   }
@@ -1207,7 +1208,7 @@ function createComputation<T, Optional = true>(
   return c;
 }
 
-function runTop(node: Computation<any, any>) {
+function runTop(node: Computation<any>) {
   const runningTransition = Transition && Transition.running;
   if (!runningTransition && node.state !== STALE) return (node.state = 0);
   if (runningTransition && node.tState !== STALE) return (node.tState = 0);
@@ -1215,7 +1216,7 @@ function runTop(node: Computation<any, any>) {
     return node!.suspense.effects!.push(node!);
   const ancestors = [node];
   while (
-    (node = node.owner as Computation<any, any>) &&
+    (node = node.owner as Computation<any>) &&
     (!node.updatedAt || node.updatedAt < ExecCount)
   ) {
     if (runningTransition && Transition!.disposed.has(node)) return;
@@ -1227,7 +1228,7 @@ function runTop(node: Computation<any, any>) {
     if (runningTransition) {
       let top = node,
         prev = ancestors[i + 1];
-      while ((top = top.owner as Computation<any, any>) && top !== prev) {
+      while ((top = top.owner as Computation<any>) && top !== prev) {
         if (Transition!.disposed.has(top)) return;
       }
     }
@@ -1315,11 +1316,11 @@ function completeUpdates(wait: boolean) {
   if (cbs) cbs.forEach(cb => cb());
 }
 
-function runQueue(queue: Computation<any, any>[]) {
+function runQueue(queue: Computation<any>[]) {
   for (let i = 0; i < queue.length; i++) runTop(queue[i]);
 }
 
-function scheduleQueue(queue: Computation<any, any>[]) {
+function scheduleQueue(queue: Computation<any>[]) {
   for (let i = 0; i < queue.length; i++) {
     const item = queue[i];
     const tasks = Transition!.queue;
@@ -1341,7 +1342,7 @@ function scheduleQueue(queue: Computation<any, any>[]) {
   }
 }
 
-function runUserEffects(queue: Computation<any, any>[]) {
+function runUserEffects(queue: Computation<any>[]) {
   let i,
     userLength = 0;
   for (i = 0; i < queue.length; i++) {
@@ -1354,7 +1355,7 @@ function runUserEffects(queue: Computation<any, any>[]) {
   for (i = resume; i < queue.length; i++) runTop(queue[i]);
 }
 
-function lookDownstream(node: Computation<any, any>) {
+function lookDownstream(node: Computation<any>) {
   node.state = 0;
   const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.sources!.length; i += 1) {
@@ -1390,10 +1391,10 @@ function markUpstream(node: Memo<any>) {
 
 function cleanNode(node: Owner) {
   let i;
-  if ((node as Computation<any, any>).sources) {
-    while ((node as Computation<any, any>).sources!.length) {
-      const source = (node as Computation<any, any>).sources!.pop()!,
-        index = (node as Computation<any, any>).sourceSlots!.pop()!,
+  if ((node as Computation<any>).sources) {
+    while ((node as Computation<any>).sources!.length) {
+      const source = (node as Computation<any>).sources!.pop()!,
+        index = (node as Computation<any>).sourceSlots!.pop()!,
         obs = source.observers;
       if (obs && obs.length) {
         const n = obs.pop()!,
@@ -1413,7 +1414,7 @@ function cleanNode(node: Owner) {
         cleanNode((node as Memo<any>).tOwned![i]);
       delete (node as Memo<any>).tOwned;
     }
-    reset(node as Computation<any, any>, true);
+    reset(node as Computation<any>, true);
   } else if (node.owned) {
     for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
     node.owned = null;
@@ -1423,12 +1424,12 @@ function cleanNode(node: Owner) {
     for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
     node.cleanups = null;
   }
-  if (Transition && Transition.running) (node as Computation<any, any>).tState = 0;
-  else (node as Computation<any, any>).state = 0;
+  if (Transition && Transition.running) (node as Computation<any>).tState = 0;
+  else (node as Computation<any>).state = 0;
   node.context = null;
 }
 
-function reset(node: Computation<any, any>, top?: boolean) {
+function reset(node: Computation<any>, top?: boolean) {
   if (!top) {
     node.tState = 0;
     Transition!.disposed.add(node);
