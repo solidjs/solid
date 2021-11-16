@@ -13,6 +13,8 @@ createEffect(
   // @ts-expect-error the void return is not assignable to the number|undefined parameter
   (v?: number) => {}
 );
+// @ts-expect-error undefined initial value is not assignable to the number parameter
+createEffect((v: number) => 123);
 createEffect(() => {
   return 123;
 }, 123);
@@ -69,6 +71,8 @@ createComputed(
   // @ts-expect-error the void return is not assignable to the number|undefined parameter
   (v?: number) => {}
 );
+// @ts-expect-error undefined initial value is not assignable to the number parameter
+createComputed((v: number) => 123);
 createComputed(() => {
   return 123;
 }, 123);
@@ -125,6 +129,8 @@ createRenderEffect(
   // @ts-expect-error the void return is not assignable to the number|undefined parameter
   (v?: number) => {}
 );
+// @ts-expect-error undefined initial value is not assignable to the number parameter
+createRenderEffect((v: number) => 123);
 createRenderEffect(() => {
   return 123;
 }, 123);
@@ -184,7 +190,10 @@ const v5 = createMemo(() => {});
 const v6 = createMemo((v?: number) => {});
 const v7 = createMemo(() => 123, 123);
 const v8 = createMemo(() => 123, undefined);
-const v9 = createMemo((v: number) => 123);
+const v9 = createMemo(
+  // @ts-expect-error undefined initial value is not assignable to the number parameter
+  (v: number) => 123
+);
 const v10 = createMemo((v: number) => 123, 123);
 const v11 = createMemo((v?: number) => 123, 123);
 const v12 = createMemo((v?: number) => 123, undefined);
@@ -270,15 +279,24 @@ const m12: Accessor<number | undefined> = createMemo(
 const m13 = createMemo((v?: number): number | undefined => 123, undefined);
 const testm13: Accessor<number | undefined> = m13;
 const m14: Accessor<number> = createMemo((v?: number): number => 123, undefined);
-const m15: Accessor<number> = createMemo((v: number): number => 123);
+const m15: Accessor<number> = createMemo(
+  // @ts-expect-error undefined initial value is not assignable to the number parameter
+  (v: number): number => 123
+);
 const m16: Accessor<number> =
   // @ts-expect-error undefined initial value can't be assign to the number parameter
   createMemo((v: number): number => 123, undefined);
 const m17: Accessor<number> =
   // @ts-expect-error no overload matches because the second string arg cannot be assigned to the number|boolean parameter.
   createMemo((v: number | boolean): number => 123, "asdf");
-const m18: Accessor<number> = createMemo((v: number | boolean): number => 123);
-const m19: Accessor<number> = createMemo((v: number | string): number => 123);
+const m18: Accessor<number> = createMemo(
+  // @ts-expect-error undefined initial value is not assignable to the number parameter
+  (v: number | boolean): number => 123
+);
+const m19: Accessor<number> = createMemo(
+  // @ts-expect-error undefined initial value is not assignable to the number parameter
+  (v: number | string): number => 123
+);
 // @ts-expect-error due to the next ts-expect-error causing the return type to be inferred wrong.
 const m20: Accessor<number> = createMemo(
   // @ts-expect-error because the number return cannot be assigned to the boolean|string parameter

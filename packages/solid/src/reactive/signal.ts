@@ -200,10 +200,9 @@ export type EffectFunction<T extends U = any, U = T> = (v: U) => T;
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
-export function createComputed<T extends U, U = T>(fn: EffectFunction<T, U>): void;
 export function createComputed<T extends U, U = T>(
   fn: EffectFunction<T, U | undefined>,
-  value: undefined,
+  value?: undefined,
   options?: EffectOptions
 ): void;
 export function createComputed<T extends U, U = T>(
@@ -234,10 +233,9 @@ export function createComputed<T extends U, U = T>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
-export function createRenderEffect<T extends U, U = T>(fn: EffectFunction<T, U>): void;
 export function createRenderEffect<T extends U, U = T>(
   fn: EffectFunction<T, U | undefined>,
-  value: undefined,
+  value?: undefined,
   options?: EffectOptions
 ): void;
 export function createRenderEffect<T extends U, U = T>(
@@ -270,10 +268,9 @@ export function createRenderEffect<T extends U, U = T>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
-export function createEffect<T extends U, U = T>(fn: EffectFunction<T, U>): void;
 export function createEffect<T extends U, U = T>(
   fn: EffectFunction<T, U | undefined>,
-  value: undefined,
+  value?: undefined,
   options?: EffectOptions
 ): void;
 export function createEffect<T extends U, U = T>(
@@ -317,10 +314,9 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<T extends U, U = T>(fn: EffectFunction<T, U>): Accessor<T>;
 export function createMemo<T extends U, U = T>(
   fn: EffectFunction<T, U | undefined>,
-  value: undefined,
+  value?: undefined,
   options?: MemoOptions<T>
 ): Accessor<T>;
 export function createMemo<T extends U, U = T>(
