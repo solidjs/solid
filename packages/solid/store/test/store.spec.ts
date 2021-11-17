@@ -422,3 +422,62 @@ describe("State recursion", () => {
     expect(state.a).toBe(state.b.a);
   });
 });
+
+describe("Nested Classes", () => {
+
+  test("wrapped nested class", () => {
+    class CustomThing {
+      a: number;
+      b: number;
+      constructor(value: number) {
+        this.a = value;
+        this.b = 10;
+      }
+    }
+
+    const [inner] = createStore(new CustomThing(1));
+    const [store, setStore] = createStore({ inner });
+
+    expect(store.inner.a).toBe(1);
+    expect(store.inner.b).toBe(10);
+
+    let sum;
+    createRoot(() => {
+      createComputed(() => {
+        sum = store.inner.a + store.inner.b;
+      });
+    });
+    expect(sum).toBe(11);
+    setStore("inner", "a", 10);
+    expect(sum).toBe(20);
+    setStore("inner", "b", 5);
+    expect(sum).toBe(15);
+  })
+
+  test("not wrapped nested class", () => {
+    class CustomThing {
+      a: number;
+      b: number;
+      constructor(value: number) {
+        this.a = value;
+        this.b = 10;
+      }
+    }
+    const [store, setStore] = createStore({ inner: new CustomThing(1)});
+
+    expect(store.inner.a).toBe(1);
+    expect(store.inner.b).toBe(10);
+
+    let sum;
+    createRoot(() => {
+      createComputed(() => {
+        sum = store.inner.a + store.inner.b;
+      });
+    });
+    expect(sum).toBe(11);
+    setStore("inner", "a", 10);
+    expect(sum).toBe(11);
+    setStore("inner", "b", 5);
+    expect(sum).toBe(11);
+  })
+})
