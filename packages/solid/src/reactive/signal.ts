@@ -192,7 +192,9 @@ export function createSignal<T>(
 export function createComputed<T>(fn: (v?: T) => T | undefined): void;
 export function createComputed<T>(fn: (v: T) => T, value: T, options?: { name?: string }): void;
 export function createComputed<T>(fn: (v?: T) => T, value?: T, options?: { name?: string }): void {
-  updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
+  const c = createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined);
+  if (Scheduler && Transition && Transition.running) Updates!.push(c);
+  else updateComputation(c);
 }
 
 /**
@@ -217,9 +219,9 @@ export function createRenderEffect<T>(
   value?: T,
   options?: { name?: string }
 ): void {
-  updateComputation(
-    createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined)
-  );
+  const c = createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined);
+  if (Scheduler && Transition && Transition.running) Updates!.push(c);
+  else updateComputation(c);
 }
 
 /**
@@ -290,7 +292,10 @@ export function createMemo<T>(
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
-  updateComputation(c as Memo<T>);
+  if (Scheduler && Transition && Transition.running) {
+    c.tState = STALE;
+    Updates!.push(c as Memo<T>);
+  } else updateComputation(c as Memo<T>);
   return readSignal.bind(c as Memo<T>);
 }
 
