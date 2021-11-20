@@ -1,5 +1,53 @@
 import { createEffect, createComputed, createRenderEffect, createMemo, Accessor, on } from "../src";
 
+class Animal {
+  #animal = null;
+}
+class Dog extends Animal {
+  #dog = null;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// createEffect ////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+createEffect((v: number | string): number => 123, "asdf");
+
+createEffect((num: number | undefined): number | undefined => 123);
+
+createEffect((num?: number): number | undefined => 123);
+
+createEffect<number>((v: number | string): number => 123, 123);
+createEffect<number | string>((v: number | string): number => 123, 123);
+
+createEffect(
+  // @ts-expect-error undefined initial value not assignable to input parameter
+  (v: number | boolean): number | boolean => false
+);
+
+createEffect((v: Animal): Dog => new Dog(), new Dog());
+createEffect((v: Animal): Dog => new Dog(), new Animal());
+createEffect(
+  // @ts-expect-error the Animal arg is not assignable to the Dog parameter
+  (v: Dog): Dog => new Dog(),
+  new Animal()
+);
+createEffect(
+  // @ts-expect-error the missing second arg is undefined, and undefined is not assignable to the Animal parameter
+  (v: Animal): Dog => new Dog()
+);
+
+createEffect<number | boolean>(
+  // @ts-expect-error because if number|boolean were returnable from the passed-in function, it wouldn't be assignable to the input of that function.
+  // TODO can we improve this? Technically, the return type of the function is always assignable to number|boolean, which is really all we should care about.
+  (v: number | string): number => 123,
+  123
+);
+
+createEffect((v: number | string): number => 123, "asdf");
+
+createEffect((v: number) => 123, 123);
+
 createEffect(
   (v?: number) => {
     return 123;
@@ -57,6 +105,47 @@ createEffect(
 createEffect((v: number) => 123, undefined);
 // @ts-expect-error void not assignable to number|undefined
 createEffect((v?: number) => {}, 123);
+
+//////////////////////////////////////////////////////////////////////////
+// createComputed ////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+createComputed((v: number | string): number => 123, "asdf");
+
+createComputed((num: number | undefined): number | undefined => 123);
+
+createComputed((num?: number): number | undefined => 123);
+
+createComputed<number>((v: number | string): number => 123, 123);
+createComputed<number | string>((v: number | string): number => 123, 123);
+
+createComputed(
+  // @ts-expect-error undefined initial value not assignable to input parameter
+  (v: number | boolean): number | boolean => false
+);
+
+createComputed((v: Animal): Dog => new Dog(), new Dog());
+createComputed((v: Animal): Dog => new Dog(), new Animal());
+createComputed(
+  // @ts-expect-error the Animal arg is not assignable to the Dog parameter
+  (v: Dog): Dog => new Dog(),
+  new Animal()
+);
+createComputed(
+  // @ts-expect-error the missing second arg is undefined, and undefined is not assignable to the Animal parameter
+  (v: Animal): Dog => new Dog()
+);
+
+createComputed<number | boolean>(
+  // @ts-expect-error because if number|boolean were returnable from the passed-in function, it wouldn't be assignable to the input of that function.
+  // TODO can we improve this? Technically, the return type of the function is always assignable to number|boolean, which is really all we should care about.
+  (v: number | string): number => 123,
+  123
+);
+
+createComputed((v: number | string): number => 123, "asdf");
+
+createComputed((v: number) => 123, 123);
 
 createComputed(
   (v?: number) => {
@@ -116,6 +205,47 @@ createComputed((v: number) => 123, undefined);
 // @ts-expect-error void not assignable to number|undefined
 createComputed((v?: number) => {}, 123);
 
+//////////////////////////////////////////////////////////////////////////
+// createRenderEffect ////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+createRenderEffect((v: number | string): number => 123, "asdf");
+
+createRenderEffect((num: number | undefined): number | undefined => 123);
+
+createRenderEffect((num?: number): number | undefined => 123);
+
+createRenderEffect<number>((v: number | string): number => 123, 123);
+createRenderEffect<number | string>((v: number | string): number => 123, 123);
+
+createRenderEffect(
+  // @ts-expect-error undefined initial value not assignable to input parameter
+  (v: number | boolean): number | boolean => false
+);
+
+createRenderEffect((v: Animal): Dog => new Dog(), new Dog());
+createRenderEffect((v: Animal): Dog => new Dog(), new Animal());
+createRenderEffect(
+  // @ts-expect-error the Animal arg is not assignable to the Dog parameter
+  (v: Dog): Dog => new Dog(),
+  new Animal()
+);
+createRenderEffect(
+  // @ts-expect-error the missing second arg is undefined, and undefined is not assignable to the Animal parameter
+  (v: Animal): Dog => new Dog()
+);
+
+createRenderEffect<number | boolean>(
+  // @ts-expect-error because if number|boolean were returnable from the passed-in function, it wouldn't be assignable to the input of that function.
+  // TODO can we improve this? Technically, the return type of the function is always assignable to number|boolean, which is really all we should care about.
+  (v: number | string): number => 123,
+  123
+);
+
+createRenderEffect((v: number | string): number => 123, "asdf");
+
+createRenderEffect((v: number) => 123, 123);
+
 createRenderEffect(
   (v?: number) => {
     return 123;
@@ -173,6 +303,10 @@ createRenderEffect(
 createRenderEffect((v: number) => 123, undefined);
 // @ts-expect-error void not assignable to number|undefined
 createRenderEffect((v?: number) => {}, 123);
+
+//////////////////////////////////////////////////////////////////////////
+// createMemo ////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 
 const v1 = createMemo(
   (v?: number) => {
@@ -249,7 +383,9 @@ const m2: Accessor<number | undefined> = createMemo(() => 123);
 const m3: //
 Accessor<undefined> = createMemo(() => {});
 const m4: Accessor<void> = createMemo(() => {});
-const m5: Accessor<number | undefined> = createMemo(
+// @ts-expect-error Accessor<void> return not assignable to Accessor<number|undefined>
+const m5: //
+Accessor<number | undefined> = createMemo(
   // @ts-expect-error void can't be assigned to anything!
   (v?: number) => {}
 );
@@ -271,7 +407,9 @@ const m11: Accessor<number | undefined> = createMemo<number | undefined>(
   v => {},
   123
 );
-const m12: Accessor<number | undefined> = createMemo(
+// @ts-expect-error Accessor<void> return not assignable to Accessor<number|undefined>
+const m12: //
+Accessor<number | undefined> = createMemo(
   // @ts-expect-error void can't be assigned to anything!
   (v?: number) => {},
   undefined
@@ -297,7 +435,6 @@ const m19: Accessor<number> = createMemo(
   // @ts-expect-error undefined initial value is not assignable to the number parameter
   (v: number | string): number => 123
 );
-// @ts-expect-error due to the next ts-expect-error causing the return type to be inferred wrong.
 const m20: Accessor<number> = createMemo(
   // @ts-expect-error because the number return cannot be assigned to the boolean|string parameter
   (v: boolean | string): number => 123

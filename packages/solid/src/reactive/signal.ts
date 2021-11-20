@@ -180,10 +180,14 @@ export interface BaseOptions {
   name?: string;
 }
 
+// Magic type that when used at sites where generic types are inferred from, will prevent those sites from being involved in the inference.
+// https://github.com/microsoft/TypeScript/issues/14829
+// TypeScript Discord conversation: https://discord.com/channels/508357248330760243/508357248330760249/911266491024949328
+export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
+
 export interface EffectOptions extends BaseOptions {}
 
-// Also similar to OnFunction
-export type EffectFunction<T extends U = any, U = T> = (v: U) => T;
+export type EffectFunction2<Prev, Next> = (v: Prev) => Next;
 
 /**
  * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
@@ -200,19 +204,19 @@ export type EffectFunction<T extends U = any, U = T> = (v: U) => T;
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
-export function createComputed<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
+export function createComputed<Next>(
+  fn: EffectFunction2<undefined | Next, undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
-export function createComputed<T extends U, U = T>(
-  fn: EffectFunction<T, U>,
-  value: U extends U ? U : never,
+export function createComputed<Init, Next = Init>(
+  fn: EffectFunction2<Init | Next, Next>,
+  value: Init,
   options?: EffectOptions
 ): void;
-export function createComputed<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
-  value?: U,
+export function createComputed(
+  fn: EffectFunction2<unknown, unknown>,
+  value?: unknown,
   options?: EffectOptions
 ): void {
   updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
@@ -233,19 +237,19 @@ export function createComputed<T extends U, U = T>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
-export function createRenderEffect<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
+export function createRenderEffect<Next>(
+  fn: EffectFunction2<undefined | Next, undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<T extends U, U = T>(
-  fn: EffectFunction<T, U>,
-  value: U extends U ? U : never,
+export function createRenderEffect<Init, Next = Init>(
+  fn: EffectFunction2<Init | Next, Next>,
+  value: Init,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
-  value?: U,
+export function createRenderEffect(
+  fn: EffectFunction2<unknown, unknown>,
+  value?: unknown,
   options?: EffectOptions
 ): void {
   updateComputation(
@@ -268,19 +272,19 @@ export function createRenderEffect<T extends U, U = T>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
-export function createEffect<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
+export function createEffect<Next>(
+  fn: EffectFunction2<undefined | Next, undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
-export function createEffect<T extends U, U = T>(
-  fn: EffectFunction<T, U>,
-  value: U extends U ? U : never,
+export function createEffect<Init, Next = Init>(
+  fn: EffectFunction2<Init | Next, Next>,
+  value: Init,
   options?: EffectOptions
 ): void;
-export function createEffect<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
-  value?: U,
+export function createEffect(
+  fn: EffectFunction2<unknown, unknown>,
+  value?: unknown,
   options?: EffectOptions
 ): void {
   runEffects = runUserEffects;
@@ -299,6 +303,10 @@ export interface MemoOptions<T> extends EffectOptions {
   equals?: false | ((prev: T, next: T) => boolean);
 }
 
+// Also similar to OnFunction
+export type EffectFunction<T extends U = any, U = T> = (v: U) => T;
+export type OptionalEffectFunction<T extends U = any, U = T> = (v?: U) => T;
+
 /**
  * Creates a readonly derived reactive memoized signal
  * ```typescript
@@ -314,19 +322,19 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
-  value?: undefined,
+export function createMemo<T>(
+  fn: OptionalEffectFunction<T, NoInfer<T>>,
+  value?: T,
   options?: MemoOptions<T>
 ): Accessor<T>;
-export function createMemo<T extends U, U = T>(
-  fn: EffectFunction<T, U>,
-  value: U extends U ? U : never,
+export function createMemo<T>(
+  fn: EffectFunction<T>,
+  value: T,
   options?: MemoOptions<T>
 ): Accessor<T>;
-export function createMemo<T extends U, U = T>(
-  fn: EffectFunction<T, U | undefined>,
-  value?: U,
+export function createMemo<T>(
+  fn: OptionalEffectFunction<T, NoInfer<T>>,
+  value?: T,
   options?: MemoOptions<T>
 ): Accessor<T> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
@@ -735,21 +743,26 @@ export interface OnOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#on
  */
-export function on<S extends Accessor<unknown>[], T extends U, U = T>(
-  deps: [...S],
-  fn: OnFunction<S, T, U | undefined>,
-  options?: OnOptions
-): EffectFunction<T, U | undefined>;
-export function on<S extends Accessor<any>, T extends U, U = T>(
+// export function on<S extends Accessor<unknown>[], T extends U, U = T>(
+//   deps: [...S],
+//   fn: OnFunction<S, T, U | undefined>,
+//   options?: OnOptions
+// ): EffectFunction<NoInfer<T>, NoInfer<U> | undefined>;
+// export function on<S extends Accessor<any>, T extends U, U = T>(
+//   deps: S,
+//   fn: OnFunction<S, T, U | undefined>,
+//   options?: OnOptions
+// ): EffectFunction<NoInfer<T>, NoInfer<U> | undefined>;
+// export function on<S extends Accessor<any> | Accessor<any>[], T extends U, U = T>(
+//   deps: S,
+//   fn: OnFunction<S, T, U | undefined>,
+//   options?: OnOptions
+// ): EffectFunction<NoInfer<T>, NoInfer<U> | undefined> {
+export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], T extends U, U = T>(
   deps: S,
   fn: OnFunction<S, T, U | undefined>,
   options?: OnOptions
-): EffectFunction<T, U | undefined>;
-export function on<S extends (() => any) | (() => any)[], T extends U, U = T>(
-  deps: S,
-  fn: OnFunction<S, T, U | undefined>,
-  options?: OnOptions
-): EffectFunction<T, U | undefined> {
+): EffectFunction<NoInfer<T>, NoInfer<U> | undefined> {
   const isArray = Array.isArray(deps);
   let prevInput: ReturnTypes<S>;
   let defer = options && options.defer;
@@ -757,7 +770,7 @@ export function on<S extends (() => any) | (() => any)[], T extends U, U = T>(
     let input: ReturnTypes<S>;
     if (isArray) {
       input = [] as TODO;
-      for (let i = 0; i < deps.length; i++) input.push((deps as Array<() => S>)[i]());
+      for (let i = 0; i < deps.length; i++) (input as TODO[]).push((deps as Array<() => S>)[i]());
     } else input = (deps as () => S)() as TODO;
     if (defer) {
       defer = false;
