@@ -247,9 +247,9 @@ export function createRenderEffect<Init, Next = Init>(
   value: Init,
   options?: EffectOptions
 ): void;
-export function createRenderEffect(
-  fn: EffectFunction2<unknown, unknown>,
-  value?: unknown,
+export function createRenderEffect<Init, Next = Init>(
+  fn: EffectFunction2<Init | Next, Next>,
+  value: Init,
   options?: EffectOptions
 ): void {
   updateComputation(
@@ -282,9 +282,9 @@ export function createEffect<Init, Next = Init>(
   value: Init,
   options?: EffectOptions
 ): void;
-export function createEffect(
-  fn: EffectFunction2<unknown, unknown>,
-  value?: unknown,
+export function createEffect<Init, Next = Init>(
+  fn: EffectFunction2<Init | Next, Next>,
+  value: Init,
   options?: EffectOptions
 ): void {
   runEffects = runUserEffects;
