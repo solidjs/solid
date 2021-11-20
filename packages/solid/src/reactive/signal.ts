@@ -53,13 +53,13 @@ export interface Owner {
   componentName?: string;
 }
 
-export interface Computation<T extends U, U = T> extends Owner {
-  fn: EffectFunction<T, U>;
+export interface Computation<Init, Next = Init> extends Owner {
+  fn: EffectFunction<Init, Next>;
   state: number;
   tState?: number;
-  sources: SignalState<T>[] | null;
+  sources: SignalState<Next>[] | null;
   sourceSlots: number[] | null;
-  value?: U;
+  value?: Init;
   updatedAt: number | null;
   pure: boolean;
   user?: boolean;
@@ -192,9 +192,9 @@ export type EffectFunction2<Prev, Next> = (v: Prev) => Next;
 /**
  * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
  * ```typescript
- * export function createComputed<T>(
- *   fn: (v: T) => T,
- *   value?: T,
+ * export function createComputed<Init, Next = Init>(
+ *   fn: (v: Init | Next) => Next,
+ *   value?: Init,
  *   options?: { name?: string }
  * ): void;
  * ```
@@ -214,9 +214,9 @@ export function createComputed<Init, Next = Init>(
   value: Init,
   options?: EffectOptions
 ): void;
-export function createComputed(
-  fn: EffectFunction2<unknown, unknown>,
-  value?: unknown,
+export function createComputed<Init, Next = Init>(
+  fn: EffectFunction2<Init | Next, Next>,
+  value: Init,
   options?: EffectOptions
 ): void {
   updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
@@ -304,7 +304,7 @@ export interface MemoOptions<T> extends EffectOptions {
 }
 
 // Also similar to OnFunction
-export type EffectFunction<T extends U = any, U = T> = (v: U) => T;
+export type EffectFunction<Init, Next = Init> = (v: Init | Next) => Next;
 export type OptionalEffectFunction<T extends U = any, U = T> = (v?: U) => T;
 
 /**
@@ -564,7 +564,7 @@ export interface DeferredOptions<T> {
 export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions<T>) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const node = createComputation<T, T | undefined>(
+  const node = createComputation<T | undefined, T>(
     () => {
       if (!t || !t.fn)
         t = requestCallback(
@@ -614,7 +614,7 @@ export function createSelector<T, U>(
   options?: BaseOptions
 ): (key: U) => boolean {
   const subs = new Map<U, Set<Computation<any>>>();
-  const node = createComputation<T, T | undefined>(
+  const node = createComputation<T | undefined, T>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
@@ -762,7 +762,7 @@ export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], T ext
   deps: S,
   fn: OnFunction<S, T, U | undefined>,
   options?: OnOptions
-): EffectFunction<NoInfer<T>, NoInfer<U> | undefined> {
+): EffectFunction<NoInfer<U> | undefined, NoInfer<T>> {
   const isArray = Array.isArray(deps);
   let prevInput: ReturnTypes<S>;
   let defer = options && options.defer;
@@ -1167,14 +1167,14 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
 }
 
-function createComputation<T extends U, U = T>(
-  fn: EffectFunction<T, U>,
-  init: U,
+function createComputation<Init, Next = Init>(
+  fn: EffectFunction<Init, Next>,
+  init: Init,
   pure: boolean,
   state: number = STALE,
   options?: EffectOptions
-): Computation<T, U> {
-  const c: Computation<T, U> = {
+): Computation<Init, Next> {
+  const c: Computation<Init, Next> = {
     fn,
     state: state,
     updatedAt: null,
@@ -1199,9 +1199,9 @@ function createComputation<T extends U, U = T>(
         "computations created outside a `createRoot` or `render` will never be disposed"
       );
   else if (Owner !== UNOWNED) {
-    if (Transition && Transition.running && (Owner as Memo<T>).pure) {
-      if (!(Owner as Memo<T>).tOwned) (Owner as Memo<T>).tOwned = [c];
-      else (Owner as Memo<T>).tOwned!.push(c);
+    if (Transition && Transition.running && (Owner as Memo<Next>).pure) {
+      if (!(Owner as Memo<Next>).tOwned) (Owner as Memo<Next>).tOwned = [c];
+      else (Owner as Memo<Next>).tOwned!.push(c);
     } else {
       if (!Owner.owned) Owner.owned = [c];
       else Owner.owned.push(c);
@@ -1210,7 +1210,7 @@ function createComputation<T extends U, U = T>(
       c.name =
         (options && options.name) ||
         `${(Owner as Computation<any>).name || "c"}-${
-          (Owner.owned || (Owner as Memo<T>).tOwned!).length
+          (Owner.owned || (Owner as Memo<Next>).tOwned!).length
         }`;
   }
 
