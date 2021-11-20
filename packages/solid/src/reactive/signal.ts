@@ -53,13 +53,13 @@ export interface Owner {
   componentName?: string;
 }
 
-export interface Computation<T extends U, U = T> extends Owner {
-  fn: EffectFunction<T, U>;
+export interface Computation<Next, Init = Next> extends Owner {
+  fn: EffectFunction<Next, Init>;
   state: number;
   tState?: number;
-  sources: SignalState<T>[] | null;
+  sources: SignalState<Next>[] | null;
   sourceSlots: number[] | null;
-  value?: U;
+  value?: Init;
   updatedAt: number | null;
   pure: boolean;
   user?: boolean;
@@ -187,8 +187,6 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 
 export interface EffectOptions extends BaseOptions {}
 
-export type EffectFunction2<Prev, Next> = (v: Prev) => Next;
-
 /**
  * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
  * ```typescript
@@ -205,18 +203,18 @@ export type EffectFunction2<Prev, Next> = (v: Prev) => Next;
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
 export function createComputed<Next>(
-  fn: EffectFunction2<undefined | Next, undefined | Next>,
+  fn: EffectFunction<undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
-export function createComputed<Init, Next = Init>(
-  fn: EffectFunction2<Init | Next, Next>,
+export function createComputed<Next, Init = Next>(
+  fn: EffectFunction<Next, Init>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createComputed(
-  fn: EffectFunction2<unknown, unknown>,
-  value?: unknown,
+export function createComputed<Next, Init>(
+  fn: EffectFunction<Next, Init>,
+  value: Init,
   options?: EffectOptions
 ): void {
   updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
@@ -238,18 +236,18 @@ export function createComputed(
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
 export function createRenderEffect<Next>(
-  fn: EffectFunction2<undefined | Next, undefined | Next>,
+  fn: EffectFunction<undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<Init, Next = Init>(
-  fn: EffectFunction2<Init | Next, Next>,
+export function createRenderEffect<Next, Init = Next>(
+  fn: EffectFunction<Next, Init>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createRenderEffect(
-  fn: EffectFunction2<unknown, unknown>,
-  value?: unknown,
+export function createRenderEffect<Next, Init>(
+  fn: EffectFunction<Next, Init>,
+  value: Init,
   options?: EffectOptions
 ): void {
   updateComputation(
@@ -273,18 +271,18 @@ export function createRenderEffect(
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
 export function createEffect<Next>(
-  fn: EffectFunction2<undefined | Next, undefined | Next>,
+  fn: EffectFunction<undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
-export function createEffect<Init, Next = Init>(
-  fn: EffectFunction2<Init | Next, Next>,
+export function createEffect<Next, Init = Next>(
+  fn: EffectFunction<Next, Init>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createEffect(
-  fn: EffectFunction2<unknown, unknown>,
-  value?: unknown,
+export function createEffect<Next, Init>(
+  fn: EffectFunction<Next, Init>,
+  value: Init,
   options?: EffectOptions
 ): void {
   runEffects = runUserEffects;
@@ -304,8 +302,7 @@ export interface MemoOptions<T> extends EffectOptions {
 }
 
 // Also similar to OnFunction
-export type EffectFunction<T extends U = any, U = T> = (v: U) => T;
-export type OptionalEffectFunction<T extends U = any, U = T> = (v?: U) => T;
+export type EffectFunction<Next, Init = Next> = (v: Init | Next) => Next;
 
 /**
  * Creates a readonly derived reactive memoized signal
@@ -322,37 +319,37 @@ export type OptionalEffectFunction<T extends U = any, U = T> = (v?: U) => T;
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<T>(
-  fn: OptionalEffectFunction<T, NoInfer<T>>,
-  value?: T,
-  options?: MemoOptions<T>
-): Accessor<T>;
-export function createMemo<T>(
-  fn: EffectFunction<T>,
-  value: T,
-  options?: MemoOptions<T>
-): Accessor<T>;
-export function createMemo<T>(
-  fn: OptionalEffectFunction<T, NoInfer<T>>,
-  value?: T,
-  options?: MemoOptions<T>
-): Accessor<T> {
+export function createMemo<Next>(
+  fn: EffectFunction<Next | undefined>,
+  value?: undefined,
+  options?: MemoOptions<Next>
+): Accessor<Next>;
+export function createMemo<Next>(
+  fn: EffectFunction<Next>,
+  value: Next,
+  options?: MemoOptions<Next>
+): Accessor<Next>;
+export function createMemo<Next>(
+  fn: EffectFunction<Next>,
+  value: Next,
+  options?: MemoOptions<Next>
+): Accessor<Next> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
-  const c: Partial<Memo<T>> = createComputation(
+  const c: Partial<Memo<Next>> = createComputation(
     fn,
     value,
     true,
     0,
     "_SOLID_DEV_" ? options : undefined
-  ) as Partial<Memo<T>>;
+  ) as Partial<Memo<Next>>;
 
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
-  updateComputation(c as Memo<T>);
-  return readSignal.bind(c as Memo<T>);
+  updateComputation(c as Memo<Next>);
+  return readSignal.bind(c as Memo<Next>);
 }
 
 export interface Resource<T> extends Accessor<T> {
@@ -1167,14 +1164,14 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
 }
 
-function createComputation<T extends U, U = T>(
-  fn: EffectFunction<T, U>,
-  init: U,
+function createComputation<Next, Init = Next>(
+  fn: EffectFunction<Next, Init>,
+  init: Init,
   pure: boolean,
   state: number = STALE,
   options?: EffectOptions
-): Computation<T, U> {
-  const c: Computation<T, U> = {
+): Computation<Next, Init> {
+  const c: Computation<Next, Init> = {
     fn,
     state: state,
     updatedAt: null,
@@ -1199,9 +1196,9 @@ function createComputation<T extends U, U = T>(
         "computations created outside a `createRoot` or `render` will never be disposed"
       );
   else if (Owner !== UNOWNED) {
-    if (Transition && Transition.running && (Owner as Memo<T>).pure) {
-      if (!(Owner as Memo<T>).tOwned) (Owner as Memo<T>).tOwned = [c];
-      else (Owner as Memo<T>).tOwned!.push(c);
+    if (Transition && Transition.running && (Owner as Memo<Next>).pure) {
+      if (!(Owner as Memo<Next>).tOwned) (Owner as Memo<Next>).tOwned = [c];
+      else (Owner as Memo<Next>).tOwned!.push(c);
     } else {
       if (!Owner.owned) Owner.owned = [c];
       else Owner.owned.push(c);
@@ -1210,7 +1207,7 @@ function createComputation<T extends U, U = T>(
       c.name =
         (options && options.name) ||
         `${(Owner as Computation<any>).name || "c"}-${
-          (Owner.owned || (Owner as Memo<T>).tOwned!).length
+          (Owner.owned || (Owner as Memo<Next>).tOwned!).length
         }`;
   }
 
