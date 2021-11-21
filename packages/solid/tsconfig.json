@@ -3,6 +3,12 @@
   "compilerOptions": {
     "outDir": "./types"
   },
-  "include": ["./src"],
-  "exclude": ["./src/static"]
+  // "include": ["./src"],
+  "include": [
+    "./src",
+    "./test"
+  ],
+  "exclude": [
+    "./src/static"
+  ]
 }

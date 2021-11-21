@@ -206,15 +206,15 @@ export type _EffectFunction<Prev, Next = Prev> = (v: Prev | Next) => Next;
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
-export function createComputed<Next>(
-  fn: EffectFunction<undefined | Next, undefined | Next>,
-  value?: undefined,
-  options?: EffectOptions
-): void;
 export function createComputed<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
+): void;
+export function createComputed<Init, Next = Init>(
+  ..._: undefined extends Init
+    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
+    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
 ): void;
 export function createComputed<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
@@ -239,15 +239,15 @@ export function createComputed<Init, Next = Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
-export function createRenderEffect<Next>(
-  fn: EffectFunction<undefined | Next, undefined | Next>,
-  value?: undefined,
-  options?: EffectOptions
-): void;
 export function createRenderEffect<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
+): void;
+export function createRenderEffect<Init, Next = Init>(
+  ..._: undefined extends Init
+    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
+    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
 ): void;
 export function createRenderEffect<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
@@ -274,15 +274,15 @@ export function createRenderEffect<Init, Next = Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
-export function createEffect<Next>(
-  fn: EffectFunction<undefined | Next, undefined | Next>,
-  value?: undefined,
-  options?: EffectOptions
-): void;
 export function createEffect<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
+): void;
+export function createEffect<Init, Next = Init>(
+  ..._: undefined extends Init
+    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
+    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
 ): void;
 export function createEffect<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
@@ -320,15 +320,15 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<Next>(
-  fn: EffectFunction<undefined | Next, undefined | Next>,
-  value?: undefined,
-  options?: MemoOptions<Next>
-): Accessor<Next>;
 export function createMemo<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: MemoOptions<Next>
+): Accessor<Next>;
+export function createMemo<Init, Next = Init>(
+  ..._: undefined extends Init
+    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: MemoOptions<Next>]
+    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: MemoOptions<Next>]
 ): Accessor<Next>;
 export function createMemo<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
@@ -741,13 +741,7 @@ export interface OnOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#on
  */
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next>(
-  deps: S,
-  fn: OnEffectFunction<S, undefined | Next, undefined | Next>,
-  // value?: undefined,
-  options?: OnOptions
-): EffectFunction<NoInfer<Next>, NoInfer<Next>>;
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Init, Next = Init>(
+export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next, Init = unknown>(
   deps: S,
   fn: OnEffectFunction<S, Init | Next, Next>,
   // value: Init,
