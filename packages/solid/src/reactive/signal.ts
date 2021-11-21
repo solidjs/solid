@@ -57,7 +57,7 @@ export interface Computation<Next, Init = Next> extends Owner {
   fn: EffectFunction<Next, Init>;
   state: number;
   tState?: number;
-  sources: SignalState<Next>[] | null;
+  sources: SignalState<unknown>[] | null;
   sourceSlots: number[] | null;
   value?: Init;
   updatedAt: number | null;
