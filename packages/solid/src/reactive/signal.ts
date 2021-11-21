@@ -59,7 +59,7 @@ export interface Computation<Next, Init = Next> extends Owner {
   tState?: number;
   sources: SignalState<unknown>[] | null;
   sourceSlots: number[] | null;
-  value?: Init;
+  value?: Init | Next;
   updatedAt: number | null;
   pure: boolean;
   user?: boolean;
@@ -203,8 +203,18 @@ export interface EffectOptions extends BaseOptions {}
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
 export function createComputed<Next>(
-  fn: EffectFunction<undefined | Next>,
+  fn: (v: undefined | Next) => undefined | Next, // IMPORTANT: The EffectFunction alias prevents inference with `on`.
   value?: undefined,
+  options?: EffectOptions
+): void;
+export function createComputed<Next>(
+  fn: EffectFunction<undefined | Next, undefined | Next>,
+  value?: undefined,
+  options?: EffectOptions
+): void;
+export function createComputed<Next, Init = Next>(
+  fn: (v: Init | Next) => Next, // IMPORTANT: The EffectFunction alias prevents inference with `on`.
+  value: Init,
   options?: EffectOptions
 ): void;
 export function createComputed<Next, Init = Next>(
@@ -213,7 +223,7 @@ export function createComputed<Next, Init = Next>(
   options?: EffectOptions
 ): void;
 export function createComputed<Next, Init>(
-  fn: EffectFunction<Next, Init>,
+  fn: (v: Init | Next) => Next,
   value: Init,
   options?: EffectOptions
 ): void {
@@ -236,7 +246,7 @@ export function createComputed<Next, Init>(
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
 export function createRenderEffect<Next>(
-  fn: EffectFunction<undefined | Next>,
+  fn: EffectFunction<undefined | Next, undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
@@ -271,7 +281,7 @@ export function createRenderEffect<Next, Init>(
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
 export function createEffect<Next>(
-  fn: EffectFunction<undefined | Next>,
+  fn: EffectFunction<undefined | Next, undefined | Next>,
   value?: undefined,
   options?: EffectOptions
 ): void;
@@ -293,7 +303,7 @@ export function createEffect<Next, Init>(
   Effects && Effects.push(c);
 }
 
-interface Memo<T> extends SignalState<T>, Computation<T> {
+interface Memo<Next, Init = Next> extends SignalState<Init | Next>, Computation<Next, Init> {
   tOwned?: Computation<any>[];
 }
 
@@ -320,36 +330,36 @@ export type EffectFunction<Next, Init = Next> = (v: Init | Next) => Next;
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
 export function createMemo<Next>(
-  fn: EffectFunction<Next | undefined>,
+  fn: (v: Next | undefined) => Next,
   value?: undefined,
-  options?: MemoOptions<Next>
+  options?: MemoOptions<Next | undefined>
 ): Accessor<Next>;
-export function createMemo<Next>(
-  fn: EffectFunction<Next>,
-  value: Next,
-  options?: MemoOptions<Next>
+export function createMemo<Next, Init = Next>(
+  fn: (v: Init | Next) => Next,
+  value: Init,
+  options?: MemoOptions<Next | Init>
 ): Accessor<Next>;
-export function createMemo<Next>(
-  fn: EffectFunction<Next>,
-  value: Next,
-  options?: MemoOptions<Next>
+export function createMemo<Next, Init = Next>(
+  fn: EffectFunction<Next, Init>,
+  value: Init,
+  options?: MemoOptions<Next | Init>
 ): Accessor<Next> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
-  const c: Partial<Memo<Next>> = createComputation(
+  const c: Partial<Memo<Next, Init>> = createComputation(
     fn,
     value,
     true,
     0,
     "_SOLID_DEV_" ? options : undefined
-  ) as Partial<Memo<Next>>;
+  );
 
   c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
-  updateComputation(c as Memo<Next>);
-  return readSignal.bind(c as Memo<Next>);
+  updateComputation(c as Memo<Next, Init>);
+  return readSignal.bind(c as Memo<Next, Init>);
 }
 
 export interface Resource<T> extends Accessor<T> {
@@ -697,18 +707,22 @@ export function untrack<T>(fn: Accessor<T>): T {
   return result;
 }
 
-export type ReturnTypes<T> = T extends (() => any)[]
-  ? { [I in keyof T]: ReturnTypes<T[I]> }
-  : T extends () => any
-  ? ReturnType<T>
-  : never;
+export type ReturnTypes<
+  T extends ((...args: any) => any) | readonly ((...args: any) => any)[]
+> = T extends (...args: any) => infer R
+  ? R
+  : { [I in keyof T]: ReturnType<T[I] & ((...args: any) => any)> };
 
 // Also similar to EffectFunction
-export type OnFunction<S, T extends U, U = T> = (
-  input: ReturnTypes<S>,
-  prevInput: ReturnTypes<S>,
-  prevValue?: U
-) => T;
+export type OnFunction<
+  Bindings extends Accessor<unknown> | readonly Accessor<unknown>[],
+  Next,
+  Init = Next
+> = (
+  input: ReturnTypes<Bindings>,
+  prevInput: ReturnTypes<Bindings>,
+  prevValue?: Init | Next
+) => Next;
 
 export interface OnOptions {
   defer?: boolean;
@@ -755,26 +769,33 @@ export interface OnOptions {
 //   fn: OnFunction<S, T, U | undefined>,
 //   options?: OnOptions
 // ): EffectFunction<NoInfer<T>, NoInfer<U> | undefined> {
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], T extends U, U = T>(
-  deps: S,
-  fn: OnFunction<S, T, U | undefined>,
+
+export function on<
+	Bindings extends Accessor<unknown> | readonly Accessor<unknown>[] | readonly [],
+	Next,
+	Init = Next
+>(
+	deps: Bindings,
+	fn: OnFunction<Bindings, Next, Init | undefined>,
   options?: OnOptions
-): EffectFunction<NoInfer<T>, NoInfer<U> | undefined> {
+): EffectFunction<Next, Init | undefined> {
   const isArray = Array.isArray(deps);
-  let prevInput: ReturnTypes<S>;
+  let prevInput: ReturnTypes<Bindings>;
   let defer = options && options.defer;
-  return (prevValue: U | undefined) => {
-    let input: ReturnTypes<S>;
+  return (prevValue: Next | Init | undefined) => {
+    let input: ReturnTypes<Bindings>;
     if (isArray) {
       input = [] as TODO;
-      for (let i = 0; i < deps.length; i++) (input as TODO[]).push((deps as Array<() => S>)[i]());
-    } else input = (deps as () => S)() as TODO;
+      // TODO: this breaks on sparse arrays, deps structure is sparse, but
+      // input structure is compact.
+      for (let i = 0; i < deps.length; i++) (input as TODO[]).push((deps as ReadonlyArray<() => Bindings>)[i]());
+    } else input = (deps as () => Bindings)() as TODO;
     if (defer) {
       defer = false;
       // this aspect of first run on deferred is hidden from end user and should not affect types
-      return undefined as unknown as T;
+      return undefined as unknown as Next;
     }
-    const result = untrack<T>(() => fn(input, prevInput, prevValue));
+    const result = untrack<Next>(() => fn(input, prevInput, prevValue));
     prevInput = input;
     return result;
   };
