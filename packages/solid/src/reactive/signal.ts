@@ -341,17 +341,17 @@ export interface MemoOptions<T> extends EffectOptions {
 export function createMemo<Init, Next = Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
-  options?: EffectOptions
+  options?: MemoOptions<Next>
 ): Accessor<Next>;
 export function createMemo<Init, Next = Init>(
   ..._: (undefined extends Init ? [
     fn: EffectFunction<Init | Next, Next>,
     value?: Init,
-    options?: EffectOptions,
+    options?: MemoOptions<Next>
   ] : [
     fn: EffectFunction<Init | Next, Next>,
     value: Init,
-    options?: EffectOptions,
+    options?: MemoOptions<Next>
   ])
 ): Accessor<Next>;
 export function createMemo<Init, Next = Init>(
@@ -765,12 +765,6 @@ export interface OnOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#on
  */
-// export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next>(
-//   deps: S,
-//   fn: OnEffectFunction<S, undefined | Next, undefined | Next>,
-//   // value?: undefined,
-//   options?: OnOptions
-// ): EffectFunction<NoInfer<Next>, NoInfer<Next>>;
 export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next, Init = unknown>(
   deps: S,
   fn: OnEffectFunction<S, Init | Next, Next>,
