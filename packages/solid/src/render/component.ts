@@ -168,6 +168,9 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
           : {
               get() {
                 return props[key];
+              },
+              set() {
+                return true;
               }
             }
       );

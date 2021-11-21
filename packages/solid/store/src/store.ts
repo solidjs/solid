@@ -58,7 +58,7 @@ export function isWrappable(obj: any) {
   return (
     obj != null &&
     typeof obj === "object" &&
-    (!obj.__proto__ || obj.__proto__ === Object.prototype || Array.isArray(obj))
+    (obj[$PROXY] || !obj.__proto__ || obj.__proto__ === Object.prototype || Array.isArray(obj))
   );
 }
 

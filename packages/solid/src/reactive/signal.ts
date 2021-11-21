@@ -221,7 +221,9 @@ export function createComputed<Init, Next = Init>(
   value: Init,
   options?: EffectOptions
 ): void {
-  updateComputation(createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined));
+  const c = createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined);
+  if (Scheduler && Transition && Transition.running) Updates!.push(c);
+  else updateComputation(c);
 }
 
 /**
@@ -254,9 +256,9 @@ export function createRenderEffect<Init, Next = Init>(
   value: Init,
   options?: EffectOptions
 ): void {
-  updateComputation(
-    createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined)
-  );
+  const c = createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined);
+  if (Scheduler && Transition && Transition.running) Updates!.push(c);
+  else updateComputation(c);
 }
 
 /**
@@ -349,7 +351,10 @@ export function createMemo<Init, Next = Init>(
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
-  updateComputation(c as Memo<Init, Next>);
+  if (Scheduler && Transition && Transition.running) {
+    c.tState = STALE;
+    Updates!.push(c as Memo<Init, Next>);
+  } else updateComputation(c as Memo<Init, Next>);
   return readSignal.bind(c as Memo<Init, Next>);
 }
 
