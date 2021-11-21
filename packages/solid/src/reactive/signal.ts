@@ -33,13 +33,13 @@ declare global {
   var _$afterUpdate: () => void;
 }
 
-export interface SignalState<T> {
-  value?: T;
+export interface SignalState<Next extends Prev, Prev = Next> {
+  value?: Prev | Next;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
-  pending: T | {};
-  tValue?: T;
-  comparator?: (prev: T, next: T) => boolean;
+  pending: Next | {}; // TODO why Next | {} ?
+  tValue?: Prev | Next;
+  comparator?: (prev: Prev | Next, next: Next) => boolean;
   name?: string;
 }
 
@@ -53,13 +53,13 @@ export interface Owner {
   componentName?: string;
 }
 
-export interface Computation<Init, Next extends Init = Init> extends Owner {
-  fn: EffectFunction<Init, Next>;
+export interface Computation<Next extends Init, Init = Next> extends Owner {
+  fn: EffectFunction<Next, Init>;
   state: number;
   tState?: number;
   sources: SignalState<Next>[] | null;
   sourceSlots: number[] | null;
-  value?: Init;
+  value?: Init | Next;
   updatedAt: number | null;
   pure: boolean;
   user?: boolean;
@@ -188,8 +188,8 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 export interface EffectOptions extends BaseOptions {}
 
 // Also similar to OnFunction
-export type EffectFunction<Prev, Next extends Prev = Prev> = (v: Prev) => Next;
-export type _EffectFunction<Prev, Next = Prev> = (v: Prev | Next) => Next;
+export type EffectFunction<Next extends Prev, Prev = Next> = (v: Prev) => Next;
+export type _EffectFunction<Next, Prev = Next> = (v: Prev | Next) => Next;
 
 /**
  * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
@@ -206,18 +206,18 @@ export type _EffectFunction<Prev, Next = Prev> = (v: Prev | Next) => Next;
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
-export function createComputed<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createComputed<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createComputed<Init, Next = Init>(
+export function createComputed<Next, Init = Next>(
   ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
+    ? [fn: EffectFunction<Next, Init | Next>, value?: Init, options?: EffectOptions]
+    : [fn: EffectFunction<Next, Init | Next>, value: Init, options?: EffectOptions]
 ): void;
-export function createComputed<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createComputed<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: EffectOptions
 ): void {
@@ -241,18 +241,18 @@ export function createComputed<Init, Next = Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
-export function createRenderEffect<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createRenderEffect<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<Init, Next = Init>(
+export function createRenderEffect<Next, Init = Next>(
   ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
+    ? [fn: EffectFunction<Next, Init | Next>, value?: Init, options?: EffectOptions]
+    : [fn: EffectFunction<Next, Init | Next>, value: Init, options?: EffectOptions]
 ): void;
-export function createRenderEffect<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createRenderEffect<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: EffectOptions
 ): void {
@@ -276,18 +276,18 @@ export function createRenderEffect<Init, Next = Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
-export function createEffect<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createEffect<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createEffect<Init, Next = Init>(
+export function createEffect<Next, Init = Next>(
   ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
+    ? [fn: EffectFunction<Next, Init | Next>, value?: Init, options?: EffectOptions]
+    : [fn: EffectFunction<Next, Init | Next>, value: Init, options?: EffectOptions]
 ): void;
-export function createEffect<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createEffect<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: EffectOptions
 ): void {
@@ -299,8 +299,10 @@ export function createEffect<Init, Next = Init>(
   Effects && Effects.push(c);
 }
 
-interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
-  tOwned?: Computation<Prev | Next, Next>[];
+interface Memo<Next extends Prev, Prev = Next>
+  extends SignalState<Next, Prev>,
+    Computation<Next, Prev> {
+  tOwned?: Computation<Next, Prev | Next>[];
 }
 
 export interface MemoOptions<T> extends EffectOptions {
@@ -322,30 +324,30 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createMemo<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next>;
-export function createMemo<Init, Next = Init>(
+export function createMemo<Next, Init = Next>(
   ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: MemoOptions<Next>]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: MemoOptions<Next>]
+    ? [fn: EffectFunction<Next, Init | Next>, value?: Init, options?: MemoOptions<Next>]
+    : [fn: EffectFunction<Next, Init | Next>, value: Init, options?: MemoOptions<Next>]
 ): Accessor<Next>;
-export function createMemo<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createMemo<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   value: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
-  const c: Partial<Memo<Init, Next>> = createComputation(
+  const c: Partial<Memo<Next, Init>> = createComputation(
     fn,
     value,
     true,
     0,
     "_SOLID_DEV_" ? options : undefined
-  ) as Partial<Memo<Init, Next>>;
+  ) as Partial<Memo<Next, Init>>;
 
   c.pending = NOTPENDING;
   c.observers = null;
@@ -353,9 +355,9 @@ export function createMemo<Init, Next = Init>(
   c.comparator = options.equals || undefined;
   if (Scheduler && Transition && Transition.running) {
     c.tState = STALE;
-    Updates!.push(c as Memo<Init, Next>);
-  } else updateComputation(c as Memo<Init, Next>);
-  return readSignal.bind(c as Memo<Init, Next>);
+    Updates!.push(c as Memo<Next, Init>);
+  } else updateComputation(c as Memo<Next, Init>);
+  return readSignal.bind(c as Memo<Next, Init>);
 }
 
 export interface Resource<T> extends Accessor<T> {
@@ -751,13 +753,13 @@ export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next,
   fn: OnEffectFunction<S, Init | Next, Next>,
   // value: Init,
   options?: OnOptions
-): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>>;
+): EffectFunction<NoInfer<Next>, NoInfer<Init> | NoInfer<Next>>;
 export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Init, Next = Init>(
   deps: S,
   fn: OnEffectFunction<S, Init | Next, Next>,
   // value: Init,
   options?: OnOptions
-): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>> {
+): EffectFunction<NoInfer<Next>, NoInfer<Init> | NoInfer<Next>> {
   const isArray = Array.isArray(deps);
   let prevInput: ReturnTypes<S>;
   let defer = options && options.defer;
@@ -1162,14 +1164,14 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
 }
 
-function createComputation<Init, Next = Init>(
-  fn: EffectFunction<Init | Next, Next>,
+function createComputation<Next, Init = Next>(
+  fn: EffectFunction<Next, Init | Next>,
   init: Init,
   pure: boolean,
   state: number = STALE,
   options?: EffectOptions
-): Computation<Init | Next, Next> {
-  const c: Computation<Init | Next, Next> = {
+): Computation<Next, Init | Next> {
+  const c: Computation<Next, Init | Next> = {
     fn,
     state: state,
     updatedAt: null,
@@ -1194,9 +1196,9 @@ function createComputation<Init, Next = Init>(
         "computations created outside a `createRoot` or `render` will never be disposed"
       );
   else if (Owner !== UNOWNED) {
-    if (Transition && Transition.running && (Owner as Memo<Init, Next>).pure) {
-      if (!(Owner as Memo<Init, Next>).tOwned) (Owner as Memo<Init, Next>).tOwned = [c];
-      else (Owner as Memo<Init, Next>).tOwned!.push(c);
+    if (Transition && Transition.running && (Owner as Memo<Next, Init>).pure) {
+      if (!(Owner as Memo<Next, Init>).tOwned) (Owner as Memo<Next, Init>).tOwned = [c];
+      else (Owner as Memo<Next, Init>).tOwned!.push(c);
     } else {
       if (!Owner.owned) Owner.owned = [c];
       else Owner.owned.push(c);
@@ -1205,7 +1207,7 @@ function createComputation<Init, Next = Init>(
       c.name =
         (options && options.name) ||
         `${(Owner as Computation<any>).name || "c"}-${
-          (Owner.owned || (Owner as Memo<Init, Next>).tOwned!).length
+          (Owner.owned || (Owner as Memo<Next, Init>).tOwned!).length
         }`;
   }
 
