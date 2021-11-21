@@ -314,11 +314,11 @@ createMemo((num: number | undefined): number | undefined => 123);
 
 // FIXME return type should be `Accessor<number | undefined>`
 // Not sure how to write a test for this, becacuse `Accessor<number>` is assignable to `Accessor<number | undefined>`.
-const c1: Accessor<number | undefined> = createMemo(
-  (num?: number): number | undefined => undefined
-);
+const c1 = createMemo((num?: number): number | undefined => undefined);
 let n = c1();
-const n2 = n + 3; // n is undefined
+// FIXME n is undefined, but the return type of createMemo does not reflect this.
+// @ts-expect-error
+const n2 = n + 3;
 
 createMemo<number>((v: number | string): number => 123, 123);
 createMemo<number | string>((v: number | string): number => 123, 123);
