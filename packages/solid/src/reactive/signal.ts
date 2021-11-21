@@ -705,11 +705,11 @@ export type ReturnTypes<T> = T extends (() => any)[]
   : never;
 
 // Also similar to EffectFunction
-export type OnFunction<S, T extends U, U = T> = (
+export type OnEffectFunction<S, Prev, Next extends Prev = Prev> = (
   input: ReturnTypes<S>,
   prevInput: ReturnTypes<S>,
-  prevValue?: U
-) => T;
+  v: Prev
+) => Next;
 
 export interface OnOptions {
   defer?: boolean;
@@ -741,15 +741,28 @@ export interface OnOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#on
  */
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], T extends U, U = T>(
+export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next>(
   deps: S,
-  fn: OnFunction<S, T, U | undefined>,
+  fn: OnEffectFunction<S, undefined | Next, undefined | Next>,
+  // value?: undefined,
   options?: OnOptions
-): EffectFunction<NoInfer<U> | undefined, NoInfer<T>> {
+): EffectFunction<NoInfer<Next>, NoInfer<Next>>;
+export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Init, Next = Init>(
+  deps: S,
+  fn: OnEffectFunction<S, Init | Next, Next>,
+  // value: Init,
+  options?: OnOptions
+): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>>;
+export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Init, Next = Init>(
+  deps: S,
+  fn: OnEffectFunction<S, Init | Next, Next>,
+  // value: Init,
+  options?: OnOptions
+): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>> {
   const isArray = Array.isArray(deps);
   let prevInput: ReturnTypes<S>;
   let defer = options && options.defer;
-  return (prevValue: U | undefined) => {
+  return (prevValue: Init | Next) => {
     let input: ReturnTypes<S>;
     if (isArray) {
       input = [] as TODO;
@@ -758,9 +771,9 @@ export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], T ext
     if (defer) {
       defer = false;
       // this aspect of first run on deferred is hidden from end user and should not affect types
-      return undefined as unknown as T;
+      return undefined as unknown as Next;
     }
-    const result = untrack<T>(() => fn(input, prevInput, prevValue));
+    const result = untrack<Next>(() => fn(input, prevInput, prevValue));
     prevInput = input;
     return result;
   };
