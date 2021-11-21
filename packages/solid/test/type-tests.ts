@@ -1,4 +1,12 @@
-import { createEffect, createComputed, createRenderEffect, createMemo, Accessor, on } from "../src";
+import {
+  createEffect,
+  createComputed,
+  createRenderEffect,
+  createMemo,
+  Accessor,
+  on,
+  createSignal
+} from "../src";
 
 class Animal {
   #animal = null;
@@ -459,6 +467,33 @@ const m23: Accessor<number> = createMemo((v?: number | string): number => 123, u
 const m24: Accessor<number> =
   // @ts-expect-error true not assignable to number|string
   createMemo((v: number | string): number => 123, true);
+
+const [num, setN] = createSignal(1);
+const [bool, setBool] = createSignal(true);
+
+const a1: Accessor<number> = createMemo<number>(() => num());
+createEffect<number>(() => num());
+createComputed<number>(() => num());
+createRenderEffect<number>(() => num());
+
+const a2: Accessor<number | undefined> = createMemo<number | undefined>(() => num());
+createEffect<number | undefined>(() => num());
+createComputed<number | undefined>(() => num());
+createRenderEffect<number | undefined>(() => num());
+
+const a3: Accessor<number | boolean> = createMemo<number | boolean>(() => bool());
+createEffect<number | boolean>(() => bool());
+createComputed<number | boolean>(() => bool());
+createRenderEffect<number | boolean>(() => bool());
+
+const a4: Accessor<number | boolean> = createMemo<number | boolean>(() => bool(), false);
+createEffect<number | boolean>(() => bool(), false);
+createComputed<number | boolean>(() => bool(), false);
+createRenderEffect<number | boolean>(() => bool(), false);
+
+//////////////////////////////////////////////////////////////////////////
+// on ////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 
 const one = () => 123;
 const two = () => Boolean(Math.random());
