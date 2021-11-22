@@ -420,13 +420,11 @@ const m6: Accessor<number> = createMemo(() => 123, 123);
 const m7: Accessor<number | undefined> = createMemo(() => 123, undefined);
 const m8: Accessor<number> = createMemo((v: number) => 123, 123);
 const m9: Accessor<number | undefined> = createMemo((v?: number) => 123, undefined);
-// @ts-expect-error void can't be assigned to anything!
 const m10: Accessor<number | undefined> = createMemo<number | undefined>(
   // @ts-expect-error void can't be assigned to anything!
   (v?: number) => {},
   123
 );
-// @ts-expect-error void can't be assigned to anything!
 const m11: Accessor<number | undefined> = createMemo<number | undefined>(
   // @ts-expect-error void can't be assigned to anything!
   v => {},

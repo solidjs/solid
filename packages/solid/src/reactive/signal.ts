@@ -194,7 +194,7 @@ export type _EffectFunction<Prev, Next = Prev> = (v: Prev | Next) => Next;
 /**
  * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
  * ```typescript
- * export function createComputed<Init, Next = Init>(
+ * export function createComputed<Next, Init = Next>(
  *   fn: (v: Init | Next) => Next,
  *   value?: Init,
  *   options?: { name?: string }
@@ -206,17 +206,17 @@ export type _EffectFunction<Prev, Next = Prev> = (v: Prev | Next) => Next;
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
-export function createComputed<Init, Next = Init>(
+export function createComputed<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createComputed<Init, Next = Init>(
+export function createComputed<Next, Init = undefined>(
   ..._: undefined extends Init
     ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
     : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
 ): void;
-export function createComputed<Init, Next = Init>(
+export function createComputed<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
@@ -241,17 +241,17 @@ export function createComputed<Init, Next = Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
-export function createRenderEffect<Init, Next = Init>(
+export function createRenderEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<Init, Next = Init>(
+export function createRenderEffect<Next, Init = undefined>(
   ..._: undefined extends Init
     ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
     : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
 ): void;
-export function createRenderEffect<Init, Next = Init>(
+export function createRenderEffect<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
@@ -276,17 +276,17 @@ export function createRenderEffect<Init, Next = Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
-export function createEffect<Init, Next = Init>(
+export function createEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createEffect<Init, Next = Init>(
+export function createEffect<Next, Init = undefined>(
   ..._: undefined extends Init
     ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
     : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
 ): void;
-export function createEffect<Init, Next = Init>(
+export function createEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
@@ -322,17 +322,17 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<Init, Next = Init>(
+export function createMemo<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next>;
-export function createMemo<Init, Next = Init>(
+export function createMemo<Next, Init = undefined>(
   ..._: undefined extends Init
     ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: MemoOptions<Next>]
     : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: MemoOptions<Next>]
 ): Accessor<Next>;
-export function createMemo<Init, Next = Init>(
+export function createMemo<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: MemoOptions<Next>
@@ -567,7 +567,7 @@ export interface DeferredOptions<T> {
 export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions<T>) {
   let t: Task,
     timeout = options ? options.timeoutMs : undefined;
-  const node = createComputation<T | undefined, T>(
+  const node = createComputation(
     () => {
       if (!t || !t.fn)
         t = requestCallback(
@@ -617,7 +617,7 @@ export function createSelector<T, U>(
   options?: BaseOptions
 ): (key: U) => boolean {
   const subs = new Map<U, Set<Computation<any>>>();
-  const node = createComputation<T | undefined, T>(
+  const node = createComputation(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
@@ -752,7 +752,7 @@ export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next,
   // value: Init,
   options?: OnOptions
 ): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>>;
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Init, Next = Init>(
+export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next, Init = unknown>(
   deps: S,
   fn: OnEffectFunction<S, Init | Next, Next>,
   // value: Init,
@@ -1162,7 +1162,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   }
 }
 
-function createComputation<Init, Next = Init>(
+function createComputation<Next, Init = unknown>(
   fn: EffectFunction<Init | Next, Next>,
   init: Init,
   pure: boolean,
