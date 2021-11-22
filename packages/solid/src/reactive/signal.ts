@@ -893,7 +893,7 @@ export function resumeEffects(e: Computation<any>[]) {
 
 // Dev
 export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
-  const c: Partial<Memo<JSX.Element>> = createComputation<JSX.Element>(
+  const c: Partial<Memo<JSX.Element, JSX.Element>> = createComputation<JSX.Element, JSX.Element>(
     () => untrack(() => Comp(props)),
     undefined,
     true
