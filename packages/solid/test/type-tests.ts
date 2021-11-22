@@ -466,28 +466,10 @@ const m24: Accessor<number> =
   // @ts-expect-error true not assignable to number|string
   createMemo((v: number | string): number => 123, true);
 
-const [num, setN] = createSignal(1);
-const [bool, setBool] = createSignal(true);
-
-const a1: Accessor<number> = createMemo<number>(() => num());
-createEffect<number>(() => num());
-createComputed<number>(() => num());
-createRenderEffect<number>(() => num());
-
-const a2: Accessor<number | undefined> = createMemo<number | undefined>(() => num());
-createEffect<number | undefined>(() => num());
-createComputed<number | undefined>(() => num());
-createRenderEffect<number | undefined>(() => num());
-
-const a3: Accessor<number | boolean> = createMemo<number | boolean>(() => bool());
-createEffect<number | boolean>(() => bool());
-createComputed<number | boolean>(() => bool());
-createRenderEffect<number | boolean>(() => bool());
-
-const a4: Accessor<number | boolean> = createMemo<number | boolean>(() => bool(), false);
-createEffect<number | boolean>(() => bool(), false);
-createComputed<number | boolean>(() => bool(), false);
-createRenderEffect<number | boolean>(() => bool(), false);
+const asdf = createMemo<number | undefined>(() => num());
+// @ts-expect-error Accessor<number | undefined> is not assignable to Accessor<number>
+const asdf2: //
+Accessor<number> = asdf;
 
 //////////////////////////////////////////////////////////////////////////
 // on ////////////////////////////////////////////////////////////////////
@@ -504,5 +486,188 @@ const ef = on([one, two], ([one, two], [prevOne, prevTwo], computed): number => 
   const _computed: number = computed;
   return one + +two;
 });
+
+//////////////////////////////////////////////////////////////////////////
+// test explicit generic args ////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+const [num, setN] = createSignal(1);
+const [bool, setBool] = createSignal(true);
+
+const a1: Accessor<number> = createMemo<number>(() => num());
+createEffect<number>(() => num());
+createComputed<number>(() => num());
+createRenderEffect<number>(() => num());
+
+const a11: Accessor<number> = createMemo<number>((v?: number) => num());
+createEffect<number>((v?: number) => num());
+createComputed<number>((v?: number) => num());
+createRenderEffect<number>((v?: number) => num());
+
+const a12: Accessor<number> = createMemo<number>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createEffect<number>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createComputed<number>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createRenderEffect<number>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+
+//
+
+const a2: Accessor<number | undefined> = createMemo<number | undefined>(() => num());
+createEffect<number | undefined>(() => num());
+createComputed<number | undefined>(() => num());
+createRenderEffect<number | undefined>(() => num());
+
+const a21: Accessor<number | undefined> = createMemo<number | undefined>((v?: number) => num());
+createEffect<number | undefined>((v?: number) => num());
+createComputed<number | undefined>((v?: number) => num());
+createRenderEffect<number | undefined>((v?: number) => num());
+
+const a22: Accessor<number | undefined> = createMemo<number | undefined>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createEffect<number | undefined>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createComputed<number | undefined>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createRenderEffect<number | undefined>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+
+//
+
+const a3: Accessor<number | boolean> = createMemo<number | boolean>(() => bool());
+createEffect<number | boolean>(() => bool());
+createComputed<number | boolean>(() => bool());
+createRenderEffect<number | boolean>(() => bool());
+
+// FIXME
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+const a31: Accessor<number | boolean> = createMemo<number | boolean>((v?: number) => num());
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+createEffect<number | boolean>((v?: number) => num());
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+createComputed<number | boolean>((v?: number) => num());
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+createRenderEffect<number | boolean>((v?: number) => num());
+
+const a32: Accessor<number | boolean> = createMemo<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createEffect<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createComputed<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createRenderEffect<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+
+//
+
+const a4: Accessor<number | boolean> = createMemo<number | boolean>(() => bool());
+createEffect<number | boolean>(() => bool());
+createComputed<number | boolean>(() => bool());
+createRenderEffect<number | boolean>(() => bool());
+
+// FIXME
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+const a41: Accessor<number | boolean> = createMemo<number | boolean>((v?: number) => num());
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+createEffect<number | boolean>((v?: number) => num());
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+createComputed<number | boolean>((v?: number) => num());
+// @ts-expect-error this rare edge cases is not handled yet. The number return from the effect function should be assignable to number|boolean, while the initial value should be inferred as number|undefined.
+createRenderEffect<number | boolean>((v?: number) => num());
+
+const a42: Accessor<number | boolean> = createMemo<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createEffect<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createComputed<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+createRenderEffect<number | boolean>(
+  // @ts-expect-error the function accepts only `number` but the initial value will be `undefined`.
+  (v: number) => num()
+);
+
+//
+
+const a5: Accessor<number | boolean> = createMemo<number | boolean>(() => bool(), false);
+createEffect<number | boolean>(() => bool(), false);
+createComputed<number | boolean>(() => bool(), false);
+createRenderEffect<number | boolean>(() => bool(), false);
+
+// 👽
+const a51: Accessor<number | boolean> = createMemo<number | boolean>(
+  () => bool(),
+  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  "foo"
+);
+createEffect<number | boolean>(
+  () => bool(),
+  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  "foo"
+);
+createComputed<number | boolean>(
+  () => bool(),
+  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  "foo"
+);
+createRenderEffect<number | boolean>(
+  () => bool(),
+  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  "foo"
+);
+
+//
+
+const a6: Accessor<number | boolean> = createMemo<number | boolean>(
+  () =>
+    // @ts-expect-error string return is not assignable to number|boolean
+    "foo"
+);
+createEffect<number | boolean>(
+  () =>
+    // @ts-expect-error string return is not assignable to number|boolean
+    "foo"
+);
+createComputed<number | boolean>(
+  () =>
+    // @ts-expect-error string return is not assignable to number|boolean
+    "foo"
+);
+createRenderEffect<number | boolean>(
+  () =>
+    // @ts-expect-error string return is not assignable to number|boolean
+    "foo"
+);
 
 // more type tests...
