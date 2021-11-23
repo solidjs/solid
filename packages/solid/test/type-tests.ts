@@ -407,7 +407,6 @@ const m2: Accessor<number | undefined> = createMemo(() => 123);
 const m3: //
 Accessor<undefined> = createMemo(() => {});
 const m4: Accessor<void> = createMemo(() => {});
-// @ts-expect-error void can't be assigned to anything!
 const m5: Accessor<number | undefined> = createMemo(
   // @ts-expect-error void can't be assigned to anything!
   (v?: number) => {}
@@ -430,7 +429,6 @@ const m11: Accessor<number | undefined> = createMemo<number | undefined>(
   v => {},
   123
 );
-// @ts-expect-error void can't be assigned to anything!
 const m12: Accessor<number | undefined> = createMemo(
   // @ts-expect-error void can't be assigned to anything!
   (v?: number) => {},
@@ -454,6 +452,7 @@ const m18: Accessor<number> =
 const m19: Accessor<number> =
   // @ts-expect-error undefined initial value is not assignable to the number parameter
   createMemo((v: number | string): number => 123);
+// @ts-expect-error because the number return cannot be assigned to the boolean|string parameter
 const m20: Accessor<number> =
   // @ts-expect-error because the number return cannot be assigned to the boolean|string parameter
   createMemo((v: boolean | string): number => 123);
@@ -646,6 +645,20 @@ createRenderEffect<number | boolean>(
   // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
   "foo"
 );
+
+const mv1 = createMemo(_prev => {
+  return "hello";
+}, "init");
+const mv1t: string = mv1();
+
+const mv2 = createMemo(_prev => {
+  return "hello";
+});
+const mv2t: string = mv1();
+
+//////////////////////////////////////////////////////////////////////////
+// on ////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 
 //
 

@@ -322,18 +322,18 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-export function createMemo<Next, Init = Next>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createMemo<Next extends _Next, Init = Next, _Next = Next>(
+  fn: EffectFunction<Init | _Next, Next>,
   value: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next>;
-export function createMemo<Next, Init = undefined>(
+export function createMemo<Next extends _Next, Init = undefined, _Next = Next>(
   ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: MemoOptions<Next>]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: MemoOptions<Next>]
+    ? [fn: EffectFunction<Init | _Next, Next>, value?: Init, options?: MemoOptions<Next>]
+    : [fn: EffectFunction<Init | _Next, Next>, value: Init, options?: MemoOptions<Next>]
 ): Accessor<Next>;
-export function createMemo<Next, Init>(
-  fn: EffectFunction<Init | Next, Next>,
+export function createMemo<Next extends _Next, Init, _Next>(
+  fn: EffectFunction<Init | _Next, Next>,
   value: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
