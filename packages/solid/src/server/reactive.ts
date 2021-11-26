@@ -249,3 +249,7 @@ export function from<T>(producer: ((setter: Setter<T>) =>  () => void) | {
   }
   return s;
 }
+
+export function enableExternalSource(factory: any) {
+
+}
