@@ -25,6 +25,7 @@ const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: Transition | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
+let ExternalSourceFactory: ExternalSourceFactory | null = null;
 let Listener: Computation<any> | null = null;
 let Pending: Signal<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
@@ -83,6 +84,8 @@ interface Transition {
   running: boolean;
   cb: (() => void)[];
 }
+
+type ExternalSourceFactory = <T>(fn: (v?: T) => T, trigger: () => void) => (v?: T) => T;
 
 /**
  * Creates a new non-tracked reactive context that doesn't auto-dispose
@@ -955,6 +958,16 @@ export function getSuspenseContext() {
   return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>({}));
 }
 
+// Interop
+export function enableExternalSource(factory: ExternalSourceFactory) {
+  if (ExternalSourceFactory) {
+    const original = ExternalSourceFactory;
+    ExternalSourceFactory = (fn, trigger) => original(factory(fn, trigger), trigger);
+  } else {
+    ExternalSourceFactory = factory;
+  }
+}
+
 // Internal
 export function readSignal(this: Signal<any> | Memo<any>) {
   const runningTransition = Transition && Transition.running;
@@ -1125,6 +1138,14 @@ function createComputation<T>(
         `${(Owner as Computation<any>).name || "c"}-${
           (Owner.owned || (Owner as Memo<T>).tOwned!).length
         }`;
+  }
+  if (ExternalSourceFactory) {
+    const [track, trigger] = createSignal<void>(undefined, { equals: false });
+    const patchedFn = ExternalSourceFactory(c.fn, trigger);
+    c.fn = x => {
+      track();
+      return patchedFn(x);
+    };
   }
   return c;
 }
