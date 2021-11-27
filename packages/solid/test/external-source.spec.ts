@@ -13,8 +13,8 @@ class ExternalSource<T = any> {
   }
 
   get() {
-    this.listeners.add(listener);
-    sources.get(listener).add(this);
+    this.listeners.add(listener!);
+    sources.get(listener!)!.add(this);
     return this.value;
   }
 
@@ -30,7 +30,7 @@ let sources: Map<() => void, Set<ExternalSource>> = new Map();
 enableExternalSource((fn, trigger) => {
   sources.set(trigger, new Set());
   onCleanup(() => {
-    sources.get(trigger).forEach(x => x.removeListener(trigger));
+    sources.get(trigger)!.forEach(x => x.removeListener(trigger));
     sources.delete(trigger);
   });
   return x => {
