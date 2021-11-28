@@ -6,6 +6,7 @@ import {
   Accessor,
   on,
   createSignal
+  // } from "../types/index";
 } from "../src";
 
 class Animal {
@@ -18,6 +19,46 @@ class Dog extends Animal {
 //////////////////////////////////////////////////////////////////////////
 // createEffect ////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
+
+createEffect(() => {
+  return "hello";
+}, "init");
+
+createEffect(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+
+createEffect((prev: string) => {
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+
+createEffect(() => {
+  return "hello";
+}, 123);
+
+createEffect(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string = prev;
+  return p + "hello";
+}, 123);
+
+createEffect((prev: number | string) => {
+  const p: number | string = prev;
+  return p + "hello";
+}, 123);
+
+createEffect(() => {
+  return "hello";
+});
+
+createEffect(_prev => {
+  return "hello";
+});
+
+createEffect(_prev => {});
 
 createEffect((v: number | string): number => 123, "asdf");
 
@@ -112,6 +153,46 @@ createEffect((v?: number) => {}, 123);
 // createComputed ////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
+createComputed(() => {
+  return "hello";
+}, "init");
+
+createComputed(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+
+createComputed((prev: string) => {
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+
+createComputed(() => {
+  return "hello";
+}, 123);
+
+createComputed(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string = prev;
+  return p + "hello";
+}, 123);
+
+createComputed((prev: number | string) => {
+  const p: number | string = prev;
+  return p + "hello";
+}, 123);
+
+createComputed(() => {
+  return "hello";
+});
+
+createComputed(_prev => {
+  return "hello";
+});
+
+createComputed(_prev => {});
+
 createComputed((v: number | string): number => 123, "asdf");
 
 createComputed((num: number | undefined): number | undefined => 123);
@@ -204,6 +285,46 @@ createComputed((v?: number) => {}, 123);
 //////////////////////////////////////////////////////////////////////////
 // createRenderEffect ////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
+
+createRenderEffect(() => {
+  return "hello";
+}, "init");
+
+createRenderEffect(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+
+createRenderEffect((prev: string) => {
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+
+createRenderEffect(() => {
+  return "hello";
+}, 123);
+
+createRenderEffect(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string = prev;
+  return p + "hello";
+}, 123);
+
+createRenderEffect((prev: number | string) => {
+  const p: number | string = prev;
+  return p + "hello";
+}, 123);
+
+createRenderEffect(() => {
+  return "hello";
+});
+
+createRenderEffect(_prev => {
+  return "hello";
+});
+
+createRenderEffect(_prev => {});
 
 createRenderEffect((v: number | string): number => 123, "asdf");
 
@@ -335,6 +456,58 @@ createMemo<number | boolean>(
 createMemo((v: number | string): number => 123, "asdf");
 
 createMemo((v: number) => 123, 123);
+
+const mv0 = createMemo(() => {
+  return "hello";
+}, "init");
+const mv0t: string = mv0();
+
+const mv1 = createMemo(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+const mv1t: string = mv1();
+
+const mv11 = createMemo((prev: string) => {
+  const p: string = prev;
+  return p + "hello";
+}, "init");
+const mv11t: string = mv11();
+
+const mv2 = createMemo(() => {
+  return "hello";
+}, 123);
+const mv2t: string = mv2();
+
+const mv3 = createMemo(prev => {
+  // @ts-expect-error FIXME prev is inferred as unknown, so not assignable to string|number. Can we make it inferred?
+  const p: string | number = prev;
+  return p + "hello";
+}, 123);
+const mv3t: string = mv3();
+
+const mv31 = createMemo((prev: string | number) => {
+  const p: string | number = prev;
+  return p + "hello";
+}, 123);
+const mv31t: string = mv31();
+
+const mv4 = createMemo(() => {
+  return "hello";
+});
+const mv4t: string = mv4();
+
+const mv5 = createMemo(_prev => {
+  return "hello";
+});
+const mv5t: string = mv5();
+
+const mv6 = createMemo(() => {});
+const mv6t: void = mv6();
+
+const mv7 = createMemo(_prev => {});
+const mv7t: void = mv7();
 
 const v1 = createMemo(
   (v?: number) => {
@@ -645,16 +818,6 @@ createRenderEffect<number | boolean>(
   // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
   "foo"
 );
-
-const mv1 = createMemo(_prev => {
-  return "hello";
-}, "init");
-const mv1t: string = mv1();
-
-const mv2 = createMemo(_prev => {
-  return "hello";
-});
-const mv2t: string = mv1();
 
 //////////////////////////////////////////////////////////////////////////
 // on ////////////////////////////////////////////////////////////////////
