@@ -187,9 +187,8 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 
 export interface EffectOptions extends BaseOptions {}
 
-// Also similar to OnFunction
+// Also similar to OnEffectFunction
 export type EffectFunction<Prev, Next extends Prev = Prev> = (v: Prev) => Next;
-export type _EffectFunction<Prev, Next = Prev> = (v: Prev | Next) => Next;
 
 /**
  * Creates a reactive computation that runs immediately before render, mainly used to write to other reactive primitives
