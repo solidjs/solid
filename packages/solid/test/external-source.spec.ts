@@ -1,6 +1,16 @@
-import { createRoot, createMemo, onCleanup, enableExternalSource } from "../src";
+import {
+  createRoot,
+  createSignal,
+  createMemo,
+  onCleanup,
+  enableExternalSource,
+  startTransition
+} from "../src";
+import { Transition } from "../src/reactive/signal";
 
 import "./MessageChannel";
+
+global.queueMicrotask = setImmediate;
 
 class ExternalSource<T = any> {
   listeners: Set<() => void> = new Set();
@@ -58,5 +68,18 @@ describe("external source", () => {
       e.update(1);
       expect(memo()).toBe(1);
     });
+  });
+
+  it("should make `startTransition` noneffective", async () => {
+    const [signal, setSignal] = createSignal(0);
+    await new Promise<void>(res => {
+      startTransition(() => {
+        expect(Transition).toBeFalsy();
+        setSignal(1);
+      }, res);
+      // presumption: startTransition fn will not run immediately if no running transition.
+      expect(signal()).toBe(0);
+    });
+    expect(signal()).toBe(1);
   });
 });

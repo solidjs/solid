@@ -780,7 +780,7 @@ export function startTransition(fn: () => void, cb?: () => void) {
     return;
   }
   queueMicrotask(() => {
-    if (Scheduler || SuspenseContext) {
+    if ((Scheduler || SuspenseContext) && !ExternalSourceFactory) {
       Transition ||
         (Transition = {
           sources: new Set(),
@@ -793,9 +793,11 @@ export function startTransition(fn: () => void, cb?: () => void) {
         });
       cb && Transition.cb.push(cb);
       Transition.running = true;
+      batch(fn);
+    } else {
+      batch(fn);
+      cb && cb();
     }
-    batch(fn);
-    if (!Scheduler && !SuspenseContext && cb) cb();
   });
 }
 
