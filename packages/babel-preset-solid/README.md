@@ -41,3 +41,14 @@ Via package.json
    },
    ...
 ```
+
+### Usage for SSR code
+When need to tranform JSX code to be used in Node.js, pass the following options
+
+```javascript
+{
+  "presets": [
+    ["solid", { generate: "ssr", hydratable: true }]
+  ]
+}
+```
