@@ -321,6 +321,9 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
+// The extra _Next generic parameter separates inference of the effect input
+// parameter type from inference of the effect return type, so that the effect
+// return type is always used as the memo Accessor's return type.
 export function createMemo<Next extends _Next, Init = Next, _Next = Next>(
   fn: EffectFunction<Init | _Next, Next>,
   value: Init,
