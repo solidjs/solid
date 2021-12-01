@@ -4,7 +4,7 @@ import type { JSX } from "../jsx";
 
 /**
  * creates a list elements from a list
- * 
+ *
  * it receives a map function as its child that receives a list element and an accessor with the index and returns a JSX-Element; if the list is empty, an optional fallback is returned:
  * ```typescript
  * <For each={items} fallback={<div>No items</div>}>
@@ -12,7 +12,7 @@ import type { JSX } from "../jsx";
  * </For>
  * ```
  * If you have a list with fixed indices and changing values, consider using `<Index>` instead.
- * 
+ *
  * @description https://www.solidjs.com/docs/latest/api#%3Cfor%3E
  */
 export function For<T, U extends JSX.Element>(props: {
@@ -28,7 +28,7 @@ export function For<T, U extends JSX.Element>(props: {
 
 /**
  * Non-keyed iteration over a list creating elements from its items
- * 
+ *
  * To be used if you have a list with fixed indices, but changing values.
  * ```typescript
  * <Index each={items} fallback={<div>No items</div>}>
@@ -36,7 +36,7 @@ export function For<T, U extends JSX.Element>(props: {
  * </Index>
  * ```
  * If you have a list with changing indices, better use `<For>`.
- * 
+ *
  * @description https://www.solidjs.com/docs/latest/api#%3Cindex%3E
  */
 export function Index<T, U extends JSX.Element>(props: {
@@ -75,6 +75,8 @@ export function Show<T>(props: {
   }) as () => JSX.Element;
 }
 
+type EvalConditions = [number, unknown?, MatchProps<unknown>?];
+
 /**
  * switches between content based on mutually exclusive conditions
  * ```typescript
@@ -95,8 +97,8 @@ export function Switch(props: {
 }): Accessor<JSX.Element> {
   let strictEqual = false;
   const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
-    evalConditions = createMemo<[number, unknown?, MatchProps<unknown>?]>(
-      () => {
+    evalConditions = createMemo(
+      (): EvalConditions => {
         let conds = conditions();
         if (!Array.isArray(conds)) conds = [conds];
         for (let i = 0; i < conds.length; i++) {
@@ -107,8 +109,8 @@ export function Switch(props: {
       },
       undefined,
       {
-        equals: (a: [number, unknown?, unknown?], b: [number, unknown?, unknown?]) =>
-          a && a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
+        equals: (a, b) =>
+          a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
       }
     );
   return createMemo(() => {
@@ -150,7 +152,7 @@ export function Match<T>(props: MatchProps<T>) {
  * </ErrorBoundary>
  * ```
  * Errors thrown from the fallback can be caught by a parent ErrorBoundary
- * 
+ *
  * @description https://www.solidjs.com/docs/latest/api#%3Cerrorboundary%3E
  */
 export function ErrorBoundary(props: {
