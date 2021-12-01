@@ -78,7 +78,10 @@ export interface TransitionState {
   cb: (() => void)[];
 }
 
-type ExternalSourceFactory = <T>(fn: (v?: T) => T, trigger: () => void) => (v?: T) => T;
+type ExternalSourceFactory = <Prev, Next extends Prev = Prev>(
+  fn: EffectFunction<Prev, Next>,
+  trigger: () => void
+) => EffectFunction<Prev, Next>;
 
 export type RootFunction<T> = (dispose: () => void) => T;
 
