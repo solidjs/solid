@@ -41,3 +41,22 @@ Via package.json
    },
    ...
 ```
+
+### Usage for SSR code
+When need to tranform JSX code to be used on the server, pass the following options
+
+```javascript
+{
+  "presets": [
+    ["solid", { generate: "ssr", hydratable: true }]
+  ]
+}
+```
+And for the browser build pass the hydratable option as well:
+```javascript
+{
+  "presets": [
+    ["solid", { generate: "dom", hydratable: true }]
+  ]
+}
+```
