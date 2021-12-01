@@ -1,4 +1,6 @@
 import type { JSX } from "../jsx";
+import type { Accessor, Setter } from "../reactive/signal";
+
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 export const DEV = {};
@@ -6,10 +8,6 @@ const ERROR = Symbol("error");
 
 const UNOWNED: Owner = { context: null, owner: null };
 export let Owner: Owner | null = null;
-export type Accessor<T> = () => T;
-export type Setter<T> = undefined extends T
-  ? <U extends T>(v?: (U extends Function ? never : U) | ((prev?: U) => U)) => U
-  : <U extends T>(v: (U extends Function ? never : U) | ((prev: U) => U)) => U;
 
 interface Owner {
   owner: Owner | null;
@@ -236,13 +234,20 @@ export function observable<T>(input: Accessor<T>) {
   };
 }
 
-export function from<T>(producer: ((setter: Setter<T>) =>  () => void) | {
-  subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
-}): Accessor<T> {
-  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [Accessor<T>, Setter<T>];
+export function from<T>(
+  producer:
+    | ((setter: Setter<T>) => () => void)
+    | {
+        subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
+      }
+): Accessor<T> {
+  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [
+    Accessor<T>,
+    Setter<T>
+  ];
   if ("subscribe" in producer) {
-    const unsub = producer.subscribe((v) => set(() => v));
-    onCleanup(() => "unsubscribe" in unsub ? unsub.unsubscribe() : unsub())
+    const unsub = producer.subscribe(v => set(() => v));
+    onCleanup(() => ("unsubscribe" in unsub ? unsub.unsubscribe() : unsub()));
   } else {
     const clean = producer(set);
     onCleanup(clean);
