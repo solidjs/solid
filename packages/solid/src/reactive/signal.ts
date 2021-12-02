@@ -81,7 +81,12 @@ export interface TransitionState {
 type ExternalSourceFactory = <Prev, Next extends Prev = Prev>(
   fn: EffectFunction<Prev, Next>,
   trigger: () => void
-) => EffectFunction<Prev, Next>;
+) => ExternalSource;
+
+export interface ExternalSource {
+  track: EffectFunction<any, any>;
+  dispose: () => void;
+}
 
 export type RootFunction<T> = (dispose: () => void) => T;
 
@@ -859,7 +864,7 @@ export function startTransition(fn: () => void, cb?: () => void) {
     return;
   }
   queueMicrotask(() => {
-    if ((Scheduler || SuspenseContext) && !ExternalSourceFactory) {
+    if (Scheduler || SuspenseContext) {
       Transition ||
         (Transition = {
           sources: new Set(),
@@ -872,11 +877,9 @@ export function startTransition(fn: () => void, cb?: () => void) {
         });
       cb && Transition.cb.push(cb);
       Transition.running = true;
-      batch(fn);
-    } else {
-      batch(fn);
-      cb && cb();
     }
+    batch(fn);
+    if (!Scheduler && !SuspenseContext && cb) cb();
   });
 }
 
@@ -1048,8 +1051,18 @@ export function getSuspenseContext() {
 // Interop
 export function enableExternalSource(factory: ExternalSourceFactory) {
   if (ExternalSourceFactory) {
-    const original = ExternalSourceFactory;
-    ExternalSourceFactory = (fn, trigger) => original(factory(fn, trigger), trigger);
+    const oldFactory = ExternalSourceFactory;
+    ExternalSourceFactory = (fn, trigger) => {
+      const oldSource = oldFactory(fn, trigger);
+      const source = factory(x => oldSource.track(x), trigger);
+      return {
+        track: x => source.track(x),
+        dispose() {
+          source.dispose();
+          oldSource.dispose();
+        }
+      };
+    };
   } else {
     ExternalSourceFactory = factory;
   }
@@ -1231,10 +1244,14 @@ function createComputation<Next, Init = unknown>(
 
   if (ExternalSourceFactory) {
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
-    const patchedFn = ExternalSourceFactory(c.fn, trigger);
+    const ordinary = ExternalSourceFactory(c.fn, trigger);
+    onCleanup(() => ordinary.dispose());
+    const triggerInTransition: () => void = () =>
+      startTransition(trigger, () => inTransition.dispose());
+    const inTransition = ExternalSourceFactory(c.fn, triggerInTransition);
     c.fn = x => {
       track();
-      return patchedFn(x);
+      return Transition && Transition.running ? inTransition.track(x) : ordinary.track(x);
     };
   }
 
