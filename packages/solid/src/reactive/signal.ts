@@ -443,19 +443,14 @@ export function createResource<T, S>(
 
   let err: any = undefined,
     pr: Promise<T> | null = null,
-    initP: Promise<T> | null = null,
+    initP: Promise<T> | null | undefined = null,
     id: string | null = null,
     loadedUnderTransition = false,
     dynamic = typeof source === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
-    if (sharedConfig.context.loadResource) {
-      initP = sharedConfig.context.loadResource!(id!);
-    } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
-      initP = sharedConfig.resources![id];
-      delete sharedConfig.resources![id];
-    }
+    if (sharedConfig.load) initP = sharedConfig.load!(id!);
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any) {
     if (pr === p) {
