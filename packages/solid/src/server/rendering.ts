@@ -1,4 +1,4 @@
-import { createMemo, Owner, createContext, useContext, lookup, runWithOwner } from "./reactive";
+import { Owner, createContext, useContext, runWithOwner } from "./reactive";
 import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
@@ -47,7 +47,7 @@ export function createComponent<T>(
   Comp: (props: T) => JSX.Element,
   props: PossiblyWrapped<T>
 ): JSX.Element {
-  if (sharedConfig.context) {
+  if (sharedConfig.context && !sharedConfig.context.noHydrate) {
     const c = sharedConfig.context;
     setHydrateContext(nextHydrateContext());
     const r = Comp(props as T);
@@ -278,7 +278,7 @@ export function createResource<T, U>(
   const read = () => {
     if (resourceContext && p) resourceContext.push(p!);
     const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
-    if (sharedConfig.context!.async && !resolved) {
+    if (!resolved) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
         ctx.resources.set(id, read);
@@ -290,7 +290,7 @@ export function createResource<T, U>(
   read.loading = false;
   function load() {
     const ctx = sharedConfig.context!;
-    if (!ctx.async && !ctx.streaming) return;
+    if (!ctx.async) return (read.loading = true);
     if (ctx.resources && id in ctx.resources && ctx.resources[id].data) {
       value = ctx.resources[id].data;
       return;
@@ -315,15 +315,7 @@ export function createResource<T, U>(
     }
     read.loading = true;
     if ("then" in p) {
-      if (ctx.writeResource) {
-        ctx.writeResource(id, p);
-        p.then(v => {
-          value = v;
-          read.loading = false;
-          p = null;
-        });
-        return;
-      }
+      if (ctx.writeResource) ctx.writeResource(id, p);
       p.then(res => {
         read.loading = false;
         ctx.resources[id].data = res;
@@ -354,10 +346,11 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
       ctx.resources.set(id, track);
       contexts.add(ctx);
     }
-    p.then(() => {
-      track.loading = false;
-      notifySuspense(contexts);
-    });
+    if (sharedConfig.context!.async)
+      p.then(() => {
+        track.loading = false;
+        notifySuspense(contexts);
+      });
     return "";
   };
   wrap.preload = () => {};
@@ -399,8 +392,10 @@ type HydrationContext = {
   writeResource?: (id: string, v: Promise<any>) => void;
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
+  registerFragment: (v: string) => (v?: string) => void;
   async?: boolean;
   streaming?: boolean;
+  noHydrate: boolean;
 };
 
 export function SuspenseList(props: {
@@ -412,17 +407,11 @@ export function SuspenseList(props: {
   return props.children;
 }
 
-const SUSPENSE_GLOBAL = Symbol("suspense-global");
 export function Suspense(props: { fallback: string; children: string }) {
   const ctx = sharedConfig.context!;
-  // TODO: look at not always going to fallback
-  if (!ctx.async) return createComponent(() => {
-    props.children;
-    return props.fallback;
-  }, {});
 
   const id = ctx.id + ctx.count;
-  const done = ctx.async ? lookup(Owner, SUSPENSE_GLOBAL)(id) : () => {};
+  const done = ctx.async ? ctx.registerFragment(id) : () => {};
   const o = Owner!;
   const value: SuspenseContextType =
     ctx.suspense[id] ||
@@ -451,36 +440,15 @@ export function Suspense(props: { fallback: string; children: string }) {
     done();
     return res;
   }
-  return sharedConfig.context!.async ? { t: `<#${id}#>` } : props.fallback;
-}
-
-const SUSPENSE_REPLACE = /<#([\d.]+)#>/;
-export function awaitSuspense(fn: () => any) {
-  return new Promise(resolve => {
-    const registry = new Set<string>();
-    const cache: Record<string, string> = Object.create(null);
-    const res = createMemo(() => {
-      Owner!.context = { [SUSPENSE_GLOBAL]: getCallback };
-      return fn();
-    });
-    if (!registry.size) resolve(res());
-    function getCallback(key: string) {
-      registry.add(key);
-      return (value: string) => {
-        if (value) cache[key] = value;
-        registry.delete(key);
-        if (!registry.size)
-          Promise.resolve().then(() => {
-            let source = resolveSSRNode(res());
-            let final = "";
-            let match: any;
-            while ((match = source.match(SUSPENSE_REPLACE))) {
-              final += source.substring(0, match.index);
-              source = cache[match[1]] + source.substring(match.index + match[0].length);
-            }
-            resolve(final + source);
-          });
-      };
+  if (sharedConfig.context!.async) {
+    if (sharedConfig.context!.streaming) {
+      setHydrateContext(undefined);
+      const res = { t: `<span id="pl${id}">${resolveSSRNode(props.fallback)}</span>` }
+      setHydrateContext(ctx);
+      return res;
     }
-  });
+    return { t: `<![${id}]>` }
+  }
+  setHydrateContext({ ...ctx, count: 0 });
+  return createComponent(() => props.fallback, {});
 }
