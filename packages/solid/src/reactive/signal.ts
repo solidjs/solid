@@ -1244,7 +1244,7 @@ function runTop(node: Computation<any>) {
     ) {
       const updates = Updates;
       Updates = null;
-      lookDownstream(node);
+      lookDownstream(node, ancestors[0]);
       Updates = updates;
     }
   }
@@ -1356,7 +1356,7 @@ function runUserEffects(queue: Computation<any>[]) {
   for (i = resume; i < queue.length; i++) runTop(queue[i]);
 }
 
-function lookDownstream(node: Computation<any>) {
+function lookDownstream(node: Computation<any>, ignore?: Computation<any>) {
   node.state = 0;
   const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.sources!.length; i += 1) {
@@ -1365,13 +1365,13 @@ function lookDownstream(node: Computation<any>) {
       if (
         (!runningTransition && source.state === STALE) ||
         (runningTransition && source.tState === STALE)
-      )
-        runTop(source);
-      else if (
+      ) {
+        if (source !== ignore) runTop(source);
+      } else if (
         (!runningTransition && source.state === PENDING) ||
         (runningTransition && source.tState === PENDING)
       )
-        lookDownstream(source);
+        lookDownstream(source, ignore);
     }
   }
 }
