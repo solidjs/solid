@@ -30,7 +30,6 @@ export {
 } from "./reactive";
 
 export {
-  awaitSuspense,
   mergeProps,
   splitProps,
   createComponent,

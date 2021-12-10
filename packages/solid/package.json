@@ -1,11 +1,10 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "1.2.5",
+  "version": "1.3.0-beta.2",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://github.com/solidjs/solid#readme",
-  "repository": {
     "type": "git",
     "url": "https://github.com/solidjs/solid"
   },
@@ -36,10 +35,6 @@
   ],
   "exports": {
     ".": {
-      "development": {
-        "import": "./dist/dev.js",
-        "require": "./dist/dev.cjs"
-      },
       "browser": {
         "import": "./dist/solid.js",
         "require": "./dist/solid.cjs"
@@ -48,15 +43,15 @@
         "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
+      "development": {
+        "import": "./dist/dev.js",
+        "require": "./dist/dev.cjs"
+      },
       "import": "./dist/solid.js",
       "require": "./dist/solid.cjs"
     },
     "./dist/*": "./dist/*",
     "./store": {
-      "development": {
-        "import": "./store/dist/dev.js",
-        "require": "./store/dist/dev.cjs"
-      },
       "browser": {
         "import": "./store/dist/store.js",
         "require": "./store/dist/store.cjs"
@@ -65,15 +60,15 @@
         "import": "./store/dist/server.js",
         "require": "./store/dist/server.cjs"
       },
+      "development": {
+        "import": "./store/dist/dev.js",
+        "require": "./store/dist/dev.cjs"
+      },
       "import": "./store/dist/store.js",
       "require": "./store/dist/store.cjs"
     },
     "./store/dist/*": "./store/dist/*",
     "./web": {
-      "development": {
-        "import": "./web/dist/dev.js",
-        "require": "./web/dist/dev.cjs"
-      },
       "browser": {
         "import": "./web/dist/web.js",
         "require": "./web/dist/web.cjs"
@@ -81,6 +76,10 @@
       "node": {
         "import": "./web/dist/server.js",
         "require": "./web/dist/server.cjs"
+      },
+      "development": {
+        "import": "./web/dist/dev.js",
+        "require": "./web/dist/dev.cjs"
       },
       "import": "./web/dist/web.js",
       "require": "./web/dist/web.cjs"

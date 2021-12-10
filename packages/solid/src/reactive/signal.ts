@@ -454,19 +454,14 @@ export function createResource<T, S>(
 
   let err: any = undefined,
     pr: Promise<T> | null = null,
-    initP: Promise<T> | null = null,
+    initP: Promise<T> | null | undefined = null,
     id: string | null = null,
     loadedUnderTransition = false,
     dynamic = typeof source === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
-    if (sharedConfig.context.loadResource) {
-      initP = sharedConfig.context.loadResource!(id!);
-    } else if (sharedConfig.resources && id && id in sharedConfig.resources) {
-      initP = sharedConfig.resources![id];
-      delete sharedConfig.resources![id];
-    }
+    if (sharedConfig.load) initP = sharedConfig.load!(id!);
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any) {
     if (pr === p) {
@@ -634,7 +629,7 @@ export function createSelector<T, U>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v) || (p !== undefined && fn(key, p))) {
+        if (fn(key, v) !== (p !== undefined && fn(key, p))) {
           const l = subs.get(key)!;
           for (const c of l.values()) {
             c.state = STALE;
@@ -1293,7 +1288,7 @@ function runTop(node: Computation<any>) {
     ) {
       const updates = Updates;
       Updates = null;
-      lookDownstream(node);
+      lookDownstream(node, ancestors[0]);
       Updates = updates;
     }
   }
@@ -1405,7 +1400,7 @@ function runUserEffects(queue: Computation<any>[]) {
   for (i = resume; i < queue.length; i++) runTop(queue[i]);
 }
 
-function lookDownstream(node: Computation<any>) {
+function lookDownstream(node: Computation<any>, ignore?: Computation<any>) {
   node.state = 0;
   const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.sources!.length; i += 1) {
@@ -1414,13 +1409,13 @@ function lookDownstream(node: Computation<any>) {
       if (
         (!runningTransition && source.state === STALE) ||
         (runningTransition && source.tState === STALE)
-      )
-        runTop(source);
-      else if (
+      ) {
+        if (source !== ignore) runTop(source);
+      } else if (
         (!runningTransition && source.state === PENDING) ||
         (runningTransition && source.tState === PENDING)
       )
-        lookDownstream(source);
+        lookDownstream(source, ignore);
     }
   }
 }
