@@ -1,4 +1,4 @@
-import { Owner, createContext, useContext, runWithOwner } from "./reactive";
+import { Owner, createContext, createMemo, useContext, runWithOwner, onError } from "./reactive";
 import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
@@ -206,11 +206,21 @@ export function Match<T>(props: MatchProps<T>) {
 }
 
 export function ErrorBoundary(props: {
-  fallback: string | ((err: any) => string);
+  fallback: string | ((err: any, reset: () => void) => string);
   children: string;
 }) {
-  // no op
-  return props.children;
+  let error: any, res: any;
+  const ctx = sharedConfig.context!;
+  const id = ctx.id + ctx.count;
+  onError(err => (error = err));
+  createMemo(() => (res = props.children));
+  if (error) {
+    ctx.writeResource!(id, error, true);
+    setHydrateContext({ ...ctx, count: 0 });
+    const f = props.fallback;
+    return typeof f === "function" && f.length ? f(error, () => {}) : f;
+  }
+  return res;
 }
 
 // Suspense Context
@@ -268,6 +278,7 @@ export function createResource<T, U>(
   let resource: { ref?: any; data?: T } = {};
   let value = options.initialValue;
   let p: Promise<T> | T | null;
+  let error: any;
   if (sharedConfig.context!.async) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
@@ -276,6 +287,7 @@ export function createResource<T, U>(
     }
   }
   const read = () => {
+    if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
     const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
     if (!resolved) {
@@ -322,6 +334,11 @@ export function createResource<T, U>(
         p = null;
         notifySuspense(contexts);
         return res;
+      }).catch(err => {
+        read.loading = false;
+        error = err;
+        p = null;
+        notifySuspense(contexts);
       });
       return;
     }
@@ -389,12 +406,13 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  writeResource?: (id: string, v: Promise<any>) => void;
+  writeResource?: (id: string, v: Promise<any> | any, error?: boolean) => void;
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
-  registerFragment: (v: string) => (v?: string) => void;
+  registerFragment: (v: string) => (v?: string, err?: any) => boolean;
   async?: boolean;
   streaming?: boolean;
+  dataOnly?: boolean;
   noHydrate: boolean;
 };
 
@@ -407,20 +425,20 @@ export function SuspenseList(props: {
   return props.children;
 }
 
-export function Suspense(props: { fallback: string; children: string }) {
+export function Suspense(props: { fallback?: string; children: string }) {
+  let done: undefined | ((html?: string, error?: any) => boolean);
   const ctx = sharedConfig.context!;
-
   const id = ctx.id + ctx.count;
-  const done = ctx.async ? ctx.registerFragment(id) : () => {};
   const o = Owner!;
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
       resources: new Map<string, { loading: boolean }>(),
       completed: () => {
+        if (ctx.dataOnly) return done!();
         const res = runSuspense();
         if (suspenseComplete(value)) {
-          done(resolveSSRNode(res));
+          done!(resolveSSRNode(res));
         }
       }
     });
@@ -436,18 +454,23 @@ export function Suspense(props: { fallback: string; children: string }) {
     });
   }
   const res = runSuspense();
-  if (suspenseComplete(value)) {
-    done();
-    return res;
-  }
-  if (sharedConfig.context!.async) {
-    if (sharedConfig.context!.streaming) {
+
+  // never suspended
+  if (suspenseComplete(value)) return res;
+
+  onError(err => {
+    if (!done || !done(undefined, err)) throw err;
+  });
+  done = ctx.async ? ctx.registerFragment(id) : undefined;
+  if (ctx.streaming) {
+    if (!ctx.dataOnly) {
       setHydrateContext(undefined);
-      const res = { t: `<span id="pl${id}">${resolveSSRNode(props.fallback)}</span>` }
+      const res = { t: `<span id="pl${id}">${resolveSSRNode(props.fallback)}</span>` };
       setHydrateContext(ctx);
       return res;
     }
-    return { t: `<![${id}]>` }
+  } else if (ctx.async) {
+    return { t: `<![${id}]>` };
   }
   setHydrateContext({ ...ctx, count: 0 });
   return createComponent(() => props.fallback, {});

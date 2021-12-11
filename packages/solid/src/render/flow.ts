@@ -1,5 +1,6 @@
 import { createMemo, untrack, createSignal, onError, children, Accessor } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
+import { sharedConfig } from "./hydration";
 import type { JSX } from "../jsx";
 
 /**
@@ -159,7 +160,11 @@ export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }): Accessor<JSX.Element> {
-  const [errored, setErrored] = createSignal<any>();
+  let err = undefined;
+  if (sharedConfig!.context && sharedConfig!.load) {
+    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count);
+  }
+  const [errored, setErrored] = createSignal<any>(err);
   let e: any;
   return createMemo(() => {
     if ((e = errored()) != null) {
