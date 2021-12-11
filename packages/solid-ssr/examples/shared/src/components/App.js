@@ -1,4 +1,4 @@
-import { useContext, lazy } from "solid-js";
+import { useContext, lazy, ErrorBoundary } from "solid-js";
 import { HydrationScript } from "solid-js/web";
 import { Link, RouteHOC, RouterContext } from "../router";
 // import stub as main package to allowing fetch as you load
@@ -32,25 +32,36 @@ const App = RouteHOC(() => {
             </li>
           </ul>
           <div class="tab" classList={{ pending: pending() }}>
-            <Suspense
-              fallback={
-                <span $ServerOnly class="loader" style="opacity: 0">
-                  Loading...
-                </span>
-              }
+            <ErrorBoundary
+              fallback={(err, reset) => {
+                return (
+                  <>
+                    <h2>Error: {err.message}</h2>
+                    <button onClick={reset}>Reset</button>
+                  </>
+                );
+              }}
             >
-              <Switch>
-                <Match when={matches("index")}>
-                  <Home />
-                </Match>
-                <Match when={matches("profile")}>
-                  <Profile />
-                </Match>
-                <Match when={matches("settings")}>
-                  <Settings />
-                </Match>
-              </Switch>
-            </Suspense>
+              <Suspense
+                fallback={
+                  <span class="loader" style="opacity: 0">
+                    Loading...
+                  </span>
+                }
+              >
+                <Switch>
+                  <Match when={matches("index")}>
+                    <Home />
+                  </Match>
+                  <Match when={matches("profile")}>
+                    <Profile />
+                  </Match>
+                  <Match when={matches("settings")}>
+                    <Settings />
+                  </Match>
+                </Switch>
+              </Suspense>
+            </ErrorBoundary>
           </div>
         </div>
       </body>

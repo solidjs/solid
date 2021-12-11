@@ -46,8 +46,15 @@ export function createSignal<T>(
 
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   Owner = { owner: Owner, context: null };
-  fn(value);
-  Owner = Owner.owner;
+  try {
+    fn(value);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
+  } finally {
+    Owner = Owner.owner;
+  }
 }
 
 export const createRenderEffect = createComputed;
@@ -56,8 +63,16 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
 export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
   Owner = { owner: Owner, context: null };
-  const v = fn(value);
-  Owner = Owner.owner;
+  let v: T;
+  try {
+    v = fn(value);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
+  } finally {
+    Owner = Owner.owner;
+  }
   return () => v;
 }
 

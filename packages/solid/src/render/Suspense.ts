@@ -122,7 +122,8 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     showFallback: Accessor<boolean>,
     ctx: HydrationContext,
     waitingHydration: Boolean,
-    flicker: Accessor<void> | undefined;
+    flicker: Accessor<void> | undefined,
+    error: any;
   const [inFallback, setFallback] = createSignal<boolean>(false),
     SuspenseContext = getSuspenseContext(),
     store = {
@@ -137,13 +138,14 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       resolved: false
     },
     owner = getOwner();
-  if (sharedConfig.context && sharedConfig.load) {
+  if (sharedConfig.context) {
     const key = sharedConfig.context.id + sharedConfig.context.count;
-    const p = sharedConfig.load(key);
+    const p = sharedConfig.load!(key);
     if (p) {
       const [s, set] = createSignal(undefined, { equals: false });
       flicker = s;
-      p.then(() => {
+      p.then((err) => {
+        if (error = err) return set();
         sharedConfig.gather!(key);
         waitingHydration = true;
         setHydrateContext(ctx);
@@ -164,6 +166,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     value: store,
     get children() {
       return createMemo(() => {
+        if (error) throw error;
         if (flicker) {
           ctx = sharedConfig.context!;
           flicker();
