@@ -8,9 +8,10 @@ export type {
   StorePathRange,
   ArrayFilterFn,
   Part,
-  Next,
-  Readonly,
-  DeepReadonly
+  DeepReadonly,
+  StoreKeys,
+  StoreBranch,
+  SetStoreFallback
 } from "./store";
 export * from "./mutable";
 export * from "./modifiers";

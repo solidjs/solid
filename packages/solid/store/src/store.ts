@@ -11,28 +11,8 @@ export type StoreNode = {
   [k: number]: any;
 };
 
-// well-known symbols need special treatment until https://github.com/microsoft/TypeScript/issues/24622 is implemented.
-type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
-  ? { [Symbol.toPrimitive]: V }
-  : {};
-type AddSymbolIterator<T> = T extends { [Symbol.iterator]: infer V }
-  ? { [Symbol.iterator]: V }
-  : {};
-type AddSymbolToStringTag<T> = T extends { [Symbol.toStringTag]: infer V }
-  ? { [Symbol.toStringTag]: V }
-  : {};
-type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
-
-export type NotWrappable = string | number | boolean | Function | null;
-// Intersection for missing fields https://github.com/microsoft/TypeScript/issues/13543
-export type Store<T> = {
-  [P in keyof T]: T[P] extends object ? Store<T[P]> & T[P] : T[P];
-} & {
-  [$RAW]?: T;
-} & AddSymbolToPrimitive<T> &
-  AddSymbolIterator<T> &
-  AddSymbolToStringTag<T> &
-  AddCallable<T>;
+export type NotWrappable = string | number | bigint | boolean | Function | null;
+export type Store<T> = DeepReadonly<T>;
 
 function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
   let p = value[$PROXY];
@@ -235,139 +215,158 @@ export function updatePath(current: StoreNode, path: any[], traversed: (number |
   } else setProperty(current, part, value);
 }
 
-export type Readonly<T> = { readonly [K in keyof T]: DeepReadonly<T[K]> };
-export type DeepReadonly<T> = T extends [infer A]
-  ? Readonly<[A]>
-  : T extends [infer A, infer B]
-  ? Readonly<[A, B]>
-  : T extends [infer A, infer B, infer C]
-  ? Readonly<[A, B, C]>
-  : T extends [infer A, infer B, infer C, infer D]
-  ? Readonly<[A, B, C, D]>
-  : T extends [infer A, infer B, infer C, infer D, infer E]
-  ? Readonly<[A, B, C, D, E]>
-  : T extends [infer A, infer B, infer C, infer D, infer E, infer F]
-  ? Readonly<[A, B, C, D, E, F]>
-  : T extends [infer A, infer B, infer C, infer D, infer E, infer F, infer G]
-  ? Readonly<[A, B, C, D, E, F, G]>
-  : T extends [infer A, infer B, infer C, infer D, infer E, infer F, infer G, infer H]
-  ? Readonly<[A, B, C, D, E, F, G, H]>
-  : T extends object
-  ? Readonly<T>
-  : T;
+export type DeepReadonly<T> = T extends NotWrappable
+  ? T
+  : { readonly [K in keyof T]: DeepReadonly<T[K]> };
+
+export type StorePathRange = {
+  from?: number;
+  to?: number;
+  by?: number;
+};
+
+export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
+
+// avoid putting a generic (e.g. T) on the left side of an "extends", as T could be a complex union
+// and applying a conditional type to all of its members might take a lot of time
+// [T] extends [unknown[]] doesn't seem to work either
+export type StoreKeys<T> = number extends keyof T ? number : keyof T;
+
+export type Part<T, K extends keyof T> =
+  | K
+  | K[]
+  | (number extends keyof T ? ArrayFilterFn<T[number]> | StorePathRange : never);
 
 export type StoreSetter<T> =
-  | Partial<T>
-  | ((
-      prevState: T extends NotWrappable ? T : Store<DeepReadonly<T>>,
-      traversed?: (string | number)[]
-    ) => Partial<T | DeepReadonly<T>> | void);
-export type StorePathRange = { from?: number; to?: number; by?: number };
+  // handle unknown and any
+  (unknown extends T ? T : Partial<T>) | ((v: T, traversed: (keyof any)[]) => Partial<T> | void);
 
-export type ArrayFilterFn<T> = (
-  item: T extends any[] ? T[number] : never,
-  index: number
-) => boolean;
+// using infer doesn't type K as extending keyof T
+type Infer<T, K extends keyof T> = K extends K ? [NonNullable<Part<T, K>>, T[K]] : never;
+export type StoreBranch<T> = T extends NotWrappable ? never : Infer<T, StoreKeys<T>>;
 
-export type Part<T> = T extends any[]
-  ? keyof T | Array<keyof T> | ArrayFilterFn<T> | StorePathRange
-  : T extends object
-  ? keyof T | Array<keyof T>
+// handle unknown and any
+type InferAll<T, K extends keyof T> = unknown extends T
+  ? unknown[]
+  : K extends K
+  ? [NonNullable<Part<T, K>>, ...SetStoreFallback<T[K]>]
   : never;
-
-export type NullableNext<T, K> = K extends keyof T
-  ? T[K]
-  : K extends Array<keyof T>
-  ? T[K[number]]
-  : T extends any[]
-  ? K extends StorePathRange
-    ? T[number]
-    : K extends ArrayFilterFn<T>
-    ? T[number]
-    : never
-  : never;
-
-export type Next<T, K> = NonNullable<NullableNext<T, K>>;
+export type SetStoreFallback<T> =
+  | [StoreSetter<T>]
+  | (T extends NotWrappable ? never : InferAll<T, StoreKeys<T>>);
 
 export interface SetStoreFunction<T> {
-  <Setter extends StoreSetter<T>>(...args: [Setter]): void;
-  <K1 extends Part<T>, Setter extends StoreSetter<NullableNext<T, K1>>>(
-    ...args: [K1, Setter]
+  // uncommenting this drastically increases the time needed to infer types
+  // <
+  //   A extends StoreBranch<T>,
+  //   B extends StoreBranch<A[1]>,
+  //   C extends StoreBranch<B[1]>,
+  //   D extends StoreBranch<C[1]>,
+  //   E extends StoreBranch<D[1]>,
+  //   F extends StoreBranch<E[1]>,
+  //   G extends StoreBranch<F[1]>,
+  //   H extends StoreBranch<G[1]>
+  // >(
+  //   a: A[0],
+  //   b: B[0],
+  //   c: C[0],
+  //   d: D[0],
+  //   e: E[0],
+  //   f: F[0],
+  //   g: G[0],
+  //   h: H[0],
+  //   setter: StoreSetter<H[1]>
+  // ): void;
+  <
+    A extends StoreBranch<T>,
+    B extends StoreBranch<A[1]>,
+    C extends StoreBranch<B[1]>,
+    D extends StoreBranch<C[1]>,
+    E extends StoreBranch<D[1]>,
+    F extends StoreBranch<E[1]>,
+    G extends StoreBranch<F[1]>
+  >(
+    a: A[0],
+    b: B[0],
+    c: C[0],
+    d: D[0],
+    e: E[0],
+    f: F[0],
+    g: G[0],
+    setter: StoreSetter<G[1]>
   ): void;
   <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    Setter extends StoreSetter<NullableNext<Next<T, K1>, K2>>
+    A extends StoreBranch<T>,
+    B extends StoreBranch<A[1]>,
+    C extends StoreBranch<B[1]>,
+    D extends StoreBranch<C[1]>,
+    E extends StoreBranch<D[1]>,
+    F extends StoreBranch<E[1]>
   >(
-    ...args: [K1, K2, Setter]
+    a: A[0],
+    b: B[0],
+    c: C[0],
+    d: D[0],
+    e: E[0],
+    f: F[0],
+    setter: StoreSetter<F[1]>
   ): void;
   <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    Setter extends StoreSetter<NullableNext<Next<Next<T, K1>, K2>, K3>>
+    A extends StoreBranch<T>,
+    B extends StoreBranch<A[1]>,
+    C extends StoreBranch<B[1]>,
+    D extends StoreBranch<C[1]>,
+    E extends StoreBranch<D[1]>
   >(
-    ...args: [K1, K2, K3, Setter]
+    a: A[0],
+    b: B[0],
+    c: C[0],
+    d: D[0],
+    e: E[0],
+    setter: StoreSetter<E[1]>
   ): void;
   <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    Setter extends StoreSetter<NullableNext<Next<Next<Next<T, K1>, K2>, K3>, K4>>
+    A extends StoreBranch<T>,
+    B extends StoreBranch<A[1]>,
+    C extends StoreBranch<B[1]>,
+    D extends StoreBranch<C[1]>
   >(
-    ...args: [K1, K2, K3, K4, Setter]
+    a: A[0],
+    b: B[0],
+    c: C[0],
+    d: D[0],
+    setter: StoreSetter<D[1]>
   ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    Setter extends StoreSetter<NullableNext<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
-  >(
-    ...args: [K1, K2, K3, K4, K5, Setter]
+  <A extends StoreBranch<T>, B extends StoreBranch<A[1]>, C extends StoreBranch<B[1]>>(
+    a: A[0],
+    b: B[0],
+    c: C[0],
+    setter: StoreSetter<C[1]>
   ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    Setter extends StoreSetter<
-      NullableNext<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>
-    >
-  >(
-    ...args: [K1, K2, K3, K4, K5, K6, Setter]
+  <A extends StoreBranch<T>, B extends StoreBranch<A[1]>>(
+    a: A[0],
+    b: B[0],
+    setter: StoreSetter<B[1]>
   ): void;
+  <A extends StoreBranch<T>>(a: A[0], setter: StoreSetter<A[1]>): void;
+  (setter: StoreSetter<T>): void;
   <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
-    Setter extends StoreSetter<
-      NullableNext<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>
-    >
+    A extends StoreBranch<T>,
+    B extends StoreBranch<A[1]>,
+    C extends StoreBranch<B[1]>,
+    D extends StoreBranch<C[1]>,
+    E extends StoreBranch<D[1]>,
+    F extends StoreBranch<E[1]>,
+    G extends StoreBranch<F[1]>
   >(
-    ...args: [K1, K2, K3, K4, K5, K6, K7, Setter]
-  ): void;
-
-  // and here we give up on being accurate after 8 args
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
-    K8 extends Part<Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>>
-  >(
-    ...args: [K1, K2, K3, K4, K5, K6, K7, K8, ...(Part<any> | StoreSetter<any>)[]]
+    a: A[0],
+    b: B[0],
+    c: C[0],
+    d: D[0],
+    e: E[0],
+    f: F[0],
+    g: G[0],
+    ...args: SetStoreFallback<G[1]>
   ): void;
 }
 
@@ -377,9 +376,9 @@ export interface SetStoreFunction<T> {
  * @description https://www.solidjs.com/docs/latest/api#createstore
  */
 export function createStore<T extends StoreNode>(
-  store: T | Store<T>,
+  store: T,
   options?: { name?: string }
-): [get: Store<T>, set: SetStoreFunction<T>] {
+): [get: Store<T>, set: SetStoreFunction<Store<T>>] {
   const unwrappedStore = unwrap<T>(store || {});
   const wrappedStore = wrap(
     unwrappedStore,

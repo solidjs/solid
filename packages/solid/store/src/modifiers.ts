@@ -1,13 +1,4 @@
-import {
-  setProperty,
-  unwrap,
-  isWrappable,
-  Store,
-  NotWrappable,
-  StoreNode,
-  DeepReadonly,
-  $RAW,
-} from "./store";
+import { setProperty, unwrap, isWrappable, Store, StoreNode, $RAW, NotWrappable } from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -113,16 +104,13 @@ function applyState(
 
 // Diff method for setState
 export function reconcile<T>(
-  value: T | Store<T>,
+  value: T,
   options: ReconcileOptions = {}
-): (
-  state: T extends NotWrappable ? T : Store<DeepReadonly<T>>
-) => T extends NotWrappable ? T : Store<T> {
+): (state: Store<T>) => Store<T> {
   const { merge, key = "id" } = options,
     v = unwrap(value);
-  return s => {
-    const state = s as T extends NotWrappable ? T : Store<T>;
-    if (!isWrappable(state) || !isWrappable(v)) return v as T extends NotWrappable ? T : Store<T>;
+  return state => {
+    if (!isWrappable(state) || !isWrappable(v)) return v as Store<T>;
     applyState(v, { state }, "state", merge, key);
     return state;
   };
@@ -146,15 +134,19 @@ const setterTraps: ProxyHandler<StoreNode> = {
   }
 };
 
+type DeepMutable<T> = T extends NotWrappable
+  ? T
+  : {
+      -readonly [K in keyof T]: DeepMutable<T[K]>;
+    };
+
 // Immer style mutation style
 export function produce<T>(
-  fn: (state: T) => void
-): (
-  state: T extends NotWrappable ? T : Store<DeepReadonly<T>>
-) => T extends NotWrappable ? T : Store<T> {
-  return s => {
-    const state = s as T extends NotWrappable ? T : Store<T>;
-    if (isWrappable(state)) fn(new Proxy(state as object, setterTraps) as unknown as T);
+  fn: (state: DeepMutable<T>) => void
+): (state: Store<T>) => Partial<Store<T>> {
+  return state => {
+    if (isWrappable(state))
+      fn(new Proxy(state as object, setterTraps) as unknown as DeepMutable<T>);
     return state;
   };
 }

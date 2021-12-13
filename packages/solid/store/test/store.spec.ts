@@ -5,6 +5,7 @@ describe("State immutablity", () => {
   test("Setting a property", () => {
     const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
+    // @ts-expect-error Cannot mutate a store directly
     state.name = "Jake";
     expect(state.name).toBe("John");
   });
@@ -21,6 +22,7 @@ describe("State immutablity", () => {
     const [state, setState] = createStore({ name: "John" });
     expect(state.name).toBe("John");
     setState(() => {
+      // @ts-expect-error Cannot mutate a store directly
       state.name = "Jake";
     });
     expect(state.name).toBe("John");
@@ -424,7 +426,6 @@ describe("State recursion", () => {
 });
 
 describe("Nested Classes", () => {
-
   test("wrapped nested class", () => {
     class CustomThing {
       a: number;
@@ -452,7 +453,7 @@ describe("Nested Classes", () => {
     expect(sum).toBe(20);
     setStore("inner", "b", 5);
     expect(sum).toBe(15);
-  })
+  });
 
   test("not wrapped nested class", () => {
     class CustomThing {
@@ -463,7 +464,7 @@ describe("Nested Classes", () => {
         this.b = 10;
       }
     }
-    const [store, setStore] = createStore({ inner: new CustomThing(1)});
+    const [store, setStore] = createStore({ inner: new CustomThing(1) });
 
     expect(store.inner.a).toBe(1);
     expect(store.inner.b).toBe(10);
@@ -479,5 +480,5 @@ describe("Nested Classes", () => {
     expect(sum).toBe(11);
     setStore("inner", "b", 5);
     expect(sum).toBe(11);
-  })
-})
+  });
+});
