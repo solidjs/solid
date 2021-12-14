@@ -255,7 +255,8 @@ export type SetStoreFallback<T> =
   | [StoreSetter<T>]
   | (T extends NotWrappable ? never : InferAll<T, StoreKeys<T>>);
 
-export interface SetStoreFunction<T> {
+export type SetStoreFunction<T> = _SetStoreFunction<Store<T>>;
+interface _SetStoreFunction<T> {
   // uncommenting this drastically increases the time needed to infer types
   // <
   //   A extends StoreBranch<T>,
@@ -378,7 +379,7 @@ export interface SetStoreFunction<T> {
 export function createStore<T extends StoreNode>(
   store: T,
   options?: { name?: string }
-): [get: Store<T>, set: SetStoreFunction<Store<T>>] {
+): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap<T>(store || {});
   const wrappedStore = wrap(
     unwrappedStore,
