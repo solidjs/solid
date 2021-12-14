@@ -1,45 +1,32 @@
 //@ts-nocheck
-export type PipeToWritableResults = {
-  startWriting: () => void;
-  write: (v: string) => void;
-  abort: () => void;
-};
-
 export function renderToString<T>(
   fn: () => T,
   options?: {
-    eventNames?: string[];
     nonce?: string;
+    renderId?: string;
   }
 ): string {}
 export function renderToStringAsync<T>(
   fn: () => T,
   options?: {
-    eventNames?: string[];
     timeoutMs?: number;
     nonce?: string;
+    renderId?: string;
   }
 ): Promise<string> {}
-export function pipeToNodeWritable<T>(
+export function renderToStream<T>(
   fn: () => T,
-  writable: { write: (v: string) => void },
   options?: {
-    eventNames?: string[];
     nonce?: string;
-    onReady?: (r: PipeToWritableResults) => void;
-    onComplete?: (r: PipeToWritableResults) => void | Promise<void>;
+    dataOnly?: boolean;
+    renderId?: string;
+    onCompleteShell?: () => void;
+    onCompleteAll?: () => void;
   }
-): void {}
-export function pipeToWritable<T>(
-  fn: () => T,
-  writable: WritableStream,
-  options?: {
-    eventNames?: string[];
-    nonce?: string;
-    onReady?: (r: PipeToWritableResults) => void;
-    onComplete?: (r: PipeToWritableResults) => void | Promise<void>;
-  }
-): void {}
+): {
+  pipe: (writable: { write: (v: string) => void }) => void;
+  pipeTo: (writable: WritableStream) => void;
+} {}
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {}
 export function resolveSSRNode(node: any): string {}
 export function ssrClassList(value: { [k: string]: boolean }): string {}
@@ -49,3 +36,33 @@ export function ssrBoolean(key: string, value: boolean): string {}
 export function ssrHydrationKey(): string {}
 export function escape(html: string): string {}
 export function generateHydrationScript(): string {}
+
+export type LegacyResults = {
+  startWriting: () => void;
+};
+/**
+ * @deprecated Replaced by renderToStream
+ */
+export function pipeToWritable<T>(
+  fn: () => T,
+  writable: WritableStream,
+  options?: {
+    nonce?: string;
+    dataOnly?: boolean;
+    onReady?: (res: LegacyResults) => void;
+    onCompleteAll?: () => void;
+  }
+): void;
+/**
+ * @deprecated Replaced by renderToStream
+ */
+export function pipeToNodeWritable<T>(
+  fn: () => T,
+  writable: { write: (v: string) => void },
+  options?: {
+    nonce?: string;
+    dataOnly?: boolean;
+    onReady?: (res: LegacyResults) => void;
+    onCompleteAll?: () => void;
+  }
+): void;
