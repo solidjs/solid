@@ -215,9 +215,9 @@ export function updatePath(current: StoreNode, path: any[], traversed: (number |
   } else setProperty(current, part, value);
 }
 
-export type DeepReadonly<T> = T extends NotWrappable
-  ? T
-  : { readonly [K in keyof T]: DeepReadonly<T[K]> };
+export type DeepReadonly<T> = {
+  readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepReadonly<T[K]>;
+};
 
 export type StorePathRange = {
   from?: number;

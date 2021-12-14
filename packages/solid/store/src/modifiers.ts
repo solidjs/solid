@@ -134,19 +134,12 @@ const setterTraps: ProxyHandler<StoreNode> = {
   }
 };
 
-type DeepMutable<T> = T extends NotWrappable
-  ? T
-  : {
-      -readonly [K in keyof T]: DeepMutable<T[K]>;
-    };
-
 // Immer style mutation style
-export function produce<T>(
-  fn: (state: DeepMutable<T>) => void
+export function produce<T extends StoreNode>(
+  fn: (state: T) => void
 ): (state: Store<T>) => Partial<Store<T>> {
   return state => {
-    if (isWrappable(state))
-      fn(new Proxy(state as object, setterTraps) as unknown as DeepMutable<T>);
+    if (isWrappable(state)) fn(new Proxy(state as object, setterTraps) as unknown as T);
     return state;
   };
 }
