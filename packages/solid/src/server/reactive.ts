@@ -269,3 +269,5 @@ export function from<T>(
   }
   return s;
 }
+
+export function enableExternalSource(factory: any) {}
