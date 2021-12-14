@@ -15,6 +15,7 @@ export {
   batch,
   on,
   enableScheduling,
+  enableExternalSource,
   startTransition,
   useTransition,
   createContext,

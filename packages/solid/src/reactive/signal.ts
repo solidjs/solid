@@ -22,6 +22,7 @@ const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
+let ExternalSourceFactory: ExternalSourceFactory | null = null;
 let Listener: Computation<any> | null = null;
 let Pending: SignalState<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
@@ -75,6 +76,16 @@ export interface TransitionState {
   scheduler?: (fn: () => void) => unknown;
   running: boolean;
   cb: (() => void)[];
+}
+
+type ExternalSourceFactory = <Prev, Next extends Prev = Prev>(
+  fn: EffectFunction<Prev, Next>,
+  trigger: () => void
+) => ExternalSource;
+
+export interface ExternalSource {
+  track: EffectFunction<any, any>;
+  dispose: () => void;
 }
 
 export type RootFunction<T> = (dispose: () => void) => T;
@@ -1032,6 +1043,26 @@ export function getSuspenseContext() {
   return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>({}));
 }
 
+// Interop
+export function enableExternalSource(factory: ExternalSourceFactory) {
+  if (ExternalSourceFactory) {
+    const oldFactory = ExternalSourceFactory;
+    ExternalSourceFactory = (fn, trigger) => {
+      const oldSource = oldFactory(fn, trigger);
+      const source = factory(x => oldSource.track(x), trigger);
+      return {
+        track: x => source.track(x),
+        dispose() {
+          source.dispose();
+          oldSource.dispose();
+        }
+      };
+    };
+  } else {
+    ExternalSourceFactory = factory;
+  }
+}
+
 // Internal
 export function readSignal(this: SignalState<any> | Memo<any>) {
   const runningTransition = Transition && Transition.running;
@@ -1204,6 +1235,19 @@ function createComputation<Next, Init = unknown>(
         `${(Owner as Computation<any>).name || "c"}-${
           (Owner.owned || (Owner as Memo<Init, Next>).tOwned!).length
         }`;
+  }
+
+  if (ExternalSourceFactory) {
+    const [track, trigger] = createSignal<void>(undefined, { equals: false });
+    const ordinary = ExternalSourceFactory(c.fn, trigger);
+    onCleanup(() => ordinary.dispose());
+    const triggerInTransition: () => void = () =>
+      startTransition(trigger, () => inTransition.dispose());
+    const inTransition = ExternalSourceFactory(c.fn, triggerInTransition);
+    c.fn = x => {
+      track();
+      return Transition && Transition.running ? inTransition.track(x) : ordinary.track(x);
+    };
   }
 
   return c;
