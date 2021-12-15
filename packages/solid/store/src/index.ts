@@ -9,7 +9,7 @@ export type {
   ArrayFilterFn,
   Part,
   Next,
-  Readonly,
+  WrappableNext,
   DeepReadonly
 } from "./store";
 export * from "./mutable";
