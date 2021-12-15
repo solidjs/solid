@@ -1,8 +1,110 @@
 # Changelog
 
+## 1.3.0 - 2021-12-x
+
+### New Features
+
+#### HTML Streaming
+
+This release adds support for HTML streaming. Now we not only stream data after the initial shell but the HTML as it finishes. The big benefit is that now for cached results, or times when the network are slow we no longer have to show the placeholder while waiting for JavaScript bundle to load. As soon as the HTML is available it will be streamed and inserted. For old behavior you can pass a `dataOnly` option.
+
+With it comes new streaming API `renderToStream`. This is a universal API designed to handle both Node and Web writable streams. It returns an object that mirrors a Readable stream on both platforms that has both `pipe` (node) and `pipeTo` (web). The benefit of this `pipe` API is the user can choose when to insert the content in the output stream whether soon as possible, or `onCompleteShell`, or `onCompleteAll`. This decouples Solid's rendering a from the stream a bit but leaves things open to performance improvements in the future.
+
+```js
+// node
+const stream = renderToStream(() => <App />).pipe(res);
+
+// web
+const stream = renderToStream(() => <App />).pipeTo(writable);
+```
+
+#### Error Boundaries on the Server
+
+We've added support for Error Boundaries on the Server for all rendering methods(`renderToString`, `renderToStringAsync`, `renderToStream`). Errors can be caught both from synchronous rendering and from errors that happen in Resource resolution. However, Our approach doesn't guarentee all errors are handled on the server as with streaming it is possible that the Error Boundary has already made it to the browser while a nested Suspense component hasn't settled. If an Error is hit it will propagate up to the top most Suspense Boundary that hasn't been flushed yet. If it is not handled by an Error Boundary before that it will abort rendering, and send the Error to the browser to propagate up to the nearest Error Boundary.
+
+This works now but there is more to explore here in improving Error handling in general with SSR. So look forward to feedback on the feature.
+
+#### Isolated Server Render/Hydration Contexts
+
+Sometimes you want to server render and hydrate multiple Solid apps on the same page. Maybe you are using the Islands architecture with something like [Astro](https://astro.build). We now have the ability to pass a unique `renderId` on all our server rendering methods and to the `hydrate` function. This will isolate all hydration and resource resolution. This means we can use things like server side Suspense in these solutions.
+
+Also now you only need to include the Hydration Script once on the page. Each Island will be responsible for initializing it's own resources.
+
+```js
+// on the server
+const html = renderToString(() => <Island1 />, { renderId: "island1" });
+
+// for the browser
+hydrate(() => <Island1 />, mountEl, { renderId: "island1" });
+```
+
+#### Better TypeScript Support
+
+Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
+
+#### External Sources (experimental)
+
+Ever wanted to use a third party reactive library directly in Solid, like MobX, Vue Reactivity, or Kairo. We are experimenting with adding native support so reactive atoms from these libraries can be used directly in Solid's primitives and JSX without a wrapper. This feature is still experimental since supporting Transitions and Concurrent Rendering will take some more effort. But we have added `enableExternalSource` enable this feature. Thanks @3Shain for designing this solution.
+
+```js
+import { Reaction, makeAutoObservable } from "mobx";
+import { onCleanup, enableExternalSource } from "solid-js";
+import { render } from "solid-js/web";
+
+let id = 0;
+enableExternalSource((fn, trigger) => {
+  const reaction = new Reaction(`externalSource@${++id}`, trigger);
+  onCleanup(() => reaction.dispose());
+  return x => reaction.track(() => fn(x));
+});
+
+class Timer {
+  secondsPassed = 0;
+
+  constructor() {
+    makeAutoObservable(this);
+  }
+
+  increase() {
+    this.secondsPassed += 1;
+  }
+
+  reset() {
+    this.secondsPassed = 0;
+  }
+}
+
+const myTimer = new Timer();
+
+// MobX being read directly in Solid JSX.
+render(
+  () => <button onClick={() => timer.reset()}>Seconds passed: {timer.secondsPassed}</button>,
+  document.body
+);
+
+// Update the 'Seconds passed: X' text every second.
+setInterval(() => {
+  myTimer.increase();
+}, 1000);
+```
+
+### Breaking Changes/Deprecations
+
+#### Deprecating Legacy Streaming APIs
+
+`pipeToNodeWritable` and `pipeToWritable` are deprecated. They will still work for now with basic usage but some of the more advanced options didn't map over to the new APIs directly and have been removed. Move to using `renderToStream`.
+
+### Bug Fixes
+
+* Fixed browser extensions modifying the head breaking hydration.
+* Fixed over-executing on multi-select with `createSelector`.
+* Fixed event delegation conflicting with document event listeners.
+* Fixed self owning source infinite recursion.
+
 ## 1.2.0 - 2021-10-25
 
 ### New Features
+
 #### Custom Renderers
 
 This release adds support custom renderers through a new "universal" transform. Solid now provides a sub module `solid-js/universal` that exports a `createRenderer` method that allows you to create your own runtimes. This will enable things like native mobile and desktop, canvas and webgl, or even rendering to the terminal. This is still new so very much looking for feedback.
@@ -10,8 +112,9 @@ This release adds support custom renderers through a new "universal" transform. 
 #### Spreads Added to Solid's `html`
 
 It's been a long time coming but Solid's Tagged Template Literals now support element and component spreads using htm inspired syntax.
+
 ```js
-html`<div ...${props} />`
+html`<div ...${props} />`;
 ```
 
 ### Fixes
@@ -19,6 +122,7 @@ html`<div ...${props} />`
 #### Dynamic Spreads now work on Components
 
 Previously spreads on components would only track property changes on bound objects and not when the whole object changed. This now works:
+
 ```js
 <MyComponent {...getStuff()} />
 ```
@@ -38,9 +142,11 @@ It is common in libraries like Tailwind to apply multiple classes at the same ti
   }}
 />
 ```
+
 #### Consistent handling of HTMLEntities
 
 Things like `&nbsp;` used to render differently depending if in elements or components(or fragments). This has been made consistent across all three.
+
 #### Various improvements to Types and Transitions
 
 A lot of bugs from the last minor release were around Transitions that have been addressed. And as always Types have been gradually improving.
