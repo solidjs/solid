@@ -9,6 +9,11 @@ import {
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
 
+let hydrationEnabled = false;
+export function enableHydration() {
+  hydrationEnabled = true;
+}
+
 export type PropsWithChildren<P = {}> = P & { children?: JSX.Element };
 export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
 /**
@@ -25,12 +30,14 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
     ? JSX.IntrinsicElements[T]
     : {};
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
-  if (sharedConfig.context) {
-    const c = sharedConfig.context;
-    setHydrateContext(nextHydrateContext());
-    const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props as T));
-    setHydrateContext(c);
-    return r;
+  if (hydrationEnabled) {
+    if (sharedConfig.context) {
+      const c = sharedConfig.context;
+      setHydrateContext(nextHydrateContext());
+      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props as T));
+      setHydrateContext(c);
+      return r;
+    }
   }
   if ("_SOLID_DEV_") return devComponent(Comp, props);
   return untrack(() => Comp(props as T));

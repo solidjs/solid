@@ -97,6 +97,7 @@ setInterval(() => {
 ### Bug Fixes
 
 * Fixed browser extensions modifying the head breaking hydration.
+* Fixed reinserting `<html>` on hydration from document.
 * Fixed over-executing on multi-select with `createSelector`.
 * Fixed event delegation conflicting with document event listeners.
 * Fixed self owning source infinite recursion.
