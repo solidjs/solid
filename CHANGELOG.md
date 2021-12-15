@@ -101,6 +101,7 @@ setInterval(() => {
 * Fixed over-executing on multi-select with `createSelector`.
 * Fixed event delegation conflicting with document event listeners.
 * Fixed self owning source infinite recursion.
+* Fixed faulty treesplitting for hydration in client only render.
 
 ## 1.2.0 - 2021-10-25
 
