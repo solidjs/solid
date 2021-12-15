@@ -370,7 +370,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
       });
     return "";
   };
-  wrap.preload = () => {};
+  wrap.preload = () => p;
   return wrap;
 }
 

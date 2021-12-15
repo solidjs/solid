@@ -102,6 +102,7 @@ setInterval(() => {
 * Fixed event delegation conflicting with document event listeners.
 * Fixed self owning source infinite recursion.
 * Fixed faulty treesplitting for hydration in client only render.
+* Fixed return type of `preload` on lazy components to always be a promise.
 
 ## 1.2.0 - 2021-10-25
 
