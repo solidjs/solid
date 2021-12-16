@@ -48,14 +48,22 @@ Ever wanted to use a third party reactive library directly in Solid, like MobX, 
 
 ```js
 import { Reaction, makeAutoObservable } from "mobx";
-import { onCleanup, enableExternalSource } from "solid-js";
+import { enableExternalSource } from "solid-js";
 import { render } from "solid-js/web";
 
 let id = 0;
 enableExternalSource((fn, trigger) => {
   const reaction = new Reaction(`externalSource@${++id}`, trigger);
-  onCleanup(() => reaction.dispose());
-  return x => reaction.track(() => fn(x));
+  return {
+    track: (x) => {
+      let next;
+      reaction.track(() => (next = fn(x)));
+      return next;
+    },
+    dispose: () => {
+      reaction.dispose();
+    }
+  };
 });
 
 class Timer {
@@ -74,18 +82,21 @@ class Timer {
   }
 }
 
-const myTimer = new Timer();
+// component driven directly off MobX
+function App() {
+  const timer = new Timer();
+  setInterval(() => {
+    timer.increase();
+  }, 1000);
 
-// MobX being read directly in Solid JSX.
-render(
-  () => <button onClick={() => timer.reset()}>Seconds passed: {timer.secondsPassed}</button>,
-  document.body
-);
+  return (
+    <button onClick={() => timer.reset()}>
+      Seconds passed: {timer.secondsPassed}
+    </button>
+  );
+}
 
-// Update the 'Seconds passed: X' text every second.
-setInterval(() => {
-  myTimer.increase();
-}, 1000);
+render(() => <App />, document.getElementById("app"));
 ```
 
 ### Breaking Changes/Deprecations

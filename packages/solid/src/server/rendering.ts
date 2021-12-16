@@ -290,7 +290,7 @@ export function createResource<T, U>(
     if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
     const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
-    if (!resolved) {
+    if (!resolved && read.loading) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
         ctx.resources.set(id, read);
@@ -302,7 +302,7 @@ export function createResource<T, U>(
   read.loading = false;
   function load() {
     const ctx = sharedConfig.context!;
-    if (!ctx.async) return (read.loading = true);
+    if (!ctx.async) return (read.loading = !!(typeof fn === "function" ? (fn as () => U)() : fn));
     if (ctx.resources && id in ctx.resources && ctx.resources[id].data) {
       value = ctx.resources[id].data;
       return;
@@ -472,6 +472,6 @@ export function Suspense(props: { fallback?: string; children: string }) {
   } else if (ctx.async) {
     return { t: `<![${id}]>` };
   }
-  setHydrateContext({ ...ctx, count: 0 });
-  return createComponent(() => props.fallback, {});
+  setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
+  return props.fallback;
 }

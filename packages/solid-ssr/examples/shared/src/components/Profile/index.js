@@ -3,7 +3,7 @@ const Profile = lazy(() => import("./Profile"));
 
 // this component lazy loads data and code in parallel
 export default () => {
-  const [user] = createResource("user", () => {
+  const [user] = createResource(() => {
       // simulate data loading
       console.log("LOAD USER");
       return new Promise(res => {
@@ -11,7 +11,7 @@ export default () => {
       });
     }),
     [info] = createResource(
-      () => user() && "userinfo",
+      user,
       () => {
         // simulate cascading data loading
         console.log("LOAD INFO");
@@ -23,7 +23,7 @@ export default () => {
           );
         });
       },
-      []
+      { initialValue: [] }
     );
 
   return <Profile user={user()} info={info()} />;

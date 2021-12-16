@@ -144,12 +144,12 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     if (p) {
       const [s, set] = createSignal(undefined, { equals: false });
       flicker = s;
-      p.then((err) => {
-        if (error = err) return set();
+      p.then(err => {
+        if ((error = err)) return set();
         sharedConfig.gather!(key);
         waitingHydration = true;
         setHydrateContext(ctx);
-        set()
+        set();
         setHydrateContext(undefined);
         waitingHydration = false;
       });
@@ -186,7 +186,8 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
           if (!visibleFallback) return;
           return createRoot(disposer => {
             dispose = disposer;
-            if (sharedConfig.context) sharedConfig.context.count = 0;
+            if (sharedConfig.context)
+              setHydrateContext({ id: sharedConfig.context.id + "f", count: 0 });
             return props.fallback;
           }, owner!);
         });
