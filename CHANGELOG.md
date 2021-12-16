@@ -37,11 +37,6 @@ const html = renderToString(() => <Island1 />, { renderId: "island1" });
 // for the browser
 hydrate(() => <Island1 />, mountEl, { renderId: "island1" });
 ```
-
-#### Better TypeScript Support
-
-Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
-
 #### External Sources (experimental)
 
 Ever wanted to use a third party reactive library directly in Solid, like MobX, Vue Reactivity, or Kairo. We are experimenting with adding native support so reactive atoms from these libraries can be used directly in Solid's primitives and JSX without a wrapper. This feature is still experimental since supporting Transitions and Concurrent Rendering will take some more effort. But we have added `enableExternalSource` enable this feature. Thanks @3Shain for designing this solution.
@@ -98,6 +93,16 @@ function App() {
 
 render(() => <App />, document.getElementById("app"));
 ```
+
+### Improvements
+
+#### Better TypeScript Support
+
+Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
+
+#### Better SourceMaps
+
+Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressions` to better preserve identifiers from the JSX. Thanks to @LXSMNSYC for exploring and implementing this.
 
 ### Breaking Changes/Deprecations
 
