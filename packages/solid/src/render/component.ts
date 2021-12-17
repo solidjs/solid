@@ -217,7 +217,7 @@ export function lazy<T extends Component<any>>(
       (p || (p = fn())).then(mod => {
         setHydrateContext(ctx);
         set(() => mod.default);
-        setHydrateContext(undefined);
+        setHydrateContext();
       });
       comp = s;
     } else if (!comp) {

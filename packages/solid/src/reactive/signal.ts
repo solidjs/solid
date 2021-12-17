@@ -1,7 +1,7 @@
 // Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
 
 import { requestCallback, Task } from "./scheduler";
-import { sharedConfig } from "../render/hydration";
+import { HydrationContext, setHydrateContext, sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
@@ -456,11 +456,13 @@ export function createResource<T, S>(
     pr: Promise<T> | null = null,
     initP: Promise<T> | null | undefined = null,
     id: string | null = null,
+    ctx: HydrationContext,
     loadedUnderTransition = false,
     dynamic = typeof source === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
+    ctx = {...sharedConfig.context};
     if (sharedConfig.load) initP = sharedConfig.load!(id!);
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any) {
@@ -478,7 +480,14 @@ export function createResource<T, S>(
           }
           completeLoad(v as T);
         }, false);
-      } else completeLoad(v as T);
+      } else {
+        if (p === initP) setHydrateContext(ctx);
+        completeLoad(v as T);
+        if (p === initP) {
+          initP = null;
+          setHydrateContext()
+        }
+      }
     }
     return v;
   }
@@ -518,8 +527,7 @@ export function createResource<T, S>(
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
-    const p = initP || untrack(() => (fetcher as ResourceFetcher<S, T>)(lookup, s as Accessor<T>));
-    initP = null;
+    const p = (sharedConfig.context && initP) || untrack(() => (fetcher as ResourceFetcher<S, T>)(lookup, s as Accessor<T>));
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p as unknown as T | undefined);
       return;
