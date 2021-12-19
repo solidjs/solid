@@ -480,14 +480,7 @@ export function createResource<T, S>(
           }
           completeLoad(v as T);
         }, false);
-      } else {
-        if (p === initP) setHydrateContext(ctx);
-        completeLoad(v as T);
-        if (p === initP) {
-          initP = null;
-          setHydrateContext()
-        }
-      }
+      } else completeLoad(v as T);
     }
     return v;
   }
@@ -527,7 +520,8 @@ export function createResource<T, S>(
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
-    const p = (sharedConfig.context && initP) || untrack(() => (fetcher as ResourceFetcher<S, T>)(lookup, s as Accessor<T>));
+    const p = initP || untrack(() => (fetcher as ResourceFetcher<S, T>)(lookup, s as Accessor<T>));
+    initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p as unknown as T | undefined);
       return;

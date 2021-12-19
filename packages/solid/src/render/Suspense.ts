@@ -150,7 +150,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
         waitingHydration = true;
         setHydrateContext(ctx);
         set();
-        setHydrateContext(undefined);
+        setHydrateContext();
         waitingHydration = false;
       });
     }
