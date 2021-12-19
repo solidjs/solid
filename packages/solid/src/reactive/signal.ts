@@ -391,7 +391,7 @@ export type ResourceOptions<T> = T extends undefined
 /**
  * Creates a resource that wraps a repeated promise in a reactive pattern:
  * ```typescript
- * const [resource, { mutate, refetch }] = crateResource(source, fetcher, options);
+ * const [resource, { mutate, refetch }] = createResource(source, fetcher, options);
  * ```
  * @param source - reactive data function to toggle the request, optional
  * @param fetcher - function that receives the source (or true) and an accessor for the last or initial value and returns a value or a Promise with the value:
