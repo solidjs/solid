@@ -412,7 +412,6 @@ type HydrationContext = {
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
   async?: boolean;
   streaming?: boolean;
-  dataOnly?: boolean;
   noHydrate: boolean;
 };
 
@@ -435,7 +434,6 @@ export function Suspense(props: { fallback?: string; children: string }) {
     (ctx.suspense[id] = {
       resources: new Map<string, { loading: boolean }>(),
       completed: () => {
-        if (ctx.dataOnly) return done!();
         const res = runSuspense();
         if (suspenseComplete(value)) {
           done!(resolveSSRNode(res));
@@ -456,19 +454,20 @@ export function Suspense(props: { fallback?: string; children: string }) {
   const res = runSuspense();
 
   // never suspended
-  if (suspenseComplete(value)) return res;
+  if (suspenseComplete(value)) {
+    ctx.writeResource!(id, true)
+    return res;
+  }
 
   onError(err => {
     if (!done || !done(undefined, err)) throw err;
   });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.streaming) {
-    if (!ctx.dataOnly) {
-      setHydrateContext(undefined);
-      const res = { t: `<span id="pl${id}">${resolveSSRNode(props.fallback)}</span>` };
-      setHydrateContext(ctx);
-      return res;
-    }
+    setHydrateContext(undefined);
+    const res = { t: `<span id="pl${id}">${resolveSSRNode(props.fallback)}</span>` };
+    setHydrateContext(ctx);
+    return res;
   } else if (ctx.async) {
     return { t: `<![${id}]>` };
   }

@@ -120,8 +120,8 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
   let counter = 0,
     showContent: Accessor<boolean>,
     showFallback: Accessor<boolean>,
-    ctx: HydrationContext,
-    waitingHydration: Boolean,
+    ctx: HydrationContext | undefined,
+    p: Promise<any> | undefined,
     flicker: Accessor<void> | undefined,
     error: any;
   const [inFallback, setFallback] = createSignal<boolean>(false),
@@ -140,18 +140,17 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     owner = getOwner();
   if (sharedConfig.context) {
     const key = sharedConfig.context.id + sharedConfig.context.count;
-    const p = sharedConfig.load!(key);
-    if (p) {
+    p = sharedConfig.load!(key);
+    if (p && typeof p === "object") {
       const [s, set] = createSignal(undefined, { equals: false });
       flicker = s;
       p.then(err => {
         if ((error = err)) return set();
         sharedConfig.gather!(key);
-        waitingHydration = true;
         setHydrateContext(ctx);
         set();
         setHydrateContext();
-        waitingHydration = false;
+        p = undefined;
       });
     }
   }
@@ -167,18 +166,19 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     get children() {
       return createMemo(() => {
         if (error) throw error;
+        ctx = sharedConfig.context!;
         if (flicker) {
-          ctx = sharedConfig.context!;
           flicker();
           return (flicker = undefined);
         }
+        if (ctx && p === undefined) setHydrateContext();
         const rendered = untrack(() => props.children);
         return createMemo(() => {
           const inFallback = store.inFallback(),
             visibleContent = showContent ? showContent() : true,
             visibleFallback = showFallback ? showFallback() : true;
           dispose && dispose();
-          if ((!inFallback || waitingHydration) && visibleContent) {
+          if ((!inFallback || p !== undefined) && visibleContent) {
             store.resolved = true;
             resumeEffects(store.effects);
             return rendered;
@@ -186,8 +186,10 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
           if (!visibleFallback) return;
           return createRoot(disposer => {
             dispose = disposer;
-            if (sharedConfig.context)
-              setHydrateContext({ id: sharedConfig.context.id + "f", count: 0 });
+            if (ctx) {
+              setHydrateContext({ id: ctx.id + "f", count: 0 });
+              ctx = undefined;
+            }
             return props.fallback;
           }, owner!);
         });

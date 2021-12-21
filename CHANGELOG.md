@@ -6,7 +6,7 @@
 
 #### HTML Streaming
 
-This release adds support for HTML streaming. Now we not only stream data after the initial shell but the HTML as it finishes. The big benefit is that now for cached results, or times when the network are slow we no longer have to show the placeholder while waiting for JavaScript bundle to load. As soon as the HTML is available it will be streamed and inserted. For old behavior you can pass a `dataOnly` option.
+This release adds support for HTML streaming. Now we not only stream data after the initial shell but the HTML as it finishes. The big benefit is that now for cached results, or times when the network are slow we no longer have to show the placeholder while waiting for JavaScript bundle to load. As soon as the HTML is available it will be streamed and inserted.
 
 With it comes new streaming API `renderToStream`. This is a universal API designed to handle both Node and Web writable streams. It returns an object that mirrors a Readable stream on both platforms that has both `pipe` (node) and `pipeTo` (web). The benefit of this `pipe` API is the user can choose when to insert the content in the output stream whether soon as possible, or `onCompleteShell`, or `onCompleteAll`. This decouples Solid's rendering a from the stream a bit but leaves things open to performance improvements in the future.
 
@@ -37,6 +37,7 @@ const html = renderToString(() => <Island1 />, { renderId: "island1" });
 // for the browser
 hydrate(() => <Island1 />, mountEl, { renderId: "island1" });
 ```
+
 #### External Sources (experimental)
 
 Ever wanted to use a third party reactive library directly in Solid, like MobX, Vue Reactivity, or Kairo. We are experimenting with adding native support so reactive atoms from these libraries can be used directly in Solid's primitives and JSX without a wrapper. This feature is still experimental since supporting Transitions and Concurrent Rendering will take some more effort. But we have added `enableExternalSource` enable this feature. Thanks @3Shain for designing this solution.
@@ -94,6 +95,30 @@ function App() {
 render(() => <App />, document.getElementById("app"));
 ```
 
+#### `refetchResources` (experimental)
+
+Sometimes it's valuable to trigger `refetch` across many resources. Now you can.
+
+```js
+import { createResource, refetchResources } from "solid-js";
+
+const userCache = {};
+
+function MyComponent(props) {
+  const [data] = createResource(() => props.id, (userId, { refetching }) => {
+    const cached = userCache[userId];
+
+    // return cached value if available and not refetching
+    if (cached && !refetching) return cached;
+    return fetchUser(userId);
+  })
+}
+
+// somewhere else
+refetchResources()
+```
+You can also pass a parameter to `refetchResources` to provide additional information to the `refetching` info of the fetcher. This could be used for conditional cache invalidation. Like only refetch resources related to `users`. This mechanism requires a bit of wiring but the idea is you'd wrap `createResource` in maybe a `createQuery` and implement your own conventions around resource cache management. Still working out how this should work best, but the goal is to provide the mechanisms to support resource caches without being responsible for their implementation.
+
 ### Improvements
 
 #### Better TypeScript Support
@@ -105,6 +130,26 @@ Thanks to the tireless efforts of several contributors we now have significantly
 Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressions` to better preserve identifiers from the JSX. Thanks to @LXSMNSYC for exploring and implementing this.
 
 ### Breaking Changes/Deprecations
+
+#### Resource fetcher info object replaces `getPrev`
+
+To streamline API for refetch we are slightly updating the `createResource`:
+
+```js
+const [data] = createResource(sourceSignal, (source, { value, refetching }) => {})
+```
+
+For those using existing 2nd argument:
+```js
+const [data] = createResource(sourceSignal, (source, getPrev) => {
+  const value = getPrev();
+});
+
+// becomes
+const [data] = createResource(sourceSignal, (source, { value }) => {
+
+});
+```
 
 #### Deprecating Legacy Streaming APIs
 

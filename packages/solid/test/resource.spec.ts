@@ -5,7 +5,9 @@ import {
   createComputed,
   createRenderEffect,
   onError,
-  Resource
+  Resource,
+  ResourceFetcherInfo,
+  refreshResources,
 } from "../src";
 
 import { createStore, reconcile, Store } from "../store/src";
@@ -36,6 +38,29 @@ describe("Simulate a dynamic fetch", () => {
     resolve("John");
     await Promise.resolve();
     expect(value()).toBe("John");
+    expect(value.loading).toBe(false);
+    done();
+  });
+
+  test("initial async resource refresh", async done => {
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      onError(e => (error = e));
+      [value] = createResource(id, fetcher);
+      createRenderEffect(value);
+    });
+    expect(value()).toBeUndefined();
+    expect(value.loading).toBe(true);
+    resolve("John");
+    await Promise.resolve();
+    expect(value()).toBe("John");
+    expect(value.loading).toBe(false);
+    refreshResources();
+    expect(value.loading).toBe(true);
+    resolve("Jon");
+    await Promise.resolve();
+    expect(value()).toBe("Jon");
     expect(value.loading).toBe(false);
     done();
   });
@@ -76,14 +101,14 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     };
   }
   let resolve: (v: User) => void,
-    refetch: () => void,
+    refetch: (info?: unknown) => void,
     user: Resource<User | undefined>,
     state: { user?: User; userLoading: boolean },
     count = 0;
-  function fetcher(_: string, getPrev: () => User | undefined) {
+  function fetcher(_: string, { value }: ResourceFetcherInfo<Store<User>>) {
     return new Promise<User>(r => {
       resolve = r;
-    }).then(value => reconcile(value)(getPrev() as Store<User>));
+    }).then(next => reconcile(next)(value!));
   }
   const data: User[] = [];
   data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } });
@@ -91,7 +116,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
 
   test("initial async resource", async done => {
     createRoot(() => {
-      [user, { refetch }] = createResource("user", fetcher);
+      [user, { refetch }] = createResource(fetcher);
       [state] = createStore<{ user?: User; userLoading: boolean }>({
         get user() {
           return user();

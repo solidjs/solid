@@ -18,7 +18,6 @@ export function renderToStream<T>(
   fn: () => T,
   options?: {
     nonce?: string;
-    dataOnly?: boolean;
     renderId?: string;
     onCompleteShell?: () => void;
     onCompleteAll?: () => void;
@@ -48,7 +47,6 @@ export function pipeToWritable<T>(
   writable: WritableStream,
   options?: {
     nonce?: string;
-    dataOnly?: boolean;
     onReady?: (res: LegacyResults) => void;
     onCompleteAll?: () => void;
   }
@@ -61,7 +59,6 @@ export function pipeToNodeWritable<T>(
   writable: { write: (v: string) => void },
   options?: {
     nonce?: string;
-    dataOnly?: boolean;
     onReady?: (res: LegacyResults) => void;
     onCompleteAll?: () => void;
   }

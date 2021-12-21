@@ -18,6 +18,7 @@ export {
   enableExternalSource,
   startTransition,
   useTransition,
+  refreshResources,
   createContext,
   useContext,
   children,
@@ -32,6 +33,8 @@ export type {
   Setter,
   Resource,
   ResourceReturn,
+  ResourceFetcher,
+  ResourceFetcherInfo,
   Context,
   ReturnTypes
 } from "./reactive/signal";

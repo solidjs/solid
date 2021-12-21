@@ -1,7 +1,7 @@
 // Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
 
 import { requestCallback, Task } from "./scheduler";
-import { HydrationContext, setHydrateContext, sharedConfig } from "../render/hydration";
+import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
@@ -376,13 +376,18 @@ export interface Resource<T> extends Accessor<T> {
   error: any;
 }
 
-export type ResourceActions<T> = { mutate: Setter<T>; refetch: () => void };
+export type ResourceActions<T> = { mutate: Setter<T>; refetch: (info?: unknown) => void };
 
 export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
 export type ResourceSource<S> = S | false | null | (() => S | false | null);
 
-export type ResourceFetcher<S, T> = (k: S, getPrev: Accessor<T>) => T | Promise<T>;
+export type ResourceFetcher<S, T> = (
+  k: S,
+  info: ResourceFetcherInfo<T>
+) => T | Promise<T>;
+
+export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown }
 
 export type ResourceOptions<T> = T extends undefined
   ? { initialValue?: T; name?: string }
@@ -398,7 +403,7 @@ export type ResourceOptions<T> = T extends undefined
  * ```typescript
  * const fetcher: ResourceFetcher<S, T, > = (
  *   sourceOutput: ReturnValue<typeof source>,
- *   getPrev: Accessor<T>
+ *   info: ResourceFetcherInfo<T>
  * ) => T | Promise<T>;
  * ```
  * @param options - an optional object with the initialValue and the name (for debugging purposes)
@@ -446,6 +451,10 @@ export function createResource<T, S>(
     fetcher = source as ResourceFetcher<S, T>;
     source = true as ResourceSource<S>;
   }
+  Resources || (Resources = new Set());
+  Resources.add(load);
+  onCleanup(() => Resources.delete(load));
+
   const contexts = new Set<SuspenseContextType>(),
     [s, set] = createSignal<T | undefined>((options || {}).initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
@@ -456,13 +465,11 @@ export function createResource<T, S>(
     pr: Promise<T> | null = null,
     initP: Promise<T> | null | undefined = null,
     id: string | null = null,
-    ctx: HydrationContext,
     loadedUnderTransition = false,
     dynamic = typeof source === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
-    ctx = {...sharedConfig.context};
     if (sharedConfig.load) initP = sharedConfig.load!(id!);
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any) {
@@ -511,7 +518,7 @@ export function createResource<T, S>(
     }
     return v;
   }
-  function load() {
+  function load(refetching: unknown = true) {
     setError((err = undefined));
     const lookup = dynamic ? (source as () => S)() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
@@ -520,7 +527,14 @@ export function createResource<T, S>(
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
-    const p = initP || untrack(() => (fetcher as ResourceFetcher<S, T>)(lookup, s as Accessor<T>));
+    const p =
+      initP ||
+      untrack(() =>
+        (fetcher as ResourceFetcher<S, T>)(lookup, {
+          value: s(),
+          refetching
+        })
+      );
     initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p as unknown as T | undefined);
@@ -548,9 +562,14 @@ export function createResource<T, S>(
       }
     }
   });
-  if (dynamic) createComputed(load);
-  else load();
+  if (dynamic) createComputed(() => load(false));
+  else load(false);
   return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
+}
+
+let Resources: Set<(info: unknown) => void >;
+export function refreshResources(info?: unknown) {
+  Resources && Resources.forEach(fn => fn(info));
 }
 
 export interface DeferredOptions<T> {
@@ -558,8 +577,6 @@ export interface DeferredOptions<T> {
   name?: string;
   timeoutMs?: number;
 }
-
-// TODO should createDeferred accept EffectFunctions instead of only Accessors, similar to other effect creation APIs?
 
 /**
  * Creates a reactive computation that only runs and notifies the reactive context when the browser is idle
@@ -854,6 +871,12 @@ export function enableScheduling(scheduler = requestCallback) {
   Scheduler = scheduler;
 }
 
+/**
+ * ```typescript
+ * export function startTransition(fn: () => void, cb?: () => void) => void
+ *
+ * @description https://www.solidjs.com/docs/latest/api#usetransition
+ */
 export function startTransition(fn: () => void, cb?: () => void) {
   if (Transition && Transition.running) {
     fn();
