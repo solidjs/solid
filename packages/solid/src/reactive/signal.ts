@@ -568,7 +568,7 @@ export function createResource<T, S>(
 }
 
 let Resources: Set<(info: unknown) => void >;
-export function refreshResources(info?: unknown) {
+export function refetchResources(info?: unknown) {
   Resources && Resources.forEach(fn => fn(info));
 }
 

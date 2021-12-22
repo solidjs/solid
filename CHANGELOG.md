@@ -51,7 +51,7 @@ let id = 0;
 enableExternalSource((fn, trigger) => {
   const reaction = new Reaction(`externalSource@${++id}`, trigger);
   return {
-    track: (x) => {
+    track: x => {
       let next;
       reaction.track(() => (next = fn(x)));
       return next;
@@ -85,11 +85,7 @@ function App() {
     timer.increase();
   }, 1000);
 
-  return (
-    <button onClick={() => timer.reset()}>
-      Seconds passed: {timer.secondsPassed}
-    </button>
-  );
+  return <button onClick={() => timer.reset()}>Seconds passed: {timer.secondsPassed}</button>;
 }
 
 render(() => <App />, document.getElementById("app"));
@@ -105,18 +101,22 @@ import { createResource, refetchResources } from "solid-js";
 const userCache = {};
 
 function MyComponent(props) {
-  const [data] = createResource(() => props.id, (userId, { refetching }) => {
-    const cached = userCache[userId];
+  const [data] = createResource(
+    () => props.id,
+    (userId, { refetching }) => {
+      const cached = userCache[userId];
 
-    // return cached value if available and not refetching
-    if (cached && !refetching) return cached;
-    return fetchUser(userId);
-  })
+      // return cached value if available and not refetching
+      if (cached && !refetching) return cached;
+      return fetchUser(userId);
+    }
+  );
 }
 
 // somewhere else
-refetchResources()
+refetchResources();
 ```
+
 You can also pass a parameter to `refetchResources` to provide additional information to the `refetching` info of the fetcher. This could be used for conditional cache invalidation. Like only refetch resources related to `users`. This mechanism requires a bit of wiring but the idea is you'd wrap `createResource` in maybe a `createQuery` and implement your own conventions around resource cache management. Still working out how this should work best, but the goal is to provide the mechanisms to support resource caches without being responsible for their implementation.
 
 ### Improvements
@@ -136,19 +136,18 @@ Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressio
 To streamline API for refetch we are slightly updating the `createResource`:
 
 ```js
-const [data] = createResource(sourceSignal, (source, { value, refetching }) => {})
+const [data] = createResource(sourceSignal, (source, { value, refetching }) => {});
 ```
 
 For those using existing 2nd argument:
+
 ```js
 const [data] = createResource(sourceSignal, (source, getPrev) => {
   const value = getPrev();
 });
 
 // becomes
-const [data] = createResource(sourceSignal, (source, { value }) => {
-
-});
+const [data] = createResource(sourceSignal, (source, { value }) => {});
 ```
 
 #### Deprecating Legacy Streaming APIs
@@ -157,13 +156,13 @@ const [data] = createResource(sourceSignal, (source, { value }) => {
 
 ### Bug Fixes
 
-* Fixed browser extensions modifying the head breaking hydration.
-* Fixed reinserting `<html>` on hydration from document.
-* Fixed over-executing on multi-select with `createSelector`.
-* Fixed event delegation conflicting with document event listeners.
-* Fixed self owning source infinite recursion.
-* Fixed faulty treesplitting for hydration in client only render.
-* Fixed return type of `preload` on lazy components to always be a promise.
+- Fixed browser extensions modifying the head breaking hydration.
+- Fixed reinserting `<html>` on hydration from document.
+- Fixed over-executing on multi-select with `createSelector`.
+- Fixed event delegation conflicting with document event listeners.
+- Fixed self owning source infinite recursion.
+- Fixed faulty treesplitting for hydration in client only render.
+- Fixed return type of `preload` on lazy components to always be a promise.
 
 ## 1.2.0 - 2021-10-25
 

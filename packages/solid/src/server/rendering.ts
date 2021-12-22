@@ -349,6 +349,8 @@ export function createResource<T, U>(
   return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as ResourceReturn<T>);
 }
 
+export function refetchResources(info?: unknown) { }
+
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
   let resolved: (props: any) => any;
   const p = fn();

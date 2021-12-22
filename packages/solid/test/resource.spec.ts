@@ -7,7 +7,7 @@ import {
   onError,
   Resource,
   ResourceFetcherInfo,
-  refreshResources,
+  refetchResources,
 } from "../src";
 
 import { createStore, reconcile, Store } from "../store/src";
@@ -56,7 +56,7 @@ describe("Simulate a dynamic fetch", () => {
     await Promise.resolve();
     expect(value()).toBe("John");
     expect(value.loading).toBe(false);
-    refreshResources();
+    refetchResources();
     expect(value.loading).toBe(true);
     resolve("Jon");
     await Promise.resolve();
