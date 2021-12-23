@@ -44,13 +44,17 @@
         "import": "./dist/solid.js",
         "require": "./dist/solid.cjs"
       },
+      "node": {
+        "development": {
+          "import": "./dist/dev.js",
+          "require": "./dist/dev.cjs"
+        },
+        "import": "./dist/server.js",
+        "require": "./dist/server.cjs"
+      },
       "development": {
         "import": "./dist/dev.js",
         "require": "./dist/dev.cjs"
-      },
-      "node": {
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
       },
       "import": "./dist/solid.js",
       "require": "./dist/solid.cjs"
