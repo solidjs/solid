@@ -9,5 +9,27 @@
   "unpkg": "./dist/web.cjs",
   "types": "./types/index.d.ts",
   "type": "module",
-  "sideEffects": false
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "browser": {
+        "development": {
+          "import": "./dist/dev.js",
+          "require": "./dist/dev.cjs"
+        },
+        "import": "./dist/web.js",
+        "require": "./dist/web.cjs"
+      },
+      "development": {
+        "import": "./dist/dev.js",
+        "require": "./dist/dev.cjs"
+      },
+      "node": {
+        "import": "./dist/server.js",
+        "require": "./dist/server.cjs"
+      },
+      "import": "./dist/web.js",
+      "require": "./dist/web.cjs"
+    }
+  }
 }
