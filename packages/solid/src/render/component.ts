@@ -221,7 +221,9 @@ export function lazy<T extends Component<any>>(
       });
       comp = s;
     } else if (!comp) {
-      const [s] = createResource(() => (p || (p = fn())).then(mod => mod.default));
+      const [s] = createResource<T>(
+        (_, { value }) => value || (p || (p = fn())).then(mod => mod.default)
+      );
       comp = s;
     } else {
       const c = comp();
