@@ -1,4 +1,4 @@
-import { getNextElement, insert, spread, SVGElements } from "./client";
+import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client";
 import {
   createSignal,
   createMemo,
@@ -9,7 +9,8 @@ import {
   JSX,
   createRoot,
   sharedConfig,
-  Accessor
+  Accessor,
+  enableHydration
 } from "solid-js";
 
 export * from "./client";
@@ -34,11 +35,16 @@ function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement
   return isSVG ? document.createElementNS(SVG_NAMESPACE, tagName) : document.createElement(tagName);
 }
 
+export const hydrate: typeof hydrateCore = (...args) => {
+  enableHydration();
+  return hydrateCore(...args);
+}
+
 /**
  * renders components somewhere else in the DOM
- * 
+ *
  * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
- * 
+ *
  * @description https://www.solidjs.com/docs/latest/api#%3Cportal%3E
  */
 export function Portal(props: {

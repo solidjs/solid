@@ -50,6 +50,8 @@ describe("Create signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign] = createSignal("thoughts");
+      const fn = on(sign, v => (temp = `impure ${v}`));
+      createComputed(fn);
       createComputed(on(sign, v => (temp = `impure ${v}`)));
       expect(temp!).toBe("impure thoughts");
     });
@@ -59,7 +61,8 @@ describe("Create signals", () => {
       let temp: string;
       const [sign] = createSignal("thoughts");
       const [num] = createSignal(3);
-      createComputed(on([sign, num], v => (temp = `impure ${v[1]}`)));
+      const fn = on([sign, num], v => (temp = `impure ${v[1]}`));
+      createComputed(fn);
       expect(temp!).toBe("impure 3");
     });
   });
@@ -67,7 +70,8 @@ describe("Create signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign, set] = createSignal("thoughts");
-      createComputed(on(sign, v => (temp = `impure ${v}`), { defer: true }));
+      const fn = on(sign, v => (temp = `impure ${v}`), { defer: true });
+      createComputed(fn);
       expect(temp!).toBeUndefined();
       set("minds");
       expect(temp!).toBe("impure minds");

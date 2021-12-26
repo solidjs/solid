@@ -1,10 +1,10 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "1.2.6",
+  "version": "1.3.0-beta.10",
   "author": "Ryan Carniato",
   "license": "MIT",
-  "homepage": "https://github.com/solidjs/solid#readme",
+  "homepage": "https://solidjs.com",
   "repository": {
     "type": "git",
     "url": "https://github.com/solidjs/solid"
@@ -37,6 +37,10 @@
   "exports": {
     ".": {
       "browser": {
+        "development": {
+          "import": "./dist/dev.js",
+          "require": "./dist/dev.cjs"
+        },
         "import": "./dist/solid.js",
         "require": "./dist/solid.cjs"
       },
@@ -54,6 +58,10 @@
     "./dist/*": "./dist/*",
     "./store": {
       "browser": {
+        "development": {
+          "import": "./store/dist/dev.js",
+          "require": "./store/dist/dev.cjs"
+        },
         "import": "./store/dist/store.js",
         "require": "./store/dist/store.cjs"
       },
@@ -71,6 +79,10 @@
     "./store/dist/*": "./store/dist/*",
     "./web": {
       "browser": {
+        "development": {
+          "import": "./web/dist/dev.js",
+          "require": "./web/dist/dev.cjs"
+        },
         "import": "./web/dist/web.js",
         "require": "./web/dist/web.cjs"
       },

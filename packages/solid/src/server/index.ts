@@ -25,11 +25,11 @@ export {
   observable,
   from,
   $PROXY,
-  DEV
+  DEV,
+  enableExternalSource
 } from "./reactive";
 
 export {
-  awaitSuspense,
   mergeProps,
   splitProps,
   createComponent,

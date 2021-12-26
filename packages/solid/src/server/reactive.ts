@@ -1,4 +1,6 @@
 import type { JSX } from "../jsx";
+import type { Accessor, Setter } from "../reactive/signal";
+
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 export const DEV = {};
@@ -6,10 +8,6 @@ const ERROR = Symbol("error");
 
 const UNOWNED: Owner = { context: null, owner: null };
 export let Owner: Owner | null = null;
-export type Accessor<T> = () => T;
-export type Setter<T> = undefined extends T
-  ? <U extends T>(v?: (U extends Function ? never : U) | ((prev?: U) => U)) => U
-  : <U extends T>(v: (U extends Function ? never : U) | ((prev: U) => U)) => U;
 
 interface Owner {
   owner: Owner | null;
@@ -48,8 +46,15 @@ export function createSignal<T>(
 
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   Owner = { owner: Owner, context: null };
-  fn(value);
-  Owner = Owner.owner;
+  try {
+    fn(value);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
+  } finally {
+    Owner = Owner.owner;
+  }
 }
 
 export const createRenderEffect = createComputed;
@@ -58,8 +63,16 @@ export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
 export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
   Owner = { owner: Owner, context: null };
-  const v = fn(value);
-  Owner = Owner.owner;
+  let v: T;
+  try {
+    v = fn(value);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
+  } finally {
+    Owner = Owner.owner;
+  }
   return () => v;
 }
 
@@ -236,16 +249,25 @@ export function observable<T>(input: Accessor<T>) {
   };
 }
 
-export function from<T>(producer: ((setter: Setter<T>) =>  () => void) | {
-  subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
-}): Accessor<T> {
-  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [Accessor<T>, Setter<T>];
+export function from<T>(
+  producer:
+    | ((setter: Setter<T>) => () => void)
+    | {
+        subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
+      }
+): Accessor<T> {
+  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [
+    Accessor<T>,
+    Setter<T>
+  ];
   if ("subscribe" in producer) {
-    const unsub = producer.subscribe((v) => set(() => v));
-    onCleanup(() => "unsubscribe" in unsub ? unsub.unsubscribe() : unsub())
+    const unsub = producer.subscribe(v => set(() => v));
+    onCleanup(() => ("unsubscribe" in unsub ? unsub.unsubscribe() : unsub()));
   } else {
     const clean = producer(set);
     onCleanup(clean);
   }
   return s;
 }
+
+export function enableExternalSource(factory: any) {}

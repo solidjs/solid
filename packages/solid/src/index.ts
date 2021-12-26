@@ -15,8 +15,10 @@ export {
   batch,
   on,
   enableScheduling,
+  enableExternalSource,
   startTransition,
   useTransition,
+  refetchResources,
   createContext,
   useContext,
   children,
@@ -31,6 +33,8 @@ export type {
   Setter,
   Resource,
   ResourceReturn,
+  ResourceFetcher,
+  ResourceFetcherInfo,
   Context,
   ReturnTypes
 } from "./reactive/signal";
@@ -43,9 +47,6 @@ export * from "./render";
 import type { JSX } from "./jsx";
 type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
-
-// mock server endpoint for dom-expressions
-export function awaitSuspense() {}
 
 // dev
 import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal";

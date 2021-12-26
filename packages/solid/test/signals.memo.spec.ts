@@ -1,4 +1,4 @@
-import { createRoot, createSignal, createComputed, createMemo } from "../src";
+import { createRoot, createSignal, createComputed, createMemo, Accessor } from "../src";
 
 describe("createMemo", () => {
   describe("executing propagating", () => {
@@ -215,22 +215,22 @@ describe("createMemo", () => {
       createRoot(() => {
         let [s1, set] = createSignal(1, { equals: false });
         let order = "";
-        let t1 = createMemo(
+        let t1 = createMemo(() => {
+          order += "t1";
+          return s1() > 2;
+        });
+        let t2 = createMemo(() => {
+          order += "t2";
+          return s1() > 2;
+        });
+        let c1 = createMemo(
           () => {
-            order += "t1";
-            return s1() > 2;
-          }
+            order += "c1";
+            s1();
+          },
+          undefined,
+          { equals: false }
         );
-        let t2 = createMemo(
-          () => {
-            order += "t2";
-            return s1() > 2;
-          }
-        );
-        let c1 = createMemo(() => {
-          order += "c1";
-          s1();
-        }, undefined, { equals: false });
         createComputed(() => {
           order += "c2";
           t1();
@@ -382,7 +382,9 @@ describe("createMemo", () => {
     it("throws when cycle created by modifying a branch", () => {
       createRoot(() => {
         var [d, set] = createSignal(1),
-          f: () => number = createMemo(() => (f ? f() : d()), undefined, { equals: false });
+          f: Accessor<number | undefined> = createMemo(() => (f ? f() : d()), undefined, {
+            equals: false
+          });
 
         expect(() => {
           set(0);

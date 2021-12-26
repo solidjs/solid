@@ -1,4 +1,4 @@
-import { createMemo, Owner, createContext, useContext, lookup, runWithOwner } from "./reactive";
+import { Owner, createContext, createMemo, useContext, runWithOwner, onError } from "./reactive";
 import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
@@ -47,7 +47,7 @@ export function createComponent<T>(
   Comp: (props: T) => JSX.Element,
   props: PossiblyWrapped<T>
 ): JSX.Element {
-  if (sharedConfig.context) {
+  if (sharedConfig.context && !sharedConfig.context.noHydrate) {
     const c = sharedConfig.context;
     setHydrateContext(nextHydrateContext());
     const r = Comp(props as T);
@@ -206,11 +206,21 @@ export function Match<T>(props: MatchProps<T>) {
 }
 
 export function ErrorBoundary(props: {
-  fallback: string | ((err: any) => string);
+  fallback: string | ((err: any, reset: () => void) => string);
   children: string;
 }) {
-  // no op
-  return props.children;
+  let error: any, res: any;
+  const ctx = sharedConfig.context!;
+  const id = ctx.id + ctx.count;
+  onError(err => (error = err));
+  createMemo(() => (res = props.children));
+  if (error) {
+    ctx.writeResource!(id, error, true);
+    setHydrateContext({ ...ctx, count: 0 });
+    const f = props.fallback;
+    return typeof f === "function" && f.length ? f(error, () => {}) : f;
+  }
+  return res;
 }
 
 // Suspense Context
@@ -268,6 +278,7 @@ export function createResource<T, U>(
   let resource: { ref?: any; data?: T } = {};
   let value = options.initialValue;
   let p: Promise<T> | T | null;
+  let error: any;
   if (sharedConfig.context!.async) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
@@ -276,9 +287,10 @@ export function createResource<T, U>(
     }
   }
   const read = () => {
+    if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
     const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
-    if (sharedConfig.context!.async && !resolved) {
+    if (!resolved && read.loading) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
         ctx.resources.set(id, read);
@@ -290,7 +302,7 @@ export function createResource<T, U>(
   read.loading = false;
   function load() {
     const ctx = sharedConfig.context!;
-    if (!ctx.async && !ctx.streaming) return;
+    if (!ctx.async) return (read.loading = !!(typeof fn === "function" ? (fn as () => U)() : fn));
     if (ctx.resources && id in ctx.resources && ctx.resources[id].data) {
       value = ctx.resources[id].data;
       return;
@@ -315,21 +327,18 @@ export function createResource<T, U>(
     }
     read.loading = true;
     if ("then" in p) {
-      if (ctx.writeResource) {
-        ctx.writeResource(id, p);
-        p.then(v => {
-          value = v;
-          read.loading = false;
-          p = null;
-        });
-        return;
-      }
+      if (ctx.writeResource) ctx.writeResource(id, p);
       p.then(res => {
         read.loading = false;
         ctx.resources[id].data = res;
         p = null;
         notifySuspense(contexts);
         return res;
+      }).catch(err => {
+        read.loading = false;
+        error = err;
+        p = null;
+        notifySuspense(contexts);
       });
       return;
     }
@@ -339,6 +348,8 @@ export function createResource<T, U>(
   load();
   return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as ResourceReturn<T>);
 }
+
+export function refetchResources(info?: unknown) { }
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
   let resolved: (props: any) => any;
@@ -354,13 +365,14 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
       ctx.resources.set(id, track);
       contexts.add(ctx);
     }
-    p.then(() => {
-      track.loading = false;
-      notifySuspense(contexts);
-    });
+    if (sharedConfig.context!.async)
+      p.then(() => {
+        track.loading = false;
+        notifySuspense(contexts);
+      });
     return "";
   };
-  wrap.preload = () => {};
+  wrap.preload = () => p;
   return wrap;
 }
 
@@ -396,11 +408,13 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  writeResource?: (id: string, v: Promise<any>) => void;
+  writeResource?: (id: string, v: Promise<any> | any, error?: boolean) => void;
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
+  registerFragment: (v: string) => (v?: string, err?: any) => boolean;
   async?: boolean;
   streaming?: boolean;
+  noHydrate: boolean;
 };
 
 export function SuspenseList(props: {
@@ -412,17 +426,10 @@ export function SuspenseList(props: {
   return props.children;
 }
 
-const SUSPENSE_GLOBAL = Symbol("suspense-global");
-export function Suspense(props: { fallback: string; children: string }) {
+export function Suspense(props: { fallback?: string; children: string }) {
+  let done: undefined | ((html?: string, error?: any) => boolean);
   const ctx = sharedConfig.context!;
-  // TODO: look at not always going to fallback
-  if (!ctx.async) return createComponent(() => {
-    props.children;
-    return props.fallback;
-  }, {});
-
   const id = ctx.id + ctx.count;
-  const done = ctx.async ? lookup(Owner, SUSPENSE_GLOBAL)(id) : () => {};
   const o = Owner!;
   const value: SuspenseContextType =
     ctx.suspense[id] ||
@@ -431,7 +438,7 @@ export function Suspense(props: { fallback: string; children: string }) {
       completed: () => {
         const res = runSuspense();
         if (suspenseComplete(value)) {
-          done(resolveSSRNode(res));
+          done!(resolveSSRNode(res));
         }
       }
     });
@@ -447,40 +454,25 @@ export function Suspense(props: { fallback: string; children: string }) {
     });
   }
   const res = runSuspense();
+
+  // never suspended
   if (suspenseComplete(value)) {
-    done();
+    ctx.writeResource!(id, true)
     return res;
   }
-  return sharedConfig.context!.async ? { t: `<#${id}#>` } : props.fallback;
-}
 
-const SUSPENSE_REPLACE = /<#([\d.]+)#>/;
-export function awaitSuspense(fn: () => any) {
-  return new Promise(resolve => {
-    const registry = new Set<string>();
-    const cache: Record<string, string> = Object.create(null);
-    const res = createMemo(() => {
-      Owner!.context = { [SUSPENSE_GLOBAL]: getCallback };
-      return fn();
-    });
-    if (!registry.size) resolve(res());
-    function getCallback(key: string) {
-      registry.add(key);
-      return (value: string) => {
-        if (value) cache[key] = value;
-        registry.delete(key);
-        if (!registry.size)
-          Promise.resolve().then(() => {
-            let source = resolveSSRNode(res());
-            let final = "";
-            let match: any;
-            while ((match = source.match(SUSPENSE_REPLACE))) {
-              final += source.substring(0, match.index);
-              source = cache[match[1]] + source.substring(match.index + match[0].length);
-            }
-            resolve(final + source);
-          });
-      };
-    }
+  onError(err => {
+    if (!done || !done(undefined, err)) throw err;
   });
+  done = ctx.async ? ctx.registerFragment(id) : undefined;
+  if (ctx.streaming) {
+    setHydrateContext(undefined);
+    const res = { t: `<span id="pl${id}">${resolveSSRNode(props.fallback)}</span>` };
+    setHydrateContext(ctx);
+    return res;
+  } else if (ctx.async) {
+    return { t: `<![${id}]>` };
+  }
+  setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
+  return props.fallback;
 }

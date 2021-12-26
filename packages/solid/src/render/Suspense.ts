@@ -13,6 +13,7 @@ import {
   onCleanup,
   getOwner
 } from "../reactive/signal";
+import { HydrationContext, setHydrateContext, sharedConfig } from "./hydration";
 import type { JSX } from "../jsx";
 
 type SuspenseListRegistryItem = {
@@ -28,7 +29,7 @@ const SuspenseListContext = createContext<SuspenseListContextType>();
 
 /**
  * **[experimental]** controls the order in which suspended content is rendered
- * 
+ *
  * @description https://www.solidjs.com/docs/latest/api#%3Csuspenselist%3E-(experimental)
  */
 export function SuspenseList(props: {
@@ -118,7 +119,11 @@ export function SuspenseList(props: {
 export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }) {
   let counter = 0,
     showContent: Accessor<boolean>,
-    showFallback: Accessor<boolean>;
+    showFallback: Accessor<boolean>,
+    ctx: HydrationContext | undefined,
+    p: Promise<any> | undefined,
+    flicker: Accessor<void> | undefined,
+    error: any;
   const [inFallback, setFallback] = createSignal<boolean>(false),
     SuspenseContext = getSuspenseContext(),
     store = {
@@ -133,32 +138,61 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       resolved: false
     },
     owner = getOwner();
+  if (sharedConfig.context) {
+    const key = sharedConfig.context.id + sharedConfig.context.count;
+    p = sharedConfig.load!(key);
+    if (p && typeof p === "object") {
+      const [s, set] = createSignal(undefined, { equals: false });
+      flicker = s;
+      p.then(err => {
+        if ((error = err)) return set();
+        sharedConfig.gather!(key);
+        setHydrateContext(ctx);
+        set();
+        setHydrateContext();
+        p = undefined;
+      });
+    }
+  }
 
   // SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) [showContent, showFallback] = listContext.register(store.inFallback);
   let dispose: () => void;
-  onCleanup(() => dispose && dispose())
+  onCleanup(() => dispose && dispose());
 
   return createComponent(SuspenseContext.Provider, {
     value: store,
     get children() {
-      const rendered = untrack(() => props.children);
       return createMemo(() => {
-        const inFallback = store.inFallback(),
-          visibleContent = showContent ? showContent() : true,
-          visibleFallback = showFallback ? showFallback() : true;
-        dispose && dispose()
-        if (!inFallback && visibleContent) {
-          store.resolved = true;
-          resumeEffects(store.effects);
-          return rendered;
+        if (error) throw error;
+        ctx = sharedConfig.context!;
+        if (flicker) {
+          flicker();
+          return (flicker = undefined);
         }
-        if (!visibleFallback) return;
-        return createRoot(disposer => {
-          dispose = disposer;
-          return props.fallback;
-        }, owner!)
+        if (ctx && p === undefined) setHydrateContext();
+        const rendered = untrack(() => props.children);
+        return createMemo(() => {
+          const inFallback = store.inFallback(),
+            visibleContent = showContent ? showContent() : true,
+            visibleFallback = showFallback ? showFallback() : true;
+          dispose && dispose();
+          if ((!inFallback || p !== undefined) && visibleContent) {
+            store.resolved = true;
+            resumeEffects(store.effects);
+            return rendered;
+          }
+          if (!visibleFallback) return;
+          return createRoot(disposer => {
+            dispose = disposer;
+            if (ctx) {
+              setHydrateContext({ id: ctx.id + "f", count: 0 });
+              ctx = undefined;
+            }
+            return props.fallback;
+          }, owner!);
+        });
       });
     }
   });
