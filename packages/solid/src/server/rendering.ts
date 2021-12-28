@@ -457,7 +457,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
 
   // never suspended
   if (suspenseComplete(value)) {
-    ctx.writeResource!(id, true)
+    ctx.writeResource!(id, null)
     return res;
   }
 
