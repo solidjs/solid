@@ -43,6 +43,7 @@ export {
   SuspenseList,
   createResource,
   enableScheduling,
+  enableHydration,
   startTransition,
   useTransition,
   createUniqueId,

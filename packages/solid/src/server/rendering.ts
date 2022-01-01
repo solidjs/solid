@@ -328,7 +328,7 @@ export function createResource<T, U>(
     read.loading = true;
     if ("then" in p) {
       if (ctx.writeResource) ctx.writeResource(id, p);
-      p.then(res => {
+      return p.then(res => {
         read.loading = false;
         ctx.resources[id].data = res;
         p = null;
@@ -340,10 +340,10 @@ export function createResource<T, U>(
         p = null;
         notifySuspense(contexts);
       });
-      return;
     }
     ctx.resources[id].data = p;
     p = null;
+    return ctx.resources[id].data;
   }
   load();
   return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as ResourceReturn<T>);
@@ -391,6 +391,8 @@ function notifySuspense(contexts: Set<SuspenseContextType>) {
 }
 
 export function enableScheduling() {}
+
+export function enableHydration() {}
 
 export function startTransition(fn: () => any): void {
   fn();

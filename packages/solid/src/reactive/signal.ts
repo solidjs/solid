@@ -75,7 +75,8 @@ export interface TransitionState {
   queue: Set<Computation<any>>;
   scheduler?: (fn: () => void) => unknown;
   running: boolean;
-  cb: (() => void)[];
+  done?: Promise<void>;
+  resolve?: () => void;
 }
 
 type ExternalSourceFactory = <Prev, Next extends Prev = Prev>(
@@ -382,16 +383,23 @@ export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
 export type ResourceSource<S> = S | false | null | (() => S | false | null);
 
-export type ResourceFetcher<S, T> = (
-  k: S,
-  info: ResourceFetcherInfo<T>
-) => T | Promise<T>;
+export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => T | Promise<T>;
 
-export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown }
+export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown };
 
 export type ResourceOptions<T> = T extends undefined
-  ? { initialValue?: T; name?: string }
-  : { initialValue: T; name?: string };
+  ? {
+      initialValue?: T;
+      name?: string;
+      globalRefetch?: boolean;
+      onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
+    }
+  : {
+      initialValue: T;
+      name?: string;
+      globalRefetch?: boolean;
+      onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
+    };
 
 /**
  * Creates a resource that wraps a repeated promise in a reactive pattern:
@@ -451,12 +459,15 @@ export function createResource<T, S>(
     fetcher = source as ResourceFetcher<S, T>;
     source = true as ResourceSource<S>;
   }
-  Resources || (Resources = new Set());
-  Resources.add(load);
-  onCleanup(() => Resources.delete(load));
+  options ||= {};
+  if (options.globalRefetch !== false) {
+    Resources || (Resources = new Set());
+    Resources.add(load);
+    onCleanup(() => Resources.delete(load));
+  }
 
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal<T | undefined>((options || {}).initialValue),
+    [s, set] = createSignal<T | undefined>(options.initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
@@ -472,10 +483,13 @@ export function createResource<T, S>(
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
     if (sharedConfig.load) initP = sharedConfig.load!(id!);
   }
-  function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any) {
+  function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any, key?: S) {
     if (pr === p) {
-      setError((err = e));
       pr = null;
+      if (initP && p === initP && options!.onHydrated)
+        options!.onHydrated(key!, { value: v } as ResourceFetcherInfo<T>);
+      initP = null;
+      setError((err = e));
       if (Transition && p && loadedUnderTransition) {
         Transition.promises.delete(p);
         loadedUnderTransition = false;
@@ -535,18 +549,17 @@ export function createResource<T, S>(
           refetching
         })
       );
-    initP = null;
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p as unknown as T | undefined);
-      return;
+      return p;
     }
     pr = p as Promise<T>;
     batch(() => {
       setLoading(true);
       trigger();
     });
-    p.then(
-      v => loadEnd(p as Promise<T>, v),
+    return p.then(
+      v => loadEnd(p as Promise<T>, v, undefined, lookup),
       e => loadEnd(p as Promise<T>, e, e)
     );
   }
@@ -567,7 +580,7 @@ export function createResource<T, S>(
   return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
 }
 
-let Resources: Set<(info: unknown) => void >;
+let Resources: Set<(info: unknown) => void>;
 export function refetchResources(info?: unknown) {
   Resources && Resources.forEach(fn => fn(info));
 }
@@ -873,37 +886,37 @@ export function enableScheduling(scheduler = requestCallback) {
 
 /**
  * ```typescript
- * export function startTransition(fn: () => void, cb?: () => void) => void
+ * export function startTransition(fn: () => void) => Promise<void>
  *
  * @description https://www.solidjs.com/docs/latest/api#usetransition
  */
-export function startTransition(fn: () => void, cb?: () => void) {
+export function startTransition(fn: () => unknown): Promise<void> {
   if (Transition && Transition.running) {
     fn();
-    cb && Transition.cb.push(cb);
-    return;
+    return Transition.done!;
   }
-  queueMicrotask(() => {
+  return Promise.resolve().then(() => {
+    let t: TransitionState | undefined;
     if (Scheduler || SuspenseContext) {
-      Transition ||
+      t =
+        Transition ||
         (Transition = {
           sources: new Set(),
           effects: [],
           promises: new Set(),
           disposed: new Set(),
           queue: new Set(),
-          running: true,
-          cb: []
+          running: true
         });
-      cb && Transition.cb.push(cb);
-      Transition.running = true;
+      t.done ||= new Promise(res => (t!.resolve = res));
+      t.running = true;
     }
     batch(fn);
-    if (!Scheduler && !SuspenseContext && cb) cb();
+    return t ? t.done : undefined;
   });
 }
 
-export type Transition = [Accessor<boolean>, (fn: () => void, cb?: () => void) => void];
+export type Transition = [Accessor<boolean>, (fn: () => void) => Promise<void>];
 
 /**
  * ```typescript
@@ -1267,7 +1280,7 @@ function createComputation<Next, Init = unknown>(
     const ordinary = ExternalSourceFactory(c.fn, trigger);
     onCleanup(() => ordinary.dispose());
     const triggerInTransition: () => void = () =>
-      startTransition(trigger, () => inTransition.dispose());
+      startTransition(trigger).then(() => inTransition.dispose());
     const inTransition = ExternalSourceFactory(c.fn, triggerInTransition);
     c.fn = x => {
       track();
@@ -1342,7 +1355,7 @@ function completeUpdates(wait: boolean) {
     Updates = null;
   }
   if (wait) return;
-  let cbs;
+  let res;
   if (Transition && Transition.running) {
     if (Transition.promises.size || Transition.queue.size) {
       Transition.running = false;
@@ -1353,7 +1366,7 @@ function completeUpdates(wait: boolean) {
     }
     // finish transition
     const sources = Transition.sources;
-    cbs = Transition.cb;
+    res = Transition.resolve;
     Effects!.forEach(e => {
       "tState" in e && (e.state = e.tState!);
       delete e.tState;
@@ -1383,7 +1396,7 @@ function completeUpdates(wait: boolean) {
     Effects = null;
     if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
   }
-  if (cbs) cbs.forEach(cb => cb());
+  if (res) res();
 }
 
 function runQueue(queue: Computation<any>[]) {

@@ -93,6 +93,8 @@ render(() => <App />, document.getElementById("app"));
 
 #### `refetchResources` (experimental)
 
+In efforts to allow for scaling from simple resources up to cached solutions we are adding some experimental features to `createResource` to work with library writers to develop the best patterns. Caching is always a tricky problem and with SSR and streaming being part of the equation the core framework needs at minimum to provide some hooks into orchestrating them.
+
 Sometimes it's valuable to trigger `refetch` across many resources. Now you can.
 
 ```js
@@ -119,17 +121,27 @@ refetchResources();
 
 You can also pass a parameter to `refetchResources` to provide additional information to the `refetching` info of the fetcher. This could be used for conditional cache invalidation. Like only refetch resources related to `users`. This mechanism requires a bit of wiring but the idea is you'd wrap `createResource` in maybe a `createQuery` and implement your own conventions around resource cache management. Still working out how this should work best, but the goal is to provide the mechanisms to support resource caches without being responsible for their implementation.
 
+To opt-out being part of the global refetch createResource now takes a `globalRefetch` option that can be set to false. In addition to a new option to disable `refetchResources` there is no an `onHydrated` callback that takes the same arguments as the fetcher. When a resource is restored from the server the fetcher is not called. However, this callback will be. This is useful for populating caches.
 ### Improvements
 
 #### Better TypeScript Support
 
 Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
-
 #### Better SourceMaps
 
 Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressions` to better preserve identifiers from the JSX. Thanks to @LXSMNSYC for exploring and implementing this.
 
 ### Breaking Changes/Deprecations
+
+#### `startTransition` no longer takes callback as a second argument
+
+Instead it returns a promise you can await. This works better for chaining sequences of actions.
+
+```js
+const [start, isPending] = useTransition();
+
+start(() => doSomething()).then(() => allDone());
+```
 
 #### Resource fetcher info object replaces `getPrev`
 

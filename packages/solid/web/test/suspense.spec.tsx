@@ -4,7 +4,7 @@ import { lazy, createSignal, createResource, useTransition, enableScheduling } f
 import { render, Suspense, SuspenseList } from "../src";
 
 global.queueMicrotask = setImmediate;
-enableScheduling()
+enableScheduling();
 
 describe("Testing Suspense", () => {
   let div = document.createElement("div"),
@@ -14,7 +14,7 @@ describe("Testing Suspense", () => {
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
       const [value] = createResource<string, string>(
-        () =>  triggered() && "child",
+        () => triggered() && "child",
         () => new Promise(r => setTimeout(() => r("Jo"), 300)),
         { initialValue: "" }
       );
@@ -43,12 +43,13 @@ describe("Testing Suspense", () => {
   test("Toggle with refresh transition", done => {
     const [pending, start] = useTransition();
     let finished = false;
-    start(() => trigger(true), () => finished = true);
+    start(() => trigger(true)).then(() => (finished = true));
     expect(div.innerHTML).toBe("Hi, .Hello ");
     expect(finished).toBe(false);
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, .Hello ");
       expect(pending()).toBe(true);
+      expect(finished).toBe(false);
     });
     setTimeout(() => {
       expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");

@@ -7,7 +7,7 @@ import {
   onError,
   Resource,
   ResourceFetcherInfo,
-  refetchResources,
+  refetchResources
 } from "../src";
 
 import { createStore, reconcile, Store } from "../store/src";
@@ -42,29 +42,6 @@ describe("Simulate a dynamic fetch", () => {
     done();
   });
 
-  test("initial async resource refresh", async done => {
-    createRoot(() => {
-      const [id, setId] = createSignal("1");
-      trigger = setId;
-      onError(e => (error = e));
-      [value] = createResource(id, fetcher);
-      createRenderEffect(value);
-    });
-    expect(value()).toBeUndefined();
-    expect(value.loading).toBe(true);
-    resolve("John");
-    await Promise.resolve();
-    expect(value()).toBe("John");
-    expect(value.loading).toBe(false);
-    refetchResources();
-    expect(value.loading).toBe(true);
-    resolve("Jon");
-    await Promise.resolve();
-    expect(value()).toBe("Jon");
-    expect(value.loading).toBe(false);
-    done();
-  });
-
   test("test out of order", async done => {
     trigger("2");
     expect(value.loading).toBe(true);
@@ -87,6 +64,65 @@ describe("Simulate a dynamic fetch", () => {
     await Promise.resolve();
     expect(error).toBe("Because I said so");
     expect(value.error).toBe("Because I said so");
+    expect(value.loading).toBe(false);
+    done();
+  });
+});
+
+describe("Simulate a dynamic fetch", () => {
+  let resolve: (v: string) => void,
+    reject: (r: string) => void,
+    trigger: (v: string) => void,
+    value: Resource<string | undefined>,
+    error: string;
+  function fetcher(id: string) {
+    return new Promise<string>((r, f) => {
+      resolve = r;
+      reject = f;
+    });
+  }
+  test("initial async resource refetch", async done => {
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      onError(e => (error = e));
+      [value] = createResource(id, fetcher);
+      createRenderEffect(value);
+    });
+    expect(value()).toBeUndefined();
+    expect(value.loading).toBe(true);
+    resolve("John");
+    await Promise.resolve();
+    expect(value()).toBe("John");
+    expect(value.loading).toBe(false);
+    refetchResources();
+    expect(value.loading).toBe(true);
+    resolve("Jon");
+    await Promise.resolve();
+    expect(value()).toBe("Jon");
+    expect(value.loading).toBe(false);
+    done();
+  });
+
+  test("global refetch disabled", async done => {
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      onError(e => (error = e));
+      [value] = createResource(id, fetcher, { globalRefetch: false });
+      createRenderEffect(value);
+    });
+    expect(value()).toBeUndefined();
+    expect(value.loading).toBe(true);
+    resolve("John");
+    await Promise.resolve();
+    expect(value()).toBe("John");
+    expect(value.loading).toBe(false);
+    refetchResources();
+    expect(value.loading).toBe(false);
+    resolve("Jon");
+    await Promise.resolve();
+    expect(value()).toBe("John");
     expect(value.loading).toBe(false);
     done();
   });
