@@ -6,6 +6,7 @@ import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
+export const $HMRCOMP = Symbol('solid.js HMR component marker');
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
@@ -944,7 +945,10 @@ export function resumeEffects(e: Computation<any>[]) {
 // Dev
 export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   const c: Partial<Memo<JSX.Element, JSX.Element>> = createComputation<JSX.Element, JSX.Element>(
-    () => untrack(() => Comp(props)),
+    () => untrack(() => {
+      Object.assign(Comp, {[$HMRCOMP]: true});
+      return Comp(props);
+    }),
     undefined,
     true
   );
