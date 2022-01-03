@@ -873,7 +873,7 @@ export function runWithOwner(o: Owner, fn: () => any) {
   const prev = Owner;
   Owner = o;
   try {
-    return fn();
+    return runUpdates(fn, true);
   } finally {
     Owner = prev;
   }
@@ -895,7 +895,11 @@ export function startTransition(fn: () => unknown): Promise<void> {
     fn();
     return Transition.done!;
   }
+  const l = Listener;
+  const o = Owner;
   return Promise.resolve().then(() => {
+    Listener = l;
+    Owner = o;
     let t: TransitionState | undefined;
     if (Scheduler || SuspenseContext) {
       t =

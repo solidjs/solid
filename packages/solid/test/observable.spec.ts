@@ -1,4 +1,4 @@
-import { createSignal, createRoot, observable, from, createComputed } from "../src";
+import { createSignal, createRoot, observable, from } from "../src";
 
 describe("Observable operator", () => {
   test("to observable", () => {

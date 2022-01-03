@@ -13,7 +13,9 @@ import {
   onCleanup,
   onError,
   createContext,
-  useContext
+  useContext,
+  getOwner,
+  runWithOwner
 } from "../src";
 
 import "./MessageChannel";
@@ -595,5 +597,26 @@ describe("create and use context", () => {
     const context = createContext<number>();
     const res = useContext(context);
     expect(res).toBe<typeof res>(undefined);
+  });
+});
+
+describe("runWithOwner", () => {
+  test("Top level owner execute and disposal", () => {
+    let effectRun = false;
+    let cleanupRun = false;
+    const [owner, dispose] = createRoot(dispose => {
+      return [getOwner()!, dispose];
+    });
+
+    runWithOwner(owner, () => {
+      createEffect(() => effectRun = true);
+      onCleanup(() => cleanupRun = true);
+      expect(effectRun).toBe(false);
+      expect(cleanupRun).toBe(false);
+    });
+    expect(effectRun).toBe(true);
+    expect(cleanupRun).toBe(false);
+    dispose();
+    expect(cleanupRun).toBe(true);
   });
 });
