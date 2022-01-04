@@ -3,6 +3,7 @@ import type { Accessor, Setter } from "../reactive/signal";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
+export const $DEVCOMP = Symbol('solid-dev-component');
 export const DEV = {};
 const ERROR = Symbol("error");
 

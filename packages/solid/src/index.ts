@@ -26,7 +26,7 @@ export {
   getOwner,
   runWithOwner,
   equalFn,
-  $HMRCOMP,
+  $DEVCOMP,
   $PROXY
 } from "./reactive/signal";
 export type {

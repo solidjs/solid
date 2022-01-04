@@ -25,6 +25,7 @@ export {
   observable,
   from,
   $PROXY,
+  $DEVCOMP,
   DEV,
   enableExternalSource
 } from "./reactive";
