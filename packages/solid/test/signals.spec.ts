@@ -4,6 +4,7 @@ import {
   createEffect,
   createRenderEffect,
   createComputed,
+  createReaction,
   createDeferred,
   createMemo,
   createSelector,
@@ -620,3 +621,27 @@ describe("runWithOwner", () => {
     expect(cleanupRun).toBe(true);
   });
 });
+
+describe("createReaction", () => {
+  test("Create and trigger a Reaction", (done) => {
+    createRoot(() => {
+      let count = 0;
+      const [sign, setSign] = createSignal("thoughts");
+      const track = createReaction(() => count++);
+      expect(count).toBe(0);
+      track(sign)
+      expect(count).toBe(0);
+      setTimeout(() => {
+        expect(count).toBe(0);
+        setSign("mind");
+        expect(count).toBe(1);
+        setSign("body");
+        expect(count).toBe(1);
+        track(sign)
+        setSign("everything");
+        expect(count).toBe(2);
+        done();
+      });
+    });
+  });
+})

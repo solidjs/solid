@@ -62,6 +62,10 @@ export const createRenderEffect = createComputed;
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
+export function createReaction(fn: () => void) {
+  return (fn: () => void) => { fn(); }
+}
+
 export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
   Owner = { owner: Owner, context: null };
   let v: T;

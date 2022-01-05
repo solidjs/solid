@@ -115,15 +115,13 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
 
   Owner = root;
   Listener = null;
-  let result: T;
 
   try {
-    runUpdates(() => (result = fn(() => cleanNode(root))), true);
+    return runUpdates(() => fn(() => cleanNode(root)), true)!;
   } finally {
     Listener = listener;
     Owner = owner;
   }
-  return result!;
 }
 
 export type Accessor<T> = () => T;
@@ -308,7 +306,35 @@ export function createEffect<Next, Init = Next>(
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
-  Effects && Effects.push(c);
+  Effects ? Effects.push(c) : queueMicrotask(() => updateComputation(c));
+}
+
+/**
+ * Creates a reactive computation that runs after the render phase with flexible tracking
+ * ```typescript
+ * export function createReaction(
+ *   onInvalidate: () => void,
+ *   options?: { name?: string }
+ * ): (fn: () => void) => void;
+ * ```
+ * @param invalidated a function that is called when tracked function is invalidated.
+ * @param options allows to set a name in dev mode for debugging purposes
+ *
+ * @description https://www.solidjs.com/docs/latest/api#createreaction
+ */
+export function createReaction(onInvalidate: () => void, options?: EffectOptions) {
+  let fn: (() => void) | undefined;
+  const c = createComputation(() => {
+    fn ? fn() : untrack(onInvalidate);
+    fn = undefined;
+  }, undefined, false, 0, "_SOLID_DEV_" ? options : undefined),
+    s = SuspenseContext && lookup(Owner, SuspenseContext.id);
+  if (s) c.suspense = s;
+  c.user = true;
+  return (tracking: () => void) => {
+    fn = tracking;
+    updateComputation(c);
+  }
 }
 
 interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
@@ -326,7 +352,7 @@ export interface MemoOptions<T> extends EffectOptions {
  *   fn: (v: T) => T,
  *   value?: T,
  *   options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
- * ): T;
+ * ): () => T;
  * ```
  * @param fn a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
  * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
@@ -464,7 +490,7 @@ export function createResource<T, S>(
   if (options.globalRefetch !== false) {
     Resources || (Resources = new Set());
     Resources.add(load);
-    onCleanup(() => Resources.delete(load));
+    Owner && onCleanup(() => Resources.delete(load));
   }
 
   const contexts = new Set<SuspenseContextType>(),
@@ -870,11 +896,11 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner(o: Owner, fn: () => any) {
+export function runWithOwner<T>(o: Owner, fn: () => T): T {
   const prev = Owner;
   Owner = o;
   try {
-    return runUpdates(fn, true);
+    return runUpdates(fn, true)!;
   } finally {
     Owner = prev;
   }
@@ -1340,7 +1366,7 @@ function runTop(node: Computation<any>) {
   }
 }
 
-function runUpdates(fn: () => void, init: boolean) {
+function runUpdates<T>(fn: () => T, init: boolean) {
   if (Updates) return fn();
   let wait = false;
   if (!init) Updates = [];
@@ -1348,7 +1374,7 @@ function runUpdates(fn: () => void, init: boolean) {
   else Effects = [];
   ExecCount++;
   try {
-    fn();
+    return fn();
   } catch (err) {
     handleError(err);
   } finally {

@@ -38,6 +38,25 @@ const html = renderToString(() => <Island1 />, { renderId: "island1" });
 hydrate(() => <Island1 />, mountEl, { renderId: "island1" });
 ```
 
+#### `createReaction`
+
+This new primitive is mostly for more advanced use cases and is very helpful for interopt with purely pull based systems (like integrating with React's render cycle). It registers an untracked side effect and returns a tracking function. The tracking function is used to track code block, and the side effect is not fired until the first time any of the dependencies in the tracking code is updated. `track` must be called to track again.
+
+```js
+const [s, set] = createSignal("start");
+
+const track = createReaction(() => console.log("something"));
+
+// next time s changes run the reaction
+track(() => s());
+
+set("end"); // "something"
+
+set("final"); // no-op as reaction only runs on first update, need to call track again.
+```
+
+This primitive is niche for certain use cases but where it is useful it is indispensible (like the next feature which uses a similar API).
+
 #### External Sources (experimental)
 
 Ever wanted to use a third party reactive library directly in Solid, like MobX, Vue Reactivity, or Kairo. We are experimenting with adding native support so reactive atoms from these libraries can be used directly in Solid's primitives and JSX without a wrapper. This feature is still experimental since supporting Transitions and Concurrent Rendering will take some more effort. But we have added `enableExternalSource` enable this feature. Thanks @3Shain for designing this solution.
@@ -175,6 +194,7 @@ const [data] = createResource(sourceSignal, (source, { value }) => {});
 - Fixed self owning source infinite recursion.
 - Fixed faulty treesplitting for hydration in client only render.
 - Fixed return type of `preload` on lazy components to always be a promise.
+- Fixed compile error with leading white space after opening tags when generating ssr.
 
 ## 1.2.0 - 2021-10-25
 

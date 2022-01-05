@@ -4,6 +4,7 @@ export {
   createEffect,
   createRenderEffect,
   createComputed,
+  createReaction,
   createDeferred,
   createSelector,
   createMemo,
