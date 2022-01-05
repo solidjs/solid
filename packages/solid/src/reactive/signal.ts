@@ -607,9 +607,9 @@ export function createResource<T, S>(
   return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
 }
 
-let Resources: Set<(info: unknown) => void>;
+let Resources: Set<(info: unknown) => any>;
 export function refetchResources(info?: unknown) {
-  Resources && Resources.forEach(fn => fn(info));
+  return Resources && Promise.all([...Resources].map(fn => fn(info)));
 }
 
 export interface DeferredOptions<T> {
