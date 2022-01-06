@@ -90,58 +90,69 @@ describe("setState with reconcile", () => {
 
 describe("setState with produce", () => {
   interface DataState {
-    data: { ending?: number, starting: number }
+    data: { ending?: number; starting: number };
   }
   test("Top Level Mutation", () => {
     const [state, setState] = createStore<DataState>({ data: { starting: 1, ending: 1 } });
-    setState(produce<DataState>(s => {
-      s.data.ending = s.data.starting + 1;
-    }));
+    setState(
+      produce(s => {
+        s.data.ending = s.data.starting + 1;
+      })
+    );
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
   test("Top Level Mutation in computation", () => {
     createRoot(() => {
       const [s, set] = createSignal(1);
-      const [state, setState] = createStore({ data: [] });
+      const [state, setState] = createStore<{ data: number[] }>({ data: [] });
       createEffect(() => {
-        setState(produce<{ data: number[]}>(state => {
-          state.data.push(s());
-        }));
-      })
-      createEffect(() => state.data.length)
-    })
-    expect(true).toBe(true)
+        setState(
+          produce(state => {
+            state.data.push(s());
+          })
+        );
+      });
+      createEffect(() => state.data.length);
+    });
+    expect(true).toBe(true);
   });
   test("Nested Level Mutation", () => {
     const [state, setState] = createStore({ data: { starting: 1, ending: 1 } });
-    setState("data", produce<DataState["data"]>(s => {
-      s.ending = s.starting + 1;
-    }));
+    setState(
+      "data",
+      produce(s => {
+        s.ending = s.starting + 1;
+      })
+    );
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
   test("Top Level Deletion", () => {
     const [state, setState] = createStore<DataState>({ data: { starting: 1, ending: 1 } });
-    setState(produce<DataState>(s => {
-      delete s.data.ending;
-    }));
+    setState(
+      produce(s => {
+        delete s.data.ending;
+      })
+    );
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).not.toBeDefined();
   });
   test("Top Level Object Mutation", () => {
     const [state, setState] = createStore<DataState>({ data: { starting: 1, ending: 1 } }),
       next = { starting: 3, ending: 6 };
-    setState(produce<DataState>(s => {
-      s.data = next;
-    }));
+    setState(
+      produce(s => {
+        s.data = next;
+      })
+    );
     expect(unwrap(state.data)).toBe(next);
     expect(state.data.starting).toBe(3);
     expect(state.data.ending).toBe(6);
   });
   test("Test Array Mutation", () => {
     interface TodoState {
-      todos: ({ id: number, title: string, done: boolean })[]
+      todos: { id: number; title: string; done: boolean }[];
     }
     const [state, setState] = createStore<TodoState>({
       todos: [
@@ -149,10 +160,12 @@ describe("setState with produce", () => {
         { id: 2, title: "Eat Lunch", done: false }
       ]
     });
-    setState(produce<TodoState>(s => {
-      s.todos[1].done = true;
-      s.todos.push({ id: 3, title: "Go Home", done: false });
-    }));
+    setState(
+      produce(s => {
+        s.todos[1].done = true;
+        s.todos.push({ id: 3, title: "Go Home", done: false });
+      })
+    );
     expect(Array.isArray(state.todos)).toBe(true);
     expect(state.todos[1].done).toBe(true);
     expect(state.todos[2].title).toBe("Go Home");

@@ -8,7 +8,6 @@ import {
   $NODE,
   $NAME,
   StoreNode,
-  Store,
   setProperty,
   proxyDescriptor,
   ownKeys
@@ -52,7 +51,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
+function wrap<T extends StoreNode>(value: T, name?: string): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -79,10 +78,7 @@ function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
   return p;
 }
 
-export function createMutable<T extends StoreNode>(
-  state: T | Store<T>,
-  options?: { name?: string }
-): Store<T> {
+export function createMutable<T extends StoreNode>(state: T, options?: { name?: string }): T {
   const unwrappedStore = unwrap<T>(state || {});
   const wrappedStore = wrap(
     unwrappedStore,
@@ -92,5 +88,5 @@ export function createMutable<T extends StoreNode>(
     const name = (options && options.name) || DEV.hashValue(unwrappedStore);
     DEV.registerGraph(name, { value: unwrappedStore });
   }
-  return wrappedStore as Store<T>;
+  return wrappedStore;
 }

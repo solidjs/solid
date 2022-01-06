@@ -6,8 +6,5 @@
       "../..": ["../../src"]
     }
   },
-  "include": [
-    "./test",
-    "./web/test"
-  ]
- }
+  "include": ["./test", "./web/test", "./store/test"]
+}

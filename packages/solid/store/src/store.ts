@@ -3,36 +3,17 @@ export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $NAME = Symbol("store-name");
 
-export type StoreNode = {
-  [$NODE]?: any;
-  [$PROXY]?: any;
-  [$NAME]?: string;
-  [k: string]: any;
-  [k: number]: any;
-};
-
-// well-known symbols need special treatment until https://github.com/microsoft/TypeScript/issues/24622 is implemented.
-type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
-  ? { [Symbol.toPrimitive]: V }
-  : {};
-type AddSymbolIterator<T> = T extends { [Symbol.iterator]: infer V }
-  ? { [Symbol.iterator]: V }
-  : {};
-type AddSymbolToStringTag<T> = T extends { [Symbol.toStringTag]: infer V }
-  ? { [Symbol.toStringTag]: V }
-  : {};
-type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
-
-export type NotWrappable = string | number | boolean | Function | null;
-// Intersection for missing fields https://github.com/microsoft/TypeScript/issues/13543
-export type Store<T> = {
-  [P in keyof T]: T[P] extends object ? Store<T[P]> & T[P] : T[P];
-} & {
-  [$RAW]?: T;
-} & AddSymbolToPrimitive<T> &
-  AddSymbolIterator<T> &
-  AddSymbolToStringTag<T> &
-  AddCallable<T>;
+export type StoreNode = Record<keyof any, any>;
+export type NotWrappable =
+  | string
+  | number
+  | bigint
+  | symbol
+  | boolean
+  | Function
+  | null
+  | undefined;
+export type Store<T> = DeepReadonly<T>;
 
 function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
   let p = value[$PROXY];
@@ -95,7 +76,7 @@ export function getDataNodes(target: StoreNode) {
   return nodes;
 }
 
-export function proxyDescriptor(target: StoreNode, property: string | number | symbol) {
+export function proxyDescriptor(target: StoreNode, property: keyof any) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
   if (
     !desc ||
@@ -108,7 +89,7 @@ export function proxyDescriptor(target: StoreNode, property: string | number | s
     return desc;
   delete desc.value;
   delete desc.writable;
-  desc.get = () => target[$PROXY][property as string | number];
+  desc.get = () => target[$PROXY][property];
   return desc;
 }
 
@@ -130,7 +111,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    const value = target[property as string | number];
+    const value = target[property];
     if (property === $NODE || property === "__proto__") return value;
 
     const wrappable = isWrappable(value);
@@ -145,7 +126,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       node();
     }
     return wrappable
-      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
+      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
   },
 
@@ -164,7 +145,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(state: StoreNode, property: string | number, value: any) {
+export function setProperty(state: StoreNode, property: keyof any, value: any) {
   if (state[property] === value) return;
   const array = Array.isArray(state);
   const len = state.length;
@@ -188,7 +169,7 @@ function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
   }
 }
 
-export function updatePath(current: StoreNode, path: any[], traversed: (number | string)[] = []) {
+export function updatePath(current: StoreNode, path: any[], traversed: (keyof any)[] = []) {
   let part,
     prev = current;
   if (path.length > 1) {
@@ -206,14 +187,14 @@ export function updatePath(current: StoreNode, path: any[], traversed: (number |
       // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
       for (let i = 0; i < current.length; i++) {
         if (part(current[i], i))
-          updatePath(current, [i].concat(path), ([i] as (number | string)[]).concat(traversed));
+          updatePath(current, [i].concat(path), [i as keyof any].concat(traversed));
       }
       return;
     } else if (isArray && partType === "object") {
       // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
       const { from = 0, to = current.length - 1, by = 1 } = part;
       for (let i = from; i <= to; i += by) {
-        updatePath(current, [i].concat(path), ([i] as (number | string)[]).concat(traversed));
+        updatePath(current, [i].concat(path), [i as keyof any].concat(traversed));
       }
       return;
     } else if (path.length > 1) {
@@ -235,140 +216,171 @@ export function updatePath(current: StoreNode, path: any[], traversed: (number |
   } else setProperty(current, part, value);
 }
 
-export type Readonly<T> = { readonly [K in keyof T]: DeepReadonly<T[K]> };
-export type DeepReadonly<T> = T extends [infer A]
-  ? Readonly<[A]>
-  : T extends [infer A, infer B]
-  ? Readonly<[A, B]>
-  : T extends [infer A, infer B, infer C]
-  ? Readonly<[A, B, C]>
-  : T extends [infer A, infer B, infer C, infer D]
-  ? Readonly<[A, B, C, D]>
-  : T extends [infer A, infer B, infer C, infer D, infer E]
-  ? Readonly<[A, B, C, D, E]>
-  : T extends [infer A, infer B, infer C, infer D, infer E, infer F]
-  ? Readonly<[A, B, C, D, E, F]>
-  : T extends [infer A, infer B, infer C, infer D, infer E, infer F, infer G]
-  ? Readonly<[A, B, C, D, E, F, G]>
-  : T extends [infer A, infer B, infer C, infer D, infer E, infer F, infer G, infer H]
-  ? Readonly<[A, B, C, D, E, F, G, H]>
-  : T extends object
-  ? Readonly<T>
-  : T;
+export type DeepReadonly<T> = {
+  readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepReadonly<T[K]>;
+};
 
 export type StoreSetter<T> =
+  | T
   | Partial<T>
-  | ((
-      prevState: T extends NotWrappable ? T : Store<DeepReadonly<T>>,
-      traversed?: (string | number)[]
-    ) => Partial<T | DeepReadonly<T>> | void);
+  | ((prevState: T, traversed?: (keyof any)[]) => Partial<T> | void);
+
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
-export type ArrayFilterFn<T> = (
-  item: T extends any[] ? T[number] : never,
-  index: number
-) => boolean;
+export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
 
-export type Part<T> = T extends any[]
-  ? keyof T | Array<keyof T> | ArrayFilterFn<T> | StorePathRange
-  : T extends object
-  ? keyof T | Array<keyof T>
-  : never;
+export type Part<T> = [T] extends [never]
+  ? never
+  : [keyof T] extends [never]
+  ? never
+  :
+      | keyof T
+      | (keyof T)[]
+      | (number extends keyof T ? ArrayFilterFn<T[number]> | StorePathRange : never);
 
-export type NullableNext<T, K> = K extends keyof T
+export type Next<T, K extends Part<T>> = [K] extends [never]
+  ? never
+  : K extends keyof T
   ? T[K]
-  : K extends Array<keyof T>
+  : K extends (keyof T)[]
   ? T[K[number]]
-  : T extends any[]
-  ? K extends StorePathRange
-    ? T[number]
-    : K extends ArrayFilterFn<T>
-    ? T[number]
-    : never
+  : // since K extends Part<T> and we have excluded never,
+  // we assume that K is now ArrayFilterFn or StorePathRange
+  number extends keyof T
+  ? T[number]
   : never;
 
-export type Next<T, K> = NonNullable<NullableNext<T, K>>;
+export type WrappableNext<T, K extends Part<T>> = Exclude<Next<T, K>, NotWrappable>;
 
-export interface SetStoreFunction<T> {
-  <Setter extends StoreSetter<T>>(...args: [Setter]): void;
-  <K1 extends Part<T>, Setter extends StoreSetter<NullableNext<T, K1>>>(
-    ...args: [K1, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    Setter extends StoreSetter<NullableNext<Next<T, K1>, K2>>
-  >(
-    ...args: [K1, K2, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    Setter extends StoreSetter<NullableNext<Next<Next<T, K1>, K2>, K3>>
-  >(
-    ...args: [K1, K2, K3, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    Setter extends StoreSetter<NullableNext<Next<Next<Next<T, K1>, K2>, K3>, K4>>
-  >(
-    ...args: [K1, K2, K3, K4, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    Setter extends StoreSetter<NullableNext<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
-  >(
-    ...args: [K1, K2, K3, K4, K5, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    Setter extends StoreSetter<
-      NullableNext<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>
-    >
-  >(
-    ...args: [K1, K2, K3, K4, K5, K6, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
-    Setter extends StoreSetter<
-      NullableNext<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>
-    >
-  >(
-    ...args: [K1, K2, K3, K4, K5, K6, K7, Setter]
-  ): void;
+type DistributeRest<T, K extends Part<T>> = K extends K ? [K, ...Rest<Next<T, K>>] : never;
+export type Rest<T> = 0 extends 1 & T
+  ? [...(keyof any)[], any]
+  : [StoreSetter<T>] | (T extends NotWrappable ? never : DistributeRest<T, Part<T>>);
 
-  // and here we give up on being accurate after 8 args
+export type SetStoreFunction<T> = _SetStoreFunction<Store<T>>;
+interface _SetStoreFunction<T> {
   <
     K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
-    K8 extends Part<Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>>
+    K2 extends Part<T1>,
+    K3 extends Part<T2>,
+    K4 extends Part<T3>,
+    K5 extends Part<T4>,
+    K6 extends Part<T5>,
+    K7 extends Part<T6>,
+    T1 extends WrappableNext<T, K1>,
+    T2 extends WrappableNext<T1, K2>,
+    T3 extends WrappableNext<T2, K3>,
+    T4 extends WrappableNext<T3, K4>,
+    T5 extends WrappableNext<T4, K5>,
+    T6 extends WrappableNext<T5, K6>
   >(
-    ...args: [K1, K2, K3, K4, K5, K6, K7, K8, ...(Part<any> | StoreSetter<any>)[]]
+    k1: K1,
+    k2: K2,
+    k3: K3,
+    k4: K4,
+    k5: K5,
+    k6: K6,
+    k7: K7,
+    // this cannot infer ArrayFilterFn
+    ...rest: Rest<Next<T6, K7>>
   ): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<T1>,
+    K3 extends Part<T2>,
+    K4 extends Part<T3>,
+    K5 extends Part<T4>,
+    K6 extends Part<T5>,
+    K7 extends Part<T6>,
+    T1 extends WrappableNext<T, K1>,
+    T2 extends WrappableNext<T1, K2>,
+    T3 extends WrappableNext<T2, K3>,
+    T4 extends WrappableNext<T3, K4>,
+    T5 extends WrappableNext<T4, K5>,
+    T6 extends WrappableNext<T5, K6>
+  >(
+    k1: K1,
+    k2: K2,
+    k3: K3,
+    k4: K4,
+    k5: K5,
+    k6: K6,
+    k7: K7,
+    setter: StoreSetter<Next<T6, K7>>
+  ): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<T1>,
+    K3 extends Part<T2>,
+    K4 extends Part<T3>,
+    K5 extends Part<T4>,
+    K6 extends Part<T5>,
+    T1 extends WrappableNext<T, K1>,
+    T2 extends WrappableNext<T1, K2>,
+    T3 extends WrappableNext<T2, K3>,
+    T4 extends WrappableNext<T3, K4>,
+    T5 extends WrappableNext<T4, K5>
+  >(
+    k1: K1,
+    k2: K2,
+    k3: K3,
+    k4: K4,
+    k5: K5,
+    k6: K6,
+    setter: StoreSetter<Next<T5, K6>>
+  ): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<T1>,
+    K3 extends Part<T2>,
+    K4 extends Part<T3>,
+    K5 extends Part<T4>,
+    T1 extends WrappableNext<T, K1>,
+    T2 extends WrappableNext<T1, K2>,
+    T3 extends WrappableNext<T2, K3>,
+    T4 extends WrappableNext<T3, K4>
+  >(
+    k1: K1,
+    k2: K2,
+    k3: K3,
+    k4: K4,
+    k5: K5,
+    setter: StoreSetter<Next<T4, K5>>
+  ): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<T1>,
+    K3 extends Part<T2>,
+    K4 extends Part<T3>,
+    T1 extends WrappableNext<T, K1>,
+    T2 extends WrappableNext<T1, K2>,
+    T3 extends WrappableNext<T2, K3>
+  >(
+    k1: K1,
+    k2: K2,
+    k3: K3,
+    k4: K4,
+    setter: StoreSetter<Next<T3, K4>>
+  ): void;
+  <
+    K1 extends Part<T>,
+    K2 extends Part<T1>,
+    K3 extends Part<T2>,
+    T1 extends WrappableNext<T, K1>,
+    T2 extends WrappableNext<T1, K2>
+  >(
+    k1: K1,
+    k2: K2,
+    k3: K3,
+    setter: StoreSetter<Next<T2, K3>>
+  ): void;
+  <K1 extends Part<T>, K2 extends Part<T1>, T1 extends WrappableNext<T, K1>>(
+    k1: K1,
+    k2: K2,
+    setter: StoreSetter<Next<T1, K2>>
+  ): void;
+  <K extends Part<T>>(k: K, setter: StoreSetter<Next<T, K>>): void;
+  (setter: StoreSetter<T>): void;
 }
 
 /**
