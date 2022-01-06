@@ -8,5 +8,5 @@
     "strict": true,
     "jsx": "preserve"
   },
-  "exclude": ["node_modules", "**/*.spec.ts", "**/*.spec.tsx"]
+  "exclude": ["node_modules"]
 }
