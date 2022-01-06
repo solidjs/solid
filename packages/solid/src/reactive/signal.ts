@@ -6,7 +6,7 @@ import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
-export const $DEVCOMP = Symbol('solid-dev-component');
+export const $DEVCOMP = Symbol("solid-dev-component");
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
@@ -324,17 +324,23 @@ export function createEffect<Next, Init = Next>(
  */
 export function createReaction(onInvalidate: () => void, options?: EffectOptions) {
   let fn: (() => void) | undefined;
-  const c = createComputation(() => {
-    fn ? fn() : untrack(onInvalidate);
-    fn = undefined;
-  }, undefined, false, 0, "_SOLID_DEV_" ? options : undefined),
+  const c = createComputation(
+      () => {
+        fn ? fn() : untrack(onInvalidate);
+        fn = undefined;
+      },
+      undefined,
+      false,
+      0,
+      "_SOLID_DEV_" ? options : undefined
+    ),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
   return (tracking: () => void) => {
     fn = tracking;
     updateComputation(c);
-  }
+  };
 }
 
 interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
@@ -971,10 +977,11 @@ export function resumeEffects(e: Computation<any>[]) {
 // Dev
 export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   const c: Partial<Memo<JSX.Element, JSX.Element>> = createComputation<JSX.Element, JSX.Element>(
-    () => untrack(() => {
-      Object.assign(Comp, {[$DEVCOMP]: true});
-      return Comp(props);
-    }),
+    () =>
+      untrack(() => {
+        Object.assign(Comp, { [$DEVCOMP]: true });
+        return Comp(props);
+      }),
     undefined,
     true
   );
@@ -1564,7 +1571,10 @@ function handleError(err: any) {
 
 function lookup(owner: Owner | null, key: symbol | string): any {
   return (
-    owner && ((owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key)))
+    owner &&
+    ((owner.context && owner.context[key] !== undefined)
+      ? owner.context[key]
+      : owner.owner && lookup(owner.owner, key))
   );
 }
 

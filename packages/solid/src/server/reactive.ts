@@ -166,7 +166,10 @@ export function runWithOwner(o: Owner, fn: () => any) {
 
 export function lookup(owner: Owner | null, key: symbol | string): any {
   return (
-    owner && ((owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key)))
+    owner &&
+    ((owner.context && owner.context[key] !== undefined)
+      ? owner.context[key]
+      : owner.owner && lookup(owner.owner, key))
   );
 }
 
