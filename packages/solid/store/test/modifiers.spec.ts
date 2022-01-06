@@ -105,7 +105,7 @@ describe("setState with produce", () => {
   test("Top Level Mutation in computation", () => {
     createRoot(() => {
       const [s, set] = createSignal(1);
-      const [state, setState] = createStore({ data: [] });
+      const [state, setState] = createStore<{ data: number[] }>({ data: [] });
       createEffect(() => {
         setState(
           produce(state => {

@@ -106,13 +106,13 @@ function applyState(
 export function reconcile<T>(
   value: T,
   options: ReconcileOptions = {}
-): (state: Store<T>) => Store<T> {
+): (state: unknown) => Store<T> {
   const { merge, key = "id" } = options,
     v = unwrap(value);
   return state => {
     if (!isWrappable(state) || !isWrappable(v)) return v as Store<T>;
     applyState(v, { state }, "state", merge, key);
-    return state;
+    return state as Store<T>;
   };
 }
 

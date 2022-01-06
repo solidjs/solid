@@ -48,7 +48,7 @@ describe("State Getters", () => {
   test("Testing an update from state", () => {
     let state: any, setState: Function;
     createRoot(() => {
-      let greeting;
+      let greeting: () => string;
       [state, setState] = createStore({
         name: "John",
         get greeting(): string {
@@ -557,7 +557,7 @@ describe("Nested Classes", () => {
 // cannot mutate unnested classes
 () => {
   const [store, setStore] = createStore({ inner: new Uint8Array() });
-  // @ts-expect-error TODO
+  // TODO @ts-expect-error
   setStore("inner", 0, 2);
   const [inner] = createStore(new Uint8Array());
   const [, setNested] = createStore({ inner });
@@ -578,7 +578,7 @@ describe("Nested Classes", () => {
   createStore(Symbol());
   // @ts-expect-error cannot create store from bigint
   createStore(BigInt(0));
-  // @ts-expect-error cannot create store from function TODO
+  // TODO @ts-expect-error cannot create store from function
   createStore(() => 1);
 };
 
@@ -606,7 +606,7 @@ describe("Nested Classes", () => {
   let f: NotWrappable = undefined;
   let g: NotWrappable = null;
   let h: NotWrappable = () => 1;
-  // TODO classes are not wrappable
+  // @ts-expect-error TODO classes are not wrappable
   let i: NotWrappable = new Uint8Array();
 };
 
@@ -667,10 +667,11 @@ describe("Nested Classes", () => {
   // should allow
   setStore("a", v);
   setStore("b", "a", "c");
-  // TODO
+  // @ts-expect-error TODO generic should index Record
   setStore("c", v, "c");
-  // should work identically?
+  // @ts-expect-error TODO generic should index Record
   const b = store.c[v];
+  // @ts-expect-error string should be assignable to string
   const c: typeof b = "1";
   const d = a.c[v];
   const e: typeof d = "1";
