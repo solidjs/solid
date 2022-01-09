@@ -36,7 +36,7 @@ There are 4 examples all using the same shared source. It is an isomorphically r
 
 1. ssr
 
-Uses standard synchronous SSR. Renders what it can synchronously on the server and hydrates top level in the client. Async data is fetcbed and rendered in the client without hydration.
+Uses standard synchronous SSR. Renders what it can synchronously on the server and hydrates top level in the client. Async data is fetched and rendered in the client without hydration.
 
 2. stream
 
