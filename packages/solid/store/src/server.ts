@@ -92,10 +92,7 @@ type ReconcileOptions = {
 };
 
 // Diff method for setStore
-export function reconcile<T>(
-  value: T | Store<T>,
-  options: ReconcileOptions = {}
-): (state: Store<T>) => void {
+export function reconcile<T>(value: T, options: ReconcileOptions = {}): (state: unknown) => void {
   return state => {
     if (!isWrappable(state)) return value;
     const targetKeys = Object.keys(value) as (keyof T)[];
@@ -112,9 +109,7 @@ export function reconcile<T>(
 }
 
 // Immer style mutation style
-export function produce<T extends StoreNode>(
-  fn: (state: T) => void
-): (state: Store<T>) => Store<T> {
+export function produce<T extends StoreNode>(fn: (state: T) => void): (state: T) => T {
   return state => {
     if (isWrappable(state)) fn(state as T);
     return state;

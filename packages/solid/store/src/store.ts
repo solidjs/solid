@@ -215,23 +215,14 @@ export function updatePath(current: StoreNode, path: any[], traversed: (keyof an
   } else setProperty(current, part, value);
 }
 
-type NoInfer<T> = T & { [K in keyof T]: T[K] };
-export type DeepReadonly<T> = NoInfer<
-  T extends NotWrappable
-    ? T
-    : {
-        readonly [K in keyof T]: DeepReadonly<T[K]>;
-      }
->;
-
 export type StoreSetter<T> =
   | T
   | Partial<T>
-  | ((prevState: DeepReadonly<T>, traversed?: (keyof any)[]) => Partial<T> | void);
+  | ((prevState: T, traversed?: (keyof any)[]) => Partial<T> | void);
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
-export type ArrayFilterFn<T> = (item: DeepReadonly<T>, index: number) => boolean;
+export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
 
 export type Part<T> = [T] extends [never]
   ? never
