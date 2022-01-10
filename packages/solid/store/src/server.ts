@@ -1,4 +1,4 @@
-import { SetStoreFunction, Store } from "store";
+import { SetStoreFunction, Store, StoreNode } from "store";
 
 export const $RAW = Symbol("state-raw");
 
@@ -103,7 +103,7 @@ export function reconcile<T>(
       const key = targetKeys[i];
       setProperty(state, key as string, value[key]);
     }
-    const previousKeys = Object.keys(state as object) as (keyof T)[];
+    const previousKeys = Object.keys(state as unknown as object) as (keyof T)[];
     for (let i = 0, len = previousKeys.length; i < len; i++) {
       if (value[previousKeys[i]] === undefined)
         setProperty(state, previousKeys[i] as string, undefined);
@@ -112,7 +112,9 @@ export function reconcile<T>(
 }
 
 // Immer style mutation style
-export function produce<T>(fn: (state: T) => void): (state: Store<T>) => Store<T> {
+export function produce<T extends StoreNode>(
+  fn: (state: T) => void
+): (state: Store<T>) => Store<T> {
   return state => {
     if (isWrappable(state)) fn(state as T);
     return state;

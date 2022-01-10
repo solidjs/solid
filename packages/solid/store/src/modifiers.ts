@@ -1,4 +1,4 @@
-import { setProperty, unwrap, isWrappable, Store, StoreNode, $RAW } from "./store";
+import { setProperty, unwrap, isWrappable, Store, StoreNode, $RAW, DeepReadonly } from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -103,10 +103,7 @@ function applyState(
 }
 
 // Diff method for setState
-export function reconcile<T>(
-  value: T,
-  options: ReconcileOptions = {}
-): (state: unknown) => Store<T> {
+export function reconcile<T>(value: T, options: ReconcileOptions = {}): (state: unknown) => T {
   const { merge, key = "id" } = options,
     v = unwrap(value);
   return state => {
@@ -135,9 +132,11 @@ const setterTraps: ProxyHandler<StoreNode> = {
 };
 
 // Immer style mutation style
-export function produce<T>(fn: (state: T) => void): (state: Store<T>) => Store<T> {
+export function produce<T extends StoreNode>(
+  fn: (state: T) => void
+): (state: DeepReadonly<T>) => T {
   return state => {
-    if (isWrappable(state)) fn(new Proxy(state as object, setterTraps) as unknown as T);
+    if (isWrappable(state)) fn(new Proxy(state as unknown as object, setterTraps) as unknown as T);
     return state;
   };
 }

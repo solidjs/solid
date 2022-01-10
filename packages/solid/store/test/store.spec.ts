@@ -5,7 +5,6 @@ describe("State immutablity", () => {
   test("Setting a property", () => {
     const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
-    // @ts-expect-error cannot mutate a store directly
     state.name = "Jake";
     expect(state.name).toBe("John");
   });
@@ -22,7 +21,6 @@ describe("State immutablity", () => {
     const [state, setState] = createStore({ name: "John" });
     expect(state.name).toBe("John");
     setState(() => {
-      // @ts-expect-error cannot mutate a store directly
       state.name = "Jake";
     });
     expect(state.name).toBe("John");
@@ -545,14 +543,14 @@ describe("Nested Classes", () => {
   setStore("data", 1, "world");
 };
 
-// cannot mutate a store directly
-() => {
-  const [store] = createStore({ a: 1 });
-  // @ts-expect-error cannot set
-  store.a = 1;
-  // @ts-expect-error cannot delete
-  delete store.a;
-};
+// // cannot mutate a store directly
+// () => {
+//   const [store] = createStore({ a: 1 });
+//   // @ts-expect-error cannot set
+//   store.a = 1;
+//   // @ts-expect-error cannot delete
+//   delete store.a;
+// };
 
 // cannot mutate unnested classes
 () => {
@@ -661,7 +659,7 @@ describe("Nested Classes", () => {
 
 // interactions with generics
 <T extends string>(v: T) => {
-  type A = { a?: T; b?: Record<string, string>; c: Record<T, string> };
+  type A = { a: T; b: Record<string, string>; c: Record<T, string> };
   const a = {} as A;
   const [store, setStore] = createStore<A>(a);
   // should allow
@@ -669,10 +667,6 @@ describe("Nested Classes", () => {
   setStore("b", "a", "c");
   // @ts-expect-error TODO generic should index Record
   setStore("c", v, "c");
-  // @ts-expect-error TODO generic should index Record
   const b = store.c[v];
-  // @ts-expect-error string should be assignable to string
   const c: typeof b = "1";
-  const d = a.c[v];
-  const e: typeof d = "1";
 };
