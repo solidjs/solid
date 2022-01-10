@@ -492,7 +492,7 @@ export function createResource<T, S>(
     fetcher = source as ResourceFetcher<S, T>;
     source = true as ResourceSource<S>;
   }
-  options ||= {};
+  options || (options = {});
   if (options.globalRefetch !== false) {
     Resources || (Resources = new Set());
     Resources.add(load);
@@ -945,7 +945,7 @@ export function startTransition(fn: () => unknown): Promise<void> {
           queue: new Set(),
           running: true
         });
-      t.done ||= new Promise(res => (t!.resolve = res));
+      t.done || (t.done = new Promise(res => (t!.resolve = res)));
       t.running = true;
     }
     batch(fn);
