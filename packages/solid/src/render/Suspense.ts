@@ -151,7 +151,6 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
         setHydrateContext(ctx);
         set();
         setHydrateContext();
-        p = undefined;
       });
     }
   }
@@ -181,6 +180,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
           dispose && dispose();
           if ((!inFallback || p !== undefined) && visibleContent) {
             store.resolved = true;
+            ctx = p = undefined;
             resumeEffects(store.effects);
             return rendered;
           }
