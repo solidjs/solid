@@ -18,10 +18,26 @@ function createProps<T>(raw: T) {
     const [get, set] = createSignal(raw[keys[i]]);
     Object.defineProperty(props, keys[i], {
       get,
-      set(v) { set(() => v); }
+      set(v) {
+        set(() => v);
+      }
     });
   }
   return props as T;
+}
+
+function lookupContext(el: ICustomElement & { _$owner?: any }) {
+  if (el.assignedSlot && el.assignedSlot._$owner) return el.assignedSlot._$owner;
+  let next: Element & { _$owner?: any } = el.parentNode;
+  while (
+    next &&
+    !next._$owner &&
+    !(next.assignedSlot && (next.assignedSlot as Element & { _$owner?: any })._$owner)
+  )
+    next = next.parentNode as Element;
+  return next && next.assignedSlot
+    ? (next.assignedSlot as Element & { _$owner?: any })._$owner
+    : el._$owner;
 }
 
 function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
@@ -40,7 +56,7 @@ function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
 
       const comp = (ComponentType as FunctionComponent<T>)(props as T, options);
       return insert(element.renderRoot, comp);
-    }, (element.assignedSlot && element.assignedSlot._$owner) || element._$owner);
+    }, lookupContext(element));
   };
 }
 
