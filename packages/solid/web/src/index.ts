@@ -10,7 +10,8 @@ import {
   createRoot,
   sharedConfig,
   Accessor,
-  enableHydration
+  enableHydration,
+  $DEVCOMP
 } from "solid-js";
 
 export * from "./client";
@@ -109,6 +110,9 @@ export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
     const component = p.component as Function | string;
     switch (typeof component) {
       case "function":
+        if ("_DX_DEV_") {
+          Object.assign(component, { [$DEVCOMP]: true } );
+        }
         return untrack(() => component(others));
 
       case "string":
