@@ -110,7 +110,7 @@ export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
     const component = p.component as Function | string;
     switch (typeof component) {
       case "function":
-        if ("_SOLID_DEV_") Object.assign(component, { [$DEVCOMP]: true });
+        if ("_DX_DEV_") Object.assign(component, { [$DEVCOMP]: true });
         return untrack(() => component(others));
 
       case "string":
