@@ -9,5 +9,31 @@
   "unpkg": "./dist/store.cjs",
   "types": "./types/index.d.ts",
   "type": "module",
-  "sideEffects": false
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "browser": {
+        "development": {
+          "import": "./dist/dev.js",
+          "require": "./dist/dev.cjs"
+        },
+        "import": "./dist/store.js",
+        "require": "./dist/store.cjs"
+      },
+      "node": {
+        "development": {
+          "import": "./dist/dev.js",
+          "require": "./dist/dev.cjs"
+        },
+        "import": "./dist/server.js",
+        "require": "./dist/server.cjs"
+      },
+      "development": {
+        "import": "./dist/dev.js",
+        "require": "./dist/dev.cjs"
+      },
+      "import": "./dist/store.js",
+      "require": "./dist/store.cjs"
+    }
+  }
 }

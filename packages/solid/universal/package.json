@@ -4,5 +4,15 @@
   "module": "./dist/universal.js",
   "types": "./types/index.d.ts",
   "type": "module",
-  "sideEffects": false
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "development": {
+        "import": "./dist/dev.js",
+        "require": "./dist/dev.cjs"
+      },
+      "import": "./dist/universal.js",
+      "require": "./dist/universal.cjs"
+    }
+  }
 }
