@@ -552,6 +552,20 @@ describe("Nested Classes", () => {
 //   delete store.a;
 // };
 
+// store/setStore are not typed readonly and can be passed without casting
+// to non-"const-correct" functions and variables
+() => {
+  function listFn(list: number[]): void {}
+  function objFn(obj: Record<string, unknown>): void {}
+  const [store, setStore] = createStore({ list: [1] });
+  const list: number[] = store.list;
+  listFn(store.list);
+  setStore("list", list => listFn(list));
+  const obj: Record<string, unknown> = store;
+  objFn(store);
+  setStore(store => objFn(store));
+};
+
 // cannot mutate unnested classes
 () => {
   const [store, setStore] = createStore({ inner: new Uint8Array() });
