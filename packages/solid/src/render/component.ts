@@ -4,7 +4,8 @@ import {
   createResource,
   createMemo,
   devComponent,
-  $PROXY
+  $PROXY,
+  $DEVCOMP
 } from "../reactive/signal";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
 import type { JSX } from "../jsx";
@@ -234,6 +235,7 @@ export function lazy<T extends Component<any>>(
       () =>
         (Comp = comp()) &&
         untrack(() => {
+          if ("_SOLID_DEV_") Object.assign(Comp, { [$DEVCOMP]: true });
           if (!ctx) return Comp!(props);
           const c = sharedConfig.context;
           setHydrateContext(ctx);

@@ -39,7 +39,7 @@ function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement
 export const hydrate: typeof hydrateCore = (...args) => {
   enableHydration();
   return hydrateCore(...args);
-}
+};
 
 /**
  * renders components somewhere else in the DOM
@@ -110,9 +110,7 @@ export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
     const component = p.component as Function | string;
     switch (typeof component) {
       case "function":
-        if ("_DX_DEV_") {
-          Object.assign(component, { [$DEVCOMP]: true } );
-        }
+        if ("_SOLID_DEV_") Object.assign(component, { [$DEVCOMP]: true });
         return untrack(() => component(others));
 
       case "string":
