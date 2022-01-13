@@ -45,10 +45,6 @@
         "require": "./dist/solid.cjs"
       },
       "node": {
-        "development": {
-          "import": "./dist/dev.js",
-          "require": "./dist/dev.cjs"
-        },
         "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
