@@ -420,7 +420,7 @@ export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => T | 
 
 export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown };
 
-export type ResourceOptions<T> = T extends undefined
+export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
@@ -484,7 +484,7 @@ export function createResource<T, S>(
 ): ResourceReturn<T> | ResourceReturn<T | undefined> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
-      options = fetcher as ResourceOptions<T> | ResourceOptions<T | undefined>;
+      options = fetcher as ResourceOptions<T> | ResourceOptions<undefined>;
       fetcher = source as ResourceFetcher<S, T>;
       source = true as ResourceSource<S>;
     }
@@ -1572,7 +1572,7 @@ function handleError(err: any) {
 function lookup(owner: Owner | null, key: symbol | string): any {
   return (
     owner &&
-    ((owner.context && owner.context[key] !== undefined)
+    (owner.context && owner.context[key] !== undefined
       ? owner.context[key]
       : owner.owner && lookup(owner.owner, key))
   );
