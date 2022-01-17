@@ -33,6 +33,7 @@ export {
 export type {
   Accessor,
   Setter,
+  Signal,
   Resource,
   ResourceReturn,
   ResourceFetcher,
