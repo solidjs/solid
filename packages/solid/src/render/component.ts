@@ -213,7 +213,6 @@ export function lazy<T extends Component<any>>(
   const wrap: T & { preload?: () => void } = ((props: any) => {
     const ctx = sharedConfig.context;
     if (ctx) {
-      ctx.count++; // increment counter for hydration
       const [s, set] = createSignal<T>();
       (p || (p = fn())).then(mod => {
         setHydrateContext(ctx);

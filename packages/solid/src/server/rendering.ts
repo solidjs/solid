@@ -357,7 +357,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
   const contexts = new Set<SuspenseContextType>();
   p.then(mod => (resolved = mod.default));
   const wrap = (props: any) => {
-    const id = sharedConfig.context!.id + sharedConfig.context!.count++;
+    const id = sharedConfig.context!.id.slice(0, -1);
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
     const track = { loading: true };
