@@ -414,7 +414,7 @@ export type ResourceActions<T> = { mutate: Setter<T>; refetch: (info?: unknown) 
 
 export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
-export type ResourceSource<S> = S | false | null | (() => S | false | null);
+export type ResourceSource<S> = S | false | null | undefined | (() => S | false | null | undefined);
 
 export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => T | Promise<T>;
 
