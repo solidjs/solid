@@ -78,7 +78,8 @@ const propTraps: ProxyHandler<{
   }
 };
 
-type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [T[P]] }[Exclude<keyof T, keyof any[]>];
+type UnboxLazy<T> = T extends () => infer U ? U : T;
+type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [UnboxLazy<T[P]>] }[Exclude<keyof T, keyof any[]>];
 type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
   ? I
   : never;
