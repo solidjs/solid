@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createRoot } from "../../src";
+import { createRoot, resetErrorBoundaries } from "../../src";
 import { ErrorBoundary } from "../src";
 
 describe("Testing ErrorBoundary control flow", () => {
@@ -59,6 +59,24 @@ describe("Testing ErrorBoundary control flow", () => {
     });
     expect(div.innerHTML).toBe("Failure");
     r!();
+    expect(div.innerHTML).toBe("Success");
+    first = true;
+  });
+
+  test("Create an Error global reset", () => {
+    let r: () => void;
+    createRoot(dispose => {
+      disposer = dispose;
+      <div ref={div}>
+        <ErrorBoundary fallback={e => e.message}>
+          <Component2 />
+        </ErrorBoundary>
+      </div>;
+    });
+    expect(div.innerHTML).toBe("Failure");
+    resetErrorBoundaries();
+    expect(div.innerHTML).toBe("Success");
+    first = true;
   });
 
   test("Create an Error in an Error Fallback", () => {

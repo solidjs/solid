@@ -1,4 +1,4 @@
-import { createMemo, untrack, createSignal, onError, children, Accessor } from "../reactive/signal";
+import { createMemo, untrack, createSignal, onError, children, Accessor, Setter, onCleanup } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
 import { sharedConfig } from "./hydration";
 import type { JSX } from "../jsx";
@@ -141,6 +141,10 @@ export function Match<T>(props: MatchProps<T>) {
   return props as unknown as JSX.Element;
 }
 
+let Errors: Set<Setter<any>>;
+export function resetErrorBoundaries() {
+  Errors && [...Errors].forEach(fn => fn());
+}
 /**
  * catches uncaught errors inside components and renders a fallback content
  *
@@ -165,6 +169,9 @@ export function ErrorBoundary(props: {
     err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count);
   }
   const [errored, setErrored] = createSignal<any>(err);
+  Errors || (Errors = new Set());
+  Errors.add(setErrored);
+  onCleanup(() => Errors.delete(setErrored));
   let e: any;
   return createMemo(() => {
     if ((e = errored()) != null) {

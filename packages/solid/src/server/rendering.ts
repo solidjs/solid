@@ -205,6 +205,7 @@ export function Match<T>(props: MatchProps<T>) {
   return props;
 }
 
+export function resetErrorBoundaries() {}
 export function ErrorBoundary(props: {
   fallback: string | ((err: any, reset: () => void) => string);
   children: string;
@@ -227,10 +228,11 @@ export function ErrorBoundary(props: {
 export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
+  error: any;
 }
 
 type SuspenseContextType = {
-  resources: Map<string, { loading: boolean }>;
+  resources: Map<string, { loading: boolean, error: any }>;
   completed: () => void;
 };
 
@@ -282,7 +284,7 @@ export function createResource<T, U>(
   if (sharedConfig.context!.async) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
-      if (!resource.data && !resource.ref[0].loading) resource.ref[1].refetch();
+      if (!resource.data && !resource.ref[0].loading && !resource.ref[0].error) resource.ref[1].refetch();
       return resource.ref;
     }
   }
@@ -300,6 +302,7 @@ export function createResource<T, U>(
     return resolved ? sharedConfig.context!.resources[id].data : value;
   };
   read.loading = false;
+  read.error = undefined as any;
   function load() {
     const ctx = sharedConfig.context!;
     if (!ctx.async) return (read.loading = !!(typeof fn === "function" ? (fn as () => U)() : fn));
@@ -336,7 +339,7 @@ export function createResource<T, U>(
         return res;
       }).catch(err => {
         read.loading = false;
-        error = err;
+        read.error = error = err;
         p = null;
         notifySuspense(contexts);
       });
@@ -360,7 +363,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
     const id = sharedConfig.context!.id.slice(0, -1);
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
-    const track = { loading: true };
+    const track = { loading: true, error: undefined };
     if (ctx) {
       ctx.resources.set(id, track);
       contexts.add(ctx);
@@ -436,7 +439,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
-      resources: new Map<string, { loading: boolean }>(),
+      resources: new Map<string, { loading: boolean, error: any }>(),
       completed: () => {
         const res = runSuspense();
         if (suspenseComplete(value)) {
