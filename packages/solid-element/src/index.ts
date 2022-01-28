@@ -6,7 +6,7 @@ import {
   ComponentOptions,
   PropsDefinitionInput
 } from "component-register";
-export { hot, getCurrentElement } from "component-register";
+export { hot, getCurrentElement, noShadowDOM } from "component-register";
 export type ComponentType<T> = mComponentType<T>;
 import { createRoot, createSignal } from "solid-js";
 import { insert } from "solid-js/web";
