@@ -44,6 +44,7 @@ export {
   Suspense,
   SuspenseList,
   createResource,
+  refetchResources,
   enableScheduling,
   enableHydration,
   startTransition,
