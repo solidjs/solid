@@ -223,11 +223,11 @@ export type DeepReadonly<T> = {
 export type StoreSetter<T> =
   | T
   | Partial<T>
-  | ((prevState: T, traversed?: (keyof any)[]) => Partial<T> | void);
+  | ((prevState: DeepReadonly<T>, traversed?: (keyof any)[]) => Partial<DeepReadonly<T>> | void);
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
-export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
+export type ArrayFilterFn<T> = (item: DeepReadonly<T>, index: number) => boolean;
 
 export type Part<T> = [T] extends [never]
   ? never
@@ -257,8 +257,7 @@ export type Rest<T> = 0 extends 1 & T
   ? [...(keyof any)[], any]
   : [StoreSetter<T>] | (T extends NotWrappable ? never : DistributeRest<T, Part<T>>);
 
-export type SetStoreFunction<T> = _SetStoreFunction<Store<T>>;
-interface _SetStoreFunction<T> {
+export interface SetStoreFunction<T> {
   <
     K1 extends Part<T>,
     K2 extends Part<T1>,

@@ -1,4 +1,4 @@
-import { setProperty, unwrap, isWrappable, Store, StoreNode, $RAW } from "./store";
+import { setProperty, unwrap, isWrappable, Store, StoreNode, $RAW, StoreSetter } from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -135,7 +135,7 @@ const setterTraps: ProxyHandler<StoreNode> = {
 };
 
 // Immer style mutation style
-export function produce<T>(fn: (state: T) => void): (state: Store<T>) => Store<T> {
+export function produce<T>(fn: (state: T) => void): StoreSetter<T> {
   return state => {
     if (isWrappable(state)) fn(new Proxy(state as object, setterTraps) as unknown as T);
     return state;
