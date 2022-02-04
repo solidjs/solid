@@ -3,7 +3,7 @@ import type { Accessor, Setter } from "../reactive/signal";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
-export const $DEVCOMP = Symbol('solid-dev-component');
+export const $DEVCOMP = Symbol("solid-dev-component");
 export const DEV = {};
 const ERROR = Symbol("error");
 
@@ -63,7 +63,9 @@ export const createRenderEffect = createComputed;
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
 export function createReaction(fn: () => void) {
-  return (fn: () => void) => { fn(); }
+  return (fn: () => void) => {
+    fn();
+  };
 }
 
 export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
@@ -85,7 +87,7 @@ export function createDeferred<T>(source: () => T) {
   return source;
 }
 
-export function createSelector<T>(source: () => T, fn: (k: T, value: T) => boolean) {
+export function createSelector<T>(source: () => T, fn: (k: T, value: T) => boolean = equalFn) {
   return (k: T) => fn(k, source());
 }
 
@@ -167,7 +169,7 @@ export function runWithOwner(o: Owner, fn: () => any) {
 export function lookup(owner: Owner | null, key: symbol | string): any {
   return (
     owner &&
-    ((owner.context && owner.context[key] !== undefined)
+    (owner.context && owner.context[key] !== undefined
       ? owner.context[key]
       : owner.owner && lookup(owner.owner, key))
   );
