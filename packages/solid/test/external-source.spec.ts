@@ -2,7 +2,7 @@ import { createRoot, createMemo, enableExternalSource } from "../src";
 
 import "./MessageChannel";
 
-global.queueMicrotask = setImmediate;
+global.queueMicrotask = (fn) => Promise.resolve().then(fn);
 
 class ExternalSource<T = any> {
   listeners: Set<() => void> = new Set();

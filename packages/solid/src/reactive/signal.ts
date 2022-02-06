@@ -510,6 +510,7 @@ export function createResource<T, S>(
     initP: Promise<T> | null | undefined = null,
     id: string | null = null,
     loadedUnderTransition = false,
+    scheduled = false,
     dynamic = typeof source === "function";
 
   if (sharedConfig.context) {
@@ -566,6 +567,8 @@ export function createResource<T, S>(
     return v;
   }
   function load(refetching: unknown = true) {
+    if (refetching && scheduled) return;
+    scheduled = false;
     setError((err = undefined));
     const lookup = dynamic ? (source as () => S)() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
@@ -587,6 +590,8 @@ export function createResource<T, S>(
       return p;
     }
     pr = p as Promise<T>;
+    scheduled = true;
+    queueMicrotask(() => (scheduled = false));
     batch(() => {
       setLoading(true);
       trigger();
