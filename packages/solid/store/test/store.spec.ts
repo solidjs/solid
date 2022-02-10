@@ -85,7 +85,10 @@ describe("Simple setState modes", () => {
 
   test("Top level state function merge", () => {
     const [state, setState] = createStore({ starting: 1, ending: 1 });
-    setState(s => ({ ending: s.starting + 1 }));
+    setState((s, t) => {
+      expect(t).toStrictEqual([]);
+      return { ending: s.starting + 1 };
+    });
     expect(state.starting).toBe(1);
     expect(state.ending).toBe(2);
   });
@@ -99,7 +102,10 @@ describe("Simple setState modes", () => {
 
   test("Nested state function merge", () => {
     const [state, setState] = createStore({ data: { starting: 1, ending: 1 } });
-    setState("data", d => ({ ending: d.starting + 1 }));
+    setState("data", (d, t) => {
+      expect(t).toStrictEqual(["data"]);
+      return { ending: d.starting + 1 };
+    });
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
@@ -122,7 +128,13 @@ describe("Simple setState modes", () => {
 describe("Array setState modes", () => {
   test("Update Specific", () => {
     const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", [1, 3], r => r * 2);
+    setState("rows", [1, 3], (r, t) => {
+      // @ts-ignore traversed types are wrong and incomplete
+      expect(typeof t[0]).toBe("number");
+      // @ts-ignore
+      expect(t[1]).toBe("rows");
+      return r * 2;
+    });
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(3);
@@ -135,7 +147,13 @@ describe("Array setState modes", () => {
     setState(
       "rows",
       (r, i) => Boolean(i % 2),
-      r => r * 2
+      (r, t) => {
+        // @ts-ignore
+        expect(typeof t[0]).toBe("number");
+        // @ts-ignore
+        expect(t[1]).toBe("rows");
+        return r * 2;
+      }
     );
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
@@ -145,7 +163,13 @@ describe("Array setState modes", () => {
   });
   test("Update traversal range", () => {
     const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", { from: 1, to: 4, by: 2 }, r => r * 2);
+    setState("rows", { from: 1, to: 4, by: 2 }, (r, t) => {
+      // @ts-ignore
+      expect(typeof t[0]).toBe("number");
+      // @ts-ignore
+      expect(t[1]).toBe("rows");
+      return r * 2;
+    });
     expect(state.rows[0]).toBe(1);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(3);
@@ -154,7 +178,13 @@ describe("Array setState modes", () => {
   });
   test("Update traversal range defaults", () => {
     const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", {}, r => r * 2);
+    setState("rows", {}, (r, t) => {
+      // @ts-ignore
+      expect(typeof t[0]).toBe("number");
+      // @ts-ignore
+      expect(t[1]).toBe("rows");
+      return r * 2;
+    });
     expect(state.rows[0]).toBe(2);
     expect(state.rows[1]).toBe(4);
     expect(state.rows[2]).toBe(6);
