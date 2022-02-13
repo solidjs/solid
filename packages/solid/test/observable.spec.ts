@@ -16,7 +16,7 @@ describe("Observable operator", () => {
     expect(out!).toBe("John");
   });
 
-  test("preserve the observer's this", () => {
+  test("preserve the observer's next binding", () => {
     const observer = {
       next: jest.fn().mockReturnThis(),
     };
