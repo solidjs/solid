@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🤔 Long question or idea
+    url: https://github.com/solidjs/solid/discussions
+    about: Ask long-form questions and discuss ideas.
+  - name: 💬 Community Chat
+    url: https://discord.com/invite/solidjs
+    about: Ask quick questions or simply chat on the EdgeDB Discord server.
+  - name: 💬 New Updates (Twitter)
+    url: https://twitter.com/solid_js
+    about: Link to our twitter account if you want to follow us and stay up to date with news
+  - name: 💬 New Updates (Reddit)
+    url: https://www.reddit.com/r/solidjs/
+    about: Link to our twitter account if you want to follow us and stay up to date with news
+  - name: 🍿 YouTube Channel
+    url: https://www.youtube.com/c/RyanCarniato9
+    about: Are you a techlead or wanting to learn more about SolidJS? Watch Ryan Carniato (creator of solidJS) share detailed technical deep dives into topics like how SolidJS, Server Side Rendering (SSR), ReactJS, Svelte, MarkoJS & Partial Hydration works under the hood and so much more
