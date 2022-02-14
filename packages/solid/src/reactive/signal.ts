@@ -1093,6 +1093,9 @@ export function useContext<T>(context: Context<T>): T {
   return lookup(Owner, context.id) || context.defaultValue;
 }
 
+export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement | JSX.FunctionElement>;
+export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
+
 /**
  * Resolves child elements to help interact with children
  *
@@ -1101,7 +1104,7 @@ export function useContext<T>(context: Context<T>): T {
  *
  * @description https://www.solidjs.com/docs/latest/api#children
  */
-export function children(fn: Accessor<JSX.Element>): Accessor<JSX.Element> {
+export function children(fn: Accessor<JSX.Element>): Accessor<ResolvedChildren> {
   const children = createMemo(fn);
   return createMemo(() => resolveChildren(children()));
 }
@@ -1583,7 +1586,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
   );
 }
 
-function resolveChildren(children: JSX.Element): JSX.Element {
+function resolveChildren(children: JSX.Element): ResolvedChildren {
   if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
@@ -1593,7 +1596,7 @@ function resolveChildren(children: JSX.Element): JSX.Element {
     }
     return results;
   }
-  return children;
+  return children as ResolvedChildren;
 }
 
 function createProvider(id: symbol) {
