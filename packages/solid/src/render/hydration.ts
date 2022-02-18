@@ -17,7 +17,7 @@ export function setHydrateContext(context?: HydrationContext): void {
 export function nextHydrateContext(): HydrationContext | undefined {
   return {
     ...sharedConfig.context,
-    id: `${sharedConfig.context!.id}${sharedConfig.context!.count++}.`,
+    id: `${sharedConfig.context!.id}${sharedConfig.context!.count++}-`,
     count: 0
   };
 }

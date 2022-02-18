@@ -31,7 +31,7 @@ function nextHydrateContext(): HydrationContext | undefined {
   return sharedConfig.context
     ? {
         ...sharedConfig.context,
-        id: `${sharedConfig.context.id}${sharedConfig.context.count++}.`,
+        id: `${sharedConfig.context.id}${sharedConfig.context.count++}-`,
         count: 0
       }
     : undefined;
