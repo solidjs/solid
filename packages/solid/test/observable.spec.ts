@@ -1,4 +1,4 @@
-import { createSignal, createRoot, observable, from } from "../src";
+import { createRoot, createSignal, from, observable } from "../src";
 
 describe("Observable operator", () => {
   test("to observable", () => {
@@ -15,6 +15,20 @@ describe("Observable operator", () => {
     set!("John");
     expect(out!).toBe("John");
   });
+
+  test("preserve the observer's next binding", () => {
+    const observer = {
+      next: jest.fn().mockReturnThis(),
+    };
+
+    createRoot(() => {
+      const [s] = createSignal("Hi"),
+        obsv$ = observable(s);
+
+      obsv$.subscribe(observer);
+    });
+    expect(observer.next).toHaveReturnedWith(observer);
+  })
 });
 
 describe("from transform", () => {

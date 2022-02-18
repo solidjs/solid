@@ -1,4 +1,4 @@
-import { createComputed, untrack, Accessor, createSignal, Setter, onCleanup } from "./signal";
+import { Accessor, createComputed, createSignal, onCleanup, Setter, untrack } from "./signal";
 
 function getSymbol() {
   const SymbolCopy = Symbol as any;
@@ -29,7 +29,7 @@ export function observable<T>(input: Accessor<T>) {
       if (!(observer instanceof Object) || observer == null) {
         throw new TypeError("Expected the observer to be an object.");
       }
-      const handler = "next" in observer ? observer.next : observer;
+      const handler = "next" in observer ? observer.next.bind(observer) : observer;
       let complete = false;
       createComputed(() => {
         if (complete) return;
