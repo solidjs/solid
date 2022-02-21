@@ -8,9 +8,8 @@ export type {
   StorePathRange,
   ArrayFilterFn,
   Part,
-  Next,
-  WrappableNext,
-  DeepReadonly
+  DeepReadonly,
+  DeepMutable
 } from "./store";
 export * from "./mutable";
 export * from "./modifiers";

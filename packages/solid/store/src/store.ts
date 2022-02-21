@@ -3,7 +3,7 @@ export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $NAME = Symbol("store-name");
 
-export type StoreNode = Record<keyof any, any>;
+export type StoreNode = Record<PropertyKey, any>;
 export type NotWrappable =
   | string
   | number
@@ -15,7 +15,7 @@ export type NotWrappable =
   | undefined;
 export type Store<T> = DeepReadonly<T>;
 
-function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
+function wrap<T extends StoreNode>(value: T, name?: string): DeepReadonly<T> {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -76,7 +76,7 @@ export function getDataNodes(target: StoreNode) {
   return nodes;
 }
 
-export function proxyDescriptor(target: StoreNode, property: keyof any) {
+export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
   if (
     !desc ||
@@ -145,7 +145,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(state: StoreNode, property: keyof any, value: any) {
+export function setProperty(state: StoreNode, property: PropertyKey, value: any) {
   if (state[property] === value) return;
   const array = Array.isArray(state);
   const len = state.length;
@@ -169,7 +169,7 @@ function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
   }
 }
 
-export function updatePath(current: StoreNode, path: any[], traversed: (keyof any)[] = []) {
+export function updatePath(current: StoreNode, path: any[], traversed: PropertyKey[] = []) {
   let part,
     prev = current;
   if (path.length > 1) {
@@ -215,171 +215,131 @@ export function updatePath(current: StoreNode, path: any[], traversed: (keyof an
   } else setProperty(current, part, value);
 }
 
-export type DeepReadonly<T> = {
-  readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepReadonly<T[K]>;
-};
-
-export type StoreSetter<T> =
-  | T
-  | Partial<T>
-  | ((prevState: T, traversed?: (keyof any)[]) => Partial<T> | void);
+export type DeepReadonly<T> = 0 extends 1 & T
+  ? T
+  : {
+      readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepReadonly<T[K]>;
+    };
+export type DeepMutable<T> = 0 extends 1 & T
+  ? T
+  : {
+      -readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepMutable<T[K]>;
+    };
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
-export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
+export type ArrayFilterFn<T> = (item: DeepReadonly<T>, index: number) => boolean;
 
-export type Part<T> = [T] extends [never]
-  ? never
-  : [keyof T] extends [never]
-  ? never
-  :
-      | keyof T
-      | (keyof T)[]
-      | (number extends keyof T ? ArrayFilterFn<T[number]> | StorePathRange : never);
+export type StoreSetter<T, U extends PropertyKey[] = []> =
+  | ((
+      prevState: DeepReadonly<T>,
+      traversed: U
+    ) => DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+  | DeepReadonly<T>
+  | Partial<DeepReadonly<T>>;
 
-export type Next<T, K extends Part<T>> = [K] extends [never]
+export type Part<T, K extends KeyOf<T> = KeyOf<T>> = [K] extends [never]
+  ? never // return never if key is never, else it'll return readonly never[] as well
+  : K | readonly K[] | (number extends K ? ArrayFilterFn<T[number]> | StorePathRange : never);
+
+// shortcut to avoid writing `Exclude<T, NotWrappable>` too many times
+type W<T> = Exclude<T, NotWrappable>;
+
+// specially handle keyof to avoid errors with arrays and any
+type KeyOf<T> = number extends keyof T
+  ? 0 extends 1 & T // if it's any just return keyof T
+    ? keyof T
+    : [T] extends [never] // keyof never is PropertyKey which number extends; return never
+    ? never
+    : number // it's not any or never so it's an array or tuple; exclude the non-number properties
+  : keyof T;
+
+type Rest<T, U extends PropertyKey[]> =
+  | [StoreSetter<T, U>]
+  | (0 extends 1 & T
+      ? [...Part<any>[], StoreSetter<any, PropertyKey[]>]
+      : DistributeRest<W<T>, KeyOf<W<T>>, U>);
+// need a second type to distribute `K`
+type DistributeRest<T, K, U extends PropertyKey[]> = [T] extends [never]
   ? never
-  : K extends keyof T
-  ? T[K]
-  : K extends (keyof T)[]
-  ? T[K[number]]
-  : // since K extends Part<T> and we have excluded never,
-  // we assume that K is now ArrayFilterFn or StorePathRange
-  number extends keyof T
-  ? T[number]
+  : K extends KeyOf<T>
+  ? [Part<T, K>, ...Rest<T[K], [K, ...U]>]
   : never;
 
-export type WrappableNext<T, K extends Part<T>> = Exclude<Next<T, K>, NotWrappable>;
-
-type DistributeRest<T, K extends Part<T>> = K extends K ? [K, ...Rest<Next<T, K>>] : never;
-export type Rest<T> = 0 extends 1 & T
-  ? [...(keyof any)[], any]
-  : [StoreSetter<T>] | (T extends NotWrappable ? never : DistributeRest<T, Part<T>>);
-
-export type SetStoreFunction<T> = _SetStoreFunction<Store<T>>;
-interface _SetStoreFunction<T> {
+export interface SetStoreFunction<T> {
   <
-    K1 extends Part<T>,
-    K2 extends Part<T1>,
-    K3 extends Part<T2>,
-    K4 extends Part<T3>,
-    K5 extends Part<T4>,
-    K6 extends Part<T5>,
-    K7 extends Part<T6>,
-    T1 extends WrappableNext<T, K1>,
-    T2 extends WrappableNext<T1, K2>,
-    T3 extends WrappableNext<T2, K3>,
-    T4 extends WrappableNext<T3, K4>,
-    T5 extends WrappableNext<T4, K5>,
-    T6 extends WrappableNext<T5, K6>
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<W<T>[K1]>>,
+    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
+    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
+    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>,
+    K6 extends KeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>,
+    K7 extends KeyOf<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>>
   >(
-    k1: K1,
-    k2: K2,
-    k3: K3,
-    k4: K4,
-    k5: K5,
-    k6: K6,
-    k7: K7,
-    // this cannot infer ArrayFilterFn
-    ...rest: Rest<Next<T6, K7>>
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
+    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
+    k6: Part<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>, K6>,
+    k7: Part<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>, K7>,
+    ...rest: Rest<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>[K7], [K7, K6, K5, K4, K3, K2, K1]>
   ): void;
   <
-    K1 extends Part<T>,
-    K2 extends Part<T1>,
-    K3 extends Part<T2>,
-    K4 extends Part<T3>,
-    K5 extends Part<T4>,
-    K6 extends Part<T5>,
-    K7 extends Part<T6>,
-    T1 extends WrappableNext<T, K1>,
-    T2 extends WrappableNext<T1, K2>,
-    T3 extends WrappableNext<T2, K3>,
-    T4 extends WrappableNext<T3, K4>,
-    T5 extends WrappableNext<T4, K5>,
-    T6 extends WrappableNext<T5, K6>
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<W<T>[K1]>>,
+    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
+    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
+    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>,
+    K6 extends KeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>
   >(
-    k1: K1,
-    k2: K2,
-    k3: K3,
-    k4: K4,
-    k5: K5,
-    k6: K6,
-    k7: K7,
-    setter: StoreSetter<Next<T6, K7>>
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
+    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
+    k6: Part<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>, K6>,
+    setter: StoreSetter<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6], [K6, K5, K4, K3, K2, K1]>
   ): void;
   <
-    K1 extends Part<T>,
-    K2 extends Part<T1>,
-    K3 extends Part<T2>,
-    K4 extends Part<T3>,
-    K5 extends Part<T4>,
-    K6 extends Part<T5>,
-    T1 extends WrappableNext<T, K1>,
-    T2 extends WrappableNext<T1, K2>,
-    T3 extends WrappableNext<T2, K3>,
-    T4 extends WrappableNext<T3, K4>,
-    T5 extends WrappableNext<T4, K5>
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<W<T>[K1]>>,
+    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
+    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
+    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>
   >(
-    k1: K1,
-    k2: K2,
-    k3: K3,
-    k4: K4,
-    k5: K5,
-    k6: K6,
-    setter: StoreSetter<Next<T5, K6>>
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
+    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
+    setter: StoreSetter<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5], [K5, K4, K3, K2, K1]>
   ): void;
   <
-    K1 extends Part<T>,
-    K2 extends Part<T1>,
-    K3 extends Part<T2>,
-    K4 extends Part<T3>,
-    K5 extends Part<T4>,
-    T1 extends WrappableNext<T, K1>,
-    T2 extends WrappableNext<T1, K2>,
-    T3 extends WrappableNext<T2, K3>,
-    T4 extends WrappableNext<T3, K4>
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<W<T>[K1]>>,
+    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
+    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>
   >(
-    k1: K1,
-    k2: K2,
-    k3: K3,
-    k4: K4,
-    k5: K5,
-    setter: StoreSetter<Next<T4, K5>>
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
+    setter: StoreSetter<W<W<W<W<T>[K1]>[K2]>[K3]>[K4], [K4, K3, K2, K1]>
   ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<T1>,
-    K3 extends Part<T2>,
-    K4 extends Part<T3>,
-    T1 extends WrappableNext<T, K1>,
-    T2 extends WrappableNext<T1, K2>,
-    T3 extends WrappableNext<T2, K3>
-  >(
-    k1: K1,
-    k2: K2,
-    k3: K3,
-    k4: K4,
-    setter: StoreSetter<Next<T3, K4>>
+  <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>, K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>>(
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    setter: StoreSetter<W<W<W<T>[K1]>[K2]>[K3], [K3, K2, K1]>
   ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<T1>,
-    K3 extends Part<T2>,
-    T1 extends WrappableNext<T, K1>,
-    T2 extends WrappableNext<T1, K2>
-  >(
-    k1: K1,
-    k2: K2,
-    k3: K3,
-    setter: StoreSetter<Next<T2, K3>>
+  <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>>(
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    setter: StoreSetter<W<W<T>[K1]>[K2], [K2, K1]>
   ): void;
-  <K1 extends Part<T>, K2 extends Part<T1>, T1 extends WrappableNext<T, K1>>(
-    k1: K1,
-    k2: K2,
-    setter: StoreSetter<Next<T1, K2>>
-  ): void;
-  <K extends Part<T>>(k: K, setter: StoreSetter<Next<T, K>>): void;
-  (setter: StoreSetter<T>): void;
+  <K1 extends KeyOf<W<T>>>(k1: Part<W<T>, K1>, setter: StoreSetter<W<T>[K1], [K1]>): void;
+  (setter: StoreSetter<T, []>): void;
 }
 
 /**

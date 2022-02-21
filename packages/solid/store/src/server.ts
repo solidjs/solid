@@ -1,4 +1,4 @@
-import { SetStoreFunction, Store } from "store";
+import type { DeepMutable, DeepReadonly, SetStoreFunction, Store, StoreSetter } from "store";
 
 export const $RAW = Symbol("state-raw");
 
@@ -14,7 +14,7 @@ export function unwrap<T>(item: any): T {
   return item;
 }
 
-export function setProperty(state: any, property: string | number, value: any, force?: boolean) {
+export function setProperty(state: any, property: PropertyKey, value: any, force?: boolean) {
   if (!force && state[property] === value) return;
   if (value === undefined) {
     delete state[property];
@@ -29,7 +29,7 @@ function mergeStoreNode(state: any, value: any, force?: boolean) {
   }
 }
 
-export function updatePath(current: any, path: any[], traversed: (number | string)[] = []) {
+export function updatePath(current: any, path: any[], traversed: PropertyKey[] = []) {
   let part,
     next = current;
   if (path.length > 1) {
@@ -81,8 +81,8 @@ export function createStore<T>(state: T | Store<T>): [Store<T>, SetStoreFunction
   return [state as Store<T>, setStore];
 }
 
-export function createMutable<T>(state: T | Store<T>): Store<T> {
-  return state as Store<T>;
+export function createMutable<T>(state: T | Store<T>): T {
+  return state as T;
 }
 
 type ReconcileOptions = {
@@ -91,27 +91,27 @@ type ReconcileOptions = {
 };
 
 // Diff method for setStore
-export function reconcile<T>(
-  value: T | Store<T>,
+export function reconcile<T extends U, U>(
+  value: T,
   options: ReconcileOptions = {}
-): (state: Store<T>) => void {
+): (state: U) => T {
   return state => {
-    if (!isWrappable(state)) return value;
+    if (!isWrappable(state) || !isWrappable(value)) return value;
     const targetKeys = Object.keys(value) as (keyof T)[];
     for (let i = 0, len = targetKeys.length; i < len; i++) {
       const key = targetKeys[i];
-      setProperty(state, key as string, value[key]);
+      setProperty(state, key, value[key]);
     }
-    const previousKeys = Object.keys(state as object) as (keyof T)[];
+    const previousKeys = Object.keys(state) as (keyof T)[];
     for (let i = 0, len = previousKeys.length; i < len; i++) {
-      if (value[previousKeys[i]] === undefined)
-        setProperty(state, previousKeys[i] as string, undefined);
+      if (value[previousKeys[i]] === undefined) setProperty(state, previousKeys[i], undefined);
     }
+    return state as T;
   };
 }
 
 // Immer style mutation style
-export function produce<T>(fn: (state: T) => void): (state: Store<T>) => Store<T> {
+export function produce<T>(fn: (state: DeepMutable<T>) => void): (state: T) => T {
   return state => {
     if (isWrappable(state)) fn(state as T);
     return state;
