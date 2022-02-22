@@ -102,14 +102,12 @@ export type RootFunction<T> = (dispose: () => void) => T;
  * @description https://www.solidjs.com/docs/latest/api#createroot
  */
 export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
-  detachedOwner && (Owner = detachedOwner);
-
   const listener = Listener,
     owner = Owner,
     root: Owner =
       fn.length === 0 && !"_SOLID_DEV_"
         ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner };
+        : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner };
 
   if ("_SOLID_DEV_" && owner) root.name = `${(owner as Computation<any>).name}-r${rootCount++}`;
 
@@ -722,7 +720,8 @@ export function createSelector<T, U>(
       if ((l = subs.get(key))) l.add(listener);
       else subs.set(key, (l = new Set([listener])));
       onCleanup(() => {
-        l!.size > 1 ? l!.delete(listener!) : subs.delete(key);
+        l!.delete(listener!);
+        !l!.size && subs.delete(key);
       });
     }
     return fn(
