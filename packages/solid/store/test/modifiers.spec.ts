@@ -3,7 +3,10 @@ import { createStore, reconcile, produce, unwrap } from "../src";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {
-    const [state, setState] = createStore({ data: 2, missing: "soon" });
+    const [state, setState] = createStore<{ data: number; missing?: string }>({
+      data: 2,
+      missing: "soon"
+    });
     expect(state.data).toBe(2);
     expect(state.missing).toBe("soon");
     setState(reconcile({ data: 5 }));
@@ -12,7 +15,9 @@ describe("setState with reconcile", () => {
   });
 
   test("Reconcile a simple object on a nested path", () => {
-    const [state, setState] = createStore({
+    const [state, setState] = createStore<{
+      data: { user: { firstName: string; middleName: string; lastName?: string } };
+    }>({
       data: { user: { firstName: "John", middleName: "", lastName: "Snow" } }
     });
     expect(state.data.user.firstName).toBe("John");
@@ -171,3 +176,52 @@ describe("setState with produce", () => {
     expect(state.todos[2].title).toBe("Go Home");
   });
 });
+
+// type tests
+
+// reconcile
+() => {
+  const [state, setState] = createStore<{ data: number; missing: string; partial?: { v: number } }>(
+    {
+      data: 2,
+      missing: "soon"
+    }
+  );
+  // @ts-expect-error should not be able to reconcile partial type
+  setState(reconcile({ data: 5 }));
+  // should be able to reconcile unwrappable types
+  setState("partial", reconcile(undefined));
+};
+
+// produce
+() => {
+  const [store, setStore] = createStore({ todos: [{ id: 1, text: "" }] });
+  // should be able to strip readonly from arrays
+  setStore(
+    "todos",
+    produce(todos => {
+      todos.push({ id: todos[todos.length - 1].id + 1, text: "" });
+    })
+  );
+};
+
+// works regardless of depth
+() => {
+  const [store, setStore] = createStore({
+    a: { b: { c: { d: { e: { f: { g: { h: { i: 1 } } } } } } } }
+  });
+  setStore(produce(v => v));
+  setStore(reconcile({ ...store }));
+  setStore(
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    produce(v => ({ i: v.i }))
+  );
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", reconcile({ i: 2 }));
+};

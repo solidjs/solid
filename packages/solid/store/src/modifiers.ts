@@ -1,4 +1,13 @@
-import { setProperty, unwrap, isWrappable, Store, StoreNode, $RAW } from "./store";
+import {
+  setProperty,
+  unwrap,
+  isWrappable,
+  StoreNode,
+  $RAW,
+  DeepMutable,
+  DeepReadonly,
+  NotWrappable
+} from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -8,7 +17,7 @@ export type ReconcileOptions = {
 function applyState(
   target: any,
   parent: any,
-  property: string | number,
+  property: PropertyKey,
   merge: boolean | undefined,
   key: string | null
 ) {
@@ -103,41 +112,44 @@ function applyState(
 }
 
 // Diff method for setState
-export function reconcile<T>(
+export function reconcile<T extends U, U>(
   value: T,
   options: ReconcileOptions = {}
-): (state: unknown) => Store<T> {
+): (state: U) => T {
   const { merge, key = "id" } = options,
     v = unwrap(value);
   return state => {
-    if (!isWrappable(state) || !isWrappable(v)) return v as Store<T>;
+    if (!isWrappable(state) || !isWrappable(v)) return v;
     applyState(v, { state }, "state", merge, key);
-    return state as Store<T>;
+    return state as T;
   };
 }
 
 const setterTraps: ProxyHandler<StoreNode> = {
   get(target, property): any {
     if (property === $RAW) return target;
-    const value = target[property as string | number];
+    const value = target[property];
     return isWrappable(value) ? new Proxy(value, setterTraps) : value;
   },
 
   set(target, property, value) {
-    setProperty(target, property as string, unwrap(value));
+    setProperty(target, property, unwrap(value));
     return true;
   },
 
   deleteProperty(target, property) {
-    setProperty(target, property as string, undefined);
+    setProperty(target, property, undefined);
     return true;
   }
 };
 
 // Immer style mutation style
-export function produce<T>(fn: (state: T) => void): (state: Store<T>) => Store<T> {
+export function produce<T>(
+  fn: (state: DeepMutable<Exclude<T, NotWrappable>>) => void
+): (state: T) => T {
   return state => {
-    if (isWrappable(state)) fn(new Proxy(state as object, setterTraps) as unknown as T);
+    if (isWrappable(state))
+      fn(new Proxy(state, setterTraps) as DeepMutable<Exclude<T, NotWrappable>>);
     return state;
   };
 }

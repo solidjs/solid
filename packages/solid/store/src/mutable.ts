@@ -17,7 +17,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    const value = target[property as string | number];
+    const value = target[property];
     if (property === $NODE || property === "__proto__") return value;
 
     const wrappable = isWrappable(value);
@@ -32,17 +32,17 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       node();
     }
     return wrappable
-      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
+      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
   },
 
   set(target, property, value) {
-    setProperty(target, property as string, unwrap(value));
+    setProperty(target, property, unwrap(value));
     return true;
   },
 
   deleteProperty(target, property) {
-    setProperty(target, property as string, undefined);
+    setProperty(target, property, undefined);
     return true;
   },
 

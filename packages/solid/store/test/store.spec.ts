@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createComputed, createMemo, on } from "../../src";
-import { createStore, unwrap, $RAW, NotWrappable, Next, WrappableNext } from "../src";
+import { createStore, unwrap, $RAW, NotWrappable } from "../src";
 
 describe("State immutablity", () => {
   test("Setting a property", () => {
@@ -559,7 +559,7 @@ describe("Nested Classes", () => {
   const [, setStore] = createStore({
     a: { b: { c: { d: { e: { f: { g: { h: { i: { j: { k: 1 } } } } } } } } } }
   });
-  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", v => ({
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", (v, t) => ({
     k: 2
   }));
 };
@@ -617,6 +617,8 @@ describe("Nested Classes", () => {
   type Recursive = { a: Recursive };
   const [store, setStore] = createStore({} as Recursive);
   setStore("a", "a", "a", "a", {});
+  // @ts-expect-error TODO should work with recursive types even at rest depth
+  setStore("a", "a", "a", "a", "a", "a", "a", "a", "a", "a", {});
   store.a.a.a.a.a.a.a.a.a;
 };
 
@@ -640,32 +642,11 @@ describe("Nested Classes", () => {
   let i: NotWrappable = new Uint8Array();
 };
 
-// Next and WrappableNext
-() => {
-  type MyObject = {
-    a: number;
-    b: string | { c: string };
-    d: number | number[];
-  };
-  const [store] = createStore<MyObject>({ a: 1, b: { c: "d" }, d: [2] });
-  type MyStore = typeof store;
-  const a: number = {} as Next<MyStore, "a">;
-  const b: never = {} as WrappableNext<MyStore, "a">;
-  const c: string | { c: string } = {} as Next<MyStore, "b">;
-  const d: { c: string } = {} as WrappableNext<MyStore, "b">;
-  const e: string = {} as Next<typeof d, "c">;
-  const f: never = {} as WrappableNext<typeof d, "c">;
-  const g: number | readonly number[] = {} as Next<MyStore, "d">;
-  const h: readonly number[] = {} as WrappableNext<MyStore, "d">;
-  const i: number = {} as Next<typeof h, 0>;
-  const j: never = {} as WrappableNext<typeof h, 0>;
-};
-
 // interactions with `any`
 () => {
   const [, setStore] = createStore<{ a: any; b?: { c: string } }>({ a: {} });
   // allows anything when accessing `any`
-  setStore("a", "b", "c", "d", "e", "f", "g");
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i");
   setStore("a", 1, "c", Symbol(), 2, 1, 2, 3, 4, 5, 6, 1, 2, 3, "a", Symbol());
   // still infers correctly on other paths
   setStore("b", "c", "d");
@@ -691,7 +672,7 @@ describe("Nested Classes", () => {
 
 // interactions with generics
 <T extends string>(v: T) => {
-  type A = { a?: T; b?: Record<string, string>; c: Record<T, string> };
+  type A = { a: T; b: Record<string, string>; c: Record<T, string> };
   const a = {} as A;
   const [store, setStore] = createStore<A>(a);
   // should allow
@@ -705,4 +686,40 @@ describe("Nested Classes", () => {
   const c: typeof b = "1";
   const d = a.c[v];
   const e: typeof d = "1";
+};
+
+// traversed contains the correct types of keys
+() => {
+  const [, setStore] = createStore({ a: [{ b: 1 }] });
+  setStore((v, t) => {
+    const expectedT: [] = t;
+    t = [] as [];
+  });
+  setStore("a", (v, t) => {
+    const expectedT: ["a"] = t;
+    t = ["a"];
+  });
+  setStore("a", 0, (v, t) => {
+    const expectedT: [0, "a"] = t;
+    t = [0, "a"];
+  });
+  // array of keys
+  setStore(["a"], [0 as const], (v, t) => {
+    const expectedT: [0, "a"] = t;
+    t = [0, "a"];
+  });
+  // callback
+  setStore(
+    ["a"],
+    () => true,
+    (v, t) => {
+      const expectedT: [number, "a"] = t;
+      t = [0, "a"];
+    }
+  );
+  // { from, to, by }
+  setStore(["a"], {}, (v, t) => {
+    const expectedT: [number, "a"] = t;
+    t = [0, "a"];
+  });
 };
