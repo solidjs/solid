@@ -1089,7 +1089,8 @@ export function createContext<T>(defaultValue?: T): Context<T | undefined> {
  * @description https://www.solidjs.com/docs/latest/api#usecontext
  */
 export function useContext<T>(context: Context<T>): T {
-  return lookup(Owner, context.id) || context.defaultValue;
+  let ctx;
+  return (ctx = lookup(Owner, context.id)) !== undefined ? ctx : context.defaultValue;
 }
 
 export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement | JSX.FunctionElement>;
@@ -1577,12 +1578,11 @@ function handleError(err: any) {
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {
-  return (
-    owner &&
-    (owner.context && owner.context[key] !== undefined
+  return owner
+    ? owner.context && owner.context[key] !== undefined
       ? owner.context[key]
-      : owner.owner && lookup(owner.owner, key))
-  );
+      : lookup(owner.owner, key)
+    : undefined;
 }
 
 function resolveChildren(children: JSX.Element): ResolvedChildren {

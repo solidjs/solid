@@ -145,7 +145,8 @@ export function createContext<T>(defaultValue?: T): Context<T> {
 }
 
 export function useContext<T>(context: Context<T>): T {
-  return lookup(Owner, context.id) || context.defaultValue;
+  let ctx;
+  return (ctx = lookup(Owner, context.id)) !== undefined ? ctx : context.defaultValue;
 }
 
 export function getOwner() {
@@ -167,12 +168,11 @@ export function runWithOwner(o: Owner, fn: () => any) {
 }
 
 export function lookup(owner: Owner | null, key: symbol | string): any {
-  return (
-    owner &&
-    (owner.context && owner.context[key] !== undefined
+  return owner
+    ? owner.context && owner.context[key] !== undefined
       ? owner.context[key]
-      : owner.owner && lookup(owner.owner, key))
-  );
+      : lookup(owner.owner, key)
+    : undefined;
 }
 
 function resolveChildren(children: any): unknown {
