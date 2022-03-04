@@ -2,6 +2,113 @@ import { createRoot, createSignal, createComputed, createMemo, Accessor } from "
 
 describe("createMemo", () => {
   describe("executing propagating", () => {
+    it("propagates in topological order", () => {
+      createRoot(() => {
+        //
+        //     c1
+        //    /  \
+        //   /    \
+        //  b1     b2
+        //   \    /
+        //    \  /
+        //     a1
+        //
+        var seq = "",
+          [a1, setA1] = createSignal(false),
+          b1 = createMemo(() => {
+            a1();
+            seq += "b1";
+          }, undefined, { equals: false }),
+          b2 = createMemo(() => {
+            a1();
+            seq += "b2";
+          }, undefined, { equals: false }),
+          c1 = createMemo(() => {
+            b1(), b2();
+            seq += "c1";
+          }, undefined, { equals: false });
+
+        seq = "";
+        setA1(true);
+
+        expect(seq).toBe("b1b2c1");
+      });
+    });
+
+    it("only propagates once with linear convergences", () => {
+      createRoot(() => {
+        //         d
+        //         |
+        // +---+---+---+---+
+        // v   v   v   v   v
+        // f1  f2  f3  f4  f5
+        // |   |   |   |   |
+        // +---+---+---+---+
+        //         v
+        //         g
+        var [d, setD] = createSignal(0),
+          f1 = createMemo(() => d()),
+          f2 = createMemo(() => d()),
+          f3 = createMemo(() => d()),
+          f4 = createMemo(() => d()),
+          f5 = createMemo(() => d()),
+          gcount = 0,
+          g = createMemo(() => {
+            gcount++;
+            return f1() + f2() + f3() + f4() + f5();
+          });
+
+        gcount = 0;
+        setD(1);
+        expect(gcount).toBe(1);
+      });
+    });
+
+    it("only propagates once with exponential convergence", () => {
+      createRoot(() => {
+        //     d
+        //     |
+        // +---+---+
+        // v   v   v
+        // f1  f2 f3
+        //   \ | /
+        //     O
+        //   / | \
+        // v   v   v
+        // g1  g2  g3
+        // +---+---+
+        //     v
+        //     h
+        var [d, setD] = createSignal(0),
+          f1 = createMemo(() => {
+            return d();
+          }),
+          f2 = createMemo(() => {
+            return d();
+          }),
+          f3 = createMemo(() => {
+            return d();
+          }),
+          g1 = createMemo(() => {
+            return f1() + f2() + f3();
+          }),
+          g2 = createMemo(() => {
+            return f1() + f2() + f3();
+          }),
+          g3 = createMemo(() => {
+            return f1() + f2() + f3();
+          }),
+          hcount = 0,
+          h = createMemo(() => {
+            hcount++;
+            return g1() + g2() + g3();
+          });
+        hcount = 0;
+        setD(1);
+        expect(hcount).toBe(1);
+      });
+    });
+
     it("does not trigger downstream computations unless changed", () => {
       createRoot(() => {
         const [s1, set] = createSignal(1, { equals: false });

@@ -1212,13 +1212,11 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       for (let i = 0; i < node.observers!.length; i += 1) {
         const o = node.observers![i];
         if (TransitionRunning && Transition!.disposed.has(o)) continue;
-        if (o.pure) Updates!.push(o);
-        else Effects!.push(o);
-        if (
-          (o as Memo<any>).observers &&
-          ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state))
-        )
-          markUpstream(o as Memo<any>);
+        if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
+          if (o.pure) Updates!.push(o);
+          else Effects!.push(o);
+          if ((o as Memo<any>).observers) markUpstream(o as Memo<any>);
+        }
         if (TransitionRunning) o.tState = STALE;
         else o.state = STALE;
       }
@@ -1342,8 +1340,8 @@ function createComputation<Next, Init = unknown>(
 
 function runTop(node: Computation<any>) {
   const runningTransition = Transition && Transition.running;
-  if (!runningTransition && node.state !== STALE) return (node.state = 0);
-  if (runningTransition && node.tState !== STALE) return (node.tState = 0);
+  if ((!runningTransition && node.state !== STALE) || (runningTransition && node.tState !== STALE))
+    return lookDownstream(node);
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const ancestors = [node];
