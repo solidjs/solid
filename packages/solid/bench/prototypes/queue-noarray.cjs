@@ -229,7 +229,8 @@ function createComputation(fn, init, pure, state = STALE, options) {
   return c;
 }
 function runTop(node) {
-  if (node.state !== STALE) return lookDownstream(node);
+  if (node.state === 0) return;
+  if (node.state === PENDING) return lookDownstream(node);
   const ancestors = [node];
   while ((node = node.owner) && (!node.updatedAt || node.updatedAt < ExecCount)) {
     if (node.state) ancestors.push(node);

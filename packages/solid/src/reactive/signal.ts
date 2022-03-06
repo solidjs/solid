@@ -1340,7 +1340,11 @@ function createComputation<Next, Init = unknown>(
 
 function runTop(node: Computation<any>) {
   const runningTransition = Transition && Transition.running;
-  if ((!runningTransition && node.state !== STALE) || (runningTransition && node.tState !== STALE))
+  if ((!runningTransition && node.state === 0) || (runningTransition && node.tState === 0)) return;
+  if (
+    (!runningTransition && node.state === PENDING) ||
+    (runningTransition && node.tState === PENDING)
+  )
     return lookDownstream(node);
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
