@@ -80,6 +80,10 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
 
 export function createMutable<T extends StoreNode>(state: T, options?: { name?: string }): T {
   const unwrappedStore = unwrap<T>(state || {});
+  if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
+    throw new Error(
+      `Unexpected type ${typeof unwrappedStore} received when initializing 'createMutable'. Expected an object.`
+    );
   const wrappedStore = wrap(
     unwrappedStore,
     "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))

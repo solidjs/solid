@@ -352,6 +352,10 @@ export function createStore<T extends StoreNode>(
   options?: { name?: string }
 ): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap<T>(store || {});
+  if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
+    throw new Error(
+      `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
+    );
   const wrappedStore = wrap(
     unwrappedStore,
     "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
