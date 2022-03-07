@@ -15,8 +15,12 @@ export function enableHydration() {
   hydrationEnabled = true;
 }
 
-export type PropsWithChildren<P = {}> = P & { children?: JSX.Element };
-export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
+export type Props<P = {}> = Readonly<P>;
+export type PropsWithChildren<P = {}, C = JSX.Element> =
+  Props<P> & { readonly children?: C };
+export type Component<P = {}> = (props: Props<P>) => JSX.Element;
+export type ComponentWithChildren<P = {}, C = JSX.Element> =
+  (props: PropsWithChildren<P, C>) => JSX.Element;
 /**
  * Takes the props of the passed component and returns its type
  *
@@ -30,6 +34,12 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
     : T extends keyof JSX.IntrinsicElements
     ? JSX.IntrinsicElements[T]
     : {};
+/** Type of `props.ref`, for use in `Props`.
+ *
+ * @example Props<{ref: Ref<Element>}>
+ */
+export type Ref<T> = T | ((val: T) => void);
+
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
   if (hydrationEnabled) {
     if (sharedConfig.context) {
