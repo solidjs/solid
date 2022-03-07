@@ -1490,8 +1490,9 @@ function runUserEffects(queue: Computation<any>[]) {
 }
 
 function lookDownstream(node: Computation<any>, ignore?: Computation<any>) {
-  node.state = 0;
   const runningTransition = Transition && Transition.running;
+  if (runningTransition) node.tState = 0;
+  else node.state = 0;
   for (let i = 0; i < node.sources!.length; i += 1) {
     const source = node.sources![i] as Memo<any>;
     if (source.sources) {
