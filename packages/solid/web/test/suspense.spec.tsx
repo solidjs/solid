@@ -1,6 +1,7 @@
 /* @jsxImportSource solid-js */
 import "../../test/MessageChannel";
 import { lazy, createSignal, createResource, useTransition, enableScheduling } from "../../src";
+import type { Props } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
 
 global.queueMicrotask = setImmediate;
@@ -12,7 +13,7 @@ describe("Testing Suspense", () => {
     resolvers: Function[] = [],
     [triggered, trigger] = createSignal(false);
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
-    ChildComponent = (props: { greeting: string }) => {
+    ChildComponent = (props: Props<{ greeting: string }>) => {
       const [value] = createResource<string, string>(
         () => triggered() && "child",
         () => new Promise(r => setTimeout(() => r("Jo"), 300)),
