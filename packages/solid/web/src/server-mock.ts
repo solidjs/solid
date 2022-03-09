@@ -1,11 +1,19 @@
 //@ts-nocheck
+function throwInBrowser(func: Function) {
+  const err = new Error(`${func.name} is not supported in the browser, returning undefined`);
+
+  console.error(err);
+}
+
 export function renderToString<T>(
   fn: () => T,
   options?: {
     nonce?: string;
     renderId?: string;
   }
-): string {}
+): string {
+  throwInBrowser(renderToString);
+}
 export function renderToStringAsync<T>(
   fn: () => T,
   options?: {
@@ -13,7 +21,9 @@ export function renderToStringAsync<T>(
     nonce?: string;
     renderId?: string;
   }
-): Promise<string> {}
+): Promise<string> {
+  throwInBrowser(renderToStringAsync);
+}
 export function renderToStream<T>(
   fn: () => T,
   options?: {
@@ -25,7 +35,9 @@ export function renderToStream<T>(
 ): {
   pipe: (writable: { write: (v: string) => void }) => void;
   pipeTo: (writable: WritableStream) => void;
-} {}
+} {
+  throwInBrowser(renderToStream);
+}
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {}
 export function resolveSSRNode(node: any): string {}
 export function ssrClassList(value: { [k: string]: boolean }): string {}
