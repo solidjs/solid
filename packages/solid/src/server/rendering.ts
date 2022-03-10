@@ -1,4 +1,13 @@
-import { Owner, createContext, createMemo, useContext, runWithOwner, onError } from "./reactive";
+import {
+  Owner,
+  createContext,
+  createMemo,
+  useContext,
+  runWithOwner,
+  onError,
+  Accessor,
+  Setter
+} from "./reactive";
 import type { JSX } from "../jsx";
 
 type PropsWithChildren<P> = P & { children?: JSX.Element };
@@ -232,48 +241,68 @@ export interface Resource<T> {
 }
 
 type SuspenseContextType = {
-  resources: Map<string, { loading: boolean, error: any }>;
+  resources: Map<string, { loading: boolean; error: any }>;
   completed: () => void;
 };
 
-type ResourceReturn<T> = [
-  Resource<T>,
-  {
-    mutate: (v: T | undefined) => T | undefined;
-    refetch: () => void;
-  }
-];
+export type ResourceActions<T> = { mutate: Setter<T>; refetch: (info?: unknown) => void };
+
+export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
+
+export type ResourceSource<S> = S | false | null | undefined | (() => S | false | null | undefined);
+
+export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => T | Promise<T>;
+
+export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown };
+
+export type ResourceOptions<T> = undefined extends T
+  ? {
+      initialValue?: T;
+      name?: string;
+      globalRefetch?: boolean;
+      onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
+    }
+  : {
+      initialValue: T;
+      name?: string;
+      globalRefetch?: boolean;
+      onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
+    };
 
 const SuspenseContext = createContext<SuspenseContextType>();
 let resourceContext: any[] | null = null;
-export function createResource<T, U = true>(
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  options?: { initialValue?: T }
+export function createResource<T, S = true>(
+  fetcher: ResourceFetcher<S, T>,
+  options?: ResourceOptions<undefined>
+): ResourceReturn<T | undefined>;
+export function createResource<T, S = true>(
+  fetcher: ResourceFetcher<S, T>,
+  options: ResourceOptions<T>
 ): ResourceReturn<T>;
-export function createResource<T, U>(
-  fn: U | false | (() => U | false),
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  options?: { initialValue?: T }
+export function createResource<T, S>(
+  source: ResourceSource<S>,
+  fetcher: ResourceFetcher<S, T>,
+  options?: ResourceOptions<undefined>
+): ResourceReturn<T | undefined>;
+export function createResource<T, S>(
+  source: ResourceSource<S>,
+  fetcher: ResourceFetcher<S, T>,
+  options: ResourceOptions<T>
 ): ResourceReturn<T>;
-export function createResource<T, U>(
-  fn:
-    | U
-    | true
-    | false
-    | (() => U | false)
-    | ((k: U, getPrev: () => T | undefined) => T | Promise<T>),
-  fetcher?: ((k: U, getPrev: () => T | undefined) => T | Promise<T>) | { initialValue?: T },
-  options: { initialValue?: T } = {}
-): ResourceReturn<T> {
+export function createResource<T, S>(
+  source: ResourceSource<S> | ResourceFetcher<S, T>,
+  fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
+  options: ResourceOptions<T> | ResourceOptions<undefined> = {}
+): ResourceReturn<T> | ResourceReturn<T | undefined> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
-      options = fetcher;
-      fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
-      fn = true;
+      options = fetcher as ResourceOptions<T> | ResourceOptions<undefined>;
+      fetcher = source as ResourceFetcher<S, T>;
+      source = true as ResourceSource<S>;
     }
   } else if (arguments.length === 1) {
-    fetcher = fn as (k: U, getPrev: () => T | undefined) => T | Promise<T>;
-    fn = true;
+    fetcher = source as ResourceFetcher<S, T>;
+    source = true as ResourceSource<S>;
   }
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.context!.id + sharedConfig.context!.count++;
@@ -284,7 +313,8 @@ export function createResource<T, U>(
   if (sharedConfig.context!.async) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
-      if (!resource.data && !resource.ref[0].loading && !resource.ref[0].error) resource.ref[1].refetch();
+      if (!resource.data && !resource.ref[0].loading && !resource.ref[0].error)
+        resource.ref[1].refetch();
       return resource.ref;
     }
   }
@@ -305,54 +335,54 @@ export function createResource<T, U>(
   read.error = undefined as any;
   function load() {
     const ctx = sharedConfig.context!;
-    if (!ctx.async) return (read.loading = !!(typeof fn === "function" ? (fn as () => U)() : fn));
+    if (!ctx.async)
+      return (read.loading = !!(typeof source === "function" ? (source as () => S)() : source));
     if (ctx.resources && id in ctx.resources && ctx.resources[id].data) {
       value = ctx.resources[id].data;
       return;
     }
     resourceContext = [];
-    const lookup = typeof fn === "function" ? (fn as () => U)() : fn;
+    const lookup = typeof source === "function" ? (source as () => S)() : source;
     if (resourceContext.length) {
       p = Promise.all(resourceContext).then(() =>
-        (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(
-          (fn as () => U)(),
-          () => value
-        )
+        (fetcher as ResourceFetcher<S, T>)((source as Accessor<S>)(), { value })
       );
     }
     resourceContext = null;
     if (!p) {
       if (lookup == null || lookup === false) return;
-      p = (fetcher as (k: U, getPrev: () => T | undefined) => T | Promise<T>)(
-        lookup as U,
-        () => value
-      );
+      p = (fetcher as ResourceFetcher<S, T>)(lookup, { value });
     }
-    read.loading = true;
-    if ("then" in p) {
+    if (p && "then" in p) {
+      read.loading = true;
       if (ctx.writeResource) ctx.writeResource(id, p);
-      return p.then(res => {
-        read.loading = false;
-        ctx.resources[id].data = res;
-        p = null;
-        notifySuspense(contexts);
-        return res;
-      }).catch(err => {
-        read.loading = false;
-        read.error = error = err;
-        p = null;
-        notifySuspense(contexts);
-      });
+      return p
+        .then(res => {
+          read.loading = false;
+          ctx.resources[id].data = res;
+          p = null;
+          notifySuspense(contexts);
+          return res;
+        })
+        .catch(err => {
+          read.loading = false;
+          read.error = error = err;
+          p = null;
+          notifySuspense(contexts);
+        });
     }
     ctx.resources[id].data = p;
     p = null;
     return ctx.resources[id].data;
   }
   load();
-  return (resource.ref = [read, { refetch: load, mutate: v => (value = v) }] as ResourceReturn<T>);
+  return (resource.ref = [
+    read,
+    { refetch: load, mutate: (v: T) => (value = v) }
+  ] as ResourceReturn<T>);
 }
 
-export function refetchResources(info?: unknown) { }
+export function refetchResources(info?: unknown) {}
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
   let resolved: (props: any) => any;
@@ -439,7 +469,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
-      resources: new Map<string, { loading: boolean, error: any }>(),
+      resources: new Map<string, { loading: boolean; error: any }>(),
       completed: () => {
         const res = runSuspense();
         if (suspenseComplete(value)) {
@@ -462,7 +492,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
 
   // never suspended
   if (suspenseComplete(value)) {
-    ctx.writeResource!(id, null)
+    ctx.writeResource!(id, null);
     return res;
   }
 
