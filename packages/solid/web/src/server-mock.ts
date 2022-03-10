@@ -29,8 +29,8 @@ export function renderToStream<T>(
   options?: {
     nonce?: string;
     renderId?: string;
-    onCompleteShell?: () => void;
-    onCompleteAll?: () => void;
+    onCompleteShell?: (info: { write: (v: string) => void }) => void;
+    onCompleteAll?: (info: { write: (v: string) => void }) => void;
   }
 ): {
   pipe: (writable: { write: (v: string) => void }) => void;
