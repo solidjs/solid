@@ -152,13 +152,13 @@ function logRead(node) {
   }
 }
 function writeSignal(node, value) {
-  if (node.comparator) {
-    if (node.comparator(node.value, value)) return value;
-  }
   if (Pending) {
     if (node.pending === NOTPENDING) Pending.push(node);
     node.pending = value;
     return value;
+  }
+  if (node.comparator) {
+    if (node.comparator(node.value, value)) return value;
   }
   node.value = value;
   if (node.observer || (node.observers && node.observers.length)) {

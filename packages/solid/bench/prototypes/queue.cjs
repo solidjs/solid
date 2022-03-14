@@ -133,13 +133,13 @@ function readSignal() {
   return this.value;
 }
 function writeSignal(node, value, isComp) {
-  if (node.comparator) {
-    if (node.comparator(node.value, value)) return value;
-  }
   if (Pending) {
     if (node.pending === NOTPENDING) Pending.push(node);
     node.pending = value;
     return value;
+  }
+  if (node.comparator) {
+    if (node.comparator(node.value, value)) return value;
   }
   node.value = value;
   if (node.observers && node.observers.length) {

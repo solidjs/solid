@@ -294,6 +294,22 @@ describe("Batch signals", () => {
       });
     });
   });
+
+  test("Multiple sets", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      createEffect(() => {
+        setA(1);
+        setA(0);
+      });
+      createComputed(() => (count = a()));
+      setTimeout(() => {
+        expect(count).toBe(0);
+        done();
+      });
+    });
+  });
 });
 
 describe("Typecheck computed and effects", () => {

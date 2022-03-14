@@ -1188,15 +1188,15 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
 }
 
 export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isComp?: boolean) {
-  if (node.comparator) {
-    if (Transition && Transition.running && Transition.sources.has(node)) {
-      if (node.comparator(node.tValue, value)) return value;
-    } else if (node.comparator(node.value, value)) return value;
-  }
   if (Pending) {
     if (node.pending === NOTPENDING) Pending.push(node);
     node.pending = value;
     return value;
+  }
+  if (node.comparator) {
+    if (Transition && Transition.running && Transition.sources.has(node)) {
+      if (node.comparator(node.tValue, value)) return value;
+    } else if (node.comparator(node.value, value)) return value;
   }
   let TransitionRunning = false;
   if (Transition) {
