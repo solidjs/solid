@@ -723,3 +723,12 @@ describe("Nested Classes", () => {
     t = [0, "a"];
   });
 };
+
+// types with a string index signature are not wrongly assumed to be arrays in setStore
+() => {
+  const [store, setStore] = createStore<{ [x: string]: number }>({});
+  // @ts-expect-error filter function not allowed for objects
+  setStore(() => true, 1);
+  // @ts-expect-error from to by not allowed for objects
+  setStore({ from: 0, to: 10, by: 3 }, 1);
+};
