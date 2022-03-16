@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createComputed, createMemo, on } from "../../src";
-import { createStore, unwrap, $RAW, NotWrappable, DeepReadonly } from "../src";
+import { createStore, unwrap, $RAW, NotWrappable } from "../src";
 
 describe("State immutablity", () => {
   test("Setting a property", () => {
@@ -680,9 +680,7 @@ describe("Nested Classes", () => {
   setStore("b", "a", "c");
   // @ts-expect-error TODO generic should index Record
   setStore("c", v, "c");
-  // @ts-expect-error TODO generic should index Record
   const b = store.c[v];
-  // @ts-expect-error string should be assignable to string
   const c: typeof b = "1";
   const d = a.c[v];
   const e: typeof d = "1";
