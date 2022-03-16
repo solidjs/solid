@@ -234,7 +234,9 @@ export type StoreSetter<T, U extends PropertyKey[] = []> =
   | ((
       prevState: DeepReadonly<T>,
       traversed: U
-    ) => DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+    ) => T | Partial<T> | DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+  | T
+  | Partial<T>
   | DeepReadonly<T>
   | Partial<DeepReadonly<T>>;
 

@@ -1,5 +1,5 @@
 import { createRoot, createSignal, createComputed, createMemo, on } from "../../src";
-import { createStore, unwrap, $RAW, NotWrappable } from "../src";
+import { createStore, unwrap, $RAW, NotWrappable, DeepReadonly } from "../src";
 
 describe("State immutablity", () => {
   test("Setting a property", () => {
@@ -731,4 +731,10 @@ describe("Nested Classes", () => {
   setStore(() => true, 1);
   // @ts-expect-error from to by not allowed for objects
   setStore({ from: 0, to: 10, by: 3 }, 1);
+};
+
+// can set overly complex? types
+() => {
+  const [store, setStore] = createStore<{ el?: Element }>({});
+  setStore("el", {} as Element);
 };
