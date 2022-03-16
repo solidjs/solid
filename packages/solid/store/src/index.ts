@@ -3,6 +3,7 @@ export type {
   Store,
   SetStoreFunction,
   NotWrappable,
+  SolidStore,
   StoreNode,
   StoreSetter,
   StorePathRange,

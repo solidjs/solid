@@ -4,6 +4,9 @@ export const $RAW = Symbol("store-raw"),
   $NAME = Symbol("store-name");
 
 export type StoreNode = Record<PropertyKey, any>;
+export namespace SolidStore {
+  export interface Unwrappable {}
+}
 export type NotWrappable =
   | string
   | number
@@ -12,7 +15,8 @@ export type NotWrappable =
   | boolean
   | Function
   | null
-  | undefined;
+  | undefined
+  | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
 export type Store<T> = DeepReadonly<T>;
 
 function wrap<T extends StoreNode>(value: T, name?: string): DeepReadonly<T> {
