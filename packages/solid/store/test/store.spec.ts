@@ -577,11 +577,19 @@ describe("Nested Classes", () => {
 
 // cannot mutate a store directly
 () => {
-  const [store] = createStore({ a: 1 });
+  const [store, setStore] = createStore({ a: 1, nested: { a: 1 } });
   // @ts-expect-error cannot set
   store.a = 1;
+  // @ts-expect-error cannot set
+  store.nested.a = 1;
   // @ts-expect-error cannot delete
   delete store.a;
+  // @ts-expect-error cannot delete
+  delete store.nested.a;
+  // @ts-expect-error cannot set in setter
+  setStore(s => (s.a = 1));
+  // @ts-expect-error cannot set in setter
+  setStore(s => (s.nested.a = 1));
 };
 
 // cannot mutate unnested classes
@@ -680,7 +688,9 @@ describe("Nested Classes", () => {
   setStore("b", "a", "c");
   // @ts-expect-error TODO generic should index Record
   setStore("c", v, "c");
+  // @ts-expect-error TODO generic should index Record
   const b = store.c[v];
+  // @ts-expect-error string should be assignable to string
   const c: typeof b = "1";
   const d = a.c[v];
   const e: typeof d = "1";
