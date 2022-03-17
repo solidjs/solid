@@ -217,13 +217,17 @@ export function updatePath(current: StoreNode, path: any[], traversed: PropertyK
 
 export type DeepReadonly<T> = 0 extends 1 & T
   ? T
+  : T extends NotWrappable
+  ? T
   : {
-      readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepReadonly<T[K]>;
+      readonly [K in keyof T]: T[K];
     };
 export type DeepMutable<T> = 0 extends 1 & T
   ? T
+  : T extends NotWrappable
+  ? T
   : {
-      -readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepMutable<T[K]>;
+      -readonly [K in keyof T]: T[K];
     };
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
@@ -234,7 +238,9 @@ export type StoreSetter<T, U extends PropertyKey[] = []> =
   | ((
       prevState: DeepReadonly<T>,
       traversed: U
-    ) => DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+    ) => T | Partial<T> | DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+  | T
+  | Partial<T>
   | DeepReadonly<T>
   | Partial<DeepReadonly<T>>;
 

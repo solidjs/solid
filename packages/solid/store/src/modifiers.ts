@@ -1,13 +1,4 @@
-import {
-  setProperty,
-  unwrap,
-  isWrappable,
-  StoreNode,
-  $RAW,
-  DeepMutable,
-  DeepReadonly,
-  NotWrappable
-} from "./store";
+import { setProperty, unwrap, isWrappable, StoreNode, $RAW, DeepMutable } from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -144,12 +135,9 @@ const setterTraps: ProxyHandler<StoreNode> = {
 };
 
 // Immer style mutation style
-export function produce<T>(
-  fn: (state: DeepMutable<Exclude<T, NotWrappable>>) => void
-): (state: T) => T {
+export function produce<T>(fn: (state: DeepMutable<T>) => void): (state: T) => T {
   return state => {
-    if (isWrappable(state))
-      fn(new Proxy(state, setterTraps) as DeepMutable<Exclude<T, NotWrappable>>);
+    if (isWrappable(state)) fn(new Proxy(state, setterTraps) as DeepMutable<T>);
     return state;
   };
 }

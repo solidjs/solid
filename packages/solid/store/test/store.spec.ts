@@ -680,9 +680,7 @@ describe("Nested Classes", () => {
   setStore("b", "a", "c");
   // @ts-expect-error TODO generic should index Record
   setStore("c", v, "c");
-  // @ts-expect-error TODO generic should index Record
   const b = store.c[v];
-  // @ts-expect-error string should be assignable to string
   const c: typeof b = "1";
   const d = a.c[v];
   const e: typeof d = "1";
@@ -731,4 +729,10 @@ describe("Nested Classes", () => {
   setStore(() => true, 1);
   // @ts-expect-error from to by not allowed for objects
   setStore({ from: 0, to: 10, by: 3 }, 1);
+};
+
+// can set overly complex? types
+() => {
+  const [store, setStore] = createStore<{ el?: Element }>({});
+  setStore("el", {} as Element);
 };
