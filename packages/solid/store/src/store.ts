@@ -224,14 +224,14 @@ export type DeepReadonly<T> = 0 extends 1 & T
   : T extends NotWrappable
   ? T
   : {
-      readonly [K in keyof T]: T[K];
+      readonly [K in keyof T]: DeepReadonly<T[K]>;
     };
 export type DeepMutable<T> = 0 extends 1 & T
   ? T
   : T extends NotWrappable
   ? T
   : {
-      -readonly [K in keyof T]: T[K];
+      -readonly [K in keyof T]: DeepMutable<T[K]>;
     };
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
