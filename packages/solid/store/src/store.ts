@@ -47,13 +47,13 @@ export function isWrappable(obj: any) {
   );
 }
 
-export function unwrap<T extends StoreNode>(item: any, set = new Set()): T {
+export function unwrap<T extends StoreNode>(item: T, set = new Set()): T {
   let result, unwrapped, v, prop;
   if ((result = item != null && item[$RAW])) return result;
   if (!isWrappable(item) || set.has(item)) return item;
 
   if (Array.isArray(item)) {
-    if (Object.isFrozen(item)) item = item.slice(0);
+    if (Object.isFrozen(item)) item = item.slice(0) as unknown as T;
     else set.add(item);
     for (let i = 0, l = item.length; i < l; i++) {
       v = item[i];
@@ -68,7 +68,7 @@ export function unwrap<T extends StoreNode>(item: any, set = new Set()): T {
       prop = keys[i];
       if ((desc as any)[prop].get) continue;
       v = item[prop];
-      if ((unwrapped = unwrap(v, set)) !== v) item[prop] = unwrapped;
+      if ((unwrapped = unwrap(v, set)) !== v) item[prop as keyof T] = unwrapped;
     }
   }
   return item;
