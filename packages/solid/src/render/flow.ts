@@ -176,6 +176,7 @@ export function ErrorBoundary(props: {
   return createMemo(() => {
     if ((e = errored()) != null) {
       const f = props.fallback;
+      if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
       return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(null))) : f;
     }
     onError(setErrored);
