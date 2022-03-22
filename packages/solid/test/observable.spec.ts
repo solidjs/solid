@@ -36,7 +36,7 @@ describe("Observable operator", () => {
     expect(() => o.subscribe(null as any)).toThrow(TypeError);
   });
 
-  test.only("observable unsubscribe", () => {
+  test("observable unsubscribe", () => {
     const [s, set] = createSignal("Hi");
     const o = observable(s);
     let out: string;
