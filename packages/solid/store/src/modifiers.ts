@@ -110,7 +110,7 @@ export function reconcile<T extends U, U>(
   const { merge, key = "id" } = options,
     v = unwrap(value);
   return state => {
-    if (!isWrappable(state) || !isWrappable(v)) return v;
+    if (!isWrappable(state) || !isWrappable(v)) return v as T;
     applyState(v, { state }, "state", merge, key);
     return state as T;
   };

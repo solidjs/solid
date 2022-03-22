@@ -39,21 +39,33 @@ function wrap<T extends StoreNode>(value: T, name?: string): DeepReadonly<T> {
   return p;
 }
 
-export function isWrappable(obj: any) {
-  return (
+function isUnwrappable(obj: {} | undefined | null): obj is NotWrappable {
+  return !(
     obj != null &&
     typeof obj === "object" &&
-    (obj[$PROXY] || !obj.__proto__ || obj.__proto__ === Object.prototype || Array.isArray(obj))
+    (
+      obj[$PROXY as keyof typeof obj] ||
+      !(obj as any).__proto__ ||
+      (obj as any).__proto__ === Object.prototype ||
+      Array.isArray(obj)
+    )
   );
 }
 
-export function unwrap<T extends StoreNode>(item: T, set = new Set()): T {
+export function isWrappable<T>(obj: T) {
+  return !isUnwrappable(obj);
+}
+
+export function unwrap<T extends StoreNode>(
+  item: T,
+  set = new Set()
+): T extends NotWrappable ? T : DeepMutable<T> {
   let result, unwrapped, v, prop;
   if ((result = item != null && item[$RAW])) return result;
-  if (!isWrappable(item) || set.has(item)) return item;
+  if (!isWrappable(item) || set.has(item)) return item as any;
 
   if (Array.isArray(item)) {
-    if (Object.isFrozen(item)) item = item.slice(0) as unknown as T;
+    if (Object.isFrozen(item)) item = item.slice(0) as any;
     else set.add(item);
     for (let i = 0, l = item.length; i < l; i++) {
       v = item[i];
@@ -71,7 +83,7 @@ export function unwrap<T extends StoreNode>(item: T, set = new Set()): T {
       if ((unwrapped = unwrap(v, set)) !== v) item[prop as keyof T] = unwrapped;
     }
   }
-  return item;
+  return item as any;
 }
 
 export function getDataNodes(target: StoreNode) {
@@ -219,17 +231,14 @@ export function updatePath(current: StoreNode, path: any[], traversed: PropertyK
   } else setProperty(current, part, value);
 }
 
-export type DeepReadonly<T> = 0 extends 1 & T
-  ? T
-  : T extends NotWrappable
-  ? T
+export type DeepReadonly<T, W = any> =
+  T extends DeepMutable<W> ? W
+  : T extends NotWrappable ? T
   : {
       readonly [K in keyof T]: DeepReadonly<T[K]>;
     };
-export type DeepMutable<T> = 0 extends 1 & T
-  ? T
-  : T extends NotWrappable
-  ? T
+export type DeepMutable<T> =
+  T extends NotWrappable ? T
   : {
       -readonly [K in keyof T]: DeepMutable<T[K]>;
     };
@@ -366,7 +375,7 @@ export function createStore<T extends StoreNode>(
   store: T | Store<T>,
   options?: { name?: string }
 ): [get: Store<T>, set: SetStoreFunction<T>] {
-  const unwrappedStore = unwrap<T>(store || {});
+  const unwrappedStore = unwrap(store || {});
   if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
