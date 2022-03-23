@@ -1,5 +1,5 @@
 import "./MessageChannel";
-import { requestCallback } from "../src";
+import { cancelCallback, requestCallback } from "../src";
 //@ts-ignore
 
 describe("requestCallback basics", () => {
@@ -30,4 +30,11 @@ describe("requestCallback basics", () => {
       { timeout: 40 }
     );
   });
+
+  test("supports cancelling a callback", done => {
+    const task = requestCallback(() => { done(new Error('should not be called')) });
+    cancelCallback(task);
+    requestCallback(done);
+  });
+
 });
