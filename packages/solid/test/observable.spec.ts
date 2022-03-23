@@ -28,7 +28,27 @@ describe("Observable operator", () => {
       obsv$.subscribe(observer);
     });
     expect(observer.next).toHaveReturnedWith(observer);
-  })
+  });
+
+  test("observable throws TypeError on non-object", () => {
+    const [s, _set] = createSignal("Hi");
+    const o = observable(s);
+    expect(() => o.subscribe(null as any)).toThrow(TypeError);
+  });
+
+  test("observable unsubscribe", () => {
+    const [s, set] = createSignal("Hi");
+    const o = observable(s);
+    let out: string;
+    createRoot(() => {
+      const subscription = o.subscribe({ next(v) { out = v; console.log('here', v); }});
+      set("John");
+      expect(out!).toBe("John");
+      subscription.unsubscribe();
+      set("Benjamin");
+      expect(out!).toBe("John");
+    });
+  });
 });
 
 describe("from transform", () => {
