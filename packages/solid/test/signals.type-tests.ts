@@ -660,11 +660,89 @@ const ef = on([one, two], ([one, two], [prevOne, prevTwo], computed): number => 
 });
 
 //////////////////////////////////////////////////////////////////////////
-// test explicit generic args ////////////////////////////////////////////
+// variations of signal types ////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
 const [num, setN] = createSignal(1);
+let n1: number = num();
+setN(123);
+setN(n => (n1 = n + 1));
+// @ts-expect-error Expected 1 arguments, but got 0. ts(2554)
+setN();
+
+const [num3, setN3] = createSignal<number>();
+// @ts-expect-error   Type 'undefined' is not assignable to type 'number'. ts(2322)
+let n3: number = num3();
+setN3(123);
+setN3(undefined); // ok, accepts undefined
+// @ts-expect-error Object is possibly 'undefined'. ts(2532) (the `n` value)
+setN3(n => (n3 = n + 1));
+setN3(); // ok, accepts undefined
+
+// @ts-expect-error Argument of type 'boolean' is not assignable to parameter of type 'number'. ts(2345)
+const [num4, setN4] = createSignal<number>(true);
+
 const [bool, setBool] = createSignal(true);
+let b1: boolean = bool();
+setBool(false);
+setBool(b => (b1 = !b));
+// @ts-expect-error Expected 1 arguments, but got 0. ts(2554)
+setBool();
+
+const [bool2, setBool2] = createSignal<boolean>();
+// @ts-expect-error   Type 'undefined' is not assignable to type 'number'. ts(2322)
+let n4: boolean = bool2();
+setBool2(false);
+setBool2(undefined); // ok, accepts undefined
+setBool2(n => (n4 = !n)); // ok because undefined is being converted to boolean
+// @ts-expect-error Type 'boolean | undefined' is not assignable to type 'boolean'. ts(2322)
+setBool2(n => (n4 = n));
+setBool2(); // ok, accepts undefined
+
+const [func, setFunc] = createSignal(() => 1);
+// @ts-expect-error 1 is not assignable to function (no overload matches)
+setFunc(() => 1);
+setFunc(() => (): 1 => 1); // ok, set the value to a function
+const fn: () => 1 = func(); // ok, returns function value
+const n5: 1 = func()();
+
+const [func2, setFunc2] = createSignal<() => number>(() => 1);
+// @ts-expect-error number is not assignable to function (no overload matches)
+setFunc2(() => 1);
+setFunc2(() => () => 1); // ok, set the value to a function
+const fn2: () => number = func2(); // ok, returns function value
+const n6: number = func2()();
+
+const [stringOrFunc1, setStringOrFunc1] = createSignal<(() => number) | string>("");
+// @ts-expect-error number should not be assignable to string
+setStringOrFunc1(() => 1);
+const sf1: () => number = setStringOrFunc1(() => () => 1);
+const sf2: string = setStringOrFunc1("oh yeah");
+const sf3: string = setStringOrFunc1(() => "oh yeah");
+// @ts-expect-error cannot set signal to undefined
+setStringOrFunc1();
+// @ts-expect-error cannot set signal to undefined
+setStringOrFunc1(undefined);
+// @ts-expect-error return value might be string
+const sf6: () => number = stringOrFunc1();
+const sf7: (() => number) | string | undefined = stringOrFunc1();
+const sf8: (() => number) | string = stringOrFunc1();
+
+const [stringOrFunc2, setStringOrFunc2] = createSignal<(() => number) | string>();
+// @ts-expect-error number should not be assignable to string
+setStringOrFunc2(() => 1);
+const sf9: () => number = setStringOrFunc2(() => () => 1);
+const sf10: string = setStringOrFunc2("oh yeah");
+const sf11: string = setStringOrFunc2(() => "oh yeah");
+const sf12: undefined = setStringOrFunc2();
+const sf13: undefined = setStringOrFunc2(undefined);
+const sf14: (() => number) | string | undefined = stringOrFunc2();
+// @ts-expect-error return value might be undefined
+const sf15: (() => number) | string = stringOrFunc2();
+
+//////////////////////////////////////////////////////////////////////////
+// test explicit generic args ////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 
 const a1: Accessor<number> = createMemo<number>(() => num());
 createEffect<number>(() => num());
@@ -800,28 +878,24 @@ createRenderEffect<number | boolean>(() => bool(), false);
 // 👽
 const a51: Accessor<number | boolean> = createMemo<number | boolean>(
   () => bool(),
-  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  // @ts-expect-error FIXME edge case: string is not assignable to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
   "foo"
 );
 createEffect<number | boolean>(
   () => bool(),
-  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  // @ts-expect-error FIXME edge case: string is not assignable to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
   "foo"
 );
 createComputed<number | boolean>(
   () => bool(),
-  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  // @ts-expect-error FIXME edge case: string is not assignable to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
   "foo"
 );
 createRenderEffect<number | boolean>(
   () => bool(),
-  // @ts-expect-error FIXME edge case: string is not assignable to to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
+  // @ts-expect-error FIXME edge case: string is not assignable to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
   "foo"
 );
-
-//////////////////////////////////////////////////////////////////////////
-// on ////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////
 
 //
 
@@ -845,5 +919,3 @@ createRenderEffect<number | boolean>(
     // @ts-expect-error string return is not assignable to number|boolean
     "foo"
 );
-
-// more type tests...
