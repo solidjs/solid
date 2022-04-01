@@ -1,4 +1,4 @@
-import { dirname } from "path";
+import { dirname, join } from "path";
 import { writeFile, mkdir } from "fs"
 
 async function write() {
