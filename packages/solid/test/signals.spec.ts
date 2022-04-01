@@ -626,8 +626,8 @@ describe("runWithOwner", () => {
     });
 
     runWithOwner(owner, () => {
-      createEffect(() => effectRun = true);
-      onCleanup(() => cleanupRun = true);
+      createEffect(() => (effectRun = true));
+      onCleanup(() => (cleanupRun = true));
       expect(effectRun).toBe(false);
       expect(cleanupRun).toBe(false);
     });
@@ -639,13 +639,13 @@ describe("runWithOwner", () => {
 });
 
 describe("createReaction", () => {
-  test("Create and trigger a Reaction", (done) => {
+  test("Create and trigger a Reaction", done => {
     createRoot(() => {
       let count = 0;
       const [sign, setSign] = createSignal("thoughts");
       const track = createReaction(() => count++);
       expect(count).toBe(0);
-      track(sign)
+      track(sign);
       expect(count).toBe(0);
       setTimeout(() => {
         expect(count).toBe(0);
@@ -653,11 +653,11 @@ describe("createReaction", () => {
         expect(count).toBe(1);
         setSign("body");
         expect(count).toBe(1);
-        track(sign)
+        track(sign);
         setSign("everything");
         expect(count).toBe(2);
         done();
       });
     });
   });
-})
+});
