@@ -124,7 +124,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
 
 export type Accessor<T> = () => T;
 
-export type Setter<T> = (undefined extends T ? (value?: undefined) => undefined : {}) &
+export type Setter<T> = (undefined extends T ? () => undefined : {}) &
   (<U extends T>(value: Exclude<U, Function> | ((prev: T) => U)) => U);
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
@@ -172,7 +172,7 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
   if ("_SOLID_DEV_" && !options.internal)
     s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
 
-  const setter: Setter<T | undefined> = (value: unknown) => {
+  const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
       if (Transition && Transition.running && Transition.sources.has(s))
         value = value(s.pending !== NOTPENDING ? s.pending : s.tValue);
