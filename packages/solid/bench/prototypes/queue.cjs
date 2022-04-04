@@ -110,7 +110,7 @@ function readSignal() {
   if (this.state && this.sources) {
     const updates = Updates;
     Updates = null;
-    this.state === STALE ? updateComputation(this) : lookDownstream(this);
+    this.state === STALE ? updateComputation(this) : lookUpstream(this);
     Updates = updates;
   }
   if (Listener) {
@@ -149,7 +149,7 @@ function writeSignal(node, value, isComp) {
         if (!o.state) {
           if (o.pure) Updates.push(o);
           else Effects.push(o);
-          if (o.observers) markUpstream(o);
+          if (o.observers) markDownstream(o);
         }
         o.state = STALE;
       }
@@ -205,7 +205,7 @@ function createComputation(fn, init, pure, state = STALE, options) {
 }
 function runTop(node) {
   if (node.state === 0) return;
-  if (node.state === PENDING) return lookDownstream(node);
+  if (node.state === PENDING) return lookUpstream(node);
   const ancestors = [node];
   while ((node = node.owner) && (!node.updatedAt || node.updatedAt < ExecCount)) {
     if (node.state) ancestors.push(node);
@@ -217,7 +217,7 @@ function runTop(node) {
     } else if (node.state === PENDING) {
       const updates = Updates;
       Updates = null;
-      lookDownstream(node);
+      lookUpstream(node);
       Updates = updates;
     }
   }
@@ -253,24 +253,24 @@ function completeUpdates(wait) {
 function runQueue(queue) {
   for (let i = 0; i < queue.length; i++) runTop(queue[i]);
 }
-function lookDownstream(node) {
+function lookUpstream(node) {
   node.state = 0;
   for (let i = 0; i < node.sources.length; i += 1) {
     const source = node.sources[i];
     if (source.sources) {
       if (source.state === STALE) runTop(source);
-      else if (source.state === PENDING) lookDownstream(source);
+      else if (source.state === PENDING) lookUpstream(source);
     }
   }
 }
-function markUpstream(node) {
+function markDownstream(node) {
   for (let i = 0; i < node.observers.length; i += 1) {
     const o = node.observers[i];
     if (!o.state) {
       o.state = PENDING;
       if (o.pure) Updates.push(o);
       else Effects.push(o);
-      o.observers && markUpstream(o);
+      o.observers && markDownstream(o);
     }
   }
 }

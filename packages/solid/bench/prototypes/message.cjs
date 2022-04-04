@@ -56,7 +56,7 @@ function createSignal(value, options) {
       }
       if (writeSignal(s, value) && s.observers && s.observers.length) {
         runUpdates(() => {
-          markUpstream(s, false, true, true);
+          markDownstream(s, false, true, true);
           runImmediate(s);
         });
       }
@@ -94,7 +94,7 @@ function batch(fn) {
         const pending = node.pending;
         node.pending = NOTPENDING;
         if (writeSignal(node, pending) && node.observers && node.observers.length) {
-          markUpstream(node, false, true, true);
+          markDownstream(node, false, true, true);
         } else q[i] = null;
       }
     }
@@ -157,7 +157,7 @@ function runComputation(node, value, time) {
   nextValue = node.fn(value);
   if (!node.updatedAt || node.updatedAt <= time) {
     if (node.observers && node.observers.length) {
-      markUpstream(node, !writeSignal(node, nextValue));
+      markDownstream(node, !writeSignal(node, nextValue));
       runImmediate(node);
     } else node.value = nextValue;
     node.updatedAt = time;
@@ -221,21 +221,21 @@ function completeUpdates(wait) {
 function runQueue(queue) {
   for (let i = 0; i < queue.length; i++) queue[i].stale && runTop(queue[i]);
 }
-function lookDownstream(node) {
+function lookUpstream(node) {
   for (let i = 0; i < node.sources.length; i += 1) {
     const source = node.sources[i];
     if (source.sources) {
       if (source.stale === source.ready) runTop(source);
-      else if (source.stale) lookDownstream(source);
+      else if (source.stale) lookUpstream(source);
     }
   }
 }
-function markUpstream(node, decrease, stale, top) {
+function markDownstream(node, decrease, stale, top) {
   for (let i = 0; i < node.observers.length; i += 1) {
     const o = node.observers[i];
     if (stale) {
       if (top) o.ready++;
-      !o.stale++ && o.observers && o.observers.length && markUpstream(o, false, true);
+      !o.stale++ && o.observers && o.observers.length && markDownstream(o, false, true);
     } else if (decrease) o.stale && o.stale--;
     else o.ready++;
   }
@@ -255,7 +255,7 @@ function runNode(node) {
       if (node.pure) runTop(node);
       else Effects.push(node);
     } else if (node.observers && node.observers.length) {
-      markUpstream(node, true);
+      markDownstream(node, true);
       runImmediate(node);
     }
   }
@@ -264,7 +264,7 @@ function updateNode(node) {
   if (node.stale) {
     if (node.stale === node.ready) {
       updateComputation(node);
-    } else lookDownstream(node);
+    } else lookUpstream(node);
   }
 }
 function cleanNode(node) {
