@@ -84,7 +84,7 @@ function createMemo(fn, value, options) {
     if (c.state && (c.source || c.sources)) {
       const updates = Updates;
       Updates = null;
-      c.state === STALE ? updateComputation(c) : lookDownstream(c);
+      c.state === STALE ? updateComputation(c) : lookUpstream(c);
       Updates = updates;
     }
     if (Listener) logRead(c);
@@ -179,7 +179,7 @@ function queueUpdates(o) {
   if (!o.state) {
     if (o.pure) Updates.push(o);
     else Effects.push(o);
-    if (o.observer || o.observers) markUpstream(o);
+    if (o.observer || o.observers) markDownstream(o);
   }
   o.state = STALE;
 }
@@ -230,7 +230,7 @@ function createComputation(fn, init, pure, state = STALE, options) {
 }
 function runTop(node) {
   if (node.state === 0) return;
-  if (node.state === PENDING) return lookDownstream(node);
+  if (node.state === PENDING) return lookUpstream(node);
   const ancestors = [node];
   while ((node = node.owner) && (!node.updatedAt || node.updatedAt < ExecCount)) {
     if (node.state) ancestors.push(node);
@@ -242,7 +242,7 @@ function runTop(node) {
     } else if (node.state === PENDING) {
       const updates = Updates;
       Updates = null;
-      lookDownstream(node);
+      lookUpstream(node);
       Updates = updates;
     }
   }
@@ -278,33 +278,33 @@ function completeUpdates(wait) {
 function runQueue(queue) {
   for (let i = 0; i < queue.length; i++) runTop(queue[i]);
 }
-function lookDownstream(node) {
+function lookUpstream(node) {
   node.state = 0;
-  if (node.source) lookDownstreamNode(node.source)
+  if (node.source) lookUpstreamNode(node.source)
   if (node.sources) {
     for (let i = 0; i < node.sources.length; i += 1) {
-      lookDownstream(node.sources[i]);
+      lookUpstream(node.sources[i]);
     }
   }
 }
-function lookDownstreamNode(source) {
+function lookUpstreamNode(source) {
   if (source.source || source.sources) {
     if (source.state === STALE) runTop(source);
-    else if (source.state === PENDING) lookDownstream(source);
+    else if (source.state === PENDING) lookUpstream(source);
   }
 }
-function markUpstream(node) {
-  if (node.observer) markUpstreamNode(node.observer);
+function markDownstream(node) {
+  if (node.observer) markDownstreamNode(node.observer);
   if (node.observers) {
-    for (let i = 0; i < node.observers.length; i += 1) markUpstreamNode(node.observers[i]);
+    for (let i = 0; i < node.observers.length; i += 1) markDownstreamNode(node.observers[i]);
   }
 }
-function markUpstreamNode(o) {
+function markDownstreamNode(o) {
   if (!o.state) {
     o.state = PENDING;
     if (o.pure) Updates.push(o);
     else Effects.push(o);
-    (o.observer || o.observers) && markUpstream(o);
+    (o.observer || o.observers) && markDownstream(o);
   }
 }
 function cleanNode(node) {

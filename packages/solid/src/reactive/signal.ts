@@ -1162,7 +1162,7 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
     (!runningTransition && (this as Memo<any>).state === STALE) ||
     (runningTransition && (this as Memo<any>).tState === STALE)
       ? updateComputation(this as Memo<any>)
-      : lookDownstream(this as Memo<any>);
+      : lookUpstream(this as Memo<any>);
     Updates = updates;
   }
   if (Listener) {
@@ -1214,7 +1214,7 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
         if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
           if (o.pure) Updates!.push(o);
           else Effects!.push(o);
-          if ((o as Memo<any>).observers) markUpstream(o as Memo<any>);
+          if ((o as Memo<any>).observers) markDownstream(o as Memo<any>);
         }
         if (TransitionRunning) o.tState = STALE;
         else o.state = STALE;
@@ -1344,7 +1344,7 @@ function runTop(node: Computation<any>) {
     (!runningTransition && node.state === PENDING) ||
     (runningTransition && node.tState === PENDING)
   )
-    return lookDownstream(node);
+    return lookUpstream(node);
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const ancestors = [node];
@@ -1376,7 +1376,7 @@ function runTop(node: Computation<any>) {
     ) {
       const updates = Updates;
       Updates = null;
-      lookDownstream(node, ancestors[0]);
+      lookUpstream(node, ancestors[0]);
       Updates = updates;
     }
   }
@@ -1488,7 +1488,7 @@ function runUserEffects(queue: Computation<any>[]) {
   for (i = resume; i < queue.length; i++) runTop(queue[i]);
 }
 
-function lookDownstream(node: Computation<any>, ignore?: Computation<any>) {
+function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
   const runningTransition = Transition && Transition.running;
   if (runningTransition) node.tState = 0;
   else node.state = 0;
@@ -1504,12 +1504,12 @@ function lookDownstream(node: Computation<any>, ignore?: Computation<any>) {
         (!runningTransition && source.state === PENDING) ||
         (runningTransition && source.tState === PENDING)
       )
-        lookDownstream(source, ignore);
+        lookUpstream(source, ignore);
     }
   }
 }
 
-function markUpstream(node: Memo<any>) {
+function markDownstream(node: Memo<any>) {
   const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.observers!.length; i += 1) {
     const o = node.observers![i];
@@ -1518,7 +1518,7 @@ function markUpstream(node: Memo<any>) {
       else o.state = PENDING;
       if (o.pure) Updates!.push(o);
       else Effects!.push(o);
-      (o as Memo<any>).observers && markUpstream(o as Memo<any>);
+      (o as Memo<any>).observers && markDownstream(o as Memo<any>);
     }
   }
 }
