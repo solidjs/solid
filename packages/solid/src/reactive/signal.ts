@@ -407,7 +407,10 @@ export interface Resource<T> extends Accessor<T> {
   error: any;
 }
 
-export type ResourceActions<T> = { mutate: Setter<T>; refetch: (info?: unknown) => void };
+export type ResourceActions<T> = {
+  mutate: Setter<T>;
+  refetch: (info?: unknown) => T | Promise<T> | undefined | null;
+};
 
 export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
