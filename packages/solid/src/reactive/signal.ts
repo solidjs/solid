@@ -1575,7 +1575,10 @@ function reset(node: Computation<any>, top?: boolean) {
 
 function handleError(err: any) {
   const fns = ERROR && lookup(Owner, ERROR);
-  if (!fns) throw err;
+  if (!fns) {
+    "_SOLID_DEV_" && console.warn(`Error during Solid code without onError or ErrorBoundary: ${err}`);
+    throw err;
+  }
   fns.forEach((f: (err: any) => void) => f(err));
 }
 
