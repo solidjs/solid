@@ -117,53 +117,20 @@ export function mergeProps(...sources: any): any {
   );
 }
 
-export function splitProps<T extends object, K1 extends keyof T>(
-  props: T,
-  ...keys: [K1[]]
-): [Pick<T, K1>, Omit<T, K1>];
-export function splitProps<T extends object, K1 extends keyof T, K2 extends keyof T>(
-  props: T,
-  ...keys: [K1[], K2[]]
-): [Pick<T, K1>, Pick<T, K2>, Omit<T, K1 | K2>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Omit<T, K1 | K2 | K3>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T,
-  K4 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[], K4[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Pick<T, K4>, Omit<T, K1 | K2 | K3 | K4>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T,
-  K4 extends keyof T,
-  K5 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[], K4[], K5[]]
-): [
-  Pick<T, K1>,
-  Pick<T, K2>,
-  Pick<T, K3>,
-  Pick<T, K4>,
-  Pick<T, K5>,
-  Omit<T, K1 | K2 | K3 | K4 | K5>
+type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
+  ...{
+    [P in keyof K]: P extends `${number}`
+      ? Pick<T, Extract<K[P], readonly (keyof T)[]>[number]>
+      : K[P];
+  },
+  Omit<T, K[number][number]>
 ];
-export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
-  const blocked = new Set(keys.flat());
+
+export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]>(
+  props: T,
+  ...keys: K
+): SplitProps<T, K> {
+  const blocked = new Set<keyof T>(keys.flat());
   const descriptors = Object.getOwnPropertyDescriptors(props);
   const res = keys.map(k => {
     const clone = {};
@@ -202,7 +169,7 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
       propTraps
     )
   );
-  return res;
+  return res as SplitProps<T, K>;
 }
 
 // lazy load a function component asynchronously
