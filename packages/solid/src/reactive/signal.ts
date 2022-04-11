@@ -1,7 +1,7 @@
 // Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
 
 import { requestCallback, Task } from "./scheduler";
-import { sharedConfig } from "../render/hydration";
+import { setHydrateContext, sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
@@ -1486,6 +1486,7 @@ function runUserEffects(queue: Computation<any>[]) {
     if (!e.user) runTop(e);
     else queue[userLength++] = e;
   }
+  if (sharedConfig.context) setHydrateContext();
   const resume = queue.length;
   for (i = 0; i < userLength; i++) runTop(queue[i]);
   for (i = resume; i < queue.length; i++) runTop(queue[i]);
