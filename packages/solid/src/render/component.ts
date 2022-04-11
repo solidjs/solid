@@ -15,10 +15,38 @@ export function enableHydration() {
   hydrationEnabled = true;
 }
 
-export type PropsWithChildren<P = {}, C = JSX.Element> = P & { children?: C };
+/**
+ * A general `Component` has no implicit `children` prop.  If desired, you can
+ * specify one as in `Component<{name: String, children: JSX.Element>}`.
+ */
 export type Component<P = {}> = (props: P) => JSX.Element;
-export type ComponentWithChildren<P = {}, C = JSX.Element> =
-  (props: PropsWithChildren<P, C>) => JSX.Element;
+
+/**
+ * `VoidComponent` forbids the `children` prop.
+ * Use this to prevent accidentally passing `children` to components that
+ * would silently throw them away.
+ */
+export type VoidProps<P> = P & { children?: never };
+export type VoidComponent<P> = Component<VoidProps<P>>;
+
+/**
+ * `ParentComponent` allows an optional the `children` prop with the usual
+ * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * Use this for components that you want to accept children.
+ */
+export type ParentProps<P> = P & { children?: JSX.Element };
+export type ParentComponent<P> = Component<ParentProps<P>>;
+
+/**
+ * `FlowComponent` requires a `children` prop with the specified type.
+ * Use this for components where you need specific types of children.
+ */
+export type FlowProps<P, C> = P & { children: C };
+export type FlowComponent<P, C> = Component<FlowProps<P, C>>;
+
+/** @deprecated */
+export type PropsWithChildren<P> = ParentProps<P>;
+
 /**
  * Takes the props of the passed component and returns its type
  *
@@ -26,19 +54,21 @@ export type ComponentWithChildren<P = {}, C = JSX.Element> =
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any>> =
+export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component> =
   T extends Component<infer P>
     ? P
     : T extends keyof JSX.IntrinsicElements
     ? JSX.IntrinsicElements[T]
     : {};
-/** Type of `props.ref`, for use in `Component` or `props` typing.
+
+/**
+ * Type of `props.ref`, for use in `Component` or `props` typing.
  *
  * @example Component<{ref: Ref<Element>}>
  */
 export type Ref<T> = T | ((val: T) => void);
 
-export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
@@ -214,7 +244,7 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
 }
 
 // lazy load a function component asynchronously
-export function lazy<T extends Component<any>>(
+export function lazy<T extends Component>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
   let comp: () => T | undefined;

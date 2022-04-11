@@ -1,8 +1,20 @@
 import { Owner, createContext, createMemo, useContext, runWithOwner, onError } from "./reactive";
 import type { JSX } from "../jsx";
 
-type PropsWithChildren<P> = P & { children?: JSX.Element };
-export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
+//export type Component<P = {}> = (props: P) => JSX.Element;
+export interface Component<P = {}> {
+  (props: P): JSX.Element
+}
+export type VoidProps<P> = P & { children?: never };
+export type VoidComponent<P> = Component<VoidProps<P>>;
+export type ParentProps<P> = P & { children?: JSX.Element };
+export type ParentComponent<P> = Component<ParentProps<P>>;
+export type FlowProps<P, C> = P & { children: C };
+export type FlowComponent<P, C> = Component<FlowProps<P, C>>;
+export type Ref<T> = T | ((val: T) => void);
+export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component> =
+  T extends Component<infer P> ? P :
+  T extends keyof JSX.IntrinsicElements ? JSX.IntrinsicElements[T] : {};
 
 type PossiblyWrapped<T> = {
   [P in keyof T]: T[P] | (() => T[P]);
@@ -354,12 +366,16 @@ export function createResource<T, U>(
 
 export function refetchResources(info?: unknown) { }
 
-export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
-  let resolved: (props: any) => any;
+export function lazy<T extends Component>(
+  fn: () => Promise<{ default: T }>
+): T & { preload: () => Promise<{ default: T }> } {
+  let resolved: T;
   const p = fn();
   const contexts = new Set<SuspenseContextType>();
   p.then(mod => (resolved = mod.default));
-  const wrap = (props: any) => {
+  const wrap: Component<ComponentProps<T>> &
+              { preload?: () => Promise<{ default: T }> }
+  = (props) => {
     const id = sharedConfig.context!.id.slice(0, -1);
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
@@ -376,7 +392,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
     return "";
   };
   wrap.preload = () => p;
-  return wrap;
+  return wrap as T & { preload: () => Promise<{ default: T }> };
 }
 
 function suspenseComplete(c: SuspenseContextType) {
