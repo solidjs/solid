@@ -366,7 +366,7 @@ export function createResource<T, U>(
 
 export function refetchResources(info?: unknown) { }
 
-export function lazy<T extends Component>(
+export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
   let resolved: T;

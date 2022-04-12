@@ -244,7 +244,7 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
 }
 
 // lazy load a function component asynchronously
-export function lazy<T extends Component>(
+export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
   let comp: () => T | undefined;
