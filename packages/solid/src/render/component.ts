@@ -45,7 +45,7 @@ export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
 export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 
 /** @deprecated */
-export type PropsWithChildren<P> = ParentProps<P>;
+export type PropsWithChildren<P = {}> = ParentProps<P>;
 
 /**
  * Takes the props of the passed component and returns its type
