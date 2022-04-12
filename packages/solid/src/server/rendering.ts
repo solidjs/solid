@@ -5,12 +5,12 @@ import type { JSX } from "../jsx";
 export interface Component<P = {}> {
   (props: P): JSX.Element
 }
-export type VoidProps<P> = P & { children?: never };
-export type VoidComponent<P> = Component<VoidProps<P>>;
-export type ParentProps<P> = P & { children?: JSX.Element };
-export type ParentComponent<P> = Component<ParentProps<P>>;
-export type FlowProps<P, C> = P & { children: C };
-export type FlowComponent<P, C> = Component<FlowProps<P, C>>;
+export type VoidProps<P = {}> = P & { children?: never };
+export type VoidComponent<P = {}> = Component<VoidProps<P>>;
+export type ParentProps<P = {}> = P & { children?: JSX.Element };
+export type ParentComponent<P = {}> = Component<ParentProps<P>>;
+export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
+export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 export type Ref<T> = T | ((val: T) => void);
 export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component> =
   T extends Component<infer P> ? P :

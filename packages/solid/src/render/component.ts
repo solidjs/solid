@@ -26,23 +26,23 @@ export type Component<P = {}> = (props: P) => JSX.Element;
  * Use this to prevent accidentally passing `children` to components that
  * would silently throw them away.
  */
-export type VoidProps<P> = P & { children?: never };
-export type VoidComponent<P> = Component<VoidProps<P>>;
+export type VoidProps<P = {}> = P & { children?: never };
+export type VoidComponent<P = {}> = Component<VoidProps<P>>;
 
 /**
  * `ParentComponent` allows an optional the `children` prop with the usual
  * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
  * Use this for components that you want to accept children.
  */
-export type ParentProps<P> = P & { children?: JSX.Element };
-export type ParentComponent<P> = Component<ParentProps<P>>;
+export type ParentProps<P = {}> = P & { children?: JSX.Element };
+export type ParentComponent<P = {}> = Component<ParentProps<P>>;
 
 /**
  * `FlowComponent` requires a `children` prop with the specified type.
  * Use this for components where you need specific types of children.
  */
-export type FlowProps<P, C> = P & { children: C };
-export type FlowComponent<P, C> = Component<FlowProps<P, C>>;
+export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
+export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 
 /** @deprecated */
 export type PropsWithChildren<P> = ParentProps<P>;

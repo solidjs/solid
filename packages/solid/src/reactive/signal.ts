@@ -3,7 +3,7 @@
 import { requestCallback, Task } from "./scheduler";
 import { sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
-import type { ParentComponent, ParentProps } from "../render";
+import type { FlowComponent, FlowProps } from "../render";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
@@ -1050,7 +1050,7 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
   };
 }
 
-export type ContextProviderComponent<T> = ParentComponent<{ value: T; }>;
+export type ContextProviderComponent<T> = FlowComponent<{ value: T; }>;
 
 // Context API
 export interface Context<T> {
@@ -1602,7 +1602,7 @@ function resolveChildren(children: JSX.Element): ResolvedChildren {
 }
 
 function createProvider(id: symbol) {
-  return function provider(props: ParentProps<{ value: unknown; }>) {
+  return function provider(props: FlowProps<{ value: unknown; }>) {
     let res;
     createComputed(
       () =>
