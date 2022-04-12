@@ -54,7 +54,7 @@ export type PropsWithChildren<P = {}> = ParentProps<P>;
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component> =
+export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any>> =
   T extends Component<infer P>
     ? P
     : T extends keyof JSX.IntrinsicElements
