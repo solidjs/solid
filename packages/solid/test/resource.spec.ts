@@ -226,3 +226,51 @@ describe("using Resource with initial Value", () => {
     expect(value.loading).toBe(false);
   });
 });
+
+describe("Test fetch source", () => {
+  test("single string source", async () => {
+    function fetchString(id: string) {
+      return new Promise<string>((resolve) => resolve(id));
+    }
+    let trigger: (v: string) => void,
+      value: Resource<string | undefined>;
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      [value] = createResource(id, fetchString);
+    });
+    await Promise.resolve();
+    expect(value()).toBe("1");
+    trigger("2");
+    await Promise.resolve();
+    expect(value()).toBe("2");
+  });
+
+  test("two string sources", async () => {
+    function fetchStringConcat([one, two]: [string, string]) {
+      return new Promise<string>((resolve) => resolve(one + two));
+    }
+    let trigger1: (v: string) => void,
+      trigger2: (v: string) => void,
+      value: Resource<string | undefined>;
+    createRoot(() => {
+      const [one, setOne] = createSignal("1");
+      const [two, setTwo] = createSignal("A");
+      trigger1 = setOne;
+      trigger2 = setTwo;
+      [value] = createResource([one, two], fetchStringConcat);
+    });
+    await Promise.resolve();
+    expect(value()).toBe("1A");
+    trigger1("2");
+    await Promise.resolve();
+    expect(value()).toBe("2A");
+    trigger2("B");
+    await Promise.resolve();
+    expect(value()).toBe("2B");
+    trigger1("3");
+    await Promise.resolve();
+    expect(value()).toBe("3B");
+  });
+
+});

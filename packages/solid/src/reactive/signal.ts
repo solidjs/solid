@@ -414,7 +414,12 @@ export type ResourceActions<T> = {
 
 export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
-export type ResourceSource<S> = S | false | null | undefined | (() => S | false | null | undefined);
+export type ResourceSource<S> = S | false | null | undefined |
+  Accessor<S | false | null | undefined> | (
+    S extends unknown[]
+    ? { [I in keyof S]: Accessor<S | false | null | undefined> }
+    : never
+  );
 
 export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => T | Promise<T>;
 
@@ -511,7 +516,8 @@ export function createResource<T, S>(
     id: string | null = null,
     loadedUnderTransition = false,
     scheduled = false,
-    dynamic = typeof source === "function";
+    array = Array.isArray(source),
+    dynamic = array || typeof source === "function";
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -570,7 +576,9 @@ export function createResource<T, S>(
     if (refetching && scheduled) return;
     scheduled = false;
     setError((err = undefined));
-    const lookup = dynamic ? (source as () => S)() : (source as S);
+    const lookup =
+      array ? (source as unknown as Accessor<any>[]).map((s) => s()) as unknown as S :
+      dynamic ? (source as () => S)() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
