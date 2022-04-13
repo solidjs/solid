@@ -841,11 +841,9 @@ export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next,
   let prevInput: ReturnTypes<S>;
   let defer = options && options.defer;
   return (prevValue: Init | Next) => {
-    let input: ReturnTypes<S>;
-    if (isArray) {
-      input = [] as TODO;
-      for (let i = 0; i < deps.length; i++) (input as TODO[]).push((deps as Array<() => S>)[i]());
-    } else input = (deps as () => S)() as TODO;
+    const input: ReturnTypes<S> = isArray
+      ? deps.map((d) => d()) as ReturnTypes<S>
+      : deps() as ReturnTypes<S>;
     if (defer) {
       defer = false;
       // this aspect of first run on deferred is hidden from end user and should not affect types
