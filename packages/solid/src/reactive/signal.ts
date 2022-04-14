@@ -576,9 +576,13 @@ export function createResource<T, S>(
     if (refetching && scheduled) return;
     scheduled = false;
     setError((err = undefined));
-    const lookup =
-      array ? (source as unknown as Accessor<any>[]).map((s) => s()) as unknown as S :
-      dynamic ? (source as () => S)() : (source as S);
+    let lookup: S;
+    if (array) {
+      lookup = Array((source as TODO).length) as TODO;
+      for (let i = 0; i < (source as TODO).length; i++)
+        (lookup as TODO)[i] = (source as unknown as Accessor<any>[])[i]();
+    } else
+      lookup = dynamic ? (source as () => S)() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
       loadEnd(pr, untrack(s)!);
