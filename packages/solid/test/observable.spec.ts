@@ -41,7 +41,7 @@ describe("Observable operator", () => {
     const o = observable(s);
     let out: string;
     createRoot(() => {
-      const subscription = o.subscribe({ next(v) { out = v; console.log('here', v); }});
+      const subscription = o.subscribe({ next(v) { out = v; }});
       set("John");
       expect(out!).toBe("John");
       subscription.unsubscribe();
