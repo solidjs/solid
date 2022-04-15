@@ -6,6 +6,7 @@ type SharedConfig = {
   load?: (id: string) => Promise<any> | undefined;
   gather?: (key: string) => void;
   registry?: Map<string, Element>;
+  done?: boolean;
 };
 
 export const sharedConfig: SharedConfig = {};

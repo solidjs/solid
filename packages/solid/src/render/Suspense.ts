@@ -146,7 +146,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       const [s, set] = createSignal(undefined, { equals: false });
       flicker = s;
       p.then(err => {
-        if ((error = err)) return set();
+        if ((error = err) || sharedConfig.done) return set();
         sharedConfig.gather!(key);
         setHydrateContext(ctx);
         set();
