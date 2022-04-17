@@ -10,14 +10,14 @@ const port = 8080;
 app.use(express.static(path.join(__dirname, "../public")));
 
 app.get("*", (req, res) => {
-  let html;
-  try {
-    html = renderToString(() => <App url={req.url} />);
-  } catch (err) {
-    console.error(err);
-  } finally {
-    res.send(html);
-  }
+	let html;
+	try {
+		html = renderToString(() => <App url={req.url} />);
+	} catch (err) {
+		console.error(err);
+	} finally {
+		res.send(html);
+	}
 });
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`));

@@ -68,43 +68,47 @@ import { render } from "solid-js/web";
 
 let id = 0;
 enableExternalSource((fn, trigger) => {
-  const reaction = new Reaction(`externalSource@${++id}`, trigger);
-  return {
-    track: x => {
-      let next;
-      reaction.track(() => (next = fn(x)));
-      return next;
-    },
-    dispose: () => {
-      reaction.dispose();
-    }
-  };
+	const reaction = new Reaction(`externalSource@${++id}`, trigger);
+	return {
+		track: x => {
+			let next;
+			reaction.track(() => (next = fn(x)));
+			return next;
+		},
+		dispose: () => {
+			reaction.dispose();
+		}
+	};
 });
 
 class Timer {
-  secondsPassed = 0;
+	secondsPassed = 0;
 
-  constructor() {
-    makeAutoObservable(this);
-  }
+	constructor() {
+		makeAutoObservable(this);
+	}
 
-  increase() {
-    this.secondsPassed += 1;
-  }
+	increase() {
+		this.secondsPassed += 1;
+	}
 
-  reset() {
-    this.secondsPassed = 0;
-  }
+	reset() {
+		this.secondsPassed = 0;
+	}
 }
 
 // component driven directly off MobX
 function App() {
-  const timer = new Timer();
-  setInterval(() => {
-    timer.increase();
-  }, 1000);
+	const timer = new Timer();
+	setInterval(() => {
+		timer.increase();
+	}, 1000);
 
-  return <button onClick={() => timer.reset()}>Seconds passed: {timer.secondsPassed}</button>;
+	return (
+		<button onClick={() => timer.reset()}>
+			Seconds passed: {timer.secondsPassed}
+		</button>
+	);
 }
 
 render(() => <App />, document.getElementById("app"));
@@ -122,16 +126,16 @@ import { createResource, refetchResources } from "solid-js";
 const userCache = {};
 
 function MyComponent(props) {
-  const [data] = createResource(
-    () => props.id,
-    (userId, { refetching }) => {
-      const cached = userCache[userId];
+	const [data] = createResource(
+		() => props.id,
+		(userId, { refetching }) => {
+			const cached = userCache[userId];
 
-      // return cached value if available and not refetching
-      if (cached && !refetching) return cached;
-      return fetchUser(userId);
-    }
-  );
+			// return cached value if available and not refetching
+			if (cached && !refetching) return cached;
+			return fetchUser(userId);
+		}
+	);
 }
 
 // somewhere else
@@ -141,11 +145,13 @@ refetchResources();
 You can also pass a parameter to `refetchResources` to provide additional information to the `refetching` info of the fetcher. This could be used for conditional cache invalidation. Like only refetch resources related to `users`. This mechanism requires a bit of wiring but the idea is you'd wrap `createResource` in maybe a `createQuery` and implement your own conventions around resource cache management. Still working out how this should work best, but the goal is to provide the mechanisms to support resource caches without being responsible for their implementation.
 
 To opt-out being part of the global refetch createResource now takes a `globalRefetch` option that can be set to false. In addition to a new option to disable `refetchResources` there is no an `onHydrated` callback that takes the same arguments as the fetcher. When a resource is restored from the server the fetcher is not called. However, this callback will be. This is useful for populating caches.
+
 ### Improvements
 
 #### Better TypeScript Support
 
 Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
+
 #### Better SourceMaps
 
 Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressions` to better preserve identifiers from the JSX. Thanks to @LXSMNSYC for exploring and implementing this.
@@ -167,14 +173,17 @@ start(() => doSomething()).then(() => allDone());
 To streamline API for refetch we are slightly updating the `createResource`:
 
 ```js
-const [data] = createResource(sourceSignal, (source, { value, refetching }) => {});
+const [data] = createResource(
+	sourceSignal,
+	(source, { value, refetching }) => {}
+);
 ```
 
 For those using existing 2nd argument:
 
 ```js
 const [data] = createResource(sourceSignal, (source, getPrev) => {
-  const value = getPrev();
+	const value = getPrev();
 });
 
 // becomes
@@ -228,13 +237,13 @@ It is common in libraries like Tailwind to apply multiple classes at the same ti
 
 ```js
 <div
-  classList={{
-    "px-2.5 py-1.5 text-xs": false,
-    "px-3 py-2 text-sm": false,
-    "px-4 py-2 text-sm": true,
-    "px-4 py-2 text-base": false,
-    "px-6 py-3 text-base": false
-  }}
+	classList={{
+		"px-2.5 py-1.5 text-xs": false,
+		"px-3 py-2 text-sm": false,
+		"px-4 py-2 text-sm": true,
+		"px-4 py-2 text-base": false,
+		"px-6 py-3 text-base": false
+	}}
 />
 ```
 
@@ -274,8 +283,8 @@ It can also take a custom producer function where the function is passed a sette
 
 ```js
 const clock = from(set => {
-  const t = setInterval(() => set(1), 1000);
-  return () => clearInterval(t);
+	const t = setInterval(() => set(1), 1000);
+	return () => clearInterval(t);
 });
 ```
 
@@ -293,12 +302,12 @@ Works like its counterpart in `useTransition`, this useful when you don't need p
 import { createSignal, startTransition } from "solid-js";
 
 function App() {
-  const [signal, setSignal] = createSignal("Howdy");
-  function clickHandler(e) {
-    startTransition(() => setSignal("Holla"));
-  }
+	const [signal, setSignal] = createSignal("Howdy");
+	function clickHandler(e) {
+		startTransition(() => setSignal("Holla"));
+	}
 
-  /* ...stuff */
+	/* ...stuff */
 }
 ```
 
@@ -380,16 +389,18 @@ Minor difference to allow the first argument to be optional and support more fea
 
 ```ts
 export function createResource<T, U>(
-  fn: U | false | (() => U | false),
-  fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
-  options?: { initialValue?: T }
+	fn: U | false | (() => U | false),
+	fetcher: (k: U, getPrev: () => T | undefined) => T | Promise<T>,
+	options?: { initialValue?: T }
 ): ResourceReturn<T>;
 ```
 
 3rd argument is now an options object instead of just the initial value. This breaking. But this also allows the first argument to be optional for the non-tracking case. Need a promise that only loads once? Don't have need to re-use the fetcher. Do this:
 
 ```js
-const [data] = createResource(async () => (await fetch(`https://someapi.com/info`)).json());
+const [data] = createResource(async () =>
+	(await fetch(`https://someapi.com/info`)).json()
+);
 ```
 
 #### on/onCapture
@@ -414,23 +425,23 @@ Types added for Namespace attributes. You probably won't need most of these beca
 
 ```ts
 declare module "solid-js" {
-  namespace JSX {
-    interface Directives {
-      // use:____
-    }
-    interface ExplicitProperties {
-      // prop:____
-    }
-    interface ExplicitAttributes {
-      // attr:____
-    }
-    interface CustomEvents {
-      // on:____
-    }
-    interface CustomCaptureEvents {
-      // oncapture:____
-    }
-  }
+	namespace JSX {
+		interface Directives {
+			// use:____
+		}
+		interface ExplicitProperties {
+			// prop:____
+		}
+		interface ExplicitAttributes {
+			// attr:____
+		}
+		interface CustomEvents {
+			// on:____
+		}
+		interface CustomCaptureEvents {
+			// oncapture:____
+		}
+	}
 }
 ```
 
@@ -451,12 +462,12 @@ Error boundaries now have the ability to reset themselves and try again. It is t
 
 ```js
 <ErrorBoundary
-  fallback={(err, reset) => {
-    if (count++ < 3) return reset();
-    return "Failure";
-  }}
+	fallback={(err, reset) => {
+		if (count++ < 3) return reset();
+		return "Failure";
+	}}
 >
-  <Component />
+	<Component />
 </ErrorBoundary>
 ```
 
@@ -577,21 +588,24 @@ We now ship the respective DOM expressions code. This makes it much easier to us
 
 ```html
 <html>
-  <body>
-    <script type="module">
-      import { createSignal, onCleanup } from "https://cdn.skypack.dev/solid-js";
-      import { render } from "https://cdn.skypack.dev/solid-js/web";
-      import html from "https://cdn.skypack.dev/solid-js/html";
+	<body>
+		<script type="module">
+			import {
+				createSignal,
+				onCleanup
+			} from "https://cdn.skypack.dev/solid-js";
+			import { render } from "https://cdn.skypack.dev/solid-js/web";
+			import html from "https://cdn.skypack.dev/solid-js/html";
 
-      const App = () => {
-        const [count, setCount] = createSignal(0),
-          timer = setInterval(() => setCount(count() + 1), 1000);
-        onCleanup(() => clearInterval(timer));
-        return html`<div>${count}</div>`;
-      };
-      render(App, document.body);
-    </script>
-  </body>
+			const App = () => {
+				const [count, setCount] = createSignal(0),
+					timer = setInterval(() => setCount(count() + 1), 1000);
+				onCleanup(() => clearInterval(timer));
+				return html`<div>${count}</div>`;
+			};
+			render(App, document.body);
+		</script>
+	</body>
 </html>
 ```
 
@@ -609,18 +623,18 @@ Use with caution as it can promote difficult to reason about code, anti-patterns
 
 ```js
 const user = createMutable({
-  firstName: "John",
-  lastName: "Smith",
-  get fullName() {
-    return `${this.firstName} ${this.lastName}`;
-  },
-  set fullName(value) {
-    const parts = value.split(" ");
-    batch(() => {
-      this.firstName = parts[0];
-      this.lastName = parts[1];
-    });
-  }
+	firstName: "John",
+	lastName: "Smith",
+	get fullName() {
+		return `${this.firstName} ${this.lastName}`;
+	},
+	set fullName(value) {
+		const parts = value.split(" ");
+		batch(() => {
+			this.firstName = parts[0];
+			this.lastName = parts[1];
+		});
+	}
 });
 console.log(user.fullName); // John Smith
 user.fullName = "Jake Murray";
@@ -686,8 +700,8 @@ setState(produce(s => (s.name = "John")));
 
 // nested
 setState(
-  "user",
-  produce(s => (s.name = "John"))
+	"user",
+	produce(s => (s.name = "John"))
 );
 ```
 
@@ -730,11 +744,11 @@ For convenience of passing derived values or external reactive expressions throu
 
 ```jsx
 const [state, setState] = createState({
-  firstName: "Jon",
-  lastName: "Snow",
-  get greeting() {
-    return `You know nothing ${state.firstName} ${state.lastName}`;
-  }
+	firstName: "Jon",
+	lastName: "Snow",
+	get greeting() {
+		return `You know nothing ${state.firstName} ${state.lastName}`;
+	}
 });
 
 return <div>{state.greeting}</div>;
@@ -758,7 +772,7 @@ ErrorBoundary catches uncaught downstream errors and shows a fallback.
 
 ```jsx
 <ErrorBoundary fallback={<div>Something went terribly wrong</div>}>
-  <MyComp />
+	<MyComp />
 </ErrorBoundary>
 ```
 

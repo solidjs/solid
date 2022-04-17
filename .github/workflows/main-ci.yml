@@ -1,44 +1,44 @@
-name: 'Solid CI'
+name: "Solid CI"
 
 on:
   pull_request:
     branches:
-      - '*'
+      - "*"
   push:
     branches:
       - main
 
 jobs:
- job:
-  runs-on: ubuntu-latest
-  steps:
-  - uses: actions/checkout@v2
-  - uses: actions/setup-node@v2
-    with:
-      node-version: 14
+  job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 14
 
-  - name: Installing deps
-    run: npm install
+      - name: Installing deps
+        run: npm install
 
-  - name: Building
-    run: npm run build
+      - name: Building
+        run: npm run build
 
-  - name: Testing & Coverage
-    run: |
-      npm run test
-      npm run test:coverage
+      - name: Testing & Coverage
+        run: |
+          npm run test
+          npm run test:coverage
 
-  - name: Coveralls
-    uses: coverallsapp/github-action@master
-    with:
-      base-path: packages/solid
-      path-to-lcov: "./packages/solid/coverage/lcov.info"
-      github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Coveralls
+        uses: coverallsapp/github-action@master
+        with:
+          base-path: packages/solid
+          path-to-lcov: "./packages/solid/coverage/lcov.info"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-  - name: Archive production artifacts
-    uses: actions/upload-artifact@v2
-    with:
-      name: dist-folder
-      path: |
-        '*/dist'
-        '*/types'
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: dist-folder
+          path: |
+            '*/dist'
+            '*/types'

@@ -1,4 +1,5 @@
 # babel-preset-solid
+
 Babel preset to transform JSX into Solid runtime calls.
 
 ### Install
@@ -43,6 +44,7 @@ Via package.json
 ```
 
 ### Usage for SSR code
+
 When need to tranform JSX code to be used on the server, pass the following options
 
 ```javascript
@@ -52,7 +54,9 @@ When need to tranform JSX code to be used on the server, pass the following opti
   ]
 }
 ```
+
 And for the browser build pass the hydratable option as well:
+
 ```javascript
 {
   "presets": [

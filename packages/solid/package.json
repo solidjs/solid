@@ -1,147 +1,147 @@
 {
-  "name": "solid-js",
-  "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "1.3.15",
-  "author": "Ryan Carniato",
-  "license": "MIT",
-  "homepage": "https://solidjs.com",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/solidjs/solid"
-  },
-  "main": "./dist/server.cjs",
-  "module": "./dist/server.js",
-  "browser": {
-    "./dist/server.cjs": "./dist/solid.cjs",
-    "./dist/server.js": "./dist/solid.js"
-  },
-  "unpkg": "./dist/solid.cjs",
-  "types": "types/index.d.ts",
-  "sideEffects": false,
-  "type": "module",
-  "files": [
-    "dist",
-    "store/dist",
-    "store/types",
-    "web/dist",
-    "web/types",
-    "h/dist",
-    "h/types",
-    "html/dist",
-    "html/types",
-    "universal/dist",
-    "universal/types",
-    "types",
-    "jsx-runtime.d.ts"
-  ],
-  "exports": {
-    ".": {
-      "browser": {
-        "development": {
-          "import": "./dist/dev.js",
-          "require": "./dist/dev.cjs"
-        },
-        "import": "./dist/solid.js",
-        "require": "./dist/solid.cjs"
-      },
-      "node": {
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
-      },
-      "development": {
-        "import": "./dist/dev.js",
-        "require": "./dist/dev.cjs"
-      },
-      "import": "./dist/solid.js",
-      "require": "./dist/solid.cjs"
-    },
-    "./dist/*": "./dist/*",
-    "./store": {
-      "browser": {
-        "development": {
-          "import": "./store/dist/dev.js",
-          "require": "./store/dist/dev.cjs"
-        },
-        "import": "./store/dist/store.js",
-        "require": "./store/dist/store.cjs"
-      },
-      "node": {
-        "import": "./store/dist/server.js",
-        "require": "./store/dist/server.cjs"
-      },
-      "development": {
-        "import": "./store/dist/dev.js",
-        "require": "./store/dist/dev.cjs"
-      },
-      "import": "./store/dist/store.js",
-      "require": "./store/dist/store.cjs"
-    },
-    "./store/dist/*": "./store/dist/*",
-    "./web": {
-      "browser": {
-        "development": {
-          "import": "./web/dist/dev.js",
-          "require": "./web/dist/dev.cjs"
-        },
-        "import": "./web/dist/web.js",
-        "require": "./web/dist/web.cjs"
-      },
-      "node": {
-        "import": "./web/dist/server.js",
-        "require": "./web/dist/server.cjs"
-      },
-      "development": {
-        "import": "./web/dist/dev.js",
-        "require": "./web/dist/dev.cjs"
-      },
-      "import": "./web/dist/web.js",
-      "require": "./web/dist/web.cjs"
-    },
-    "./web/dist/*": "./web/dist/*",
-    "./universal": {
-      "development": {
-        "import": "./universal/dist/dev.js",
-        "require": "./universal/dist/dev.cjs"
-      },
-      "import": "./universal/dist/universal.js",
-      "require": "./universal/dist/universal.cjs"
-    },
-    "./universal/dist/*": "./universal/dist/*",
-    "./h": {
-      "import": "./h/dist/h.js",
-      "require": "./h/dist/h.cjs"
-    },
-    "./h/dist/*": "./h/dist/*",
-    "./html": {
-      "import": "./html/dist/html.js",
-      "require": "./html/dist/html.cjs"
-    },
-    "./html/dist/*": "./html/dist/*"
-  },
-  "scripts": {
-    "prebuild": "npm run clean",
-    "clean": "rimraf dist/ types/ coverage/ store/dist/ store/types/ web/dist/ web/types/ h/dist/ h/types/ html/dist/ html/types/",
-    "build": "npm-run-all -cnl build:*",
-    "build:link": "symlink-dir . node_modules/solid-js",
-    "build:js": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && rollup -c",
-    "build:types": "tsc --project ./tsconfig.build.json",
-    "build:types-store": "tsc --project ./store/tsconfig.build.json && tsconfig-replace-paths --project ./store/tsconfig.types.json",
-    "build:types-web": "tsc --project ./web/tsconfig.build.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
-    "build:types-html": "tsc --project ./html/tsconfig.json",
-    "build:types-h": "tsc --project ./h/tsconfig.json",
-    "build:types-universal": "tsc --project ./universal/tsconfig.json",
-    "bench": "node --allow-natives-syntax bench/bench.cjs",
-    "test": "jest && npm run test:types",
-    "test:coverage": "jest --coverage && npm run test:types",
-    "test:types": "tsc --project tsconfig.test.json"
-  },
-  "keywords": [
-    "solid",
-    "solidjs",
-    "ui",
-    "reactive",
-    "components",
-    "compiler",
-    "performance"
-  ]
+	"name": "solid-js",
+	"description": "A declarative JavaScript library for building user interfaces.",
+	"version": "1.3.15",
+	"author": "Ryan Carniato",
+	"license": "MIT",
+	"homepage": "https://solidjs.com",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/solidjs/solid"
+	},
+	"main": "./dist/server.cjs",
+	"module": "./dist/server.js",
+	"browser": {
+		"./dist/server.cjs": "./dist/solid.cjs",
+		"./dist/server.js": "./dist/solid.js"
+	},
+	"unpkg": "./dist/solid.cjs",
+	"types": "types/index.d.ts",
+	"sideEffects": false,
+	"type": "module",
+	"files": [
+		"dist",
+		"store/dist",
+		"store/types",
+		"web/dist",
+		"web/types",
+		"h/dist",
+		"h/types",
+		"html/dist",
+		"html/types",
+		"universal/dist",
+		"universal/types",
+		"types",
+		"jsx-runtime.d.ts"
+	],
+	"exports": {
+		".": {
+			"browser": {
+				"development": {
+					"import": "./dist/dev.js",
+					"require": "./dist/dev.cjs"
+				},
+				"import": "./dist/solid.js",
+				"require": "./dist/solid.cjs"
+			},
+			"node": {
+				"import": "./dist/server.js",
+				"require": "./dist/server.cjs"
+			},
+			"development": {
+				"import": "./dist/dev.js",
+				"require": "./dist/dev.cjs"
+			},
+			"import": "./dist/solid.js",
+			"require": "./dist/solid.cjs"
+		},
+		"./dist/*": "./dist/*",
+		"./store": {
+			"browser": {
+				"development": {
+					"import": "./store/dist/dev.js",
+					"require": "./store/dist/dev.cjs"
+				},
+				"import": "./store/dist/store.js",
+				"require": "./store/dist/store.cjs"
+			},
+			"node": {
+				"import": "./store/dist/server.js",
+				"require": "./store/dist/server.cjs"
+			},
+			"development": {
+				"import": "./store/dist/dev.js",
+				"require": "./store/dist/dev.cjs"
+			},
+			"import": "./store/dist/store.js",
+			"require": "./store/dist/store.cjs"
+		},
+		"./store/dist/*": "./store/dist/*",
+		"./web": {
+			"browser": {
+				"development": {
+					"import": "./web/dist/dev.js",
+					"require": "./web/dist/dev.cjs"
+				},
+				"import": "./web/dist/web.js",
+				"require": "./web/dist/web.cjs"
+			},
+			"node": {
+				"import": "./web/dist/server.js",
+				"require": "./web/dist/server.cjs"
+			},
+			"development": {
+				"import": "./web/dist/dev.js",
+				"require": "./web/dist/dev.cjs"
+			},
+			"import": "./web/dist/web.js",
+			"require": "./web/dist/web.cjs"
+		},
+		"./web/dist/*": "./web/dist/*",
+		"./universal": {
+			"development": {
+				"import": "./universal/dist/dev.js",
+				"require": "./universal/dist/dev.cjs"
+			},
+			"import": "./universal/dist/universal.js",
+			"require": "./universal/dist/universal.cjs"
+		},
+		"./universal/dist/*": "./universal/dist/*",
+		"./h": {
+			"import": "./h/dist/h.js",
+			"require": "./h/dist/h.cjs"
+		},
+		"./h/dist/*": "./h/dist/*",
+		"./html": {
+			"import": "./html/dist/html.js",
+			"require": "./html/dist/html.cjs"
+		},
+		"./html/dist/*": "./html/dist/*"
+	},
+	"scripts": {
+		"prebuild": "npm run clean",
+		"clean": "rimraf dist/ types/ coverage/ store/dist/ store/types/ web/dist/ web/types/ h/dist/ h/types/ html/dist/ html/types/",
+		"build": "npm-run-all -cnl build:*",
+		"build:link": "symlink-dir . node_modules/solid-js",
+		"build:js": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && rollup -c",
+		"build:types": "tsc --project ./tsconfig.build.json",
+		"build:types-store": "tsc --project ./store/tsconfig.build.json && tsconfig-replace-paths --project ./store/tsconfig.types.json",
+		"build:types-web": "tsc --project ./web/tsconfig.build.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
+		"build:types-html": "tsc --project ./html/tsconfig.json",
+		"build:types-h": "tsc --project ./h/tsconfig.json",
+		"build:types-universal": "tsc --project ./universal/tsconfig.json",
+		"bench": "node --allow-natives-syntax bench/bench.cjs",
+		"test": "jest && npm run test:types",
+		"test:coverage": "jest --coverage && npm run test:types",
+		"test:types": "tsc --project tsconfig.test.json"
+	},
+	"keywords": [
+		"solid",
+		"solidjs",
+		"ui",
+		"reactive",
+		"components",
+		"compiler",
+		"performance"
+	]
 }

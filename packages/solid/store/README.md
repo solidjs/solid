@@ -12,10 +12,10 @@ For full documentation, check out the [website](https://www.solidjs.com/docs/lat
 import { createStore } from "solid-js/store";
 
 const [store, setStore] = createStore({
-  user: {
-    firstName: "John",
-    lastName: "Smith"
-  }
+	user: {
+		firstName: "John",
+		lastName: "Smith"
+	}
 });
 
 // update store.user.firstName

@@ -1,8 +1,8 @@
 function getChildrenDeep(children) {
-  return children.reduce(
-    (res, curr) => res.concat(curr, getChildrenDeep(curr._children)),
-    []
-  );
+	return children.reduce(
+		(res, curr) => res.concat(curr, getChildrenDeep(curr._children)),
+		[]
+	);
 }
 
 const EMPTY_ARR = [];
@@ -14,7 +14,7 @@ let queue;
  * @return {boolean}
  */
 function isListening() {
-  return !!tracking;
+	return !!tracking;
 }
 
 /**
@@ -26,16 +26,16 @@ function isListening() {
  * @return {*}
  */
 function root(fn) {
-  const prevTracking = tracking;
-  const rootUpdate = () => {};
-  tracking = rootUpdate;
-  resetUpdate(rootUpdate);
-  const result = fn(() => {
-    _unsubscribe(rootUpdate);
-    tracking = undefined;
-  });
-  tracking = prevTracking;
-  return result;
+	const prevTracking = tracking;
+	const rootUpdate = () => {};
+	tracking = rootUpdate;
+	resetUpdate(rootUpdate);
+	const result = fn(() => {
+		_unsubscribe(rootUpdate);
+		tracking = undefined;
+	});
+	tracking = prevTracking;
+	return result;
 }
 
 /**
@@ -48,11 +48,11 @@ function root(fn) {
  * @return {*}
  */
 function sample(fn) {
-  const prevTracking = tracking;
-  tracking = undefined;
-  const value = fn();
-  tracking = prevTracking;
-  return value;
+	const prevTracking = tracking;
+	tracking = undefined;
+	const value = fn();
+	tracking = prevTracking;
+	return value;
 }
 
 /**
@@ -62,19 +62,19 @@ function sample(fn) {
  * @return {*}
  */
 function transaction(fn) {
-  let prevQueue = queue;
-  queue = [];
-  const result = fn();
-  let q = queue;
-  queue = prevQueue;
-  q.forEach(data => {
-    if (data._pending !== EMPTY_ARR) {
-      const pending = data._pending;
-      data._pending = EMPTY_ARR;
-      data(pending);
-    }
-  });
-  return result;
+	let prevQueue = queue;
+	queue = [];
+	const result = fn();
+	let q = queue;
+	queue = prevQueue;
+	q.forEach(data => {
+		if (data._pending !== EMPTY_ARR) {
+			const pending = data._pending;
+			data._pending = EMPTY_ARR;
+			data(pending);
+		}
+	});
+	return result;
 }
 
 /**
@@ -86,47 +86,47 @@ function transaction(fn) {
  * @return {Function}
  */
 function observable(value) {
-  function data(nextValue) {
-    if (arguments.length === 0) {
-      if (tracking && !data._observers.has(tracking)) {
-        data._observers.add(tracking);
-        tracking._observables.push(data);
-      }
-      return value;
-    }
+	function data(nextValue) {
+		if (arguments.length === 0) {
+			if (tracking && !data._observers.has(tracking)) {
+				data._observers.add(tracking);
+				tracking._observables.push(data);
+			}
+			return value;
+		}
 
-    if (queue) {
-      if (data._pending === EMPTY_ARR) {
-        queue.push(data);
-      }
-      data._pending = nextValue;
-      return nextValue;
-    }
+		if (queue) {
+			if (data._pending === EMPTY_ARR) {
+				queue.push(data);
+			}
+			data._pending = nextValue;
+			return nextValue;
+		}
 
-    value = nextValue;
+		value = nextValue;
 
-    // Clear `tracking` otherwise a computed triggered by a set
-    // in another computed is seen as a child of that other computed.
-    const clearedUpdate = tracking;
-    tracking = undefined;
+		// Clear `tracking` otherwise a computed triggered by a set
+		// in another computed is seen as a child of that other computed.
+		const clearedUpdate = tracking;
+		tracking = undefined;
 
-    // Update can alter data._observers, make a copy before running.
-    data._runObservers = new Set(data._observers);
-    data._runObservers.forEach(observer => (observer._fresh = false));
-    data._runObservers.forEach(observer => {
-      if (!observer._fresh) observer();
-    });
+		// Update can alter data._observers, make a copy before running.
+		data._runObservers = new Set(data._observers);
+		data._runObservers.forEach(observer => (observer._fresh = false));
+		data._runObservers.forEach(observer => {
+			if (!observer._fresh) observer();
+		});
 
-    tracking = clearedUpdate;
-    return value;
-  }
+		tracking = clearedUpdate;
+		return value;
+	}
 
-  // Tiny indicator that this is an observable function.
-  data._observers = new Set();
-  // The 'not set' value must be unique, so `nullish` can be set in a transaction.
-  data._pending = EMPTY_ARR;
+	// Tiny indicator that this is an observable function.
+	data._observers = new Set();
+	// The 'not set' value must be unique, so `nullish` can be set in a transaction.
+	data._pending = EMPTY_ARR;
 
-  return [data, data];
+	return [data, data];
 }
 
 /**
@@ -143,64 +143,64 @@ function observable(value) {
  * @return {Function} Computation which can be used in other computations.
  */
 function computed(observer, value) {
-  observer._update = update;
+	observer._update = update;
 
-  // if (tracking == null) {
-  //   console.warn("computations created without a root or parent will never be disposed");
-  // }
+	// if (tracking == null) {
+	//   console.warn("computations created without a root or parent will never be disposed");
+	// }
 
-  resetUpdate(update);
-  update();
+	resetUpdate(update);
+	update();
 
-  function update() {
-    const prevTracking = tracking;
-    if (tracking) {
-      tracking._children.push(update);
-    }
+	function update() {
+		const prevTracking = tracking;
+		if (tracking) {
+			tracking._children.push(update);
+		}
 
-    const prevChildren = update._children;
+		const prevChildren = update._children;
 
-    _unsubscribe(update);
-    update._fresh = true;
-    tracking = update;
-    value = observer(value);
+		_unsubscribe(update);
+		update._fresh = true;
+		tracking = update;
+		value = observer(value);
 
-    // If any children computations were removed mark them as fresh.
-    // Check the diff of the children list between pre and post update.
-    prevChildren.forEach(u => {
-      if (update._children.indexOf(u) === -1) {
-        u._fresh = true;
-      }
-    });
+		// If any children computations were removed mark them as fresh.
+		// Check the diff of the children list between pre and post update.
+		prevChildren.forEach(u => {
+			if (update._children.indexOf(u) === -1) {
+				u._fresh = true;
+			}
+		});
 
-    // If any children were marked as fresh remove them from the run lists.
-    const allChildren = getChildrenDeep(update._children);
-    allChildren.forEach(removeFreshChildren);
+		// If any children were marked as fresh remove them from the run lists.
+		const allChildren = getChildrenDeep(update._children);
+		allChildren.forEach(removeFreshChildren);
 
-    tracking = prevTracking;
-    return value;
-  }
+		tracking = prevTracking;
+		return value;
+	}
 
-  function data() {
-    if (update._fresh) {
-      update._observables.forEach(o => o());
-    } else {
-      value = update();
-    }
-    return value;
-  }
+	function data() {
+		if (update._fresh) {
+			update._observables.forEach(o => o());
+		} else {
+			value = update();
+		}
+		return value;
+	}
 
-  return data;
+	return data;
 }
 
 function removeFreshChildren(u) {
-  if (u._fresh) {
-    u._observables.forEach(o => {
-      if (o._runObservers) {
-        o._runObservers.delete(u);
-      }
-    });
-  }
+	if (u._fresh) {
+		u._observables.forEach(o => {
+			if (o._runObservers) {
+				o._runObservers.delete(u);
+			}
+		});
+	}
 }
 
 /**
@@ -210,35 +210,35 @@ function removeFreshChildren(u) {
  * @return {Function}
  */
 function cleanup(fn) {
-  if (tracking) {
-    tracking._cleanups.push(fn);
-  }
-  return fn;
+	if (tracking) {
+		tracking._cleanups.push(fn);
+	}
+	return fn;
 }
 
 function _unsubscribe(update) {
-  update._children.forEach(_unsubscribe);
-  update._observables.forEach(o => {
-    o._observers.delete(update);
-    if (o._runObservers) {
-      o._runObservers.delete(update);
-    }
-  });
-  update._cleanups.forEach(c => c());
-  resetUpdate(update);
+	update._children.forEach(_unsubscribe);
+	update._observables.forEach(o => {
+		o._observers.delete(update);
+		if (o._runObservers) {
+			o._runObservers.delete(update);
+		}
+	});
+	update._cleanups.forEach(c => c());
+	resetUpdate(update);
 }
 
 function resetUpdate(update) {
-  // Keep track of which observables trigger updates. Needed for unsubscribe.
-  update._observables = [];
-  update._children = [];
-  update._cleanups = [];
+	// Keep track of which observables trigger updates. Needed for unsubscribe.
+	update._observables = [];
+	update._children = [];
+	update._cleanups = [];
 }
 
 module.exports = {
-  createSignal: observable,
-  createRoot: root,
-  createComputed: computed,
-  createMemo: computed,
-  batch: transaction
+	createSignal: observable,
+	createRoot: root,
+	createComputed: computed,
+	createMemo: computed,
+	batch: transaction
 };

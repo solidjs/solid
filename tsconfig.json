@@ -1,12 +1,12 @@
 {
-  "compilerOptions": {
-    "emitDeclarationOnly": true,
-    "declaration": true,
-    "target": "esnext",
-    "newLine": "LF",
-    "moduleResolution": "node",
-    "strict": true,
-    "jsx": "preserve"
-  },
-  "exclude": ["node_modules"]
+	"compilerOptions": {
+		"emitDeclarationOnly": true,
+		"declaration": true,
+		"target": "esnext",
+		"newLine": "LF",
+		"moduleResolution": "node",
+		"strict": true,
+		"jsx": "preserve"
+	},
+	"exclude": ["node_modules"]
 }

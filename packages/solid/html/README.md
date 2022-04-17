@@ -6,13 +6,13 @@ This sub module provides a Tagged Template Literal `html` method for Solid. This
 
 ```js
 // create an element with a title attribute
-html`<button title="My button">Click Me</button>`
+html`<button title="My button">Click Me</button>`;
 
 // create a component with a title prop
-html`<${Button} title="My button">Click me<//>`
+html`<${Button} title="My button">Click me<//>`;
 
 // create an element with dynamic attribute and spread
-html`<div title=${() => selectedClass()} ...${props} />`
+html`<div title=${() => selectedClass()} ...${props} />`;
 ```
 
 Using `html` is slightly less efficient than JSX(but more than HyperScript), requires a larger runtime that isn't treeshakebable, and cannot leverage expression analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
@@ -25,14 +25,14 @@ import html from "solid-js/html";
 import { createSignal } from "solid-js";
 
 function Button(props) {
-  return html`<button class="btn-primary" ...${props} />`;
+	return html`<button class="btn-primary" ...${props} />`;
 }
 
 function Counter() {
-  const [count, setCount] = createSignal(0);
-  const increment = (e) => setCount((c) => c + 1);
+	const [count, setCount] = createSignal(0);
+	const increment = e => setCount(c => c + 1);
 
-  return html`<${Button} type="button" onClick=${increment}>${count}<//>`;
+	return html`<${Button} type="button" onClick=${increment}>${count}<//>`;
 }
 
 render(Counter, document.getElementById("app"));
@@ -46,10 +46,10 @@ There are a few differences from Solid's JSX that are important to note.
 
 ```js
 // jsx
-<div id={props.id}>{firstName() + lastName()}</div>
+<div id={props.id}>{firstName() + lastName()}</div>;
 
 // hyperscript
-html`<div id=${() => props.id}>${() => firstName() + lastName()}</div>`
+html`<div id=${() => props.id}>${() => firstName() + lastName()}</div>`;
 ```
 
 2. Events on components require explicit event in the arguments
@@ -58,7 +58,7 @@ Solid's Tagged Template Literals automatically wraps functions passed to props o
 
 ```js
 // good
-html`<${Button} onClick=${(e) => console.log("Hi")} />`;
+html`<${Button} onClick=${e => console.log("Hi")} />`;
 
 // bad
 html`<${Button} onClick=${() => console.log("Hi")} />`;
@@ -70,15 +70,16 @@ We can't do the compiled assigment trick so only the callback form is supported.
 
 ```js
 let myEl;
-html`<div ref=${(el) => myEl = el} />`;
+html`<div ref=${el => (myEl = el)} />`;
 ```
 
 5. There can be multiple top level elements
 
 No need for fragments just:
+
 ```js
 html`
-  <div>1</div>
-  <div>2</div>
-`
+	<div>1</div>
+	<div>2</div>
+`;
 ```

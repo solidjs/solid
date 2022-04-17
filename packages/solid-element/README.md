@@ -1,4 +1,5 @@
 # Solid Element
+
 [![Build Status](https://github.com/solidjs/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
 [![NPM Version](https://img.shields.io/npm/v/solid-element.svg?style=flat)](https://www.npmjs.com/package/solid-element)
 ![](https://img.shields.io/librariesio/release/npm/solid-element)
@@ -21,20 +22,25 @@ npm i solid-element solid-js babel-preset-solid
 The simplest way to create a Web Component is to use the `customElement` method.
 
 The arguments of `customElement` are:
-1) custom element tag (e.g. `'my-component'`)
-2) (optional) props (e.g. `{someProp: 'one', otherProp: 'two'}`)
-3) the Solid template function. The arguments of this function are state wrapped props as the first argument, and the underlying element as the 2nd (e.g. `(props, { element }) => {  solid code here
- }`)
+
+1. custom element tag (e.g. `'my-component'`)
+2. (optional) props (e.g. `{someProp: 'one', otherProp: 'two'}`)
+3. the Solid template function. The arguments of this function are state wrapped props as the first argument, and the underlying element as the 2nd (e.g. `(props, { element }) => { solid code here }`)
 
 ```jsx
-import { customElement } from 'solid-element';
+import { customElement } from "solid-element";
 
-customElement('my-component', {someProp: 'one', otherProp: 'two'}, (props, { element }) => {
-  // ... Solid code
-})
+customElement(
+	"my-component",
+	{ someProp: "one", otherProp: "two" },
+	(props, { element }) => {
+		// ... Solid code
+	}
+);
 ```
 
 Props get assigned as element properties and hyphenated attributes. This exposes the component that can be used in HTML/JSX as:
+
 ```html
 <my-component some-prop="some value" other-prop="some value"></my-component>
 ```
@@ -50,10 +56,11 @@ This is all you need to get started with Solid Element.
 Solid Element exposes Component Register's Hot Module Replacement solution for Webpack and Parcel. It does not preserve state, swapping Components that are changed and their descendants. This approach is simple but predictable. It works by indicating the component to be Hot Replaced with the `hot` method in your file.
 
 ```js
-import { customElement, hot } from 'solid-element';
+import { customElement, hot } from "solid-element";
 
-hot(module, 'my-component');
+hot(module, "my-component");
 ```
+
 This is a new feature that is actively seeking feedback. Read more: [Component Register](https://github.com/ryansolid/component-register#hot-module-replacement-new)
 
 There is also a webpack loader that handles adding this automatically. Check out [Component Register Loader](https://github.com/ryansolid/component-register-loader)

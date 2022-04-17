@@ -1,6 +1,7 @@
 # Examples
 
 ## Online
+
 - [Counter](https://codesandbox.io/s/8no2n9k94l) Simple Counter
 - [Simple Todos](https://codesandbox.io/s/lrm786ojqz) Todos with LocalStorage persistence
 - [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'switch' control flow for simple routing
@@ -21,12 +22,14 @@
 - [Simple Todos HyperScript](https://codesandbox.io/s/0vmjlmq94v) Simple Todos using Hyper DOM Expressions
 
 ## Demos
+
 - [TodoMVC](https://github.com/solidjs/solid-todomvc) Classic TodoMVC example
 - [Real World Demo](https://github.com/solidjs/solid-realworld) Real World Demo for Solid
 - [Hacker News](https://github.com/solidjs/solid-hackernews) Hacker News Clone for Solid
 - [Storybook](https://github.com/rturnq/storybook-solid) Solid with Storybook
 
 ## Benchmarks
+
 - [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
 - [Sierpinski's Triangle Demo](https://github.com/ryansolid/solid-sierpinski-triangle-demo) Solid implementation of the React Fiber demo.
 - [WebComponent Todos](https://github.com/shprink/web-components-todo/tree/main/solid) Showing off Solid Element

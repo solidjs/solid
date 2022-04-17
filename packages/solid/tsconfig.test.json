@@ -1,10 +1,10 @@
 {
-  "extends": "../../tsconfig.test.json",
-  "compilerOptions": {
-    "baseUrl": "",
-    "paths": {
-      "../..": ["../../src"]
-    }
-  },
-  "include": ["./test", "./web/test", "./store/test"]
+	"extends": "../../tsconfig.test.json",
+	"compilerOptions": {
+		"baseUrl": "",
+		"paths": {
+			"../..": ["../../src"]
+		}
+	},
+	"include": ["./test", "./web/test", "./store/test"]
 }

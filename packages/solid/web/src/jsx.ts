@@ -1,1 +1,1 @@
-export { JSX } from "../.."
+export { JSX } from "../..";

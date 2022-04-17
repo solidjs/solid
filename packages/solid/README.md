@@ -33,7 +33,6 @@ Solid is a declarative JavaScript library for creating user interfaces. It does 
 
 ### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
 
-
 ## The Gist
 
 ```jsx
@@ -41,7 +40,10 @@ import { render } from "solid-js/web";
 
 const HelloMessage = props => <div>Hello {props.name}</div>;
 
-render(() => <HelloMessage name="Taylor" />, document.getElementById("hello-example"));
+render(
+	() => <HelloMessage name="Taylor" />,
+	document.getElementById("hello-example")
+);
 ```
 
 A Simple Component is just a function that accepts properties. Solid uses a `render` function to create the reactive mount point of your application.
@@ -54,14 +56,14 @@ import { render, template, insert, createComponent } from "solid-js/web";
 const _tmpl$ = template(`<div>Hello </div>`);
 
 const HelloMessage = props => {
-  const _el$ = _tmpl$.cloneNode(true);
-  insert(_el$, () => props.name);
-  return _el$;
+	const _el$ = _tmpl$.cloneNode(true);
+	insert(_el$, () => props.name);
+	return _el$;
 };
 
 render(
-  () => createComponent(HelloMessage, { name: "Taylor" }),
-  document.getElementById("hello-example")
+	() => createComponent(HelloMessage, { name: "Taylor" }),
+	document.getElementById("hello-example")
 );
 ```
 

@@ -1,13 +1,13 @@
 {
-  "extends": "../../../tsconfig.json",
-  "compilerOptions": {
-    "outDir": "web/types",
-    "rootDir": "web/src",
-    "baseUrl": "src",
-    "paths": {
-      "solid-js": ["../.."]
-    },
-    "jsxImportSource": "solid-js"
-  },
-  "include": ["./src"]
+	"extends": "../../../tsconfig.json",
+	"compilerOptions": {
+		"outDir": "web/types",
+		"rootDir": "web/src",
+		"baseUrl": "src",
+		"paths": {
+			"solid-js": ["../.."]
+		},
+		"jsxImportSource": "solid-js"
+	},
+	"include": ["./src"]
 }

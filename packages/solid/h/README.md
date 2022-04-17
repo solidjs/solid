@@ -6,13 +6,19 @@ HyperScript function takes a few forms. The 2nd props argument is optional. Chil
 
 ```js
 // create an element with a title attribute
-h("button", { title: "My button" }, "Click Me")
+h("button", { title: "My button" }, "Click Me");
 
 // create a component with a title prop
-h(Button, { title: "My button" }, "Click Me")
+h(Button, { title: "My button" }, "Click Me");
 
 // create an element with many children
-h("div", { title: "My button" }, h("span", "1"), h("span", "2"), h("span", "3"))
+h(
+	"div",
+	{ title: "My button" },
+	h("span", "1"),
+	h("span", "2"),
+	h("span", "3")
+);
 ```
 
 This is the least efficient way to use Solid as it requires a slightly larger runtime that isn't treeshakebable, and cannot leverage anything in the way of analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
@@ -25,14 +31,14 @@ import h from "solid-js/h";
 import { createSignal } from "solid-js";
 
 function Button(props) {
-  return h("button.btn-primary", props)
+	return h("button.btn-primary", props);
 }
 
 function Counter() {
-  const [count, setCount] = createSignal(0);
-  const increment = (e) => setCount(c => c + 1);
+	const [count, setCount] = createSignal(0);
+	const increment = e => setCount(c => c + 1);
 
-  return h(Button, { type: "button", onClick: increment }, count);
+	return h(Button, { type: "button", onClick: increment }, count);
 }
 
 render(Counter, document.getElementById("app"));
@@ -46,22 +52,22 @@ There are a few differences from Solid's JSX that are important to note. And als
 
 ```js
 // jsx
-<div id={props.id}>{firstName() + lastName()}</div>
+<div id={props.id}>{firstName() + lastName()}</div>;
 
 // hyperscript
-h("div", { id: () => props.id }, () => firstName() + lastName())
+h("div", { id: () => props.id }, () => firstName() + lastName());
 ```
 
 2. Merging spreads requires using the merge props helper to keep reactivity
 
 ```js
 // jsx
-<div class={selectedClass()} {...props} />
+<div class={selectedClass()} {...props} />;
 
 // hyperscript
-import { mergeProps } from "solid-js"
+import { mergeProps } from "solid-js";
 
-h("div", mergeProps({ class: selectedClass }, props))
+h("div", mergeProps({ class: selectedClass }, props));
 ```
 
 3. Events on components require explicit event in the arguments
@@ -70,10 +76,10 @@ Solid's HyperScript automatically wraps functions passed to props of components 
 
 ```js
 // good
-h(Button, { onClick: (e) => console.log("Hi")});
+h(Button, { onClick: e => console.log("Hi") });
 
 // bad
-h(Button, { onClick: () => console.log("Hi")})
+h(Button, { onClick: () => console.log("Hi") });
 ```
 
 4. All refs are callback form
@@ -83,17 +89,17 @@ We can't do the compiled assigment trick so only the callback form is supported.
 ```js
 let myEl;
 
-h(div, { ref: (el) => myEl = el });
+h(div, { ref: el => (myEl = el) });
 ```
 
 5. There is a shorthand for static id and classes
 
 ```js
-h("div#some-id.my-class")
+h("div#some-id.my-class");
 ```
 
 6. Fragments are just arrays
 
 ```js
-[h("span", "1"), h("span", "2")]
+[h("span", "1"), h("span", "2")];
 ```
