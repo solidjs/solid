@@ -580,6 +580,7 @@ const m2: Accessor<number | undefined> = createMemo(() => 123);
 const m3: //
 Accessor<undefined> = createMemo(() => {});
 const m4: Accessor<void> = createMemo(() => {});
+// @ts-expect-error void can't be assigned to anything!
 const m5: Accessor<number | undefined> = createMemo(
   // @ts-expect-error void can't be assigned to anything!
   (v?: number) => {}
@@ -625,7 +626,6 @@ const m18: Accessor<number> =
 const m19: Accessor<number> =
   // @ts-expect-error undefined initial value is not assignable to the number parameter
   createMemo((v: number | string): number => 123);
-// @ts-expect-error because the number return cannot be assigned to the boolean|string parameter
 const m20: Accessor<number> =
   // @ts-expect-error because the number return cannot be assigned to the boolean|string parameter
   createMemo((v: boolean | string): number => 123);
@@ -919,3 +919,13 @@ createRenderEffect<number | boolean>(
     // @ts-expect-error string return is not assignable to number|boolean
     "foo"
 );
+
+// FIXME cases failing due to partial generic inference not being implemented
+// @ts-expect-error second generic is not inferred and remains as number
+const a7: Accessor<number> = createMemo<number>((v: number | string) => 123, "asd");
+// @ts-expect-error second generic is not inferred and remains as number
+createEffect<number>((v: number | string) => 123, "asd");
+// @ts-expect-error second generic is not inferred and remains as number
+createComputed<number>((v: number | string) => 123, "asd");
+// @ts-expect-error second generic is not inferred and remains as number
+createRenderEffect<number>((v: number | string) => 123, "asd");
