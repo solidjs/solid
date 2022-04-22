@@ -519,8 +519,8 @@ describe("createDeferred", () => {
 describe("createSelector", () => {
   test("simple selection", done => {
     createRoot(() => {
-      const [s, set] = createSignal<number>(-1),
-        isSelected = createSelector<number, number>(s);
+      const [s, set] = createSignal<number>(),
+        isSelected = createSelector(s);
       let count = 0;
       const list = Array.from({ length: 100 }, (_, i) =>
         createMemo(() => {
@@ -540,6 +540,12 @@ describe("createSelector", () => {
         expect(count).toBe(2);
         expect(list[3]()).toBe("no");
         expect(list[6]()).toBe("selected");
+        set(undefined);
+        expect(count).toBe(3);
+        expect(list[6]()).toBe("no");
+        set(5);
+        expect(count).toBe(4);
+        expect(list[5]()).toBe("selected");
         done();
       });
     });
