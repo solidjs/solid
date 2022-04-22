@@ -11,79 +11,90 @@
 
 Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun.
 
-### Solid is:
+## Solid is:
 ### Performant
 Solid's performance is almost indistinguishable from optimized vanilla JavaScript (See Solid on the [JS Framework Benchmark](https://rawgit.com/krausest/js-framework-benchmark/master/webdriver-ts-results/table.html)). Solid is [small](https://bundlephobia.com/package/solid-js@1.3.15) and completely tree-shakable, and [blazing-fast](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) when rendering on the server. Whether you're writing a fully client-rendered SPA or a server-rendered app, your users see it faster than ever.
 
 ### Powerful
-Solid is fully-featured with everything you can expect from a modern framework. Performant state management is built-in with Context and Stores: you don't have to reach for a third party library to manage global state. With Resources, you can use data loaded from the server like any other piece of state and built a responsive UI for it thanks to Suspense and Concurrent Rendering. And when you're ready to move to the server, Solid has full SSR and serverless support, with streaming and progressive hydration to get to interactive as quickly as possible.
+Solid is fully-featured with everything you can expect from a modern framework. Performant state management is built-in with Context and Stores: you don't have to reach for a third party library to manage global state. With Resources, you can use data loaded from the server like any other piece of state and built a responsive UI for it thanks to Suspense and Concurrent Rendering. And when you're ready to move to the server, Solid has full SSR and serverless support, with streaming and progressive hydration to get to interactive as quickly as possible. Check out our full [interactive features walkthrough](https://www.solidjs.com/tutorial/introduction_basics)!
 
 ### Pragmatic
 Do more with less: use simple, composable primitives without hidden rules and gotchas. In Solid, components are just functions - rendering is determined purely by how your state is used - so you're free to organize your code how you like and you don't have to learn a new rendering system. Solid encourages patterns like declarative code and read-write segregation that help keep your project maintainable, but isn't opinionated enough to get in your way.
 
 ### Productive
-Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Because Solid creates actual DOM nodes, your existing mental model of the webpage - and DOM-based libraries like D3 and Greensock - come with you.
+Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Because Solid creates actual DOM nodes, your existing mental model of the webpage - and DOM-based libraries like D3 and Greensock - come with you. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://hope-ui.com/), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
 
-### Key Features
-
-- Real DOM with fine-grained updates (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>).
-- Declarative data
-  - Simple composable primitives without the hidden rules.
-  - Function Components with no need for lifecycle methods or specialized configuration objects.
-  - Render once mental model.
-- Fast!
-  - Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
-  - Fastest at Server Rendering in the [Isomorphic UI Benchmarks](https://github.com/ryansolid/isomorphic-ui-benchmarks/tree/updated)
-- Small! Completely tree-shakeable Solid's compiler will only include parts of the library you use.
-- Supports and is built on TypeScript.
-- Supports modern features like JSX, Fragments, Context, Portals, Suspense, Streaming SSR, Progressive Hydration, Error Boundaries and Concurrent Rendering.
-- Works in serverless environments including AWS Lambda and Cloudflare Workers.
-- Webcomponent friendly and can author Custom Elements
-  - Context API that spans Custom Elements
-  - Implicit event delegation with Shadow DOM Retargeting
-  - Shadow DOM Portals
-- Transparent debugging: a `<div>` is just a div.
-
-### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)!
 
 
 ## The Gist
 
+See it in action in our [Playground!](https://playground.solidjs.com/?hash=-894962706&version=1.3.13)
+
 ```jsx
 import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
 
-const HelloMessage = props => <div>Hello {props.name}</div>;
+// A component is just a function that (optionally) accepts properties and returns a DOM node
+const Counter = (props) => {
+  // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
+  const [count, setCount] = createSignal(props.startingCount || 1);
 
-render(() => <HelloMessage name="Taylor" />, document.getElementById("hello-example"));
-```
+  // The increment function calls the setter
+  const increment = () => setCount(count() + 1);
 
-A Simple Component is just a function that accepts properties. Solid uses a `render` function to create the reactive mount point of your application.
+  console.log(
+    "The body of the function runs once, like you'd expect from calling any other function, so you only ever see this console log once."
+  );
 
-The JSX is then compiled down to efficient real DOM expressions:
-
-```js
-import { render, template, insert, createComponent } from "solid-js/web";
-
-const _tmpl$ = template(`<div>Hello </div>`);
-
-const HelloMessage = props => {
-  const _el$ = _tmpl$.cloneNode(true);
-  insert(_el$, () => props.name);
-  return _el$;
+  // JSX allows us to write HTML within our JavaScript function and include dynamic expressions using the { } syntax
+  // The only part of this that will ever rerender is the count() text.
+  return (
+    <button type="button" onClick={increment}>
+      Increment {count()}
+    </button>
+  );
 };
 
-render(
-  () => createComponent(HelloMessage, { name: "Taylor" }),
-  document.getElementById("hello-example")
-);
+// The render function mounts a component onto your page
+render(() => <Counter startingCount={2} />, document.getElementById("app"));
 ```
 
-That `_el$` is a real div element and `props.name`, `Taylor` in this case, is appended to its child nodes. Notice that `props.name` is wrapped in a function. That is because that is the only part of this component that will ever execute again. Even if a name is updated from the outside only that one expression will be re-evaluated. The compiler optimizes initial render and the runtime optimizes updates. It's the best of both worlds.
+Solid compiles our JSX down to efficient real DOM expressions and updates, still using the same reactive primitives (createSignal) at runtime. Here's what that looks like in this example:
 
-Want to see what code Solid generates:
+```js
 
-### [Try it Online](https://playground.solidjs.com/)
+import { render, createComponent, delegateEvents, insert, template } from 'solid-js/web';
+import { createSignal } from 'solid-js';
 
+const _tmpl$ = /*#__PURE__*/template(`<button type="button">Increment </button>`, 2);
+
+const Counter = props => {
+  const [count, setCount] = createSignal(props.startingCount || 1);
+  const increment = () => setCount(count() + 1);
+
+  console.log("The body of the function runs once . . .");
+
+  return (() => {
+    //_el$ is a real DOM node!
+    const _el$ = _tmpl$.cloneNode(true);
+          _el$.firstChild;
+
+    _el$.$$click = increment;
+
+    //This inserts the count as a child of the button in a way that allows count to update without rerendering the whole button
+    insert(_el$, count, null);
+
+    return _el$;
+  })();
+};
+
+render(() => createComponent(Counter, {
+  startingCount: 2
+}), document.getElementById("app"));
+
+delegateEvents(["click"]);
+```
 ## Quick Start
 
 You can get started with a simple app by running the following in your terminal:
