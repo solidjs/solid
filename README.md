@@ -15,13 +15,13 @@
 Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [Why Solid? video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
 
 ## Key Features
-- Fine-grained updates to the Real DOM
-- Declarative data: use reactive primitives to model your state
+- Fine-grained updates to the real DOM
+- Declarative data: model your state as a system with reactive primitives
 - Render-once mental model: your components are regular JavaScript functions that run once to set up your view
 - Automatic dependency tracking: accessing your reactive state subscribes to it
 - [Small](https://dev.to/this-is-learning/javascript-framework-todomvc-size-comparison-504f) and [fast](https://github.com/krausest/js-framework-benchmark)
 - "Simple, not easy": learn a few powerful concepts that can be reused, combined, and built on top of
-- Supports modern features like JSX, fragments, Context, Portals, Suspense, streaming SSR, progressive hydration, Error Boundaries and concurrent rendering.
+- Provides modern framework features like JSX, fragments, Context, Portals, Suspense, streaming SSR, progressive hydration, Error Boundaries and concurrent rendering.
 - Webcomponent friendly and can author custom elements
 - Isomorphic: render your components on the client and the server
 - Universal: write [custom renderers](https://github.com/solidjs/solid/releases/tag/v1.2.0) to use Solid anywhere
