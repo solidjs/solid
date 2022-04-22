@@ -9,7 +9,7 @@
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 [![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=social?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
 
-Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun.
+Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [walkthrough video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
 
 ## Solid is:
 ### Performant
@@ -28,8 +28,6 @@ Solid is built on established tools like JSX and TypeScript and integrates with 
 
 
 ## The Gist
-
-See it in action in our [Playground!](https://playground.solidjs.com/?hash=-894962706&version=1.3.13)
 
 ```jsx
 import { render } from "solid-js/web";
@@ -60,7 +58,9 @@ const Counter = (props) => {
 render(() => <Counter startingCount={2} />, document.getElementById("app"));
 ```
 
-Solid compiles our JSX down to efficient real DOM expressions and updates, still using the same reactive primitives (createSignal) at runtime. Here's what that looks like in this example:
+See it in action in our interactive [Playground](https://playground.solidjs.com/?hash=-894962706&version=1.3.13)!
+
+Solid compiles our JSX down to efficient real DOM expressions updates, still using the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
 
 ```js
 
@@ -117,19 +117,19 @@ Or for TypeScript:
 
 This will create a minimal client-rendered application powered by [Vite](https://vitejs.dev/).
 
-Or you can install the dependencies in your own project. To use Solid with JSX (recommended) run:
+Or you can install the dependencies in your own project. To use Solid with JSX (_recommended_), run:
 
 ```sh
 > npm install solid-js babel-preset-solid
 ```
 
-The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
+The easiest way to get set up is to add `babel-preset-solid` to your `.babelrc`,  babel config for webpack, or rollup:
 
 ```js
 "presets": ["solid"]
 ```
 
-For TypeScript remember to set your TSConfig to handle Solid's JSX by:
+For TypeScript to work, remember to set your `.tsconfig` to handle Solid's JSX by:
 
 ```js
 "compilerOptions": {
@@ -140,19 +140,17 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 
 ## Documentation
 
-Check out the [Documentation](https://www.solidjs.com/guide) website.
-
-[Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
+Check out our official [documentation](https://www.solidjs.com/guide) or browse some [examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
 
 ## Browser Support
 
-The last 2 versions of modern evergreen browsers and Node LTS.
+Solid supports last 2 versions of modern evergreen browsers and Node LTS.
 
 <img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
 
 ## Community
 
-Come chat with us on [Discord](https://discord.com/invite/solidjs)
+Come chat with us on [Discord](https://discord.com/invite/solidjs)! Solid's creator and the rest of the core team are active there, and we're always looking for contributions.
 
 ### Contributors
 
