@@ -22,6 +22,7 @@ Solid is a declarative JavaScript library for creating user interfaces. Instead 
 - [Small](https://dev.to/this-is-learning/javascript-framework-todomvc-size-comparison-504f) and [fast](https://github.com/krausest/js-framework-benchmark)
 - "Simple, not easy": learn a few powerful concepts that can be reused, combined, and built on top of
 - Provides modern framework features like JSX, fragments, Context, Portals, Suspense, streaming SSR, progressive hydration, Error Boundaries and concurrent rendering.
+- Naturally debuggable: A `<div>` is a real div, so you can use your browser's devtools to inspect the rendering
 - Webcomponent friendly and can author custom elements
 - Isomorphic: render your components on the client and the server
 - Universal: write [custom renderers](https://github.com/solidjs/solid/releases/tag/v1.2.0) to use Solid anywhere
