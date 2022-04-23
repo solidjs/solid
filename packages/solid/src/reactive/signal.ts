@@ -416,7 +416,7 @@ export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
 export type ResourceSource<S> = S | false | null | undefined | (() => S | false | null | undefined);
 
-export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => T | Promise<T>;
+export type ResourceFetcher<S, T> = Promise<T> | (() => Promise<T>) | ((k: S, info: ResourceFetcherInfo<T>) => T);
 
 export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown };
 
