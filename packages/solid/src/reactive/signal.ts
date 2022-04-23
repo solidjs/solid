@@ -412,11 +412,11 @@ export type ResourceActions<T> = {
   refetch: (info?: unknown) => T | Promise<T> | undefined | null;
 };
 
-export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
+export type ResourceReturn<T, RT = T extends PromiseLike<infer U> ? U : T> = [Resource<RT>, ResourceActions<RT>];
 
 export type ResourceSource<S> = S | false | null | undefined | (() => S | false | null | undefined);
 
-export type ResourceFetcher<S, T> = (() => Promise<T>) | ((k: S, info: ResourceFetcherInfo<T>) => T);
+export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => (T | PromiseLike<T>) | ((arg?: T) => Promise<T>);
 
 export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown };
 
@@ -615,7 +615,7 @@ export function createResource<T, S>(
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
+  return [read as Resource<any>, { refetch: load, mutate: set } as ResourceActions<any>];
 }
 
 let Resources: Set<(info: unknown) => any>;
