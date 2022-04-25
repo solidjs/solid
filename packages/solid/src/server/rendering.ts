@@ -21,7 +21,11 @@ function resolveSSRNode(node: any): string {
   const t = typeof node;
   if (t === "string") return node;
   if (node == null || t === "boolean") return "";
-  if (Array.isArray(node)) return node.map(resolveSSRNode).join("");
+  if (Array.isArray(node)) {
+    let mapped = "";
+    for (let i = 0, len = node.length; i < len; i++) mapped += resolveSSRNode(node[i]);
+    return mapped;
+  }
   if (t === "object") return resolveSSRNode(node.t);
   if (t === "function") return resolveSSRNode(node());
   return String(node);
@@ -152,11 +156,11 @@ function simpleMap(
     len = list.length,
     fn = props.children;
   if (len) {
-    let mapped = "";
-    for (let i = 0; i < len; i++) mapped += resolveSSRNode(wrap(fn, list[i], i));
-    return { t: mapped };
+    let mapped = Array(len);
+    for (let i = 0; i < len; i++) mapped[i] = wrap(fn, list[i], i);
+    return mapped;
   }
-  return props.fallback || "";
+  return props.fallback;
 }
 
 export function For<T>(props: {
