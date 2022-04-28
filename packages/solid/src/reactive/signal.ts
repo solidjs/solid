@@ -1064,7 +1064,7 @@ export interface Context<T> {
  * ```typescript
  * interface Context<T> {
  *   id: symbol;
- *   Provider: ParentComponent<{ value: T }>;
+ *   Provider: FlowComponent<{ value: T }>;
  *   defaultValue: T;
  * }
  * export function createContext<T>(defaultValue?: T): Context<T | undefined>;
