@@ -242,6 +242,7 @@ export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
   error: any;
+  latest: T | undefined;
 }
 
 type SuspenseContextType = {
@@ -263,13 +264,11 @@ export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
-      globalRefetch?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
-      globalRefetch?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -385,8 +384,6 @@ export function createResource<T, S>(
     { refetch: load, mutate: (v: T) => (value = v) }
   ] as ResourceReturn<T>);
 }
-
-export function refetchResources(info?: unknown) {}
 
 export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
   let resolved: (props: any) => any;

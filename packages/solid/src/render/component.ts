@@ -222,9 +222,7 @@ export function lazy<T extends Component<any>>(
       });
       comp = s;
     } else if (!comp) {
-      const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default), {
-        globalRefetch: false
-      });
+      const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default));
       comp = s;
     } else {
       const c = comp();

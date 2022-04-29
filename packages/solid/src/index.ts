@@ -19,7 +19,6 @@ export {
   enableExternalSource,
   startTransition,
   useTransition,
-  refetchResources,
   createContext,
   useContext,
   children,

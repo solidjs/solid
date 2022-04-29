@@ -303,7 +303,7 @@ export function createEffect<Next, Init = Next>(
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
-  Effects ? Effects.push(c) : queueMicrotask(() => updateComputation(c));
+  Effects ? Effects.push(c) : updateComputation(c);
 }
 
 /**
@@ -405,6 +405,7 @@ export function createMemo<Next extends _Next, Init, _Next>(
 export interface Resource<T> extends Accessor<T> {
   loading: boolean;
   error: any;
+  latest: T | undefined;
 }
 
 export type ResourceActions<T> = {
@@ -424,13 +425,11 @@ export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
-      globalRefetch?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
-      globalRefetch?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -493,14 +492,9 @@ export function createResource<T, S>(
     source = true as ResourceSource<S>;
   }
   options || (options = {});
-  if (options.globalRefetch !== false) {
-    Resources || (Resources = new Set());
-    Resources.add(load);
-    Owner && onCleanup(() => Resources.delete(load));
-  }
 
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal<T | undefined>(options.initialValue),
+    [value, setValue] = createSignal<T | undefined>(options.initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
@@ -511,7 +505,7 @@ export function createResource<T, S>(
     id: string | null = null,
     loadedUnderTransition = false,
     scheduled = false,
-    dynamic = typeof source === "function";
+    dynamic = typeof source === "function" && createMemo<S>(source as any);
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -541,7 +535,7 @@ export function createResource<T, S>(
   }
   function completeLoad(v: T) {
     batch(() => {
-      set(() => v);
+      setValue(() => v);
       setLoading(false);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -550,7 +544,7 @@ export function createResource<T, S>(
 
   function read() {
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
-      v = s();
+      v = value();
     if (err) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
@@ -570,10 +564,10 @@ export function createResource<T, S>(
     if (refetching && scheduled) return;
     scheduled = false;
     setError((err = undefined));
-    const lookup = dynamic ? (source as () => S)() : (source as S);
+    const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
-      loadEnd(pr, untrack(s)!);
+      loadEnd(pr, untrack(value)!);
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
@@ -581,7 +575,7 @@ export function createResource<T, S>(
       initP ||
       untrack(() =>
         (fetcher as ResourceFetcher<S, T>)(lookup, {
-          value: s(),
+          value: value(),
           refetching
         })
       );
@@ -611,16 +605,17 @@ export function createResource<T, S>(
       get() {
         return error();
       }
+    },
+    latest: {
+      get() {
+        if (err) throw err;
+        return value();
+      }
     }
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
-}
-
-let Resources: Set<(info: unknown) => any>;
-export function refetchResources(info?: unknown) {
-  return Resources && Promise.all([...Resources].map(fn => fn(info)));
+  return [read as Resource<T>, { refetch: load, mutate: setValue } as ResourceActions<T>];
 }
 
 export interface DeferredOptions<T> {
@@ -844,8 +839,7 @@ export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next,
     let input: ReturnTypes<S>;
     if (isArray) {
       input = Array(deps.length) as ReturnTypes<S>;
-      for (let i = 0; i < deps.length; i++)
-        (input as TODO[])[i] = deps[i]();
+      for (let i = 0; i < deps.length; i++) (input as TODO[])[i] = deps[i]();
     } else input = (deps as () => S)() as ReturnTypes<S>;
     if (defer) {
       defer = false;
@@ -1394,11 +1388,14 @@ function runUpdates<T>(fn: () => T, init: boolean) {
   else Effects = [];
   ExecCount++;
   try {
-    return fn();
+    const res = fn();
+    completeUpdates(wait);
+    return res;
   } catch (err) {
     handleError(err);
   } finally {
-    completeUpdates(wait);
+    Updates = null;
+    if (!wait) Effects = null;
   }
 }
 
