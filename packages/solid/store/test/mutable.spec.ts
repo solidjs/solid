@@ -72,17 +72,15 @@ describe("Simple update modes", () => {
   });
 
   test("Test Array", () => {
-    const state = createMutable({
-      todos: [
+    const todos = createMutable([
         { id: 1, title: "Go To Work", done: true },
         { id: 2, title: "Eat Lunch", done: false }
-      ]
-    });
-    state.todos[1].done = true;
-    state.todos.push({ id: 3, title: "Go Home", done: false });
-    expect(Array.isArray(state.todos)).toBe(true);
-    expect(state.todos[1].done).toBe(true);
-    expect(state.todos[2].title).toBe("Go Home");
+      ]);
+    todos[1].done = true;
+    todos.push({ id: 3, title: "Go Home", done: false });
+    expect(Array.isArray(todos)).toBe(true);
+    expect(todos[1].done).toBe(true);
+    expect(todos[2].title).toBe("Go Home");
   });
 });
 
@@ -171,8 +169,8 @@ describe("Tracking State changes", () => {
 describe("Handling functions in state", () => {
   test("Array Native Methods: Array.Filter", () => {
     createRoot(() => {
-      const state = createMutable({ list: [0, 1, 2] }),
-        getFiltered = createMemo(() => state.list.filter(i => i % 2));
+      const list = createMutable([0, 1, 2]),
+        getFiltered = createMemo(() => list.filter(i => i % 2));
       expect(getFiltered()).toStrictEqual([1]);
     });
   });

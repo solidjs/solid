@@ -1,3 +1,4 @@
+import { batch } from "solid-js";
 import { setProperty, unwrap, isWrappable, StoreNode, $RAW, DeepMutable } from "./store";
 
 export type ReconcileOptions = {
@@ -111,7 +112,7 @@ export function reconcile<T extends U, U>(
     v = unwrap(value);
   return state => {
     if (!isWrappable(state) || !isWrappable(v)) return v;
-    applyState(v, { state }, "state", merge, key);
+    batch(() => applyState(v, { state }, "state", merge, key));
     return state as T;
   };
 }

@@ -27,7 +27,8 @@ export {
   runWithOwner,
   equalFn,
   $DEVCOMP,
-  $PROXY
+  $PROXY,
+  $TRACK
 } from "./reactive/signal";
 export type {
   Accessor,

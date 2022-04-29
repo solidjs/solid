@@ -1,4 +1,4 @@
-import { getListener, batch, DEV, $PROXY, Accessor, createSignal } from "solid-js";
+import { getListener, batch, DEV, $PROXY, $TRACK, Accessor, createSignal } from "solid-js";
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $NAME = Symbol("store-name");
@@ -97,11 +97,15 @@ export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   return desc;
 }
 
-export function ownKeys(target: StoreNode) {
+export function trackSelf(target: StoreNode) {
   if (getListener()) {
     const nodes = getDataNodes(target);
     (nodes._ || (nodes._ = createDataNode()))();
   }
+}
+
+export function ownKeys(target: StoreNode) {
+  trackSelf(target);
   return Reflect.ownKeys(target);
 }
 
@@ -117,19 +121,13 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (property === $PROXY) return receiver;
     const value = target[property];
     if (property === $NODE || property === "__proto__") return value;
+    if (property === $TRACK) return trackSelf(target);
 
-    const wrappable = isWrappable(value);
     if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createDataNode());
-        node();
-      }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createDataNode());
-      node();
+      const nodes = getDataNodes(target);
+      (nodes[property] || (nodes[property] = createDataNode()))();
     }
-    return wrappable
+    return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
   },
@@ -153,16 +151,14 @@ export function setProperty(state: StoreNode, property: PropertyKey, value: any)
   if (state[property] === value) return;
   const array = Array.isArray(state);
   const len = state.length;
-  const isUndefined = value === undefined;
-  const notify = array || isUndefined === property in state;
-  if (isUndefined) {
+  if (value === undefined) {
     delete state[property];
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.$();
   if (array && state.length !== len) (node = nodes.length) && node.$();
-  notify && (node = nodes._) && node.$();
+  (node = nodes._) && node.$();
 }
 
 function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
@@ -171,6 +167,15 @@ function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
     const key = keys[i];
     setProperty(state, key, value[key]);
   }
+}
+
+function updateArray(current: StoreNode, next: Array<any>) {
+  let i = 0, len = next.length;
+  for (; i < len; i++) {
+    const value = next[i];
+    if (current[i] !== value) setProperty(current, i, value);
+  }
+  setProperty(current, "length", len);
 }
 
 export function updatePath(current: StoreNode, path: any[], traversed: PropertyKey[] = []) {
@@ -367,6 +372,7 @@ export function createStore<T extends StoreNode>(
   options?: { name?: string }
 ): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap<T>(store || {});
+  const isArray = Array.isArray(unwrappedStore);
   if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
@@ -380,7 +386,11 @@ export function createStore<T extends StoreNode>(
     DEV.registerGraph(name, { value: unwrappedStore });
   }
   function setStore(...args: any[]): void {
-    batch(() => updatePath(unwrappedStore, args));
+    batch(() => {
+      isArray && args.length === 1
+        ? updateArray(unwrappedStore, unwrap(args[0]))
+        : updatePath(unwrappedStore, args);
+    });
   }
 
   return [wrappedStore, setStore];

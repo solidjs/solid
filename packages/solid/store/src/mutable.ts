@@ -1,8 +1,9 @@
-import { batch, getListener, DEV, $PROXY } from "solid-js";
+import { batch, getListener, DEV, $PROXY, $TRACK } from "solid-js";
 import {
   unwrap,
   isWrappable,
   getDataNodes,
+  trackSelf,
   createDataNode,
   $RAW,
   $NODE,
@@ -19,19 +20,16 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (property === $PROXY) return receiver;
     const value = target[property];
     if (property === $NODE || property === "__proto__") return value;
+    if (property === $TRACK) return trackSelf(target);
 
-    const wrappable = isWrappable(value);
     if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createDataNode());
-        node();
-      }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createDataNode());
-      node();
+      const nodes = getDataNodes(target);
+      (nodes[property] || (nodes[property] = createDataNode()))();
+    } else if (value != null && value === Array.prototype[property as any]) {
+      return (...args: unknown[]) =>
+        batch(() => Array.prototype[property as any].apply(target, args));
     }
-    return wrappable
+    return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
   },
