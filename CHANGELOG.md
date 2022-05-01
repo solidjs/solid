@@ -1,6 +1,81 @@
 # Changelog
 
-## 1.3.0 - 2022-1-5
+## 1.4.0 - 2022-05-x
+
+### New Features
+
+#### Top Level Arrays in Stores
+
+Since Stores were first introduced it has always bugged me that the most common case, creating a list required nesting it under a property to track properly. Thanks to some exploration into proxy traps and iteration we now support top level arrays. In addition to its other modes, the Store setter will accept an array which allows for common operations.
+
+```js
+const [todos, setTodos] = createStore([
+  { id: 1, title: "Thing I have to do", done: false },
+  { id: 2, title: "Learn a New Framework", done: false }
+]);
+
+// set at an index
+setTodos(1, done, true);
+
+// use an array
+setTodos([...todos, { id: 3, title: "New Todo", done: false }])
+
+// iterate over it with <For>
+<For each={todos}>{todo => <Todo todo={todo} />}</For>;
+```
+
+Through this change we also stopped over execution when listening to specific properties. To support iteration Solid previously would notify the owning object of any array when an  was index added/removed or object new property created or deleted on any object.
+
+The one caveat is downstream optimized control flow that untrack index reads on arrays will now need to track the iterated object explicity. Solid exports a `$TRACK` symbol used to subscribe to the object and all its properties.
+
+#### Stale Resource Reads
+
+Suspense and Transitions are amazingly powerful feature but occasionally you want to opt out of the consistency and show things out of date because it will show up faster and some of things you are waiting for are not as high priority. In so you want the Transition to end sooner, but not necessarily stop showing the stale data for part of the screen. It is still preferable to receding back to loading spinner state.
+
+Solid's Resources now support the case of being able to read the value without triggering Suspense by a `latest` property. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched). This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
+
+#### Combining multiple Custom Renderers
+
+The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is reponsible for. It will try to resolve them in order.
+
+```js
+import { HTMLElements, SVGElements } from "solid-js/web";
+let solidConfig = {
+  moduleName: "solid-js/web",
+  // @ts-ignore
+  generate: "dynamic",
+  renderers: [
+    {
+      name: "dom",
+      moduleName: "solid-js/web",
+      elements: [...HTMLElements, ...SVGElements]
+    },
+    {
+      name: "universal",
+      moduleName: "solid-three",
+      elements: []
+    }
+  ]
+};
+```
+
+### Removals and Deprecations
+
+#### `className`, `htmlFor` deprecated
+
+While it still works, Solid will remove support for these React-isms as they leave us with multiple ways to set the same attribute. This is problematic for trying to merge them. Solid updates independently so it is too easy for these things to trample on each other. Also when optimizing for compilation since with things like Spreads you can't know if the property is present, Solid has to err on the side of caution. This means more code and less performance.
+
+#### Experimental `refetchResources` removed
+
+This primitive ended up being too general to be useful. There are enough cases we can't rely on the refetch everything by default mentality. For that reason we are dropping support of this experimental feature.
+
+### Improvements/Fixes
+
+#### Synchronous Top Level `createEffect`
+
+These were originally deferred to a microtask to resemble how effects are queued under a listener. However it is more correct to run immediate like everything else top level.
+
+## 1.3.0 - 2022-01-05
 
 ### New Features
 
@@ -141,11 +216,13 @@ refetchResources();
 You can also pass a parameter to `refetchResources` to provide additional information to the `refetching` info of the fetcher. This could be used for conditional cache invalidation. Like only refetch resources related to `users`. This mechanism requires a bit of wiring but the idea is you'd wrap `createResource` in maybe a `createQuery` and implement your own conventions around resource cache management. Still working out how this should work best, but the goal is to provide the mechanisms to support resource caches without being responsible for their implementation.
 
 To opt-out being part of the global refetch createResource now takes a `globalRefetch` option that can be set to false. In addition to a new option to disable `refetchResources` there is no an `onHydrated` callback that takes the same arguments as the fetcher. When a resource is restored from the server the fetcher is not called. However, this callback will be. This is useful for populating caches.
+
 ### Improvements
 
 #### Better TypeScript Support
 
 Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
+
 #### Better SourceMaps
 
 Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressions` to better preserve identifiers from the JSX. Thanks to @LXSMNSYC for exploring and implementing this.
