@@ -790,9 +790,7 @@ export type ReturnTypes<T> = T extends readonly Accessor<unknown>[]
   : never;
 
 // transforms a tuple to a tuple of accessors in a way that allows generics to be inferred
-export type AccessorTuple<T> = [
-  ...Extract<{ [K in keyof T]: Accessor<T[K]> }, readonly [unknown, ...unknown[]]>
-];
+export type AccessorArray<T> = [...Extract<{ [K in keyof T]: Accessor<T[K]> }, readonly unknown[]>];
 
 // Also similar to EffectFunction
 export type OnEffectFunction<S, Prev, Next extends Prev = Prev> = (
@@ -809,7 +807,7 @@ export interface OnOptions {
  * on - make dependencies of a computation explicit
  * ```typescript
  * export function on<S, U>(
- *   deps: Accessor<S> | AccessorTuple<S>,
+ *   deps: Accessor<S> | AccessorArray<S>,
  *   fn: (input: S, prevInput: S | undefined, prevValue: U | undefined) => U,
  *   options?: { defer?: boolean } = {}
  * ): (prevValue: U | undefined) => U;
@@ -832,17 +830,17 @@ export interface OnOptions {
  * @description https://www.solidjs.com/docs/latest/api#on
  */
 export function on<S, Next extends Prev, Prev = Next>(
-  deps: AccessorTuple<S> | Accessor<S>,
+  deps: AccessorArray<S> | Accessor<S>,
   fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
   options?: OnOptions & { defer?: false }
 ): EffectFunction<undefined | NoInfer<Next>, NoInfer<Next>>;
 export function on<S, Next extends Prev, Prev = Next>(
-  deps: AccessorTuple<S> | Accessor<S>,
+  deps: AccessorArray<S> | Accessor<S>,
   fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
   options: OnOptions & { defer: true }
 ): EffectFunction<undefined | NoInfer<Next>>;
 export function on<S, Next extends Prev, Prev = Next>(
-  deps: AccessorTuple<S> | Accessor<S>,
+  deps: AccessorArray<S> | Accessor<S>,
   fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
   options?: OnOptions
 ): EffectFunction<undefined | NoInfer<Next>> {
