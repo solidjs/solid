@@ -808,11 +808,11 @@ export interface OnOptions {
 /**
  * on - make dependencies of a computation explicit
  * ```typescript
- * export function on<T extends Array<() => any> | (() => any), U>(
- *   deps: T | T[],
- *   fn: (input: T, prevInput: T, prevValue?: U) => U,
+ * export function on<S, U>(
+ *   deps: Accessor<S> | AccessorTuple<S>,
+ *   fn: (input: S, prevInput: S | undefined, prevValue: U | undefined) => U,
  *   options?: { defer?: boolean } = {}
- * ): (prevValue?: U) => U | undefined;
+ * ): (prevValue: U | undefined) => U;
  * ```
  * @param deps list of reactive dependencies or a single reactive dependency
  * @param fn computation on input; the current previous content(s) of input and the previous value are given as arguments and it returns a new value
