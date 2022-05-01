@@ -791,7 +791,7 @@ export type ReturnTypes<T> = T extends readonly Accessor<unknown>[]
 
 // transforms a tuple to a tuple of accessors in a way that allows generics to be inferred
 export type AccessorTuple<T> = [
-  ...Extract<{ [K in keyof T]: Accessor<T[K]> }, [unknown, ...unknown[]]>
+  ...Extract<{ [K in keyof T]: Accessor<T[K]> }, readonly [unknown, ...unknown[]]>
 ];
 
 // Also similar to EffectFunction
