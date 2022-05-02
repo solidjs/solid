@@ -136,23 +136,27 @@ const propTraps: ProxyHandler<{
   }
 };
 
+type Simplify<T> = T extends object ? { [K in keyof T]: T[K] } : T;
 type UnboxLazy<T> = T extends () => infer U ? U : T;
-type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [UnboxLazy<T[P]>] }[Exclude<
-  keyof T,
-  keyof any[]
->];
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
-  ? I
-  : never;
-type UnboxIntersection<T> = T extends { 0: infer U } ? U : never;
-type MergeProps<T extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleTypes<T>>>;
+type RequiredKeys<T> = keyof { [K in keyof T as T extends { [_ in K]: unknown } ? K : never]: 0 };
+type Override<T, U> = {
+  // all keys in T which are not overridden by U
+  [K in keyof Omit<T, RequiredKeys<U>>]: T[K] | Exclude<U[K & keyof U], undefined>;
+} & {
+  // all keys in U except those which are merged into T
+  [K in keyof Omit<U, Exclude<keyof T, RequiredKeys<U>>>]:
+    | Exclude<U[K], undefined>
+    | (undefined extends U[K] ? (K extends keyof T ? T[K] : undefined) : never);
+};
+type MergeProps<T extends unknown[], Curr = {}> = T extends [infer Next, ...infer Rest]
+  ? MergeProps<Rest, Override<Curr, UnboxLazy<Next>>>
+  : Simplify<Curr>;
 
 function resolveSource(s: any) {
   return (s = typeof s === "function" ? s() : s) == null ? {} : s;
 }
 
-export function mergeProps<T extends any[]>(...sources: T): MergeProps<T>;
-export function mergeProps(...sources: any): any {
+export function mergeProps<T extends [unknown, ...unknown[]]>(...sources: T): MergeProps<T> {
   return new Proxy(
     {
       get(property: string | number | symbol) {
@@ -175,7 +179,7 @@ export function mergeProps(...sources: any): any {
       }
     },
     propTraps
-  );
+  ) as unknown as MergeProps<T>;
 }
 
 type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
