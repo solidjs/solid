@@ -49,12 +49,12 @@ export type ParentComponent<P = {}> = Component<ParentProps<P>>;
 
 /**
  * Extend props to require a `children` prop with the specified type.
- * Use this for components where you need specific types of children.
+ * Use this for components where you need a specific child type e.g. a function.
  */
 export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
 /**
  * `FlowComponent` requires a `children` prop with the specified type.
- * Use this for components where you need specific types of children.
+ * Use this for components where you need a specific child type e.g. a function.
  */
 export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 
