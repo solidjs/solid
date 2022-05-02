@@ -1,10 +1,7 @@
 import { Owner, createContext, createMemo, useContext, runWithOwner, onError } from "./reactive";
 import type { JSX } from "../jsx";
 
-//export type Component<P = {}> = (props: P) => JSX.Element;
-export interface Component<P = {}> {
-  (props: P): JSX.Element
-}
+export type Component<P = {}> = (props: P) => JSX.Element;
 export type VoidProps<P = {}> = P & { children?: never };
 export type VoidComponent<P = {}> = Component<VoidProps<P>>;
 export type ParentProps<P = {}> = P & { children?: JSX.Element };
