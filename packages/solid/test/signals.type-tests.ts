@@ -5,7 +5,9 @@ import {
   createMemo,
   Accessor,
   on,
-  createSignal
+  createSignal,
+  Signal,
+  Setter
   // } from "../types/index";
 } from "../src";
 
@@ -716,9 +718,9 @@ const n6: number = func2()();
 const [stringOrFunc1, setStringOrFunc1] = createSignal<(() => number) | string>("");
 // @ts-expect-error number should not be assignable to string
 setStringOrFunc1(() => 1);
-const sf1: () => number = setStringOrFunc1(() => () => 1);
-const sf2: string = setStringOrFunc1("oh yeah");
-const sf3: string = setStringOrFunc1(() => "oh yeah");
+const sf1: () => 1 = setStringOrFunc1(() => () => 1);
+const sf2: "oh yeah" = setStringOrFunc1("oh yeah");
+const sf3: "oh yeah" = setStringOrFunc1(() => "oh yeah");
 // @ts-expect-error cannot set signal to undefined
 setStringOrFunc1();
 // @ts-expect-error cannot set signal to undefined
@@ -731,14 +733,26 @@ const sf8: (() => number) | string = stringOrFunc1();
 const [stringOrFunc2, setStringOrFunc2] = createSignal<(() => number) | string>();
 // @ts-expect-error number should not be assignable to string
 setStringOrFunc2(() => 1);
-const sf9: () => number = setStringOrFunc2(() => () => 1);
-const sf10: string = setStringOrFunc2("oh yeah");
-const sf11: string = setStringOrFunc2(() => "oh yeah");
+const sf9: () => 1 = setStringOrFunc2(() => () => 1);
+const sf10: "oh yeah" = setStringOrFunc2("oh yeah");
+const sf11: "oh yeah" = setStringOrFunc2(() => "oh yeah");
 const sf12: undefined = setStringOrFunc2();
 const sf13: undefined = setStringOrFunc2(undefined);
 const sf14: (() => number) | string | undefined = stringOrFunc2();
 // @ts-expect-error return value might be undefined
 const sf15: (() => number) | string = stringOrFunc2();
+
+function createGenericSignal<T>(): Signal<T | undefined> {
+  const [generic, setGeneric] = createSignal<T>();
+  const customSet: Setter<T | undefined> = (v?) => setGeneric(v);
+  return [generic, (v?) => setGeneric(v)];
+}
+
+function createInitializedSignal<T>(init: T): Signal<T> {
+  const [generic, setGeneric] = createSignal<T>(init);
+  const customSet: Setter<T> = (v?) => setGeneric(v);
+  return [generic, (v?) => setGeneric(v)];
+}
 
 //////////////////////////////////////////////////////////////////////////
 // test explicit generic args ////////////////////////////////////////////
