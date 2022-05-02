@@ -22,29 +22,43 @@ export function enableHydration() {
 export type Component<P = {}> = (props: P) => JSX.Element;
 
 /**
- * `VoidComponent` forbids the `children` prop.
+ * Extend props to forbid the `children` prop.
  * Use this to prevent accidentally passing `children` to components that
  * would silently throw them away.
  */
 export type VoidProps<P = {}> = P & { children?: never };
+/**
+ * `VoidComponent` forbids the `children` prop.
+ * Use this to prevent accidentally passing `children` to components that
+ * would silently throw them away.
+ */
 export type VoidComponent<P = {}> = Component<VoidProps<P>>;
 
 /**
- * `ParentComponent` allows an optional the `children` prop with the usual
+ * Extend props to allow an optional `children` prop with the usual
  * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
  * Use this for components that you want to accept children.
  */
 export type ParentProps<P = {}> = P & { children?: JSX.Element };
+/**
+ * `ParentComponent` allows an optional `children` prop with the usual
+ * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * Use this for components that you want to accept children.
+ */
 export type ParentComponent<P = {}> = Component<ParentProps<P>>;
 
+/**
+ * Extend props to require a `children` prop with the specified type.
+ * Use this for components where you need specific types of children.
+ */
+export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
 /**
  * `FlowComponent` requires a `children` prop with the specified type.
  * Use this for components where you need specific types of children.
  */
-export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
 export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 
-/** @deprecated */
+/** @deprecated: use `ParentProps` instead */
 export type PropsWithChildren<P = {}> = ParentProps<P>;
 
 /**
