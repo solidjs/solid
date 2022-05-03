@@ -32,8 +32,23 @@ The one caveat is downstream optimized control flow that untrack index reads on 
 
 Suspense and Transitions are amazingly powerful feature but occasionally you want to opt out of the consistency and show things out of date because it will show up faster and some of things you are waiting for are not as high priority. In so you want the Transition to end sooner, but not necessarily stop showing the stale data for part of the screen. It is still preferable to receding back to loading spinner state.
 
-Solid's Resources now support the case of being able to read the value without triggering Suspense by a `latest` property. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched). This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
+Solid's Resources now support the case of being able to read the value without triggering Suspense if it has loaded previously by a `latest` property. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched). This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
 
+#### New Store Modifiers
+
+`splice` makes it easier to modify arrays without cloning:
+
+```js
+setState(splice(6, 2)); // remove 2 items at index 6
+
+setState(splice(0, 0, { id: 3, title: "Go Home", done: false })); // unshift an item to the front
+```
+
+`modifyMutable` applies modifiers batched to stores created with `createMutable`
+
+```js
+modifyMutable(state.data.user, reconcile({ firstName: "Jake", middleName: "R" }));
+```
 #### Combining multiple Custom Renderers
 
 The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is reponsible for. It will try to resolve them in order.
@@ -63,7 +78,7 @@ let solidConfig = {
 
 #### `className`, `htmlFor` deprecated
 
-While it still works, Solid will remove support for these React-isms as they leave us with multiple ways to set the same attribute. This is problematic for trying to merge them. Solid updates independently so it is too easy for these things to trample on each other. Also when optimizing for compilation since with things like Spreads you can't know if the property is present, Solid has to err on the side of caution. This means more code and less performance.
+While they still work for now, Solid will remove support for these React-isms in a future version. They leave us with multiple ways to set the same attribute. This is problematic for trying to merge them. Solid updates independently so it is too easy for these things to trample on each other. Also when optimizing for compilation since with things like Spreads you can't know if the property is present, Solid has to err on the side of caution. This means more code and less performance.
 
 #### Experimental `refetchResources` removed
 
@@ -74,6 +89,10 @@ This primitive ended up being too general to be useful. There are enough cases w
 #### Synchronous Top Level `createEffect`
 
 These were originally deferred to a microtask to resemble how effects are queued under a listener. However it is more correct to run immediate like everything else top level.
+
+#### Sources in `createResource` are now Memos
+
+#### `createMutable` batches array methods like push, pop, etc..
 
 ## 1.3.0 - 2022-01-05
 

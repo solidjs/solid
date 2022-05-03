@@ -169,8 +169,12 @@ function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
   }
 }
 
-function updateArray(current: StoreNode, next: Array<any>) {
-  let i = 0, len = next.length;
+function updateArray(current: StoreNode, next: Array<any> | ((prev: StoreNode) => Array<any>)) {
+  if (typeof next === "function") next = next(current);
+  next = unwrap(next) as Array<any>;
+  if (current === next) return;
+  let i = 0,
+    len = next.length;
   for (; i < len; i++) {
     const value = next[i];
     if (current[i] !== value) setProperty(current, i, value);
@@ -388,7 +392,7 @@ export function createStore<T extends StoreNode>(
   function setStore(...args: any[]): void {
     batch(() => {
       isArray && args.length === 1
-        ? updateArray(unwrappedStore, unwrap(args[0]))
+        ? updateArray(unwrappedStore, args[0])
         : updatePath(unwrappedStore, args);
     });
   }

@@ -35,9 +35,9 @@ describe("CreateComponent", () => {
       expect(out).toBe("Hi dynamic");
     });
   });
-  test("non-object props are replaced with empty props", () => {
+  test("null/undefined props are replaced with empty props", () => {
     createRoot(() => {
-      const nonObjects = [null, undefined, 1, "string", () => "function"];
+      const nonObjects = [null, undefined, false];
       nonObjects.forEach(nonObject => {
         const out = createComponent(p => p, nonObject);
         expect(out).toEqual({});
@@ -127,8 +127,8 @@ describe("Merge Signal", () => {
     expect(res.length).toBe(2);
   });
 
-  test("non-objects are ignored", () => {
-    const props = mergeProps({ a: 1 }, 1, null, undefined, "string", () => 1);
+  test("null/undefined/false are ignored", () => {
+    const props = mergeProps({ a: 1 }, null, undefined, false);
     expect(props).toEqual({ a: 1 });
   });
 });

@@ -493,6 +493,7 @@ export function createResource<T, S>(
     id: string | null = null,
     loadedUnderTransition = false,
     scheduled = false,
+    resolved = "initialValue" in options,
     dynamic = typeof source === "function" && createMemo<S>(source as any);
 
   if (sharedConfig.context) {
@@ -502,6 +503,7 @@ export function createResource<T, S>(
   function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any, key?: S) {
     if (pr === p) {
       pr = null;
+      resolved = true;
       if (initP && p === initP && options!.onHydrated)
         options!.onHydrated(key!, { value: v } as ResourceFetcherInfo<T>);
       initP = null;
@@ -596,6 +598,7 @@ export function createResource<T, S>(
     },
     latest: {
       get() {
+        if (!resolved) return read();
         if (err) throw err;
         return value();
       }

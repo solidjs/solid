@@ -1,5 +1,5 @@
 import { batch } from "solid-js";
-import { setProperty, unwrap, isWrappable, StoreNode, $RAW, DeepMutable } from "./store";
+import { setProperty, unwrap, isWrappable, StoreNode, $RAW, DeepMutable, DeepReadonly } from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -140,5 +140,36 @@ export function produce<T>(fn: (state: DeepMutable<T>) => void): (state: T) => T
   return state => {
     if (isWrappable(state)) fn(new Proxy(state, setterTraps) as DeepMutable<T>);
     return state;
+  };
+}
+
+// Simple helper for arrays
+export function splice<T extends U, U>(
+  start: number,
+  deleteCount = 0,
+  ...items: T[]
+): (state: readonly U[]) => T[] {
+  return state => {
+    if (Array.isArray(state)) {
+      if (start < 0) start = start + state.length;
+      if (deleteCount < 0) deleteCount = 0;
+      const stop = start + deleteCount;
+
+      if (deleteCount >= items.length) {
+        for (let i = stop; i < state.length; i++) {
+          setProperty(state, start + i - stop, state[i]);
+        }
+      } else {
+        const offset = items.length - deleteCount;
+        for (let i = state.length - 1; i >= stop; i--) {
+          setProperty(state, i + offset, state[i]);
+        }
+      }
+      for (let i = 0; i < items.length; i++) {
+        setProperty(state, start + i, items[i]);
+      }
+      setProperty(state, "length", state.length + items.length - deleteCount);
+    }
+    return state as T[];
   };
 }

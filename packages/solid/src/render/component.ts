@@ -87,18 +87,19 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
 export type Ref<T> = T | ((val: T) => void);
 
 export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
-  if (props == null || typeof props !== "object") props = {} as T;
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
       setHydrateContext(nextHydrateContext());
-      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props));
+      const r = "_SOLID_DEV_"
+        ? devComponent(Comp, props || ({} as T))
+        : untrack(() => Comp(props || ({} as T)));
       setHydrateContext(c);
       return r;
     }
   }
-  if ("_SOLID_DEV_") return devComponent(Comp, props);
-  return untrack(() => Comp(props));
+  if ("_SOLID_DEV_") return devComponent(Comp, props || ({} as T));
+  return untrack(() => Comp(props || ({} as T)));
 }
 
 function trueFn() {
@@ -136,7 +137,10 @@ const propTraps: ProxyHandler<{
 };
 
 type UnboxLazy<T> = T extends () => infer U ? U : T;
-type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [UnboxLazy<T[P]>] }[Exclude<keyof T, keyof any[]>];
+type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [UnboxLazy<T[P]>] }[Exclude<
+  keyof T,
+  keyof any[]
+>];
 type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
   ? I
   : never;
@@ -144,7 +148,7 @@ type UnboxIntersection<T> = T extends { 0: infer U } ? U : never;
 type MergeProps<T extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleTypes<T>>>;
 
 function resolveSource(s: any) {
-  return (s = typeof s === "function" ? s() : s) == null || typeof s !== "object" ? {} : s;
+  return (s = typeof s === "function" ? s() : s) == null ? {} : s;
 }
 
 export function mergeProps<T extends any[]>(...sources: T): MergeProps<T>;

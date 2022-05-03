@@ -125,9 +125,10 @@ describe("Simple setState modes", () => {
     ]);
     setTodos(1, { done: true });
     setTodos([...todos, { id: 3, title: "Go Home", done: false }]);
+    setTodos(t => [...t.slice(1)]);
     expect(Array.isArray(todos)).toBe(true);
-    expect(todos[1].done).toBe(true);
-    expect(todos[2].title).toBe("Go Home");
+    expect(todos[0].done).toBe(true);
+    expect(todos[1].title).toBe("Go Home");
   });
 
   test("Test Array Nested", () => {

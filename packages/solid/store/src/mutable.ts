@@ -25,9 +25,9 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
       const nodes = getDataNodes(target);
       (nodes[property] || (nodes[property] = createDataNode()))();
-    } else if (value != null && value === Array.prototype[property as any]) {
+    } else if (value != null && typeof value === "function" && value === Array.prototype[property as any]) {
       return (...args: unknown[]) =>
-        batch(() => Array.prototype[property as any].apply(target, args));
+        batch(() => Array.prototype[property as any].apply(receiver, args));
     }
     return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
@@ -91,4 +91,8 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
     DEV.registerGraph(name, { value: unwrappedStore });
   }
   return wrappedStore;
+}
+
+export function modifyMutable<T extends U, U>(state: T, modifier: (state: U) => T) {
+  batch(() => modifier(unwrap(state)));
 }
