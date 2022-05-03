@@ -215,22 +215,18 @@ export type EffectFunction<Prev, Next extends Prev = Prev> = (v: Prev) => Next;
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
+export function createComputed<Next>(fn: EffectFunction<undefined | NoInfer<Next>, Next>): void;
 export function createComputed<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createComputed<Next, Init = undefined>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
-): void;
 export function createComputed<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
-  value: Init,
+  value?: Init,
   options?: EffectOptions
 ): void {
-  const c = createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined);
+  const c = createComputation(fn, value!, true, STALE, "_SOLID_DEV_" ? options : undefined);
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -250,22 +246,18 @@ export function createComputed<Next, Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
+export function createRenderEffect<Next>(fn: EffectFunction<undefined | NoInfer<Next>, Next>): void;
 export function createRenderEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<Next, Init = undefined>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
-): void;
 export function createRenderEffect<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
-  value: Init,
+  value?: Init,
   options?: EffectOptions
 ): void {
-  const c = createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined);
+  const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined);
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -285,23 +277,19 @@ export function createRenderEffect<Next, Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
+export function createEffect<Next>(fn: EffectFunction<undefined | NoInfer<Next>, Next>): void;
 export function createEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createEffect<Next, Init = undefined>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
-): void;
-export function createEffect<Next, Init = Next>(
+export function createEffect<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
-  value: Init,
+  value?: Init,
   options?: EffectOptions
 ): void {
   runEffects = runUserEffects;
-  const c = createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined),
+  const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
@@ -365,29 +353,27 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-// The extra _Next generic parameter separates inference of the effect input
+// The extra Prev generic parameter separates inference of the effect input
 // parameter type from inference of the effect return type, so that the effect
 // return type is always used as the memo Accessor's return type.
-export function createMemo<Next extends _Next, Init = Next, _Next = Next>(
-  fn: EffectFunction<Init | _Next, Next>,
+export function createMemo<Next extends Prev, Prev = Next>(
+  fn: EffectFunction<undefined | NoInfer<Prev>, Next>
+): Accessor<Next>;
+export function createMemo<Next extends Prev, Init = Next, Prev = Next>(
+  fn: EffectFunction<Init | Prev, Next>,
   value: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next>;
-export function createMemo<Next extends _Next, Init = undefined, _Next = Next>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | _Next, Next>, value?: Init, options?: MemoOptions<Next>]
-    : [fn: EffectFunction<Init | _Next, Next>, value: Init, options?: MemoOptions<Next>]
-): Accessor<Next>;
-export function createMemo<Next extends _Next, Init, _Next>(
-  fn: EffectFunction<Init | _Next, Next>,
-  value: Init,
+export function createMemo<Next extends Prev, Init, Prev>(
+  fn: EffectFunction<Init | Prev, Next>,
+  value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
   const c: Partial<Memo<Init, Next>> = createComputation(
     fn,
-    value,
+    value!,
     true,
     0,
     "_SOLID_DEV_" ? options : undefined
