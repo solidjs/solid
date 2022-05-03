@@ -162,7 +162,7 @@ export function children(fn: () => any) {
   return createMemo(() => resolveChildren(fn()));
 }
 
-export function runWithOwner(o: Owner, fn: () => any) {
+export function runWithOwner<T>(o: Owner, fn: () => T): T {
   const prev = Owner;
   Owner = o;
   try {

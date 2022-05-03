@@ -15,8 +15,56 @@ export function enableHydration() {
   hydrationEnabled = true;
 }
 
-export type PropsWithChildren<P = {}> = P & { children?: JSX.Element };
-export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
+/**
+ * A general `Component` has no implicit `children` prop.  If desired, you can
+ * specify one as in `Component<{name: String, children: JSX.Element>}`.
+ */
+export type Component<P = {}> = (props: P) => JSX.Element;
+
+/**
+ * Extend props to forbid the `children` prop.
+ * Use this to prevent accidentally passing `children` to components that
+ * would silently throw them away.
+ */
+export type VoidProps<P = {}> = P & { children?: never };
+/**
+ * `VoidComponent` forbids the `children` prop.
+ * Use this to prevent accidentally passing `children` to components that
+ * would silently throw them away.
+ */
+export type VoidComponent<P = {}> = Component<VoidProps<P>>;
+
+/**
+ * Extend props to allow an optional `children` prop with the usual
+ * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * Use this for components that you want to accept children.
+ */
+export type ParentProps<P = {}> = P & { children?: JSX.Element };
+/**
+ * `ParentComponent` allows an optional `children` prop with the usual
+ * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * Use this for components that you want to accept children.
+ */
+export type ParentComponent<P = {}> = Component<ParentProps<P>>;
+
+/**
+ * Extend props to require a `children` prop with the specified type.
+ * Use this for components where you need a specific child type,
+ * typically a function that receives specific argument types.
+ * Note that all JSX <Elements> are of the type `JSX.Element`.
+ */
+export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
+/**
+ * `FlowComponent` requires a `children` prop with the specified type.
+ * Use this for components where you need a specific child type,
+ * typically a function that receives specific argument types.
+ * Note that all JSX <Elements> are of the type `JSX.Element`.
+ */
+export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
+
+/** @deprecated: use `ParentProps` instead */
+export type PropsWithChildren<P = {}> = ParentProps<P>;
+
 /**
  * Takes the props of the passed component and returns its type
  *
@@ -30,7 +78,15 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
     : T extends keyof JSX.IntrinsicElements
     ? JSX.IntrinsicElements[T]
     : {};
-export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+
+/**
+ * Type of `props.ref`, for use in `Component` or `props` typing.
+ *
+ * @example Component<{ref: Ref<Element>}>
+ */
+export type Ref<T> = T | ((val: T) => void);
+
+export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
   if (props == null || typeof props !== "object") props = {} as T;
   if (hydrationEnabled) {
     if (sharedConfig.context) {

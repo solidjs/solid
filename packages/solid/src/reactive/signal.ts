@@ -3,6 +3,7 @@
 import { requestCallback, Task } from "./scheduler";
 import { setHydrateContext, sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
+import type { FlowComponent, FlowProps } from "../render";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
@@ -1047,7 +1048,7 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
   };
 }
 
-export type ContextProviderComponent<T> = (props: { value: T; children: any }) => any;
+export type ContextProviderComponent<T> = FlowComponent<{ value: T; }>;
 
 // Context API
 export interface Context<T> {
@@ -1061,7 +1062,7 @@ export interface Context<T> {
  * ```typescript
  * interface Context<T> {
  *   id: symbol;
- *   Provider: (props: { value: T; children: any }) => any;
+ *   Provider: FlowComponent<{ value: T }>;
  *   defaultValue: T;
  * }
  * export function createContext<T>(defaultValue?: T): Context<T | undefined>;
@@ -1604,7 +1605,7 @@ function resolveChildren(children: JSX.Element): ResolvedChildren {
 }
 
 function createProvider(id: symbol) {
-  return function provider(props: { value: unknown; children: JSX.Element }) {
+  return function provider(props: FlowProps<{ value: unknown; }>) {
     let res;
     createComputed(
       () =>
@@ -1613,7 +1614,7 @@ function createProvider(id: symbol) {
           return children(() => props.children);
         }))
     );
-    return res as JSX.Element;
+    return res;
   };
 }
 
