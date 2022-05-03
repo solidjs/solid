@@ -149,7 +149,10 @@ type Override<T, U> = {
     | (undefined extends U[K] ? (K extends keyof T ? T[K] : undefined) : never);
 };
 type MergeProps<T extends unknown[], Curr = {}> = T extends [infer Next, ...infer Rest]
-  ? MergeProps<Rest, Override<Curr, UnboxLazy<Next>>>
+  ? MergeProps<
+      Rest,
+      Next extends object ? (Next extends Function ? Curr : Override<Curr, UnboxLazy<Next>>) : Curr
+    >
   : Simplify<Curr>;
 
 function resolveSource(s: any) {

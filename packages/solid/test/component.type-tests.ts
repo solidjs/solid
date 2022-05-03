@@ -90,5 +90,9 @@ const m3 = mergeProps({ a: 1 }, { a: undefined });
 type M3 = typeof m3;
 type TestM3 = Assert<IsRequiredProperty<M3, "a", number>>;
 
+const m4 = mergeProps({ a: 1 }, 1, null, undefined, () => 1, "", 3, { a: 1 });
+type M4 = typeof m4;
+type TestM4 = Assert<IsExact<M4, { a: number }>>;
+
 // @ts-expect-error mergeProps requires at least one param
 mergeProps();
