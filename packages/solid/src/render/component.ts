@@ -87,17 +87,18 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
 export type Ref<T> = T | ((val: T) => void);
 
 export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
+  if (props == null || typeof props !== "object") props = {} as T;
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
       setHydrateContext(nextHydrateContext());
-      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props as T));
+      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props));
       setHydrateContext(c);
       return r;
     }
   }
   if ("_SOLID_DEV_") return devComponent(Comp, props);
-  return untrack(() => Comp(props as T));
+  return untrack(() => Comp(props));
 }
 
 function trueFn() {
@@ -143,7 +144,7 @@ type UnboxIntersection<T> = T extends { 0: infer U } ? U : never;
 type MergeProps<T extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleTypes<T>>>;
 
 function resolveSource(s: any) {
-  return typeof s === "function" ? s() : s;
+  return (s = typeof s === "function" ? s() : s) == null || typeof s !== "object" ? {} : s;
 }
 
 export function mergeProps<T extends any[]>(...sources: T): MergeProps<T>;
@@ -173,53 +174,20 @@ export function mergeProps(...sources: any): any {
   );
 }
 
-export function splitProps<T extends object, K1 extends keyof T>(
-  props: T,
-  ...keys: [K1[]]
-): [Pick<T, K1>, Omit<T, K1>];
-export function splitProps<T extends object, K1 extends keyof T, K2 extends keyof T>(
-  props: T,
-  ...keys: [K1[], K2[]]
-): [Pick<T, K1>, Pick<T, K2>, Omit<T, K1 | K2>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Omit<T, K1 | K2 | K3>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T,
-  K4 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[], K4[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Pick<T, K4>, Omit<T, K1 | K2 | K3 | K4>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T,
-  K4 extends keyof T,
-  K5 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[], K4[], K5[]]
-): [
-  Pick<T, K1>,
-  Pick<T, K2>,
-  Pick<T, K3>,
-  Pick<T, K4>,
-  Pick<T, K5>,
-  Omit<T, K1 | K2 | K3 | K4 | K5>
+type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
+  ...{
+    [P in keyof K]: P extends `${number}`
+      ? Pick<T, Extract<K[P], readonly (keyof T)[]>[number]>
+      : K[P];
+  },
+  Omit<T, K[number][number]>
 ];
-export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
-  const blocked = new Set(keys.flat());
+
+export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]>(
+  props: T,
+  ...keys: K
+): SplitProps<T, K> {
+  const blocked = new Set<keyof T>(keys.flat());
   const descriptors = Object.getOwnPropertyDescriptors(props);
   const res = keys.map(k => {
     const clone = {};
@@ -258,7 +226,7 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
       propTraps
     )
   );
-  return res;
+  return res as SplitProps<T, K>;
 }
 
 // lazy load a function component asynchronously
@@ -278,9 +246,7 @@ export function lazy<T extends Component<any>>(
       });
       comp = s;
     } else if (!comp) {
-      const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default), {
-        globalRefetch: false
-      });
+      const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default));
       comp = s;
     } else {
       const c = comp();

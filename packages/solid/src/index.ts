@@ -19,7 +19,6 @@ export {
   enableExternalSource,
   startTransition,
   useTransition,
-  refetchResources,
   createContext,
   useContext,
   children,
@@ -28,7 +27,8 @@ export {
   runWithOwner,
   equalFn,
   $DEVCOMP,
-  $PROXY
+  $PROXY,
+  $TRACK
 } from "./reactive/signal";
 export type {
   Accessor,

@@ -1,10 +1,15 @@
 import type { JSX } from "../jsx";
-import type { Accessor, Setter } from "../reactive/signal";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 export const $DEVCOMP = Symbol("solid-dev-component");
 export const DEV = {};
+
+export type Accessor<T> = () => T;
+export type Setter<T> = undefined extends T
+  ? <U extends T>(value?: (U extends Function ? never : U) | ((prev?: T) => U)) => U
+  : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;
+
 const ERROR = Symbol("error");
 
 const UNOWNED: Owner = { context: null, owner: null };

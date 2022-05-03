@@ -1,9 +1,12 @@
-import { getListener, batch, DEV, $PROXY, Accessor, createSignal } from "solid-js";
+import { getListener, batch, DEV, $PROXY, $TRACK, Accessor, createSignal } from "solid-js";
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $NAME = Symbol("store-name");
 
 export type StoreNode = Record<PropertyKey, any>;
+export namespace SolidStore {
+  export interface Unwrappable {}
+}
 export type NotWrappable =
   | string
   | number
@@ -12,7 +15,8 @@ export type NotWrappable =
   | boolean
   | Function
   | null
-  | undefined;
+  | undefined
+  | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
 export type Store<T> = DeepReadonly<T>;
 
 function wrap<T extends StoreNode>(value: T, name?: string): DeepReadonly<T> {
@@ -93,11 +97,15 @@ export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   return desc;
 }
 
-export function ownKeys(target: StoreNode) {
+export function trackSelf(target: StoreNode) {
   if (getListener()) {
     const nodes = getDataNodes(target);
     (nodes._ || (nodes._ = createDataNode()))();
   }
+}
+
+export function ownKeys(target: StoreNode) {
+  trackSelf(target);
   return Reflect.ownKeys(target);
 }
 
@@ -113,19 +121,13 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (property === $PROXY) return receiver;
     const value = target[property];
     if (property === $NODE || property === "__proto__") return value;
+    if (property === $TRACK) return trackSelf(target);
 
-    const wrappable = isWrappable(value);
     if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createDataNode());
-        node();
-      }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createDataNode());
-      node();
+      const nodes = getDataNodes(target);
+      (nodes[property] || (nodes[property] = createDataNode()))();
     }
-    return wrappable
+    return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
   },
@@ -149,16 +151,14 @@ export function setProperty(state: StoreNode, property: PropertyKey, value: any)
   if (state[property] === value) return;
   const array = Array.isArray(state);
   const len = state.length;
-  const isUndefined = value === undefined;
-  const notify = array || isUndefined === property in state;
-  if (isUndefined) {
+  if (value === undefined) {
     delete state[property];
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
   (node = nodes[property]) && node.$();
   if (array && state.length !== len) (node = nodes.length) && node.$();
-  notify && (node = nodes._) && node.$();
+  (node = nodes._) && node.$();
 }
 
 function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
@@ -167,6 +167,15 @@ function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
     const key = keys[i];
     setProperty(state, key, value[key]);
   }
+}
+
+function updateArray(current: StoreNode, next: Array<any>) {
+  let i = 0, len = next.length;
+  for (; i < len; i++) {
+    const value = next[i];
+    if (current[i] !== value) setProperty(current, i, value);
+  }
+  setProperty(current, "length", len);
 }
 
 export function updatePath(current: StoreNode, path: any[], traversed: PropertyKey[] = []) {
@@ -217,13 +226,17 @@ export function updatePath(current: StoreNode, path: any[], traversed: PropertyK
 
 export type DeepReadonly<T> = 0 extends 1 & T
   ? T
+  : T extends NotWrappable
+  ? T
   : {
-      readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepReadonly<T[K]>;
+      readonly [K in keyof T]: DeepReadonly<T[K]>;
     };
 export type DeepMutable<T> = 0 extends 1 & T
   ? T
+  : T extends NotWrappable
+  ? T
   : {
-      -readonly [K in keyof T]: T[K] extends NotWrappable ? T[K] : DeepMutable<T[K]>;
+      -readonly [K in keyof T]: DeepMutable<T[K]>;
     };
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
@@ -234,24 +247,31 @@ export type StoreSetter<T, U extends PropertyKey[] = []> =
   | ((
       prevState: DeepReadonly<T>,
       traversed: U
-    ) => DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+    ) => T | Partial<T> | DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+  | T
+  | Partial<T>
   | DeepReadonly<T>
   | Partial<DeepReadonly<T>>;
 
 export type Part<T, K extends KeyOf<T> = KeyOf<T>> = [K] extends [never]
   ? never // return never if key is never, else it'll return readonly never[] as well
-  : K | readonly K[] | (number extends K ? ArrayFilterFn<T[number]> | StorePathRange : never);
+  :
+      | K
+      | readonly K[]
+      | ([T] extends [readonly unknown[]] ? ArrayFilterFn<T[number]> | StorePathRange : never);
 
 // shortcut to avoid writing `Exclude<T, NotWrappable>` too many times
 type W<T> = Exclude<T, NotWrappable>;
 
 // specially handle keyof to avoid errors with arrays and any
-type KeyOf<T> = number extends keyof T
+type KeyOf<T> = number extends keyof T // have to check this otherwise ts won't allow KeyOf<T> to index T
   ? 0 extends 1 & T // if it's any just return keyof T
     ? keyof T
-    : [T] extends [never] // keyof never is PropertyKey which number extends; return never
-    ? never
-    : number // it's not any or never so it's an array or tuple; exclude the non-number properties
+    : [T] extends [readonly unknown[]]
+    ? number // it's an array or tuple; exclude the non-number properties
+    : [T] extends [never]
+    ? never // keyof never is PropertyKey which number extends; return never
+    : keyof T // it's something which contains an index signature for strings or numbers
   : keyof T;
 
 type Rest<T, U extends PropertyKey[]> =
@@ -352,6 +372,7 @@ export function createStore<T extends StoreNode>(
   options?: { name?: string }
 ): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap<T>(store || {});
+  const isArray = Array.isArray(unwrappedStore);
   if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
@@ -365,7 +386,11 @@ export function createStore<T extends StoreNode>(
     DEV.registerGraph(name, { value: unwrappedStore });
   }
   function setStore(...args: any[]): void {
-    batch(() => updatePath(unwrappedStore, args));
+    batch(() => {
+      isArray && args.length === 1
+        ? updateArray(unwrappedStore, unwrap(args[0]))
+        : updatePath(unwrappedStore, args);
+    });
   }
 
   return [wrappedStore, setStore];

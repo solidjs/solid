@@ -294,6 +294,22 @@ describe("Batch signals", () => {
       });
     });
   });
+
+  test("Multiple sets", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      createEffect(() => {
+        setA(1);
+        setA(0);
+      });
+      createComputed(() => (count = a()));
+      setTimeout(() => {
+        expect(count).toBe(0);
+        done();
+      });
+    });
+  });
 });
 
 describe("Typecheck computed and effects", () => {
@@ -503,8 +519,8 @@ describe("createDeferred", () => {
 describe("createSelector", () => {
   test("simple selection", done => {
     createRoot(() => {
-      const [s, set] = createSignal<number>(-1),
-        isSelected = createSelector<number, number>(s);
+      const [s, set] = createSignal<number>(),
+        isSelected = createSelector(s);
       let count = 0;
       const list = Array.from({ length: 100 }, (_, i) =>
         createMemo(() => {
@@ -524,6 +540,12 @@ describe("createSelector", () => {
         expect(count).toBe(2);
         expect(list[3]()).toBe("no");
         expect(list[6]()).toBe("selected");
+        set(undefined);
+        expect(count).toBe(3);
+        expect(list[6]()).toBe("no");
+        set(5);
+        expect(count).toBe(4);
+        expect(list[5]()).toBe("selected");
         done();
       });
     });
@@ -610,8 +632,8 @@ describe("runWithOwner", () => {
     });
 
     runWithOwner(owner, () => {
-      createEffect(() => effectRun = true);
-      onCleanup(() => cleanupRun = true);
+      createEffect(() => (effectRun = true));
+      onCleanup(() => (cleanupRun = true));
       expect(effectRun).toBe(false);
       expect(cleanupRun).toBe(false);
     });
@@ -623,13 +645,13 @@ describe("runWithOwner", () => {
 });
 
 describe("createReaction", () => {
-  test("Create and trigger a Reaction", (done) => {
+  test("Create and trigger a Reaction", done => {
     createRoot(() => {
       let count = 0;
       const [sign, setSign] = createSignal("thoughts");
       const track = createReaction(() => count++);
       expect(count).toBe(0);
-      track(sign)
+      track(sign);
       expect(count).toBe(0);
       setTimeout(() => {
         expect(count).toBe(0);
@@ -637,11 +659,11 @@ describe("createReaction", () => {
         expect(count).toBe(1);
         setSign("body");
         expect(count).toBe(1);
-        track(sign)
+        track(sign);
         setSign("everything");
         expect(count).toBe(2);
         done();
       });
     });
   });
-})
+});

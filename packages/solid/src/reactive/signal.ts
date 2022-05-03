@@ -1,12 +1,13 @@
 // Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
 
 import { requestCallback, Task } from "./scheduler";
-import { sharedConfig } from "../render/hydration";
+import { setHydrateContext, sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
 import type { FlowComponent, FlowProps } from "../render";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
+export const $TRACK = Symbol("solid-track");
 export const $DEVCOMP = Symbol("solid-dev-component");
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
@@ -125,9 +126,8 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
 
 export type Accessor<T> = () => T;
 
-export type Setter<T> = undefined extends T
-  ? <U extends T>(value?: (U extends Function ? never : U) | ((prev?: T) => U)) => U
-  : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;
+export type Setter<T> = (undefined extends T ? () => undefined : {}) &
+  (<U extends T>(value: Exclude<U, Function> | ((prev: T) => U)) => U);
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
@@ -174,7 +174,7 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
   if ("_SOLID_DEV_" && !options.internal)
     s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
 
-  const setter: Setter<T | undefined> = (value: unknown) => {
+  const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
       if (Transition && Transition.running && Transition.sources.has(s))
         value = value(s.pending !== NOTPENDING ? s.pending : s.tValue);
@@ -305,7 +305,7 @@ export function createEffect<Next, Init = Next>(
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
-  Effects ? Effects.push(c) : queueMicrotask(() => updateComputation(c));
+  Effects ? Effects.push(c) : updateComputation(c);
 }
 
 /**
@@ -407,9 +407,13 @@ export function createMemo<Next extends _Next, Init, _Next>(
 export interface Resource<T> extends Accessor<T> {
   loading: boolean;
   error: any;
+  latest: T | undefined;
 }
 
-export type ResourceActions<T> = { mutate: Setter<T>; refetch: (info?: unknown) => void };
+export type ResourceActions<T> = {
+  mutate: Setter<T>;
+  refetch: (info?: unknown) => T | Promise<T> | undefined | null;
+};
 
 export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
@@ -423,13 +427,11 @@ export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
-      globalRefetch?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
-      globalRefetch?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -492,14 +494,9 @@ export function createResource<T, S>(
     source = true as ResourceSource<S>;
   }
   options || (options = {});
-  if (options.globalRefetch !== false) {
-    Resources || (Resources = new Set());
-    Resources.add(load);
-    Owner && onCleanup(() => Resources.delete(load));
-  }
 
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal<T | undefined>(options.initialValue),
+    [value, setValue] = createSignal<T | undefined>(options.initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
@@ -510,7 +507,7 @@ export function createResource<T, S>(
     id: string | null = null,
     loadedUnderTransition = false,
     scheduled = false,
-    dynamic = typeof source === "function";
+    dynamic = typeof source === "function" && createMemo<S>(source as any);
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -540,7 +537,7 @@ export function createResource<T, S>(
   }
   function completeLoad(v: T) {
     batch(() => {
-      set(() => v);
+      setValue(() => v);
       setLoading(false);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -549,7 +546,7 @@ export function createResource<T, S>(
 
   function read() {
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
-      v = s();
+      v = value();
     if (err) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
@@ -569,10 +566,10 @@ export function createResource<T, S>(
     if (refetching && scheduled) return;
     scheduled = false;
     setError((err = undefined));
-    const lookup = dynamic ? (source as () => S)() : (source as S);
+    const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
-      loadEnd(pr, untrack(s)!);
+      loadEnd(pr, untrack(value)!);
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
@@ -580,7 +577,7 @@ export function createResource<T, S>(
       initP ||
       untrack(() =>
         (fetcher as ResourceFetcher<S, T>)(lookup, {
-          value: s(),
+          value: value(),
           refetching
         })
       );
@@ -610,16 +607,17 @@ export function createResource<T, S>(
       get() {
         return error();
       }
+    },
+    latest: {
+      get() {
+        if (err) throw err;
+        return value();
+      }
     }
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
-}
-
-let Resources: Set<(info: unknown) => any>;
-export function refetchResources(info?: unknown) {
-  return Resources && Promise.all([...Resources].map(fn => fn(info)));
+  return [read as Resource<T>, { refetch: load, mutate: setValue } as ResourceActions<T>];
 }
 
 export interface DeferredOptions<T> {
@@ -698,7 +696,7 @@ export function createSelector<T, U>(
     (p: T | undefined) => {
       const v = source();
       for (const key of subs.keys())
-        if (fn(key, v) !== (p !== undefined && fn(key, p))) {
+        if (fn(key, v) !== fn(key, p!)) {
           const l = subs.get(key)!;
           for (const c of l.values()) {
             c.state = STALE;
@@ -842,9 +840,9 @@ export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next,
   return (prevValue: Init | Next) => {
     let input: ReturnTypes<S>;
     if (isArray) {
-      input = [] as TODO;
-      for (let i = 0; i < deps.length; i++) (input as TODO[]).push((deps as Array<() => S>)[i]());
-    } else input = (deps as () => S)() as TODO;
+      input = Array(deps.length) as ReturnTypes<S>;
+      for (let i = 0; i < deps.length; i++) (input as TODO[])[i] = deps[i]();
+    } else input = (deps as () => S)() as ReturnTypes<S>;
     if (defer) {
       defer = false;
       // this aspect of first run on deferred is hidden from end user and should not affect types
@@ -1164,7 +1162,7 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
     (!runningTransition && (this as Memo<any>).state === STALE) ||
     (runningTransition && (this as Memo<any>).tState === STALE)
       ? updateComputation(this as Memo<any>)
-      : lookDownstream(this as Memo<any>);
+      : lookUpstream(this as Memo<any>);
     Updates = updates;
   }
   if (Listener) {
@@ -1189,15 +1187,15 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
 }
 
 export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isComp?: boolean) {
-  if (node.comparator) {
-    if (Transition && Transition.running && Transition.sources.has(node)) {
-      if (node.comparator(node.tValue, value)) return value;
-    } else if (node.comparator(node.value, value)) return value;
-  }
   if (Pending) {
     if (node.pending === NOTPENDING) Pending.push(node);
     node.pending = value;
     return value;
+  }
+  if (node.comparator) {
+    if (Transition && Transition.running && Transition.sources.has(node)) {
+      if (node.comparator(node.tValue, value)) return value;
+    } else if (node.comparator(node.value, value)) return value;
   }
   let TransitionRunning = false;
   if (Transition) {
@@ -1216,7 +1214,7 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
         if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
           if (o.pure) Updates!.push(o);
           else Effects!.push(o);
-          if ((o as Memo<any>).observers) markUpstream(o as Memo<any>);
+          if ((o as Memo<any>).observers) markDownstream(o as Memo<any>);
         }
         if (TransitionRunning) o.tState = STALE;
         else o.state = STALE;
@@ -1346,7 +1344,7 @@ function runTop(node: Computation<any>) {
     (!runningTransition && node.state === PENDING) ||
     (runningTransition && node.tState === PENDING)
   )
-    return lookDownstream(node);
+    return lookUpstream(node);
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const ancestors = [node];
@@ -1378,7 +1376,7 @@ function runTop(node: Computation<any>) {
     ) {
       const updates = Updates;
       Updates = null;
-      lookDownstream(node, ancestors[0]);
+      lookUpstream(node, ancestors[0]);
       Updates = updates;
     }
   }
@@ -1392,11 +1390,14 @@ function runUpdates<T>(fn: () => T, init: boolean) {
   else Effects = [];
   ExecCount++;
   try {
-    return fn();
+    const res = fn();
+    completeUpdates(wait);
+    return res;
   } catch (err) {
     handleError(err);
   } finally {
-    completeUpdates(wait);
+    Updates = null;
+    if (!wait) Effects = null;
   }
 }
 
@@ -1485,14 +1486,16 @@ function runUserEffects(queue: Computation<any>[]) {
     if (!e.user) runTop(e);
     else queue[userLength++] = e;
   }
+  if (sharedConfig.context) setHydrateContext();
   const resume = queue.length;
   for (i = 0; i < userLength; i++) runTop(queue[i]);
   for (i = resume; i < queue.length; i++) runTop(queue[i]);
 }
 
-function lookDownstream(node: Computation<any>, ignore?: Computation<any>) {
-  node.state = 0;
+function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
   const runningTransition = Transition && Transition.running;
+  if (runningTransition) node.tState = 0;
+  else node.state = 0;
   for (let i = 0; i < node.sources!.length; i += 1) {
     const source = node.sources![i] as Memo<any>;
     if (source.sources) {
@@ -1505,12 +1508,12 @@ function lookDownstream(node: Computation<any>, ignore?: Computation<any>) {
         (!runningTransition && source.state === PENDING) ||
         (runningTransition && source.tState === PENDING)
       )
-        lookDownstream(source, ignore);
+        lookUpstream(source, ignore);
     }
   }
 }
 
-function markUpstream(node: Memo<any>) {
+function markDownstream(node: Memo<any>) {
   const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.observers!.length; i += 1) {
     const o = node.observers![i];
@@ -1519,7 +1522,7 @@ function markUpstream(node: Memo<any>) {
       else o.state = PENDING;
       if (o.pure) Updates!.push(o);
       else Effects!.push(o);
-      (o as Memo<any>).observers && markUpstream(o as Memo<any>);
+      (o as Memo<any>).observers && markDownstream(o as Memo<any>);
     }
   }
 }
