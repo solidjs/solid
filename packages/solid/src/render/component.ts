@@ -31,17 +31,18 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
     ? JSX.IntrinsicElements[T]
     : {};
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+  if (props == null || typeof props !== "object") props = {} as T;
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
       setHydrateContext(nextHydrateContext());
-      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props as T));
+      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props));
       setHydrateContext(c);
       return r;
     }
   }
   if ("_SOLID_DEV_") return devComponent(Comp, props);
-  return untrack(() => Comp(props as T));
+  return untrack(() => Comp(props));
 }
 
 function trueFn() {
@@ -87,7 +88,7 @@ type UnboxIntersection<T> = T extends { 0: infer U } ? U : never;
 type MergeProps<T extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleTypes<T>>>;
 
 function resolveSource(s: any) {
-  return typeof s === "function" ? s() : s;
+  return (s = typeof s === "function" ? s() : s) == null || typeof s !== "object" ? {} : s;
 }
 
 export function mergeProps<T extends any[]>(...sources: T): MergeProps<T>;
