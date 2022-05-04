@@ -93,6 +93,6 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
   return wrappedStore;
 }
 
-export function modifyMutable<T extends U, U>(state: T, modifier: (state: U) => T) {
+export function modifyMutable<T>(state: T, modifier: (state: T) => T) {
   batch(() => modifier(unwrap(state)));
 }
