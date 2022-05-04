@@ -221,9 +221,11 @@ describe("setState with splice", () => {
     expect(Array.isArray(state.todos)).toBe(true);
     expect(state.todos[0].done).toBe(true);
     expect(state.todos[2].title).toBe("Go Home");
+    expect(state.todos.length).toBe(3);
     setState("todos", splice(0, 1));
     expect(state.todos[0].done).toBe(false);
     expect(state.todos[1].title).toBe("Go Home");
+    expect(state.todos.length).toBe(2);
   });
 
   test("Test Top-Level Array Mutation", () => {
@@ -240,9 +242,11 @@ describe("setState with splice", () => {
     expect(Array.isArray(state)).toBe(true);
     expect(state[0].done).toBe(true);
     expect(state[2].title).toBe("Go Home");
+    expect(state.length).toBe(3);
     setState(splice(0, 1));
     expect(state[0].done).toBe(false);
     expect(state[1].title).toBe("Go Home");
+    expect(state.length).toBe(2);
   });
 });
 

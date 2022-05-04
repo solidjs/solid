@@ -151,24 +151,25 @@ export function splice<T extends U, U>(
 ): (state: readonly U[]) => T[] {
   return state => {
     if (Array.isArray(state)) {
-      if (start < 0) start = start + state.length;
+      const length = state.length;
+      if (start < 0) start = start + length;
       if (deleteCount < 0) deleteCount = 0;
       const stop = start + deleteCount;
 
       if (deleteCount >= items.length) {
-        for (let i = stop; i < state.length; i++) {
+        for (let i = stop; i < length; i++) {
           setProperty(state, start + i - stop, state[i]);
         }
       } else {
         const offset = items.length - deleteCount;
-        for (let i = state.length - 1; i >= stop; i--) {
+        for (let i = length - 1; i >= stop; i--) {
           setProperty(state, i + offset, state[i]);
         }
       }
       for (let i = 0; i < items.length; i++) {
         setProperty(state, start + i, items[i]);
       }
-      setProperty(state, "length", state.length + items.length - deleteCount);
+      setProperty(state, "length", length + items.length - deleteCount);
     }
     return state as T[];
   };
