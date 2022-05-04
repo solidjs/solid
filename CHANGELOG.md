@@ -34,21 +34,6 @@ Suspense and Transitions are amazingly powerful feature but occasionally you wan
 
 Solid's Resources now support the case of being able to read the value without triggering Suspense if it has loaded previously by a `latest` property. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched). This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
 
-#### New Store Modifiers
-
-`splice` makes it easier to modify arrays without cloning:
-
-```js
-setState(splice(6, 2)); // remove 2 items at index 6
-
-setState(splice(0, 0, { id: 3, title: "Go Home", done: false })); // unshift an item to the front
-```
-
-`modifyMutable` applies modifiers batched to stores created with `createMutable`
-
-```js
-modifyMutable(state.data.user, reconcile({ firstName: "Jake", middleName: "R" }));
-```
 #### Combining multiple Custom Renderers
 
 The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is reponsible for. It will try to resolve them in order.
@@ -93,6 +78,12 @@ These were originally deferred to a microtask to resemble how effects are queued
 #### Sources in `createResource` are now Memos
 
 #### `createMutable` batches array methods like push, pop, etc..
+
+Dow these built-ins are batched and more performant. We've also add `modifyMutable` that applies modifiers batched to stores created with `createMutable`.
+
+```js
+modifyMutable(state.data.user, reconcile({ firstName: "Jake", middleName: "R" }));
+```
 
 ## 1.3.0 - 2022-01-05
 

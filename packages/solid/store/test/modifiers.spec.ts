@@ -5,7 +5,6 @@ import {
   reconcile,
   produce,
   unwrap,
-  splice,
   modifyMutable
 } from "../src";
 
@@ -203,50 +202,6 @@ describe("setState with produce", () => {
     expect(Array.isArray(state)).toBe(true);
     expect(state[1].done).toBe(true);
     expect(state[2].title).toBe("Go Home");
-  });
-});
-
-describe("setState with splice", () => {
-  test("Test Array Mutation", () => {
-    interface TodoState {
-      todos: { id: number; title: string; done: boolean }[];
-    }
-    const [state, setState] = createStore<TodoState>({
-      todos: [
-        { id: 1, title: "Go To Work", done: true },
-        { id: 2, title: "Eat Lunch", done: false }
-      ]
-    });
-    setState("todos", splice(2, 0, { id: 3, title: "Go Home", done: false }));
-    expect(Array.isArray(state.todos)).toBe(true);
-    expect(state.todos[0].done).toBe(true);
-    expect(state.todos[2].title).toBe("Go Home");
-    expect(state.todos.length).toBe(3);
-    setState("todos", splice(0, 1));
-    expect(state.todos[0].done).toBe(false);
-    expect(state.todos[1].title).toBe("Go Home");
-    expect(state.todos.length).toBe(2);
-  });
-
-  test("Test Top-Level Array Mutation", () => {
-    type TodoState = Array<{
-      id: number;
-      title: string;
-      done: boolean;
-    }>;
-    const [state, setState] = createStore<TodoState>([
-      { id: 1, title: "Go To Work", done: true },
-      { id: 2, title: "Eat Lunch", done: false }
-    ]);
-    setState(splice(2, 0, { id: 3, title: "Go Home", done: false }));
-    expect(Array.isArray(state)).toBe(true);
-    expect(state[0].done).toBe(true);
-    expect(state[2].title).toBe("Go Home");
-    expect(state.length).toBe(3);
-    setState(splice(0, 1));
-    expect(state[0].done).toBe(false);
-    expect(state[1].title).toBe("Go Home");
-    expect(state.length).toBe(2);
   });
 });
 
