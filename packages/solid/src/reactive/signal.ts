@@ -413,11 +413,13 @@ export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -1037,7 +1039,7 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
   };
 }
 
-export type ContextProviderComponent<T> = FlowComponent<{ value: T; }>;
+export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
 
 // Context API
 export interface Context<T> {
@@ -1594,7 +1596,7 @@ function resolveChildren(children: JSX.Element): ResolvedChildren {
 }
 
 function createProvider(id: symbol) {
-  return function provider(props: FlowProps<{ value: unknown; }>) {
+  return function provider(props: FlowProps<{ value: unknown }>) {
     let res;
     createComputed(
       () =>

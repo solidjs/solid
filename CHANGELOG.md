@@ -4,6 +4,21 @@
 
 ### New Features
 
+#### Resource Deferred Streaming
+
+Streaming brings a lot of performance benefits but it also comes with the tradeoff we need to respond with the headers before we can send any content. This means we must set the Response headers early if we want to benefit from streaming. While it's always possible to fetch first and delay rendering that slows down everything. Even our async server rendering doesn't block rendering but instead just waits to respond to the end.
+
+But what if you want to stream but also want to wait on some key data loading so you still have an opportunity to handle the response on the server before sending it to the browser?
+
+We now have the ability to tell Solid's stream renderer to wait for a resource before flushing the stream. That you can opt in by setting `deferStream` option.
+
+```js
+// fetches a user and streams content as soon as possible
+const [user] = createResource(() => params.id, fetchUser);
+
+// fetches a user but only streams content after this resource has loaded
+const [user] = createResource(() => params.id, fetchUser, { deferStream: true });
+```
 #### Top Level Arrays in Stores
 
 Since Stores were first introduced it has always bugged me that the most common case, creating a list required nesting it under a property to track properly. Thanks to some exploration into proxy traps and iteration we now support top level arrays. In addition to its other modes, the Store setter will accept an array which allows for common operations.
@@ -75,7 +90,13 @@ This primitive ended up being too general to be useful. There are enough cases w
 
 These were originally deferred to a microtask to resemble how effects are queued under a listener. However it is more correct to run immediate like everything else top level.
 
+### Better Types around Components
+
+This one took the effort of many resident TypeScript experts, but we've now landed on some better types for components. The biggest change is `Component` no longer has an opinion on whether it should have `children` or not. We've added supplementary types `ParentComponent` and `FlowComponent` to denote Components that may have `children` or always have `children`. And we've added `VoidComponent` for those which may never have children.
+
 #### Sources in `createResource` are now Memos
+
+A small change but it was unusual to have refetching trigger a reactive expression outside of a reactive context. Now on refetch it grabs the last source value rather than re-running it.
 
 #### `createMutable` batches array methods like push, pop, etc..
 

@@ -274,11 +274,13 @@ export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -373,7 +375,7 @@ export function createResource<T, S>(
     }
     if (p && "then" in p) {
       read.loading = true;
-      if (ctx.writeResource) ctx.writeResource(id, p);
+      if (ctx.writeResource) ctx.writeResource(id, p, undefined, options.deferStream);
       return p
         .then(res => {
           read.loading = false;
@@ -463,7 +465,7 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  writeResource?: (id: string, v: Promise<any> | any, error?: boolean) => void;
+  writeResource?: (id: string, v: Promise<any> | any, error?: boolean, deferStream?: boolean) => void;
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
