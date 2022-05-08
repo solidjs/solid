@@ -491,7 +491,7 @@ export function createResource<T, S>(
 
   let err: any = undefined,
     pr: Promise<T> | null = null,
-    initP: Promise<T> | null | undefined = null,
+    initP: Promise<T> | T | null | undefined = null,
     id: string | null = null,
     loadedUnderTransition = false,
     scheduled = false,
@@ -506,8 +506,8 @@ export function createResource<T, S>(
     if (pr === p) {
       pr = null;
       resolved = true;
-      if (initP && p === initP && options!.onHydrated)
-        options!.onHydrated(key!, { value: v } as ResourceFetcherInfo<T>);
+      if (initP && (p === initP || v === initP) && options!.onHydrated)
+        queueMicrotask(() => options!.onHydrated!(key!, { value: v } as ResourceFetcherInfo<T>));
       initP = null;
       setError((err = e));
       if (Transition && p && loadedUnderTransition) {
