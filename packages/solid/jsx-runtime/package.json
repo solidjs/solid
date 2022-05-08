@@ -1,0 +1,8 @@
+{
+  "name": "solid-js/jsx-runtime",
+  "main": "./dist/jsx.cjs",
+  "module": "./dist/jsx.js",
+  "types": "./types/index.d.ts",
+  "type": "module",
+  "sideEffects": false
+}

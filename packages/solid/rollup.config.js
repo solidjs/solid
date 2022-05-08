@@ -281,5 +281,20 @@ export default [
     ],
     external: ["solid-js/web"],
     plugins
+  },
+  {
+    input: "jsx-runtime/src/index.ts",
+    output: [
+      {
+        file: "jsx-runtime/dist/jsx.cjs",
+        format: "cjs"
+      },
+      {
+        file: "jsx-runtime/dist/jsx.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js", "solid-js/h"],
+    plugins
   }
 ];

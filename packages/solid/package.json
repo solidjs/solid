@@ -32,7 +32,8 @@
     "universal/dist",
     "universal/types",
     "types",
-    "jsx-runtime.d.ts"
+    "jsx-runtime/dist",
+    "jsx-runtime/types"
   ],
   "exports": {
     ".": {
@@ -116,7 +117,11 @@
       "import": "./html/dist/html.js",
       "require": "./html/dist/html.cjs"
     },
-    "./html/dist/*": "./html/dist/*"
+    "./html/dist/*": "./html/dist/*",
+    "./jsx-runtime": {
+      "import": "./html/dist/jsx.js",
+      "require": "./html/dist/jsx.cjs"
+    }
   },
   "scripts": {
     "prebuild": "npm run clean",
@@ -129,6 +134,7 @@
     "build:types-web": "tsc --project ./web/tsconfig.build.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",
     "build:types-h": "tsc --project ./h/tsconfig.json",
+    "build:types-jsx": "tsc --project ./jsx-runtime/tsconfig.json",
     "build:types-universal": "tsc --project ./universal/tsconfig.json",
     "bench": "node --allow-natives-syntax bench/bench.cjs",
     "test": "jest && npm run test:types",
