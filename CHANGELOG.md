@@ -47,7 +47,19 @@ The one caveat is downstream optimized control flow that untrack index reads on 
 
 Suspense and Transitions are amazingly powerful feature but occasionally you want to opt out of the consistency and show things out of date because it will show up faster and some of things you are waiting for are not as high priority. In so you want the Transition to end sooner, but not necessarily stop showing the stale data for part of the screen. It is still preferable to receding back to loading spinner state.
 
-Solid's Resources now support the case of being able to read the value without triggering Suspense if it has loaded previously by a `latest` property. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched). This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
+Solid's Resources now support being able to read the value without triggering Suspense. As long as it has loaded previously `latest` property won't cause fallback appear or Transitions to hold. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched) and will reactively update. This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
+
+```js
+const [resource] = createResource(source, fetcher)
+
+// read it as usual
+resource();
+
+// read the latest (don't suspend if loaded at least once)
+resource.latest;
+```
+
+Example: https://codesandbox.io/s/solid-stale-resource-y3fy4l
 
 #### Combining multiple Custom Renderers
 
@@ -74,16 +86,6 @@ let solidConfig = {
 };
 ```
 
-### Removals and Deprecations
-
-#### `className`, `htmlFor` deprecated
-
-While they still work for now, Solid will remove support for these React-isms in a future version. They leave us with multiple ways to set the same attribute. This is problematic for trying to merge them. Solid updates independently so it is too easy for these things to trample on each other. Also when optimizing for compilation since with things like Spreads you can't know if the property is present, Solid has to err on the side of caution. This means more code and less performance.
-
-#### Experimental `refetchResources` removed
-
-This primitive ended up being too general to be useful. There are enough cases we can't rely on the refetch everything by default mentality. For that reason we are dropping support of this experimental feature.
-
 ### Improvements/Fixes
 
 #### Synchronous Top Level `createEffect`
@@ -105,6 +107,37 @@ Dow these built-ins are batched and more performant. We've also add `modifyMutab
 ```js
 modifyMutable(state.data.user, reconcile({ firstName: "Jake", middleName: "R" }));
 ```
+
+#### Better Support for React JSX transform
+
+We have added support to `solid-js/h` to support the new React JSX transform. You can use it directly in TypeScript by using:
+```json
+{
+  "jsx": "react-jsx",
+  "jsxImportSource": "solid-js/h"
+}
+```
+Keep in mind this has all the consequences of not using the custom transform. It means larger library code, slower performance, and worse ergonomics. Remember to wrap your reactive expressions in functions.
+
+#### HyperScript now returns functions
+
+This one is a potentially breaking change, but the current behavior was broken. It was possible(and common) for children to be created before the parents the way JSX worked. This was an oversight on my original design that needs to be fixed, as it breaks context, and disposal logic. So now when you get your results back from `h` you need to call it. Solid's `render` function will handle this automatically.
+
+```js
+const getDiv = h("div", "Hello");
+
+document.body.appendChild(getDiv()); // call as a function to have it create the element.
+```
+
+### Removals and Deprecations
+
+#### `className`, `htmlFor` deprecated
+
+While they still work for now, Solid will remove support for these React-isms in a future version. They leave us with multiple ways to set the same attribute. This is problematic for trying to merge them. Solid updates independently so it is too easy for these things to trample on each other. Also when optimizing for compilation since with things like Spreads you can't know if the property is present, Solid has to err on the side of caution. This means more code and less performance.
+
+#### Experimental `refetchResources` removed
+
+This primitive ended up being too general to be useful. There are enough cases we can't rely on the refetch everything by default mentality. For that reason we are dropping support of this experimental feature.
 
 ## 1.3.0 - 2022-01-05
 
