@@ -373,7 +373,7 @@ export function createResource<T, S>(
       if (lookup == null || lookup === false) return;
       p = (fetcher as ResourceFetcher<S, T>)(lookup, { value });
     }
-    if (p && "then" in p) {
+    if (p != undefined && typeof p === "object" && "then" in p) {
       read.loading = true;
       if (ctx.writeResource) ctx.writeResource(id, p, undefined, options.deferStream);
       return p
@@ -392,6 +392,7 @@ export function createResource<T, S>(
         });
     }
     ctx.resources[id].data = p;
+    if (ctx.writeResource) ctx.writeResource(id, p);
     p = null;
     return ctx.resources[id].data;
   }
