@@ -943,6 +943,7 @@ export function startTransition(fn: () => unknown): Promise<void> {
       t.running = true;
     }
     batch(fn);
+    Listener = Owner = null;
     return t ? t.done : undefined;
   });
 }
