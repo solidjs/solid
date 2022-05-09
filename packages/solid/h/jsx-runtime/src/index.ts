@@ -1,6 +1,6 @@
 import h from "solid-js/h";
-export type { JSX } from "solid-js";
-import type { JSX } from "solid-js";
+export type { JSX } from "./jsx";
+import type { JSX } from "./jsx";
 
 function Fragment(props: { children: JSX.Element }) {
   return props.children;

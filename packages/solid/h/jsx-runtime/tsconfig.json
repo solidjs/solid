@@ -1,10 +1,10 @@
 {
-  "extends": "../../../tsconfig.json",
+  "extends": "../../../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./types",
     "baseUrl": "src",
     "paths": {
-      "solid-js/h": ["../../h"]
+      "solid-js/h": [".."]
     }
   },
   "include": ["./src"]
