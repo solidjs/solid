@@ -28,7 +28,9 @@ Solid is a declarative JavaScript library for creating user interfaces. Instead 
 - Universal: write [custom renderers](https://github.com/solidjs/solid/releases/tag/v1.2.0) to use Solid anywhere
 - A growing community and ecosystem with active core team support
 
-## Quick Start
+<details>
+ 
+<summary>Quick Start</summary>
 
 You can get started with a simple app by running the following in your terminal:
 
@@ -70,6 +72,8 @@ For TypeScript to work, remember to set your `.tsconfig` to handle Solid's JSX:
   "jsxImportSource": "solid-js",
 }
 ```
+</details>
+
 
 ## Why Solid?
 
@@ -86,7 +90,8 @@ Do more with less: use simple, composable primitives without hidden rules and go
 Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://hope-ui.com/), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
 
 
-## Show Me
+<details>
+<summary>Show Me!</summary>
 
 ```jsx
 import { render } from "solid-js/web";
@@ -154,13 +159,16 @@ render(() => createComponent(Counter, {
 
 delegateEvents(["click"]);
 ```
+</details>
+
+
 ## More
 
 Check out our official [documentation](https://www.solidjs.com/guide) or browse some [examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
 
 ## Browser Support
 
-Solid supports last 2 versions of modern evergreen browsers and Node LTS.
+SolidJS Core is committed to supporting the last 2 years of modern browsers including Firefox, Safari, Chrome and Edge (for desktop and mobile devices). We do not support IE or similar sunset browsers. For server environments, we support Node LTS and the latest Deno and Cloudflare Worker runtimes.
 
 <img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
 
