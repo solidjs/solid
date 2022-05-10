@@ -12,14 +12,14 @@
 
 **[Website](https://www.solidjs.com/) • [API Docs](https://www.solidjs.com/docs/latest/api) • [Features Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Playground](https://playground.solidjs.com/?version=1.3.13#NobwRAdghgtgpmAXGGUCWEwBowBcCeADgsrgM4Ae2YZA9gK4BOAxiWGjIbY7gAQi9GcCABM4jXgF9eAM0a0YvADo1aAGzQiAtACsyAegDucAEYqA3EogcuPfr2ZCouOAGU0Ac2hqps+YpU6DW09CysrGXoIZlw0WgheAGEGCBdGAAoASn4rXgd4sj5gZhTcLF4yOFxkqNwAXV4AXgcnF3cvKDV0gAZMywT8iELeDEc4eFSm3iymgD4KqprU9JLamYBqXgBGPvCBoVwmBPTcvN4AHhN6XFx43gJiRpUrm-iVXnjEjWYAa0aQUZCCa4SSzU5nfirZaZSTgi76F63CBgga7CCwiBWISicTpGaNebnJZpXj6WblES0Zj0YEAOg8VQAompxsJcAAhfAASREJzAUEIhBUmTRYEkdSAA) • [Discord](https://discord.com/invite/solidjs)**
 
-Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [Why Solid? video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
+Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [intro video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
 
 ## Key Features
 - Fine-grained updates to the real DOM
 - Declarative data: model your state as a system with reactive primitives
 - Render-once mental model: your components are regular JavaScript functions that run once to set up your view
 - Automatic dependency tracking: accessing your reactive state subscribes to it
-- [Small](https://dev.to/this-is-learning/javascript-framework-todomvc-size-comparison-504f) and [fast](https://github.com/krausest/js-framework-benchmark)
+- [Small](https://dev.to/this-is-learning/javascript-framework-todomvc-size-comparison-504f) and [fast](https://krausest.github.io/js-framework-benchmark/current.html)
 - Simple: learn a few powerful concepts that can be reused, combined, and built on top of
 - Provides modern framework features like JSX, fragments, Context, Portals, Suspense, streaming SSR, progressive hydration, Error Boundaries and concurrent rendering.
 - Naturally debuggable: A `<div>` is a real div, so you can use your browser's devtools to inspect the rendering
