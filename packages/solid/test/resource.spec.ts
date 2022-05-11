@@ -9,7 +9,7 @@ import {
   ResourceFetcherInfo,
 } from "../src";
 
-import { createStore, reconcile, Store } from "../store/src";
+import { createStore, reconcile, Store, unwrap } from "../store/src";
 
 global.queueMicrotask = (fn) => Promise.resolve().then(fn);
 
@@ -112,7 +112,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     resolve(data[0]);
     await Promise.resolve();
     await Promise.resolve();
-    expect(state.user).toStrictEqual(data[0]);
+    expect(unwrap(state.user)).toStrictEqual(data[0]);
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
 
@@ -121,9 +121,9 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     resolve(data[1]);
     await Promise.resolve();
     await Promise.resolve();
-    expect(state.user).toStrictEqual(data[0]);
+    expect(unwrap(state.user)).toStrictEqual(data[0]);
     expect(state.user!.firstName).toBe("Joseph");
-    expect(state.user!.address).toStrictEqual(data[0].address);
+    expect(unwrap(state.user!.address)).toStrictEqual(data[0].address);
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
     done();

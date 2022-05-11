@@ -4,7 +4,7 @@ import {
   isWrappable,
   getDataNodes,
   trackSelf,
-  createDataNode,
+  getDataNode,
   $RAW,
   $NODE,
   $NAME,
@@ -18,16 +18,21 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    const value = target[property];
-    if (property === $NODE || property === "__proto__") return value;
     if (property === $TRACK) return trackSelf(target);
+    const nodes = getDataNodes(target);
+    const tracked = nodes[property];
+    let value = tracked ? nodes[property]() : target[property];
+    if (property === $NODE || property === "__proto__") return value;
 
-    if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      const nodes = getDataNodes(target);
-      (nodes[property] || (nodes[property] = createDataNode()))();
-    } else if (value != null && typeof value === "function" && value === Array.prototype[property as any]) {
-      return (...args: unknown[]) =>
-        batch(() => Array.prototype[property as any].apply(receiver, args));
+    if (!tracked) {
+      const desc = Object.getOwnPropertyDescriptor(target, property);
+      const isFunction = typeof value !== "function";
+      if (getListener() && (isFunction || target.hasOwnProperty(property)) && !(desc && desc.get))
+        value = getDataNode(nodes, property, value)();
+      else if (value != null && isFunction && value === Array.prototype[property as any]) {
+        return (...args: unknown[]) =>
+          batch(() => Array.prototype[property as any].apply(receiver, args));
+      }
     }
     return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)

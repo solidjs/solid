@@ -80,6 +80,10 @@ export function getDataNodes(target: StoreNode) {
   return nodes;
 }
 
+export function getDataNode(nodes: Record<string, any>, property: string | symbol, value: any) {
+  return nodes[property as string] || (nodes[property as string] = createDataNode(value, true));
+}
+
 export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
   if (
@@ -109,23 +113,40 @@ export function ownKeys(target: StoreNode) {
   return Reflect.ownKeys(target);
 }
 
-export function createDataNode() {
-  const [s, set] = createSignal<void>(undefined, { equals: false, internal: true });
-  (s as Accessor<void> & { $: () => void }).$ = set;
-  return s as Accessor<void> & { $: () => void };
+function createDataNode(value?: any, equals?: boolean) {
+  const [s, set] = createSignal<any>(
+    value,
+    equals
+      ? {
+          internal: true
+        }
+      : {
+          equals: false,
+          internal: true
+        }
+  );
+  (s as Accessor<any> & { $: (v: any) => void }).$ = set;
+  return s as Accessor<any> & { $: (v: any) => void };
 }
 
 const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    const value = target[property];
-    if (property === $NODE || property === "__proto__") return value;
     if (property === $TRACK) return trackSelf(target);
+    const nodes = getDataNodes(target);
+    const tracked = nodes[property];
+    let value = tracked ? nodes[property]() : target[property];
+    if (property === $NODE || property === "__proto__") return value;
 
-    if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      const nodes = getDataNodes(target);
-      (nodes[property] || (nodes[property] = createDataNode()))();
+    if (!tracked) {
+      const desc = Object.getOwnPropertyDescriptor(target, property);
+      if (
+        getListener() &&
+        (typeof value !== "function" || target.hasOwnProperty(property)) &&
+        !(desc && desc.get)
+      )
+        value = getDataNode(nodes, property, value)();
     }
     return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
@@ -149,15 +170,17 @@ const proxyTraps: ProxyHandler<StoreNode> = {
 
 export function setProperty(state: StoreNode, property: PropertyKey, value: any) {
   if (state[property] === value) return;
-  const array = Array.isArray(state);
+  const prev = state[property];
   const len = state.length;
   if (value === undefined) {
     delete state[property];
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  (node = nodes[property]) && node.$();
-  if (array && state.length !== len) (node = nodes.length) && node.$();
+  if ((node = getDataNode(nodes, property as string, prev))) node.$(() => value);
+
+  if (Array.isArray(state) && state.length !== len)
+    (node = getDataNode(nodes, "length", len)) && node.$(state.length);
   (node = nodes._) && node.$();
 }
 

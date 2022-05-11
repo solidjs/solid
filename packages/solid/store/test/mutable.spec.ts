@@ -1,4 +1,4 @@
-import { createRoot, createSignal, createComputed, createMemo } from "../../src";
+import { createRoot, createSignal, createComputed, createMemo, batch } from "../../src";
 import { createMutable, unwrap, $RAW } from "../src";
 
 describe("State Mutablity", () => {
@@ -232,3 +232,33 @@ describe("State wrapping", () => {
     expect(state.time).toBe(date);
   });
 });
+
+describe("Batching", () => {
+  test("Respects batch", () => {
+    const state = createMutable({ data: 1 });
+    batch(() => {
+      expect(state.data).toBe(1);
+      state.data = 2;
+      expect(state.data).toBe(1);
+    })
+    expect(state.data).toBe(2);
+  });
+  test("Respects batch in array", () => {
+    const state = createMutable([1]);
+    batch(() => {
+      expect(state[0]).toBe(1);
+      state[0] = 2;
+      expect(state[0]).toBe(1);
+    })
+    expect(state[0]).toBe(2);
+  });
+  test("Respects batch in array mutate", () => {
+    const state = createMutable([1]);
+    batch(() => {
+      expect(state.length).toBe(1);
+      state[1] = 2;
+      expect(state.length).toBe(1);
+    })
+    expect(state.length).toBe(2);
+  })
+})
