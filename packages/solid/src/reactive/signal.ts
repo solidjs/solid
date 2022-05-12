@@ -770,17 +770,21 @@ export function untrack<T>(fn: Accessor<T>): T {
   return result;
 }
 
-export type ReturnTypes<T> = T extends (() => any)[]
-  ? { [I in keyof T]: ReturnTypes<T[I]> }
-  : T extends () => any
-  ? ReturnType<T>
+/** @deprecated */
+export type ReturnTypes<T> = T extends readonly Accessor<unknown>[]
+  ? { [K in keyof T]: T[K] extends Accessor<infer I> ? I : never }
+  : T extends Accessor<infer I>
+  ? I
   : never;
+
+// transforms a tuple to a tuple of accessors in a way that allows generics to be inferred
+export type AccessorArray<T> = [...Extract<{ [K in keyof T]: Accessor<T[K]> }, readonly unknown[]>];
 
 // Also similar to EffectFunction
 export type OnEffectFunction<S, Prev, Next extends Prev = Prev> = (
-  input: ReturnTypes<S>,
-  prevInput: ReturnTypes<S>,
-  v: Prev
+  input: S,
+  prevInput: S | undefined,
+  prev: Prev
 ) => Next;
 
 export interface OnOptions {
@@ -790,11 +794,11 @@ export interface OnOptions {
 /**
  * on - make dependencies of a computation explicit
  * ```typescript
- * export function on<T extends Array<() => any> | (() => any), U>(
- *   deps: T | T[],
- *   fn: (input: T, prevInput: T, prevValue?: U) => U,
+ * export function on<S, U>(
+ *   deps: Accessor<S> | AccessorArray<S>,
+ *   fn: (input: S, prevInput: S | undefined, prevValue: U | undefined) => U,
  *   options?: { defer?: boolean } = {}
- * ): (prevValue?: U) => U | undefined;
+ * ): (prevValue: U | undefined) => U;
  * ```
  * @param deps list of reactive dependencies or a single reactive dependency
  * @param fn computation on input; the current previous content(s) of input and the previous value are given as arguments and it returns a new value
@@ -813,33 +817,35 @@ export interface OnOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#on
  */
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next, Init = unknown>(
-  deps: S,
-  fn: OnEffectFunction<S, Init | Next, Next>,
-  // value: Init,
+export function on<S, Next extends Prev, Prev = Next>(
+  deps: AccessorArray<S> | Accessor<S>,
+  fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
+  options?: OnOptions & { defer?: false }
+): EffectFunction<undefined | NoInfer<Next>, NoInfer<Next>>;
+export function on<S, Next extends Prev, Prev = Next>(
+  deps: AccessorArray<S> | Accessor<S>,
+  fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
+  options: OnOptions & { defer: true }
+): EffectFunction<undefined | NoInfer<Next>>;
+export function on<S, Next extends Prev, Prev = Next>(
+  deps: AccessorArray<S> | Accessor<S>,
+  fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
   options?: OnOptions
-): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>>;
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next, Init = unknown>(
-  deps: S,
-  fn: OnEffectFunction<S, Init | Next, Next>,
-  // value: Init,
-  options?: OnOptions
-): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>> {
+): EffectFunction<undefined | NoInfer<Next>> {
   const isArray = Array.isArray(deps);
-  let prevInput: ReturnTypes<S>;
+  let prevInput: S;
   let defer = options && options.defer;
-  return (prevValue: Init | Next) => {
-    let input: ReturnTypes<S>;
+  return prevValue => {
+    let input: S;
     if (isArray) {
-      input = Array(deps.length) as ReturnTypes<S>;
-      for (let i = 0; i < deps.length; i++) (input as TODO[])[i] = deps[i]();
-    } else input = (deps as () => S)() as ReturnTypes<S>;
+      input = Array(deps.length) as unknown as S;
+      for (let i = 0; i < deps.length; i++) (input as unknown as TODO[])[i] = deps[i]();
+    } else input = deps();
     if (defer) {
       defer = false;
-      // this aspect of first run on deferred is hidden from end user and should not affect types
-      return undefined as unknown as Next;
+      return undefined;
     }
-    const result = untrack<Next>(() => fn(input, prevInput, prevValue));
+    const result = untrack(() => fn(input, prevInput, prevValue));
     prevInput = input;
     return result;
   };

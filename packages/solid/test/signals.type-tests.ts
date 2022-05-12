@@ -649,17 +649,66 @@ Accessor<number> = asdf;
 // on ////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
-const one = () => 123;
+const one = (): number => 123;
 const two = () => Boolean(Math.random());
-const ef = on([one, two], ([one, two], [prevOne, prevTwo], computed): number => {
-  const _one: number = one;
-  const _two: boolean = two;
-  const _prevone: number = prevOne;
-  const _prevtwo: boolean = prevTwo;
-  // @ts-expect-error FIXME computed type is unknown, should be `number`.
-  const _computed: number = computed;
-  return one + +two;
-});
+createEffect(
+  on(
+    (): [number, boolean] => [1, true],
+    (input, prevInput, prev) => {
+      const [one, two]: [number, boolean] = input;
+      if (prevInput) {
+        const [prevOne, prevTwo]: [number, boolean] = prevInput;
+      }
+      // @ts-expect-error FIXME computed type is unknown, should be `number`.
+      const _prev: number = prev;
+      return one + +two;
+    }
+  )
+);
+const onMemo1 = createMemo(
+  on([one, two], (input, prevInput, prev) => {
+    const [one, two]: [number, boolean] = input;
+    if (prevInput) {
+      const [prevOne, prevTwo]: [number, boolean] = prevInput;
+    }
+    // @ts-expect-error FIXME computed type is unknown, should be `number`.
+    const _prev: number = prev;
+    return one + +two;
+  })
+);
+const onMemo2: Accessor<number> = onMemo1;
+createEffect(
+  on(
+    [one, two],
+    (input, prevInput, prev) => {
+      const [one, two]: [number, boolean] = input;
+      if (prevInput) {
+        const [prevOne, prevTwo]: [number, boolean] = prevInput;
+      }
+      // @ts-expect-error FIXME computed type is unknown, should be `number`.
+      const _prev: number = prev;
+      return one + +two;
+    },
+    { defer: true }
+  )
+);
+const onMemo3 = createMemo(
+  on(
+    [one, two],
+    (input, prevInput, prev) => {
+      const [one, two]: [number, boolean] = input;
+      if (prevInput) {
+        const [prevOne, prevTwo]: [number, boolean] = prevInput;
+      }
+      // @ts-expect-error FIXME computed type is unknown, should be `number`.
+      const _prev: number = prev;
+      return one + +two;
+    },
+    { defer: true }
+  )
+);
+// @ts-expect-error when deferred the type includes undefined
+const onMemo4: Accessor<number> = onMemo3;
 
 //////////////////////////////////////////////////////////////////////////
 // variations of signal types ////////////////////////////////////////////
