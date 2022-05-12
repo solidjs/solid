@@ -791,6 +791,12 @@ const sf14: (() => number) | string | undefined = stringOrFunc2();
 // @ts-expect-error return value might be undefined
 const sf15: (() => number) | string = stringOrFunc2();
 
+const [stringOrNumber, setStringOrNumber] = createSignal<string | number>(1);
+setStringOrNumber(1 as number | string);
+setStringOrNumber(1);
+setStringOrNumber("" as number | string);
+setStringOrNumber("");
+
 function createGenericSignal<T>(): Signal<T | undefined> {
   const [generic, setGeneric] = createSignal<T>();
   const customSet: Setter<T | undefined> = (v?) => setGeneric(v);
