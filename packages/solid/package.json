@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "1.3.17",
+  "version": "1.4.0-beta.6",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -27,6 +27,8 @@
     "web/types",
     "h/dist",
     "h/types",
+    "h/jsx-runtime/dist",
+    "h/jsx-runtime/types",
     "html/dist",
     "html/types",
     "universal/dist",
@@ -111,6 +113,10 @@
       "import": "./h/dist/h.js",
       "require": "./h/dist/h.cjs"
     },
+    "./h/jsx-runtime": {
+      "import": "./h/dist/jsx.js",
+      "require": "./h/dist/jsx.cjs"
+    },
     "./h/dist/*": "./h/dist/*",
     "./html": {
       "import": "./html/dist/html.js",
@@ -120,15 +126,16 @@
   },
   "scripts": {
     "prebuild": "npm run clean",
-    "clean": "rimraf dist/ types/ coverage/ store/dist/ store/types/ web/dist/ web/types/ h/dist/ h/types/ html/dist/ html/types/",
+    "clean": "rimraf dist/ types/ coverage/ store/dist/ store/types/ web/dist/ web/types/ h/dist/ h/types/ h/jsx-runtime/dist h/jsx-runtime/types html/dist/ html/types/",
     "build": "npm-run-all -cnl build:*",
     "build:link": "symlink-dir . node_modules/solid-js",
-    "build:js": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && rollup -c",
+    "build:js": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./h/jsx-runtime/src/jsx.d.ts && rollup -c",
     "build:types": "tsc --project ./tsconfig.build.json",
     "build:types-store": "tsc --project ./store/tsconfig.build.json && tsconfig-replace-paths --project ./store/tsconfig.types.json",
     "build:types-web": "tsc --project ./web/tsconfig.build.json && tsconfig-replace-paths --project ./web/tsconfig.types.json",
     "build:types-html": "tsc --project ./html/tsconfig.json",
     "build:types-h": "tsc --project ./h/tsconfig.json",
+    "build:types-jsx": "tsc --project ./h/jsx-runtime/tsconfig.json",
     "build:types-universal": "tsc --project ./universal/tsconfig.json",
     "bench": "node --allow-natives-syntax bench/bench.cjs",
     "test": "jest && npm run test:types",

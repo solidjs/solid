@@ -1,4 +1,13 @@
-import { createRoot, createSignal, createComputed, createMemo, on } from "../../src";
+import {
+  createRoot,
+  createSignal,
+  createComputed,
+  createMemo,
+  batch,
+  on,
+  untrack,
+  mapArray
+} from "../../src";
 import { createStore, unwrap, $RAW, NotWrappable } from "../src";
 
 describe("State immutablity", () => {
@@ -111,6 +120,19 @@ describe("Simple setState modes", () => {
   });
 
   test("Test Array", () => {
+    const [todos, setTodos] = createStore([
+      { id: 1, title: "Go To Work", done: true },
+      { id: 2, title: "Eat Lunch", done: false }
+    ]);
+    setTodos(1, { done: true });
+    setTodos([...todos, { id: 3, title: "Go Home", done: false }]);
+    setTodos(t => [...t.slice(1)]);
+    expect(Array.isArray(todos)).toBe(true);
+    expect(todos[0].done).toBe(true);
+    expect(todos[1].title).toBe("Go Home");
+  });
+
+  test("Test Array Nested", () => {
     const [state, setState] = createStore({
       todos: [
         { id: 1, title: "Go To Work", done: true },
@@ -127,69 +149,60 @@ describe("Simple setState modes", () => {
 
 describe("Array setState modes", () => {
   test("Update Specific", () => {
-    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", [1, 3], (r, t) => {
+    const [state, setState] = createStore([1, 2, 3, 4, 5]);
+    setState([1, 3], (r, t) => {
       // @ts-ignore traversed types are wrong and incomplete
       expect(typeof t[0]).toBe("number");
-      // @ts-ignore
-      expect(t[1]).toBe("rows");
       return r * 2;
     });
-    expect(state.rows[0]).toBe(1);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(3);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(5);
-    expect(Object.keys(state.rows)).toStrictEqual(["0", "1", "2", "3", "4"]);
+    expect(state[0]).toBe(1);
+    expect(state[1]).toBe(4);
+    expect(state[2]).toBe(3);
+    expect(state[3]).toBe(8);
+    expect(state[4]).toBe(5);
+    expect(Object.keys(state)).toStrictEqual(["0", "1", "2", "3", "4"]);
   });
   test("Update filterFn", () => {
-    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
+    const [state, setState] = createStore([1, 2, 3, 4, 5]);
     setState(
-      "rows",
       (r, i) => Boolean(i % 2),
       (r, t) => {
         // @ts-ignore
         expect(typeof t[0]).toBe("number");
-        // @ts-ignore
-        expect(t[1]).toBe("rows");
         return r * 2;
       }
     );
-    expect(state.rows[0]).toBe(1);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(3);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(5);
+    expect(state[0]).toBe(1);
+    expect(state[1]).toBe(4);
+    expect(state[2]).toBe(3);
+    expect(state[3]).toBe(8);
+    expect(state[4]).toBe(5);
   });
   test("Update traversal range", () => {
-    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", { from: 1, to: 4, by: 2 }, (r, t) => {
+    const [state, setState] = createStore([1, 2, 3, 4, 5]);
+    setState({ from: 1, to: 4, by: 2 }, (r, t) => {
       // @ts-ignore
       expect(typeof t[0]).toBe("number");
-      // @ts-ignore
-      expect(t[1]).toBe("rows");
       return r * 2;
     });
-    expect(state.rows[0]).toBe(1);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(3);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(5);
+    expect(state[0]).toBe(1);
+    expect(state[1]).toBe(4);
+    expect(state[2]).toBe(3);
+    expect(state[3]).toBe(8);
+    expect(state[4]).toBe(5);
   });
   test("Update traversal range defaults", () => {
-    const [state, setState] = createStore({ rows: [1, 2, 3, 4, 5] });
-    setState("rows", {}, (r, t) => {
+    const [state, setState] = createStore([1, 2, 3, 4, 5]);
+    setState({}, (r, t) => {
       // @ts-ignore
       expect(typeof t[0]).toBe("number");
-      // @ts-ignore
-      expect(t[1]).toBe("rows");
       return r * 2;
     });
-    expect(state.rows[0]).toBe(2);
-    expect(state.rows[1]).toBe(4);
-    expect(state.rows[2]).toBe(6);
-    expect(state.rows[3]).toBe(8);
-    expect(state.rows[4]).toBe(10);
+    expect(state[0]).toBe(2);
+    expect(state[1]).toBe(4);
+    expect(state[2]).toBe(6);
+    expect(state[3]).toBe(8);
+    expect(state[4]).toBe(10);
   });
 });
 
@@ -275,7 +288,140 @@ describe("Tracking State changes", () => {
     });
   });
 
-  test("Tracking Object key addition/removal", () => {
+  test("Tracking Top-Level Array iteration", () => {
+    createRoot(() => {
+      const [state, setState] = createStore(["hi"]);
+      let executionCount = 0;
+      let executionCount2 = 0;
+      let executionCount3 = 0;
+
+      createComputed(() => {
+        for (let i = 0; i < state.length; i++) state[i];
+        untrack(() => {
+          if (executionCount === 0) expect(state.length).toBe(1);
+          else if (executionCount === 1) {
+            expect(state.length).toBe(2);
+            expect(state[1]).toBe("item");
+          } else if (executionCount === 2) {
+            expect(state.length).toBe(2);
+            expect(state[1]).toBe("new");
+          } else if (executionCount === 3) {
+            expect(state.length).toBe(1);
+          } else {
+            // should never get here
+            expect(executionCount).toBe(-1);
+          }
+        });
+        executionCount++;
+      });
+
+      createComputed(() => {
+        for (const item of state);
+        untrack(() => {
+          if (executionCount2 === 0) expect(state.length).toBe(1);
+          else if (executionCount2 === 1) {
+            expect(state.length).toBe(2);
+            expect(state[1]).toBe("item");
+          } else if (executionCount2 === 2) {
+            expect(state.length).toBe(2);
+            expect(state[1]).toBe("new");
+          } else if (executionCount2 === 3) {
+            expect(state.length).toBe(1);
+          } else {
+            // should never get here
+            expect(executionCount2).toBe(-1);
+          }
+        });
+        executionCount2++;
+      });
+
+      const mapped = mapArray(
+        () => state,
+        item => item
+      );
+      createComputed(() => {
+        mapped();
+        untrack(() => {
+          if (executionCount3 === 0) expect(state.length).toBe(1);
+          else if (executionCount3 === 1) {
+            expect(state.length).toBe(2);
+            expect(state[1]).toBe("item");
+          } else if (executionCount3 === 2) {
+            expect(state.length).toBe(2);
+            expect(state[1]).toBe("new");
+          } else if (executionCount3 === 3) {
+            expect(state.length).toBe(1);
+          } else {
+            // should never get here
+            expect(executionCount3).toBe(-1);
+          }
+        });
+        executionCount3++;
+      });
+
+      // add
+      setState(1, "item");
+
+      // update
+      setState(1, "new");
+
+      // delete
+      setState(s => [s[0]]);
+    });
+    expect.assertions(18);
+  });
+
+  test("Tracking iteration Object key addition/removal", () => {
+    createRoot(() => {
+      const [state, setState] = createStore<{ obj: { item?: number } }>({ obj: {} });
+      let executionCount = 0;
+      let executionCount2 = 0;
+
+      createComputed(() => {
+        const keys = Object.keys(state.obj);
+        if (executionCount === 0) expect(keys.length).toBe(0);
+        else if (executionCount === 1) {
+          expect(keys.length).toBe(1);
+          expect(keys[0]).toBe("item");
+        } else if (executionCount === 2) {
+          expect(keys.length).toBe(0);
+        } else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      });
+
+      createComputed(() => {
+        for (const key in state.obj) {
+          key;
+        }
+        const u = unwrap(state.obj);
+        if (executionCount2 === 0) expect(u.item).toBeUndefined();
+        else if (executionCount2 === 1) {
+          expect(u.item).toBe(5);
+        } else if (executionCount2 === 2) {
+          expect(u.item).toBeUndefined();
+        } else {
+          // should never get here
+          expect(executionCount2).toBe(-1);
+        }
+        executionCount2++;
+      });
+
+      // add
+      setState("obj", "item", 5);
+
+      // update
+      // setState("obj", "item", 10);
+
+      // delete
+      setState("obj", "item", undefined);
+    });
+    expect.assertions(7);
+  });
+
+  test("Doesn't trigger object on addition/removal", () => {
     createRoot(() => {
       const [state, setState] = createStore<{ obj: { item?: number } }>({ obj: {} });
       let executionCount = 0;
@@ -287,8 +433,6 @@ describe("Tracking State changes", () => {
             if (executionCount === 0) expect(v.item).toBeUndefined();
             else if (executionCount === 1) {
               expect(v.item).toBe(5);
-            } else if (executionCount === 2) {
-              expect(v.item).toBeUndefined();
             } else {
               // should never get here
               expect(executionCount).toBe(-1);
@@ -304,13 +448,14 @@ describe("Tracking State changes", () => {
       // delete
       setState("obj", "item", undefined);
     });
-    expect.assertions(3);
+    expect.assertions(1);
   });
 
   test("Tracking Top level iteration Object key addition/removal", () => {
     createRoot(() => {
       const [state, setState] = createStore<{ item?: number }>({});
       let executionCount = 0;
+      let executionCount2 = 0;
 
       createComputed(() => {
         const keys = Object.keys(state);
@@ -327,13 +472,30 @@ describe("Tracking State changes", () => {
         executionCount++;
       });
 
+      createComputed(() => {
+        for (const key in state) {
+          key;
+        }
+        const u = unwrap(state);
+        if (executionCount2 === 0) expect(u.item).toBeUndefined();
+        else if (executionCount2 === 1) {
+          expect(u.item).toBe(5);
+        } else if (executionCount2 === 2) {
+          expect(u.item).toBeUndefined();
+        } else {
+          // should never get here
+          expect(executionCount2).toBe(-1);
+        }
+        executionCount2++;
+      });
+
       // add
       setState("item", 5);
 
       // delete
       setState("item", undefined);
     });
-    expect.assertions(4);
+    expect.assertions(7);
   });
 
   test("Not Tracking Top level key addition/removal", () => {
@@ -405,6 +567,36 @@ describe("Setting state from Effects", () => {
     });
   });
 });
+
+describe("Batching", () => {
+  test("Respects batch", () => {
+    const [state, setState] = createStore({ data: 1 });
+    batch(() => {
+      expect(state.data).toBe(1);
+      setState("data", 2);
+      expect(state.data).toBe(1);
+    })
+    expect(state.data).toBe(2);
+  });
+  test("Respects batch in array", () => {
+    const [state, setState] = createStore([1]);
+    batch(() => {
+      expect(state[0]).toBe(1);
+      setState(0, 2);
+      expect(state[0]).toBe(1);
+    })
+    expect(state[0]).toBe(2);
+  });
+  test("Respects batch in array mutate", () => {
+    const [state, setState] = createStore([1]);
+    batch(() => {
+      expect(state.length).toBe(1);
+      setState([...state, 2]);
+      expect(state.length).toBe(1);
+    })
+    expect(state.length).toBe(2);
+  })
+})
 
 describe("State wrapping", () => {
   test("Setting plain object", () => {

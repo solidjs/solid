@@ -18,7 +18,7 @@ describe("Observable operator", () => {
 
   test("preserve the observer's next binding", () => {
     const observer = {
-      next: jest.fn().mockReturnThis(),
+      next: jest.fn().mockReturnThis()
     };
 
     createRoot(() => {
@@ -41,7 +41,11 @@ describe("Observable operator", () => {
     const o = observable(s);
     let out: string;
     createRoot(() => {
-      const subscription = o.subscribe({ next(v) { out = v; }});
+      const subscription = o.subscribe({
+        next(v) {
+          out = v;
+        }
+      });
       set("John");
       expect(out!).toBe("John");
       subscription.unsubscribe();
@@ -75,9 +79,9 @@ describe("from transform", () => {
         obsv$ = observable(s);
 
       set = _set;
-      out = from((set) => {
+      out = from(set => {
         const sub = obsv$.subscribe(set);
-        return () => sub.unsubscribe()
+        return () => sub.unsubscribe();
       });
     });
     expect(out!()).toBe("Hi");

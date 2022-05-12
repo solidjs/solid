@@ -3,9 +3,11 @@
 import { requestCallback, Task } from "./scheduler";
 import { setHydrateContext, sharedConfig } from "../render/hydration";
 import type { JSX } from "../jsx";
+import type { FlowComponent, FlowProps } from "../render";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
+export const $TRACK = Symbol("solid-track");
 export const $DEVCOMP = Symbol("solid-dev-component");
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
@@ -124,7 +126,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
 
 export type Accessor<T> = () => T;
 
-export type Setter<T> = (undefined extends T ? (value?: undefined) => undefined : {}) &
+export type Setter<T> = (undefined extends T ? () => undefined : {}) &
   (<U extends T>(value: Exclude<U, Function> | ((prev: T) => U)) => U);
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
@@ -172,7 +174,7 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
   if ("_SOLID_DEV_" && !options.internal)
     s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
 
-  const setter: Setter<T | undefined> = (value: unknown) => {
+  const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
       if (Transition && Transition.running && Transition.sources.has(s))
         value = value(s.pending !== NOTPENDING ? s.pending : s.tValue);
@@ -213,22 +215,18 @@ export type EffectFunction<Prev, Next extends Prev = Prev> = (v: Prev) => Next;
  *
  * @description https://www.solidjs.com/docs/latest/api#createcomputed
  */
+export function createComputed<Next>(fn: EffectFunction<undefined | NoInfer<Next>, Next>): void;
 export function createComputed<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createComputed<Next, Init = undefined>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
-): void;
 export function createComputed<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
-  value: Init,
+  value?: Init,
   options?: EffectOptions
 ): void {
-  const c = createComputation(fn, value, true, STALE, "_SOLID_DEV_" ? options : undefined);
+  const c = createComputation(fn, value!, true, STALE, "_SOLID_DEV_" ? options : undefined);
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -248,22 +246,18 @@ export function createComputed<Next, Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createrendereffect
  */
+export function createRenderEffect<Next>(fn: EffectFunction<undefined | NoInfer<Next>, Next>): void;
 export function createRenderEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createRenderEffect<Next, Init = undefined>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
-): void;
 export function createRenderEffect<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
-  value: Init,
+  value?: Init,
   options?: EffectOptions
 ): void {
-  const c = createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined);
+  const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined);
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -283,27 +277,23 @@ export function createRenderEffect<Next, Init>(
  *
  * @description https://www.solidjs.com/docs/latest/api#createeffect
  */
+export function createEffect<Next>(fn: EffectFunction<undefined | NoInfer<Next>, Next>): void;
 export function createEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
-export function createEffect<Next, Init = undefined>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | Next, Next>, value?: Init, options?: EffectOptions]
-    : [fn: EffectFunction<Init | Next, Next>, value: Init, options?: EffectOptions]
-): void;
-export function createEffect<Next, Init = Next>(
+export function createEffect<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
-  value: Init,
+  value?: Init,
   options?: EffectOptions
 ): void {
   runEffects = runUserEffects;
-  const c = createComputation(fn, value, false, STALE, "_SOLID_DEV_" ? options : undefined),
+  const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
   c.user = true;
-  Effects ? Effects.push(c) : queueMicrotask(() => updateComputation(c));
+  Effects ? Effects.push(c) : updateComputation(c);
 }
 
 /**
@@ -363,29 +353,27 @@ export interface MemoOptions<T> extends EffectOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#creatememo
  */
-// The extra _Next generic parameter separates inference of the effect input
+// The extra Prev generic parameter separates inference of the effect input
 // parameter type from inference of the effect return type, so that the effect
 // return type is always used as the memo Accessor's return type.
-export function createMemo<Next extends _Next, Init = Next, _Next = Next>(
-  fn: EffectFunction<Init | _Next, Next>,
+export function createMemo<Next extends Prev, Prev = Next>(
+  fn: EffectFunction<undefined | NoInfer<Prev>, Next>
+): Accessor<Next>;
+export function createMemo<Next extends Prev, Init = Next, Prev = Next>(
+  fn: EffectFunction<Init | Prev, Next>,
   value: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next>;
-export function createMemo<Next extends _Next, Init = undefined, _Next = Next>(
-  ..._: undefined extends Init
-    ? [fn: EffectFunction<Init | _Next, Next>, value?: Init, options?: MemoOptions<Next>]
-    : [fn: EffectFunction<Init | _Next, Next>, value: Init, options?: MemoOptions<Next>]
-): Accessor<Next>;
-export function createMemo<Next extends _Next, Init, _Next>(
-  fn: EffectFunction<Init | _Next, Next>,
-  value: Init,
+export function createMemo<Next extends Prev, Init, Prev>(
+  fn: EffectFunction<Init | Prev, Next>,
+  value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
   const c: Partial<Memo<Init, Next>> = createComputation(
     fn,
-    value,
+    value!,
     true,
     0,
     "_SOLID_DEV_" ? options : undefined
@@ -405,6 +393,7 @@ export function createMemo<Next extends _Next, Init, _Next>(
 export interface Resource<T> extends Accessor<T> {
   loading: boolean;
   error: any;
+  latest: T | undefined;
 }
 
 export type ResourceActions<T> = {
@@ -424,13 +413,13 @@ export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
-      globalRefetch?: boolean;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
-      globalRefetch?: boolean;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -493,25 +482,21 @@ export function createResource<T, S>(
     source = true as ResourceSource<S>;
   }
   options || (options = {});
-  if (options.globalRefetch !== false) {
-    Resources || (Resources = new Set());
-    Resources.add(load);
-    Owner && onCleanup(() => Resources.delete(load));
-  }
 
   const contexts = new Set<SuspenseContextType>(),
-    [s, set] = createSignal<T | undefined>(options.initialValue),
+    [value, setValue] = createSignal<T | undefined>(options.initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
     [loading, setLoading] = createSignal<boolean>(false),
     [error, setError] = createSignal<any>();
 
   let err: any = undefined,
     pr: Promise<T> | null = null,
-    initP: Promise<T> | null | undefined = null,
+    initP: Promise<T> | T | null | undefined = null,
     id: string | null = null,
     loadedUnderTransition = false,
     scheduled = false,
-    dynamic = typeof source === "function";
+    resolved = "initialValue" in options,
+    dynamic = typeof source === "function" && createMemo<S>(source as any);
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
@@ -520,8 +505,9 @@ export function createResource<T, S>(
   function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any, key?: S) {
     if (pr === p) {
       pr = null;
-      if (initP && p === initP && options!.onHydrated)
-        options!.onHydrated(key!, { value: v } as ResourceFetcherInfo<T>);
+      resolved = true;
+      if (initP && (p === initP || v === initP) && options!.onHydrated)
+        queueMicrotask(() => options!.onHydrated!(key!, { value: v } as ResourceFetcherInfo<T>));
       initP = null;
       setError((err = e));
       if (Transition && p && loadedUnderTransition) {
@@ -541,7 +527,7 @@ export function createResource<T, S>(
   }
   function completeLoad(v: T) {
     batch(() => {
-      set(() => v);
+      setValue(() => v);
       setLoading(false);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -550,7 +536,7 @@ export function createResource<T, S>(
 
   function read() {
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
-      v = s();
+      v = value();
     if (err) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
@@ -570,10 +556,10 @@ export function createResource<T, S>(
     if (refetching && scheduled) return;
     scheduled = false;
     setError((err = undefined));
-    const lookup = dynamic ? (source as () => S)() : (source as S);
+    const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
-      loadEnd(pr, untrack(s)!);
+      loadEnd(pr, untrack(value)!);
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
@@ -581,7 +567,7 @@ export function createResource<T, S>(
       initP ||
       untrack(() =>
         (fetcher as ResourceFetcher<S, T>)(lookup, {
-          value: s(),
+          value: value(),
           refetching
         })
       );
@@ -611,16 +597,18 @@ export function createResource<T, S>(
       get() {
         return error();
       }
+    },
+    latest: {
+      get() {
+        if (!resolved) return read();
+        if (err) throw err;
+        return value();
+      }
     }
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: set } as ResourceActions<T>];
-}
-
-let Resources: Set<(info: unknown) => any>;
-export function refetchResources(info?: unknown) {
-  return Resources && Promise.all([...Resources].map(fn => fn(info)));
+  return [read as Resource<T>, { refetch: load, mutate: setValue } as ResourceActions<T>];
 }
 
 export interface DeferredOptions<T> {
@@ -782,17 +770,21 @@ export function untrack<T>(fn: Accessor<T>): T {
   return result;
 }
 
-export type ReturnTypes<T> = T extends (() => any)[]
-  ? { [I in keyof T]: ReturnTypes<T[I]> }
-  : T extends () => any
-  ? ReturnType<T>
+/** @deprecated */
+export type ReturnTypes<T> = T extends readonly Accessor<unknown>[]
+  ? { [K in keyof T]: T[K] extends Accessor<infer I> ? I : never }
+  : T extends Accessor<infer I>
+  ? I
   : never;
+
+// transforms a tuple to a tuple of accessors in a way that allows generics to be inferred
+export type AccessorArray<T> = [...Extract<{ [K in keyof T]: Accessor<T[K]> }, readonly unknown[]>];
 
 // Also similar to EffectFunction
 export type OnEffectFunction<S, Prev, Next extends Prev = Prev> = (
-  input: ReturnTypes<S>,
-  prevInput: ReturnTypes<S>,
-  v: Prev
+  input: S,
+  prevInput: S | undefined,
+  prev: Prev
 ) => Next;
 
 export interface OnOptions {
@@ -802,11 +794,11 @@ export interface OnOptions {
 /**
  * on - make dependencies of a computation explicit
  * ```typescript
- * export function on<T extends Array<() => any> | (() => any), U>(
- *   deps: T | T[],
- *   fn: (input: T, prevInput: T, prevValue?: U) => U,
+ * export function on<S, U>(
+ *   deps: Accessor<S> | AccessorArray<S>,
+ *   fn: (input: S, prevInput: S | undefined, prevValue: U | undefined) => U,
  *   options?: { defer?: boolean } = {}
- * ): (prevValue?: U) => U | undefined;
+ * ): (prevValue: U | undefined) => U;
  * ```
  * @param deps list of reactive dependencies or a single reactive dependency
  * @param fn computation on input; the current previous content(s) of input and the previous value are given as arguments and it returns a new value
@@ -825,34 +817,35 @@ export interface OnOptions {
  *
  * @description https://www.solidjs.com/docs/latest/api#on
  */
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next, Init = unknown>(
-  deps: S,
-  fn: OnEffectFunction<S, Init | Next, Next>,
-  // value: Init,
+export function on<S, Next extends Prev, Prev = Next>(
+  deps: AccessorArray<S> | Accessor<S>,
+  fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
+  options?: OnOptions & { defer?: false }
+): EffectFunction<undefined | NoInfer<Next>, NoInfer<Next>>;
+export function on<S, Next extends Prev, Prev = Next>(
+  deps: AccessorArray<S> | Accessor<S>,
+  fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
+  options: OnOptions & { defer: true }
+): EffectFunction<undefined | NoInfer<Next>>;
+export function on<S, Next extends Prev, Prev = Next>(
+  deps: AccessorArray<S> | Accessor<S>,
+  fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
   options?: OnOptions
-): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>>;
-export function on<S extends Accessor<unknown> | Accessor<unknown>[] | [], Next, Init = unknown>(
-  deps: S,
-  fn: OnEffectFunction<S, Init | Next, Next>,
-  // value: Init,
-  options?: OnOptions
-): EffectFunction<NoInfer<Init> | NoInfer<Next>, NoInfer<Next>> {
+): EffectFunction<undefined | NoInfer<Next>> {
   const isArray = Array.isArray(deps);
-  let prevInput: ReturnTypes<S>;
+  let prevInput: S;
   let defer = options && options.defer;
-  return (prevValue: Init | Next) => {
-    let input: ReturnTypes<S>;
+  return prevValue => {
+    let input: S;
     if (isArray) {
-      input = Array(deps.length) as ReturnTypes<S>;
-      for (let i = 0; i < deps.length; i++)
-        (input as TODO[])[i] = deps[i]();
-    } else input = (deps as () => S)() as ReturnTypes<S>;
+      input = Array(deps.length) as unknown as S;
+      for (let i = 0; i < deps.length; i++) (input as unknown as TODO[])[i] = deps[i]();
+    } else input = deps();
     if (defer) {
       defer = false;
-      // this aspect of first run on deferred is hidden from end user and should not affect types
-      return undefined as unknown as Next;
+      return undefined;
     }
-    const result = untrack<Next>(() => fn(input, prevInput, prevValue));
+    const result = untrack(() => fn(input, prevInput, prevValue));
     prevInput = input;
     return result;
   };
@@ -956,6 +949,7 @@ export function startTransition(fn: () => unknown): Promise<void> {
       t.running = true;
     }
     batch(fn);
+    Listener = Owner = null;
     return t ? t.done : undefined;
   });
 }
@@ -1052,7 +1046,7 @@ export function serializeGraph(owner?: Owner | null): GraphRecord {
   };
 }
 
-export type ContextProviderComponent<T> = (props: { value: T; children: any }) => any;
+export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
 
 // Context API
 export interface Context<T> {
@@ -1066,7 +1060,7 @@ export interface Context<T> {
  * ```typescript
  * interface Context<T> {
  *   id: symbol;
- *   Provider: (props: { value: T; children: any }) => any;
+ *   Provider: FlowComponent<{ value: T }>;
  *   defaultValue: T;
  * }
  * export function createContext<T>(defaultValue?: T): Context<T | undefined>;
@@ -1394,11 +1388,14 @@ function runUpdates<T>(fn: () => T, init: boolean) {
   else Effects = [];
   ExecCount++;
   try {
-    return fn();
+    const res = fn();
+    completeUpdates(wait);
+    return res;
   } catch (err) {
     handleError(err);
   } finally {
-    completeUpdates(wait);
+    Updates = null;
+    if (!wait) Effects = null;
   }
 }
 
@@ -1606,7 +1603,7 @@ function resolveChildren(children: JSX.Element): ResolvedChildren {
 }
 
 function createProvider(id: symbol) {
-  return function provider(props: { value: unknown; children: JSX.Element }) {
+  return function provider(props: FlowProps<{ value: unknown }>) {
     let res;
     createComputed(
       () =>
@@ -1615,7 +1612,7 @@ function createProvider(id: symbol) {
           return children(() => props.children);
         }))
     );
-    return res as JSX.Element;
+    return res;
   };
 }
 

@@ -5,7 +5,9 @@ import {
   createMemo,
   Accessor,
   on,
-  createSignal
+  createSignal,
+  Signal,
+  Setter
   // } from "../types/index";
 } from "../src";
 
@@ -580,6 +582,7 @@ const m2: Accessor<number | undefined> = createMemo(() => 123);
 const m3: //
 Accessor<undefined> = createMemo(() => {});
 const m4: Accessor<void> = createMemo(() => {});
+// @ts-expect-error void can't be assigned to anything!
 const m5: Accessor<number | undefined> = createMemo(
   // @ts-expect-error void can't be assigned to anything!
   (v?: number) => {}
@@ -625,7 +628,6 @@ const m18: Accessor<number> =
 const m19: Accessor<number> =
   // @ts-expect-error undefined initial value is not assignable to the number parameter
   createMemo((v: number | string): number => 123);
-// @ts-expect-error because the number return cannot be assigned to the boolean|string parameter
 const m20: Accessor<number> =
   // @ts-expect-error because the number return cannot be assigned to the boolean|string parameter
   createMemo((v: boolean | string): number => 123);
@@ -647,17 +649,66 @@ Accessor<number> = asdf;
 // on ////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
-const one = () => 123;
+const one = (): number => 123;
 const two = () => Boolean(Math.random());
-const ef = on([one, two], ([one, two], [prevOne, prevTwo], computed): number => {
-  const _one: number = one;
-  const _two: boolean = two;
-  const _prevone: number = prevOne;
-  const _prevtwo: boolean = prevTwo;
-  // @ts-expect-error FIXME computed type is unknown, should be `number`.
-  const _computed: number = computed;
-  return one + +two;
-});
+createEffect(
+  on(
+    (): [number, boolean] => [1, true],
+    (input, prevInput, prev) => {
+      const [one, two]: [number, boolean] = input;
+      if (prevInput) {
+        const [prevOne, prevTwo]: [number, boolean] = prevInput;
+      }
+      // @ts-expect-error FIXME computed type is unknown, should be `number`.
+      const _prev: number = prev;
+      return one + +two;
+    }
+  )
+);
+const onMemo1 = createMemo(
+  on([one, two], (input, prevInput, prev) => {
+    const [one, two]: [number, boolean] = input;
+    if (prevInput) {
+      const [prevOne, prevTwo]: [number, boolean] = prevInput;
+    }
+    // @ts-expect-error FIXME computed type is unknown, should be `number`.
+    const _prev: number = prev;
+    return one + +two;
+  })
+);
+const onMemo2: Accessor<number> = onMemo1;
+createEffect(
+  on(
+    [one, two],
+    (input, prevInput, prev) => {
+      const [one, two]: [number, boolean] = input;
+      if (prevInput) {
+        const [prevOne, prevTwo]: [number, boolean] = prevInput;
+      }
+      // @ts-expect-error FIXME computed type is unknown, should be `number`.
+      const _prev: number = prev;
+      return one + +two;
+    },
+    { defer: true }
+  )
+);
+const onMemo3 = createMemo(
+  on(
+    [one, two],
+    (input, prevInput, prev) => {
+      const [one, two]: [number, boolean] = input;
+      if (prevInput) {
+        const [prevOne, prevTwo]: [number, boolean] = prevInput;
+      }
+      // @ts-expect-error FIXME computed type is unknown, should be `number`.
+      const _prev: number = prev;
+      return one + +two;
+    },
+    { defer: true }
+  )
+);
+// @ts-expect-error when deferred the type includes undefined
+const onMemo4: Accessor<number> = onMemo3;
 
 //////////////////////////////////////////////////////////////////////////
 // variations of signal types ////////////////////////////////////////////
@@ -716,9 +767,9 @@ const n6: number = func2()();
 const [stringOrFunc1, setStringOrFunc1] = createSignal<(() => number) | string>("");
 // @ts-expect-error number should not be assignable to string
 setStringOrFunc1(() => 1);
-const sf1: () => number = setStringOrFunc1(() => () => 1);
-const sf2: string = setStringOrFunc1("oh yeah");
-const sf3: string = setStringOrFunc1(() => "oh yeah");
+const sf1: () => 1 = setStringOrFunc1(() => () => 1);
+const sf2: "oh yeah" = setStringOrFunc1("oh yeah");
+const sf3: "oh yeah" = setStringOrFunc1(() => "oh yeah");
 // @ts-expect-error cannot set signal to undefined
 setStringOrFunc1();
 // @ts-expect-error cannot set signal to undefined
@@ -731,14 +782,26 @@ const sf8: (() => number) | string = stringOrFunc1();
 const [stringOrFunc2, setStringOrFunc2] = createSignal<(() => number) | string>();
 // @ts-expect-error number should not be assignable to string
 setStringOrFunc2(() => 1);
-const sf9: () => number = setStringOrFunc2(() => () => 1);
-const sf10: string = setStringOrFunc2("oh yeah");
-const sf11: string = setStringOrFunc2(() => "oh yeah");
+const sf9: () => 1 = setStringOrFunc2(() => () => 1);
+const sf10: "oh yeah" = setStringOrFunc2("oh yeah");
+const sf11: "oh yeah" = setStringOrFunc2(() => "oh yeah");
 const sf12: undefined = setStringOrFunc2();
 const sf13: undefined = setStringOrFunc2(undefined);
 const sf14: (() => number) | string | undefined = stringOrFunc2();
 // @ts-expect-error return value might be undefined
 const sf15: (() => number) | string = stringOrFunc2();
+
+function createGenericSignal<T>(): Signal<T | undefined> {
+  const [generic, setGeneric] = createSignal<T>();
+  const customSet: Setter<T | undefined> = (v?) => setGeneric(v);
+  return [generic, (v?) => setGeneric(v)];
+}
+
+function createInitializedSignal<T>(init: T): Signal<T> {
+  const [generic, setGeneric] = createSignal<T>(init);
+  const customSet: Setter<T> = (v?) => setGeneric(v);
+  return [generic, (v?) => setGeneric(v)];
+}
 
 //////////////////////////////////////////////////////////////////////////
 // test explicit generic args ////////////////////////////////////////////
@@ -919,3 +982,13 @@ createRenderEffect<number | boolean>(
     // @ts-expect-error string return is not assignable to number|boolean
     "foo"
 );
+
+// FIXME cases failing due to partial generic inference not being implemented
+// @ts-expect-error second generic is not inferred and remains as number
+const a7: Accessor<number> = createMemo<number>((v: number | string) => 123, "asd");
+// @ts-expect-error second generic is not inferred and remains as number
+createEffect<number>((v: number | string) => 123, "asd");
+// @ts-expect-error second generic is not inferred and remains as number
+createComputed<number>((v: number | string) => 123, "asd");
+// @ts-expect-error second generic is not inferred and remains as number
+createRenderEffect<number>((v: number | string) => 123, "asd");

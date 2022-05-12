@@ -168,7 +168,8 @@ export default [
         ]
       })
     ].concat(plugins)
-  }, {
+  },
+  {
     input: "web/server/index.ts",
     output: [
       {
@@ -191,7 +192,8 @@ export default [
         ]
       })
     ].concat(plugins)
-  }, {
+  },
+  {
     input: "web/src/index.ts",
     output: [
       {
@@ -231,11 +233,15 @@ export default [
             src: ["../../node_modules/dom-expressions/src/universal.d.ts"],
             dest: "./universal/src/"
           },
-          { src: "../../node_modules/dom-expressions/src/universal.d.ts", dest: "./universal/types/" }
+          {
+            src: "../../node_modules/dom-expressions/src/universal.d.ts",
+            dest: "./universal/types/"
+          }
         ]
       })
     ].concat(plugins)
-  }, {
+  },
+  {
     input: "universal/src/index.ts",
     output: [
       {
@@ -281,5 +287,29 @@ export default [
     ],
     external: ["solid-js/web"],
     plugins
+  },
+  {
+    input: "h/jsx-runtime/src/index.ts",
+    output: [
+      {
+        file: "h/jsx-runtime/dist/jsx.cjs",
+        format: "cjs"
+      },
+      {
+        file: "h/jsx-runtime/dist/jsx.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js/h"],
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: "./h/jsx-runtime/src/jsx.d.ts",
+            dest: "./h/jsx-runtime/types/"
+          }
+        ]
+      })
+    ].concat(plugins)
   }
 ];

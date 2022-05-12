@@ -15,8 +15,56 @@ export function enableHydration() {
   hydrationEnabled = true;
 }
 
-export type PropsWithChildren<P = {}> = P & { children?: JSX.Element };
-export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
+/**
+ * A general `Component` has no implicit `children` prop.  If desired, you can
+ * specify one as in `Component<{name: String, children: JSX.Element>}`.
+ */
+export type Component<P = {}> = (props: P) => JSX.Element;
+
+/**
+ * Extend props to forbid the `children` prop.
+ * Use this to prevent accidentally passing `children` to components that
+ * would silently throw them away.
+ */
+export type VoidProps<P = {}> = P & { children?: never };
+/**
+ * `VoidComponent` forbids the `children` prop.
+ * Use this to prevent accidentally passing `children` to components that
+ * would silently throw them away.
+ */
+export type VoidComponent<P = {}> = Component<VoidProps<P>>;
+
+/**
+ * Extend props to allow an optional `children` prop with the usual
+ * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * Use this for components that you want to accept children.
+ */
+export type ParentProps<P = {}> = P & { children?: JSX.Element };
+/**
+ * `ParentComponent` allows an optional `children` prop with the usual
+ * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * Use this for components that you want to accept children.
+ */
+export type ParentComponent<P = {}> = Component<ParentProps<P>>;
+
+/**
+ * Extend props to require a `children` prop with the specified type.
+ * Use this for components where you need a specific child type,
+ * typically a function that receives specific argument types.
+ * Note that all JSX <Elements> are of the type `JSX.Element`.
+ */
+export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
+/**
+ * `FlowComponent` requires a `children` prop with the specified type.
+ * Use this for components where you need a specific child type,
+ * typically a function that receives specific argument types.
+ * Note that all JSX <Elements> are of the type `JSX.Element`.
+ */
+export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
+
+/** @deprecated: use `ParentProps` instead */
+export type PropsWithChildren<P = {}> = ParentProps<P>;
+
 /**
  * Takes the props of the passed component and returns its type
  *
@@ -30,18 +78,28 @@ export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any
     : T extends keyof JSX.IntrinsicElements
     ? JSX.IntrinsicElements[T]
     : {};
-export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
+
+/**
+ * Type of `props.ref`, for use in `Component` or `props` typing.
+ *
+ * @example Component<{ref: Ref<Element>}>
+ */
+export type Ref<T> = T | ((val: T) => void);
+
+export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;
       setHydrateContext(nextHydrateContext());
-      const r = "_SOLID_DEV_" ? devComponent(Comp, props) : untrack(() => Comp(props as T));
+      const r = "_SOLID_DEV_"
+        ? devComponent(Comp, props || ({} as T))
+        : untrack(() => Comp(props || ({} as T)));
       setHydrateContext(c);
       return r;
     }
   }
-  if ("_SOLID_DEV_") return devComponent(Comp, props);
-  return untrack(() => Comp(props as T));
+  if ("_SOLID_DEV_") return devComponent(Comp, props || ({} as T));
+  return untrack(() => Comp(props || ({} as T)));
 }
 
 function trueFn() {
@@ -79,7 +137,10 @@ const propTraps: ProxyHandler<{
 };
 
 type UnboxLazy<T> = T extends () => infer U ? U : T;
-type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [UnboxLazy<T[P]>] }[Exclude<keyof T, keyof any[]>];
+type BoxedTupleTypes<T extends any[]> = { [P in keyof T]: [UnboxLazy<T[P]>] }[Exclude<
+  keyof T,
+  keyof any[]
+>];
 type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
   ? I
   : never;
@@ -87,7 +148,7 @@ type UnboxIntersection<T> = T extends { 0: infer U } ? U : never;
 type MergeProps<T extends any[]> = UnboxIntersection<UnionToIntersection<BoxedTupleTypes<T>>>;
 
 function resolveSource(s: any) {
-  return typeof s === "function" ? s() : s;
+  return (s = typeof s === "function" ? s() : s) == null ? {} : s;
 }
 
 export function mergeProps<T extends any[]>(...sources: T): MergeProps<T>;
@@ -117,53 +178,20 @@ export function mergeProps(...sources: any): any {
   );
 }
 
-export function splitProps<T extends object, K1 extends keyof T>(
-  props: T,
-  ...keys: [K1[]]
-): [Pick<T, K1>, Omit<T, K1>];
-export function splitProps<T extends object, K1 extends keyof T, K2 extends keyof T>(
-  props: T,
-  ...keys: [K1[], K2[]]
-): [Pick<T, K1>, Pick<T, K2>, Omit<T, K1 | K2>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Omit<T, K1 | K2 | K3>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T,
-  K4 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[], K4[]]
-): [Pick<T, K1>, Pick<T, K2>, Pick<T, K3>, Pick<T, K4>, Omit<T, K1 | K2 | K3 | K4>];
-export function splitProps<
-  T extends object,
-  K1 extends keyof T,
-  K2 extends keyof T,
-  K3 extends keyof T,
-  K4 extends keyof T,
-  K5 extends keyof T
->(
-  props: T,
-  ...keys: [K1[], K2[], K3[], K4[], K5[]]
-): [
-  Pick<T, K1>,
-  Pick<T, K2>,
-  Pick<T, K3>,
-  Pick<T, K4>,
-  Pick<T, K5>,
-  Omit<T, K1 | K2 | K3 | K4 | K5>
+type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
+  ...{
+    [P in keyof K]: P extends `${number}`
+      ? Pick<T, Extract<K[P], readonly (keyof T)[]>[number]>
+      : K[P];
+  },
+  Omit<T, K[number][number]>
 ];
-export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
-  const blocked = new Set(keys.flat());
+
+export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]>(
+  props: T,
+  ...keys: K
+): SplitProps<T, K> {
+  const blocked = new Set<keyof T>(keys.flat());
   const descriptors = Object.getOwnPropertyDescriptors(props);
   const res = keys.map(k => {
     const clone = {};
@@ -202,7 +230,7 @@ export function splitProps<T>(props: T, ...keys: Array<(keyof T)[]>) {
       propTraps
     )
   );
-  return res;
+  return res as SplitProps<T, K>;
 }
 
 // lazy load a function component asynchronously
@@ -222,9 +250,7 @@ export function lazy<T extends Component<any>>(
       });
       comp = s;
     } else if (!comp) {
-      const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default), {
-        globalRefetch: false
-      });
+      const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default));
       comp = s;
     } else {
       const c = comp();

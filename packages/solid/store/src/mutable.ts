@@ -1,9 +1,10 @@
-import { batch, getListener, DEV, $PROXY } from "solid-js";
+import { batch, getListener, DEV, $PROXY, $TRACK } from "solid-js";
 import {
   unwrap,
   isWrappable,
   getDataNodes,
-  createDataNode,
+  trackSelf,
+  getDataNode,
   $RAW,
   $NODE,
   $NAME,
@@ -17,21 +18,23 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    const value = target[property];
+    if (property === $TRACK) return trackSelf(target);
+    const nodes = getDataNodes(target);
+    const tracked = nodes[property];
+    let value = tracked ? nodes[property]() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
-    const wrappable = isWrappable(value);
-    if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createDataNode());
-        node();
+    if (!tracked) {
+      const desc = Object.getOwnPropertyDescriptor(target, property);
+      const isFunction = typeof value !== "function";
+      if (getListener() && (isFunction || target.hasOwnProperty(property)) && !(desc && desc.get))
+        value = getDataNode(nodes, property, value)();
+      else if (value != null && isFunction && value === Array.prototype[property as any]) {
+        return (...args: unknown[]) =>
+          batch(() => Array.prototype[property as any].apply(receiver, args));
       }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createDataNode());
-      node();
     }
-    return wrappable
+    return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
   },
@@ -93,4 +96,8 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
     DEV.registerGraph(name, { value: unwrappedStore });
   }
   return wrappedStore;
+}
+
+export function modifyMutable<T>(state: T, modifier: (state: T) => T) {
+  batch(() => modifier(unwrap(state)));
 }
