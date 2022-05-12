@@ -148,7 +148,7 @@ type Override<T, U> = {
     | Exclude<U[K], undefined>
     | (undefined extends U[K] ? (K extends keyof T ? T[K] : undefined) : never);
 };
-type MergeProps<T extends unknown[], Curr = {}> = T extends [infer Next, ...infer Rest]
+export type MergeProps<T extends unknown[], Curr = {}> = T extends [infer Next, ...infer Rest]
   ? MergeProps<
       Rest,
       Next extends object ? (Next extends Function ? Curr : Override<Curr, UnboxLazy<Next>>) : Curr
@@ -185,7 +185,7 @@ export function mergeProps<T extends [unknown, ...unknown[]]>(...sources: T): Me
   ) as unknown as MergeProps<T>;
 }
 
-type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
+export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
   ...{
     [P in keyof K]: P extends `${number}`
       ? Pick<T, Extract<K[P], readonly (keyof T)[]>[number]>
