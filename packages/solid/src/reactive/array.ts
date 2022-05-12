@@ -1,4 +1,4 @@
-import { onCleanup, createRoot, untrack, createSignal, Owner, Accessor, Setter } from "./signal";
+import { onCleanup, createRoot, untrack, createSignal, Accessor, Setter, $TRACK } from "./signal";
 
 const FALLBACK = Symbol("fallback");
 function dispose(d: (() => void)[]) {
@@ -8,9 +8,9 @@ function dispose(d: (() => void)[]) {
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
 /**
  * reactively transforms an array with a callback function - underlying helper for the `<For>` control flow
- * 
+ *
  * similar to `Array.prototype.map`, but gets the index as accessor, transforms only values that changed and returns an accessor and reactively tracks changes to the list.
- * 
+ *
  * @description https://www.solidjs.com/docs/latest/api#maparray
  */
 export function mapArray<T, U>(
@@ -29,6 +29,7 @@ export function mapArray<T, U>(
     let newItems = list() || [],
       i: number,
       j: number;
+    (newItems as any)[$TRACK]; // top level tracking
     return untrack(() => {
       let newLen = newItems.length,
         newIndices: Map<T | typeof FALLBACK, number>,
@@ -144,9 +145,9 @@ export function mapArray<T, U>(
 
 /**
  * reactively maps arrays by index instead of value - underlying helper for the `<Index>` control flow
- * 
+ *
  * similar to `Array.prototype.map`, but gets the value as an accessor, transforms only changed items of the original arrays anew and returns an accessor.
- * 
+ *
  * @description https://www.solidjs.com/docs/latest/api#indexarray
  */
 export function indexArray<T, U>(
@@ -164,6 +165,7 @@ export function indexArray<T, U>(
   onCleanup(() => dispose(disposers));
   return () => {
     const newItems = list() || [];
+    (newItems as any)[$TRACK]; // top level tracking
     return untrack(() => {
       if (newItems.length === 0) {
         if (len !== 0) {

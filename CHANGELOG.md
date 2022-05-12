@@ -1,6 +1,145 @@
 # Changelog
 
-## 1.3.0 - 2022-1-5
+## 1.4.0 - 2022-05-x
+
+### New Features
+
+#### Resource Deferred Streaming
+
+Streaming brings a lot of performance benefits but it also comes with the tradeoff we need to respond with the headers before we can send any content. This means we must set the Response headers early if we want to benefit from streaming. While it's always possible to fetch first and delay rendering that slows down everything. Even our async server rendering doesn't block rendering but instead just waits to respond to the end.
+
+But what if you want to stream but also want to wait on some key data loading so you still have an opportunity to handle the response on the server before sending it to the browser?
+
+We now have the ability to tell Solid's stream renderer to wait for a resource before flushing the stream. That you can opt in by setting `deferStream` option.
+
+```js
+// fetches a user and streams content as soon as possible
+const [user] = createResource(() => params.id, fetchUser);
+
+// fetches a user but only streams content after this resource has loaded
+const [user] = createResource(() => params.id, fetchUser, { deferStream: true });
+```
+#### Top Level Arrays in Stores
+
+Since Stores were first introduced it has always bugged me that the most common case, creating a list required nesting it under a property to track properly. Thanks to some exploration into proxy traps and iteration we now support top level arrays. In addition to its other modes, the Store setter will accept an array which allows for common operations.
+
+```js
+const [todos, setTodos] = createStore([
+  { id: 1, title: "Thing I have to do", done: false },
+  { id: 2, title: "Learn a New Framework", done: false }
+]);
+
+// set at an index
+setTodos(1, done, true);
+
+// use an array
+setTodos([...todos, { id: 3, title: "New Todo", done: false }])
+
+// iterate over it with <For>
+<For each={todos}>{todo => <Todo todo={todo} />}</For>;
+```
+
+Through this change we also stopped over execution when listening to specific properties. To support iteration Solid previously would notify the owning object of any array when an  was index added/removed or object new property created or deleted on any object.
+
+The one caveat is downstream optimized control flow that untrack index reads on arrays will now need to track the iterated object explicity. Solid exports a `$TRACK` symbol used to subscribe to the object and all its properties.
+
+#### Stale Resource Reads
+
+Suspense and Transitions are amazingly powerful feature but occasionally you want to opt out of the consistency and show things out of date because it will show up faster and some of things you are waiting for are not as high priority. In so you want the Transition to end sooner, but not necessarily stop showing the stale data for part of the screen. It is still preferable to receding back to loading spinner state.
+
+Solid's Resources now support being able to read the value without triggering Suspense. As long as it has loaded previously `latest` property won't cause fallback appear or Transitions to hold. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched) and will reactively update. This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
+
+```js
+const [resource] = createResource(source, fetcher)
+
+// read it as usual
+resource();
+
+// read the latest (don't suspend if loaded at least once)
+resource.latest;
+```
+
+Example: https://codesandbox.io/s/solid-stale-resource-y3fy4l
+
+#### Combining multiple Custom Renderers
+
+The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is reponsible for. It will try to resolve them in order.
+
+```js
+import { HTMLElements, SVGElements } from "solid-js/web";
+let solidConfig = {
+  moduleName: "solid-js/web",
+  // @ts-ignore
+  generate: "dynamic",
+  renderers: [
+    {
+      name: "dom",
+      moduleName: "solid-js/web",
+      elements: [...HTMLElements, ...SVGElements]
+    },
+    {
+      name: "universal",
+      moduleName: "solid-three",
+      elements: []
+    }
+  ]
+};
+```
+
+### Improvements/Fixes
+
+#### Synchronous Top Level `createEffect`
+
+These were originally deferred to a microtask to resemble how effects are queued under a listener. However it is more correct to run immediate like everything else top level.
+
+### Better Types around Components
+
+This one took the effort of many resident TypeScript experts, but we've now landed on some better types for components. The biggest change is `Component` no longer has an opinion on whether it should have `children` or not. We've added supplementary types `ParentComponent` and `FlowComponent` to denote Components that may have `children` or always have `children`. And we've added `VoidComponent` for those which may never have children.
+
+#### Sources in `createResource` are now Memos
+
+A small change but it was unusual to have refetching trigger a reactive expression outside of a reactive context. Now on refetch it grabs the last source value rather than re-running it.
+
+#### `createMutable` batches array methods like push, pop, etc..
+
+Dow these built-ins are batched and more performant. We've also add `modifyMutable` that applies modifiers batched to stores created with `createMutable`.
+
+```js
+modifyMutable(state.data.user, reconcile({ firstName: "Jake", middleName: "R" }));
+```
+
+#### Better Support for React JSX transform
+
+We have added support to `solid-js/h` to support the new React JSX transform. You can use it directly in TypeScript by using:
+```json
+{
+  "jsx": "react-jsx",
+  "jsxImportSource": "solid-js/h"
+}
+```
+Keep in mind this has all the consequences of not using the custom transform. It means larger library code, slower performance, and worse ergonomics. Remember to wrap your reactive expressions in functions.
+
+#### HyperScript now returns functions
+
+This one is a potentially breaking change, but the current behavior was broken. It was possible(and common) for children to be created before the parents the way JSX worked. This was an oversight on my original design that needs to be fixed, as it breaks context, and disposal logic. So now when you get your results back from `h` you need to call it. Solid's `render` function will handle this automatically.
+
+```js
+const getDiv = h("div", "Hello");
+
+document.body.appendChild(getDiv()); // call as a function to have it create the element.
+```
+
+### Removals and Deprecations
+
+#### `className`, `htmlFor` deprecated
+
+While they still work for now, Solid will remove support for these React-isms in a future version. They leave us with multiple ways to set the same attribute. This is problematic for trying to merge them. Solid updates independently so it is too easy for these things to trample on each other. Also when optimizing for compilation since with things like Spreads you can't know if the property is present, Solid has to err on the side of caution. This means more code and less performance.
+
+#### Experimental `refetchResources` removed
+
+This primitive ended up being too general to be useful. There are enough cases we can't rely on the refetch everything by default mentality. For that reason we are dropping support of this experimental feature.
+
+## 1.3.0 - 2022-01-05
 
 ### New Features
 
@@ -141,11 +280,13 @@ refetchResources();
 You can also pass a parameter to `refetchResources` to provide additional information to the `refetching` info of the fetcher. This could be used for conditional cache invalidation. Like only refetch resources related to `users`. This mechanism requires a bit of wiring but the idea is you'd wrap `createResource` in maybe a `createQuery` and implement your own conventions around resource cache management. Still working out how this should work best, but the goal is to provide the mechanisms to support resource caches without being responsible for their implementation.
 
 To opt-out being part of the global refetch createResource now takes a `globalRefetch` option that can be set to false. In addition to a new option to disable `refetchResources` there is no an `onHydrated` callback that takes the same arguments as the fetcher. When a resource is restored from the server the fetcher is not called. However, this callback will be. This is useful for populating caches.
+
 ### Improvements
 
 #### Better TypeScript Support
 
 Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
+
 #### Better SourceMaps
 
 Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressions` to better preserve identifiers from the JSX. Thanks to @LXSMNSYC for exploring and implementing this.

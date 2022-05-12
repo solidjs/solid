@@ -1,4 +1,4 @@
-import { createRoot, createSignal, createComputed, createMemo } from "../../src";
+import { createRoot, createSignal, createComputed, createMemo, batch } from "../../src";
 import { createMutable, unwrap, $RAW } from "../src";
 
 describe("State Mutablity", () => {
@@ -72,17 +72,15 @@ describe("Simple update modes", () => {
   });
 
   test("Test Array", () => {
-    const state = createMutable({
-      todos: [
+    const todos = createMutable([
         { id: 1, title: "Go To Work", done: true },
         { id: 2, title: "Eat Lunch", done: false }
-      ]
-    });
-    state.todos[1].done = true;
-    state.todos.push({ id: 3, title: "Go Home", done: false });
-    expect(Array.isArray(state.todos)).toBe(true);
-    expect(state.todos[1].done).toBe(true);
-    expect(state.todos[2].title).toBe("Go Home");
+      ]);
+    todos[1].done = true;
+    todos.push({ id: 3, title: "Go Home", done: false });
+    expect(Array.isArray(todos)).toBe(true);
+    expect(todos[1].done).toBe(true);
+    expect(todos[2].title).toBe("Go Home");
   });
 });
 
@@ -171,8 +169,8 @@ describe("Tracking State changes", () => {
 describe("Handling functions in state", () => {
   test("Array Native Methods: Array.Filter", () => {
     createRoot(() => {
-      const state = createMutable({ list: [0, 1, 2] }),
-        getFiltered = createMemo(() => state.list.filter(i => i % 2));
+      const list = createMutable([0, 1, 2]),
+        getFiltered = createMemo(() => list.filter(i => i % 2));
       expect(getFiltered()).toStrictEqual([1]);
     });
   });
@@ -234,3 +232,33 @@ describe("State wrapping", () => {
     expect(state.time).toBe(date);
   });
 });
+
+describe("Batching", () => {
+  test("Respects batch", () => {
+    const state = createMutable({ data: 1 });
+    batch(() => {
+      expect(state.data).toBe(1);
+      state.data = 2;
+      expect(state.data).toBe(1);
+    })
+    expect(state.data).toBe(2);
+  });
+  test("Respects batch in array", () => {
+    const state = createMutable([1]);
+    batch(() => {
+      expect(state[0]).toBe(1);
+      state[0] = 2;
+      expect(state[0]).toBe(1);
+    })
+    expect(state[0]).toBe(2);
+  });
+  test("Respects batch in array mutate", () => {
+    const state = createMutable([1]);
+    batch(() => {
+      expect(state.length).toBe(1);
+      state[1] = 2;
+      expect(state.length).toBe(1);
+    })
+    expect(state.length).toBe(2);
+  })
+})

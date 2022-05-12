@@ -44,7 +44,6 @@ export {
   Suspense,
   SuspenseList,
   createResource,
-  refetchResources,
   resetErrorBoundaries,
   enableScheduling,
   enableHydration,

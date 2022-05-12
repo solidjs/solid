@@ -10,8 +10,21 @@ import {
 } from "./reactive";
 import type { JSX } from "../jsx";
 
-type PropsWithChildren<P> = P & { children?: JSX.Element };
-export type Component<P = {}> = (props: PropsWithChildren<P>) => JSX.Element;
+export type Component<P = {}> = (props: P) => JSX.Element;
+export type VoidProps<P = {}> = P & { children?: never };
+export type VoidComponent<P = {}> = Component<VoidProps<P>>;
+export type ParentProps<P = {}> = P & { children?: JSX.Element };
+export type ParentComponent<P = {}> = Component<ParentProps<P>>;
+export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
+export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
+export type Ref<T> = T | ((val: T) => void);
+export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component> = T extends Component<
+  infer P
+>
+  ? P
+  : T extends keyof JSX.IntrinsicElements
+  ? JSX.IntrinsicElements[T]
+  : {};
 
 type PossiblyWrapped<T> = {
   [P in keyof T]: T[P] | (() => T[P]);
@@ -56,18 +69,15 @@ export function createUniqueId(): string {
   return `${ctx.id}${ctx.count++}`;
 }
 
-export function createComponent<T>(
-  Comp: (props: T) => JSX.Element,
-  props: PossiblyWrapped<T>
-): JSX.Element {
+export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
   if (sharedConfig.context && !sharedConfig.context.noHydrate) {
     const c = sharedConfig.context;
     setHydrateContext(nextHydrateContext());
-    const r = Comp(props as T);
+    const r = Comp(props || {} as T);
     setHydrateContext(c);
     return r;
   }
-  return Comp(props as T);
+  return Comp(props || {} as T);
 }
 
 export function mergeProps<T, U>(source: T, source1: U): T & U;
@@ -242,6 +252,7 @@ export interface Resource<T> {
   (): T | undefined;
   loading: boolean;
   error: any;
+  latest: T | undefined;
 }
 
 type SuspenseContextType = {
@@ -263,13 +274,13 @@ export type ResourceOptions<T> = undefined extends T
   ? {
       initialValue?: T;
       name?: string;
-      globalRefetch?: boolean;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
-      globalRefetch?: boolean;
+      deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -337,6 +348,11 @@ export function createResource<T, S>(
   };
   read.loading = false;
   read.error = undefined as any;
+  Object.defineProperty(read, "latest", {
+    get() {
+      return read();
+    }
+  });
   function load() {
     const ctx = sharedConfig.context!;
     if (!ctx.async)
@@ -357,9 +373,9 @@ export function createResource<T, S>(
       if (lookup == null || lookup === false) return;
       p = (fetcher as ResourceFetcher<S, T>)(lookup, { value });
     }
-    if (p && "then" in p) {
+    if (p != undefined && typeof p === "object" && "then" in p) {
       read.loading = true;
-      if (ctx.writeResource) ctx.writeResource(id, p);
+      if (ctx.writeResource) ctx.writeResource(id, p, undefined, options.deferStream);
       return p
         .then(res => {
           read.loading = false;
@@ -376,6 +392,7 @@ export function createResource<T, S>(
         });
     }
     ctx.resources[id].data = p;
+    if (ctx.writeResource) ctx.writeResource(id, p);
     p = null;
     return ctx.resources[id].data;
   }
@@ -386,14 +403,16 @@ export function createResource<T, S>(
   ] as ResourceReturn<T>);
 }
 
-export function refetchResources(info?: unknown) {}
-
-export function lazy(fn: () => Promise<{ default: any }>): (props: any) => string {
-  let resolved: (props: any) => any;
+export function lazy<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>
+): T & { preload: () => Promise<{ default: T }> } {
+  let resolved: T;
   const p = fn();
   const contexts = new Set<SuspenseContextType>();
   p.then(mod => (resolved = mod.default));
-  const wrap = (props: any) => {
+  const wrap: Component<ComponentProps<T>> & {
+    preload?: () => Promise<{ default: T }>;
+  } = props => {
     const id = sharedConfig.context!.id.slice(0, -1);
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
@@ -410,7 +429,7 @@ export function lazy(fn: () => Promise<{ default: any }>): (props: any) => strin
     return "";
   };
   wrap.preload = () => p;
-  return wrap;
+  return wrap as T & { preload: () => Promise<{ default: T }> };
 }
 
 function suspenseComplete(c: SuspenseContextType) {
@@ -447,7 +466,7 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  writeResource?: (id: string, v: Promise<any> | any, error?: boolean) => void;
+  writeResource?: (id: string, v: Promise<any> | any, error?: boolean, deferStream?: boolean) => void;
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
