@@ -1,4 +1,4 @@
-import { mergeProps } from "../src";
+import { mergeProps, splitProps } from "../src";
 
 type Assert<T extends true> = never;
 type Not<T extends boolean> = [T] extends [true] ? false : true;
@@ -96,3 +96,15 @@ type TestM4 = Assert<IsExact<M4, { a: number }>>;
 
 // @ts-expect-error mergeProps requires at least one param
 mergeProps();
+
+const s1 = splitProps({ a: 1, b: 2 }, ["a"]);
+type S1 = typeof s1;
+type TestS1 = Assert<IsExact<S1, [{ a: number }, { b: number }]>>;
+
+const [, s2] = splitProps({ a: 1, b: 2 }, ["a"]);
+type S2 = typeof s2;
+type TestS2 = Assert<IsExact<S2, { b: number }>>;
+
+const [s3] = splitProps({ a: 1, b: 2 }, ["a"]);
+type S3 = typeof s3;
+type TestS3 = Assert<IsExact<S3, { a: number }>>;
