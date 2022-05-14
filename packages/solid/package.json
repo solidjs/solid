@@ -114,8 +114,8 @@
       "require": "./h/dist/h.cjs"
     },
     "./h/jsx-runtime": {
-      "import": "./h/dist/jsx.js",
-      "require": "./h/dist/jsx.cjs"
+      "import": "./h/jsx-runtime/dist/jsx.js",
+      "require": "./h/jsx-runtime/dist/jsx.cjs"
     },
     "./h/dist/*": "./h/dist/*",
     "./html": {

@@ -26,8 +26,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
 
     if (!tracked) {
       const desc = Object.getOwnPropertyDescriptor(target, property);
-      const isFunction = typeof value !== "function";
-      if (getListener() && (isFunction || target.hasOwnProperty(property)) && !(desc && desc.get))
+      const isFunction = typeof value === "function";
+      if (getListener() && (!isFunction || target.hasOwnProperty(property)) && !(desc && desc.get))
         value = getDataNode(nodes, property, value)();
       else if (value != null && isFunction && value === Array.prototype[property as any]) {
         return (...args: unknown[]) =>
