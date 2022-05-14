@@ -18,13 +18,16 @@
     "test": "lerna run test --concurrency=1 --stream",
     "test:coverage": "lerna run test:coverage --parallel",
     "build": "lerna run build --concurrency=1 --stream",
-    "publish:release": "lerna run build && lerna publish"
+    "publish:release": "lerna run build && lerna publish",
+    "prepare": "husky install"
   },
   "devDependencies": {
     "@babel/cli": "^7.16.7",
     "@babel/core": "^7.16.7",
     "@babel/preset-env": "^7.16.7",
     "@babel/preset-typescript": "^7.16.7",
+    "@commitlint/cli": "^16.3.0",
+    "@commitlint/config-conventional": "^16.2.4",
     "@rollup/plugin-babel": "5.3.0",
     "@rollup/plugin-commonjs": "21.0.1",
     "@rollup/plugin-json": "4.1.0",
@@ -37,6 +40,7 @@
     "coveralls": "^3.1.1",
     "dom-expressions": "0.33.6",
     "gitly": "^2.1.0",
+    "husky": "^8.0.1",
     "hyper-dom-expressions": "0.33.6",
     "jest": "~26.6.3",
     "jest-ts-webcompat-resolver": "^1.0.0",
