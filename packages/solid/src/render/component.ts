@@ -151,7 +151,13 @@ type Override<T, U> = {
 export type MergeProps<T extends unknown[], Curr = {}> = T extends [infer Next, ...infer Rest]
   ? MergeProps<
       Rest,
-      Next extends object ? (Next extends Function ? Curr : Override<Curr, UnboxLazy<Next>>) : Curr
+      Next extends object
+        ? Next extends Function
+          ? Curr
+          : Next extends infer TNext
+          ? Override<Curr, UnboxLazy<TNext>>
+          : Curr
+        : Curr
     >
   : Simplify<Curr>;
 
