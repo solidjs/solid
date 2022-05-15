@@ -90,11 +90,38 @@ const m3 = mergeProps({ a: 1 }, { a: undefined });
 type M3 = typeof m3;
 type TestM3 = Assert<IsRequiredProperty<M3, "a", number>>;
 
-const m4 = mergeProps({ a: 1 }, 1, null, undefined, () => 1, "", 3, { a: 1 });
-type M4 = typeof m4;
-type TestM4 = Assert<IsExact<M4, { a: number }>>;
 // @ts-expect-error mergeProps requires at least one param
 mergeProps();
+
+type M4Type = {
+  a: { aProp: string; test: string };
+  b: { bProp: number; test: string };
+};
+
+function M4<T extends keyof M4Type = "a">(
+  props: { prop: "a" | "b" } & { as: T } & Omit<M4Type[T], "any">
+) {
+  const defaultProperties = { prop: "a" };
+  const test1 = mergeProps(defaultProperties, props);
+
+  // @ts-expect-error prop is type string
+  const prop: "a" | "b" = test1.prop;
+  test1.prop = "a";
+  test1.as = "" as T;
+  test1.test = "";
+  const prop2: string = test1.prop;
+  const as: T = test1.as;
+  const test: string = test1.test;
+
+  const test2 = mergeProps(
+    defaultProperties,
+    props as { prop: "a" | "b" } & { as: T } & M4Type[T]
+  );
+  // @ts-expect-error Type "''" is not assignable to type "'a' | 'b'"
+  test2.prop = "";
+  test2.as = "" as T;
+  test2.test = "";
+}
 
 const s1 = splitProps({ a: 1, b: 2 }, ["a"]);
 type S1 = typeof s1;
@@ -107,22 +134,3 @@ type TestS2 = Assert<IsExact<S2, { b: number }>>;
 const [s3] = splitProps({ a: 1, b: 2 }, ["a"]);
 type S3 = typeof s3;
 type TestS3 = Assert<IsExact<S3, { a: number }>>;
-
-type S4Type = { a: { aProp: string, test: string }, b: {  bProp: number, test: string }};
-function m5<T extends keyof S4Type = 'a'>(
-  props: {prop: 'a' | 'b'} & {as: T} & Omit<S4Type[T], 'any'>
-) {
-  const defaultProperties = {prop: 'a'};
-  const test1 = mergeProps(defaultProperties, props);
-  // TODO: Currently this takes only properties of left side when using Omit. This should throw an error but currently not since test1.prop is string.
-  // @ts-expect-error Type "''" is not assignable to type "'a' | 'b'"
-  test1.prop = '';
-  // TODO: should not throw error
-  test1.as;
-
-  const test2 = mergeProps(defaultProperties, props as {prop: 'a' | 'b'} & {as: T} & S4Type[T]);
-  // @ts-expect-error Type "''" is not assignable to type "'a' | 'b'"
-  test2.prop = '';
-  test2.as;
-  test2.test = '';
-}
