@@ -511,7 +511,7 @@ My hope this is the last release before I start making 1.0 RC's. This one has bi
 
 ## 0.25.0 - 2021-03-28
 
-This release is about refining the the APIs as we approach the our release candidate for 1.0.
+This release is about refining the APIs as we approach the our release candidate for 1.0.
 
 ### Breaking Changes
 
@@ -805,7 +805,7 @@ This release makes large changes to the Reactive System. Key changes are deferri
 
 ### Concurrency
 
-In addition the the reactive model brings updates to Suspense and Transitions. Solid now has true concurrent rendering at a granular level. This mechanism does differ from React as it currently only supports a single future.
+In addition the reactive model brings updates to Suspense and Transitions. Solid now has true concurrent rendering at a granular level. This mechanism does differ from React as it currently only supports a single future.
 
 ### Removed APIs
 
