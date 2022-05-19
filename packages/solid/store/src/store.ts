@@ -17,9 +17,9 @@ export type NotWrappable =
   | null
   | undefined
   | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
-export type Store<T> = DeepReadonly<T>;
+export type Store<T> = T;
 
-function wrap<T extends StoreNode>(value: T, name?: string): DeepReadonly<T> {
+function wrap<T extends StoreNode>(value: T, name?: string): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -39,6 +39,7 @@ function wrap<T extends StoreNode>(value: T, name?: string): DeepReadonly<T> {
   return p;
 }
 
+export function isWrappable<T>(obj: T | NotWrappable): obj is T;
 export function isWrappable(obj: any) {
   return (
     obj != null &&
@@ -47,7 +48,8 @@ export function isWrappable(obj: any) {
   );
 }
 
-export function unwrap<T extends StoreNode>(item: any, set = new Set()): T {
+export function unwrap<T>(item: T, set?: Set<unknown>): T;
+export function unwrap<T>(item: any, set = new Set()): T {
   let result, unwrapped, v, prop;
   if ((result = item != null && item[$RAW])) return result;
   if (!isWrappable(item) || set.has(item)) return item;
@@ -251,6 +253,7 @@ export function updatePath(current: StoreNode, path: any[], traversed: PropertyK
   } else setProperty(current, part, value);
 }
 
+/** @deprecated */
 export type DeepReadonly<T> = 0 extends 1 & T
   ? T
   : T extends NotWrappable
@@ -258,6 +261,7 @@ export type DeepReadonly<T> = 0 extends 1 & T
   : {
       readonly [K in keyof T]: DeepReadonly<T[K]>;
     };
+/** @deprecated */
 export type DeepMutable<T> = 0 extends 1 & T
   ? T
   : T extends NotWrappable
@@ -268,17 +272,12 @@ export type DeepMutable<T> = 0 extends 1 & T
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
-export type ArrayFilterFn<T> = (item: DeepReadonly<T>, index: number) => boolean;
+export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
 
 export type StoreSetter<T, U extends PropertyKey[] = []> =
-  | ((
-      prevState: DeepReadonly<T>,
-      traversed: U
-    ) => T | Partial<T> | DeepReadonly<T> | Partial<DeepReadonly<T>> | void)
+  | ((prevState: T, traversed: U) => T | Partial<T> | void)
   | T
-  | Partial<T>
-  | DeepReadonly<T>
-  | Partial<DeepReadonly<T>>;
+  | Partial<T>;
 
 export type Part<T, K extends KeyOf<T> = KeyOf<T>> = [K] extends [never]
   ? never // return never if key is never, else it'll return readonly never[] as well
@@ -398,7 +397,7 @@ export function createStore<T extends StoreNode>(
   store: T | Store<T>,
   options?: { name?: string }
 ): [get: Store<T>, set: SetStoreFunction<T>] {
-  const unwrappedStore = unwrap<T>(store || {});
+  const unwrappedStore = unwrap(store || {});
   const isArray = Array.isArray(unwrappedStore);
   if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
     throw new Error(

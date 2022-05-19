@@ -1,4 +1,4 @@
-import type { DeepMutable, SetStoreFunction, Store } from "store";
+import type { SetStoreFunction, Store } from "store";
 
 export const $RAW = Symbol("state-raw");
 
@@ -10,7 +10,7 @@ export function isWrappable(obj: any) {
   );
 }
 
-export function unwrap<T>(item: any): T {
+export function unwrap<T>(item: T): T {
   return item;
 }
 
@@ -111,9 +111,9 @@ export function reconcile<T extends U, U>(
 }
 
 // Immer style mutation style
-export function produce<T>(fn: (state: DeepMutable<T>) => void): (state: T) => T {
+export function produce<T>(fn: (state: T) => void): (state: T) => T {
   return state => {
-    if (isWrappable(state)) fn(state as DeepMutable<T>);
+    if (isWrappable(state)) fn(state);
     return state;
   };
 }
