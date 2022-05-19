@@ -7,8 +7,8 @@
     "test:imports": "node test-imports.mjs"
   },
   "dependencies": {
-    "babel-preset-solid": "^1.4.0",
-    "solid-js": "^1.4.1"
+    "babel-preset-solid": "^1.4.2",
+    "solid-js": "^1.4.2"
   },
-  "version": "1.4.1"
+  "version": "1.4.2"
 }
