@@ -429,9 +429,9 @@ export type ResourceReturn<
   K extends T = T
 > = [
   Resource<
-    O extends undefined
+    O extends undefined | null
       ? T | undefined
-      : undefined extends NonNullable<O>["initialValue"]
+      : NonNullable<O>["initialValue"] extends undefined
       ? T | undefined
       : T
   >,
