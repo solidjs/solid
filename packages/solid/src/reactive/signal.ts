@@ -423,11 +423,7 @@ export type ResourceOptions<T> = undefined extends T
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
-export type ResourceReturn<
-  T,
-  O extends ResourceOptions<T | undefined> | undefined = ResourceOptions<undefined>,
-  K extends T = T
-> = [
+export type ResourceReturn<T, O extends ResourceOptions<T | undefined> | undefined, K = T> = [
   Resource<
     O extends undefined | null
       ? T | undefined
@@ -623,7 +619,10 @@ export function createResource<T, S>(
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: setValue } as ResourceActions<T | undefined>];
+  return [
+    read as Resource<T>,
+    { refetch: load, mutate: setValue } as ResourceActions<T | undefined>
+  ];
 }
 
 export interface DeferredOptions<T> {
