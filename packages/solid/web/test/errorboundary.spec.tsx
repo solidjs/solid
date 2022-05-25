@@ -18,12 +18,28 @@ describe("Testing ErrorBoundary control flow", () => {
     return "Success";
   };
 
+  const Component3 = () => {
+    throw null;
+  };
+
   test("Create an Error", () => {
     createRoot(dispose => {
       disposer = dispose;
       <div ref={div}>
         <ErrorBoundary fallback="Failed Miserably">
           <Component />
+        </ErrorBoundary>
+      </div>;
+    });
+    expect(div.innerHTML).toBe("Failed Miserably");
+  });
+
+  test("Create an Error with null", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <div ref={div}>
+        <ErrorBoundary fallback="Failed Miserably">
+          <Component3 />
         </ErrorBoundary>
       </div>;
     });

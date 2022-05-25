@@ -142,8 +142,9 @@ export function Match<T>(props: MatchProps<T>) {
 }
 
 let Errors: Set<Setter<any>>;
+const NoErrors = {};
 export function resetErrorBoundaries() {
-  Errors && [...Errors].forEach(fn => fn());
+  Errors && [...Errors].forEach(fn => fn(NoErrors));
 }
 /**
  * catches uncaught errors inside components and renders a fallback content
@@ -164,20 +165,20 @@ export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }): Accessor<JSX.Element> {
-  let err = undefined;
+  let err = NoErrors;
   if (sharedConfig!.context && sharedConfig!.load) {
-    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count);
+    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count) || NoErrors;
   }
   const [errored, setErrored] = createSignal<any>(err);
   Errors || (Errors = new Set());
   Errors.add(setErrored);
   onCleanup(() => Errors.delete(setErrored));
-  let e: any;
   return createMemo(() => {
-    if ((e = errored()) != null) {
+    let e: any;
+    if ((e = errored()) !== NoErrors) {
       const f = props.fallback;
       if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
-      return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(null))) : f;
+      return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(NoErrors))) : f;
     }
     onError(setErrored);
     return props.children;

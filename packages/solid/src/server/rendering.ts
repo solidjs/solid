@@ -228,17 +228,18 @@ export function Match<T>(props: MatchProps<T>) {
   return props;
 }
 
+const NoErrors = {};
 export function resetErrorBoundaries() {}
 export function ErrorBoundary(props: {
   fallback: string | ((err: any, reset: () => void) => string);
   children: string;
 }) {
-  let error: any, res: any;
+  let error = NoErrors, res: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
   onError(err => (error = err));
   createMemo(() => (res = props.children));
-  if (error) {
+  if (error !== NoErrors) {
     ctx.writeResource!(id, error, true);
     setHydrateContext({ ...ctx, count: 0 });
     const f = props.fallback;
