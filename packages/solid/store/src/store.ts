@@ -194,17 +194,22 @@ function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
   }
 }
 
-function updateArray(current: StoreNode, next: Array<any> | ((prev: StoreNode) => Array<any>)) {
+function updateArray(
+  current: StoreNode,
+  next: Array<any> | Record<string, any> | ((prev: StoreNode) => Array<any> | Record<string, any>)
+) {
   if (typeof next === "function") next = next(current);
-  next = unwrap(next) as Array<any>;
-  if (current === next) return;
-  let i = 0,
-    len = next.length;
-  for (; i < len; i++) {
-    const value = next[i];
-    if (current[i] !== value) setProperty(current, i, value);
-  }
-  setProperty(current, "length", len);
+  next = unwrap(next) as Array<any> | Record<string, any>;
+  if (Array.isArray(next)) {
+    if (current === next) return;
+    let i = 0,
+      len = next.length;
+    for (; i < len; i++) {
+      const value = next[i];
+      if (current[i] !== value) setProperty(current, i, value);
+    }
+    setProperty(current, "length", len);
+  } else mergeStoreNode(current, next);
 }
 
 export function updatePath(current: StoreNode, path: any[], traversed: PropertyKey[] = []) {
@@ -270,14 +275,20 @@ export type DeepMutable<T> = 0 extends 1 & T
       -readonly [K in keyof T]: DeepMutable<T[K]>;
     };
 
+export type CustomPartial<T> = T extends readonly unknown[]
+  ? "0" extends keyof T
+    ? { [K in Extract<keyof T, `${number}`>]?: T[K] }
+    : { [x: number]: T[number] }
+  : Partial<T>;
+
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
 export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
 
 export type StoreSetter<T, U extends PropertyKey[] = []> =
-  | ((prevState: T, traversed: U) => T | Partial<T> | void)
+  | ((prevState: T, traversed: U) => T | CustomPartial<T> | void)
   | T
-  | Partial<T>;
+  | CustomPartial<T>;
 
 export type Part<T, K extends KeyOf<T> = KeyOf<T>> = [K] extends [never]
   ? never // return never if key is never, else it'll return readonly never[] as well

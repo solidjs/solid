@@ -159,6 +159,19 @@ describe("Array setState modes", () => {
     expect(state[4]).toBe(5);
     expect(Object.keys(state)).toStrictEqual(["0", "1", "2", "3", "4"]);
   });
+  test("Update Specific Object", () => {
+    const [state, setState] = createStore([1, 2, 3, 4, 5]);
+    setState({
+      1: 4,
+      3: 8
+    });
+    expect(state[0]).toBe(1);
+    expect(state[1]).toBe(4);
+    expect(state[2]).toBe(3);
+    expect(state[3]).toBe(8);
+    expect(state[4]).toBe(5);
+    expect(Object.keys(state)).toStrictEqual(["0", "1", "2", "3", "4"]);
+  });
   test("Update filterFn", () => {
     const [state, setState] = createStore([1, 2, 3, 4, 5]);
     setState(
@@ -929,4 +942,44 @@ describe("Nested Classes", () => {
 () => {
   const [store, setStore] = createStore<{ el?: Element }>({});
   setStore("el", {} as Element);
+};
+
+// can set tuple indices
+() => {
+  const [store, setStore] = createStore({ list: [0] as [number, number?] });
+  setStore("list", { 0: 1, 1: 2 });
+  setStore("list", { 0: 1 });
+  setStore("list", { 1: 2 });
+  setStore("list", {});
+  // @ts-expect-error tuple only contains two items
+  setStore("list", { 2: 3 });
+};
+
+// can set array indices
+() => {
+  const [store, setStore] = createStore({ list: [0] as number[] });
+  setStore("list", { 0: 1, 1: 2 });
+  setStore("list", { 0: 1 });
+  setStore("list", { 1: 2 });
+  setStore("list", { 99: 100 });
+};
+
+// can set top-level tuple indices
+() => {
+  const [store, setStore] = createStore([0] as [number, number?]);
+  setStore({ 0: 1, 1: 2 });
+  setStore({ 0: 1 });
+  setStore({ 1: 2 });
+  setStore({});
+  // @ts-expect-error tuple only contains two items
+  setStore({ 2: 3 });
+};
+
+// can set top-level array indices
+() => {
+  const [store, setStore] = createStore([0] as number[]);
+  setStore({ 0: 1, 1: 2 });
+  setStore({ 0: 1 });
+  setStore({ 1: 2 });
+  setStore({ 99: 100 });
 };
