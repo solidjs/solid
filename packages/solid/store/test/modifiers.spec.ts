@@ -114,6 +114,16 @@ describe("setState with produce", () => {
     expect(state.data.starting).toBe(1);
     expect(state.data.ending).toBe(2);
   });
+  test("referential equality", () => {
+    const [state, setState] = createStore<DataState>({ data: { starting: 1, ending: 1 } });
+    setState(
+      produce(s => {
+        if (s.data === s.data) s.data.ending!++;
+      })
+    );
+    expect(state.data.starting).toBe(1);
+    expect(state.data.ending).toBe(2);
+  });
   test("Top Level Mutation in computation", () => {
     createRoot(() => {
       const [s, set] = createSignal(1);

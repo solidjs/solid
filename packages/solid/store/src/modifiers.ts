@@ -117,11 +117,16 @@ export function reconcile<T extends U, U>(
   };
 }
 
+const producers = new WeakMap();
 const setterTraps: ProxyHandler<StoreNode> = {
   get(target, property): any {
     if (property === $RAW) return target;
     const value = target[property];
-    return isWrappable(value) ? new Proxy(value, setterTraps) : value;
+    let proxy;
+    return isWrappable(value)
+      ? producers.get(value) ||
+          (producers.set(value, (proxy = new Proxy(value, setterTraps))), proxy)
+      : value;
   },
 
   set(target, property, value) {
@@ -138,7 +143,16 @@ const setterTraps: ProxyHandler<StoreNode> = {
 // Immer style mutation style
 export function produce<T>(fn: (state: T) => void): (state: T) => T {
   return state => {
-    if (isWrappable(state)) fn(new Proxy(state, setterTraps));
+    if (isWrappable(state)) {
+      let proxy;
+      if (!(proxy = producers.get(state as Record<keyof T, T[keyof T]>))) {
+        producers.set(
+          state as Record<keyof T, T[keyof T]>,
+          (proxy = new Proxy(state, setterTraps))
+        );
+      }
+      fn(proxy);
+    }
     return state;
   };
 }
