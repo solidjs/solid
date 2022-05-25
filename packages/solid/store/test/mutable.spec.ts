@@ -73,9 +73,9 @@ describe("Simple update modes", () => {
 
   test("Test Array", () => {
     const todos = createMutable([
-        { id: 1, title: "Go To Work", done: true },
-        { id: 2, title: "Eat Lunch", done: false }
-      ]);
+      { id: 1, title: "Go To Work", done: true },
+      { id: 2, title: "Eat Lunch", done: false }
+    ]);
     todos[1].done = true;
     todos.push({ id: 3, title: "Go Home", done: false });
     expect(Array.isArray(todos)).toBe(true);
@@ -92,7 +92,7 @@ describe("Unwrapping Edge Cases", () => {
       s = unwrap({ ...state });
     expect(s.data.user.firstName).toBe("John");
     expect(s.data.user.lastName).toBe("Snow");
-    // check if proxy still
+    // @ts-ignore check if proxy still
     expect(s.data.user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen array", () => {
@@ -102,7 +102,7 @@ describe("Unwrapping Edge Cases", () => {
       s = unwrap({ data: state.data.slice(0) });
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
-    // check if proxy still
+    // @ts-ignore check if proxy still
     expect(s.data[0].user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen state array", () => {
@@ -112,7 +112,7 @@ describe("Unwrapping Edge Cases", () => {
       s = unwrap({ ...state });
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
-    // check if proxy still
+    // @ts-ignore check if proxy still
     expect(s.data[0].user[$RAW]).toBeUndefined();
   });
 });
@@ -120,7 +120,7 @@ describe("Unwrapping Edge Cases", () => {
 describe("Tracking State changes", () => {
   test("Track a state change", () => {
     createRoot(() => {
-      const state = createMutable({ data: 2 })
+      const state = createMutable({ data: 2 });
       let executionCount = 0;
 
       expect.assertions(2);
@@ -144,8 +144,8 @@ describe("Tracking State changes", () => {
   test("Track a nested state change", () => {
     createRoot(() => {
       const state = createMutable({
-          user: { firstName: "John", lastName: "Smith" }
-        })
+        user: { firstName: "John", lastName: "Smith" }
+      });
       let executionCount = 0;
 
       expect.assertions(2);
@@ -240,7 +240,7 @@ describe("Batching", () => {
       expect(state.data).toBe(1);
       state.data = 2;
       expect(state.data).toBe(1);
-    })
+    });
     expect(state.data).toBe(2);
   });
   test("Respects batch in array", () => {
@@ -249,7 +249,7 @@ describe("Batching", () => {
       expect(state[0]).toBe(1);
       state[0] = 2;
       expect(state[0]).toBe(1);
-    })
+    });
     expect(state[0]).toBe(2);
   });
   test("Respects batch in array mutate", () => {
@@ -258,7 +258,7 @@ describe("Batching", () => {
       expect(state.length).toBe(1);
       state[1] = 2;
       expect(state.length).toBe(1);
-    })
+    });
     expect(state.length).toBe(2);
-  })
-})
+  });
+});

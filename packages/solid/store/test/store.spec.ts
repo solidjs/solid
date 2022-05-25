@@ -14,7 +14,6 @@ describe("State immutablity", () => {
   test("Setting a property", () => {
     const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
-    // @ts-expect-error cannot mutate a store directly
     state.name = "Jake";
     expect(state.name).toBe("John");
   });
@@ -22,7 +21,7 @@ describe("State immutablity", () => {
   test("Deleting a property", () => {
     const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
-    // @ts-ignore
+    // @ts-expect-error can't delete required property
     delete state.name;
     expect(state.name).toBe("John");
   });
@@ -31,7 +30,6 @@ describe("State immutablity", () => {
     const [state, setState] = createStore({ name: "John" });
     expect(state.name).toBe("John");
     setState(() => {
-      // @ts-expect-error cannot mutate a store directly
       state.name = "Jake";
     });
     expect(state.name).toBe("John");
@@ -151,7 +149,6 @@ describe("Array setState modes", () => {
   test("Update Specific", () => {
     const [state, setState] = createStore([1, 2, 3, 4, 5]);
     setState([1, 3], (r, t) => {
-      // @ts-ignore traversed types are wrong and incomplete
       expect(typeof t[0]).toBe("number");
       return r * 2;
     });
@@ -167,7 +164,6 @@ describe("Array setState modes", () => {
     setState(
       (r, i) => Boolean(i % 2),
       (r, t) => {
-        // @ts-ignore
         expect(typeof t[0]).toBe("number");
         return r * 2;
       }
@@ -181,7 +177,6 @@ describe("Array setState modes", () => {
   test("Update traversal range", () => {
     const [state, setState] = createStore([1, 2, 3, 4, 5]);
     setState({ from: 1, to: 4, by: 2 }, (r, t) => {
-      // @ts-ignore
       expect(typeof t[0]).toBe("number");
       return r * 2;
     });
@@ -194,7 +189,6 @@ describe("Array setState modes", () => {
   test("Update traversal range defaults", () => {
     const [state, setState] = createStore([1, 2, 3, 4, 5]);
     setState({}, (r, t) => {
-      // @ts-ignore
       expect(typeof t[0]).toBe("number");
       return r * 2;
     });
@@ -214,7 +208,7 @@ describe("Unwrapping Edge Cases", () => {
       s = unwrap({ ...state });
     expect(s.data.user.firstName).toBe("John");
     expect(s.data.user.lastName).toBe("Snow");
-    // check if proxy still
+    // @ts-ignore check if proxy still
     expect(s.data.user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen array", () => {
@@ -224,7 +218,7 @@ describe("Unwrapping Edge Cases", () => {
       s = unwrap({ data: state.data.slice(0) });
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
-    // check if proxy still
+    // @ts-ignore check if proxy still
     expect(s.data[0].user[$RAW]).toBeUndefined();
   });
   test("Unwrap nested frozen state array", () => {
@@ -234,7 +228,7 @@ describe("Unwrapping Edge Cases", () => {
       s = unwrap({ ...state });
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
-    // check if proxy still
+    // @ts-ignore check if proxy still
     expect(s.data[0].user[$RAW]).toBeUndefined();
   });
 });
@@ -575,7 +569,7 @@ describe("Batching", () => {
       expect(state.data).toBe(1);
       setState("data", 2);
       expect(state.data).toBe(1);
-    })
+    });
     expect(state.data).toBe(2);
   });
   test("Respects batch in array", () => {
@@ -584,7 +578,7 @@ describe("Batching", () => {
       expect(state[0]).toBe(1);
       setState(0, 2);
       expect(state[0]).toBe(1);
-    })
+    });
     expect(state[0]).toBe(2);
   });
   test("Respects batch in array mutate", () => {
@@ -593,10 +587,10 @@ describe("Batching", () => {
       expect(state.length).toBe(1);
       setState([...state, 2]);
       expect(state.length).toBe(1);
-    })
+    });
     expect(state.length).toBe(2);
-  })
-})
+  });
+});
 
 describe("State wrapping", () => {
   test("Setting plain object", () => {
@@ -767,22 +761,22 @@ describe("Nested Classes", () => {
   setStore("data", 1, "world");
 };
 
-// cannot mutate a store directly
-() => {
-  const [store, setStore] = createStore({ a: 1, nested: { a: 1 } });
-  // @ts-expect-error cannot set
-  store.a = 1;
-  // @ts-expect-error cannot set
-  store.nested.a = 1;
-  // @ts-expect-error cannot delete
-  delete store.a;
-  // @ts-expect-error cannot delete
-  delete store.nested.a;
-  // @ts-expect-error cannot set in setter
-  setStore(s => (s.a = 1));
-  // @ts-expect-error cannot set in setter
-  setStore(s => (s.nested.a = 1));
-};
+// // cannot mutate a store directly
+// () => {
+//   const [store, setStore] = createStore({ a: 1, nested: { a: 1 } });
+//   // @ts-expect-error cannot set
+//   store.a = 1;
+//   // @ts-expect-error cannot set
+//   store.nested.a = 1;
+//   // @ts-expect-error cannot delete
+//   delete store.a;
+//   // @ts-expect-error cannot delete
+//   delete store.nested.a;
+//   // @ts-expect-error cannot set in setter
+//   setStore(s => (s.a = 1));
+//   // @ts-expect-error cannot set in setter
+//   setStore(s => (s.nested.a = 1));
+// };
 
 // cannot mutate unnested classes
 () => {
@@ -880,9 +874,7 @@ describe("Nested Classes", () => {
   setStore("b", "a", "c");
   // @ts-expect-error TODO generic should index Record
   setStore("c", v, "c");
-  // @ts-expect-error TODO generic should index Record
   const b = store.c[v];
-  // @ts-expect-error string should be assignable to string
   const c: typeof b = "1";
   const d = a.c[v];
   const e: typeof d = "1";

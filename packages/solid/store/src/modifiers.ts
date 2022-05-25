@@ -1,5 +1,5 @@
 import { batch } from "solid-js";
-import { setProperty, unwrap, isWrappable, StoreNode, $RAW, DeepMutable, DeepReadonly } from "./store";
+import { setProperty, unwrap, isWrappable, StoreNode, $RAW } from "./store";
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -136,9 +136,9 @@ const setterTraps: ProxyHandler<StoreNode> = {
 };
 
 // Immer style mutation style
-export function produce<T>(fn: (state: DeepMutable<T>) => void): (state: T) => T {
+export function produce<T>(fn: (state: T) => void): (state: T) => T {
   return state => {
-    if (isWrappable(state)) fn(new Proxy(state, setterTraps) as DeepMutable<T>);
+    if (isWrappable(state)) fn(new Proxy(state, setterTraps));
     return state;
   };
 }
