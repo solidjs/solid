@@ -395,15 +395,13 @@ export function createMemo<Next extends Prev, Init, Prev>(
 export interface Resource<T> extends Accessor<T> {
   loading: boolean;
   error: any;
-  latest: T | undefined;
+  latest: T;
 }
 
 export type ResourceActions<T> = {
   mutate: Setter<T>;
   refetch: (info?: unknown) => T | Promise<T> | undefined | null;
 };
-
-export type ResourceReturn<T> = [Resource<T>, ResourceActions<T>];
 
 export type ResourceSource<S> = S | false | null | undefined | (() => S | false | null | undefined);
 
@@ -424,6 +422,17 @@ export type ResourceOptions<T> = undefined extends T
       deferStream?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
+
+export type ResourceReturn<T, O extends ResourceOptions<T | undefined> | undefined, K = T> = [
+  Resource<
+    O extends undefined | null
+      ? T | undefined
+      : NonNullable<O>["initialValue"] extends undefined
+      ? T | undefined
+      : T
+  >,
+  ResourceActions<K>
+];
 
 /**
  * Creates a resource that wraps a repeated promise in a reactive pattern:
@@ -453,26 +462,26 @@ export type ResourceOptions<T> = undefined extends T
 export function createResource<T, S = true>(
   fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
-): ResourceReturn<T | undefined>;
+): ResourceReturn<T | undefined, typeof options>;
 export function createResource<T, S = true>(
   fetcher: ResourceFetcher<S, T>,
   options: ResourceOptions<T>
-): ResourceReturn<T>;
+): ResourceReturn<T, typeof options>;
 export function createResource<T, S>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
-): ResourceReturn<T | undefined>;
+): ResourceReturn<T | undefined, typeof options>;
 export function createResource<T, S>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T>,
   options: ResourceOptions<T>
-): ResourceReturn<T>;
+): ResourceReturn<T, typeof options>;
 export function createResource<T, S>(
   source: ResourceSource<S> | ResourceFetcher<S, T>,
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options?: ResourceOptions<T> | ResourceOptions<undefined>
-): ResourceReturn<T> | ResourceReturn<T | undefined> {
+): ResourceReturn<T | undefined, typeof options> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher as ResourceOptions<T> | ResourceOptions<undefined>;
@@ -610,7 +619,10 @@ export function createResource<T, S>(
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: setValue } as ResourceActions<T>];
+  return [
+    read as Resource<T>,
+    { refetch: load, mutate: setValue } as ResourceActions<T | undefined>
+  ];
 }
 
 export interface DeferredOptions<T> {
