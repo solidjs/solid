@@ -339,7 +339,7 @@ export function createResource<T, S>(
   const read = () => {
     if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
-    const resolved = sharedConfig.context!.async && sharedConfig.context!.resources[id].data;
+    const resolved = sharedConfig.context!.async && "data" in sharedConfig.context!.resources[id];
     if (!resolved && read.loading) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
@@ -360,7 +360,7 @@ export function createResource<T, S>(
     const ctx = sharedConfig.context!;
     if (!ctx.async)
       return (read.loading = !!(typeof source === "function" ? (source as () => S)() : source));
-    if (ctx.resources && id in ctx.resources && ctx.resources[id].data) {
+    if (ctx.resources && id in ctx.resources && "data" in ctx.resources[id]) {
       value = ctx.resources[id].data;
       return;
     }
