@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "babel-preset-solid": "^1.4.2",
-    "solid-js": "^1.4.2"
+    "solid-js": "^1.4.3"
   },
-  "version": "1.4.2"
+  "version": "1.4.3"
 }
