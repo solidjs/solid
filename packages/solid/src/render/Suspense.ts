@@ -138,9 +138,9 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       resolved: false
     },
     owner = getOwner();
-  if (sharedConfig.context) {
+  if (sharedConfig.context && sharedConfig.load) {
     const key = sharedConfig.context.id + sharedConfig.context.count;
-    p = sharedConfig.load!(key);
+    p = sharedConfig.load(key);
     if (p) {
       if (typeof p !== "object" || !("then" in p)) p = Promise.resolve(p);
       const [s, set] = createSignal(undefined, { equals: false });
