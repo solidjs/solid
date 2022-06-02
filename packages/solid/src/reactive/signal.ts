@@ -1586,6 +1586,7 @@ function cleanNode(node: Owner) {
   if (Transition && Transition.running) (node as Computation<any>).tState = 0;
   else (node as Computation<any>).state = 0;
   node.context = null;
+  "_SOLID_DEV_" && delete node.sourceMap;
 }
 
 function reset(node: Computation<any>, top?: boolean) {
