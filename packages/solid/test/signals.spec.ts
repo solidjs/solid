@@ -382,6 +382,15 @@ describe("onCleanup", () => {
     disposer!();
     expect(temp).toBe("disposed");
   });
+  test("Failed Root disposal from arguments", () => {
+    let temp: string | undefined, disposer: () => void;
+    createRoot((...args) => {
+      disposer = args[0];
+      onCleanup(() => (temp = "disposed"));
+    });
+    expect(temp).toBeUndefined();
+    expect(disposer!).toThrow();
+  });
 });
 
 describe("onError", () => {
