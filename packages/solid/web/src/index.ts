@@ -48,10 +48,16 @@ export const hydrate: typeof hydrateCore = (...args) => {
  *
  * @description https://www.solidjs.com/docs/latest/api#%3Cportal%3E
  */
-export function Portal(props: {
+export function Portal<T extends boolean = false, S extends boolean = false>(props: {
   mount?: Node;
-  useShadow?: boolean;
-  isSVG?: boolean;
+  useShadow?: T;
+  isSVG?: S;
+  ref?:
+    | (S extends true ? SVGGElement : HTMLDivElement)
+    | ((
+        el: (T extends true ? { readonly shadowRoot: ShadowRoot } : {}) &
+          (S extends true ? SVGGElement : HTMLDivElement)
+      ) => void);
   children: JSX.Element;
 }) {
   const { useShadow } = props,
