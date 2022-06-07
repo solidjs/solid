@@ -6,7 +6,7 @@ export function isWrappable(obj: any) {
   return (
     obj != null &&
     typeof obj === "object" &&
-    (obj.__proto__ === Object.prototype || Array.isArray(obj))
+    (Object.getPrototypeOf(obj) === Object.prototype || Array.isArray(obj))
   );
 }
 

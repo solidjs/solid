@@ -41,10 +41,14 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
 
 export function isWrappable<T>(obj: T | NotWrappable): obj is T;
 export function isWrappable(obj: any) {
+  let proto;
   return (
     obj != null &&
     typeof obj === "object" &&
-    (obj[$PROXY] || !obj.__proto__ || obj.__proto__ === Object.prototype || Array.isArray(obj))
+    (obj[$PROXY] ||
+      !(proto = Object.getPrototypeOf(obj)) ||
+      proto === Object.prototype ||
+      Array.isArray(obj))
   );
 }
 
