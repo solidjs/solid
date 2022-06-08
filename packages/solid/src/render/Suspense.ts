@@ -172,7 +172,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
           return (flicker = undefined);
         }
         if (ctx && p === undefined) setHydrateContext();
-        const rendered = untrack(() => props.children);
+        const rendered = createMemo(() => props.children);
         return createMemo(() => {
           const inFallback = store.inFallback(),
             visibleContent = showContent ? showContent() : true,
@@ -182,7 +182,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
             store.resolved = true;
             ctx = p = undefined;
             resumeEffects(store.effects);
-            return rendered;
+            return rendered();
           }
           if (!visibleFallback) return;
           return createRoot(disposer => {

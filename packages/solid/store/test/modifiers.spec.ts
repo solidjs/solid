@@ -1,12 +1,5 @@
 import { createRoot, createSignal, createEffect } from "../../src";
-import {
-  createStore,
-  createMutable,
-  reconcile,
-  produce,
-  unwrap,
-  modifyMutable
-} from "../src";
+import { createStore, createMutable, reconcile, produce, unwrap, modifyMutable } from "../src";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {
@@ -97,6 +90,30 @@ describe("setState with reconcile", () => {
     expect(state.users[1].firstName).toBe("John");
     expect(state.users[2].id).toBe(3);
     expect(state.users[2].firstName).toBe("Brandon");
+  });
+
+  test("Reconcile top level key mismatch", () => {
+    const JOHN = { id: 1, firstName: "John", lastName: "Snow" },
+      NED = { id: 2, firstName: "Ned", lastName: "Stark" };
+
+    const [user, setUser] = createStore(JOHN);
+    expect(user.id).toBe(1);
+    expect(user.firstName).toBe("John");
+    setUser(reconcile(NED));
+    expect(user.id).toBe(2);
+    expect(user.firstName).toBe("Ned");
+  });
+
+  test("Reconcile nested top level key mismatch", () => {
+    const JOHN = { id: 1, firstName: "John", lastName: "Snow" },
+      NED = { id: 2, firstName: "Ned", lastName: "Stark" };
+
+    const [user, setUser] = createStore({ user: JOHN });
+    expect(user.user.id).toBe(1);
+    expect(user.user.firstName).toBe("John");
+    setUser("user", reconcile(NED));
+    expect(user.user.id).toBe(2);
+    expect(user.user.firstName).toBe("Ned");
   });
 });
 

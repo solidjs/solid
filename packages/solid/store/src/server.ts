@@ -29,6 +29,23 @@ function mergeStoreNode(state: any, value: any, force?: boolean) {
   }
 }
 
+function updateArray(
+  current: any,
+  next: Array<any> | Record<string, any> | ((prev: any) => Array<any> | Record<string, any>)
+) {
+  if (typeof next === "function") next = next(current);
+  if (Array.isArray(next)) {
+    if (current === next) return;
+    let i = 0,
+      len = next.length;
+    for (; i < len; i++) {
+      const value = next[i];
+      if (current[i] !== value) setProperty(current, i, value);
+    }
+    setProperty(current, "length", len);
+  } else mergeStoreNode(current, next);
+}
+
 export function updatePath(current: any, path: any[], traversed: PropertyKey[] = []) {
   let part,
     next = current;
@@ -75,8 +92,9 @@ export function updatePath(current: any, path: any[], traversed: PropertyKey[] =
 }
 
 export function createStore<T>(state: T | Store<T>): [Store<T>, SetStoreFunction<T>] {
+  const isArray = Array.isArray(state);
   function setStore(...args: any[]): void {
-    updatePath(state, args);
+    isArray && args.length === 1 ? updateArray(state, args[0]) : updatePath(state, args);
   }
   return [state as Store<T>, setStore];
 }

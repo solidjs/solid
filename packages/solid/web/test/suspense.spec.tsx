@@ -3,18 +3,30 @@ import "../../test/MessageChannel";
 import { lazy, createSignal, createResource, useTransition, enableScheduling } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
 
-
 global.queueMicrotask = setImmediate;
 enableScheduling();
 
 beforeEach(() => {
   jest.useFakeTimers();
-})
+});
 afterEach(() => {
   jest.useRealTimers();
-})
+});
+describe("Testing Basics", () => {
+  test("Children are reactive", () => {
+    let div = document.createElement("div");
+    let increment: () => void;
+    render(() => {
+      const [count, setCount] = createSignal(0);
+      increment = () => setCount(count() + 1);
+      return <Suspense>{count()}</Suspense>;
+    }, div);
+    expect(div.innerHTML).toBe("0");
+    increment!();
+    expect(div.innerHTML).toBe("1");
+  });
+});
 describe("Testing Suspense", () => {
-
   let div = document.createElement("div"),
     disposer: () => void,
     resolvers: Function[] = [],
@@ -40,7 +52,7 @@ describe("Testing Suspense", () => {
     expect(div.innerHTML).toBe("Loading");
   });
 
-  test("Toggle Suspense control flow", async (done) => {
+  test("Toggle Suspense control flow", async done => {
     for (const r of resolvers) r({ default: ChildComponent });
 
     queueMicrotask(() => {
@@ -49,7 +61,7 @@ describe("Testing Suspense", () => {
     });
   });
 
-  test("Toggle with refresh transition", async (done) => {
+  test("Toggle with refresh transition", async done => {
     const [pending, start] = useTransition();
     let finished = false;
 
@@ -62,20 +74,20 @@ describe("Testing Suspense", () => {
     expect(div.innerHTML).toBe("Hi, .Hello ");
     expect(pending()).toBe(true);
     expect(finished).toBe(false);
-    
+
     // Exhausts create-resource setTimeout
     jest.runAllTimers();
     // wait update suspence state
     await Promise.resolve();
-    // wait update computation 
+    // wait update computation
     jest.runAllTicks();
     jest.runAllTimers();
     // wait write signal succ
-    queueMicrotask(()=>{
+    queueMicrotask(() => {
       expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
       expect(pending()).toBe(false);
       expect(finished).toBe(true);
-      done()
+      done();
     });
     jest.runAllTicks();
   });
@@ -159,11 +171,11 @@ describe("SuspenseList", () => {
     jest.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
-    
+
     jest.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
-    
+
     jest.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -191,12 +203,11 @@ describe("SuspenseList", () => {
     jest.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("");
-    
+
     jest.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div>");
-    
-    
+
     jest.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");

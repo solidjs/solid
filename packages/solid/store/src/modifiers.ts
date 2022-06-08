@@ -1,5 +1,6 @@
-import { batch } from "solid-js";
 import { setProperty, unwrap, isWrappable, StoreNode, $RAW } from "./store";
+
+const $ROOT = Symbol("store-root")
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -16,7 +17,10 @@ function applyState(
   const previous = parent[property];
   if (target === previous) return;
   if (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key])) {
-    target !== previous && setProperty(parent, property, target);
+    if (target !== previous) {
+      if (property === $ROOT) return target;
+      setProperty(parent, property, target);
+    }
     return;
   }
 
@@ -103,7 +107,7 @@ function applyState(
   }
 }
 
-// Diff method for setState
+// Diff method for setStore
 export function reconcile<T extends U, U>(
   value: T,
   options: ReconcileOptions = {}
@@ -112,8 +116,8 @@ export function reconcile<T extends U, U>(
     v = unwrap(value);
   return state => {
     if (!isWrappable(state) || !isWrappable(v)) return v;
-    batch(() => applyState(v, { state }, "state", merge, key));
-    return state as T;
+    const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, key);
+    return res === undefined ? state as T : res as T;
   };
 }
 
