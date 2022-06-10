@@ -68,10 +68,10 @@ SolidJS core members maintain a separate project called [SolidJS Community](http
 
 The following are projects looking for leaders or support:
 
-- **Solid Aria** (lead by @fabien-ml): A port of React Aria
+- **Solid Aria** (lead by @fabien-ml): A port of React Aria.
 - **Solid Examples** (lead by @foolswisdom): A list of examples, patterns and app implementations.
 - **Solid Codemod** (lead by @trivikr): Convert React or other libraries to Solid automatically.
-- **Solid Snippets** (lead by @thetarnav): VSCode snippet libraru
+- **Solid Snippets** (lead by @thetarnav): VSCode snippet library.
 - **Solid DSL** (lead by @davedbase): A project to explore enhancing JSX or other DSL options.
 - **Solid Primitives** (lead by @davedbase): A large primitives (hooks) library.
 
