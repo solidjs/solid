@@ -1,5 +1,5 @@
 <p>
-  <img width="100%" src="https://raw.githubusercontent.com/solidjs/solid/master/banner.png" alt="SolidJS">
+  <img src="https://assets.solidjs.com/banner?project=Library&type=core" alt="SolidJS" />
 </p>
 
 [![Build Status](https://img.shields.io/github/workflow/status/solidjs/solid/Solid%20CI?logo=github&style=for-the-badge)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
@@ -15,6 +15,7 @@
 Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [intro video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
 
 ## Key Features
+
 - Fine-grained updates to the real DOM
 - Declarative data: model your state as a system with reactive primitives
 - Render-once mental model: your components are regular JavaScript functions that run once to set up your view
@@ -72,23 +73,26 @@ For TypeScript to work, remember to set your `.tsconfig` to handle Solid's JSX:
   "jsxImportSource": "solid-js",
 }
 ```
-</details>
 
+</details>
 
 ## Why Solid?
 
 ### Performant
+
 Meticulously engineered for performance and with half a decade of research behind it, Solid's performance is almost indistinguishable from optimized vanilla JavaScript (See Solid on the [JS Framework Benchmark](https://rawgit.com/krausest/js-framework-benchmark/master/webdriver-ts-results/table.html)). Solid is [small](https://bundlephobia.com/package/solid-js@1.3.15) and completely tree-shakable, and [fast](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) when rendering on the server, too. Whether you're writing a fully client-rendered SPA or a server-rendered app, your users see it faster than ever. ([Read more about Solid's performance](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) from the library's creator.)
 
 ### Powerful
+
 Solid is fully-featured with everything you can expect from a modern framework. Performant state management is built-in with Context and Stores: you don't have to reach for a third party library to manage global state (if you don't want to). With Resources, you can use data loaded from the server like any other piece of state and build a responsive UI for it thanks to Suspense and concurrent rendering. And when you're ready to move to the server, Solid has full SSR and serverless support, with streaming and progressive hydration to get to interactive as quickly as possible. (Check out our full [interactive features walkthrough](https://www.solidjs.com/tutorial/introduction_basics).)
 
 ### Pragmatic
+
 Do more with less: use simple, composable primitives without hidden rules and gotchas. In Solid, components are just functions - rendering is determined purely by how your state is used - so you're free to organize your code how you like and you don't have to learn a new rendering system. Solid encourages patterns like declarative code and read-write segregation that help keep your project maintainable, but isn't opinionated enough to get in your way.
 
 ### Productive
-Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://hope-ui.com/), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
 
+Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://hope-ui.com/), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
 
 <details>
 <summary>Show Me!</summary>
@@ -98,7 +102,7 @@ import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
 
 // A component is just a function that (optionally) accepts properties and returns a DOM node
-const Counter = (props) => {
+const Counter = props => {
   // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
   const [count, setCount] = createSignal(props.startingCount || 1);
 
@@ -127,11 +131,10 @@ See it in action in our interactive [Playground](https://playground.solidjs.com/
 Solid compiles our JSX down to efficient real DOM expressions updates, still using the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
 
 ```js
+import { render, createComponent, delegateEvents, insert, template } from "solid-js/web";
+import { createSignal } from "solid-js";
 
-import { render, createComponent, delegateEvents, insert, template } from 'solid-js/web';
-import { createSignal } from 'solid-js';
-
-const _tmpl$ = /*#__PURE__*/template(`<button type="button">Increment </button>`, 2);
+const _tmpl$ = /*#__PURE__*/ template(`<button type="button">Increment </button>`, 2);
 
 const Counter = props => {
   const [count, setCount] = createSignal(props.startingCount || 1);
@@ -142,7 +145,7 @@ const Counter = props => {
   return (() => {
     //_el$ is a real DOM node!
     const _el$ = _tmpl$.cloneNode(true);
-          _el$.firstChild;
+    _el$.firstChild;
 
     _el$.$$click = increment;
 
@@ -153,14 +156,18 @@ const Counter = props => {
   })();
 };
 
-render(() => createComponent(Counter, {
-  startingCount: 2
-}), document.getElementById("app"));
+render(
+  () =>
+    createComponent(Counter, {
+      startingCount: 2
+    }),
+  document.getElementById("app")
+);
 
 delegateEvents(["click"]);
 ```
-</details>
 
+</details>
 
 ## More
 
