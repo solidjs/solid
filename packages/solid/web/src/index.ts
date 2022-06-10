@@ -112,8 +112,9 @@ type DynamicProps<T> = T & {
  */
 export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
+  const cached = createMemo(() => p.component)
   return createMemo(() => {
-    const component = p.component as Function | string;
+    const component = cached() as Function | string;
     switch (typeof component) {
       case "function":
         if ("_DX_DEV_") Object.assign(component, { [$DEVCOMP]: true });
