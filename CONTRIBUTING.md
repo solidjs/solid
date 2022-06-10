@@ -17,15 +17,15 @@ There are a lot of opportunities to get involved. We organize Solid community ef
 - Advocacy (headed by @hindsight)
 - Translators (headed by @davedbase)
 
-Most team members are part of the Ecosystem Team or Core Team. Entry into these groups is selected by Core Members only. We do not accept applications or request for entry. Selections are made ad-hoc according to internal needs. Selections are typically announced at Community Meetings which occur quarterly.
+Most team members are part of the Ecosystem Team or Core Team. Entry into these groups is selected by Core Members only. We do not accept applications or requests for entry. Selections are made ad-hoc according to internal needs. Selections are typically announced at Community Meetings which occur quarterly.
 
 ## Meetings and Schedules
 
-SolidJS team members organize via Discord chat and audio channels. Channels exist to manage these conversations and threads within channels are used to focus on specific topics. A number of meetings occur weekly between each group howevere there is no set cadence or recurring schedule. Typically attendance for team members is requested to maintain membership, however we respect and recognize OSS contributions are typically ad hoc and as can be given by our members and generous donors.
+SolidJS team members organize via Discord chat and audio channels. Channels exist to manage these conversations and threads within channels are used to focus on specific topics. A number of meetings occur weekly between each group however there is no set cadence or recurring schedule. Typically attendance for team members is requested to maintain membership, however we respect and recognize OSS contributions are typically ad hoc and as can be given by our members and generous donors.
 
 ## Official Opportunities
 
-As a growing community, Solid has an on-going need for developers, writers, designers and general though leaders. The following is a list of openings and tasks that Core attempts to maintain often.
+As a growing community, Solid has an on-going need for developers, writers, designers and general thought leaders. The following is a list of openings and tasks that Core attempts to maintain often.
 
 ### Docs Team
 
@@ -60,7 +60,7 @@ As a growing community, Solid has an on-going need for developers, writers, desi
 
 ### Solid Start Team
 
-Solid Start is our new meta framework that focuses on enhancing Solid's DX story and general usability. Similar to SvelteKit, Next and other meta frameworks, this project is considered a primary core supported effort. Solid Start is approaching it's beta release and we're looking for developers to test, validate and build on top of it. Join the #solid-start channel on Discord or the [solid-start](https://github.com/solidjs/solid-start) to learn more.
+Solid Start is our new meta framework that focuses on enhancing Solid's DX story and general usability. Similar to SvelteKit, Next and other meta frameworks, this project is considered a primary core supported effort. Solid Start is approaching its beta release and we're looking for developers to test, validate and build on top of it. Join the #solid-start channel on Discord or the [solid-start](https://github.com/solidjs/solid-start) to learn more.
 
 ## Ecosystem Opportunities
 
