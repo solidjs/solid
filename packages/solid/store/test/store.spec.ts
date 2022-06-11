@@ -801,10 +801,11 @@ describe("Nested Classes", () => {
   setNested("inner", 0, 2);
 };
 
-// cannot create stores from unwrappable
+// createStore initial value
 () => {
-  // @ts-expect-error cannot create store from undefined
-  createStore(undefined);
+  createStore();
+  createStore<{ a?: { b: 1 } }>();
+  createStore(() => 1);
   // @ts-expect-error cannot create store from null
   createStore(null);
   // @ts-expect-error cannot create store from number
@@ -815,8 +816,8 @@ describe("Nested Classes", () => {
   createStore(Symbol());
   // @ts-expect-error cannot create store from bigint
   createStore(BigInt(0));
-  // TODO @ts-expect-error cannot create store from function
-  createStore(() => 1);
+  // @ts-expect-error must provide initial value if {} cannot be assigned to it
+  createStore<{ a: 1 }>();
 };
 
 // recursive
