@@ -290,16 +290,14 @@ export type StorePathRange = { from?: number; to?: number; by?: number };
 export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
 
 export type StoreSetter<T, U extends PropertyKey[] = []> =
-  | ((prevState: T, traversed: U) => T | CustomPartial<T> | void)
+  | ((prevState: T, traversed: U) => T | CustomPartial<T>)
   | T
   | CustomPartial<T>;
 
-export type Part<T, K extends KeyOf<T> = KeyOf<T>> = [K] extends [never]
-  ? never // return never if key is never, else it'll return readonly never[] as well
-  :
-      | K
-      | readonly K[]
-      | ([T] extends [readonly unknown[]] ? ArrayFilterFn<T[number]> | StorePathRange : never);
+export type Part<T, K extends KeyOf<T> = KeyOf<T>> =
+  | K
+  | ([K] extends [never] ? never : readonly K[])
+  | ([T] extends [readonly unknown[]] ? ArrayFilterFn<T[number]> | StorePathRange : never);
 
 // shortcut to avoid writing `Exclude<T, NotWrappable>` too many times
 type W<T> = Exclude<T, NotWrappable>;

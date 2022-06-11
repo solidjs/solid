@@ -885,6 +885,7 @@ describe("Nested Classes", () => {
   // should allow
   setStore("a", v);
   setStore("b", "a", "c");
+  setStore("b", v, "c");
   // @ts-expect-error TODO generic should index Record
   setStore("c", v, "c");
   const b = store.c[v];
@@ -899,19 +900,23 @@ describe("Nested Classes", () => {
   setStore((v, t) => {
     const expectedT: [] = t;
     t = [] as [];
+    return v;
   });
   setStore("a", (v, t) => {
     const expectedT: ["a"] = t;
     t = ["a"];
+    return v;
   });
   setStore("a", 0, (v, t) => {
     const expectedT: [0, "a"] = t;
     t = [0, "a"];
+    return v;
   });
   // array of keys
-  setStore(["a"], [0 as const], (v, t) => {
+  setStore(["a"], [0], (v, t) => {
     const expectedT: [0, "a"] = t;
     t = [0, "a"];
+    return v;
   });
   // callback
   setStore(
@@ -920,12 +925,14 @@ describe("Nested Classes", () => {
     (v, t) => {
       const expectedT: [number, "a"] = t;
       t = [0, "a"];
+      return v;
     }
   );
   // { from, to, by }
   setStore(["a"], {}, (v, t) => {
     const expectedT: [number, "a"] = t;
     t = [0, "a"];
+    return v;
   });
 };
 
