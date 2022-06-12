@@ -406,11 +406,12 @@ export interface SetStoreFunction<T> {
  *
  * @description https://www.solidjs.com/docs/latest/api#createstore
  */
-export function createStore<T extends StoreNode>(
-  store: T | Store<T>,
-  options?: { name?: string }
+export function createStore<T extends {}>(
+  ...[store, options]: {} extends T
+    ? [store?: T | Store<T>, options?: { name?: string }]
+    : [store: object & (T | Store<T>), options?: { name?: string }]
 ): [get: Store<T>, set: SetStoreFunction<T>] {
-  const unwrappedStore = unwrap(store || {});
+  const unwrappedStore = unwrap((store || {}) as T);
   const isArray = Array.isArray(unwrappedStore);
   if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
     throw new Error(
