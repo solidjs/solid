@@ -297,107 +297,117 @@ export type StoreSetter<T, U extends PropertyKey[] = []> =
 export type Part<T, K extends KeyOf<T> = KeyOf<T>> =
   | K
   | ([K] extends [never] ? never : readonly K[])
-  | ([T] extends [readonly unknown[]] ? ArrayFilterFn<T[number]> | StorePathRange : never);
+  | (T extends readonly unknown[] ? ArrayFilterFn<T[number]> | StorePathRange : never);
 
 // shortcut to avoid writing `Exclude<T, NotWrappable>` too many times
 type W<T> = Exclude<T, NotWrappable>;
 
+// access only instances of T where K is keyof T, A for Access
+type A<T, K extends PropertyKey> = T extends unknown ? T[K & keyof T] : never;
+
 // specially handle keyof to avoid errors with arrays and any
-type KeyOf<T> = number extends keyof T // have to check this otherwise ts won't allow KeyOf<T> to index T
-  ? 0 extends 1 & T // if it's any just return keyof T
-    ? keyof T
-    : [T] extends [readonly unknown[]]
-    ? number // it's an array or tuple; exclude the non-number properties
-    : [T] extends [never]
-    ? never // keyof never is PropertyKey which number extends; return never
-    : keyof T // it's something which contains an index signature for strings or numbers
-  : keyof T;
+type KeyOf<T> = T extends unknown // distribute T in case it is a union
+  ? keyof T &
+      (0 extends 1 & T
+        ? unknown // don't narrow further than keyof T if it is any
+        : [T] extends [never]
+        ? never // keyof never is PropertyKey instead of never: return never
+        : [T] extends [readonly unknown[]]
+        ? number | `${number}` // extract numbers if T is an array
+        : unknown) // don't narrow further if T is something else
+  : never;
 
 type Rest<T, U extends PropertyKey[]> =
   | [StoreSetter<T, U>]
   | (0 extends 1 & T
       ? [...Part<any>[], StoreSetter<any, PropertyKey[]>]
-      : DistributeRest<W<T>, KeyOf<W<T>>, U>);
-// need a second type to distribute `K`
-type DistributeRest<T, K, U extends PropertyKey[]> = [T] extends [never]
-  ? never
-  : K extends KeyOf<T>
-  ? [Part<T, K>, ...Rest<T[K], [K, ...U]>]
-  : never;
+      : T extends NotWrappable
+      ? never
+      : { [K in KeyOf<T>]: [Part<T, K>, ...Rest<T[K], [K, ...U]>] }[KeyOf<T>]);
 
 export interface SetStoreFunction<T> {
   <
     K1 extends KeyOf<W<T>>,
-    K2 extends KeyOf<W<W<T>[K1]>>,
-    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
-    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
-    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>,
-    K6 extends KeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>,
-    K7 extends KeyOf<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>>
+    K2 extends KeyOf<W<A<W<T>, K1>>>,
+    K3 extends KeyOf<W<A<W<A<W<T>, K1>>, K2>>>,
+    K4 extends KeyOf<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>>,
+    K5 extends KeyOf<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>>,
+    K6 extends KeyOf<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>>,
+    K7 extends KeyOf<W<A<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>, K6>>>
   >(
     k1: Part<W<T>, K1>,
-    k2: Part<W<W<T>[K1]>, K2>,
-    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
-    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
-    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
-    k6: Part<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>, K6>,
-    k7: Part<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>, K7>,
-    ...rest: Rest<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>[K7], [K7, K6, K5, K4, K3, K2, K1]>
+    k2: Part<W<A<W<T>, K1>>, K2>,
+    k3: Part<W<A<W<A<W<T>, K1>>, K2>>, K3>,
+    k4: Part<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>,
+    k5: Part<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>,
+    k6: Part<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>, K6>,
+    k7: Part<W<A<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>, K6>>, K7>,
+    ...rest: Rest<
+      A<W<A<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>, K6>>, K7>,
+      [K7, K6, K5, K4, K3, K2, K1]
+    >
   ): void;
   <
     K1 extends KeyOf<W<T>>,
-    K2 extends KeyOf<W<W<T>[K1]>>,
-    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
-    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
-    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>,
-    K6 extends KeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>
+    K2 extends KeyOf<W<A<W<T>, K1>>>,
+    K3 extends KeyOf<W<A<W<A<W<T>, K1>>, K2>>>,
+    K4 extends KeyOf<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>>,
+    K5 extends KeyOf<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>>,
+    K6 extends KeyOf<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>>
   >(
     k1: Part<W<T>, K1>,
-    k2: Part<W<W<T>[K1]>, K2>,
-    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
-    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
-    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
-    k6: Part<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>, K6>,
-    setter: StoreSetter<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6], [K6, K5, K4, K3, K2, K1]>
+    k2: Part<W<A<W<T>, K1>>, K2>,
+    k3: Part<W<A<W<A<W<T>, K1>>, K2>>, K3>,
+    k4: Part<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>,
+    k5: Part<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>,
+    k6: Part<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>, K6>,
+    setter: StoreSetter<
+      A<W<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>>, K6>,
+      [K6, K5, K4, K3, K2, K1]
+    >
   ): void;
   <
     K1 extends KeyOf<W<T>>,
-    K2 extends KeyOf<W<W<T>[K1]>>,
-    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
-    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
-    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>
+    K2 extends KeyOf<W<A<W<T>, K1>>>,
+    K3 extends KeyOf<W<A<W<A<W<T>, K1>>, K2>>>,
+    K4 extends KeyOf<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>>,
+    K5 extends KeyOf<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>>
   >(
     k1: Part<W<T>, K1>,
-    k2: Part<W<W<T>[K1]>, K2>,
-    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
-    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
-    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
-    setter: StoreSetter<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5], [K5, K4, K3, K2, K1]>
+    k2: Part<W<A<W<T>, K1>>, K2>,
+    k3: Part<W<A<W<A<W<T>, K1>>, K2>>, K3>,
+    k4: Part<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>,
+    k5: Part<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>,
+    setter: StoreSetter<A<W<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>>, K5>, [K5, K4, K3, K2, K1]>
   ): void;
   <
     K1 extends KeyOf<W<T>>,
-    K2 extends KeyOf<W<W<T>[K1]>>,
-    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
-    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>
+    K2 extends KeyOf<W<A<W<T>, K1>>>,
+    K3 extends KeyOf<W<A<W<A<W<T>, K1>>, K2>>>,
+    K4 extends KeyOf<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>>
   >(
     k1: Part<W<T>, K1>,
-    k2: Part<W<W<T>[K1]>, K2>,
-    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
-    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
-    setter: StoreSetter<W<W<W<W<T>[K1]>[K2]>[K3]>[K4], [K4, K3, K2, K1]>
+    k2: Part<W<A<W<T>, K1>>, K2>,
+    k3: Part<W<A<W<A<W<T>, K1>>, K2>>, K3>,
+    k4: Part<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>,
+    setter: StoreSetter<A<W<A<W<A<W<A<W<T>, K1>>, K2>>, K3>>, K4>, [K4, K3, K2, K1]>
   ): void;
-  <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>, K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>>(
+  <
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<A<W<T>, K1>>>,
+    K3 extends KeyOf<W<A<W<A<W<T>, K1>>, K2>>>
+  >(
     k1: Part<W<T>, K1>,
-    k2: Part<W<W<T>[K1]>, K2>,
-    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
-    setter: StoreSetter<W<W<W<T>[K1]>[K2]>[K3], [K3, K2, K1]>
+    k2: Part<W<A<W<T>, K1>>, K2>,
+    k3: Part<W<A<W<A<W<T>, K1>>, K2>>, K3>,
+    setter: StoreSetter<A<W<A<W<A<W<T>, K1>>, K2>>, K3>, [K3, K2, K1]>
   ): void;
-  <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>>(
+  <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<A<W<T>, K1>>>>(
     k1: Part<W<T>, K1>,
-    k2: Part<W<W<T>[K1]>, K2>,
-    setter: StoreSetter<W<W<T>[K1]>[K2], [K2, K1]>
+    k2: Part<W<A<W<T>, K1>>, K2>,
+    setter: StoreSetter<A<W<A<W<T>, K1>>, K2>, [K2, K1]>
   ): void;
-  <K1 extends KeyOf<W<T>>>(k1: Part<W<T>, K1>, setter: StoreSetter<W<T>[K1], [K1]>): void;
+  <K1 extends KeyOf<W<T>>>(k1: Part<W<T>, K1>, setter: StoreSetter<A<W<T>, K1>, [K1]>): void;
   (setter: StoreSetter<T, []>): void;
 }
 
