@@ -12,10 +12,10 @@ Note: If you would like your project listed here please submit a PR or contact a
 
 There are a lot of opportunities to get involved. We organize Solid community efforts via Discord and typically onboard dedicated contributors into focused teams:
 
-- Docs (headed by @Jutanium)
-- Infrastructure (headed by @davedbase)
-- Advocacy (headed by @hindsight)
-- Translators (headed by @davedbase)
+- Docs (headed by [@Jutanium](https://github.com/Jutanium))
+- Infrastructure (headed by [@davedbase](https://github.com/davedbase))
+- Advocacy (headed by [@hindsight](https://github.com/eslachance))
+- Translators (headed by [@davedbase](https://github.com/davedbase))
 
 Most team members are part of the Ecosystem Team or Core Team. Entry into these groups is selected by Core Members only. We do not accept applications or requests for entry. Selections are made ad-hoc according to internal needs. Selections are typically announced at Community Meetings which occur quarterly.
 
