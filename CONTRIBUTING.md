@@ -12,10 +12,10 @@ Note: If you would like your project listed here please submit a PR or contact a
 
 There are a lot of opportunities to get involved. We organize Solid community efforts via Discord and typically onboard dedicated contributors into focused teams:
 
-- Docs (headed by @Jutanium)
-- Infrastructure (headed by @davedbase)
-- Advocacy (headed by @hindsight)
-- Translators (headed by @davedbase)
+- Docs (headed by [@Jutanium](https://github.com/Jutanium))
+- Infrastructure (headed by [@davedbase](https://github.com/davedbase))
+- Advocacy (headed by [@hindsight](https://github.com/eslachance))
+- Translators (headed by [@davedbase](https://github.com/davedbase))
 
 Most team members are part of the Ecosystem Team or Core Team. Entry into these groups is selected by Core Members only. We do not accept applications or requests for entry. Selections are made ad-hoc according to internal needs. Selections are typically announced at Community Meetings which occur quarterly.
 
@@ -68,12 +68,12 @@ SolidJS core members maintain a separate project called [SolidJS Community](http
 
 The following are projects looking for leaders or support:
 
-- **Solid Aria** (lead by @fabien-ml): A port of React Aria.
-- **Solid Examples** (lead by @foolswisdom): A list of examples, patterns and app implementations.
-- **Solid Codemod** (lead by @trivikr): Convert React or other libraries to Solid automatically.
-- **Solid Snippets** (lead by @thetarnav): VSCode snippet library.
-- **Solid DSL** (lead by @davedbase): A project to explore enhancing JSX or other DSL options.
-- **Solid Primitives** (lead by @davedbase): A large primitives (hooks) library.
+- [**Solid Aria**](https://github.com/solidjs-community/solid-aria) (lead by [@fabien-ml](https://github.com/fabien-ml)): A port of React Aria.
+- [**Solid Examples**](https://github.com/solidjs-community/solid-examples) (lead by [@foolswisdom](https://github.com/mosheduminer)): A list of examples, patterns and app implementations.
+- [**Solid Codemod**](https://github.com/solidjs-community/solid-codemod) (lead by [@trivikr](https://github.com/trivikr)): Convert React or other libraries to Solid automatically.
+- [**Solid Snippets**](https://github.com/solidjs-community/solid-snippets) (lead by [@thetarnav](https://github.com/thetarnav)): VSCode snippet library.
+- [**Solid DSL**](https://github.com/solidjs-community/solid-dsl) (lead by [@davedbase](https://github.com/davedbase)): A project to explore enhancing JSX or other DSL options.
+- [**Solid Primitives**](https://github.com/solidjs-community/solid-primitives) (lead by [@davedbase](https://github.com/davedbase)): A large primitives (hooks) library.
 
 Contributing to ecosystem projects is just as important as contributing to Solid core projects. As Solid grows a lush, well supported and high-quality set of packages and learning materials will benefit it's users and future viability.
 
