@@ -92,7 +92,7 @@ let solidConfig = {
 
 These were originally deferred to a microtask to resemble how effects are queued under a listener. However it is more correct to run immediate like everything else top level.
 
-### Better Types around Components
+#### Better Types around Components
 
 This one took the effort of many resident TypeScript experts, but we've now landed on some better types for components. The biggest change is `Component` no longer has an opinion on whether it should have `children` or not. We've added supplementary types `ParentComponent` and `FlowComponent` to denote Components that may have `children` or always have `children`. And we've added `VoidComponent` for those which may never have children.
 
@@ -102,11 +102,15 @@ A small change but it was unusual to have refetching trigger a reactive expressi
 
 #### `createMutable` batches array methods like push, pop, etc..
 
-Dow these built-ins are batched and more performant. We've also add `modifyMutable` that applies modifiers batched to stores created with `createMutable`.
+Now these built-ins are batched and more performant. We've also add `modifyMutable` that applies modifiers batched to stores created with `createMutable`.
 
 ```js
 modifyMutable(state.data.user, reconcile({ firstName: "Jake", middleName: "R" }));
 ```
+
+#### Stores and mutables now respect batch
+
+Writing to a store or mutable within `batch` (including effects) no longer immediately updates the value, so reading within the same batch gives the old value. This guarantees consistency with memos and other computations, just like signals.
 
 #### Better Support for React JSX transform
 
