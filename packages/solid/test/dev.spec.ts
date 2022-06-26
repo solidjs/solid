@@ -1,11 +1,5 @@
-import {
-  createRoot,
-  getOwner,
-  createSignal,
-  createEffect,
-  createComponent,
-  DEV
-} from "../src";
+import { createRoot, getOwner, createSignal, createEffect, createComponent, DEV } from "../src";
+import { Owner } from "../src/reactive/signal";
 import { createStore } from "../store/src";
 
 describe("Dev features", () => {
@@ -20,7 +14,7 @@ describe("Dev features", () => {
       const [state, setState] = createStore({ firstName: "John", lastName: "Smith" });
       setState1 = setState;
       return "";
-    }
+    };
     createRoot(() => {
       owner = getOwner();
       const [s, set] = createSignal(5);
@@ -61,5 +55,21 @@ describe("Dev features", () => {
     expect(triggered).toBe(2);
     setState1({ middleInitial: "R.", firstName: "Matt" });
     expect(triggered).toBe(3);
-  })
+  });
+
+  test("AfterCreateRoot Hook", () => {
+    const captured: Owner[] = [];
+    global._$afterCreateRoot = root => captured.push(root);
+    createRoot(() => {
+      const root = getOwner()!;
+      expect(captured.length).toBe(1);
+      expect(captured[0]).toBe(root);
+      createRoot(_ => {
+        const inner = getOwner()!;
+        expect(captured.length).toBe(2);
+        expect(captured[1]).toBe(inner);
+        expect(inner.owner).toBe(root);
+      });
+    });
+  });
 });

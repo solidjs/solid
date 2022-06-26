@@ -35,6 +35,7 @@ let rootCount = 0;
 
 declare global {
   var _$afterUpdate: () => void;
+  var _$afterCreateRoot: (root: Owner) => void;
 }
 
 export interface SignalState<T> {
@@ -120,7 +121,10 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
         : fn
       : () => fn(() => cleanNode(root));
 
-  if ("_SOLID_DEV_" && owner) root.name = `${(owner as Computation<any>).name}-r${rootCount++}`;
+  if ("_SOLID_DEV_") {
+    if (owner) root.name = `${owner.name}-r${rootCount++}`;
+    globalThis._$afterCreateRoot && globalThis._$afterCreateRoot(root);
+  }
 
   Owner = root;
   Listener = null;
