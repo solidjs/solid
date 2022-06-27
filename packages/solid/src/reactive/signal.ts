@@ -1444,14 +1444,16 @@ function completeUpdates(wait: boolean) {
     }
     // finish transition
     const sources = Transition.sources;
+    const disposed = Transition.disposed;
     res = Transition.resolve;
-    Effects!.forEach(e => {
+    for (const e of Effects!) {
       "tState" in e && (e.state = e.tState!);
       delete e.tState;
-    });
+    }
     Transition = null;
     batch(() => {
-      sources.forEach(v => {
+      for (const d of disposed) cleanNode(d);
+      for (const v of sources) {
         v.value = v.tValue;
         if ((v as Memo<any>).owned) {
           for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
@@ -1461,7 +1463,7 @@ function completeUpdates(wait: boolean) {
         delete v.tValue;
         delete (v as Memo<any>).tOwned;
         (v as Memo<any>).tState = 0;
-      });
+      }
       setTransPending(false);
     });
   }
@@ -1606,7 +1608,7 @@ function reset(node: Computation<any>, top?: boolean) {
 function handleError(err: any) {
   const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw err;
-  fns.forEach((f: (err: any) => void) => f(err));
+  for (const f of fns) f(err);
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {
