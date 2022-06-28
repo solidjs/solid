@@ -37,8 +37,7 @@ export function SuspenseList(props: {
   revealOrder: "forwards" | "backwards" | "together";
   tail?: "collapsed" | "hidden";
 }) {
-  let index = 0,
-    suspenseSetter: (s: boolean) => void,
+  let suspenseSetter: (s: boolean) => void,
     showContent: Accessor<boolean>,
     showFallback: Accessor<boolean>;
 
@@ -50,13 +49,13 @@ export function SuspenseList(props: {
     [showContent, showFallback] = listContext.register(inFallback);
   }
 
-  const registry: SuspenseListRegistryItem[] = [],
+  const [registry, setRegistry] = createSignal<SuspenseListRegistryItem[]>([]),
     comp = createComponent(SuspenseListContext.Provider, {
       value: {
         register: (inFallback: Accessor<boolean>) => {
           const [showingContent, showContent] = createSignal(false),
             [showingFallback, showFallback] = createSignal(false);
-          registry[index++] = { inFallback, showContent, showFallback };
+          setRegistry(registry => [...registry, { inFallback, showContent, showFallback }]);
           return [showingContent, showingFallback];
         }
       },
@@ -70,12 +69,13 @@ export function SuspenseList(props: {
       tail = props.tail,
       visibleContent = showContent ? showContent() : true,
       visibleFallback = showFallback ? showFallback() : true,
+      reg = registry(),
       reverse = reveal === "backwards";
 
     if (reveal === "together") {
-      const all = registry.every(i => !i.inFallback());
+      const all = reg.every(i => !i.inFallback());
       suspenseSetter && suspenseSetter(!all);
-      registry.forEach(i => {
+      reg.forEach(i => {
         i.showContent(all && visibleContent);
         i.showFallback(visibleFallback);
       });
@@ -83,20 +83,20 @@ export function SuspenseList(props: {
     }
 
     let stop = false;
-    for (let i = 0, len = registry.length; i < len; i++) {
+    for (let i = 0, len = reg.length; i < len; i++) {
       const n = reverse ? len - i - 1 : i,
-        s = registry[n].inFallback();
+        s = reg[n].inFallback();
       if (!stop && !s) {
-        registry[n].showContent(visibleContent);
-        registry[n].showFallback(visibleFallback);
+        reg[n].showContent(visibleContent);
+        reg[n].showFallback(visibleFallback);
       } else {
         const next = !stop;
         if (next && suspenseSetter) suspenseSetter(true);
         if (!tail || (next && tail === "collapsed")) {
-          registry[n].showFallback(visibleFallback);
-        } else registry[n].showFallback(false);
+          reg[n].showFallback(visibleFallback);
+        } else reg[n].showFallback(false);
         stop = true;
-        registry[n].showContent(next);
+        reg[n].showContent(next);
       }
     }
     if (!stop && suspenseSetter) suspenseSetter(false);
