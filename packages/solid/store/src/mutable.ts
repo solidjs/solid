@@ -40,12 +40,12 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   set(target, property, value) {
-    setProperty(target, property, unwrap(value));
+    batch(() => setProperty(target, property, unwrap(value)));
     return true;
   },
 
   deleteProperty(target, property) {
-    setProperty(target, property, undefined);
+    batch(() => setProperty(target, property, undefined));
     return true;
   },
 
