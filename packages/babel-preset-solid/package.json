@@ -15,5 +15,8 @@
   },
   "dependencies": {
     "babel-plugin-jsx-dom-expressions": "^0.33.11"
+  },
+  "peerDependencies": {
+    "@babel/core": "^7.0.0"
   }
 }
