@@ -35,6 +35,7 @@ export type {
   Setter,
   Signal,
   Resource,
+  ResourceOptions,
   ResourceReturn,
   ResourceFetcher,
   ResourceFetcherInfo,
