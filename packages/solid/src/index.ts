@@ -40,7 +40,8 @@ export type {
   ResourceFetcher,
   ResourceFetcherInfo,
   Context,
-  ReturnTypes
+  ReturnTypes,
+  Owner
 } from "./reactive/signal";
 
 export * from "./reactive/observable";
