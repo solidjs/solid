@@ -1419,10 +1419,8 @@ function runUpdates<T>(fn: () => T, init: boolean) {
     completeUpdates(wait);
     return res;
   } catch (err) {
+    if (!Updates) Effects = null;
     handleError(err);
-  } finally {
-    Updates = null;
-    if (!wait) Effects = null;
   }
 }
 
