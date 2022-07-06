@@ -23,15 +23,17 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
-    const keys = Object.keys(value),
-      desc = Object.getOwnPropertyDescriptors(value);
-    for (let i = 0, l = keys.length; i < l; i++) {
-      const prop = keys[i];
-      if (desc[prop].get) {
-        const get = desc[prop].get!.bind(p);
-        Object.defineProperty(value, prop, {
-          get
-        });
+    if (!Array.isArray(value)) {
+      const keys = Object.keys(value),
+        desc = Object.getOwnPropertyDescriptors(value);
+      for (let i = 0, l = keys.length; i < l; i++) {
+        const prop = keys[i];
+        if (desc[prop].get) {
+          const get = desc[prop].get!.bind(p);
+          Object.defineProperty(value, prop, {
+            get
+          });
+        }
       }
     }
     if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
@@ -139,7 +141,10 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    if (property === $TRACK) return trackSelf(target);
+    if (property === $TRACK) {
+      trackSelf(target);
+      return receiver;
+    }
     const nodes = getDataNodes(target);
     const tracked = nodes[property];
     let value = tracked ? nodes[property]() : target[property];

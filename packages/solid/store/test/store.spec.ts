@@ -578,30 +578,43 @@ describe("Setting state from Effects", () => {
 describe("Batching", () => {
   test("Respects batch", () => {
     const [state, setState] = createStore({ data: 1 });
+    const memo = createRoot(() => createMemo(() => state.data));
+
     batch(() => {
       expect(state.data).toBe(1);
+      expect(memo()).toBe(1);
       setState("data", 2);
-      expect(state.data).toBe(1);
+      expect(state.data).toBe(2);
+      expect(memo()).toBe(1);
     });
     expect(state.data).toBe(2);
+    expect(memo!()).toBe(2);
   });
   test("Respects batch in array", () => {
     const [state, setState] = createStore([1]);
+    const memo = createRoot(() => createMemo(() => state[0]));
     batch(() => {
       expect(state[0]).toBe(1);
+      expect(memo()).toBe(1);
       setState(0, 2);
-      expect(state[0]).toBe(1);
+      expect(state[0]).toBe(2);
+      expect(memo()).toBe(1);
     });
     expect(state[0]).toBe(2);
+    expect(memo()).toBe(2);
   });
   test("Respects batch in array mutate", () => {
     const [state, setState] = createStore([1]);
+    const memo = createRoot(() => createMemo(() => state.length));
     batch(() => {
       expect(state.length).toBe(1);
+      expect(memo()).toBe(1);
       setState([...state, 2]);
-      expect(state.length).toBe(1);
+      expect(state.length).toBe(2);
+      expect(memo()).toBe(1);
     });
     expect(state.length).toBe(2);
+    expect(memo()).toBe(2);
   });
 });
 

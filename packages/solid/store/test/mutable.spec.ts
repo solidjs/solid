@@ -231,34 +231,17 @@ describe("State wrapping", () => {
     // not wrapped
     expect(state.time).toBe(date);
   });
-});
-
-describe("Batching", () => {
-  test("Respects batch", () => {
-    const state = createMutable({ data: 1 });
+  test("Respects batch in array mutate 2", () => {
+    const state = createMutable([1, 2, 3]);
     batch(() => {
-      expect(state.data).toBe(1);
-      state.data = 2;
-      expect(state.data).toBe(1);
+      expect(state.length).toBe(3);
+      const move = state.splice(1, 1);
+      expect(state.length).toBe(2);
+      state.splice(0, 0, ...move);
+      expect(state.length).toBe(3);
+      expect(state).toEqual([2, 1, 3]);
     });
-    expect(state.data).toBe(2);
-  });
-  test("Respects batch in array", () => {
-    const state = createMutable([1]);
-    batch(() => {
-      expect(state[0]).toBe(1);
-      state[0] = 2;
-      expect(state[0]).toBe(1);
-    });
-    expect(state[0]).toBe(2);
-  });
-  test("Respects batch in array mutate", () => {
-    const state = createMutable([1]);
-    batch(() => {
-      expect(state.length).toBe(1);
-      state[1] = 2;
-      expect(state.length).toBe(1);
-    });
-    expect(state.length).toBe(2);
+    expect(state.length).toBe(3);
+    expect(state).toEqual([2, 1, 3]);
   });
 });

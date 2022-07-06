@@ -12,7 +12,6 @@ export const $DEVCOMP = Symbol("solid-dev-component");
 const signalOptions = { equals: equalFn };
 let ERROR: symbol | null = null;
 let runEffects = runQueue;
-export const NOTPENDING = {};
 const STALE = 1;
 const PENDING = 2;
 const UNOWNED: Owner = {
@@ -42,7 +41,6 @@ export interface SignalState<T> {
   value?: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
-  pending: T | {};
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
   name?: string;
@@ -182,7 +180,6 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
     value,
     observers: null,
     observerSlots: null,
-    pending: NOTPENDING,
     comparator: options.equals || undefined
   };
 
@@ -191,9 +188,8 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
-      if (Transition && Transition.running && Transition.sources.has(s))
-        value = value(s.pending !== NOTPENDING ? s.pending : s.tValue);
-      else value = value(s.pending !== NOTPENDING ? s.pending : s.value);
+      if (Transition && Transition.running && Transition.sources.has(s)) value = value(s.tValue);
+      else value = value(s.value);
     }
     return writeSignal(s, value);
   };
@@ -394,7 +390,6 @@ export function createMemo<Next extends Prev, Init, Prev>(
     "_SOLID_DEV_" ? options : undefined
   ) as Partial<Memo<Init, Next>>;
 
-  c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
@@ -550,12 +545,12 @@ export function createResource<T, S>(
     return v;
   }
   function completeLoad(v: T) {
-    batch(() => {
+    runUpdates(() => {
       setValue(() => v);
       setLoading(false);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
-    });
+    }, false);
   }
 
   function read() {
@@ -602,10 +597,10 @@ export function createResource<T, S>(
     pr = p as Promise<T>;
     scheduled = true;
     queueMicrotask(() => (scheduled = false));
-    batch(() => {
+    runUpdates(() => {
       setLoading(true);
       trigger();
-    });
+    }, false);
     return p.then(
       v => loadEnd(p as Promise<T>, v, undefined, lookup),
       e => loadEnd(p as Promise<T>, e, e)
@@ -766,14 +761,7 @@ export function batch<T>(fn: Accessor<T>): T {
   }
 
   runUpdates(() => {
-    for (let i = 0; i < q.length; i += 1) {
-      const data = q[i];
-      if (data.pending !== NOTPENDING) {
-        const pending = data.pending;
-        data.pending = NOTPENDING;
-        writeSignal(data, pending);
-      }
-    }
+    for (let i = 0; i < q.length; i += 1) notifySignal(q[i]);
   }, false);
 
   return result;
@@ -975,7 +963,7 @@ export function startTransition(fn: () => unknown): Promise<void> {
       t.done || (t.done = new Promise(res => (t!.resolve = res)));
       t.running = true;
     }
-    batch(fn);
+    runUpdates(fn, false);
     Listener = Owner = null;
     return t ? t.done : undefined;
   });
@@ -1013,7 +1001,6 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
     undefined,
     true
   );
-  c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
   c.state = 0;
@@ -1212,29 +1199,29 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
 }
 
 export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isComp?: boolean) {
-  if (Pending) {
-    if (node.pending === NOTPENDING) Pending.push(node);
-    node.pending = value;
-    return value;
-  }
-  if (node.comparator) {
-    if (Transition && Transition.running && Transition.sources.has(node)) {
-      if (node.comparator(node.tValue, value)) return value;
-    } else if (node.comparator(node.value, value)) return value;
-  }
-  let TransitionRunning = false;
+  let current =
+    Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value;
   if (Transition) {
-    TransitionRunning = Transition.running;
+    const TransitionRunning = Transition.running;
     if (TransitionRunning || (!isComp && Transition.sources.has(node))) {
       Transition.sources.add(node);
       node.tValue = value;
     }
     if (!TransitionRunning) node.value = value;
   } else node.value = value;
+  if (!node.comparator || !node.comparator(current, value)) {
+    if (Pending) Pending.push(node);
+    else notifySignal(node);
+  }
+  return value;
+}
+
+function notifySignal(node: SignalState<any> | Memo<any>) {
   if (node.observers && node.observers.length) {
     runUpdates(() => {
       for (let i = 0; i < node.observers!.length; i += 1) {
         const o = node.observers![i];
+        const TransitionRunning = Transition && Transition.running;
         if (TransitionRunning && Transition!.disposed.has(o)) continue;
         if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
           if (o.pure) Updates!.push(o);
@@ -1251,7 +1238,6 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       }
     }, false);
   }
-  return value;
 }
 
 function updateComputation(node: Computation<any>) {
@@ -1449,7 +1435,7 @@ function completeUpdates(wait: boolean) {
       delete e.tState;
     }
     Transition = null;
-    batch(() => {
+    runUpdates(() => {
       for (const d of disposed) cleanNode(d);
       for (const v of sources) {
         v.value = v.tValue;
@@ -1463,17 +1449,12 @@ function completeUpdates(wait: boolean) {
         (v as Memo<any>).tState = 0;
       }
       setTransPending(false);
-    });
+    }, false);
   }
-  if (Effects!.length)
-    batch(() => {
-      runEffects(Effects!);
-      Effects = null;
-    });
-  else {
-    Effects = null;
-    if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
-  }
+  const e = Effects!;
+  Effects = null;
+  if (e!.length) runUpdates(() => runEffects(e), false);
+  else if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
   if (res) res();
 }
 
@@ -1512,9 +1493,9 @@ function runUserEffects(queue: Computation<any>[]) {
     else queue[userLength++] = e;
   }
   if (sharedConfig.context) setHydrateContext();
-  const resume = queue.length;
+  Effects = [];
   for (i = 0; i < userLength; i++) runTop(queue[i]);
-  for (i = resume; i < queue.length; i++) runTop(queue[i]);
+  if (Effects.length) runUserEffects(Effects);
 }
 
 function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {

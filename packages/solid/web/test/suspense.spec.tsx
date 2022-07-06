@@ -2,6 +2,7 @@
 import "../../test/MessageChannel";
 import { lazy, createSignal, createResource, useTransition, enableScheduling } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
+import { createStore } from "../../store/src";
 
 global.queueMicrotask = setImmediate;
 enableScheduling();
@@ -30,11 +31,11 @@ describe("Testing Suspense", () => {
   let div = document.createElement("div"),
     disposer: () => void,
     resolvers: Function[] = [],
-    [triggered, trigger] = createSignal(false);
+    [triggered, trigger] = createSignal<string>();
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
       const [value] = createResource<string, string>(
-        () => triggered() && "child",
+        triggered,
         () => new Promise(r => setTimeout(() => r("Jo"), 300)),
         { initialValue: "" }
       );
@@ -65,7 +66,7 @@ describe("Testing Suspense", () => {
     const [pending, start] = useTransition();
     let finished = false;
 
-    start(() => trigger(true)).then(() => (finished = true));
+    start(() => trigger("Jo")).then(() => (finished = true));
     expect(div.innerHTML).toBe("Hi, .Hello ");
     expect(finished).toBe(false);
     // wait trigger resource refetch
@@ -87,6 +88,43 @@ describe("Testing Suspense", () => {
       expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
       expect(pending()).toBe(false);
       expect(finished).toBe(true);
+      done();
+    });
+    jest.runAllTicks();
+  });
+
+
+  test("Toggle with store and refresh transition", async done => {
+    const [store, setStore] = createStore({ count: 0 });
+    const [pending, start] = useTransition();
+    let finished = false;
+
+    start(() => {
+      setStore({ count: 1 });
+      trigger("Jack")
+    }).then(() => (finished = true));
+
+    expect(store.count).toBe(0);
+    expect(finished).toBe(false);
+    // wait trigger resource refetch
+    await Promise.resolve();
+
+    expect(store.count).toBe(0);
+    expect(pending()).toBe(true);
+    expect(finished).toBe(false);
+
+    // Exhausts create-resource setTimeout
+    jest.runAllTimers();
+    // wait update suspence state
+    await Promise.resolve();
+    // wait update computation
+    jest.runAllTicks();
+    jest.runAllTimers();
+    // wait write signal succ
+    queueMicrotask(() => {
+      expect(pending()).toBe(false);
+      expect(finished).toBe(true);
+      expect(store.count).toBe(1);
       done();
     });
     jest.runAllTicks();
