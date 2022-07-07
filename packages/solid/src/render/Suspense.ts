@@ -152,7 +152,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
         set();
         setHydrateContext();
       });
-    }
+    } else if (p === null) sharedConfig.gather!(key);
   }
 
   // SuspenseList support
