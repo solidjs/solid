@@ -440,7 +440,9 @@ interface Error {
   (): undefined;
 }
 
-export type Resource<T> = Unresolved | Pending | Ready<T> | Refreshing<T> | Error;
+export type Resource<T> = undefined extends T
+  ? Unresolved | Pending | Ready<T> | Refreshing<T> | Error
+  : Ready<T> | Refreshing<T> | Error;
 
 export type ResourceActions<T> = {
   mutate: Setter<T>;
@@ -458,25 +460,18 @@ export type ResourceOptions<T> = undefined extends T
       initialValue?: T;
       name?: string;
       deferStream?: boolean;
+      store?: <T>(init: T) => [Accessor<T>, Setter<T>];
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
       deferStream?: boolean;
+      store?: <T>(init: T) => [Accessor<T>, Setter<T>];
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
-export type ResourceReturn<T, O extends ResourceOptions<T | undefined> | undefined, K = T> = [
-  Resource<
-    O extends undefined | null
-      ? T | undefined
-      : NonNullable<O>["initialValue"] extends undefined
-      ? T | undefined
-      : T
-  >,
-  ResourceActions<K>
-];
+export type ResourceReturn<T, K = T> = [Resource<T>, ResourceActions<K>];
 
 /**
  * Creates a resource that wraps a repeated promise in a reactive pattern:
@@ -506,26 +501,26 @@ export type ResourceReturn<T, O extends ResourceOptions<T | undefined> | undefin
 export function createResource<T, S = true>(
   fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
-): ResourceReturn<T | undefined, typeof options>;
+): ResourceReturn<T | undefined>;
 export function createResource<T, S = true>(
   fetcher: ResourceFetcher<S, T>,
   options: ResourceOptions<T>
-): ResourceReturn<T, typeof options>;
+): ResourceReturn<T>;
 export function createResource<T, S>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
-): ResourceReturn<T | undefined, typeof options>;
+): ResourceReturn<T | undefined>;
 export function createResource<T, S>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T>,
   options: ResourceOptions<T>
-): ResourceReturn<T, typeof options>;
+): ResourceReturn<T>;
 export function createResource<T, S>(
   source: ResourceSource<S> | ResourceFetcher<S, T>,
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options?: ResourceOptions<T> | ResourceOptions<undefined>
-): ResourceReturn<T | undefined, typeof options> {
+): ResourceReturn<T | undefined> {
   if (arguments.length === 2) {
     if (typeof fetcher === "object") {
       options = fetcher as ResourceOptions<T> | ResourceOptions<undefined>;
@@ -548,15 +543,19 @@ export function createResource<T, S>(
     dynamic = typeof source === "function" && createMemo<S>(source as any);
 
   const contexts = new Set<SuspenseContextType>(),
-    [value, setValue] = createSignal<T | undefined>(options.initialValue),
+    [value, setValue] = options.store
+      ? options.store<T | undefined>(options.initialValue)
+      : createSignal<T | undefined>(options.initialValue),
     [track, trigger] = createSignal<void>(undefined, { equals: false }),
-    [state, setState] = createSignal(resolved ? "ready" : "unresolved");
+    [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "error">(
+      resolved ? "ready" : "unresolved"
+    );
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
     if (sharedConfig.load) initP = sharedConfig.load!(id!);
   }
-  function loadEnd(p: Promise<T> | null, v: T | any, status: number, key?: S) {
+  function loadEnd(p: Promise<T> | null, v: T | any, success: boolean, key?: S) {
     if (pr === p) {
       pr = null;
       resolved = true;
@@ -572,17 +571,17 @@ export function createResource<T, S>(
             Effects!.push.apply(Effects, Transition!.effects);
             Transition!.effects = [];
           }
-          completeLoad(v, status);
+          completeLoad(v, success);
         }, false);
-      } else completeLoad(v, status);
+      } else completeLoad(v, success);
     }
     return v;
   }
-  function completeLoad(v: any, status: number) {
-    status && (err = v);
+  function completeLoad(v: any, success: boolean) {
+    !success && (err = v);
     runUpdates(() => {
-      setValue(() => (status ? undefined : v));
-      setState(status ? "error" : "ready");
+      setValue(() => (success ? v : undefined));
+      setState(success ? "ready" : "error");
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     }, false);
@@ -613,7 +612,7 @@ export function createResource<T, S>(
     const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
-      loadEnd(pr, untrack(value)!, 0);
+      loadEnd(pr, untrack(value)!, true);
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
@@ -626,7 +625,7 @@ export function createResource<T, S>(
         })
       );
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p as unknown as T | undefined, 0);
+      loadEnd(pr, p as unknown as T | undefined, true);
       return p;
     }
     pr = p as Promise<T>;
@@ -637,8 +636,8 @@ export function createResource<T, S>(
       trigger();
     }, false);
     return p.then(
-      v => loadEnd(p as Promise<T>, v, 0, lookup),
-      e => loadEnd(p as Promise<T>, e, 1)
+      v => loadEnd(p as Promise<T>, v, true, lookup),
+      e => loadEnd(p as Promise<T>, e, false)
     );
   }
   Object.defineProperties(read, {

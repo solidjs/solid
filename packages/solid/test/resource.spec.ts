@@ -7,11 +7,13 @@ import {
   onError,
   Resource,
   ResourceFetcherInfo,
+  Signal,
+  createMemo
 } from "../src";
 
-import { createStore, reconcile, Store, unwrap } from "../store/src";
+import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src";
 
-global.queueMicrotask = (fn) => Promise.resolve().then(fn);
+global.queueMicrotask = fn => Promise.resolve().then(fn);
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
@@ -122,8 +124,8 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(unwrap(state.user)).toStrictEqual(data[0]);
-    expect(state.user!.firstName).toBe("Joseph");
-    expect(unwrap(state.user!.address)).toStrictEqual(data[0].address);
+    expect(state.user?.firstName).toBe("Joseph");
+    expect(unwrap(state.user?.address)).toStrictEqual(data[0].address);
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
     done();
@@ -197,5 +199,182 @@ describe("using Resource with errors", () => {
     expect(value()).toBeUndefined;
     expect(value.state === "error").toBe(true);
     expect(value.error).toBe(null);
+  });
+});
+
+describe("using Resource with custom store", () => {
+  type User = {
+    firstName: string;
+    lastName: string;
+    address: {
+      streetNumber: number;
+      streetName: string;
+      city: string;
+      state: string;
+      zip: number;
+    };
+  };
+  let resolve: (v: User) => void;
+  let value: Resource<User>;
+  function fetcher() {
+    return new Promise<User>(r => {
+      resolve = r;
+    });
+  }
+  function createDeepSignal<T>(value: T, options?: ReconcileOptions): Signal<T> {
+    const [store, setStore] = createStore({
+      value
+    });
+    return [
+      () => store.value,
+      (v: T) => {
+        const unwrapped = unwrap(store.value);
+        typeof v === "function" && (v = v(unwrapped));
+        setStore("value", reconcile(v, options));
+        return store.value;
+      }
+    ] as Signal<T>;
+  }
+  test("loads and diffs", async () => {
+    let first = 0;
+    let last = 0;
+    let addr = 0;
+    let street = 0;
+    createRoot(() => {
+      [value] = createResource(fetcher, {
+        initialValue: {
+          firstName: "John",
+          lastName: "Smith",
+          address: {
+            streetNumber: 4,
+            streetName: "Grindel Rd",
+            city: "New York",
+            state: "NY",
+            zip: 10001
+          }
+        },
+        store: createDeepSignal
+      });
+      createComputed(() => (first++, value()?.firstName));
+      createComputed(() => (last++, value()?.lastName));
+      const address = createMemo(() => (addr++, value()?.address));
+      createComputed(() => (street++, address()?.streetName));
+    });
+    expect(value()).toEqual({
+      firstName: "John",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Grindel Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(true);
+    expect(first).toBe(1);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(1);
+    resolve({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    await Promise.resolve();
+    expect(value()).toEqual({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(false);
+    expect(first).toBe(2);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(2);
+  });
+
+  test("mutates", async () => {
+    let first = 0;
+    let last = 0;
+    let addr = 0;
+    let street = 0;
+    let mutate: <T>(v: T) => T;
+    createRoot(() => {
+      [value, { mutate }] = createResource(false, fetcher, {
+        initialValue: {
+          firstName: "John",
+          lastName: "Smith",
+          address: {
+            streetNumber: 4,
+            streetName: "Grindel Rd",
+            city: "New York",
+            state: "NY",
+            zip: 10001
+          }
+        },
+        store: createDeepSignal
+      });
+      createComputed(() => (first++, value()?.firstName));
+      createComputed(() => (last++, value()?.lastName));
+      const address = createMemo(() => (addr++, value()?.address));
+      createComputed(() => (street++, address()?.streetName));
+    });
+    expect(value()).toEqual({
+      firstName: "John",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Grindel Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(false);
+    expect(first).toBe(1);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(1);
+    mutate!({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    await Promise.resolve();
+    expect(value()).toEqual({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(false);
+    expect(first).toBe(2);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(2);
   });
 });
