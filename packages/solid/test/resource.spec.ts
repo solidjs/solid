@@ -168,3 +168,34 @@ describe("using Resource with initial Value", () => {
     expect(value.loading).toBe(false);
   });
 });
+
+describe("using Resource with errors", () => {
+  let resolve: (v: string) => void,
+    reject: (e: any) => void,
+    trigger: (v: string) => void,
+    value: Resource<string | undefined>,
+    error: string;
+  function fetcher(id: string) {
+    return new Promise<string>((r, f) => {
+      resolve = r;
+      reject = f;
+    });
+  }
+  test("works with falsy errors", async () => {
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      onError(e => (error = e));
+      [value] = createResource(id, fetcher);
+      createRenderEffect(value);
+    });
+    expect(value()).toBeUndefined();
+    expect(value.state === "pending").toBe(true);
+    expect(value.error).toBeUndefined();
+    reject(null);
+    await Promise.resolve();
+    expect(value()).toBeUndefined;
+    expect(value.state === "error").toBe(true);
+    expect(value.error).toBe(null);
+  });
+});

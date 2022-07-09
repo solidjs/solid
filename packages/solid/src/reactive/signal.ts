@@ -400,11 +400,47 @@ export function createMemo<Next extends Prev, Init, Prev>(
   return readSignal.bind(c as Memo<Init, Next>);
 }
 
-export interface Resource<T> extends Accessor<T> {
-  loading: boolean;
-  error: any;
-  latest: T;
+interface Unresolved {
+  state: "unresolved";
+  loading: false;
+  error: undefined;
+  latest: undefined;
+  (): undefined;
 }
+
+interface Pending {
+  state: "pending";
+  loading: true;
+  error: undefined;
+  latest: undefined;
+  (): undefined;
+}
+
+interface Ready<T> {
+  state: "ready";
+  loading: false;
+  error: undefined;
+  latest: T;
+  (): T;
+}
+
+interface Refreshing<T> {
+  state: "refreshing";
+  loading: true;
+  error: undefined;
+  latest: T;
+  (): T;
+}
+
+interface Error {
+  state: "error";
+  loading: false;
+  error: any;
+  latest: undefined;
+  (): undefined;
+}
+
+export type Resource<T> = Unresolved | Pending | Ready<T> | Refreshing<T> | Error;
 
 export type ResourceActions<T> = {
   mutate: Setter<T>;
@@ -502,12 +538,6 @@ export function createResource<T, S>(
   }
   options || (options = {});
 
-  const contexts = new Set<SuspenseContextType>(),
-    [value, setValue] = createSignal<T | undefined>(options.initialValue),
-    [track, trigger] = createSignal<void>(undefined, { equals: false }),
-    [loading, setLoading] = createSignal<boolean>(false),
-    [error, setError] = createSignal<any>();
-
   let err: any = undefined,
     pr: Promise<T> | null = null,
     initP: Promise<T> | T | null | undefined = null,
@@ -517,18 +547,22 @@ export function createResource<T, S>(
     resolved = "initialValue" in options,
     dynamic = typeof source === "function" && createMemo<S>(source as any);
 
+  const contexts = new Set<SuspenseContextType>(),
+    [value, setValue] = createSignal<T | undefined>(options.initialValue),
+    [track, trigger] = createSignal<void>(undefined, { equals: false }),
+    [state, setState] = createSignal(resolved ? "ready" : "unresolved");
+
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
     if (sharedConfig.load) initP = sharedConfig.load!(id!);
   }
-  function loadEnd(p: Promise<T> | null, v: T | undefined, e?: any, key?: S) {
+  function loadEnd(p: Promise<T> | null, v: T | any, status: number, key?: S) {
     if (pr === p) {
       pr = null;
       resolved = true;
       if (initP && (p === initP || v === initP) && options!.onHydrated)
         queueMicrotask(() => options!.onHydrated!(key!, { value: v } as ResourceFetcherInfo<T>));
       initP = null;
-      setError((err = e));
       if (Transition && p && loadedUnderTransition) {
         Transition.promises.delete(p);
         loadedUnderTransition = false;
@@ -538,16 +572,17 @@ export function createResource<T, S>(
             Effects!.push.apply(Effects, Transition!.effects);
             Transition!.effects = [];
           }
-          completeLoad(v as T);
+          completeLoad(v, status);
         }, false);
-      } else completeLoad(v as T);
+      } else completeLoad(v, status);
     }
     return v;
   }
-  function completeLoad(v: T) {
+  function completeLoad(v: any, status: number) {
+    status && (err = v);
     runUpdates(() => {
-      setValue(() => v);
-      setLoading(false);
+      setValue(() => (status ? undefined : v));
+      setState(status ? "error" : "ready");
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     }, false);
@@ -574,11 +609,11 @@ export function createResource<T, S>(
   function load(refetching: unknown = true) {
     if (refetching && scheduled) return;
     scheduled = false;
-    setError((err = undefined));
+    err = undefined;
     const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = (Transition && Transition.running) as boolean;
     if (lookup == null || (lookup as any) === false) {
-      loadEnd(pr, untrack(value)!);
+      loadEnd(pr, untrack(value)!, 0);
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
@@ -591,36 +626,42 @@ export function createResource<T, S>(
         })
       );
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p as unknown as T | undefined);
+      loadEnd(pr, p as unknown as T | undefined, 0);
       return p;
     }
     pr = p as Promise<T>;
     scheduled = true;
     queueMicrotask(() => (scheduled = false));
     runUpdates(() => {
-      setLoading(true);
+      setState(resolved ? "refreshing" : "pending");
       trigger();
     }, false);
     return p.then(
-      v => loadEnd(p as Promise<T>, v, undefined, lookup),
-      e => loadEnd(p as Promise<T>, e, e)
+      v => loadEnd(p as Promise<T>, v, 0, lookup),
+      e => loadEnd(p as Promise<T>, e, 1)
     );
   }
   Object.defineProperties(read, {
+    state: {
+      get() {
+        return state();
+      }
+    },
     loading: {
       get() {
-        return loading();
+        const s = state();
+        return s === "pending" || s === "refreshing";
       }
     },
     error: {
       get() {
-        return error();
+        return state() === "error" ? err : undefined;
       }
     },
     latest: {
       get() {
         if (!resolved) return read();
-        if (err) throw err;
+        if (state() === "error") throw err;
         return value();
       }
     }
