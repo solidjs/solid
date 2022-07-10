@@ -162,7 +162,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   has(target, property) {
     if (property === $RAW || property === $PROXY || property === $TRACK ||
         property === $NODE || property === "__proto__") return true;
-    getDataNodes(target)[property]?(); // track
+    getDataNodes(target)[property]?.(); // track
     return property in target;
   },
 
