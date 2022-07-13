@@ -15,6 +15,7 @@ There are a lot of opportunities to get involved. We organize Solid community ef
 - Docs (headed by [@Jutanium](https://github.com/Jutanium))
 - Infrastructure (headed by [@davedbase](https://github.com/davedbase))
 - Advocacy (headed by [@hindsight](https://github.com/eslachance))
+- Growth (headed by [@davedbase](https://github.com/davedbase))
 - Translators (headed by [@davedbase](https://github.com/davedbase))
 
 Most team members are part of the Ecosystem Team or Core Team. Entry into these groups is selected by Core Members only. We do not accept applications or requests for entry. Selections are made ad-hoc according to internal needs. Selections are typically announced at Community Meetings which occur quarterly.
