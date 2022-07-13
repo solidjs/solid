@@ -410,12 +410,19 @@ export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
   let resolved: T;
-  const p = fn();
+  let p;
+  let load = () => {
+    if (!p) {
+      p = fn();
+      p.then(mod => (resolved = mod.default));
+    }
+    return p;
+  }
   const contexts = new Set<SuspenseContextType>();
-  p.then(mod => (resolved = mod.default));
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
+    load();
     const id = sharedConfig.context!.id.slice(0, -1);
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
@@ -431,7 +438,7 @@ export function lazy<T extends Component<any>>(
       });
     return "";
   };
-  wrap.preload = () => p;
+  wrap.preload = load;
   return wrap as T & { preload: () => Promise<{ default: T }> };
 }
 
