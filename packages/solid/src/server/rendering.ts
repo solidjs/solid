@@ -419,6 +419,7 @@ export function lazy<T extends Component<any>>(
     return p;
   }
   const contexts = new Set<SuspenseContextType>();
+  !'_SOLID_DEV_' && load();
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
