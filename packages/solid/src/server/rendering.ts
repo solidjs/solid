@@ -410,7 +410,7 @@ export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
   let resolved: T;
-  let p;
+  let p: () => Promise<{ default: T }>;
   let load = () => {
     if (!p) {
       p = fn();
