@@ -1,4 +1,4 @@
-export { createStore, unwrap, $RAW } from "./store";
+export { createStore, unwrap, $RAW, $NODE } from "./store";
 export type {
   Store,
   SetStoreFunction,
