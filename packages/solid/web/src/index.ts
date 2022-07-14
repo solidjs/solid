@@ -111,9 +111,8 @@ type DynamicBaseProps<T extends ValidConstructor> =
     ? U
     : never;
 
-
 type DynamicProps<T extends ValidConstructor> = DynamicBaseProps<T> & {
-  component?: ValidConstructor;
+  component?: T;
 };
 /**
  * renders an arbitrary custom or native component and passes the other props
