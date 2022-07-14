@@ -18,13 +18,17 @@ export type ParentComponent<P = {}> = Component<ParentProps<P>>;
 export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
 export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 export type Ref<T> = T | ((val: T) => void);
-export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component> = T extends Component<
-  infer P
->
-  ? P
-  : T extends keyof JSX.IntrinsicElements
-  ? JSX.IntrinsicElements[T]
-  : {};
+export type ValidComponent =
+  | keyof JSX.IntrinsicElements
+  | Component<any>
+  | (string & {});
+export type ComponentProps<T extends ValidComponent> =
+  T extends Component<infer P>
+    ? P
+    :
+  T extends keyof JSX.IntrinsicElements
+    ? JSX.IntrinsicElements[T]
+    : Record<string, unknown>;
 
 type PossiblyWrapped<T> = {
   [P in keyof T]: T[P] | (() => T[P]);

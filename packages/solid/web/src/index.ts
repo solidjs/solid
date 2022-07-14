@@ -5,13 +5,14 @@ import {
   onCleanup,
   untrack,
   splitProps,
-  Component,
   JSX,
   createRoot,
   sharedConfig,
   Accessor,
   enableHydration,
-  $DEVCOMP
+  $DEVCOMP,
+  ComponentProps,
+  ValidComponent,
 } from "solid-js";
 
 export * from "./client";
@@ -99,19 +100,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   return marker;
 }
 
-type ValidElements = keyof JSX.IntrinsicElements;
-type ValidComponent<P> = (props: P) => JSX.Element;
-type ValidConstructor = ValidElements | ValidComponent<unknown> | string;
-
-type DynamicBaseProps<T extends ValidConstructor> =
-  T extends ValidElements
-    ? JSX.IntrinsicElements[T]
-    :
-  T extends ValidComponent<infer U>
-    ? U
-    : never;
-
-type DynamicProps<T extends ValidConstructor> = DynamicBaseProps<T> & {
+type DynamicProps<T extends ValidComponent> = ComponentProps<T> & {
   component?: T;
 };
 /**
@@ -121,7 +110,7 @@ type DynamicProps<T extends ValidConstructor> = DynamicBaseProps<T> & {
  * ```
  * @description https://www.solidjs.com/docs/latest/api#%3Cdynamic%3E
  */
-export function Dynamic<T extends ValidConstructor>(props: DynamicProps<T>): Accessor<JSX.Element> {
+export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
   const cached = createMemo(() => p.component)
   return createMemo(() => {
