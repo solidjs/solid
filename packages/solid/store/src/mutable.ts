@@ -1,14 +1,14 @@
-import { batch, getListener, DEV, $PROXY } from "solid-js";
+import { batch, getListener, DEV, $PROXY, $TRACK } from "solid-js";
 import {
   unwrap,
   isWrappable,
   getDataNodes,
-  createDataNode,
+  trackSelf,
+  getDataNode,
   $RAW,
   $NODE,
   $NAME,
   StoreNode,
-  Store,
   setProperty,
   proxyDescriptor,
   ownKeys
@@ -18,32 +18,34 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    const value = target[property as string | number];
+    if (property === $TRACK) return trackSelf(target);
+    const nodes = getDataNodes(target);
+    const tracked = nodes[property];
+    let value = tracked ? nodes[property]() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
-    const wrappable = isWrappable(value);
-    if (getListener() && (typeof value !== "function" || target.hasOwnProperty(property))) {
-      let nodes, node;
-      if (wrappable && (nodes = getDataNodes(value))) {
-        node = nodes._ || (nodes._ = createDataNode());
-        node();
+    if (!tracked) {
+      const desc = Object.getOwnPropertyDescriptor(target, property);
+      const isFunction = typeof value === "function";
+      if (getListener() && (!isFunction || target.hasOwnProperty(property)) && !(desc && desc.get))
+        value = getDataNode(nodes, property, value)();
+      else if (value != null && isFunction && value === Array.prototype[property as any]) {
+        return (...args: unknown[]) =>
+          batch(() => Array.prototype[property as any].apply(receiver, args));
       }
-      nodes = getDataNodes(target);
-      node = nodes[property] || (nodes[property] = createDataNode());
-      node();
     }
-    return wrappable
-      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property as string}`)
+    return isWrappable(value)
+      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
   },
 
   set(target, property, value) {
-    setProperty(target, property as string, unwrap(value));
+    batch(() => setProperty(target, property, unwrap(value)));
     return true;
   },
 
   deleteProperty(target, property) {
-    setProperty(target, property as string, undefined);
+    batch(() => setProperty(target, property, undefined));
     return true;
   },
 
@@ -52,7 +54,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
+function wrap<T extends StoreNode>(value: T, name?: string): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -79,11 +81,12 @@ function wrap<T extends StoreNode>(value: T, name?: string): Store<T> {
   return p;
 }
 
-export function createMutable<T extends StoreNode>(
-  state: T | Store<T>,
-  options?: { name?: string }
-): Store<T> {
-  const unwrappedStore = unwrap<T>(state || {});
+export function createMutable<T extends StoreNode>(state: T, options?: { name?: string }): T {
+  const unwrappedStore = unwrap(state || {});
+  if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
+    throw new Error(
+      `Unexpected type ${typeof unwrappedStore} received when initializing 'createMutable'. Expected an object.`
+    );
   const wrappedStore = wrap(
     unwrappedStore,
     "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
@@ -92,5 +95,9 @@ export function createMutable<T extends StoreNode>(
     const name = (options && options.name) || DEV.hashValue(unwrappedStore);
     DEV.registerGraph(name, { value: unwrappedStore });
   }
-  return wrappedStore as Store<T>;
+  return wrappedStore;
+}
+
+export function modifyMutable<T>(state: T, modifier: (state: T) => T) {
+  batch(() => modifier(unwrap(state)));
 }

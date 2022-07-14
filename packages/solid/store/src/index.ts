@@ -3,14 +3,14 @@ export type {
   Store,
   SetStoreFunction,
   NotWrappable,
+  SolidStore,
   StoreNode,
   StoreSetter,
   StorePathRange,
   ArrayFilterFn,
   Part,
-  Next,
-  Readonly,
-  DeepReadonly
+  DeepReadonly,
+  DeepMutable
 } from "./store";
 export * from "./mutable";
 export * from "./modifiers";

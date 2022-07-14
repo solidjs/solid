@@ -168,7 +168,8 @@ export default [
         ]
       })
     ].concat(plugins)
-  }, {
+  },
+  {
     input: "web/server/index.ts",
     output: [
       {
@@ -191,7 +192,8 @@ export default [
         ]
       })
     ].concat(plugins)
-  }, {
+  },
+  {
     input: "web/src/index.ts",
     output: [
       {
@@ -200,6 +202,54 @@ export default [
       },
       {
         file: "web/dist/dev.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins
+  },
+  {
+    input: "universal/src/index.ts",
+    output: [
+      {
+        file: "universal/dist/universal.cjs",
+        format: "cjs"
+      },
+      {
+        file: "universal/dist/universal.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js"],
+    plugins: [
+      replace({
+        '"_DX_DEV_"': false,
+        preventAssignment: true,
+        delimiters: ["", ""]
+      }),
+      copy({
+        targets: [
+          {
+            src: ["../../node_modules/dom-expressions/src/universal.d.ts"],
+            dest: "./universal/src/"
+          },
+          {
+            src: "../../node_modules/dom-expressions/src/universal.d.ts",
+            dest: "./universal/types/"
+          }
+        ]
+      })
+    ].concat(plugins)
+  },
+  {
+    input: "universal/src/index.ts",
+    output: [
+      {
+        file: "universal/dist/dev.cjs",
+        format: "cjs"
+      },
+      {
+        file: "universal/dist/dev.js",
         format: "es"
       }
     ],
@@ -237,5 +287,29 @@ export default [
     ],
     external: ["solid-js/web"],
     plugins
+  },
+  {
+    input: "h/jsx-runtime/src/index.ts",
+    output: [
+      {
+        file: "h/jsx-runtime/dist/jsx.cjs",
+        format: "cjs"
+      },
+      {
+        file: "h/jsx-runtime/dist/jsx.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js/h"],
+    plugins: [
+      copy({
+        targets: [
+          {
+            src: "./h/jsx-runtime/src/jsx.d.ts",
+            dest: "./h/jsx-runtime/types/"
+          }
+        ]
+      })
+    ].concat(plugins)
   }
 ];

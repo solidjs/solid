@@ -5,10 +5,13 @@ import {
   createComputed,
   createRenderEffect,
   onError,
-  Resource
+  Resource,
+  ResourceFetcherInfo,
 } from "../src";
 
-import { createStore, reconcile, Store } from "../store/src";
+import { createStore, reconcile, Store, unwrap } from "../store/src";
+
+global.queueMicrotask = (fn) => Promise.resolve().then(fn);
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
@@ -32,10 +35,12 @@ describe("Simulate a dynamic fetch", () => {
       createRenderEffect(value);
     });
     expect(value()).toBeUndefined();
+    expect(value.latest).toBeUndefined();
     expect(value.loading).toBe(true);
     resolve("John");
     await Promise.resolve();
     expect(value()).toBe("John");
+    expect(value.latest).toBe("John");
     expect(value.loading).toBe(false);
     done();
   });
@@ -76,14 +81,14 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     };
   }
   let resolve: (v: User) => void,
-    refetch: () => void,
+    refetch: (info?: unknown) => void,
     user: Resource<User | undefined>,
     state: { user?: User; userLoading: boolean },
     count = 0;
-  function fetcher(_: string, getPrev: () => User | undefined) {
+  function fetcher(_: string, { value }: ResourceFetcherInfo<Store<User>>) {
     return new Promise<User>(r => {
       resolve = r;
-    }).then(value => reconcile(value)(getPrev() as Store<User>));
+    }).then(next => reconcile(next)(value!));
   }
   const data: User[] = [];
   data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } });
@@ -91,7 +96,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
 
   test("initial async resource", async done => {
     createRoot(() => {
-      [user, { refetch }] = createResource("user", fetcher);
+      [user, { refetch }] = createResource(fetcher);
       [state] = createStore<{ user?: User; userLoading: boolean }>({
         get user() {
           return user();
@@ -107,7 +112,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     resolve(data[0]);
     await Promise.resolve();
     await Promise.resolve();
-    expect(state.user).toStrictEqual(data[0]);
+    expect(unwrap(state.user)).toStrictEqual(data[0]);
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
 
@@ -116,9 +121,9 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     resolve(data[1]);
     await Promise.resolve();
     await Promise.resolve();
-    expect(state.user).toStrictEqual(data[0]);
+    expect(unwrap(state.user)).toStrictEqual(data[0]);
     expect(state.user!.firstName).toBe("Joseph");
-    expect(state.user!.address).toStrictEqual(data[0].address);
+    expect(unwrap(state.user!.address)).toStrictEqual(data[0].address);
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
     done();

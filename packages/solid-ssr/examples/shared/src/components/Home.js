@@ -1,8 +1,10 @@
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, onCleanup, onMount } from "solid-js";
 const Home = () => {
   const [s, set] = createSignal(0);
-  const t = setInterval(() => set(s() + 1), 100);
-  onCleanup(() => clearInterval(t));
+  onMount(() => {
+    const t = setInterval(() => set(s() + 1), 100);
+    onCleanup(() => clearInterval(t));
+  });
   return (
     <>
       <h1>Welcome to this Simple Routing Example</h1>

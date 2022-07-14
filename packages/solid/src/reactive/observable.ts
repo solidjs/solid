@@ -1,4 +1,4 @@
-import { createComputed, untrack, Accessor, createSignal, Setter, onCleanup } from "./signal";
+import { Accessor, createComputed, createSignal, onCleanup, Setter, untrack } from "./signal";
 
 function getSymbol() {
   const SymbolCopy = Symbol as any;
@@ -12,6 +12,16 @@ export type ObservableObserver<T> =
       error?: (v: any) => void;
       complete?: (v: boolean) => void;
     };
+/**
+ * creates a simple observable from a signal's accessor to be used with the `from` operator of observable libraries like e.g. rxjs
+ * ```typescript
+ * import { from } from "rxjs";
+ * const [s, set] = createSignal(0);
+ * const obsv$ = from(observable(s));
+ * obsv$.subscribe((v) => console.log(v));
+ * ```
+ * description https://www.solidjs.com/docs/latest/api#observable
+ */
 export function observable<T>(input: Accessor<T>) {
   const $$observable = getSymbol();
   return {
@@ -19,7 +29,7 @@ export function observable<T>(input: Accessor<T>) {
       if (!(observer instanceof Object) || observer == null) {
         throw new TypeError("Expected the observer to be an object.");
       }
-      const handler = "next" in observer ? observer.next : observer;
+      const handler = "next" in observer ? observer.next.bind(observer) : observer;
       let complete = false;
       createComputed(() => {
         if (complete) return;

@@ -1,4 +1,4 @@
-import { getNextElement, insert, spread, SVGElements } from "./client";
+import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client";
 import {
   createSignal,
   createMemo,
@@ -9,7 +9,9 @@ import {
   JSX,
   createRoot,
   sharedConfig,
-  Accessor
+  Accessor,
+  enableHydration,
+  $DEVCOMP
 } from "solid-js";
 
 export * from "./client";
@@ -34,10 +36,28 @@ function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement
   return isSVG ? document.createElementNS(SVG_NAMESPACE, tagName) : document.createElement(tagName);
 }
 
-export function Portal(props: {
+export const hydrate: typeof hydrateCore = (...args) => {
+  enableHydration();
+  return hydrateCore(...args);
+};
+
+/**
+ * renders components somewhere else in the DOM
+ *
+ * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
+ *
+ * @description https://www.solidjs.com/docs/latest/api#%3Cportal%3E
+ */
+export function Portal<T extends boolean = false, S extends boolean = false>(props: {
   mount?: Node;
-  useShadow?: boolean;
-  isSVG?: boolean;
+  useShadow?: T;
+  isSVG?: S;
+  ref?:
+    | (S extends true ? SVGGElement : HTMLDivElement)
+    | ((
+        el: (T extends true ? { readonly shadowRoot: ShadowRoot } : {}) &
+          (S extends true ? SVGGElement : HTMLDivElement)
+      ) => void);
   children: JSX.Element;
 }) {
   const { useShadow } = props,
@@ -95,13 +115,21 @@ type DynamicBaseProps<T extends ValidConstructor> =
 type DynamicProps<T extends ValidConstructor> = DynamicBaseProps<T> & {
   component?: ValidConstructor;
 };
-
+/**
+ * renders an arbitrary custom or native component and passes the other props
+ * ```typescript
+ * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
+ * ```
+ * @description https://www.solidjs.com/docs/latest/api#%3Cdynamic%3E
+ */
 export function Dynamic<T extends ValidConstructor>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
+  const cached = createMemo(() => p.component)
   return createMemo(() => {
-    const component = p.component as Function | string;
+    const component = cached() as Function | string;
     switch (typeof component) {
       case "function":
+        if ("_DX_DEV_") Object.assign(component, { [$DEVCOMP]: true });
         return untrack(() => component(others));
 
       case "string":

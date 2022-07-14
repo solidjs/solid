@@ -1,32 +1,20 @@
+import type { SetStoreFunction, Store } from "store";
+
 export const $RAW = Symbol("state-raw");
-
-// well-known symbols need special treatment until https://github.com/microsoft/TypeScript/issues/24622 is implemented.
-type AddSymbolToPrimitive<T> = T extends { [Symbol.toPrimitive]: infer V }
-  ? { [Symbol.toPrimitive]: V }
-  : {};
-type AddCallable<T> = T extends { (...x: any[]): infer V } ? { (...x: Parameters<T>): V } : {};
-
-type NotWrappable = string | number | boolean | Function | null;
-export type Store<T> = {
-  [P in keyof T]: T[P] extends object ? Store<T[P]> : T[P];
-} & {
-  [$RAW]?: T;
-} & AddSymbolToPrimitive<T> &
-  AddCallable<T>;
 
 export function isWrappable(obj: any) {
   return (
     obj != null &&
     typeof obj === "object" &&
-    (obj.__proto__ === Object.prototype || Array.isArray(obj))
+    (Object.getPrototypeOf(obj) === Object.prototype || Array.isArray(obj))
   );
 }
 
-export function unwrap<T>(item: any): T {
+export function unwrap<T>(item: T): T {
   return item;
 }
 
-export function setProperty(state: any, property: string | number, value: any, force?: boolean) {
+export function setProperty(state: any, property: PropertyKey, value: any, force?: boolean) {
   if (!force && state[property] === value) return;
   if (value === undefined) {
     delete state[property];
@@ -41,7 +29,24 @@ function mergeStoreNode(state: any, value: any, force?: boolean) {
   }
 }
 
-export function updatePath(current: any, path: any[], traversed: (number | string)[] = []) {
+function updateArray(
+  current: any,
+  next: Array<any> | Record<string, any> | ((prev: any) => Array<any> | Record<string, any>)
+) {
+  if (typeof next === "function") next = next(current);
+  if (Array.isArray(next)) {
+    if (current === next) return;
+    let i = 0,
+      len = next.length;
+    for (; i < len; i++) {
+      const value = next[i];
+      if (current[i] !== value) setProperty(current, i, value);
+    }
+    setProperty(current, "length", len);
+  } else mergeStoreNode(current, next);
+}
+
+export function updatePath(current: any, path: any[], traversed: PropertyKey[] = []) {
   let part,
     next = current;
   if (path.length > 1) {
@@ -52,21 +57,20 @@ export function updatePath(current: any, path: any[], traversed: (number | strin
     if (Array.isArray(part)) {
       // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
       for (let i = 0; i < part.length; i++) {
-        updatePath(current, [part[i]].concat(path), [part[i]].concat(traversed));
+        updatePath(current, [part[i]].concat(path), traversed);
       }
       return;
     } else if (isArray && partType === "function") {
       // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
       for (let i = 0; i < current.length; i++) {
-        if (part(current[i], i))
-          updatePath(current, [i].concat(path), ([i] as (number | string)[]).concat(traversed));
+        if (part(current[i], i)) updatePath(current, [i].concat(path), traversed);
       }
       return;
     } else if (isArray && partType === "object") {
       // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
       const { from = 0, to = current.length - 1, by = 1 } = part;
       for (let i = from; i <= to; i += by) {
-        updatePath(current, [i].concat(path), ([i] as (number | string)[]).concat(traversed));
+        updatePath(current, [i].concat(path), traversed);
       }
       return;
     } else if (path.length > 1) {
@@ -87,119 +91,16 @@ export function updatePath(current: any, path: any[], traversed: (number | strin
   } else setProperty(current, part, value);
 }
 
-type StoreSetter<T> =
-  | Partial<T>
-  | ((
-      prevState: T extends NotWrappable ? T : Store<T>,
-      traversed?: (string | number)[]
-    ) => Partial<T> | void);
-type StorePathRange = { from?: number; to?: number; by?: number };
-
-type ArrayFilterFn<T> = (item: T extends any[] ? T[number] : never, index: number) => boolean;
-
-type Part<T> = keyof T | Array<keyof T> | StorePathRange | ArrayFilterFn<T>; // changing this to "T extends any[] ? ArrayFilterFn<T> : never" results in depth limit errors
-
-type Next<T, K> = K extends keyof T
-  ? T[K]
-  : K extends Array<keyof T>
-  ? T[K[number]]
-  : T extends any[]
-  ? K extends StorePathRange
-    ? T[number]
-    : K extends ArrayFilterFn<T>
-    ? T[number]
-    : never
-  : never;
-
-export interface SetStoreFunction<T> {
-  <Setter extends StoreSetter<T>>(...args: [Setter]): void;
-  <K1 extends Part<T>, Setter extends StoreSetter<Next<T, K1>>>(...args: [K1, Setter]): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    Setter extends StoreSetter<Next<Next<T, K1>, K2>>
-  >(
-    ...args: [K1, K2, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    Setter extends StoreSetter<Next<Next<Next<T, K1>, K2>, K3>>
-  >(
-    ...args: [K1, K2, K3, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    Setter extends StoreSetter<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>
-  >(
-    ...args: [K1, K2, K3, K4, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    Setter extends StoreSetter<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>
-  >(
-    ...args: [K1, K2, K3, K4, K5, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    Setter extends StoreSetter<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>
-  >(
-    ...args: [K1, K2, K3, K4, K5, K6, Setter]
-  ): void;
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
-    Setter extends StoreSetter<
-      Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>
-    >
-  >(
-    ...args: [K1, K2, K3, K4, K5, K6, K7, Setter]
-  ): void;
-
-  // and here we give up on being accurate after 8 args
-  <
-    K1 extends Part<T>,
-    K2 extends Part<Next<T, K1>>,
-    K3 extends Part<Next<Next<T, K1>, K2>>,
-    K4 extends Part<Next<Next<Next<T, K1>, K2>, K3>>,
-    K5 extends Part<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>>,
-    K6 extends Part<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>>,
-    K7 extends Part<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>>,
-    K8 extends Part<Next<Next<Next<Next<Next<Next<Next<T, K1>, K2>, K3>, K4>, K5>, K6>, K7>>
-  >(
-    ...args: [K1, K2, K3, K4, K5, K6, K7, K8, ...(Part<any> | StoreSetter<any>)[]]
-  ): void;
-}
-
 export function createStore<T>(state: T | Store<T>): [Store<T>, SetStoreFunction<T>] {
+  const isArray = Array.isArray(state);
   function setStore(...args: any[]): void {
-    updatePath(state, args);
+    isArray && args.length === 1 ? updateArray(state, args[0]) : updatePath(state, args);
   }
   return [state as Store<T>, setStore];
 }
 
-export function createMutable<T>(
-  state: T | Store<T>
-): Store<T> {
-  return state as Store<T>;
+export function createMutable<T>(state: T | Store<T>): T {
+  return state as T;
 }
 
 type ReconcileOptions = {
@@ -208,31 +109,29 @@ type ReconcileOptions = {
 };
 
 // Diff method for setStore
-export function reconcile<T>(
-  value: T | Store<T>,
+export function reconcile<T extends U, U>(
+  value: T,
   options: ReconcileOptions = {}
-): (state: T extends NotWrappable ? T : Store<T>) => void {
+): (state: U) => T {
   return state => {
-    if (!isWrappable(state)) return value;
+    if (!isWrappable(state) || !isWrappable(value)) return value;
     const targetKeys = Object.keys(value) as (keyof T)[];
     for (let i = 0, len = targetKeys.length; i < len; i++) {
       const key = targetKeys[i];
-      setProperty(state, key as string, value[key]);
+      setProperty(state, key, value[key]);
     }
-    const previousKeys = Object.keys(state as object) as (keyof T)[];
+    const previousKeys = Object.keys(state) as (keyof T)[];
     for (let i = 0, len = previousKeys.length; i < len; i++) {
-      if (value[previousKeys[i]] === undefined)
-        setProperty(state, previousKeys[i] as string, undefined);
+      if (value[previousKeys[i]] === undefined) setProperty(state, previousKeys[i], undefined);
     }
+    return state as T;
   };
 }
 
 // Immer style mutation style
-export function produce<T>(
-  fn: (state: T) => void
-): (state: T extends NotWrappable ? T : Store<T>) => T extends NotWrappable ? T : Store<T> {
+export function produce<T>(fn: (state: T) => void): (state: T) => T {
   return state => {
-    if (isWrappable(state)) fn(state as T);
+    if (isWrappable(state)) fn(state);
     return state;
   };
 }

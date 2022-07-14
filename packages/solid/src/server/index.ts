@@ -4,6 +4,7 @@ export {
   createComputed,
   createRenderEffect,
   createEffect,
+  createReaction,
   createDeferred,
   createSelector,
   createMemo,
@@ -14,6 +15,7 @@ export {
   untrack,
   batch,
   on,
+  children,
   createContext,
   useContext,
   getOwner,
@@ -24,11 +26,12 @@ export {
   observable,
   from,
   $PROXY,
-  DEV
+  $DEVCOMP,
+  DEV,
+  enableExternalSource
 } from "./reactive";
 
 export {
-  awaitSuspense,
   mergeProps,
   splitProps,
   createComponent,
@@ -41,7 +44,9 @@ export {
   Suspense,
   SuspenseList,
   createResource,
+  resetErrorBoundaries,
   enableScheduling,
+  enableHydration,
   startTransition,
   useTransition,
   createUniqueId,

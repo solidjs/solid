@@ -1,5 +1,6 @@
 import { createComponent } from "./component";
 import {
+  createRoot,
   createSignal,
   untrack,
   createComputed,
@@ -8,8 +9,11 @@ import {
   getSuspenseContext,
   resumeEffects,
   createMemo,
-  Accessor
+  Accessor,
+  onCleanup,
+  getOwner
 } from "../reactive/signal";
+import { HydrationContext, setHydrateContext, sharedConfig } from "./hydration";
 import type { JSX } from "../jsx";
 
 type SuspenseListRegistryItem = {
@@ -23,13 +27,17 @@ type SuspenseListContextType = {
 };
 const SuspenseListContext = createContext<SuspenseListContextType>();
 
+/**
+ * **[experimental]** controls the order in which suspended content is rendered
+ *
+ * @description https://www.solidjs.com/docs/latest/api#%3Csuspenselist%3E-(experimental)
+ */
 export function SuspenseList(props: {
   children: JSX.Element;
   revealOrder: "forwards" | "backwards" | "together";
   tail?: "collapsed" | "hidden";
 }) {
-  let index = 0,
-    suspenseSetter: (s: boolean) => void,
+  let suspenseSetter: (s: boolean) => void,
     showContent: Accessor<boolean>,
     showFallback: Accessor<boolean>;
 
@@ -41,13 +49,13 @@ export function SuspenseList(props: {
     [showContent, showFallback] = listContext.register(inFallback);
   }
 
-  const registry: SuspenseListRegistryItem[] = [],
+  const [registry, setRegistry] = createSignal<SuspenseListRegistryItem[]>([]),
     comp = createComponent(SuspenseListContext.Provider, {
       value: {
         register: (inFallback: Accessor<boolean>) => {
           const [showingContent, showContent] = createSignal(false),
             [showingFallback, showFallback] = createSignal(false);
-          registry[index++] = { inFallback, showContent, showFallback };
+          setRegistry(registry => [...registry, { inFallback, showContent, showFallback }]);
           return [showingContent, showingFallback];
         }
       },
@@ -61,12 +69,13 @@ export function SuspenseList(props: {
       tail = props.tail,
       visibleContent = showContent ? showContent() : true,
       visibleFallback = showFallback ? showFallback() : true,
+      reg = registry(),
       reverse = reveal === "backwards";
 
     if (reveal === "together") {
-      const all = registry.every(i => !i.inFallback());
+      const all = reg.every(i => !i.inFallback());
       suspenseSetter && suspenseSetter(!all);
-      registry.forEach(i => {
+      reg.forEach(i => {
         i.showContent(all && visibleContent);
         i.showFallback(visibleFallback);
       });
@@ -74,20 +83,20 @@ export function SuspenseList(props: {
     }
 
     let stop = false;
-    for (let i = 0, len = registry.length; i < len; i++) {
+    for (let i = 0, len = reg.length; i < len; i++) {
       const n = reverse ? len - i - 1 : i,
-        s = registry[n].inFallback();
+        s = reg[n].inFallback();
       if (!stop && !s) {
-        registry[n].showContent(visibleContent);
-        registry[n].showFallback(visibleFallback);
+        reg[n].showContent(visibleContent);
+        reg[n].showFallback(visibleFallback);
       } else {
         const next = !stop;
         if (next && suspenseSetter) suspenseSetter(true);
         if (!tail || (next && tail === "collapsed")) {
-          registry[n].showFallback(visibleFallback);
-        } else registry[n].showFallback(false);
+          reg[n].showFallback(visibleFallback);
+        } else reg[n].showFallback(false);
         stop = true;
-        registry[n].showContent(next);
+        reg[n].showContent(next);
       }
     }
     if (!stop && suspenseSetter) suspenseSetter(false);
@@ -96,10 +105,25 @@ export function SuspenseList(props: {
   return comp;
 }
 
+/**
+ * tracks all resources inside a component and renders a fallback until they are all resolved
+ * ```typescript
+ * const AsyncComponent = lazy(() => import('./component'));
+ *
+ * <Suspense fallback={<LoadingIndicator />}>
+ *   <AsyncComponent />
+ * </Suspense>
+ * ```
+ * @description https://www.solidjs.com/docs/latest/api#%3Csuspense%3E
+ */
 export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }) {
   let counter = 0,
     showContent: Accessor<boolean>,
-    showFallback: Accessor<boolean>;
+    showFallback: Accessor<boolean>,
+    ctx: HydrationContext | undefined,
+    p: Promise<any> | undefined,
+    flicker: Accessor<void> | undefined,
+    error: any;
   const [inFallback, setFallback] = createSignal<boolean>(false),
     SuspenseContext = getSuspenseContext(),
     store = {
@@ -112,27 +136,64 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       inFallback,
       effects: [],
       resolved: false
-    };
+    },
+    owner = getOwner();
+  if (sharedConfig.context && sharedConfig.load) {
+    const key = sharedConfig.context.id + sharedConfig.context.count;
+    p = sharedConfig.load(key);
+    if (p) {
+      if (typeof p !== "object" || !("then" in p)) p = Promise.resolve(p);
+      const [s, set] = createSignal(undefined, { equals: false });
+      flicker = s;
+      p.then(err => {
+        if ((error = err) || sharedConfig.done) return set();
+        sharedConfig.gather!(key);
+        setHydrateContext(ctx);
+        set();
+        setHydrateContext();
+      });
+    } else if (p === null) sharedConfig.gather!(key);
+  }
 
   // SuspenseList support
   const listContext = useContext(SuspenseListContext);
   if (listContext) [showContent, showFallback] = listContext.register(store.inFallback);
+  let dispose: () => void;
+  onCleanup(() => dispose && dispose());
 
   return createComponent(SuspenseContext.Provider, {
     value: store,
     get children() {
-      const rendered = untrack(() => props.children);
       return createMemo(() => {
-        const inFallback = store.inFallback(),
-          visibleContent = showContent ? showContent() : true,
-          visibleFallback = showFallback ? showFallback() : true;
-        if (!inFallback && visibleContent) {
-          store.resolved = true;
-          resumeEffects(store.effects);
-          return rendered;
+        if (error) throw error;
+        ctx = sharedConfig.context!;
+        if (flicker) {
+          flicker();
+          return (flicker = undefined);
         }
-        if (!visibleFallback) return;
-        return props.fallback;
+        if (ctx && p === undefined) setHydrateContext();
+        const rendered = createMemo(() => props.children);
+        return createMemo(() => {
+          const inFallback = store.inFallback(),
+            visibleContent = showContent ? showContent() : true,
+            visibleFallback = showFallback ? showFallback() : true;
+          dispose && dispose();
+          if ((!inFallback || p !== undefined) && visibleContent) {
+            store.resolved = true;
+            ctx = p = undefined;
+            resumeEffects(store.effects);
+            return rendered();
+          }
+          if (!visibleFallback) return;
+          return createRoot(disposer => {
+            dispose = disposer;
+            if (ctx) {
+              setHydrateContext({ id: ctx.id + "f", count: 0 });
+              ctx = undefined;
+            }
+            return props.fallback;
+          }, owner!);
+        });
       });
     }
   });

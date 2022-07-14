@@ -4,6 +4,7 @@ import {
   createEffect,
   createRenderEffect,
   createComputed,
+  createReaction,
   createDeferred,
   createMemo,
   createSelector,
@@ -13,7 +14,9 @@ import {
   onCleanup,
   onError,
   createContext,
-  useContext
+  useContext,
+  getOwner,
+  runWithOwner
 } from "../src";
 
 import "./MessageChannel";
@@ -50,6 +53,8 @@ describe("Create signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign] = createSignal("thoughts");
+      const fn = on(sign, v => (temp = `impure ${v}`));
+      createComputed(fn);
       createComputed(on(sign, v => (temp = `impure ${v}`)));
       expect(temp!).toBe("impure thoughts");
     });
@@ -59,7 +64,8 @@ describe("Create signals", () => {
       let temp: string;
       const [sign] = createSignal("thoughts");
       const [num] = createSignal(3);
-      createComputed(on([sign, num], v => (temp = `impure ${v[1]}`)));
+      const fn = on([sign, num], v => (temp = `impure ${v[1]}`));
+      createComputed(fn);
       expect(temp!).toBe("impure 3");
     });
   });
@@ -67,7 +73,8 @@ describe("Create signals", () => {
     createRoot(() => {
       let temp: string;
       const [sign, set] = createSignal("thoughts");
-      createComputed(on(sign, v => (temp = `impure ${v}`), { defer: true }));
+      const fn = on(sign, v => (temp = `impure ${v}`), { defer: true });
+      createComputed(fn);
       expect(temp!).toBeUndefined();
       set("minds");
       expect(temp!).toBe("impure minds");
@@ -95,6 +102,12 @@ describe("Update signals", () => {
     const [value, setValue] = createSignal(5, { equals: (a, b) => a > b });
     setValue(3);
     expect(value()).toBe(5);
+  });
+  test("Create and read a Signal with function value", () => {
+    const [value, setValue] = createSignal<() => string>(() => "Hi");
+    expect(value()()).toBe("Hi");
+    setValue(() => () => "Hello");
+    expect(value()()).toBe("Hello");
   });
   test("Create and trigger a Memo", () => {
     createRoot(() => {
@@ -127,6 +140,19 @@ describe("Update signals", () => {
       setTimeout(() => {
         expect(temp).toBe("unpure thoughts");
         setSign("mind");
+        expect(temp).toBe("unpure mind");
+        done();
+      });
+    });
+  });
+  test("Create and trigger an Effect with function signals", done => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, setSign] = createSignal<() => string>(() => "thoughts");
+      createEffect(() => (temp = `unpure ${sign()()}`));
+      setTimeout(() => {
+        expect(temp).toBe("unpure thoughts");
+        setSign(() => () => "mind");
         expect(temp).toBe("unpure mind");
         done();
       });
@@ -268,6 +294,22 @@ describe("Batch signals", () => {
       });
     });
   });
+
+  test("Multiple sets", done => {
+    createRoot(() => {
+      let count = 0;
+      const [a, setA] = createSignal(0);
+      createEffect(() => {
+        setA(1);
+        setA(0);
+      });
+      createComputed(() => (count = a()));
+      setTimeout(() => {
+        expect(count).toBe(0);
+        done();
+      });
+    });
+  });
 });
 
 describe("Typecheck computed and effects", () => {
@@ -339,6 +381,15 @@ describe("onCleanup", () => {
     expect(temp).toBeUndefined();
     disposer!();
     expect(temp).toBe("disposed");
+  });
+  test("Failed Root disposal from arguments", () => {
+    let temp: string | undefined, disposer: () => void;
+    createRoot((...args) => {
+      disposer = args[0];
+      onCleanup(() => (temp = "disposed"));
+    });
+    expect(temp).toBeUndefined();
+    expect(disposer!).toThrow();
   });
 });
 
@@ -477,8 +528,8 @@ describe("createDeferred", () => {
 describe("createSelector", () => {
   test("simple selection", done => {
     createRoot(() => {
-      const [s, set] = createSignal<number>(-1),
-        isSelected = createSelector<number, number>(s);
+      const [s, set] = createSignal<number>(),
+        isSelected = createSelector(s);
       let count = 0;
       const list = Array.from({ length: 100 }, (_, i) =>
         createMemo(() => {
@@ -498,6 +549,12 @@ describe("createSelector", () => {
         expect(count).toBe(2);
         expect(list[3]()).toBe("no");
         expect(list[6]()).toBe("selected");
+        set(undefined);
+        expect(count).toBe(3);
+        expect(list[6]()).toBe("no");
+        set(5);
+        expect(count).toBe(4);
+        expect(list[5]()).toBe("selected");
         done();
       });
     });
@@ -572,5 +629,50 @@ describe("create and use context", () => {
     const context = createContext<number>();
     const res = useContext(context);
     expect(res).toBe<typeof res>(undefined);
+  });
+});
+
+describe("runWithOwner", () => {
+  test("Top level owner execute and disposal", () => {
+    let effectRun = false;
+    let cleanupRun = false;
+    const [owner, dispose] = createRoot(dispose => {
+      return [getOwner()!, dispose];
+    });
+
+    runWithOwner(owner, () => {
+      createEffect(() => (effectRun = true));
+      onCleanup(() => (cleanupRun = true));
+      expect(effectRun).toBe(false);
+      expect(cleanupRun).toBe(false);
+    });
+    expect(effectRun).toBe(true);
+    expect(cleanupRun).toBe(false);
+    dispose();
+    expect(cleanupRun).toBe(true);
+  });
+});
+
+describe("createReaction", () => {
+  test("Create and trigger a Reaction", done => {
+    createRoot(() => {
+      let count = 0;
+      const [sign, setSign] = createSignal("thoughts");
+      const track = createReaction(() => count++);
+      expect(count).toBe(0);
+      track(sign);
+      expect(count).toBe(0);
+      setTimeout(() => {
+        expect(count).toBe(0);
+        setSign("mind");
+        expect(count).toBe(1);
+        setSign("body");
+        expect(count).toBe(1);
+        track(sign);
+        setSign("everything");
+        expect(count).toBe(2);
+        done();
+      });
+    });
   });
 });

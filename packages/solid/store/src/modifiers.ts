@@ -1,13 +1,6 @@
-import {
-  setProperty,
-  unwrap,
-  isWrappable,
-  Store,
-  NotWrappable,
-  StoreNode,
-  DeepReadonly,
-  $RAW,
-} from "./store";
+import { setProperty, unwrap, isWrappable, StoreNode, $RAW } from "./store";
+
+const $ROOT = Symbol("store-root")
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -17,14 +10,17 @@ export type ReconcileOptions = {
 function applyState(
   target: any,
   parent: any,
-  property: string | number,
+  property: PropertyKey,
   merge: boolean | undefined,
   key: string | null
 ) {
   const previous = parent[property];
   if (target === previous) return;
   if (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key])) {
-    target !== previous && setProperty(parent, property, target);
+    if (target !== previous) {
+      if (property === $ROOT) return target;
+      setProperty(parent, property, target);
+    }
     return;
   }
 
@@ -111,50 +107,56 @@ function applyState(
   }
 }
 
-// Diff method for setState
-export function reconcile<T>(
-  value: T | Store<T>,
+// Diff method for setStore
+export function reconcile<T extends U, U>(
+  value: T,
   options: ReconcileOptions = {}
-): (
-  state: T extends NotWrappable ? T : Store<DeepReadonly<T>>
-) => T extends NotWrappable ? T : Store<T> {
+): (state: U) => T {
   const { merge, key = "id" } = options,
     v = unwrap(value);
-  return s => {
-    const state = s as T extends NotWrappable ? T : Store<T>;
-    if (!isWrappable(state) || !isWrappable(v)) return v as T extends NotWrappable ? T : Store<T>;
-    applyState(v, { state }, "state", merge, key);
-    return state;
+  return state => {
+    if (!isWrappable(state) || !isWrappable(v)) return v;
+    const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, key);
+    return res === undefined ? state as T : res as T;
   };
 }
 
+const producers = new WeakMap();
 const setterTraps: ProxyHandler<StoreNode> = {
   get(target, property): any {
     if (property === $RAW) return target;
-    const value = target[property as string | number];
-    return isWrappable(value) ? new Proxy(value, setterTraps) : value;
+    const value = target[property];
+    let proxy;
+    return isWrappable(value)
+      ? producers.get(value) ||
+          (producers.set(value, (proxy = new Proxy(value, setterTraps))), proxy)
+      : value;
   },
 
   set(target, property, value) {
-    setProperty(target, property as string, unwrap(value));
+    setProperty(target, property, unwrap(value));
     return true;
   },
 
   deleteProperty(target, property) {
-    setProperty(target, property as string, undefined);
+    setProperty(target, property, undefined);
     return true;
   }
 };
 
 // Immer style mutation style
-export function produce<T>(
-  fn: (state: T) => void
-): (
-  state: T extends NotWrappable ? T : Store<DeepReadonly<T>>
-) => T extends NotWrappable ? T : Store<T> {
-  return s => {
-    const state = s as T extends NotWrappable ? T : Store<T>;
-    if (isWrappable(state)) fn(new Proxy(state as object, setterTraps) as unknown as T);
+export function produce<T>(fn: (state: T) => void): (state: T) => T {
+  return state => {
+    if (isWrappable(state)) {
+      let proxy;
+      if (!(proxy = producers.get(state as Record<keyof T, T[keyof T]>))) {
+        producers.set(
+          state as Record<keyof T, T[keyof T]>,
+          (proxy = new Proxy(state, setterTraps))
+        );
+      }
+      fn(proxy);
+    }
     return state;
   };
 }

@@ -1,15 +1,19 @@
 import type { JSX } from "../jsx";
+
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
+export const $DEVCOMP = Symbol("solid-dev-component");
 export const DEV = {};
+
+export type Accessor<T> = () => T;
+export type Setter<T> = undefined extends T
+  ? <U extends T>(value?: (U extends Function ? never : U) | ((prev?: T) => U)) => U
+  : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;
+
 const ERROR = Symbol("error");
 
 const UNOWNED: Owner = { context: null, owner: null };
 export let Owner: Owner | null = null;
-export type Accessor<T> = () => T;
-export type Setter<T> = undefined extends T
-  ? <U extends T>(v?: (U extends Function ? never : U) | ((prev?: U) => U)) => U
-  : <U extends T>(v: (U extends Function ? never : U) | ((prev: U) => U)) => U;
 
 interface Owner {
   owner: Owner | null;
@@ -48,18 +52,39 @@ export function createSignal<T>(
 
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   Owner = { owner: Owner, context: null };
-  fn(value);
-  Owner = Owner.owner;
+  try {
+    fn(value);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
+  } finally {
+    Owner = Owner.owner;
+  }
 }
 
 export const createRenderEffect = createComputed;
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
+export function createReaction(fn: () => void) {
+  return (fn: () => void) => {
+    fn();
+  };
+}
+
 export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
   Owner = { owner: Owner, context: null };
-  const v = fn(value);
-  Owner = Owner.owner;
+  let v: T;
+  try {
+    v = fn(value);
+  } catch (err) {
+    const fns = lookup(Owner, ERROR);
+    if (!fns) throw err;
+    fns.forEach((f: (err: any) => void) => f(err));
+  } finally {
+    Owner = Owner.owner;
+  }
   return () => v;
 }
 
@@ -67,7 +92,7 @@ export function createDeferred<T>(source: () => T) {
   return source;
 }
 
-export function createSelector<T>(source: () => T, fn: (k: T, value: T) => boolean) {
+export function createSelector<T>(source: () => T, fn: (k: T, value: T) => boolean = equalFn) {
   return (k: T) => fn(k, source());
 }
 
@@ -125,7 +150,8 @@ export function createContext<T>(defaultValue?: T): Context<T> {
 }
 
 export function useContext<T>(context: Context<T>): T {
-  return lookup(Owner, context.id) || context.defaultValue;
+  let ctx;
+  return (ctx = lookup(Owner, context.id)) !== undefined ? ctx : context.defaultValue;
 }
 
 export function getOwner() {
@@ -136,7 +162,7 @@ export function children(fn: () => any) {
   return createMemo(() => resolveChildren(fn()));
 }
 
-export function runWithOwner(o: Owner, fn: () => any) {
+export function runWithOwner<T>(o: Owner, fn: () => T): T {
   const prev = Owner;
   Owner = o;
   try {
@@ -147,9 +173,11 @@ export function runWithOwner(o: Owner, fn: () => any) {
 }
 
 export function lookup(owner: Owner | null, key: symbol | string): any {
-  return (
-    owner && ((owner.context && owner.context[key]) || (owner.owner && lookup(owner.owner, key)))
-  );
+  return owner
+    ? owner.context && owner.context[key] !== undefined
+      ? owner.context[key]
+      : lookup(owner.owner, key)
+    : undefined;
 }
 
 function resolveChildren(children: any): unknown {
@@ -236,16 +264,25 @@ export function observable<T>(input: Accessor<T>) {
   };
 }
 
-export function from<T>(producer: ((setter: Setter<T>) =>  () => void) | {
-  subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
-}): Accessor<T> {
-  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [Accessor<T>, Setter<T>];
+export function from<T>(
+  producer:
+    | ((setter: Setter<T>) => () => void)
+    | {
+        subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
+      }
+): Accessor<T> {
+  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [
+    Accessor<T>,
+    Setter<T>
+  ];
   if ("subscribe" in producer) {
-    const unsub = producer.subscribe((v) => set(() => v));
-    onCleanup(() => "unsubscribe" in unsub ? unsub.unsubscribe() : unsub())
+    const unsub = producer.subscribe(v => set(() => v));
+    onCleanup(() => ("unsubscribe" in unsub ? unsub.unsubscribe() : unsub()));
   } else {
     const clean = producer(set);
     onCleanup(clean);
   }
   return s;
 }
+
+export function enableExternalSource(factory: any) {}

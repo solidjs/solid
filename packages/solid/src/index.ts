@@ -4,6 +4,7 @@ export {
   createEffect,
   createRenderEffect,
   createComputed,
+  createReaction,
   createDeferred,
   createSelector,
   createMemo,
@@ -15,6 +16,7 @@ export {
   batch,
   on,
   enableScheduling,
+  enableExternalSource,
   startTransition,
   useTransition,
   createContext,
@@ -24,15 +26,22 @@ export {
   getOwner,
   runWithOwner,
   equalFn,
-  $PROXY
+  $DEVCOMP,
+  $PROXY,
+  $TRACK
 } from "./reactive/signal";
 export type {
   Accessor,
   Setter,
+  Signal,
   Resource,
+  ResourceOptions,
   ResourceReturn,
+  ResourceFetcher,
+  ResourceFetcherInfo,
   Context,
-  ReturnTypes
+  ReturnTypes,
+  Owner
 } from "./reactive/signal";
 
 export * from "./reactive/observable";
@@ -43,9 +52,6 @@ export * from "./render";
 import type { JSX } from "./jsx";
 type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
-
-// mock server endpoint for dom-expressions
-export function awaitSuspense() {}
 
 // dev
 import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal";

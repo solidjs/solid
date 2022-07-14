@@ -1,12 +1,403 @@
 # Changelog
 
+## 1.4.0 - 2022-05-12
+
+### New Features
+
+#### Resource Deferred Streaming
+
+Streaming brings a lot of performance benefits but it also comes with the tradeoff we need to respond with the headers before we can send any content. This means we must set the Response headers early if we want to benefit from streaming. While it's always possible to fetch first and delay rendering that slows down everything. Even our async server rendering doesn't block rendering but instead just waits to respond to the end.
+
+But what if you want to stream but also want to wait on some key data loading so you still have an opportunity to handle the response on the server before sending it to the browser?
+
+We now have the ability to tell Solid's stream renderer to wait for a resource before flushing the stream. That you can opt in by setting `deferStream` option.
+
+```js
+// fetches a user and streams content as soon as possible
+const [user] = createResource(() => params.id, fetchUser);
+
+// fetches a user but only streams content after this resource has loaded
+const [user] = createResource(() => params.id, fetchUser, { deferStream: true });
+```
+#### Top Level Arrays in Stores
+
+Since Stores were first introduced it has always bugged me that the most common case, creating a list required nesting it under a property to track properly. Thanks to some exploration into proxy traps and iteration we now support top level arrays. In addition to its other modes, the Store setter will accept an array which allows for common operations.
+
+```js
+const [todos, setTodos] = createStore([
+  { id: 1, title: "Thing I have to do", done: false },
+  { id: 2, title: "Learn a New Framework", done: false }
+]);
+
+// set at an index
+setTodos(1, done, true);
+
+// use an array
+setTodos([...todos, { id: 3, title: "New Todo", done: false }])
+
+// iterate over it with <For>
+<For each={todos}>{todo => <Todo todo={todo} />}</For>;
+```
+
+Through this change we also stopped over execution when listening to specific properties. To support iteration Solid previously would notify the owning object of any array when an  was index added/removed or object new property created or deleted on any object.
+
+The one caveat is downstream optimized control flow that untrack index reads on arrays will now need to track the iterated object explicity. Solid exports a `$TRACK` symbol used to subscribe to the object and all its properties.
+
+#### Stale Resource Reads
+
+Suspense and Transitions are amazingly powerful feature but occasionally you want to opt out of the consistency and show things out of date because it will show up faster and some of things you are waiting for are not as high priority. In so you want the Transition to end sooner, but not necessarily stop showing the stale data for part of the screen. It is still preferable to receding back to loading spinner state.
+
+Solid's Resources now support being able to read the value without triggering Suspense. As long as it has loaded previously `latest` property won't cause fallback appear or Transitions to hold. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched) and will reactively update. This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
+
+```js
+const [resource] = createResource(source, fetcher)
+
+// read it as usual
+resource();
+
+// read the latest (don't suspend if loaded at least once)
+resource.latest;
+```
+
+Example: https://codesandbox.io/s/solid-stale-resource-y3fy4l
+
+#### Combining multiple Custom Renderers
+
+The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is reponsible for. It will try to resolve them in order.
+
+```js
+import { HTMLElements, SVGElements } from "solid-js/web";
+let solidConfig = {
+  moduleName: "solid-js/web",
+  // @ts-ignore
+  generate: "dynamic",
+  renderers: [
+    {
+      name: "dom",
+      moduleName: "solid-js/web",
+      elements: [...HTMLElements, ...SVGElements]
+    },
+    {
+      name: "universal",
+      moduleName: "solid-three",
+      elements: []
+    }
+  ]
+};
+```
+
+### Improvements/Fixes
+
+#### Synchronous Top Level `createEffect`
+
+These were originally deferred to a microtask to resemble how effects are queued under a listener. However it is more correct to run immediate like everything else top level.
+
+#### Better Types around Components
+
+This one took the effort of many resident TypeScript experts, but we've now landed on some better types for components. The biggest change is `Component` no longer has an opinion on whether it should have `children` or not. We've added supplementary types `ParentComponent` and `FlowComponent` to denote Components that may have `children` or always have `children`. And we've added `VoidComponent` for those which may never have children.
+
+#### Sources in `createResource` are now Memos
+
+A small change but it was unusual to have refetching trigger a reactive expression outside of a reactive context. Now on refetch it grabs the last source value rather than re-running it.
+
+#### `createMutable` batches array methods like push, pop, etc..
+
+Now these built-ins are batched and more performant. We've also add `modifyMutable` that applies modifiers batched to stores created with `createMutable`.
+
+```js
+modifyMutable(state.data.user, reconcile({ firstName: "Jake", middleName: "R" }));
+```
+
+#### Stores and mutables now respect batch
+
+Writing to a store or mutable within `batch` (including effects) no longer immediately updates the value, so reading within the same batch gives the old value. This guarantees consistency with memos and other computations, just like signals.
+
+#### Better Support for React JSX transform
+
+We have added support to `solid-js/h` to support the new React JSX transform. You can use it directly in TypeScript by using:
+```json
+{
+  "jsx": "react-jsx",
+  "jsxImportSource": "solid-js/h"
+}
+```
+Keep in mind this has all the consequences of not using the custom transform. It means larger library code, slower performance, and worse ergonomics. Remember to wrap your reactive expressions in functions.
+
+#### HyperScript now returns functions
+
+This one is a potentially breaking change, but the current behavior was broken. It was possible(and common) for children to be created before the parents the way JSX worked. This was an oversight on my original design that needs to be fixed, as it breaks context, and disposal logic. So now when you get your results back from `h` you need to call it. Solid's `render` function will handle this automatically.
+
+```js
+const getDiv = h("div", "Hello");
+
+document.body.appendChild(getDiv()); // call as a function to have it create the element.
+```
+
+### Removals and Deprecations
+
+#### `className`, `htmlFor` deprecated
+
+While they still work for now, Solid will remove support for these React-isms in a future version. They leave us with multiple ways to set the same attribute. This is problematic for trying to merge them. Solid updates independently so it is too easy for these things to trample on each other. Also when optimizing for compilation since with things like Spreads you can't know if the property is present, Solid has to err on the side of caution. This means more code and less performance.
+
+#### Experimental `refetchResources` removed
+
+This primitive ended up being too general to be useful. There are enough cases we can't rely on the refetch everything by default mentality. For that reason we are dropping support of this experimental feature.
+
+## 1.3.0 - 2022-01-05
+
+### New Features
+
+#### HTML Streaming
+
+This release adds support for HTML streaming. Now we not only stream data after the initial shell but the HTML as it finishes. The big benefit is that now for cached results, or times when the network are slow we no longer have to show the placeholder while waiting for JavaScript bundle to load. As soon as the HTML is available it will be streamed and inserted.
+
+With it comes new streaming API `renderToStream`. This is a universal API designed to handle both Node and Web writable streams. It returns an object that mirrors a Readable stream on both platforms that has both `pipe` (node) and `pipeTo` (web). The benefit of this `pipe` API is the user can choose when to insert the content in the output stream whether soon as possible, or `onCompleteShell`, or `onCompleteAll`. This decouples Solid's rendering a from the stream a bit but leaves things open to performance improvements in the future.
+
+```js
+// node
+const stream = renderToStream(() => <App />).pipe(res);
+
+// web
+const stream = renderToStream(() => <App />).pipeTo(writable);
+```
+
+#### Error Boundaries on the Server
+
+We've added support for Error Boundaries on the Server for all rendering methods(`renderToString`, `renderToStringAsync`, `renderToStream`). Errors can be caught both from synchronous rendering and from errors that happen in Resource resolution. However, Our approach doesn't guarentee all errors are handled on the server as with streaming it is possible that the Error Boundary has already made it to the browser while a nested Suspense component hasn't settled. If an Error is hit it will propagate up to the top most Suspense Boundary that hasn't been flushed yet. If it is not handled by an Error Boundary before that it will abort rendering, and send the Error to the browser to propagate up to the nearest Error Boundary.
+
+This works now but there is more to explore here in improving Error handling in general with SSR. So look forward to feedback on the feature.
+
+#### Isolated Server Render/Hydration Contexts
+
+Sometimes you want to server render and hydrate multiple Solid apps on the same page. Maybe you are using the Islands architecture with something like [Astro](https://astro.build). We now have the ability to pass a unique `renderId` on all our server rendering methods and to the `hydrate` function. This will isolate all hydration and resource resolution. This means we can use things like server side Suspense in these solutions.
+
+Also now you only need to include the Hydration Script once on the page. Each Island will be responsible for initializing it's own resources.
+
+```js
+// on the server
+const html = renderToString(() => <Island1 />, { renderId: "island1" });
+
+// for the browser
+hydrate(() => <Island1 />, mountEl, { renderId: "island1" });
+```
+
+#### `createReaction`
+
+This new primitive is mostly for more advanced use cases and is very helpful for interopt with purely pull based systems (like integrating with React's render cycle). It registers an untracked side effect and returns a tracking function. The tracking function is used to track code block, and the side effect is not fired until the first time any of the dependencies in the tracking code is updated. `track` must be called to track again.
+
+```js
+const [s, set] = createSignal("start");
+
+const track = createReaction(() => console.log("something"));
+
+// next time s changes run the reaction
+track(() => s());
+
+set("end"); // "something"
+
+set("final"); // no-op as reaction only runs on first update, need to call track again.
+```
+
+This primitive is niche for certain use cases but where it is useful it is indispensible (like the next feature which uses a similar API).
+
+#### External Sources (experimental)
+
+Ever wanted to use a third party reactive library directly in Solid, like MobX, Vue Reactivity, or Kairo. We are experimenting with adding native support so reactive atoms from these libraries can be used directly in Solid's primitives and JSX without a wrapper. This feature is still experimental since supporting Transitions and Concurrent Rendering will take some more effort. But we have added `enableExternalSource` enable this feature. Thanks @3Shain for designing this solution.
+
+```js
+import { Reaction, makeAutoObservable } from "mobx";
+import { enableExternalSource } from "solid-js";
+import { render } from "solid-js/web";
+
+let id = 0;
+enableExternalSource((fn, trigger) => {
+  const reaction = new Reaction(`externalSource@${++id}`, trigger);
+  return {
+    track: x => {
+      let next;
+      reaction.track(() => (next = fn(x)));
+      return next;
+    },
+    dispose: () => {
+      reaction.dispose();
+    }
+  };
+});
+
+class Timer {
+  secondsPassed = 0;
+
+  constructor() {
+    makeAutoObservable(this);
+  }
+
+  increase() {
+    this.secondsPassed += 1;
+  }
+
+  reset() {
+    this.secondsPassed = 0;
+  }
+}
+
+// component driven directly off MobX
+function App() {
+  const timer = new Timer();
+  setInterval(() => {
+    timer.increase();
+  }, 1000);
+
+  return <button onClick={() => timer.reset()}>Seconds passed: {timer.secondsPassed}</button>;
+}
+
+render(() => <App />, document.getElementById("app"));
+```
+
+#### `refetchResources` (experimental)
+
+In efforts to allow for scaling from simple resources up to cached solutions we are adding some experimental features to `createResource` to work with library writers to develop the best patterns. Caching is always a tricky problem and with SSR and streaming being part of the equation the core framework needs at minimum to provide some hooks into orchestrating them.
+
+Sometimes it's valuable to trigger `refetch` across many resources. Now you can.
+
+```js
+import { createResource, refetchResources } from "solid-js";
+
+const userCache = {};
+
+function MyComponent(props) {
+  const [data] = createResource(
+    () => props.id,
+    (userId, { refetching }) => {
+      const cached = userCache[userId];
+
+      // return cached value if available and not refetching
+      if (cached && !refetching) return cached;
+      return fetchUser(userId);
+    }
+  );
+}
+
+// somewhere else
+refetchResources();
+```
+
+You can also pass a parameter to `refetchResources` to provide additional information to the `refetching` info of the fetcher. This could be used for conditional cache invalidation. Like only refetch resources related to `users`. This mechanism requires a bit of wiring but the idea is you'd wrap `createResource` in maybe a `createQuery` and implement your own conventions around resource cache management. Still working out how this should work best, but the goal is to provide the mechanisms to support resource caches without being responsible for their implementation.
+
+To opt-out being part of the global refetch createResource now takes a `globalRefetch` option that can be set to false. In addition to a new option to disable `refetchResources` there is no an `onHydrated` callback that takes the same arguments as the fetcher. When a resource is restored from the server the fetcher is not called. However, this callback will be. This is useful for populating caches.
+
+### Improvements
+
+#### Better TypeScript Support
+
+Thanks to the tireless efforts of several contributors we now have significantly better types in Solid. This was a huge effort and involved pulling in maintainers of TypeScript to help us work through it. Thank you @trusktr for spearheading the effort.
+
+#### Better SourceMaps
+
+Work has been done to improve sourcemaps by updating `babel-plugin-dom-expressions` to better preserve identifiers from the JSX. Thanks to @LXSMNSYC for exploring and implementing this.
+
+### Breaking Changes/Deprecations
+
+#### `startTransition` no longer takes callback as a second argument
+
+Instead it returns a promise you can await. This works better for chaining sequences of actions.
+
+```js
+const [start, isPending] = useTransition();
+
+start(() => doSomething()).then(() => allDone());
+```
+
+#### Resource fetcher info object replaces `getPrev`
+
+To streamline API for refetch we are slightly updating the `createResource`:
+
+```js
+const [data] = createResource(sourceSignal, (source, { value, refetching }) => {});
+```
+
+For those using existing 2nd argument:
+
+```js
+const [data] = createResource(sourceSignal, (source, getPrev) => {
+  const value = getPrev();
+});
+
+// becomes
+const [data] = createResource(sourceSignal, (source, { value }) => {});
+```
+
+#### Deprecating Legacy Streaming APIs
+
+`pipeToNodeWritable` and `pipeToWritable` are deprecated. They will still work for now with basic usage but some of the more advanced options didn't map over to the new APIs directly and have been removed. Move to using `renderToStream`.
+
+### Bug Fixes
+
+- Fixed browser extensions modifying the head breaking hydration.
+- Fixed reinserting `<html>` on hydration from document.
+- Fixed over-executing on multi-select with `createSelector`.
+- Fixed event delegation conflicting with document event listeners.
+- Fixed self owning source infinite recursion.
+- Fixed faulty treesplitting for hydration in client only render.
+- Fixed return type of `preload` on lazy components to always be a promise.
+- Fixed compile error with leading white space after opening tags when generating ssr.
+
+## 1.2.0 - 2021-10-25
+
+### New Features
+
+#### Custom Renderers
+
+This release adds support custom renderers through a new "universal" transform. Solid now provides a sub module `solid-js/universal` that exports a `createRenderer` method that allows you to create your own runtimes. This will enable things like native mobile and desktop, canvas and webgl, or even rendering to the terminal. This is still new so very much looking for feedback.
+
+#### Spreads Added to Solid's `html`
+
+It's been a long time coming but Solid's Tagged Template Literals now support element and component spreads using htm inspired syntax.
+
+```js
+html`<div ...${props} />`;
+```
+
+### Fixes
+
+#### Dynamic Spreads now work on Components
+
+Previously spreads on components would only track property changes on bound objects and not when the whole object changed. This now works:
+
+```js
+<MyComponent {...getStuff()} />
+```
+
+#### ClassList properly merges multiple classnames in the key
+
+It is common in libraries like Tailwind to apply multiple classes at the same time. There was an issue where true and false resolutions were cancelling each other out. This would only set `text-sm`.
+
+```js
+<div
+  classList={{
+    "px-2.5 py-1.5 text-xs": false,
+    "px-3 py-2 text-sm": false,
+    "px-4 py-2 text-sm": true,
+    "px-4 py-2 text-base": false,
+    "px-6 py-3 text-base": false
+  }}
+/>
+```
+
+#### Consistent handling of HTMLEntities
+
+Things like `&nbsp;` used to render differently depending if in elements or components(or fragments). This has been made consistent across all three.
+
+#### Various improvements to Types and Transitions
+
+A lot of bugs from the last minor release were around Transitions that have been addressed. And as always Types have been gradually improving.
+
 ## 1.1.0 - 2021-08-09
 
 Expanding Solid's concurrency to include scheduling. Bug fixes around Types and around reactive execution order guarantees.
 
 ### New Features
 
-### `createUniqueId`
+#### `createUniqueId`
 
 A universal id generator that works across server/browser.
 
@@ -16,7 +407,7 @@ const id = createUniqueId();
 
 > **Note** on the server this only works under hydratable components
 
-### `from`
+#### `from`
 
 A simple helper to make it easier to interopt with external producers like RxJS observables or with Svelte Stores. This basically turns any subscribable (object with a `subscribe` method) into a Signal and manages subscription and disposal.
 
@@ -35,7 +426,7 @@ const clock = from(set => {
 
 > Note: Signals created by `from` have equality checks turned off to interface better with external streams and sources.
 
-### `enableScheduling` (experimental)
+#### `enableScheduling` (experimental)
 
 By default Solid's concurrent rendering/Transitions doesn't schedule work differently and just runs synchronously. Its purpose is to smooth out IO situations like Navigation. However now you can opt into interruptible scheduling similar to React's behavior by calling this once at your programs entry. I've yet to see a realworld scenario where this makes a big difference but now we can do cool demos too and start testing it.
 
@@ -124,7 +515,7 @@ My hope this is the last release before I start making 1.0 RC's. This one has bi
 
 ## 0.25.0 - 2021-03-28
 
-This release is about refining the the APIs as we approach the our release candidate for 1.0.
+This release is about refining the APIs as we approach the our release candidate for 1.0.
 
 ### Breaking Changes
 
@@ -418,7 +809,7 @@ This release makes large changes to the Reactive System. Key changes are deferri
 
 ### Concurrency
 
-In addition the the reactive model brings updates to Suspense and Transitions. Solid now has true concurrent rendering at a granular level. This mechanism does differ from React as it currently only supports a single future.
+In addition the reactive model brings updates to Suspense and Transitions. Solid now has true concurrent rendering at a granular level. This mechanism does differ from React as it currently only supports a single future.
 
 ### Removed APIs
 

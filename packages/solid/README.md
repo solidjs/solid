@@ -1,4 +1,6 @@
-## <img src="https://raw.githubusercontent.com/solidjs/solid/main/assets/logo.png" alt="Solid" width="350"/><br>
+<p>
+  <img width="100%" src="https://raw.githubusercontent.com/solidjs/solid/master/banner.png" alt="SolidJS">
+</p>
 
 [![Build Status](https://github.com/solidjs/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
 [![Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=flat)](https://coveralls.io/github/solidjs/solid?branch=main)
@@ -115,11 +117,9 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 ## Documentation
 
 Check out the [Documentation](https://www.solidjs.com/guide) website.
-### Resources
 
-- [Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
-- [Articles](https://github.com/solidjs/solid/blob/main/documentation/resources/articles.md)
-- [Projects](https://github.com/solidjs/solid/blob/main/documentation/resources/projects.md)
+[Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
+
 ## Browser Support
 
 The last 2 versions of modern evergreen browsers and Node LTS.

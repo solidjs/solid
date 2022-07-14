@@ -1,7 +1,21 @@
-import { createMemo, untrack, createSignal, onError, children, Accessor } from "../reactive/signal";
+import { createMemo, untrack, createSignal, onError, children, Accessor, Setter, onCleanup } from "../reactive/signal";
 import { mapArray, indexArray } from "../reactive/array";
+import { sharedConfig } from "./hydration";
 import type { JSX } from "../jsx";
 
+/**
+ * creates a list elements from a list
+ *
+ * it receives a map function as its child that receives a list element and an accessor with the index and returns a JSX-Element; if the list is empty, an optional fallback is returned:
+ * ```typescript
+ * <For each={items} fallback={<div>No items</div>}>
+ *   {(item, index) => <div data-index={index()}>{item}</div>}
+ * </For>
+ * ```
+ * If you have a list with fixed indices and changing values, consider using `<Index>` instead.
+ *
+ * @description https://www.solidjs.com/docs/latest/api#%3Cfor%3E
+ */
 export function For<T, U extends JSX.Element>(props: {
   each: readonly T[] | undefined | null | false;
   fallback?: JSX.Element;
@@ -13,7 +27,19 @@ export function For<T, U extends JSX.Element>(props: {
   );
 }
 
-// non-keyed
+/**
+ * Non-keyed iteration over a list creating elements from its items
+ *
+ * To be used if you have a list with fixed indices, but changing values.
+ * ```typescript
+ * <Index each={items} fallback={<div>No items</div>}>
+ *   {(item, index) => <div data-index={index}>{item()}</div>}
+ * </Index>
+ * ```
+ * If you have a list with changing indices, better use `<For>`.
+ *
+ * @description https://www.solidjs.com/docs/latest/api#%3Cindex%3E
+ */
 export function Index<T, U extends JSX.Element>(props: {
   each: readonly T[] | undefined | null | false;
   fallback?: JSX.Element;
@@ -25,6 +51,10 @@ export function Index<T, U extends JSX.Element>(props: {
   );
 }
 
+/**
+ * Conditionally render its children or an optional fallback component
+ * @description https://www.solidjs.com/docs/latest/api#%3Cshow%3E
+ */
 export function Show<T>(props: {
   when: T | undefined | null | false;
   fallback?: JSX.Element;
@@ -46,14 +76,30 @@ export function Show<T>(props: {
   }) as () => JSX.Element;
 }
 
+type EvalConditions = [number, unknown?, MatchProps<unknown>?];
+
+/**
+ * switches between content based on mutually exclusive conditions
+ * ```typescript
+ * <Switch fallback={<FourOhFour />}>
+ *   <Match when={state.route === 'home'}>
+ *     <Home />
+ *   </Match>
+ *   <Match when={state.route === 'settings'}>
+ *     <Settings />
+ *   </Match>
+ * </Switch>
+ * ```
+ * @description https://www.solidjs.com/docs/latest/api#%3Cswitch%3E%2F%3Cmatch%3E
+ */
 export function Switch(props: {
   fallback?: JSX.Element;
   children: JSX.Element;
 }): Accessor<JSX.Element> {
   let strictEqual = false;
   const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
-    evalConditions = createMemo<[number, unknown?, MatchProps<unknown>?]>(
-      () => {
+    evalConditions = createMemo(
+      (): EvalConditions => {
         let conds = conditions();
         if (!Array.isArray(conds)) conds = [conds];
         for (let i = 0; i < conds.length; i++) {
@@ -64,8 +110,8 @@ export function Switch(props: {
       },
       undefined,
       {
-        equals: (a: [number, unknown?, unknown?], b: [number, unknown?, unknown?]) =>
-          a && a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
+        equals: (a, b) =>
+          a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
       }
     );
   return createMemo(() => {
@@ -82,20 +128,57 @@ export type MatchProps<T> = {
   when: T | undefined | null | false;
   children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
 };
+/**
+ * selects a content based on condition when inside a `<Switch>` control flow
+ * ```typescript
+ * <Match when={condition()}>
+ *   <Content/>
+ * </Match>
+ * ```
+ * @description https://www.solidjs.com/docs/latest/api#%3Cswitch%3E%2F%3Cmatch%3E
+ */
 export function Match<T>(props: MatchProps<T>) {
   return props as unknown as JSX.Element;
 }
 
+let Errors: Set<Setter<any>>;
+const NoErrors = {};
+export function resetErrorBoundaries() {
+  Errors && [...Errors].forEach(fn => fn(NoErrors));
+}
+/**
+ * catches uncaught errors inside components and renders a fallback content
+ *
+ * Also supports a callback form that passes the error and a reset function:
+ * ```typescript
+ * <ErrorBoundary fallback={
+ *   (err, reset) => <div onClick={reset}>Error: {err.toString()}</div>
+ * }>
+ *   <MyComp />
+ * </ErrorBoundary>
+ * ```
+ * Errors thrown from the fallback can be caught by a parent ErrorBoundary
+ *
+ * @description https://www.solidjs.com/docs/latest/api#%3Cerrorboundary%3E
+ */
 export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }): Accessor<JSX.Element> {
-  const [errored, setErrored] = createSignal<any>();
-  let e: any;
+  let err = NoErrors;
+  if (sharedConfig!.context && sharedConfig!.load) {
+    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count) || NoErrors;
+  }
+  const [errored, setErrored] = createSignal<any>(err);
+  Errors || (Errors = new Set());
+  Errors.add(setErrored);
+  onCleanup(() => Errors.delete(setErrored));
   return createMemo(() => {
-    if ((e = errored()) != null) {
+    let e: any;
+    if ((e = errored()) !== NoErrors) {
       const f = props.fallback;
-      return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(null))) : f;
+      if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
+      return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(NoErrors))) : f;
     }
     onError(setErrored);
     return props.children;
