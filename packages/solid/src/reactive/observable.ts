@@ -1,17 +1,26 @@
-import { Accessor, createComputed, createSignal, onCleanup, Setter, untrack } from "./signal";
+import { Accessor, createComputed, createRoot, createSignal, getOwner, onCleanup, Setter, untrack } from "./signal";
+
+// Note: This will add Symbol.observable globally for all TypeScript users,
+// however, we are not polyfilling Symbol.observable. Ensuring the type for
+// this global symbol is present is necessary for `observable()` to be
+// properly typed for 3rd party library's like RXJS.
+declare global {
+  interface SymbolConstructor {
+    readonly observable: symbol;
+  }
+}
 
 function getSymbol() {
-  const SymbolCopy = Symbol as any;
-  return SymbolCopy.observable || "@@observable";
+  return Symbol.observable || "@@observable";
 }
 
 export type ObservableObserver<T> =
   | ((v: T) => void)
   | {
-      next: (v: T) => void;
-      error?: (v: any) => void;
-      complete?: (v: boolean) => void;
-    };
+    next?: (v: T) => void;
+    error?: (v: any) => void;
+    complete?: (v: boolean) => void;
+  };
 /**
  * creates a simple observable from a signal's accessor to be used with the `from` operator of observable libraries like e.g. rxjs
  * ```typescript
@@ -29,26 +38,41 @@ export function observable<T>(input: Accessor<T>) {
       if (!(observer instanceof Object) || observer == null) {
         throw new TypeError("Expected the observer to be an object.");
       }
-      const handler = "next" in observer ? observer.next.bind(observer) : observer;
-      let complete = false;
-      createComputed(() => {
-        if (complete) return;
-        const v = input();
-        untrack(() => handler(v));
-      });
+
+      const handler = typeof observer === 'function'
+        ? observer
+        : observer.next && observer.next.bind(observer);
+
+      if (!handler) {
+        return { unsubscribe() { } };
+      }
+
+      const dispose = createRoot((disposer) => {
+        createComputed(() => {
+          const v = input();
+          untrack(() => handler(v));
+        });
+
+        return disposer;
+      })
+
+      if (getOwner()) onCleanup(dispose);
+
       return {
         unsubscribe() {
-          complete = true;
+          dispose();
         }
       };
     },
     [$$observable]() {
-      return this;
+      return this as {
+        subscribe(observer: ObservableObserver<T>): { unsubscribe(): void }
+      };
     }
   };
 }
 
-export function from<T>(producer: ((setter: Setter<T>) =>  () => void) | {
+export function from<T>(producer: ((setter: Setter<T>) => () => void) | {
   subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
 }): Accessor<T> {
   const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [Accessor<T>, Setter<T>];
