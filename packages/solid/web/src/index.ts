@@ -79,12 +79,24 @@ export function Portal(props: {
   return marker;
 }
 
-type DynamicProps<T> = T & {
-  children?: any;
-  component?: Component<T> | string | keyof JSX.IntrinsicElements;
+type ValidElements = keyof JSX.IntrinsicElements;
+type ValidComponent<P> = (props: P) => JSX.Element;
+type ValidConstructor = ValidElements | ValidComponent<unknown> | string;
+
+type DynamicBaseProps<T extends ValidConstructor> =
+  T extends ValidElements
+    ? JSX.IntrinsicElements[T]
+    :
+  T extends ValidComponent<infer U>
+    ? U
+    : never;
+
+
+type DynamicProps<T extends ValidConstructor> = DynamicBaseProps<T> & {
+  component?: ValidConstructor;
 };
 
-export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
+export function Dynamic<T extends ValidConstructor>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
   return createMemo(() => {
     const component = p.component as Function | string;
