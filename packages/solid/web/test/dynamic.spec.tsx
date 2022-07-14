@@ -6,18 +6,18 @@ import { Dynamic } from "../src";
 describe("Testing Dynamic control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
 
-  interface DynamicProps {
+  interface ExampleProps {
     title: string;
   }
-  const [comp, setComp] = createSignal<Component<DynamicProps> | keyof JSX.IntrinsicElements>(),
+  const [comp, setComp] = createSignal<Component<ExampleProps>>(),
     [name, setName] = createSignal("Smith");
   const Component = () => (
       <div ref={div}>
         <Dynamic component={comp()} title={name()} />
       </div>
     ),
-    CompA: Component<DynamicProps> = props => <div>Hi {props.title}</div>,
-    CompB: Component<DynamicProps> = props => <span>Yo {props.title}</span>;
+    CompA: Component<ExampleProps> = props => <div>Hi {props.title}</div>,
+    CompB: Component<ExampleProps> = props => <span>Yo {props.title}</span>;
 
   beforeEach(() => {
     createRoot(dispose => {
@@ -55,10 +55,10 @@ describe("Testing Dynamic control flow", () => {
 describe("Testing Dynamic with state spread", () => {
   let div: HTMLDivElement, disposer: () => void;
 
-  interface DynamicProps {
+  interface ExampleProps {
     title: string;
   }
-  const [comp, setComp] = createSignal<Component<DynamicProps> | keyof JSX.IntrinsicElements>(),
+  const [comp, setComp] = createSignal<Component<ExampleProps>>(),
     [state, setState] = createStore({
       title: "Smith"
     });
@@ -67,8 +67,8 @@ describe("Testing Dynamic with state spread", () => {
         <Dynamic component={comp()} {...state}  />
       </div>
     ),
-    CompA: Component<DynamicProps> = props => <div>Hi {props.title}</div>,
-    CompB: Component<DynamicProps> = props => <span>Yo {props.title}</span>;
+    CompA: Component<ExampleProps> = props => <div>Hi {props.title}</div>,
+    CompB: Component<ExampleProps> = props => <span>Yo {props.title}</span>;
 
   beforeEach(() => {
     createRoot(dispose => {
