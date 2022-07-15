@@ -174,8 +174,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(state: StoreNode, property: PropertyKey, value: any) {
-  if (state[property] === value) return;
+export function setProperty(state: StoreNode, property: PropertyKey, value: any, deleting: boolean = false) {
+  if (!deleting && state[property] === value) return;
   const prev = state[property];
   const len = state.length;
   if (value === undefined) {
