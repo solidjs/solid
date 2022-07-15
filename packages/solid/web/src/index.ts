@@ -101,7 +101,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
 }
 
 type DynamicProps<T extends ValidComponent> = ComponentProps<T> & {
-  component?: T;
+  component: T | undefined;
 };
 /**
  * renders an arbitrary custom or native component and passes the other props
