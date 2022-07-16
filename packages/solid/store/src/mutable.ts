@@ -48,7 +48,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   deleteProperty(target, property) {
-    batch(() => setProperty(target, property, undefined));
+    batch(() => setProperty(target, property, undefined, true));
     return true;
   },
 
