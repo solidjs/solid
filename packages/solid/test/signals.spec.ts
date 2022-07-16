@@ -102,7 +102,7 @@ describe("Update signals", () => {
   test("Create Signal and set equivalent value", () => {
     const [value, setValue] = createSignal(5, { equals: (a, b) => a > b });
     setValue(3);
-    expect(value()).toBe(3);
+    expect(value()).toBe(5);
   });
   test("Create and read a Signal with function value", () => {
     const [value, setValue] = createSignal<() => string>(() => "Hi");
@@ -126,7 +126,7 @@ describe("Update signals", () => {
       expect(name()).toBe("John");
       expect(memo()).toBe("Hello John");
       setName("Jake");
-      expect(name()).toBe("Jake");
+      expect(name()).toBe("John");
       expect(memo()).toBe("Hello John");
     });
   });

@@ -199,7 +199,7 @@ function runComputation(node, value, time) {
   let nextValue;
   nextValue = node.fn(value);
   if (!node.updatedAt || node.updatedAt <= time) {
-    if (node.observer || (node.observers && node.observers.length)) {
+    if (node.updatedAt && "observers" in node) {
       writeSignal(node, nextValue);
     } else node.value = nextValue;
     node.updatedAt = time;

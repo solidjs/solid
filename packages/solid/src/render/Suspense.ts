@@ -2,7 +2,6 @@ import { createComponent } from "./component";
 import {
   createRoot,
   createSignal,
-  untrack,
   createComputed,
   createContext,
   useContext,
@@ -121,7 +120,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     showContent: Accessor<boolean>,
     showFallback: Accessor<boolean>,
     ctx: HydrationContext | undefined,
-    p: Promise<any> | undefined,
+    p: Promise<any> | any,
     flicker: Accessor<void> | undefined,
     error: any;
   const [inFallback, setFallback] = createSignal<boolean>(false),
@@ -140,19 +139,26 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     owner = getOwner();
   if (sharedConfig.context && sharedConfig.load) {
     const key = sharedConfig.context.id + sharedConfig.context.count;
-    p = sharedConfig.load(key);
-    if (p) {
-      if (typeof p !== "object" || !("then" in p)) p = Promise.resolve(p);
-      const [s, set] = createSignal(undefined, { equals: false });
-      flicker = s;
-      p.then(err => {
-        if ((error = err) || sharedConfig.done) return set();
-        sharedConfig.gather!(key);
-        setHydrateContext(ctx);
-        set();
-        setHydrateContext();
-      });
-    } else if (p === null) sharedConfig.gather!(key);
+    let ref = sharedConfig.load(key);
+    if (ref) {
+      p = ref[0];
+      if (p === "$$$") sharedConfig.gather!(key)
+      else {
+        if (typeof p !== "object" || !("then" in p)) p = Promise.resolve(p);
+        const [s, set] = createSignal(undefined, { equals: false });
+        flicker = s;
+        p.then((err: any) => {
+          if (err !== "$$$" || sharedConfig.done) {
+            err !== "$$$" && (error = err);
+            return set();
+          }
+          sharedConfig.gather!(key);
+          setHydrateContext(ctx);
+          set();
+          setHydrateContext();
+        });
+      };
+    }
   }
 
   // SuspenseList support
@@ -171,14 +177,14 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
           flicker();
           return (flicker = undefined);
         }
-        if (ctx && p === undefined) setHydrateContext();
+        if (ctx && !p) setHydrateContext();
         const rendered = createMemo(() => props.children);
         return createMemo(() => {
           const inFallback = store.inFallback(),
             visibleContent = showContent ? showContent() : true,
             visibleFallback = showFallback ? showFallback() : true;
           dispose && dispose();
-          if ((!inFallback || p !== undefined) && visibleContent) {
+          if ((!inFallback || p) && visibleContent) {
             store.resolved = true;
             ctx = p = undefined;
             resumeEffects(store.effects);

@@ -6,7 +6,8 @@ import {
   runWithOwner,
   onError,
   Accessor,
-  Setter
+  Setter,
+  castError
 } from "./reactive";
 import type { JSX } from "../jsx";
 
@@ -229,19 +230,17 @@ export function Match<T>(props: MatchProps<T>) {
   return props;
 }
 
-const NoErrors = {};
 export function resetErrorBoundaries() {}
 export function ErrorBoundary(props: {
   fallback: string | ((err: any, reset: () => void) => string);
   children: string;
 }) {
-  let error = NoErrors,
-    res: any;
+  let error, res: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
   onError(err => (error = err));
   createMemo(() => (res = props.children));
-  if (error !== NoErrors) {
+  if (error) {
     ctx.writeResource!(id, error, true);
     setHydrateContext({ ...ctx, count: 0 });
     const f = props.fallback;
@@ -389,7 +388,7 @@ export function createResource<T, S>(
         })
         .catch(err => {
           read.loading = false;
-          read.error = error = err;
+          read.error = error = castError(err);
           p = null;
           notifySuspense(contexts);
         });
@@ -487,7 +486,6 @@ type HydrationContext = {
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
   async?: boolean;
-  streaming?: boolean;
   noHydrate: boolean;
 };
 
@@ -531,7 +529,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
 
   // never suspended
   if (suspenseComplete(value)) {
-    ctx.writeResource!(id, null);
+    ctx.writeResource!(id, "$$$");
     return res;
   }
 
@@ -539,13 +537,11 @@ export function Suspense(props: { fallback?: string; children: string }) {
     if (!done || !done(undefined, err)) throw err;
   });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
-  if (ctx.streaming) {
+  if (ctx.async) {
     setHydrateContext(undefined);
     const res = { t: `<span id="pl-${id}">${resolveSSRNode(props.fallback)}</span>` };
     setHydrateContext(ctx);
     return res;
-  } else if (ctx.async) {
-    return { t: `<![${id}]>` };
   }
   setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
   return props.fallback;

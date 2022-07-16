@@ -35,7 +35,7 @@
     "@rollup/plugin-node-resolve": "13.1.2",
     "babel-preset-solid": "^1.4.6",
     "express": "^4.17.1",
-    "rollup": "^2.62.0",
+    "rollup": "^2.75.5",
     "rollup-plugin-copy": "^3.4.0",
     "shx": "^0.3.3",
     "solid-js": "^1.4.7"

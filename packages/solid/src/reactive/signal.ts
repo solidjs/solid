@@ -20,6 +20,7 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
+const NO_INIT = {};
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
@@ -535,7 +536,7 @@ export function createResource<T, S>(
 
   let err: any = undefined,
     pr: Promise<T> | null = null,
-    initP: Promise<T> | T | null | undefined = null,
+    initP: Promise<T> | T | typeof NO_INIT = NO_INIT,
     id: string | null = null,
     loadedUnderTransition = false,
     scheduled = false,
@@ -553,15 +554,16 @@ export function createResource<T, S>(
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
-    if (sharedConfig.load) initP = sharedConfig.load!(id!);
+    let v;
+    if (sharedConfig.load && (v = sharedConfig.load!(id!))) initP = v[0];
   }
   function loadEnd(p: Promise<T> | null, v: T | any, success: boolean, key?: S) {
     if (pr === p) {
       pr = null;
       resolved = true;
-      if (initP && (p === initP || v === initP) && options!.onHydrated)
+      if ((p === initP || v === initP) && options!.onHydrated)
         queueMicrotask(() => options!.onHydrated!(key!, { value: v } as ResourceFetcherInfo<T>));
-      initP = null;
+      initP = NO_INIT;
       if (Transition && p && loadedUnderTransition) {
         Transition.promises.delete(p);
         loadedUnderTransition = false;
@@ -578,7 +580,7 @@ export function createResource<T, S>(
     return v;
   }
   function completeLoad(v: any, success: boolean) {
-    !success && (err = v);
+    !success && (err = castError(v));
     runUpdates(() => {
       setValue(() => (success ? v : undefined));
       setState(success ? "ready" : "error");
@@ -617,13 +619,14 @@ export function createResource<T, S>(
     }
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
-      initP ||
-      untrack(() =>
-        (fetcher as ResourceFetcher<S, T>)(lookup, {
-          value: value(),
-          refetching
-        })
-      );
+      initP !== NO_INIT
+        ? initP as T | Promise<T>
+        : untrack(() =>
+            (fetcher as ResourceFetcher<S, T>)(lookup, {
+              value: value(),
+              refetching
+            })
+          );
     if (typeof p !== "object" || !("then" in p)) {
       loadEnd(pr, p as unknown as T | undefined, true);
       return p;
@@ -1241,15 +1244,15 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
 export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isComp?: boolean) {
   let current =
     Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value;
-  if (Transition) {
-    const TransitionRunning = Transition.running;
-    if (TransitionRunning || (!isComp && Transition.sources.has(node))) {
-      Transition.sources.add(node);
-      node.tValue = value;
-    }
-    if (!TransitionRunning) node.value = value;
-  } else node.value = value;
   if (!node.comparator || !node.comparator(current, value)) {
+    if (Transition) {
+      const TransitionRunning = Transition.running;
+      if (TransitionRunning || (!isComp && Transition.sources.has(node))) {
+        Transition.sources.add(node);
+        node.tValue = value;
+      }
+      if (!TransitionRunning) node.value = value;
+    } else node.value = value;
     if (Pending) Pending.push(node);
     else notifySignal(node);
   }
@@ -1315,7 +1318,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
-    if ((node as Memo<any>).observers && (node as Memo<any>).observers!.length) {
+    if (node.updatedAt && "observers" in (node as Memo<any>)) {
       writeSignal(node as Memo<any>, nextValue, true);
     } else if (Transition && Transition.running && node.pure) {
       Transition.sources.add(node as Memo<any>);
@@ -1624,7 +1627,13 @@ function reset(node: Computation<any>, top?: boolean) {
   }
 }
 
+function castError(err: any) {
+  if (err instanceof Error || typeof err === "string") return err;
+  return new Error("Unknown error");
+}
+
 function handleError(err: any) {
+  err = castError(err);
   const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw err;
   for (const f of fns) f(err);

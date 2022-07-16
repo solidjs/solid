@@ -11,6 +11,17 @@ export type Setter<T> = undefined extends T
   : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;
 
 const ERROR = Symbol("error");
+export function castError(err: any) {
+  if (err instanceof Error || typeof err === "string") return err;
+  return new Error("Unknown error");
+}
+
+function handleError(err: any) {
+  err = castError(err);
+  const fns = lookup(Owner, ERROR);
+  if (!fns) throw err;
+  for (const f of fns) f(err);
+}
 
 const UNOWNED: Owner = { context: null, owner: null };
 export let Owner: Owner | null = null;
@@ -29,9 +40,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Ow
   try {
     result = fn(() => {});
   } catch (err) {
-    const fns = lookup(Owner, ERROR);
-    if (!fns) throw err;
-    fns.forEach((f: (err: any) => void) => f(err));
+    handleError(err);
   } finally {
     Owner = owner;
   }
@@ -55,9 +64,7 @@ export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
   try {
     fn(value);
   } catch (err) {
-    const fns = lookup(Owner, ERROR);
-    if (!fns) throw err;
-    fns.forEach((f: (err: any) => void) => f(err));
+    handleError(err);
   } finally {
     Owner = Owner.owner;
   }
@@ -79,9 +86,7 @@ export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
   try {
     v = fn(value);
   } catch (err) {
-    const fns = lookup(Owner, ERROR);
-    if (!fns) throw err;
-    fns.forEach((f: (err: any) => void) => f(err));
+    handleError(err);
   } finally {
     Owner = Owner.owner;
   }

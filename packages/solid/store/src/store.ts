@@ -89,7 +89,7 @@ export function getDataNodes(target: StoreNode) {
 }
 
 export function getDataNode(nodes: Record<string, any>, property: string | symbol, value: any) {
-  return nodes[property as string] || (nodes[property as string] = createDataNode(value, true));
+  return nodes[property as string] || (nodes[property as string] = createDataNode(value));
 }
 
 export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
@@ -121,18 +121,11 @@ export function ownKeys(target: StoreNode) {
   return Reflect.ownKeys(target);
 }
 
-function createDataNode(value?: any, equals?: boolean) {
-  const [s, set] = createSignal<any>(
-    value,
-    equals
-      ? {
-          internal: true
-        }
-      : {
-          equals: false,
-          internal: true
-        }
-  );
+function createDataNode(value?: any) {
+  const [s, set] = createSignal<any>(value, {
+    equals: false,
+    internal: true
+  });
   (s as Accessor<any> & { $: (v: any) => void }).$ = set;
   return s as Accessor<any> & { $: (v: any) => void };
 }
