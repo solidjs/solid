@@ -65,6 +65,11 @@ export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 /** @deprecated: use `ParentProps` instead */
 export type PropsWithChildren<P = {}> = ParentProps<P>;
 
+export type ValidComponent =
+  | keyof JSX.IntrinsicElements
+  | Component<any>
+  | (string & {});
+
 /**
  * Takes the props of the passed component and returns its type
  *
@@ -72,12 +77,13 @@ export type PropsWithChildren<P = {}> = ParentProps<P>;
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<T extends keyof JSX.IntrinsicElements | Component<any>> =
+export type ComponentProps<T extends ValidComponent> =
   T extends Component<infer P>
     ? P
-    : T extends keyof JSX.IntrinsicElements
+    :
+  T extends keyof JSX.IntrinsicElements
     ? JSX.IntrinsicElements[T]
-    : {};
+    : Record<string, unknown>;
 
 /**
  * Type of `props.ref`, for use in `Component` or `props` typing.
