@@ -136,36 +136,48 @@ const propTraps: ProxyHandler<{
   }
 };
 
+type DistributeOverride<T, F> = T extends undefined ? F : T;
 type Override<T, U> = T extends any
   ? U extends any
     ? {
-        [K in keyof T]: K extends keyof U
-          ? undefined extends U[K]
-            ? Exclude<U[K], undefined> | T[K]
-            : U[K]
-          : T[K];
+        [K in keyof T]: K extends keyof U ? DistributeOverride<U[K], T[K]> : T[K];
       } & {
-        [K in keyof U]: K extends keyof T
-          ? undefined extends U[K]
-            ? Exclude<U[K], undefined> | T[K]
-            : U[K]
-          : U[K];
+        [K in keyof U]: K extends keyof T ? DistributeOverride<U[K], T[K]> : U[K];
       }
     : T & U
   : T & U;
-
-export type MergeProps<T extends unknown[], Curr = {}> = T extends [
+type OverrideSpread<T, U> = T extends any
+  ? {
+      [K in keyof ({ [K in keyof T]: any } & { [K in keyof U]?: any } & {
+        [K in U extends any ? keyof U : keyof U]?: any;
+      })]: K extends keyof T
+        ? Exclude<U extends any ? U[K & keyof U] : never, undefined> | T[K]
+        : U extends any
+        ? U[K & keyof U]
+        : never;
+    }
+  : T & U;
+type Simplify<T> = T extends any ? { [K in keyof T]: T[K] } : T;
+type _MergeProps<T extends unknown[], Curr = {}> = T extends [
   infer Next | (() => infer Next),
   ...infer Rest
 ]
-  ? MergeProps<Rest, Override<Curr, Next>>
+  ? _MergeProps<Rest, Override<Curr, Next>>
+  : T extends [...infer Rest, infer Next | (() => infer Next)]
+  ? Override<_MergeProps<Rest, Curr>, Next>
+  : T extends []
+  ? Curr
+  : T extends (infer I | (() => infer I))[]
+  ? OverrideSpread<Curr, I>
   : Curr;
+
+export type MergeProps<T extends unknown[]> = Simplify<_MergeProps<T>>;
 
 function resolveSource(s: any) {
   return (s = typeof s === "function" ? s() : s) == null ? {} : s;
 }
 
-export function mergeProps<T extends [unknown, ...unknown[]]>(...sources: T): MergeProps<T> {
+export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   return new Proxy(
     {
       get(property: string | number | symbol) {
