@@ -10,10 +10,6 @@ declare global {
   }
 }
 
-function getSymbol() {
-  return Symbol.observable || "@@observable";
-}
-
 export type ObservableObserver<T> =
   | ((v: T) => void)
   | {
@@ -32,7 +28,6 @@ export type ObservableObserver<T> =
  * description https://www.solidjs.com/docs/latest/api#observable
  */
 export function observable<T>(input: Accessor<T>) {
-  const $$observable = getSymbol();
   return {
     subscribe(observer: ObservableObserver<T>) {
       if (!(observer instanceof Object) || observer == null) {
@@ -64,10 +59,12 @@ export function observable<T>(input: Accessor<T>) {
         }
       };
     },
-    [$$observable]() {
-      return this as {
-        subscribe(observer: ObservableObserver<T>): { unsubscribe(): void }
-      };
+    // Here we're intentionally using `Symbol.observable || "@@observable"` directly
+    // without assigning it to an intermediary variable (e.g. we aren't doing
+    // `const $$observable = Symbol.observable || "@@observable"`).
+    // See for more info: https://github.com/solidjs/solid/pull/1118
+    [Symbol.observable || "@@observable"]() {
+      return this;
     }
   };
 }
