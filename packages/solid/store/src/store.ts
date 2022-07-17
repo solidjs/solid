@@ -157,6 +157,14 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       : value;
   },
 
+  has(target, property) {
+    if (property === $RAW || property === $PROXY || property === $TRACK ||
+        property === $NODE || property === "__proto__") return true;
+    const tracked = getDataNodes(target)[property];
+    tracked && tracked();
+    return property in target;
+  },
+
   set() {
     if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
     return true;

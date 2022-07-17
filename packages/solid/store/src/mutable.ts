@@ -24,7 +24,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     }
     const nodes = getDataNodes(target);
     const tracked = nodes[property];
-    let value = tracked ? nodes[property]() : target[property];
+    let value = tracked ? tracked() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
     if (!tracked) {
@@ -40,6 +40,14 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     return isWrappable(value)
       ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
       : value;
+  },
+
+  has(target, property) {
+    if (property === $RAW || property === $PROXY || property === $TRACK ||
+        property === $NODE || property === "__proto__") return true;
+    const tracked = getDataNodes(target)[property];
+    tracked && tracked();
+    return property in target;
   },
 
   set(target, property, value) {
