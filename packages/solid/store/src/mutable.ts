@@ -23,8 +23,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       return receiver;
     }
     const nodes = getDataNodes(target);
-    const tracked = nodes[property];
-    let value = tracked ? tracked() : target[property];
+    const tracked = nodes.hasOwnProperty(property);
+    let value = tracked ? nodes[property]() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
     if (!tracked) {
