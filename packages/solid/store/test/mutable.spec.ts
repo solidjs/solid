@@ -87,8 +87,8 @@ describe("Simple update modes", () => {
 describe("Unwrapping Edge Cases", () => {
   test("Unwrap nested frozen state object", () => {
     const state = createMutable({
-        data: Object.freeze({ user: { firstName: "John", lastName: "Snow" } })
-      }),
+      data: Object.freeze({ user: { firstName: "John", lastName: "Snow" } })
+    }),
       s = unwrap({ ...state });
     expect(s.data.user.firstName).toBe("John");
     expect(s.data.user.lastName).toBe("Snow");
@@ -97,8 +97,8 @@ describe("Unwrapping Edge Cases", () => {
   });
   test("Unwrap nested frozen array", () => {
     const state = createMutable({
-        data: [{ user: { firstName: "John", lastName: "Snow" } }]
-      }),
+      data: [{ user: { firstName: "John", lastName: "Snow" } }]
+    }),
       s = unwrap({ data: state.data.slice(0) });
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
@@ -107,8 +107,8 @@ describe("Unwrapping Edge Cases", () => {
   });
   test("Unwrap nested frozen state array", () => {
     const state = createMutable({
-        data: Object.freeze([{ user: { firstName: "John", lastName: "Snow" } }])
-      }),
+      data: Object.freeze([{ user: { firstName: "John", lastName: "Snow" } }])
+    }),
       s = unwrap({ ...state });
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
@@ -138,6 +138,24 @@ describe("Tracking State changes", () => {
       state.data = 5;
       // same value again should not retrigger
       state.data = 5;
+    });
+  });
+
+  test("Deleting an undefined property", () => {
+    createRoot(() => {
+      const state = createMutable({
+        firstName: "John",
+        lastName: undefined,
+      });
+
+      let executionCount = 0;
+      createComputed(() => {
+        state.lastName;
+        executionCount++;
+      });
+      //this should retrigger the execution despite it being undefined
+      delete state.lastName;
+      expect(executionCount).toBe(2);
     });
   });
 
@@ -177,9 +195,9 @@ describe("Handling functions in state", () => {
 
   test("Track function change", () => {
     createRoot(() => {
-      const state = createMutable<{ fn: () => number }>({
-          fn: () => 1
-        }),
+      const state = createMutable<{ fn: () => number; }>({
+        fn: () => 1
+      }),
         getValue = createMemo(() => state.fn());
       state.fn = () => 2;
       expect(getValue()).toBe(2);
@@ -201,8 +219,8 @@ describe("Setting state from Effects", () => {
   test("Select Promise", done => {
     createRoot(async () => {
       const p = new Promise<string>(resolve => {
-          setTimeout(resolve, 20, "promised");
-        }),
+        setTimeout(resolve, 20, "promised");
+      }),
         state = createMutable({ data: "" });
       p.then(v => (state.data = v));
       await p;
