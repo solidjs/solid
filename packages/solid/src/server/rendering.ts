@@ -7,7 +7,10 @@ import {
   onError,
   Accessor,
   Setter,
-  castError
+  castError,
+  onCleanup,
+  cleanNode,
+  BRANCH
 } from "./reactive";
 import type { JSX } from "../jsx";
 
@@ -19,17 +22,12 @@ export type ParentComponent<P = {}> = Component<ParentProps<P>>;
 export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
 export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 export type Ref<T> = T | ((val: T) => void);
-export type ValidComponent =
-  | keyof JSX.IntrinsicElements
-  | Component<any>
-  | (string & {});
-export type ComponentProps<T extends ValidComponent> =
-  T extends Component<infer P>
-    ? P
-    :
-  T extends keyof JSX.IntrinsicElements
-    ? JSX.IntrinsicElements[T]
-    : Record<string, unknown>;
+export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
+export type ComponentProps<T extends ValidComponent> = T extends Component<infer P>
+  ? P
+  : T extends keyof JSX.IntrinsicElements
+  ? JSX.IntrinsicElements[T]
+  : Record<string, unknown>;
 
 type PossiblyWrapped<T> = {
   [P in keyof T]: T[P] | (() => T[P]);
@@ -239,12 +237,17 @@ export function ErrorBoundary(props: {
   fallback: string | ((err: any, reset: () => void) => string);
   children: string;
 }) {
-  let error, res: any;
+  let error, res: any, clean: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
   onError(err => (error = err));
-  createMemo(() => (res = props.children));
+  onCleanup(() => cleanNode(clean));
+  createMemo(() => {
+    Owner!.context = { [BRANCH]: (clean = {}) };
+    return (res = props.children);
+  });
   if (error) {
+    cleanNode(clean);
     ctx.writeResource!(id, error, true);
     setHydrateContext({ ...ctx, count: 0 });
     const f = props.fallback;
@@ -256,6 +259,7 @@ export function ErrorBoundary(props: {
 // Suspense Context
 export interface Resource<T> {
   (): T | undefined;
+  state: "unresolved" | "pending" | "ready" | "refreshing" | "error";
   loading: boolean;
   error: any;
   latest: T | undefined;
@@ -420,9 +424,9 @@ export function lazy<T extends Component<any>>(
       p.then(mod => (resolved = mod.default));
     }
     return p;
-  }
+  };
   const contexts = new Set<SuspenseContextType>();
-  !'_SOLID_DEV_' && load();
+  !"_SOLID_DEV_" && load();
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
@@ -504,9 +508,12 @@ export function SuspenseList(props: {
 
 export function Suspense(props: { fallback?: string; children: string }) {
   let done: undefined | ((html?: string, error?: any) => boolean);
+  let clean: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
   const o = Owner!;
+  if (o.context) o.context[BRANCH] = clean = {};
+  else o.context = { [BRANCH]: (clean = {}) };
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
@@ -524,6 +531,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
       return createComponent(SuspenseContext.Provider, {
         value,
         get children() {
+          cleanNode(clean);
           return props.children;
         }
       });
