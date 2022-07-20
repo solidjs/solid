@@ -10,8 +10,7 @@
   },
   "private": true,
   "scripts": {
-    "test": "turbo run test",
-    "test-types": "turbo run test-types",
+    "test": "turbo run test test-types",
     "coverage": "turbo run coverage",
     "build": "turbo run build",
     "types": "turbo run types",

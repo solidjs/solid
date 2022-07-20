@@ -12,7 +12,7 @@
       "outputs": []
     },
     "solid-element#build": {
-      "dependsOn": ["solid-js#types"]
+      "dependsOn": ["solid-js#types", "solid-js#link"]
     },
     "solid-js#types": {
       "dependsOn": ["^types"],
