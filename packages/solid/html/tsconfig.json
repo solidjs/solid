@@ -4,7 +4,8 @@
     "outDir": "./types",
     "baseUrl": "src",
     "paths": {
-      "solid-js/web": ["../../web"]
+      "solid-js/web": ["../../web"],
+      "solid-js": ["../.."]
     }
   },
   "include": ["./src"]
