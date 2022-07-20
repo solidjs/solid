@@ -5,7 +5,7 @@
 
 import { createRoot, createSignal, createUniqueId, JSX } from "../../src";
 
-declare module "solid-js" {
+declare module "solid-js/jsx-runtime" {
   namespace JSX {
     interface Directives {
       getRef: boolean;

@@ -8,6 +8,9 @@
     "solid-js#build": {
       "outputs": ["dist/**", "**/dist/**"]
     },
+    "solid-js#link": {
+      "outputs": []
+    },
     "solid-element#build": {
       "dependsOn": ["solid-js#types"]
     },
@@ -22,7 +25,7 @@
       "outputs": []
     },
     "test-integration#test": {
-      "dependsOn": ["solid-js#build"]
+      "dependsOn": ["solid-js#build", "solid-js#link"]
     },
     "solid-js#test-types": {
       "outputs": [],
