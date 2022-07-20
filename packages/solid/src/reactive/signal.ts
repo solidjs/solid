@@ -437,57 +437,67 @@ interface Error {
   state: "error";
   loading: false;
   error: any;
-  latest: undefined;
-  (): undefined;
+  latest: never;
+  (): never;
 }
 
-export type Resource<T> = undefined extends T
-  ? Unresolved | Pending | Ready<T> | Refreshing<T> | Error
-  : Ready<T> | Refreshing<T> | Error;
+export type Resource<T> = Unresolved | Pending | Ready<T> | Refreshing<T> | Error;
 
-export type ResourceActions<T> = {
-  mutate: Setter<T>;
-  refetch: (info?: unknown) => T | Promise<T> | undefined | null;
+export type InitializedResource<T> = Ready<T> | Refreshing<T> | Error;
+
+export type ResourceActions<T, R = unknown> = {
+  mutate: Setter<T | undefined>;
+  refetch: (info?: R) => T | Promise<T> | undefined | null;
 };
 
 export type ResourceSource<S> = S | false | null | undefined | (() => S | false | null | undefined);
 
-export type ResourceFetcher<S, T> = (k: S, info: ResourceFetcherInfo<T>) => T | Promise<T>;
+export type ResourceFetcher<S, T, R = unknown> = (
+  k: S,
+  info: ResourceFetcherInfo<T, R>
+) => T | Promise<T>;
 
-export type ResourceFetcherInfo<T> = { value: T | undefined; refetching?: unknown };
+export type ResourceFetcherInfo<T, R = unknown> = {
+  value: T | undefined;
+  refetching: R | boolean;
+};
 
-export type ResourceOptions<T> = undefined extends T
-  ? {
-      initialValue?: T;
-      name?: string;
-      deferStream?: boolean;
-      store?: <T>(init: T) => [Accessor<T>, Setter<T>];
-      onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
-    }
-  : {
-      initialValue: T;
-      name?: string;
-      deferStream?: boolean;
-      store?: <T>(init: T) => [Accessor<T>, Setter<T>];
-      onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
-    };
+export type ResourceOptions<T, S = unknown> = {
+  initialValue?: T;
+  name?: string;
+  deferStream?: boolean;
+  store?: (init: T | undefined) => [Accessor<T | undefined>, Setter<T | undefined>];
+  onHydrated?: (k: S | undefined, info: { value: T | undefined }) => void;
+};
 
-export type ResourceReturn<T, K = T> = [Resource<T>, ResourceActions<K>];
+export type InitializedResourceOptions<T, S = unknown> = ResourceOptions<T, S> & {
+  initialValue: T;
+};
+
+export type ResourceReturn<T, R = unknown> = [Resource<T>, ResourceActions<T, R>];
+
+export type InitializedResourceReturn<T, R = unknown> = [
+  InitializedResource<T>,
+  ResourceActions<T, R>
+];
 
 /**
  * Creates a resource that wraps a repeated promise in a reactive pattern:
  * ```typescript
+ * // Without source
+ * const [resource, { mutate, refetch }] = createResource(fetcher, options);
+ * // With source
  * const [resource, { mutate, refetch }] = createResource(source, fetcher, options);
  * ```
- * @param source - reactive data function to toggle the request, optional
- * @param fetcher - function that receives the source (or true) and an accessor for the last or initial value and returns a value or a Promise with the value:
+ * @param source - reactive data function which has its non-nullish and non-false values passed to the fetcher, optional
+ * @param fetcher - function that receives the source (true if source not provided), the last or initial value, and whether the resource is being refetched, and returns a value or a Promise:
  * ```typescript
- * const fetcher: ResourceFetcher<S, T, > = (
- *   sourceOutput: ReturnValue<typeof source>,
- *   info: ResourceFetcherInfo<T>
+ * const fetcher: ResourceFetcher<S, T, R> = (
+ *   sourceOutput: S,
+ *   info: { value: T | undefined, refetching: R | boolean }
  * ) => T | Promise<T>;
  * ```
- * @param options - an optional object with the initialValue and the name (for debugging purposes)
+ * @param options - an optional object with the initialValue and the name (for debugging purposes); see {@link ResourceOptions}
  *
  * @returns ```typescript
  * [Resource<T>, { mutate: Setter<T>, refetch: () => void }]
@@ -495,74 +505,76 @@ export type ResourceReturn<T, K = T> = [Resource<T>, ResourceActions<K>];
  *
  * * Setting an `initialValue` in the options will mean that both the prev() accessor and the resource should never return undefined (if that is wanted, you need to extend the type with undefined)
  * * `mutate` allows to manually overwrite the resource without calling the fetcher
- * * `refetch` will re-run the fetcher without changing the source
+ * * `refetch` will re-run the fetcher without changing the source, and if called with a value, that value will be passed to the fetcher via the `refetching` property on the fetcher's second parameter
  *
  * @description https://www.solidjs.com/docs/latest/api#createresource
  */
-export function createResource<T, S = true>(
-  fetcher: ResourceFetcher<S, T>,
-  options?: ResourceOptions<undefined>
-): ResourceReturn<T | undefined>;
-export function createResource<T, S = true>(
-  fetcher: ResourceFetcher<S, T>,
-  options: ResourceOptions<T>
-): ResourceReturn<T>;
-export function createResource<T, S>(
+export function createResource<T, R = unknown>(
+  fetcher: ResourceFetcher<true, T, R>,
+  options: InitializedResourceOptions<T, true>
+): InitializedResourceReturn<T, R>;
+export function createResource<T, R = unknown>(
+  fetcher: ResourceFetcher<true, T, R>,
+  options?: ResourceOptions<T, true>
+): ResourceReturn<T, R>;
+export function createResource<T, S, R = unknown>(
   source: ResourceSource<S>,
-  fetcher: ResourceFetcher<S, T>,
-  options?: ResourceOptions<undefined>
-): ResourceReturn<T | undefined>;
-export function createResource<T, S>(
+  fetcher: ResourceFetcher<S, T, R>,
+  options: InitializedResourceOptions<T, true>
+): InitializedResourceReturn<T, R>;
+export function createResource<T, S, R = unknown>(
   source: ResourceSource<S>,
-  fetcher: ResourceFetcher<S, T>,
-  options: ResourceOptions<T>
-): ResourceReturn<T>;
-export function createResource<T, S>(
-  source: ResourceSource<S> | ResourceFetcher<S, T>,
-  fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
-  options?: ResourceOptions<T> | ResourceOptions<undefined>
-): ResourceReturn<T | undefined> {
-  if (arguments.length === 2) {
-    if (typeof fetcher === "object") {
-      options = fetcher as ResourceOptions<T> | ResourceOptions<undefined>;
-      fetcher = source as ResourceFetcher<S, T>;
-      source = true as ResourceSource<S>;
-    }
-  } else if (arguments.length === 1) {
-    fetcher = source as ResourceFetcher<S, T>;
+  fetcher: ResourceFetcher<S, T, R>,
+  options?: ResourceOptions<T, S>
+): ResourceReturn<T, R>;
+export function createResource<T, S, R>(
+  pSource: ResourceSource<S> | ResourceFetcher<S, T, R>,
+  pFetcher?: ResourceFetcher<S, T, R> | ResourceOptions<T, S>,
+  pOptions?: ResourceOptions<T, S> | undefined
+): ResourceReturn<T, R> {
+  let source: ResourceSource<S>;
+  let fetcher: ResourceFetcher<S, T, R>;
+  let options: ResourceOptions<T, S>;
+  if ((arguments.length === 2 && typeof pFetcher === "object") || arguments.length === 1) {
     source = true as ResourceSource<S>;
+    fetcher = pSource as ResourceFetcher<S, T, R>;
+    options = (pFetcher || {}) as ResourceOptions<T, S>;
+  } else {
+    source = pSource as ResourceSource<S>;
+    fetcher = pFetcher as ResourceFetcher<S, T, R>;
+    options = pOptions || ({} as ResourceOptions<T, S>);
   }
-  options || (options = {});
 
-  let err: any = undefined,
+  let err: unknown = undefined,
     pr: Promise<T> | null = null,
     initP: Promise<T> | T | typeof NO_INIT = NO_INIT,
     id: string | null = null,
-    loadedUnderTransition = false,
+    loadedUnderTransition: boolean | null = false,
     scheduled = false,
     resolved = "initialValue" in options,
-    dynamic = typeof source === "function" && createMemo<S>(source as any);
+    dynamic =
+      typeof source === "function" && createMemo(source as () => S | false | null | undefined);
 
   const contexts = new Set<SuspenseContextType>(),
     [value, setValue] = options.store
-      ? options.store<T | undefined>(options.initialValue)
+      ? options.store(options.initialValue as T | undefined)
       : createSignal<T | undefined>(options.initialValue),
-    [track, trigger] = createSignal<void>(undefined, { equals: false }),
+    [track, trigger] = createSignal(undefined, { equals: false }),
     [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "error">(
       resolved ? "ready" : "unresolved"
     );
 
   if (sharedConfig.context) {
-    id = `${sharedConfig.context!.id}${sharedConfig.context!.count++}`;
+    id = `${sharedConfig.context.id}${sharedConfig.context.count++}`;
     let v;
-    if (sharedConfig.load && (v = sharedConfig.load!(id!))) initP = v[0];
+    if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v[0];
   }
-  function loadEnd(p: Promise<T> | null, v: T | any, success: boolean, key?: S) {
+  function loadEnd(p: Promise<T> | null, v: T | undefined, success: boolean, key?: S) {
     if (pr === p) {
       pr = null;
       resolved = true;
-      if ((p === initP || v === initP) && options!.onHydrated)
-        queueMicrotask(() => options!.onHydrated!(key!, { value: v } as ResourceFetcherInfo<T>));
+      if ((p === initP || v === initP) && options.onHydrated)
+        queueMicrotask(() => options.onHydrated!(key, { value: v as T }));
       initP = NO_INIT;
       if (Transition && p && loadedUnderTransition) {
         Transition.promises.delete(p);
@@ -579,7 +591,7 @@ export function createResource<T, S>(
     }
     return v;
   }
-  function completeLoad(v: any, success: boolean) {
+  function completeLoad(v: T | undefined, success: boolean) {
     !success && (err = castError(v));
     runUpdates(() => {
       setValue(() => (success ? v : undefined));
@@ -597,9 +609,9 @@ export function createResource<T, S>(
       createComputed(() => {
         track();
         if (pr) {
-          if (c.resolved && Transition) Transition.promises.add(pr!);
+          if (c.resolved && Transition) Transition.promises.add(pr);
           else if (!contexts.has(c)) {
-            c.increment!();
+            c.increment();
             contexts.add(c);
           }
         }
@@ -607,31 +619,31 @@ export function createResource<T, S>(
     }
     return v;
   }
-  function load(refetching: unknown = true) {
-    if (refetching && scheduled) return;
+  function load(refetching: R | boolean = true) {
+    if (refetching !== false && scheduled) return;
     scheduled = false;
     err = undefined;
     const lookup = dynamic ? dynamic() : (source as S);
-    loadedUnderTransition = (Transition && Transition.running) as boolean;
-    if (lookup == null || (lookup as any) === false) {
-      loadEnd(pr, untrack(value)!, true);
+    loadedUnderTransition = Transition && Transition.running;
+    if (lookup == null || lookup === false) {
+      loadEnd(pr, untrack(value), true);
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
       initP !== NO_INIT
-        ? initP as T | Promise<T>
+        ? (initP as T | Promise<T>)
         : untrack(() =>
-            (fetcher as ResourceFetcher<S, T>)(lookup, {
+            fetcher(lookup, {
               value: value(),
               refetching
             })
           );
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p as unknown as T | undefined, true);
+      loadEnd(pr, p, true);
       return p;
     }
-    pr = p as Promise<T>;
+    pr = p;
     scheduled = true;
     queueMicrotask(() => (scheduled = false));
     runUpdates(() => {
@@ -639,9 +651,9 @@ export function createResource<T, S>(
       trigger();
     }, false);
     return p.then(
-      v => loadEnd(p as Promise<T>, v, true, lookup),
-      e => loadEnd(p as Promise<T>, e, false)
-    );
+      v => loadEnd(p, v, true, lookup),
+      e => loadEnd(p, e, false)
+    ) as Promise<T>;
   }
   Object.defineProperties(read, {
     state: {
@@ -670,10 +682,7 @@ export function createResource<T, S>(
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [
-    read as Resource<T>,
-    { refetch: load, mutate: setValue } as ResourceActions<T | undefined>
-  ];
+  return [read as Resource<T>, { refetch: load, mutate: setValue }];
 }
 
 export interface DeferredOptions<T> {

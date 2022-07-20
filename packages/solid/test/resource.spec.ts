@@ -87,7 +87,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     user: Resource<User | undefined>,
     state: { user?: User; userLoading: boolean },
     count = 0;
-  function fetcher(_: string, { value }: ResourceFetcherInfo<Store<User>>) {
+  function fetcher(_: unknown, { value }: ResourceFetcherInfo<Store<User>>) {
     return new Promise<User>(r => {
       resolve = r;
     }).then(next => reconcile(next)(value!));
