@@ -15,6 +15,9 @@
       "dependsOn": ["^types"],
       "outputs": ["types/**", "**/types/**"]
     },
+    "coverage": {
+      "outputs": ["coverage/**"]
+    },
     "test": {
       "outputs": []
     },
