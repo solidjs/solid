@@ -1,4 +1,8 @@
-/* @jsxImportSource solid-js */
+/** 
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import { render, Switch, Match, For } from "../src";
 import { createRoot, createSignal } from "../../src";
 import { createStore } from "../../store/src";

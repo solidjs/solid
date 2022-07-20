@@ -1,8 +1,8 @@
-import copy from "rollup-plugin-copy";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
+import { fileURLToPath } from 'node:url';
 
 const plugins = [
   nodeResolve({
@@ -19,7 +19,7 @@ const plugins = [
         "babel-plugin-transform-rename-import",
         {
           original: "rxcore",
-          replacement: `../../../packages/solid/web/src/core`
+          replacement: fileURLToPath(new URL("web/src/core", import.meta.url))
         }
       ]
     ]
@@ -49,14 +49,6 @@ export default [
         preventAssignment: true,
         delimiters: ["", ""]
       }),
-      copy({
-        targets: [
-          {
-            src: "./src/jsx.d.ts",
-            dest: "./types/"
-          }
-        ]
-      })
     ].concat(plugins)
   },
   {
@@ -158,15 +150,6 @@ export default [
         preventAssignment: true,
         delimiters: ["", ""]
       }),
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/client.d.ts"],
-            dest: "./web/src/"
-          },
-          { src: "../../node_modules/dom-expressions/src/client.d.ts", dest: "./web/types/" }
-        ]
-      })
     ].concat(plugins)
   },
   {
@@ -182,16 +165,7 @@ export default [
       }
     ],
     external: ["solid-js", "stream"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/server.d.ts"],
-            dest: "./web/server"
-          }
-        ]
-      })
-    ].concat(plugins)
+    plugins
   },
   {
     input: "web/src/index.ts",
@@ -227,18 +201,6 @@ export default [
         preventAssignment: true,
         delimiters: ["", ""]
       }),
-      copy({
-        targets: [
-          {
-            src: ["../../node_modules/dom-expressions/src/universal.d.ts"],
-            dest: "./universal/src/"
-          },
-          {
-            src: "../../node_modules/dom-expressions/src/universal.d.ts",
-            dest: "./universal/types/"
-          }
-        ]
-      })
     ].concat(plugins)
   },
   {
@@ -301,15 +263,6 @@ export default [
       }
     ],
     external: ["solid-js/h"],
-    plugins: [
-      copy({
-        targets: [
-          {
-            src: "./h/jsx-runtime/src/jsx.d.ts",
-            dest: "./h/jsx-runtime/types/"
-          }
-        ]
-      })
-    ].concat(plugins)
+    plugins
   }
 ];

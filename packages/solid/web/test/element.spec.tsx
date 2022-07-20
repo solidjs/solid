@@ -1,4 +1,8 @@
-/* @jsxImportSource solid-js */
+/** 
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import { createRoot, createSignal, createUniqueId, JSX } from "../../src";
 
 declare module "solid-js" {

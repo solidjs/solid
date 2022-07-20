@@ -5,6 +5,7 @@ lib/
 coverage/
 types/
 .DS_Store
+.turbo/
 
 packages/solid/src/jsx.d.ts
 packages/solid/web/server/server.d.ts
