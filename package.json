@@ -10,7 +10,6 @@
   },
   "private": true,
   "scripts": {
-    "clean": "turbo run clean",
     "test": "turbo run test",
     "test-types": "turbo run test-types",
     "coverage": "turbo run coverage",
