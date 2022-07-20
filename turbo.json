@@ -5,9 +5,25 @@
       "dependsOn": ["^build"],
       "outputMode": "new-only"
     },
+    "solid-js#build": {
+      "outputs": ["dist/**", "**/dist/**"]
+    },
+    "solid-element#build": {
+      "dependsOn": ["solid-js#types"]
+    },
+    "solid-js#types": {
+      "dependsOn": ["^types"],
+      "outputs": ["types/**", "**/types/**"]
+    },
     "test": {
+      "outputs": []
+    },
+    "test-integration#test": {
+      "dependsOn": ["solid-js#build"]
+    },
+    "solid-js#test-types": {
       "outputs": [],
-      "dependsOn": ["build"]
+      "dependsOn": ["types"]
     }
   }
 }

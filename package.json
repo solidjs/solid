@@ -12,9 +12,11 @@
   "scripts": {
     "clean": "turbo run clean",
     "test": "turbo run test",
-    "test:coverage": "turbo run test:coverage",
+    "test-types": "turbo run test-types",
+    "coverage": "turbo run coverage",
     "build": "turbo run build",
-    "publish": "pnpm run build",
+    "types": "turbo run types",
+    "publish": "pnpm run build && pnpm run types",
     "bump": "node scripts/bump.js"
   },
   "devDependencies": {

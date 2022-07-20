@@ -14,9 +14,8 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "prebuild": "npm run clean",
     "clean": "rimraf dist/",
-    "build": "tsc"
+    "build": "pnpm run clean && tsc"
   },
   "dependencies": {
     "component-register": "~0.8.2"
