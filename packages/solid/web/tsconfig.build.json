@@ -4,7 +4,8 @@
     "outDir": "./types",
     "baseUrl": "src",
     "paths": {
-      "solid-js": ["../.."]
+      "solid-js": ["../.."],
+      "solid-js/jsx-runtime": ["../../src/jsx"],
     }
   },
   "include": ["./src"]

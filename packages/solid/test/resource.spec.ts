@@ -28,7 +28,7 @@ describe("Simulate a dynamic fetch", () => {
     });
   }
 
-  test("initial async resource", async done => {
+  test("initial async resource", async () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
@@ -44,10 +44,9 @@ describe("Simulate a dynamic fetch", () => {
     expect(value()).toBe("John");
     expect(value.latest).toBe("John");
     expect(value.loading).toBe(false);
-    done();
   });
 
-  test("test out of order", async done => {
+  test("test out of order", async () => {
     trigger("2");
     expect(value.loading).toBe(true);
     const resolve1 = resolve;
@@ -58,10 +57,9 @@ describe("Simulate a dynamic fetch", () => {
     await Promise.resolve();
     expect(value()).toBe("Jake");
     expect(value.loading).toBe(false);
-    done();
   });
 
-  test("promise rejection", async done => {
+  test("promise rejection", async () => {
     trigger("4");
     expect(value.loading).toBe(true);
     expect(value.error).toBeUndefined();
@@ -70,7 +68,6 @@ describe("Simulate a dynamic fetch", () => {
     expect(error).toBe("Because I said so");
     expect(value.error).toBe("Because I said so");
     expect(value.loading).toBe(false);
-    done();
   });
 });
 
@@ -96,8 +93,8 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
   data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } });
   data.push({ ...data[0], firstName: "Joseph" });
 
-  test("initial async resource", async done => {
-    createRoot(() => {
+  test("initial async resource", async () => {
+    createRoot(async () => {
       [user, { refetch }] = createResource(fetcher);
       [state] = createStore<{ user?: User; userLoading: boolean }>({
         get user() {
@@ -128,7 +125,6 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     expect(unwrap(state.user?.address)).toStrictEqual(data[0].address);
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
-    done();
   });
 });
 
