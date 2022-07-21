@@ -36,13 +36,13 @@ type PossiblyWrapped<T> = {
 function resolveSSRNode(node: any): string {
   const t = typeof node;
   if (t === "string") return node;
-  if (t === "object") return node.t;
   if (node == null || t === "boolean") return "";
   if (Array.isArray(node)) {
     let mapped = "";
     for (let i = 0, len = node.length; i < len; i++) mapped += resolveSSRNode(node[i]);
     return mapped;
   }
+  if (t === "object") return node.t;
   if (t === "function") return resolveSSRNode(node());
   return String(node);
 }
