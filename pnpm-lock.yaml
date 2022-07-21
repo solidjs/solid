@@ -20,6 +20,7 @@ importers:
       coveralls: ^3.1.1
       csstype: ^3.1.0
       dom-expressions: 0.34.0-beta.0
+      fast-glob: ^3.2.11
       hyper-dom-expressions: 0.34.0-beta.0
       jest: ^28.1.3
       jest-environment-jsdom: ^28.1.3
@@ -53,6 +54,7 @@ importers:
       coveralls: 3.1.1
       csstype: 3.1.0
       dom-expressions: 0.34.0-beta.0_csstype@3.1.0
+      fast-glob: 3.2.11
       hyper-dom-expressions: 0.34.0-beta.0
       jest: 28.1.3_@types+node@18.0.6
       jest-environment-jsdom: 28.1.3
