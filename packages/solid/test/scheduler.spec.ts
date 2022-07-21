@@ -1,6 +1,6 @@
-import "./MessageChannel";
+/** @jest-environment jsdom */
 import { cancelCallback, requestCallback } from "../src";
-//@ts-ignore
+import "./MessageChannel";
 
 describe("requestCallback basics", () => {
   test("queue a task", done => {

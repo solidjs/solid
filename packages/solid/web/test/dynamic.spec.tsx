@@ -1,4 +1,8 @@
-/* @jsxImportSource solid-js */
+/** 
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import { createRoot, createSignal, Component, JSX } from "../../src";
 import { createStore } from "../../store/src";
 import { Dynamic } from "../src";

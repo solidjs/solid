@@ -1,3 +1,5 @@
+const path = require('path');
+
 module.exports = {
   env: {
     test: {
@@ -12,11 +14,11 @@ module.exports = {
             replacements: [
               {
                 original: "rxcore",
-                replacement: "../../../packages/solid/web/src/core"
+                replacement: path.join(__dirname, "../../packages/solid/web/src/core")
               },
               {
                 original: "^solid-js$",
-                replacement: "../../src",
+                replacement: path.join(__dirname, "src"),
               }
             ]
           }
@@ -24,7 +26,7 @@ module.exports = {
         [
           "babel-plugin-jsx-dom-expressions",
           {
-            moduleName: "../../web/src/index",
+            moduleName: path.join(__dirname, "web/src/index"),
             contextToCustomElements: true,
             wrapConditionals: true
           }

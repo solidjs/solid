@@ -1,4 +1,4 @@
-import { createHTML } from "lit-dom-expressions";
+import { createHTML } from "./lit";
 import {
   effect,
   style,

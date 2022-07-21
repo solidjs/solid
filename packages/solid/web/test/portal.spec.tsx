@@ -1,8 +1,10 @@
-/* @jsxImportSource solid-js */
+/** 
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import { createSignal } from "../../src";
 import { render, clearDelegatedEvents, Portal, Show } from "../src";
-
-global.queueMicrotask = setImmediate;
 
 describe("Testing a simple Portal", () => {
   let div = document.createElement("div"),
