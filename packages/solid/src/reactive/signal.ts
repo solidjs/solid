@@ -511,21 +511,21 @@ export type InitializedResourceReturn<T, R = unknown> = [
  */
 export function createResource<T, R = unknown>(
   fetcher: ResourceFetcher<true, T, R>,
-  options: InitializedResourceOptions<T, true>
+  options: InitializedResourceOptions<NoInfer<T>, true>
 ): InitializedResourceReturn<T, R>;
 export function createResource<T, R = unknown>(
   fetcher: ResourceFetcher<true, T, R>,
-  options?: ResourceOptions<T, true>
+  options?: ResourceOptions<NoInfer<T>, true>
 ): ResourceReturn<T, R>;
 export function createResource<T, S, R = unknown>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T, R>,
-  options: InitializedResourceOptions<T, true>
+  options: InitializedResourceOptions<NoInfer<T>, S>
 ): InitializedResourceReturn<T, R>;
 export function createResource<T, S, R = unknown>(
   source: ResourceSource<S>,
   fetcher: ResourceFetcher<S, T, R>,
-  options?: ResourceOptions<T, S>
+  options?: ResourceOptions<NoInfer<T>, S>
 ): ResourceReturn<T, R>;
 export function createResource<T, S, R>(
   pSource: ResourceSource<S> | ResourceFetcher<S, T, R>,
@@ -557,8 +557,8 @@ export function createResource<T, S, R>(
 
   const contexts = new Set<SuspenseContextType>(),
     [value, setValue] = options.store
-      ? options.store(options.initialValue as T | undefined)
-      : createSignal<T | undefined>(options.initialValue),
+      ? options.store(options.initialValue)
+      : createSignal(options.initialValue),
     [track, trigger] = createSignal(undefined, { equals: false }),
     [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "error">(
       resolved ? "ready" : "unresolved"
@@ -574,7 +574,7 @@ export function createResource<T, S, R>(
       pr = null;
       resolved = true;
       if ((p === initP || v === initP) && options.onHydrated)
-        queueMicrotask(() => options.onHydrated!(key, { value: v as T }));
+        queueMicrotask(() => options.onHydrated!(key, { value: v }));
       initP = NO_INIT;
       if (Transition && p && loadedUnderTransition) {
         Transition.promises.delete(p);
