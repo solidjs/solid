@@ -41,7 +41,10 @@ export type {
   ResourceFetcherInfo,
   Context,
   ReturnTypes,
-  Owner
+  Owner,
+  InitializedResource,
+  InitializedResourceOptions,
+  InitializedResourceReturn
 } from "./reactive/signal";
 
 export * from "./reactive/observable";
