@@ -87,7 +87,7 @@ We can't wait to see what you build!
 ## Building Solid
 
 This repository uses [pnpm](https://pnpm.io/) and
-[Turbo](https://turbo.hotwired.dev/).
+[Turborepo](https://turborepo.org/).
 If you want to build Solid from scratch, use the following steps:
 
 1. `pnpm install` (install all dependencies)
