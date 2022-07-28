@@ -56,7 +56,8 @@ This will create a minimal, client-rendered application powered by [Vite](https:
 Or you can install the dependencies in your own setup. To use Solid with JSX (_recommended_), run:
 
 ```sh
-> npm install solid-js babel-preset-solid
+> npm i -D babel-preset-solid
+> npm i solid-js
 ```
 
 The easiest way to get set up is to add `babel-preset-solid` to your `.babelrc`, babel config for webpack, or rollup configuration:
