@@ -1,4 +1,4 @@
-import { createComponent } from "./component";
+import { createComponent } from "./component.js";
 import {
   createRoot,
   createSignal,
@@ -11,9 +11,9 @@ import {
   Accessor,
   onCleanup,
   getOwner
-} from "../reactive/signal";
-import { HydrationContext, setHydrateContext, sharedConfig } from "./hydration";
-import type { JSX } from "../jsx";
+} from "../reactive/signal.js";
+import { HydrationContext, setHydrateContext, sharedConfig } from "./hydration.js";
+import type { JSX } from "../jsx.js";
 
 type SuspenseListRegistryItem = {
   inFallback: Accessor<boolean>;

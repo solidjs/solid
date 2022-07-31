@@ -7,10 +7,10 @@ import {
   Accessor,
   Setter,
   onCleanup
-} from "../reactive/signal";
-import { mapArray, indexArray } from "../reactive/array";
-import { sharedConfig } from "./hydration";
-import type { JSX } from "../jsx";
+} from "../reactive/signal.js";
+import { mapArray, indexArray } from "../reactive/array.js";
+import { sharedConfig } from "./hydration.js";
+import type { JSX } from "../jsx.js";
 
 /**
  * creates a list elements from a list

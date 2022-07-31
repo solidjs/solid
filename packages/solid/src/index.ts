@@ -29,7 +29,7 @@ export {
   $DEVCOMP,
   $PROXY,
   $TRACK
-} from "./reactive/signal";
+} from "./reactive/signal.js";
 export type {
   Accessor,
   Setter,
@@ -42,19 +42,19 @@ export type {
   Context,
   ReturnTypes,
   Owner
-} from "./reactive/signal";
+} from "./reactive/signal.js";
 
-export * from "./reactive/observable";
-export * from "./reactive/scheduler";
-export * from "./reactive/array";
-export * from "./render";
+export * from "./reactive/observable.js";
+export * from "./reactive/scheduler.js";
+export * from "./reactive/array.js";
+export * from "./render/index.js";
 
-import type { JSX } from "./jsx";
+import type { JSX } from "./jsx.js";
 type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal";
+import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal.js";
 let DEV: {
   writeSignal: typeof writeSignal;
   serializeGraph: typeof serializeGraph;
