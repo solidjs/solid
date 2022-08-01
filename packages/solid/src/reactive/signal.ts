@@ -582,7 +582,7 @@ export function createResource<T, S>(
   function completeLoad(v: any, success: boolean) {
     !success && (err = castError(v));
     runUpdates(() => {
-      setValue(() => (success ? v : undefined));
+      setValue(() => v);
       setState(success ? "ready" : "error");
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -620,7 +620,7 @@ export function createResource<T, S>(
     if (Transition && pr) Transition.promises.delete(pr);
     const p =
       initP !== NO_INIT
-        ? initP as T | Promise<T>
+        ? (initP as T | Promise<T>)
         : untrack(() =>
             (fetcher as ResourceFetcher<S, T>)(lookup, {
               value: value(),
@@ -1315,6 +1315,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   try {
     nextValue = node.fn(value);
   } catch (err) {
+    if (node.pure) Transition && Transition.running ? (node.tState = STALE) : (node.state = STALE);
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {

@@ -237,23 +237,32 @@ export function ErrorBoundary(props: {
   fallback: string | ((err: any, reset: () => void) => string);
   children: string;
 }) {
-  let error, res: any, clean: any;
+  let error: any,
+    res: any,
+    clean: any,
+    sync = true;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
-  onError(err => (error = err));
+  function displayFallback() {
+    cleanNode(clean);
+    ctx.writeResource(id, error, true);
+    setHydrateContext({ ...ctx, count: 0 });
+    const f = props.fallback;
+    return typeof f === "function" && f.length ? f(error, () => {}) : f;
+  }
+  onError(err => {
+    error = err;
+    !sync && ctx.replace("e" + id, displayFallback);
+    sync = true;
+  });
   onCleanup(() => cleanNode(clean));
   createMemo(() => {
     Owner!.context = { [BRANCH]: (clean = {}) };
     return (res = props.children);
   });
-  if (error) {
-    cleanNode(clean);
-    ctx.writeResource!(id, error, true);
-    setHydrateContext({ ...ctx, count: 0 });
-    const f = props.fallback;
-    return typeof f === "function" && f.length ? f(error, () => {}) : f;
-  }
-  return res;
+  if (error) return displayFallback();
+  sync = false;
+  return { t: `<!e${id}>${resolveSSRNode(res)}<!/e${id}>` };
 }
 
 // Suspense Context
@@ -267,6 +276,7 @@ export interface Resource<T> {
 
 type SuspenseContextType = {
   resources: Map<string, { loading: boolean; error: any }>;
+  complete: boolean;
   completed: () => void;
 };
 
@@ -426,7 +436,7 @@ export function lazy<T extends Component<any>>(
     return p;
   };
   const contexts = new Set<SuspenseContextType>();
-  !"_SOLID_DEV_" && load();
+  setTimeout(load);
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
@@ -451,10 +461,11 @@ export function lazy<T extends Component<any>>(
 }
 
 function suspenseComplete(c: SuspenseContextType) {
+  if (c.complete) return true;
   for (const r of c.resources.values()) {
     if (r.loading) return false;
   }
-  return true;
+  return (c.complete = true);
 }
 
 function notifySuspense(contexts: Set<SuspenseContextType>) {
@@ -484,12 +495,13 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  writeResource?: (
+  writeResource: (
     id: string,
     v: Promise<any> | any,
     error?: boolean,
     deferStream?: boolean
   ) => void;
+  replace: (id: string, replacement: () => any) => void;
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
@@ -511,9 +523,11 @@ export function Suspense(props: { fallback?: string; children: string }) {
   let clean: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
-  const o = Owner!;
-  if (o.context) o.context[BRANCH] = clean = {};
-  else o.context = { [BRANCH]: (clean = {}) };
+  const o = Owner;
+  if (o) {
+    if (o.context) o.context[BRANCH] = clean = {};
+    else o.context = { [BRANCH]: (clean = {}) };
+  }
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
@@ -523,15 +537,16 @@ export function Suspense(props: { fallback?: string; children: string }) {
         if (suspenseComplete(value)) {
           done!(resolveSSRNode(res));
         }
-      }
+      },
+      complete: false
     });
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
-    return runWithOwner(o, () => {
+    return runWithOwner(o!, () => {
       return createComponent(SuspenseContext.Provider, {
         value,
         get children() {
-          cleanNode(clean);
+          clean && cleanNode(clean);
           return props.children;
         }
       });
@@ -540,13 +555,16 @@ export function Suspense(props: { fallback?: string; children: string }) {
   const res = runSuspense();
 
   // never suspended
-  if (suspenseComplete(value)) {
-    ctx.writeResource!(id, "$$$");
-    return res;
-  }
+  if (suspenseComplete(value)) return res;
 
   onError(err => {
-    if (!done || !done(undefined, err)) throw err;
+    if (!done || !done(undefined, err)) {
+      if (o)
+        runWithOwner(o.owner!, () => {
+          throw err;
+        });
+      else throw err;
+    }
   });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.async) {
@@ -556,5 +574,6 @@ export function Suspense(props: { fallback?: string; children: string }) {
     return res;
   }
   setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
+  ctx.writeResource(id, "$$f");
   return props.fallback;
 }

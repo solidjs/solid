@@ -140,24 +140,20 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
   if (sharedConfig.context && sharedConfig.load) {
     const key = sharedConfig.context.id + sharedConfig.context.count;
     let ref = sharedConfig.load(key);
-    if (ref) {
-      p = ref[0];
-      if (p === "$$$") sharedConfig.gather!(key)
-      else {
-        if (typeof p !== "object" || !("then" in p)) p = Promise.resolve(p);
-        const [s, set] = createSignal(undefined, { equals: false });
-        flicker = s;
-        p.then((err: any) => {
-          if (err !== "$$$" || sharedConfig.done) {
-            err !== "$$$" && (error = err);
-            return set();
-          }
-          sharedConfig.gather!(key);
-          setHydrateContext(ctx);
-          set();
-          setHydrateContext();
-        });
-      };
+    if (ref && (p = ref[0]) && p !== "$$f") {
+      if (typeof p !== "object" || !("then" in p)) p = Promise.resolve(p);
+      const [s, set] = createSignal(undefined, { equals: false });
+      flicker = s;
+      p.then((err: any) => {
+        if (err || sharedConfig.done) {
+          err && (error = err);
+          return set();
+        }
+        sharedConfig.gather!(key);
+        setHydrateContext(ctx);
+        set();
+        setHydrateContext();
+      });
     }
   }
 
@@ -177,14 +173,14 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
           flicker();
           return (flicker = undefined);
         }
-        if (ctx && !p) setHydrateContext();
+        if (ctx && p === "$$f") setHydrateContext();
         const rendered = createMemo(() => props.children);
         return createMemo(() => {
           const inFallback = store.inFallback(),
             visibleContent = showContent ? showContent() : true,
             visibleFallback = showFallback ? showFallback() : true;
           dispose && dispose();
-          if ((!inFallback || p) && visibleContent) {
+          if ((!inFallback || p && p !== "$$f") && visibleContent) {
             store.resolved = true;
             ctx = p = undefined;
             resumeEffects(store.effects);
