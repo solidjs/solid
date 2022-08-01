@@ -11,8 +11,8 @@ import {
   onCleanup,
   cleanNode,
   BRANCH
-} from "./reactive";
-import type { JSX } from "../jsx";
+} from "./reactive.js";
+import type { JSX } from "../jsx.js";
 
 export type Component<P = {}> = (props: P) => JSX.Element;
 export type VoidProps<P = {}> = P & { children?: never };

@@ -1,4 +1,4 @@
-import type { SetStoreFunction, Store } from "store";
+import type { SetStoreFunction, Store } from "./store.js";
 
 export const $RAW = Symbol("state-raw");
 

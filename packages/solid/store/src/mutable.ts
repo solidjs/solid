@@ -12,7 +12,7 @@ import {
   setProperty,
   proxyDescriptor,
   ownKeys
-} from "./store";
+} from "./store.js";
 
 const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {

@@ -6,9 +6,9 @@ import {
   devComponent,
   $PROXY,
   $DEVCOMP
-} from "../reactive/signal";
-import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration";
-import type { JSX } from "../jsx";
+} from "../reactive/signal.js";
+import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
+import type { JSX } from "../jsx.js";
 
 let hydrationEnabled = false;
 export function enableHydration() {
