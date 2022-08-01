@@ -8,10 +8,16 @@
   "exports": {
     ".": {
       "development": {
-        "import": "./dist/dev.js",
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/dev.js"
+        },
         "require": "./dist/dev.cjs"
       },
-      "import": "./dist/universal.js",
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/universal.js"
+      },
       "require": "./dist/universal.cjs"
     }
   }

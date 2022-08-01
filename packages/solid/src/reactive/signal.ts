@@ -1,9 +1,9 @@
 // Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
 
-import { requestCallback, Task } from "./scheduler";
-import { setHydrateContext, sharedConfig } from "../render/hydration";
-import type { JSX } from "../jsx";
-import type { FlowComponent, FlowProps } from "../render";
+import { requestCallback, Task } from "./scheduler.js";
+import { setHydrateContext, sharedConfig } from "../render/hydration.js";
+import type { JSX } from "../jsx.js";
+import type { FlowComponent, FlowProps } from "../render/index.js";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
@@ -594,7 +594,7 @@ export function createResource<T, S, R>(
   function completeLoad(v: T | undefined, success: boolean) {
     !success && (err = castError(v));
     runUpdates(() => {
-      setValue(() => (success ? v : undefined));
+      setValue(() => v);
       setState(success ? "ready" : "error");
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -1324,6 +1324,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   try {
     nextValue = node.fn(value);
   } catch (err) {
+    if (node.pure) Transition && Transition.running ? (node.tState = STALE) : (node.state = STALE);
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {

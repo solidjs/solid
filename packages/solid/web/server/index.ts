@@ -1,4 +1,4 @@
-import { ssrElement } from "./server";
+import { ssrElement } from "./server.js";
 import { splitProps, Component, JSX } from "solid-js";
 
 export * from "./server";

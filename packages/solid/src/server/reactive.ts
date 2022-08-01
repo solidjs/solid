@@ -1,4 +1,4 @@
-import type { JSX } from "../jsx";
+import type { JSX } from "../jsx.js";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
@@ -11,6 +11,7 @@ export type Setter<T> = undefined extends T
   : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;
 
 const ERROR = Symbol("error");
+export const BRANCH = Symbol("branch");
 export function castError(err: any) {
   if (err instanceof Error || typeof err === "string") return err;
   return new Error("Unknown error");
@@ -127,15 +128,28 @@ export function on<T, U>(
 
 export function onMount(fn: () => void) {}
 
-export function onCleanup(fn: () => void) {}
+export function onCleanup(fn: () => void) {
+  let node;
+  if (Owner && (node = lookup(Owner, BRANCH))) {
+    if (!node.cleanups) node.cleanups = [fn];
+    else node.cleanups.push(fn);
+  }
+  return fn;
+}
+
+export function cleanNode(node: { cleanups?: Function[] | null }) {
+  if (node.cleanups) {
+    for (let i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
+    node.cleanups = undefined;
+  }
+}
 
 export function onError(fn: (err: any) => void): void {
-  if (Owner === null)
-    "_SOLID_DEV_" &&
-      console.warn("error handlers created outside a `createRoot` or `render` will never be run");
-  else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
-  else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
-  else Owner.context[ERROR].push(fn);
+  if (Owner) {
+    if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
+    else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
+    else Owner.context[ERROR].push(fn);
+  }
 }
 
 export function getListener() {
@@ -167,11 +181,13 @@ export function children(fn: () => any) {
   return createMemo(() => resolveChildren(fn()));
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T {
+export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
   const prev = Owner;
   Owner = o;
   try {
     return fn();
+  } catch (err) {
+    handleError(err);
   } finally {
     Owner = prev;
   }

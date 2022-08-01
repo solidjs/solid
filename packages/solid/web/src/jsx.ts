@@ -1,1 +1,1 @@
-export { JSX } from "../.."
+export type { JSX } from "../../types/jsx.js"

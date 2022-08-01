@@ -5,7 +5,8 @@ import {
   createMemo,
   createComponent,
   getOwner,
-  sharedConfig
+  sharedConfig,
+  untrack
 } from "solid-js";
 
 // reactive injection for dom-expressions
@@ -19,5 +20,6 @@ export {
   createRoot as root,
   createRenderEffect as effect,
   memo,
-  sharedConfig
+  sharedConfig,
+  untrack
 };

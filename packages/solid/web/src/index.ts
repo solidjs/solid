@@ -1,4 +1,4 @@
-import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client";
+import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client.js";
 import {
   createSignal,
   createMemo,
@@ -15,7 +15,7 @@ import {
   ValidComponent,
 } from "solid-js";
 
-export * from "./client";
+export * from "./client.js";
 
 export {
   For,
@@ -29,7 +29,7 @@ export {
   mergeProps
 } from "solid-js";
 
-export * from "./server-mock";
+export * from "./server-mock.js";
 export const isServer = false;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 

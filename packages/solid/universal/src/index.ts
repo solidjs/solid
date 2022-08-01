@@ -1,5 +1,5 @@
-import { createRenderer as createRendererDX } from "./universal";
-import type { RendererOptions, Renderer } from "./universal";
+import { createRenderer as createRendererDX } from "./universal.js";
+import type { RendererOptions, Renderer } from "./universal.js";
 import { mergeProps } from "solid-js";
 
 export function createRenderer<NodeType>(options: RendererOptions<NodeType>): Renderer<NodeType> {

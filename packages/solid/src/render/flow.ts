@@ -7,10 +7,10 @@ import {
   Accessor,
   Setter,
   onCleanup
-} from "../reactive/signal";
-import { mapArray, indexArray } from "../reactive/array";
-import { sharedConfig } from "./hydration";
-import type { JSX } from "../jsx";
+} from "../reactive/signal.js";
+import { mapArray, indexArray } from "../reactive/array.js";
+import { sharedConfig } from "./hydration.js";
+import type { JSX } from "../jsx.js";
 
 /**
  * creates a list elements from a list
@@ -190,9 +190,11 @@ export function ErrorBoundary(props: {
     if ((e = errored())) {
       const f = props.fallback;
       if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
-      return typeof f === "function" && f.length
-        ? untrack(() => f(e, setErrored))
+      const res = typeof f === "function" && f.length
+        ? untrack(() => f(e, () => setErrored()))
         : f;
+      onError(setErrored);
+      return res;
     }
     onError(setErrored);
     return props.children;

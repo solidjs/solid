@@ -163,6 +163,7 @@ export namespace JSX {
     onVolumeChange?: EventHandlerUnion<T, Event>;
     onWaiting?: EventHandlerUnion<T, Event>;
     onClick?: EventHandlerUnion<T, MouseEvent>;
+    onAuxClick?: EventHandlerUnion<T, MouseEvent>;
     onContextMenu?: EventHandlerUnion<T, MouseEvent>;
     onDblClick?: EventHandlerUnion<T, MouseEvent>;
     onDrag?: EventHandlerUnion<T, DragEvent>;
@@ -252,6 +253,7 @@ export namespace JSX {
     onvolumechange?: EventHandlerUnion<T, Event>;
     onwaiting?: EventHandlerUnion<T, Event>;
     onclick?: EventHandlerUnion<T, MouseEvent>;
+    onauxclick?: EventHandlerUnion<T, MouseEvent>;
     oncontextmenu?: EventHandlerUnion<T, MouseEvent>;
     ondblclick?: EventHandlerUnion<T, MouseEvent>;
     ondrag?: EventHandlerUnion<T, DragEvent>;
