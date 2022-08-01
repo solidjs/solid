@@ -14,21 +14,36 @@
     ".": {
       "browser": {
         "development": {
-          "import": "./dist/dev.js",
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/dev.js"
+          },
           "require": "./dist/dev.cjs"
         },
-        "import": "./dist/web.js",
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/web.js"
+        },
         "require": "./dist/web.cjs"
       },
       "node": {
-        "import": "./dist/server.js",
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
         "require": "./dist/server.cjs"
       },
       "development": {
-        "import": "./dist/dev.js",
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/dev.js"
+        },
         "require": "./dist/dev.cjs"
       },
-      "import": "./dist/web.js",
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/web.js"
+      },
       "require": "./dist/web.cjs"
     }
   }

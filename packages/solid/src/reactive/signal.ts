@@ -1,9 +1,9 @@
 // Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
 
-import { requestCallback, Task } from "./scheduler";
-import { setHydrateContext, sharedConfig } from "../render/hydration";
-import type { JSX } from "../jsx";
-import type { FlowComponent, FlowProps } from "../render";
+import { requestCallback, Task } from "./scheduler.js";
+import { setHydrateContext, sharedConfig } from "../render/hydration.js";
+import type { JSX } from "../jsx.js";
+import type { FlowComponent, FlowProps } from "../render/index.js";
 
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");

@@ -1,4 +1,4 @@
-import { Accessor, createComputed, createRoot, createSignal, getOwner, onCleanup, Setter, untrack } from "./signal";
+import { Accessor, createComputed, createRoot, createSignal, getOwner, onCleanup, Setter, untrack } from "./signal.js";
 
 // Note: This will add Symbol.observable globally for all TypeScript users,
 // however, we are not polyfilling Symbol.observable. Ensuring the type for
