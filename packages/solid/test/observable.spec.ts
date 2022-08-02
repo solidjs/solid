@@ -40,18 +40,19 @@ describe("Observable operator", () => {
     const [s, set] = createSignal("Hi");
     const o = observable(s);
     let out: string;
+    let subscription: any;
     createRoot(() => {
-      const subscription = o.subscribe({
+      subscription = o.subscribe({
         next(v) {
           out = v;
         }
       });
-      set("John");
-      expect(out!).toBe("John");
-      subscription.unsubscribe();
-      set("Benjamin");
-      expect(out!).toBe("John");
     });
+    set("John");
+    expect(out!).toBe("John");
+    subscription.unsubscribe();
+    set("Benjamin");
+    expect(out!).toBe("John");
   });
 });
 

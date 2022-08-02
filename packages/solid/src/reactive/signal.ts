@@ -27,7 +27,6 @@ export let Transition: TransitionState | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
 let ExternalSourceFactory: ExternalSourceFactory | null = null;
 let Listener: Computation<any> | null = null;
-let Pending: SignalState<any>[] | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
@@ -803,20 +802,7 @@ export function createSelector<T, U>(
  * @description https://www.solidjs.com/docs/latest/api#batch
  */
 export function batch<T>(fn: Accessor<T>): T {
-  if (Pending) return fn();
-  let result;
-  const q: SignalState<any>[] = (Pending = []);
-  try {
-    result = fn();
-  } finally {
-    Pending = null;
-  }
-
-  runUpdates(() => {
-    for (let i = 0; i < q.length; i += 1) notifySignal(q[i]);
-  }, false);
-
-  return result;
+  return runUpdates(fn, false) as T;
 }
 
 /**
@@ -1221,13 +1207,17 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
     ((!runningTransition && (this as Memo<any>).state) ||
       (runningTransition && (this as Memo<any>).tState))
   ) {
-    const updates = Updates;
-    Updates = null;
-    (!runningTransition && (this as Memo<any>).state === STALE) ||
-    (runningTransition && (this as Memo<any>).tState === STALE)
-      ? updateComputation(this as Memo<any>)
-      : lookUpstream(this as Memo<any>);
-    Updates = updates;
+    if (
+      (!runningTransition && (this as Memo<any>).state === STALE) ||
+      (runningTransition && (this as Memo<any>).tState === STALE)
+    )
+      updateComputation(this as Memo<any>);
+    else {
+      const updates = Updates;
+      Updates = null;
+      runUpdates(() => lookUpstream(this as Memo<any>), false);
+      Updates = updates;
+    }
   }
   if (Listener) {
     const sSlot = this.observers ? this.observers.length : 0;
@@ -1262,34 +1252,29 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       }
       if (!TransitionRunning) node.value = value;
     } else node.value = value;
-    if (Pending) Pending.push(node);
-    else notifySignal(node);
+    if (node.observers && node.observers.length) {
+      runUpdates(() => {
+        for (let i = 0; i < node.observers!.length; i += 1) {
+          const o = node.observers![i];
+          const TransitionRunning = Transition && Transition.running;
+          if (TransitionRunning && Transition!.disposed.has(o)) continue;
+          if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
+            if (o.pure) Updates!.push(o);
+            else Effects!.push(o);
+            if ((o as Memo<any>).observers) markDownstream(o as Memo<any>);
+          }
+          if (TransitionRunning) o.tState = STALE;
+          else o.state = STALE;
+        }
+        if (Updates!.length > 10e5) {
+          Updates = [];
+          if ("_SOLID_DEV_") throw new Error("Potential Infinite Loop Detected.");
+          throw new Error();
+        }
+      }, false);
+    }
   }
   return value;
-}
-
-function notifySignal(node: SignalState<any> | Memo<any>) {
-  if (node.observers && node.observers.length) {
-    runUpdates(() => {
-      for (let i = 0; i < node.observers!.length; i += 1) {
-        const o = node.observers![i];
-        const TransitionRunning = Transition && Transition.running;
-        if (TransitionRunning && Transition!.disposed.has(o)) continue;
-        if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
-          if (o.pure) Updates!.push(o);
-          else Effects!.push(o);
-          if ((o as Memo<any>).observers) markDownstream(o as Memo<any>);
-        }
-        if (TransitionRunning) o.tState = STALE;
-        else o.state = STALE;
-      }
-      if (Updates!.length > 10e5) {
-        Updates = [];
-        if ("_SOLID_DEV_") throw new Error("Potential Infinite Loop Detected.");
-        throw new Error();
-      }
-    }, false);
-  }
 }
 
 function updateComputation(node: Computation<any>) {
@@ -1440,7 +1425,7 @@ function runTop(node: Computation<any>) {
     ) {
       const updates = Updates;
       Updates = null;
-      lookUpstream(node, ancestors[0]);
+      runUpdates(() => lookUpstream(node, ancestors[0]), false);
       Updates = updates;
     }
   }

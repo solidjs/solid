@@ -18,7 +18,6 @@ import {
   useContext,
   getOwner,
   runWithOwner,
-  batch
 } from "../src";
 
 import "./MessageChannel";
@@ -51,36 +50,36 @@ describe("Create signals", () => {
     });
     expect(temp!).toBe("impure");
   });
-  test("Create a Computed with explicit deps", () => {
+  test("Create a Effect with explicit deps", () => {
+    let temp: string;
     createRoot(() => {
-      let temp: string;
       const [sign] = createSignal("thoughts");
       const fn = on(sign, v => (temp = `impure ${v}`));
-      createComputed(fn);
-      createComputed(on(sign, v => (temp = `impure ${v}`)));
-      expect(temp!).toBe("impure thoughts");
+      createEffect(fn);
+      createEffect(on(sign, v => (temp = `impure ${v}`)));
     });
+    expect(temp!).toBe("impure thoughts");
   });
-  test("Create a Computed with multiple explicit deps", () => {
+  test("Create a Effect with multiple explicit deps", () => {
+    let temp: string;
     createRoot(() => {
-      let temp: string;
       const [sign] = createSignal("thoughts");
       const [num] = createSignal(3);
       const fn = on([sign, num], v => (temp = `impure ${v[1]}`));
-      createComputed(fn);
-      expect(temp!).toBe("impure 3");
+      createEffect(fn);
     });
+    expect(temp!).toBe("impure 3");
   });
-  test("Create a Computed with explicit deps and lazy evaluation", () => {
+  test("Create a Effect with explicit deps and lazy evaluation", () => {
+    let temp: string;
+    const [sign, set] = createSignal("thoughts");
     createRoot(() => {
-      let temp: string;
-      const [sign, set] = createSignal("thoughts");
       const fn = on(sign, v => (temp = `impure ${v}`), { defer: true });
-      createComputed(fn);
-      expect(temp!).toBeUndefined();
-      set("minds");
-      expect(temp!).toBe("impure minds");
+      createEffect(fn);
     });
+    expect(temp!).toBeUndefined();
+    set("minds");
+    expect(temp!).toBe("impure minds");
   });
 });
 
@@ -226,7 +225,7 @@ describe("Effect grouping of signals", () => {
         setA(1);
         setB(1);
       });
-      createComputed(() => (count += a() + b()));
+      createMemo(() => (count += a() + b()));
       setTimeout(() => {
         expect(count).toBe(2);
         done();
@@ -241,7 +240,7 @@ describe("Effect grouping of signals", () => {
         setA(1);
         setA(4);
       });
-      createComputed(() => (count += a()));
+      createMemo(() => (count += a()));
       setTimeout(() => {
         expect(count).toBe(4);
         done();
@@ -257,7 +256,7 @@ describe("Effect grouping of signals", () => {
         setA(a => a + 1);
         setB(b => b + 1);
       });
-      createComputed(() => (count += a() + b()));
+      createMemo(() => (count += a() + b()));
       setTimeout(() => {
         expect(count).toBe(2);
         done();
@@ -272,7 +271,7 @@ describe("Effect grouping of signals", () => {
         setA(a => a + 1);
         setA(a => a + 2);
       });
-      createComputed(() => (count += a()));
+      createMemo(() => (count += a()));
       setTimeout(() => {
         expect(count).toBe(3);
         done();
@@ -287,7 +286,7 @@ describe("Effect grouping of signals", () => {
       createEffect(() => {
         setA(a => a + b());
       });
-      createComputed(() => (count += a()));
+      createMemo(() => (count += a()));
       setTimeout(() => {
         setB(b => b + 1);
         setTimeout(() => {
@@ -311,7 +310,7 @@ describe("Effect grouping of signals", () => {
           error = e as Error;
         }
       });
-      createComputed(() => a() + b());
+      createMemo(() => a() + b());
       setTimeout(() => {
         expect(a()).toBe(1);
         expect(b()).toBe(0);
@@ -332,7 +331,7 @@ describe("Effect grouping of signals", () => {
         setA(1);
         setA(0);
       });
-      createComputed(() => (count = a()));
+      createMemo(() => (count = a()));
       setTimeout(() => {
         expect(count).toBe(0);
         done();

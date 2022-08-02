@@ -2,7 +2,6 @@ import {
   createRoot,
   createSignal,
   createResource,
-  createComputed,
   createRenderEffect,
   onError,
   Resource,
@@ -104,7 +103,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
           return user.loading;
         }
       });
-      createComputed(() => (state.user, count++));
+      createRenderEffect(() => (state.user, count++));
     });
     expect(state.user).toBeUndefined();
     expect(state.userLoading).toBe(true);
@@ -250,10 +249,10 @@ describe("using Resource with custom store", () => {
         },
         store: createDeepSignal
       });
-      createComputed(() => (first++, value()?.firstName));
-      createComputed(() => (last++, value()?.lastName));
+      createRenderEffect(() => (first++, value()?.firstName));
+      createRenderEffect(() => (last++, value()?.lastName));
       const address = createMemo(() => (addr++, value()?.address));
-      createComputed(() => (street++, address()?.streetName));
+      createRenderEffect(() => (street++, address()?.streetName));
     });
     expect(value()).toEqual({
       firstName: "John",
@@ -322,10 +321,10 @@ describe("using Resource with custom store", () => {
         },
         store: createDeepSignal
       });
-      createComputed(() => (first++, value()?.firstName));
-      createComputed(() => (last++, value()?.lastName));
+      createRenderEffect(() => (first++, value()?.firstName));
+      createRenderEffect(() => (last++, value()?.lastName));
       const address = createMemo(() => (addr++, value()?.address));
-      createComputed(() => (street++, address()?.streetName));
+      createRenderEffect(() => (street++, address()?.streetName));
     });
     expect(value()).toEqual({
       firstName: "John",

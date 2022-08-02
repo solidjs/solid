@@ -260,26 +260,37 @@ export type ObservableObserver<T> =
       complete?: (v: boolean) => void;
     };
 export function observable<T>(input: Accessor<T>) {
-  const $$observable = getSymbol();
   return {
     subscribe(observer: ObservableObserver<T>) {
       if (!(observer instanceof Object) || observer == null) {
         throw new TypeError("Expected the observer to be an object.");
       }
-      const handler = "next" in observer ? observer.next : observer;
-      let complete = false;
-      createComputed(() => {
-        if (complete) return;
-        const v = input();
-        handler(v);
+
+      const handler =
+        typeof observer === "function" ? observer : observer.next && observer.next.bind(observer);
+
+      if (!handler) {
+        return { unsubscribe() {} };
+      }
+
+      const dispose = createRoot(disposer => {
+        createEffect(() => {
+          const v = input();
+          untrack(() => handler(v));
+        });
+
+        return disposer;
       });
+
+      if (getOwner()) onCleanup(dispose);
+
       return {
         unsubscribe() {
-          complete = true;
+          dispose();
         }
       };
     },
-    [$$observable]() {
+    [Symbol.observable || "@@observable"]() {
       return this;
     }
   };
