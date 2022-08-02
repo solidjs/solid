@@ -30,13 +30,15 @@ As a growing community, Solid has an on-going need for developers, writers, desi
 
 ### Docs Team
 
-- General support
-  - Improve and adapt documentation to future Solid versions
-  - Support docs team with new section writing, tutorial maintenance etc.
-  - Translate documentation or ensure documentation translations are aligned with English formats
+  To get involved, check out our [Contributing Guide](https://github.com/solidjs/solid-docs-next/blob/main/CONTRIBUTING.md) in the new docs repository!
+  
+- General/Core Docs
+  - Write new drafts for the new docs repo
+  - Work on the infrastructure for the new docs site
+  - Create videos, diagrams, and other multimedia content
 - Solid Start 1.0 API
-  - Learn and implement basic API documentation
-  - Organize and translate incoming tutorials and documentation sets
+  - Draft an initial, comprehensive set of docs for Solid Start
+  - This currently takes place in [this subfolder](https://github.com/solidjs/solid-docs-next/tree/main/content/start) on `solid-docs-next`
 
 ### Infrastructure Team
 
