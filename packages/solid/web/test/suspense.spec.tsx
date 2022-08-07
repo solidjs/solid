@@ -1,4 +1,4 @@
-/** 
+/**
  * @jsxImportSource solid-js
  * @jest-environment jsdom
  */
@@ -62,7 +62,7 @@ describe("Testing Suspense", () => {
     await Promise.resolve();
     jest.runAllTimers();
     await Promise.resolve();
-    
+
     expect(div.innerHTML).toBe("Hi, .Hello ");
   });
 
@@ -88,15 +88,14 @@ describe("Testing Suspense", () => {
     jest.runAllTimers();
     // wait write signal suc
     await Promise.resolve();
-    
+
     jest.runAllTimers();
     await Promise.resolve();
-    
+
     expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
     expect(pending()).toBe(false);
     expect(finished).toBe(true);
   });
-
 
   test("Toggle with store and refresh transition", async () => {
     const [store, setStore] = createStore({ count: 0 });
@@ -105,7 +104,7 @@ describe("Testing Suspense", () => {
 
     start(() => {
       setStore({ count: 1 });
-      trigger("Jack")
+      trigger("Jack");
     }).then(() => (finished = true));
 
     expect(store.count).toBe(0);
@@ -128,7 +127,6 @@ describe("Testing Suspense", () => {
     await Promise.resolve();
     jest.runAllTimers();
     await Promise.resolve();
-    
 
     expect(pending()).toBe(false);
     expect(finished).toBe(true);
