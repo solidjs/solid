@@ -1658,7 +1658,7 @@ function resolveChildren(children: JSX.Element): ResolvedChildren {
 function createProvider(id: symbol) {
   return function provider(props: FlowProps<{ value: unknown }>) {
     let res;
-    createComputed(
+    createRenderEffect(
       () =>
         (res = untrack(() => {
           Owner!.context = { [id]: props.value };
