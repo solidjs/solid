@@ -15,12 +15,16 @@ import { HydrationContext, setHydrateContext, sharedConfig } from "./hydration.j
 import type { JSX } from "../jsx.js";
 
 type SuspenseListContextType = {
-  register: (inFallback: Accessor<boolean>) => [Accessor<boolean>, Accessor<boolean>];
+  register: (inFallback: Accessor<boolean>) => Accessor<SuspenseListRegisteredState>;
 };
-interface SuspenseListState extends Array<{ showContent: boolean; showFallback: boolean }> {
+
+type SuspenseListRegisteredState = { showContent: boolean; showFallback: boolean };
+interface SuspenseListState extends Array<SuspenseListRegisteredState> {
   inFallback: boolean;
 }
 
+const suspenseListEquals = (a: SuspenseListRegisteredState, b: SuspenseListRegisteredState) =>
+  a.showContent === b.showContent && a.showFallback === b.showFallback;
 const SuspenseListContext = createContext<SuspenseListContextType>();
 
 /**
@@ -34,55 +38,56 @@ export function SuspenseList(props: {
   tail?: "collapsed" | "hidden";
 }) {
   let [wrapper, setWrapper] = createSignal(() => ({ inFallback: false })),
-    showContent: Accessor<boolean>,
-    showFallback: Accessor<boolean>;
+    show: Accessor<{ showContent: boolean; showFallback: boolean }>;
 
   // Nested SuspenseList support
   const listContext = useContext(SuspenseListContext);
   const [registry, setRegistry] = createSignal<Accessor<boolean>[]>([]);
   if (listContext) {
-    [showContent, showFallback] = listContext.register(createMemo(() => wrapper()().inFallback));
+    show = listContext.register(createMemo(() => wrapper()().inFallback));
   }
-  const resolved = createMemo<SuspenseListState>((prev: Partial<SuspenseListState>) => {
-    const reveal = props.revealOrder,
-      tail = props.tail,
-      visibleContent = showContent ? showContent() : true,
-      visibleFallback = showFallback ? showFallback() : true,
-      reg = registry(),
-      reverse = reveal === "backwards";
+  const resolved = createMemo<SuspenseListState>(
+    (prev: Partial<SuspenseListState>) => {
+      const reveal = props.revealOrder,
+        tail = props.tail,
+        { showContent = true, showFallback = true } = show ? show() : {},
+        reg = registry(),
+        reverse = reveal === "backwards";
 
-    if (reveal === "together") {
-      const all = reg.every(inFallback => !inFallback());
-      const res: SuspenseListState = reg.map(() => ({
-        showContent: all && visibleContent,
-        showFallback: visibleFallback
-      })) as SuspenseListState;
-      res.inFallback = !all;
-      return res;
-    }
-
-    let stop = false;
-    let inFallback = prev.inFallback as boolean;
-    const res: SuspenseListState = [] as any;
-    for (let i = 0, len = reg.length; i < len; i++) {
-      const n = reverse ? len - i - 1 : i,
-        s = reg[n]();
-      if (!stop && !s) {
-        res[n] = { showContent: visibleContent, showFallback: visibleFallback };
-      } else {
-        const next = !stop;
-        if (next) inFallback = true;
-        res[n] = {
-          showContent: next,
-          showFallback: !tail || (next && tail === "collapsed") ? visibleFallback : false
-        };
-        stop = true;
+      if (reveal === "together") {
+        const all = reg.every(inFallback => !inFallback());
+        const res: SuspenseListState = reg.map(() => ({
+          showContent: all && showContent,
+          showFallback
+        })) as SuspenseListState;
+        res.inFallback = !all;
+        return res;
       }
-    }
-    if (!stop) inFallback = false;
-    res.inFallback = inFallback;
-    return res;
-  }, ({ inFallback: false } as unknown) as SuspenseListState);
+
+      let stop = false;
+      let inFallback = prev.inFallback as boolean;
+      const res: SuspenseListState = [] as any;
+      for (let i = 0, len = reg.length; i < len; i++) {
+        const n = reverse ? len - i - 1 : i,
+          s = reg[n]();
+        if (!stop && !s) {
+          res[n] = { showContent, showFallback };
+        } else {
+          const next = !stop;
+          if (next) inFallback = true;
+          res[n] = {
+            showContent: next,
+            showFallback: !tail || (next && tail === "collapsed") ? showFallback : false
+          };
+          stop = true;
+        }
+      }
+      if (!stop) inFallback = false;
+      res.inFallback = inFallback;
+      return res;
+    },
+    { inFallback: false } as unknown as SuspenseListState
+  );
   setWrapper(() => resolved);
 
   return createComponent(SuspenseListContext.Provider, {
@@ -93,7 +98,9 @@ export function SuspenseList(props: {
           index = registry.length;
           return [...registry, inFallback];
         });
-        return [() => resolved()[index].showContent, () => resolved()[index].showFallback];
+        return createMemo(() => resolved()[index], undefined, {
+          equals: suspenseListEquals
+        });
       }
     },
     get children() {
@@ -115,8 +122,7 @@ export function SuspenseList(props: {
  */
 export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }) {
   let counter = 0,
-    showContent: Accessor<boolean>,
-    showFallback: Accessor<boolean>,
+    show: Accessor<SuspenseListRegisteredState>,
     ctx: HydrationContext | undefined,
     p: Promise<any> | any,
     flicker: Accessor<void> | undefined,
@@ -157,8 +163,8 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
 
   // SuspenseList support
   const listContext = useContext(SuspenseListContext);
-  if (listContext) [showContent, showFallback] = listContext.register(store.inFallback);
-  let dispose: () => void;
+  if (listContext) show = listContext.register(store.inFallback);
+  let dispose: undefined | (() => void);
   onCleanup(() => dispose && dispose());
 
   return createComponent(SuspenseContext.Provider, {
@@ -173,18 +179,18 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
         }
         if (ctx && p === "$$f") setHydrateContext();
         const rendered = createMemo(() => props.children);
-        return createMemo(() => {
+        return createMemo((prev: JSX.Element) => {
           const inFallback = store.inFallback(),
-            visibleContent = showContent ? showContent() : true,
-            visibleFallback = showFallback ? showFallback() : true;
-          dispose && dispose();
-          if ((!inFallback || (p && p !== "$$f")) && visibleContent) {
+            { showContent = true, showFallback = true } = show ? show() : {};
+          if ((!inFallback || (p && p !== "$$f")) && showContent) {
             store.resolved = true;
-            ctx = p = undefined;
+            dispose && dispose();
+            dispose = ctx = p = undefined;
             resumeEffects(store.effects);
             return rendered();
           }
-          if (!visibleFallback) return;
+          if (!showFallback) return;
+          if (dispose) return prev;
           return createRoot(disposer => {
             dispose = disposer;
             if (ctx) {
