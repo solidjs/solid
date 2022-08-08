@@ -295,12 +295,14 @@ export type ResourceOptions<T> = undefined extends T
       initialValue?: T;
       name?: string;
       deferStream?: boolean;
+      useInitialValue?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
       deferStream?: boolean;
+      useInitialValue?: boolean;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -345,7 +347,7 @@ export function createResource<T, S>(
   let value = options.initialValue;
   let p: Promise<T> | T | null;
   let error: any;
-  if (sharedConfig.context!.async) {
+  if (sharedConfig.context!.async && !options.useInitialValue) {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
       if (!resource.data && !resource.ref[0].loading && !resource.ref[0].error)
@@ -356,7 +358,7 @@ export function createResource<T, S>(
   const read = () => {
     if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
-    const resolved = sharedConfig.context!.async && "data" in sharedConfig.context!.resources[id];
+    const resolved = !options.useInitialValue && sharedConfig.context!.async && "data" in sharedConfig.context!.resources[id];
     if (!resolved && read.loading) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
@@ -416,7 +418,7 @@ export function createResource<T, S>(
     p = null;
     return ctx.resources[id].data;
   }
-  load();
+  if (!options.useInitialValue) load();
   return (resource.ref = [
     read,
     { refetch: load, mutate: (v: T) => (value = v) }

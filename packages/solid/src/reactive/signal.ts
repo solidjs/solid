@@ -465,6 +465,7 @@ export type ResourceOptions<T, S = unknown> = {
   initialValue?: T;
   name?: string;
   deferStream?: boolean;
+  useInitialValue?: boolean;
   store?: (init: T | undefined) => [Accessor<T | undefined>, Setter<T | undefined>];
   onHydrated?: (k: S | undefined, info: { value: T | undefined }) => void;
 };
@@ -566,7 +567,8 @@ export function createResource<T, S, R>(
   if (sharedConfig.context) {
     id = `${sharedConfig.context.id}${sharedConfig.context.count++}`;
     let v;
-    if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v[0];
+    if (options.useInitialValue) initP = options.initialValue as T;
+    else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v[0];
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, success: boolean, key?: S) {
     if (pr === p) {
