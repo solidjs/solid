@@ -29,10 +29,6 @@ export type ComponentProps<T extends ValidComponent> = T extends Component<infer
   ? JSX.IntrinsicElements[T]
   : Record<string, unknown>;
 
-type PossiblyWrapped<T> = {
-  [P in keyof T]: T[P] | (() => T[P]);
-};
-
 function resolveSSRNode(node: any): string {
   const t = typeof node;
   if (t === "string") return node;
@@ -195,14 +191,15 @@ export function Index<T>(props: {
 }
 
 export function Show<T>(props: {
-  when: T | false;
+  when: T | undefined | null | false;
+  keyed?: boolean;
   fallback?: string;
-  children: string | ((item: T) => string);
+  children: string | ((item: NonNullable<T>) => string);
 }) {
-  let c: string | ((item: T) => string);
+  let c: string | ((item: NonNullable<T>) => string);
   return props.when
     ? typeof (c = props.children) === "function"
-      ? c(props.when)
+      ? c(props.when!)
       : c
     : props.fallback || "";
 }
@@ -226,6 +223,7 @@ export function Switch(props: {
 
 type MatchProps<T> = {
   when: T | false;
+  keyed?: boolean;
   children: string | ((item: T) => string);
 };
 export function Match<T>(props: MatchProps<T>) {
