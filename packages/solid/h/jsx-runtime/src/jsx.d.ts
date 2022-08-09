@@ -1854,7 +1854,7 @@ export namespace JSX {
     del: HTMLAttributes<HTMLElement>;
     details: DetailsHtmlAttributes<HTMLDetailsElement>;
     dfn: HTMLAttributes<HTMLElement>;
-    dialog: DialogHtmlAttributes<HTMLElement>;
+    dialog: DialogHtmlAttributes<HTMLDialogElement>;
     div: HTMLAttributes<HTMLDivElement>;
     dl: HTMLAttributes<HTMLDListElement>;
     dt: HTMLAttributes<HTMLElement>;

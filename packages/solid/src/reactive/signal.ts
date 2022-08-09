@@ -117,7 +117,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
               throw new Error("Dispose method must be an explicit argument to createRoot function");
             })
         : fn
-      : () => fn(() => cleanNode(root));
+      : () => fn(() => untrack(() => cleanNode(root)));
 
   if ("_SOLID_DEV_") {
     if (owner) root.name = `${owner.name}-r${rootCount++}`;
