@@ -48,7 +48,7 @@ When need to tranform JSX code to be used on the server, pass the following opti
 ```javascript
 {
   "presets": [
-    ["solid", { generate: "ssr", hydratable: true }]
+    ["solid", { "generate": "ssr", "hydratable": true }]
   ]
 }
 ```
@@ -56,7 +56,7 @@ And for the browser build pass the hydratable option as well:
 ```javascript
 {
   "presets": [
-    ["solid", { generate: "dom", hydratable: true }]
+    ["solid", { "generate": "dom", "hydratable": true }]
   ]
 }
 ```
