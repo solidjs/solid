@@ -761,10 +761,9 @@ export function createSelector<T, U>(
   const node = createComputation(
     (p: T | undefined) => {
       const v = source();
-      for (const key of subs.keys())
+      for (const[key, val] of subs.entries())
         if (fn(key, v) !== fn(key, p!)) {
-          const l = subs.get(key)!;
-          for (const c of l.values()) {
+          for (const c of val.values()) {
             c.state = STALE;
             if (c.pure) Updates!.push(c);
             else Effects!.push(c);
@@ -779,8 +778,8 @@ export function createSelector<T, U>(
   ) as Memo<any>;
   updateComputation(node);
   return (key: U) => {
-    let listener: Computation<any> | null;
-    if ((listener = Listener)) {
+    const listener = Listener;
+    if (listener) {
       let l: Set<Computation<any>> | undefined;
       if ((l = subs.get(key))) l.add(listener);
       else subs.set(key, (l = new Set([listener])));
