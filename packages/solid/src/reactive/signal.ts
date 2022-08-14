@@ -1314,7 +1314,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
-    if (node.updatedAt && "observers" in (node as Memo<any>)) {
+    if (node.updatedAt != null && "observers" in (node as Memo<any>)) {
       writeSignal(node as Memo<any>, nextValue, true);
     } else if (Transition && Transition.running && node.pure) {
       Transition.sources.add(node as Memo<any>);
