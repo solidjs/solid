@@ -46,8 +46,11 @@ export function ssrAttribute(key: string, value: boolean): string {}
 export function ssrHydrationKey(): string {}
 export function resolveSSRNode(node: any): string {}
 export function escape(html: string): string {}
-export function generateHydrationScript(): string {}
 
+/**
+ * @deprecated Replaced by ssrElement
+ */
+export function ssrSpread(props: any, isSVG: boolean, skipChildren: boolean): void {};
 export type LegacyResults = {
   startWriting: () => void;
 };
