@@ -110,12 +110,12 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
   type Tests = Assert<Equals<typeof resourceValue, string | undefined>> &
     Assert<Equals<typeof initializedResourceValue, string>> &
     Assert<
-      Equals<typeof resource.state, "error" | "pending" | "ready" | "refreshing" | "unresolved">
+      Equals<typeof resource.state, "errored" | "pending" | "ready" | "refreshing" | "unresolved">
     > &
-    Assert<Equals<typeof initializedResource.state, "error" | "ready" | "refreshing">>;
+    Assert<Equals<typeof initializedResource.state, "errored" | "ready" | "refreshing">>;
 
   switch (resource.state) {
-    case "error":
+    case "errored":
       const errorValue = resource();
       break;
     case "pending":
@@ -139,7 +139,7 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
   }
 
   switch (initializedResource.state) {
-    case "error":
+    case "errored":
       const errorValue = initializedResource();
       break;
     case "ready":

@@ -44,7 +44,7 @@ We've improved TypeScript by adding a new `state` field which covers a more deta
 | pending    | No             | Yes     | No        |
 | ready      | Yes            | No      | No        |
 | refreshing | Yes            | Yes     | No        |
-| error      | No             | No      | Yes       |
+| errored    | No             | No      | Yes       |
 
 A widely requested feature has been allowing them to be stores. While higher level APIs are still being determined we now have a way to plugin the internal storage by passing something with the signature of a signal.
 
@@ -68,6 +68,17 @@ const [resource] = createResource(fetcher, {
   store: createDeepSignal
 });
 ```
+
+Finally, we are exposing value on the resource itself. It is the equivalent of calling the accessor but now fits better with the other properties on resource:
+
+```ts
+const [resource] = createResource(fetcher);
+
+resource.value;
+// is equivalent to:
+resource();
+```
+Deprecating the accessor is a conversation for future releases.
 
 #### Consolidated SSR
 

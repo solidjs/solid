@@ -266,7 +266,8 @@ export function ErrorBoundary(props: {
 // Suspense Context
 export interface Resource<T> {
   (): T | undefined;
-  state: "unresolved" | "pending" | "ready" | "refreshing" | "error";
+  value: T | undefined;
+  state: "unresolved" | "pending" | "ready" | "refreshing" | "errored";
   loading: boolean;
   error: any;
   latest: T | undefined;
@@ -356,7 +357,10 @@ export function createResource<T, S>(
   const read = () => {
     if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
-    const resolved = !options.useInitialValue && sharedConfig.context!.async && "data" in sharedConfig.context!.resources[id];
+    const resolved =
+      !options.useInitialValue &&
+      sharedConfig.context!.async &&
+      "data" in sharedConfig.context!.resources[id];
     if (!resolved && read.loading) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
@@ -368,10 +372,10 @@ export function createResource<T, S>(
   };
   read.loading = false;
   read.error = undefined as any;
-  Object.defineProperty(read, "latest", {
-    get() {
-      return read();
-    }
+  read.state = "initialValue" in options ? "resolved" : "unresolved";
+  Object.defineProperties(read, {
+    value: { get: () => read() },
+    latest: { get: () => read() }
   });
   function load() {
     const ctx = sharedConfig.context!;
@@ -395,10 +399,12 @@ export function createResource<T, S>(
     }
     if (p != undefined && typeof p === "object" && "then" in p) {
       read.loading = true;
+      read.state = "pending";
       if (ctx.writeResource) ctx.writeResource(id, p, undefined, options.deferStream);
       return p
         .then(res => {
           read.loading = false;
+          read.state = "resolved";
           ctx.resources[id].data = res;
           p = null;
           notifySuspense(contexts);
@@ -406,6 +412,7 @@ export function createResource<T, S>(
         })
         .catch(err => {
           read.loading = false;
+          read.state = "errored";
           read.error = error = castError(err);
           p = null;
           notifySuspense(contexts);

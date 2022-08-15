@@ -191,7 +191,7 @@ describe("using Resource with errors", () => {
     expect(value.error).toBeUndefined();
     reject(null);
     await Promise.resolve();
-    expect(value.state === "error").toBe(true);
+    expect(value.state === "errored").toBe(true);
     expect(value.error.message).toBe("Unknown error");
   });
 });

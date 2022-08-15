@@ -401,6 +401,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
 }
 
 interface Unresolved {
+  value: undefined;
   state: "unresolved";
   loading: false;
   error: undefined;
@@ -409,6 +410,7 @@ interface Unresolved {
 }
 
 interface Pending {
+  value: undefined;
   state: "pending";
   loading: true;
   error: undefined;
@@ -417,6 +419,7 @@ interface Pending {
 }
 
 interface Ready<T> {
+  value: T;
   state: "ready";
   loading: false;
   error: undefined;
@@ -425,6 +428,7 @@ interface Ready<T> {
 }
 
 interface Refreshing<T> {
+  value: T;
   state: "refreshing";
   loading: true;
   error: undefined;
@@ -432,17 +436,18 @@ interface Refreshing<T> {
   (): T;
 }
 
-interface Error {
-  state: "error";
+interface Errored {
+  value: never;
+  state: "errored";
   loading: false;
   error: any;
   latest: never;
   (): never;
 }
 
-export type Resource<T> = Unresolved | Pending | Ready<T> | Refreshing<T> | Error;
+export type Resource<T> = Unresolved | Pending | Ready<T> | Refreshing<T> | Errored;
 
-export type InitializedResource<T> = Ready<T> | Refreshing<T> | Error;
+export type InitializedResource<T> = Ready<T> | Refreshing<T> | Errored;
 
 export type ResourceActions<T, R = unknown> = {
   mutate: Setter<T | undefined>;
@@ -560,7 +565,7 @@ export function createResource<T, S, R>(
       ? options.store(options.initialValue)
       : createSignal(options.initialValue),
     [track, trigger] = createSignal(undefined, { equals: false }),
-    [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "error">(
+    [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "errored">(
       resolved ? "ready" : "unresolved"
     );
 
@@ -596,7 +601,7 @@ export function createResource<T, S, R>(
     !success && (err = castError(v));
     runUpdates(() => {
       setValue(() => v);
-      setState(success ? "ready" : "error");
+      setState(success ? "ready" : "errored");
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     }, false);
@@ -657,11 +662,8 @@ export function createResource<T, S, R>(
     ) as Promise<T>;
   }
   Object.defineProperties(read, {
-    state: {
-      get() {
-        return state();
-      }
-    },
+    value: { get: () => value() },
+    state: { get: () => state() },
     loading: {
       get() {
         const s = state();
@@ -670,13 +672,13 @@ export function createResource<T, S, R>(
     },
     error: {
       get() {
-        return state() === "error" ? err : undefined;
+        return state() === "errored" ? err : undefined;
       }
     },
     latest: {
       get() {
         if (!resolved) return read();
-        if (state() === "error") throw err;
+        if (state() === "errored") throw err;
         return value();
       }
     }
