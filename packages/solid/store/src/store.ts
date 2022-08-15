@@ -412,10 +412,10 @@ export interface SetStoreFunction<T> {
  *
  * @description https://www.solidjs.com/docs/latest/api#createstore
  */
-export function createStore<T extends {}>(
+export function createStore<T extends object = {}>(
   ...[store, options]: {} extends T
     ? [store?: T | Store<T>, options?: { name?: string }]
-    : [store: object & (T | Store<T>), options?: { name?: string }]
+    : [store: T | Store<T>, options?: { name?: string }]
 ): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap((store || {}) as T);
   const isArray = Array.isArray(unwrappedStore);
