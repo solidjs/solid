@@ -177,8 +177,14 @@ export function getOwner() {
   return Owner;
 }
 
-export function children(fn: () => any) {
-  return createMemo(() => resolveChildren(fn()));
+type ChildrenReturn = Accessor<any> & { toArray: () => any[] };
+export function children(fn: () => any): ChildrenReturn {
+  const memo = createMemo(() => resolveChildren(fn()));
+  (memo as ChildrenReturn).toArray = () => {
+    const c = memo();
+    return Array.isArray(c) ? c : c != null ? [c] : [];
+  };
+  return memo as ChildrenReturn;
 }
 
 export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {

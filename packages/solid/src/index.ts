@@ -39,6 +39,7 @@ export type {
   ResourceReturn,
   ResourceFetcher,
   ResourceFetcherInfo,
+  ChildrenReturn,
   Context,
   ReturnTypes,
   Owner,

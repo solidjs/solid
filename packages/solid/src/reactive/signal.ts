@@ -761,7 +761,7 @@ export function createSelector<T, U>(
   const node = createComputation(
     (p: T | undefined) => {
       const v = source();
-      for (const[key, val] of subs.entries())
+      for (const [key, val] of subs.entries())
         if (fn(key, v) !== fn(key, p!)) {
           for (const c of val.values()) {
             c.state = STALE;
@@ -1145,6 +1145,7 @@ export function useContext<T>(context: Context<T>): T {
 
 export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement | JSX.FunctionElement>;
 export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
+export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedJSXElement[] };
 
 /**
  * Resolves child elements to help interact with children
@@ -1154,9 +1155,14 @@ export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
  *
  * @description https://www.solidjs.com/docs/latest/api#children
  */
-export function children(fn: Accessor<JSX.Element>): Accessor<ResolvedChildren> {
+export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
   const children = createMemo(fn);
-  return createMemo(() => resolveChildren(children()));
+  const memo = createMemo(() => resolveChildren(children()));
+  (memo as ChildrenReturn).toArray = () => {
+    const c = memo();
+    return Array.isArray(c) ? c : c != null ? [c] : [];
+  };
+  return memo as ChildrenReturn;
 }
 
 // Resource API

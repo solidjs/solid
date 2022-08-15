@@ -100,6 +100,15 @@ This worked pretty well except it was not obvious that a callback was keyed. So 
 Why have a non-keyed callback form if you can access variables from the outside and it won't re-render? Type narrowing. Although we can't release this currently as it is a breaking change it is coming in a future release.
 
 ### Other Improvements
+
+### `children.toArray`
+
+Children helper now has the ability to be coerced to an array:
+```js
+const resolved = children(() => props.children);
+resolve.toArray() // definitely an array
+```
+
 #### Better SSR Spreads
 
 Finally fixed spread merging with non-spread properties during SSR, including the ability to merge children.
