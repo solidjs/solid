@@ -73,6 +73,10 @@
       "require": "./dist/solid.cjs"
     },
     "./dist/*": "./dist/*",
+    "./jsx-runtime": {
+      "types": "./types/jsx.d.ts",
+      "default": "./solid.js"
+    },
     "./store": {
       "browser": {
         "development": {
