@@ -75,7 +75,7 @@
     "./dist/*": "./dist/*",
     "./jsx-runtime": {
       "types": "./types/jsx.d.ts",
-      "default": "./solid.js"
+      "default": "./dist/solid.js"
     },
     "./store": {
       "browser": {
