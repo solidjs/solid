@@ -401,7 +401,6 @@ export function createMemo<Next extends Prev, Init, Prev>(
 }
 
 interface Unresolved {
-  value: undefined;
   state: "unresolved";
   loading: false;
   error: undefined;
@@ -410,7 +409,6 @@ interface Unresolved {
 }
 
 interface Pending {
-  value: undefined;
   state: "pending";
   loading: true;
   error: undefined;
@@ -419,7 +417,6 @@ interface Pending {
 }
 
 interface Ready<T> {
-  value: T;
   state: "ready";
   loading: false;
   error: undefined;
@@ -428,7 +425,6 @@ interface Ready<T> {
 }
 
 interface Refreshing<T> {
-  value: T;
   state: "refreshing";
   loading: true;
   error: undefined;
@@ -437,7 +433,6 @@ interface Refreshing<T> {
 }
 
 interface Errored {
-  value: never;
   state: "errored";
   loading: false;
   error: any;
@@ -662,7 +657,6 @@ export function createResource<T, S, R>(
     ) as Promise<T>;
   }
   Object.defineProperties(read, {
-    value: { get: () => value() },
     state: { get: () => state() },
     loading: {
       get() {

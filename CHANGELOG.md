@@ -69,17 +69,6 @@ const [resource] = createResource(fetcher, {
 });
 ```
 
-Finally, we are exposing value on the resource itself. It is the equivalent of calling the accessor but now fits better with the other properties on resource:
-
-```ts
-const [resource] = createResource(fetcher);
-
-resource.value;
-// is equivalent to:
-resource();
-```
-Deprecating the accessor is a conversation for future releases.
-
 #### Consolidated SSR
 
 This release marks the end of years long effort to merge async and streaming mechanism. Since pre 1.0 these were seperate. Solid's original SSR efforts used reactivity on the server with different compilation. It was easiest to migrate synchronous and streaming rendering and for a time async had a different compilation. We got them on the same compilation 2 years ago but runtimes were different. Piece by piece things have progressed until finally async is now just streaming if flushed at the end.

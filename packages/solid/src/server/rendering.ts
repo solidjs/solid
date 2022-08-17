@@ -266,7 +266,6 @@ export function ErrorBoundary(props: {
 // Suspense Context
 export interface Resource<T> {
   (): T | undefined;
-  value: T | undefined;
   state: "unresolved" | "pending" | "ready" | "refreshing" | "errored";
   loading: boolean;
   error: any;
@@ -373,9 +372,10 @@ export function createResource<T, S>(
   read.loading = false;
   read.error = undefined as any;
   read.state = "initialValue" in options ? "resolved" : "unresolved";
-  Object.defineProperties(read, {
-    value: { get: () => read() },
-    latest: { get: () => read() }
+  Object.defineProperty(read, "latest", {
+    get() {
+      return read();
+    }
   });
   function load() {
     const ctx = sharedConfig.context!;
