@@ -247,7 +247,7 @@ describe("using Resource with custom store", () => {
             zip: 10001
           }
         },
-        store: createDeepSignal
+        storage: createDeepSignal
       });
       createRenderEffect(() => (first++, value()?.firstName));
       createRenderEffect(() => (last++, value()?.lastName));
@@ -319,7 +319,7 @@ describe("using Resource with custom store", () => {
             zip: 10001
           }
         },
-        store: createDeepSignal
+        storage: createDeepSignal
       });
       createRenderEffect(() => (first++, value()?.firstName));
       createRenderEffect(() => (last++, value()?.lastName));

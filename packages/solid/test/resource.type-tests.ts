@@ -19,7 +19,7 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
         Assert<Equals<typeof k, true>>;
     },
     {
-      store: createSignal,
+      storage: createSignal,
       name: "test",
       deferStream: true,
       onHydrated: (k, info) => {
@@ -43,7 +43,7 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
     },
     {
       initialValue: 1,
-      store: createSignal,
+      storage: createSignal,
       name: "test",
       deferStream: true,
       onHydrated: (k, info) => {
@@ -65,7 +65,7 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
         Assert<Equals<typeof k, number>>;
     },
     {
-      store: createSignal,
+      storage: createSignal,
       name: "test",
       deferStream: true,
       onHydrated: (k, info) => {
@@ -89,7 +89,7 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
     },
     {
       initialValue: 1,
-      store: createSignal,
+      storage: createSignal,
       name: "test",
       deferStream: true,
       onHydrated: (k, info) => {

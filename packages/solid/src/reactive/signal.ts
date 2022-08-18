@@ -465,8 +465,8 @@ export type ResourceOptions<T, S = unknown> = {
   initialValue?: T;
   name?: string;
   deferStream?: boolean;
-  useInitialValue?: boolean;
-  store?: (init: T | undefined) => [Accessor<T | undefined>, Setter<T | undefined>];
+  ssrValue?: "initial" | "server";
+  storage?: (init: T | undefined) => [Accessor<T | undefined>, Setter<T | undefined>];
   onHydrated?: (k: S | undefined, info: { value: T | undefined }) => void;
 };
 
@@ -556,9 +556,7 @@ export function createResource<T, S, R>(
       typeof source === "function" && createMemo(source as () => S | false | null | undefined);
 
   const contexts = new Set<SuspenseContextType>(),
-    [value, setValue] = options.store
-      ? options.store(options.initialValue)
-      : createSignal(options.initialValue),
+    [value, setValue] = (options.storage || createSignal)(options.initialValue) as Signal<T | undefined>,
     [track, trigger] = createSignal(undefined, { equals: false }),
     [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "errored">(
       resolved ? "ready" : "unresolved"
@@ -567,7 +565,7 @@ export function createResource<T, S, R>(
   if (sharedConfig.context) {
     id = `${sharedConfig.context.id}${sharedConfig.context.count++}`;
     let v;
-    if (options.useInitialValue) initP = options.initialValue as T;
+    if (options.ssrValue === "initial") initP = options.initialValue as T;
     else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v[0];
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, success: boolean, key?: S) {

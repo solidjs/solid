@@ -7,6 +7,7 @@ import {
   onError,
   Accessor,
   Setter,
+  Signal,
   castError,
   onCleanup,
   cleanNode,
@@ -293,14 +294,16 @@ export type ResourceOptions<T> = undefined extends T
       initialValue?: T;
       name?: string;
       deferStream?: boolean;
-      useInitialValue?: boolean;
+      ssrValue?: "initial" | "server";
+      storage?: () => Signal<T | undefined>;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
   : {
       initialValue: T;
       name?: string;
       deferStream?: boolean;
-      useInitialValue?: boolean;
+      ssrValue?: "initial" | "server";
+      storage?: (v?: T) => Signal<T | undefined>;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
 
@@ -342,10 +345,10 @@ export function createResource<T, S>(
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.context!.id + sharedConfig.context!.count++;
   let resource: { ref?: any; data?: T } = {};
-  let value = options.initialValue;
+  let value = options.storage ? options.storage(options.initialValue)[0](): options.initialValue;
   let p: Promise<T> | T | null;
   let error: any;
-  if (sharedConfig.context!.async && !options.useInitialValue) {
+  if (sharedConfig.context!.async && options.ssrValue !== "initial") {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
       if (!resource.data && !resource.ref[0].loading && !resource.ref[0].error)
@@ -357,7 +360,7 @@ export function createResource<T, S>(
     if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
     const resolved =
-      !options.useInitialValue &&
+      options.ssrValue !== "initial" &&
       sharedConfig.context!.async &&
       "data" in sharedConfig.context!.resources[id];
     if (!resolved && read.loading) {
@@ -423,7 +426,7 @@ export function createResource<T, S>(
     p = null;
     return ctx.resources[id].data;
   }
-  if (!options.useInitialValue) load();
+  if (options.ssrValue !== "initial") load();
   return (resource.ref = [
     read,
     { refetch: load, mutate: (v: T) => (value = v) }
