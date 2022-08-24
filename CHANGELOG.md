@@ -46,7 +46,7 @@ We've improved TypeScript by adding a new `state` field which covers a more deta
 | refreshing | Yes            | Yes     | No        |
 | errored    | No             | No      | Yes       |
 
-A widely requested feature has been allowing them to be stores. While higher level APIs are still being determined we now have a way to plugin the internal storage by passing something with the signature of a signal.
+A widely requested feature has been allowing them to be stores. While higher level APIs are still being determined we now have a way to plugin the internal storage by passing something with the signature of a signal to the new *Experimental* `storage` option.
 
 ```ts
 function createDeepSignal<T>(value: T): Signal<T> {
