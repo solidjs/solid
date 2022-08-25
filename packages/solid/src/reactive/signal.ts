@@ -21,7 +21,7 @@ const UNOWNED: Owner = {
   context: null,
   owner: null
 };
-const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
+
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
@@ -32,6 +32,9 @@ let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
 let rootCount = 0;
+
+// keep immdiately evaluated module code, below its indirect declared let dependencies like Listener
+const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
 declare global {
   var _$afterUpdate: () => void;
