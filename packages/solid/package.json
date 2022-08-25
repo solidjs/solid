@@ -217,5 +217,8 @@
     "components",
     "compiler",
     "performance"
-  ]
+  ],
+  "dependencies": {
+    "csstype": "^3.1.0"
+  }
 }
