@@ -79,7 +79,10 @@ importers:
       babel-plugin-jsx-dom-expressions: 0.34.0
 
   packages/solid:
-    specifiers: {}
+    specifiers:
+      csstype: ^3.1.0
+    dependencies:
+      csstype: 3.1.0
 
   packages/solid-element:
     specifiers:
@@ -2645,7 +2648,6 @@ packages:
 
   /csstype/3.1.0:
     resolution: {integrity: sha512-uX1KG+x9h5hIJsaKR9xHUeUraxf8IODOwq9JLNPq6BwB04a/xgpq3rcx47l5BZu5zBPlgD342tdke3Hom/nJRA==}
-    dev: true
 
   /dashdash/1.14.1:
     resolution: {integrity: sha512-jRFi8UDGo6j+odZiEpjazZaWqEal3w/basFjQHQEwVtZJGDpxbH1MeYluwCS8Xq5wmLJooDlMgvVarmWfGM44g==}
