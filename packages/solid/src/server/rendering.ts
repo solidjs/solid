@@ -294,7 +294,7 @@ export type ResourceOptions<T> = undefined extends T
       initialValue?: T;
       name?: string;
       deferStream?: boolean;
-      ssrValue?: "initial" | "server";
+      ssrLoadFrom?: "initial" | "server";
       storage?: () => Signal<T | undefined>;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     }
@@ -302,7 +302,7 @@ export type ResourceOptions<T> = undefined extends T
       initialValue: T;
       name?: string;
       deferStream?: boolean;
-      ssrValue?: "initial" | "server";
+      ssrLoadFrom?: "initial" | "server";
       storage?: (v?: T) => Signal<T | undefined>;
       onHydrated?: <S, T>(k: S, info: ResourceFetcherInfo<T>) => void;
     };
@@ -348,7 +348,7 @@ export function createResource<T, S>(
   let value = options.storage ? options.storage(options.initialValue)[0](): options.initialValue;
   let p: Promise<T> | T | null;
   let error: any;
-  if (sharedConfig.context!.async && options.ssrValue !== "initial") {
+  if (sharedConfig.context!.async && options.ssrLoadFrom !== "initial") {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
       if (!resource.data && !resource.ref[0].loading && !resource.ref[0].error)
@@ -360,7 +360,7 @@ export function createResource<T, S>(
     if (error) throw error;
     if (resourceContext && p) resourceContext.push(p!);
     const resolved =
-      options.ssrValue !== "initial" &&
+      options.ssrLoadFrom !== "initial" &&
       sharedConfig.context!.async &&
       "data" in sharedConfig.context!.resources[id];
     if (!resolved && read.loading) {
@@ -426,7 +426,7 @@ export function createResource<T, S>(
     p = null;
     return ctx.resources[id].data;
   }
-  if (options.ssrValue !== "initial") load();
+  if (options.ssrLoadFrom !== "initial") load();
   return (resource.ref = [
     read,
     { refetch: load, mutate: (v: T) => (value = v) }

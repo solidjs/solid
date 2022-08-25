@@ -27,12 +27,12 @@ After a bunch of careful thought and auditting we decided that Solid's `batch` f
 
 Resources continue to get improvements. A common pattern in Islands frameworks like Astro is to fetch the data from the out side and pass it in. In this case you wouldn't want Solid to do the fetching on initial render or the serialization, but you still may want to pass it to a resource so it updates on any change. For that to work reactivity needs to run in the browser. The whole thing has been awkward to wire up but no longer.
 
-`ssrValue` field lets you specify where the value comes from during ssr. The default is `server` which fetches on the server and serializes it for client hydration. But `initial` will use the `initialValue` instead and not do any fetching or addtional serialization.
+`ssrLoadFrom` field lets you specify where the value comes from during ssr. The default is `server` which fetches on the server and serializes it for client hydration. But `initial` will use the `initialValue` instead and not do any fetching or addtional serialization.
 
 ```js
 const [user] = createResource(fetchUser, {
   initialValue: globalThis.DATA.user,
-  ssrValue: "initial"
+  ssrLoadFrom: "initial"
 });
 ```
 

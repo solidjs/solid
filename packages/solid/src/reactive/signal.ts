@@ -465,7 +465,7 @@ export type ResourceOptions<T, S = unknown> = {
   initialValue?: T;
   name?: string;
   deferStream?: boolean;
-  ssrValue?: "initial" | "server";
+  ssrLoadFrom?: "initial" | "server";
   storage?: (init: T | undefined) => [Accessor<T | undefined>, Setter<T | undefined>];
   onHydrated?: (k: S | undefined, info: { value: T | undefined }) => void;
 };
@@ -565,7 +565,7 @@ export function createResource<T, S, R>(
   if (sharedConfig.context) {
     id = `${sharedConfig.context.id}${sharedConfig.context.count++}`;
     let v;
-    if (options.ssrValue === "initial") initP = options.initialValue as T;
+    if (options.ssrLoadFrom === "initial") initP = options.initialValue as T;
     else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v[0];
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, success: boolean, key?: S) {
