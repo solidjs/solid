@@ -1,0 +1,35 @@
+{
+  "$schema": "https://turborepo.org/schema.json",
+  "pipeline": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputMode": "new-only"
+    },
+    "solid-js#build": {
+      "outputs": ["dist/**", "**/dist/**"]
+    },
+    "solid-js#link": {
+      "outputs": []
+    },
+    "solid-element#build": {
+      "dependsOn": ["solid-js#types", "solid-js#link"]
+    },
+    "solid-js#types": {
+      "dependsOn": ["^types"],
+      "outputs": ["types/**", "**/types/**"]
+    },
+    "coverage": {
+      "outputs": ["coverage/**"]
+    },
+    "test": {
+      "outputs": []
+    },
+    "test-integration#test": {
+      "dependsOn": ["solid-js#build", "solid-js#link"]
+    },
+    "solid-js#test-types": {
+      "outputs": [],
+      "dependsOn": ["types"]
+    }
+  }
+}

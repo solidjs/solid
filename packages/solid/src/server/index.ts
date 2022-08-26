@@ -29,7 +29,7 @@ export {
   $DEVCOMP,
   DEV,
   enableExternalSource
-} from "./reactive";
+} from "./reactive.js";
 
 export {
   mergeProps,
@@ -52,9 +52,9 @@ export {
   createUniqueId,
   lazy,
   sharedConfig
-} from "./rendering";
+} from "./rendering.js";
 
-export type { Component, Resource } from "./rendering";
+export type { Component, Resource } from "./rendering.js";
 
 
 

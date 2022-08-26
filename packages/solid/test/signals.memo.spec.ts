@@ -1,4 +1,4 @@
-import { createRoot, createSignal, createComputed, createMemo, Accessor } from "../src";
+import { createRoot, createSignal, createMemo, Accessor } from "../src";
 
 describe("createMemo", () => {
   describe("executing propagating", () => {
@@ -117,7 +117,7 @@ describe("createMemo", () => {
           order += "t1";
           return s1();
         });
-        createComputed(() => {
+        createMemo(() => {
           order += "c1";
           t1();
         });
@@ -131,7 +131,7 @@ describe("createMemo", () => {
       });
     });
 
-    it("applies updates to changed dependees in same order as createComputed", () => {
+    it("applies updates to changed dependees in same order as createMemo", () => {
       createRoot(() => {
         const [s1, set] = createSignal(0);
         let order = "";
@@ -139,11 +139,11 @@ describe("createMemo", () => {
           order += "t1";
           return s1() === 0;
         });
-        createComputed(() => {
+        createMemo(() => {
           order += "c1";
           return s1();
         });
-        createComputed(() => {
+        createMemo(() => {
           order += "c2";
           return t1();
         });
@@ -164,14 +164,14 @@ describe("createMemo", () => {
           order += "t1";
           return s1() === 0;
         });
-        createComputed(() => {
+        createMemo(() => {
           order += "c1";
           return s1();
         });
-        createComputed(() => {
+        createMemo(() => {
           order += "c2";
           t1();
-          createComputed(() => {
+          createMemo(() => {
             order += "c2_1";
             return s2();
           });
@@ -304,7 +304,7 @@ describe("createMemo", () => {
           const b = s2();
           return a && b;
         });
-        createComputed(() => {
+        createMemo(() => {
           t1();
           t2();
           c1();
@@ -338,7 +338,7 @@ describe("createMemo", () => {
           undefined,
           { equals: false }
         );
-        createComputed(() => {
+        createMemo(() => {
           order += "c2";
           t1();
           t2();
@@ -363,7 +363,7 @@ describe("createMemo", () => {
           c1 = createMemo(() => s2());
           return s1();
         });
-        createComputed(() => {
+        createMemo(() => {
           count++;
           c1();
         });
@@ -384,7 +384,7 @@ describe("createMemo", () => {
           order += "t2";
           return s1();
         });
-        createComputed(() => {
+        createMemo(() => {
           t1();
           t2();
           order += "c1";
@@ -400,7 +400,7 @@ describe("createMemo", () => {
         const [s1, set] = createSignal(1);
         let order = "";
         let c2: () => boolean;
-        createComputed(() => {
+        createMemo(() => {
           order += "c1";
           if (s1() > 1) {
             c2();
@@ -443,7 +443,7 @@ describe("createMemo", () => {
           order += "c2";
           return c1();
         });
-        createComputed(() => {
+        createMemo(() => {
           order += "c3";
           return c2();
         });

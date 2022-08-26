@@ -1,4 +1,5 @@
-import { createRoot, createSignal, createComputed, createMemo, batch } from "../../src";
+import { createRoot, createSignal, createMemo, batch, createEffect } from "../../src";
+import { Accessor, Setter } from "../../types";
 import { createMutable, unwrap, $RAW } from "../src";
 
 describe("State Mutablity", () => {
@@ -119,12 +120,13 @@ describe("Unwrapping Edge Cases", () => {
 
 describe("Tracking State changes", () => {
   test("Track a state change", () => {
+    let state: { data: number };
     createRoot(() => {
-      const state = createMutable({ data: 2 });
+      state = createMutable({ data: 2 });
       let executionCount = 0;
 
       expect.assertions(2);
-      createComputed(() => {
+      createEffect(() => {
         if (executionCount === 0) expect(state.data).toBe(2);
         else if (executionCount === 1) {
           expect(state.data).toBe(5);
@@ -134,22 +136,40 @@ describe("Tracking State changes", () => {
         }
         executionCount++;
       });
-
-      state.data = 5;
-      // same value again should not retrigger
-      state.data = 5;
     });
+    state!.data = 5;
+    // same value again should not retrigger
+    state!.data = 5;
+  });
+
+  test("Deleting an undefined property", () => {
+    let state: { firstName: string; lastName: string | undefined };
+    let executionCount = 0;
+    createRoot(() => {
+      state = createMutable({
+        firstName: "John",
+        lastName: undefined
+      });
+
+      createEffect(() => {
+        state.lastName;
+        executionCount++;
+      });
+      //this should retrigger the execution despite it being undefined
+    });
+    delete state!.lastName;
+    expect(executionCount).toBe(2);
   });
 
   test("Track a nested state change", () => {
+    let executionCount = 0;
+    let state: { user: { firstName: string; lastName: string } };
     createRoot(() => {
-      const state = createMutable({
+      state = createMutable({
         user: { firstName: "John", lastName: "Smith" }
       });
-      let executionCount = 0;
-
       expect.assertions(2);
-      createComputed(() => {
+      createEffect(() => {
         if (executionCount === 0) {
           expect(state.user.firstName).toBe("John");
         } else if (executionCount === 1) {
@@ -160,9 +180,8 @@ describe("Tracking State changes", () => {
         }
         executionCount++;
       });
-
-      state.user.firstName = "Jake";
     });
+    state!.user.firstName = "Jake";
   });
 });
 
@@ -189,13 +208,15 @@ describe("Handling functions in state", () => {
 
 describe("Setting state from Effects", () => {
   test("Setting state from signal", () => {
+    let state: { data: string };
+    let getData: Accessor<string>, setData: Setter<string>;
     createRoot(() => {
-      const [getData, setData] = createSignal("init"),
-        state = createMutable({ data: "" });
-      createComputed(() => (state.data = getData()));
-      setData("signal");
-      expect(state.data).toBe("signal");
+      ([getData, setData] = createSignal("init")), (state = createMutable({ data: "" }));
+      // don't do this often
+      createEffect(() => (state.data = getData()));
     });
+    setData!("signal");
+    expect(state!.data).toBe("signal");
   });
 
   test("Select Promise", done => {
@@ -231,34 +252,17 @@ describe("State wrapping", () => {
     // not wrapped
     expect(state.time).toBe(date);
   });
-});
-
-describe("Batching", () => {
-  test("Respects batch", () => {
-    const state = createMutable({ data: 1 });
+  test("Respects batch in array mutate 2", () => {
+    const state = createMutable([1, 2, 3]);
     batch(() => {
-      expect(state.data).toBe(1);
-      state.data = 2;
-      expect(state.data).toBe(1);
+      expect(state.length).toBe(3);
+      const move = state.splice(1, 1);
+      expect(state.length).toBe(2);
+      state.splice(0, 0, ...move);
+      expect(state.length).toBe(3);
+      expect(state).toEqual([2, 1, 3]);
     });
-    expect(state.data).toBe(2);
-  });
-  test("Respects batch in array", () => {
-    const state = createMutable([1]);
-    batch(() => {
-      expect(state[0]).toBe(1);
-      state[0] = 2;
-      expect(state[0]).toBe(1);
-    });
-    expect(state[0]).toBe(2);
-  });
-  test("Respects batch in array mutate", () => {
-    const state = createMutable([1]);
-    batch(() => {
-      expect(state.length).toBe(1);
-      state[1] = 2;
-      expect(state.length).toBe(1);
-    });
-    expect(state.length).toBe(2);
+    expect(state.length).toBe(3);
+    expect(state).toEqual([2, 1, 3]);
   });
 });

@@ -4,7 +4,6 @@ const signalOptions = {
 };
 let ERROR = null;
 let runEffects = runQueue;
-const NOTPENDING = {};
 const STALE = 1;
 const PENDING = 2;
 const UNOWNED = {
@@ -15,7 +14,6 @@ const UNOWNED = {
 };
 var Owner = null;
 let Listener = null;
-let Pending = null;
 let Updates = null;
 let Effects = null;
 let ExecCount = 0;
@@ -47,21 +45,15 @@ function createSignal(value, options) {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s = {
     value,
-    observer: null,
-    observerSlot: 0,
     observers: null,
     observerSlots: null,
-    pending: NOTPENDING,
     comparator: options.equals || undefined
   };
   return [
-    () => {
-      if (Listener) logRead(s);
-      return s.value;
-    },
+    readSignal.bind(s),
     value => {
       if (typeof value === "function") {
-        value = value(s.pending !== NOTPENDING ? s.pending : s.value);
+        value = value(s.value);
       }
       return writeSignal(s, value);
     }
@@ -73,45 +65,15 @@ function createComputed(fn, value) {
 function createMemo(fn, value, options) {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const c = createComputation(fn, value, true, 0);
-  c.pending = NOTPENDING;
-  c.observer = null;
-  c.observerSlot = 0;
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
   updateComputation(c);
-  return () => {
-    if (c.state && (c.source || c.sources)) {
-      const updates = Updates;
-      Updates = null;
-      c.state === STALE ? updateComputation(c) : lookUpstream(c);
-      Updates = updates;
-    }
-    if (Listener) logRead(c);
-    return c.value;
-  };
+  return readSignal.bind(c);
 }
 
 function batch(fn) {
-  if (Pending) return fn();
-  let result;
-  const q = (Pending = []);
-  try {
-    result = fn();
-  } finally {
-    Pending = null;
-  }
-  runUpdates(() => {
-    for (let i = 0; i < q.length; i += 1) {
-      const data = q[i];
-      if (data.pending !== NOTPENDING) {
-        const pending = data.pending;
-        data.pending = NOTPENDING;
-        writeSignal(data, pending);
-      }
-    }
-  }, false);
-  return result;
+  return runUpdates(fn, false);
 }
 function untrack(fn) {
   let result,
@@ -122,50 +84,47 @@ function untrack(fn) {
   return result;
 }
 
-function logRead(node) {
-  let to = Listener,
-    fromslot,
-    toslot = to.source === null ? -1 : to.sources === null ? 0 : to.sources.length;
-  if (node.observer === null) {
-    node.observer = to;
-    node.observerSlot = toslot;
-    fromslot = -1;
-  } else if (node.observerSlots === null) {
-    if (node.observer === to) return node.value;
-    node.observers = [to];
-    node.observerSlots = [toslot];
-    fromslot = 0;
-  } else {
-    fromslot = node.observerSlots.length;
-    node.observers.push(to);
-    node.observerSlots.push(toslot);
+function readSignal() {
+  if (this.state && this.sources) {
+    const updates = Updates;
+    Updates = null;
+    this.state === STALE ? updateComputation(this) : lookUpstream(this);
+    Updates = updates;
   }
-  if (to.source === null) {
-    to.source = node;
-    to.sourceSlot = fromslot;
-  } else if (to.sources === null) {
-    to.sources = [node];
-    to.sourceSlots = [fromslot];
-  } else {
-    to.sources.push(node);
-    to.sourceSlots.push(fromslot);
+  if (Listener) {
+    const sSlot = this.observers ? this.observers.length : 0;
+    if (!Listener.sources) {
+      Listener.sources = [this];
+      Listener.sourceSlots = [sSlot];
+    } else {
+      Listener.sources.push(this);
+      Listener.sourceSlots.push(sSlot);
+    }
+    if (!this.observers) {
+      this.observers = [Listener];
+      this.observerSlots = [Listener.sources.length - 1];
+    } else {
+      this.observers.push(Listener);
+      this.observerSlots.push(Listener.sources.length - 1);
+    }
   }
+  return this.value;
 }
-function writeSignal(node, value) {
-  if (Pending) {
-    if (node.pending === NOTPENDING) Pending.push(node);
-    node.pending = value;
-    return value;
-  }
+function writeSignal(node, value, isComp) {
   if (node.comparator) {
     if (node.comparator(node.value, value)) return value;
   }
   node.value = value;
-  if (node.observer || (node.observers && node.observers.length)) {
+  if (node.observers && node.observers.length) {
     runUpdates(() => {
-      if (node.observer) queueUpdates(node.observer);
-      if (node.observers) {
-        for (let i = 0; i < node.observers.length; i += 1) queueUpdates(node.observers[i]);
+      for (let i = 0; i < node.observers.length; i += 1) {
+        const o = node.observers[i];
+        if (!o.state) {
+          if (o.pure) Updates.push(o);
+          else Effects.push(o);
+          if (o.observers) markDownstream(o);
+        }
+        o.state = STALE;
       }
       if (Updates.length > 10e5) {
         Updates = [];
@@ -175,15 +134,6 @@ function writeSignal(node, value) {
   }
   return value;
 }
-function queueUpdates(o) {
-  if (!o.state) {
-    if (o.pure) Updates.push(o);
-    else Effects.push(o);
-    if (o.observer || o.observers) markDownstream(o);
-  }
-  o.state = STALE;
-}
-
 function updateComputation(node) {
   if (!node.fn) return;
   cleanNode(node);
@@ -199,8 +149,8 @@ function runComputation(node, value, time) {
   let nextValue;
   nextValue = node.fn(value);
   if (!node.updatedAt || node.updatedAt <= time) {
-    if (node.updatedAt && "observers" in node) {
-      writeSignal(node, nextValue);
+    if (node.updatedAt != null && "observers" in node) {
+      writeSignal(node, nextValue, true);
     } else node.value = nextValue;
     node.updatedAt = time;
   }
@@ -211,8 +161,6 @@ function createComputation(fn, init, pure, state = STALE, options) {
     state: state,
     updatedAt: null,
     owned: null,
-    source: null,
-    sourceSlot: 0,
     sources: null,
     sourceSlots: null,
     cleanups: null,
@@ -255,9 +203,12 @@ function runUpdates(fn, init) {
   else Effects = [];
   ExecCount++;
   try {
-    fn();
-  } finally {
+    const res = fn();
     completeUpdates(wait);
+    return res;
+  } finally {
+    Updates = null;
+    if (!wait) Effects = null;
   }
 }
 function completeUpdates(wait) {
@@ -266,56 +217,50 @@ function completeUpdates(wait) {
     Updates = null;
   }
   if (wait) return;
-  if (Effects.length)
-    batch(() => {
-      runEffects(Effects);
-      Effects = null;
-    });
-  else {
-    Effects = null;
-  }
+  const e = Effects;
+  Effects = null;
+  if (e.length) runUpdates(() => runEffects(e), false);
 }
 function runQueue(queue) {
   for (let i = 0; i < queue.length; i++) runTop(queue[i]);
 }
 function lookUpstream(node) {
   node.state = 0;
-  if (node.source) lookUpstreamNode(node.source)
-  if (node.sources) {
-    for (let i = 0; i < node.sources.length; i += 1) {
-      lookUpstream(node.sources[i]);
+  for (let i = 0; i < node.sources.length; i += 1) {
+    const source = node.sources[i];
+    if (source.sources) {
+      if (source.state === STALE) runTop(source);
+      else if (source.state === PENDING) lookUpstream(source);
     }
   }
 }
-function lookUpstreamNode(source) {
-  if (source.source || source.sources) {
-    if (source.state === STALE) runTop(source);
-    else if (source.state === PENDING) lookUpstream(source);
-  }
-}
 function markDownstream(node) {
-  if (node.observer) markDownstreamNode(node.observer);
-  if (node.observers) {
-    for (let i = 0; i < node.observers.length; i += 1) markDownstreamNode(node.observers[i]);
-  }
-}
-function markDownstreamNode(o) {
-  if (!o.state) {
-    o.state = PENDING;
-    if (o.pure) Updates.push(o);
-    else Effects.push(o);
-    (o.observer || o.observers) && markDownstream(o);
+  for (let i = 0; i < node.observers.length; i += 1) {
+    const o = node.observers[i];
+    if (!o.state) {
+      o.state = PENDING;
+      if (o.pure) Updates.push(o);
+      else Effects.push(o);
+      o.observers && markDownstream(o);
+    }
   }
 }
 function cleanNode(node) {
   let i;
-  if (node.source != null) {
-    cleanupSource(node.source, node.sourceSlot);
-    node.source = null;
-  }
-  if (node.sources != null) {
-    for (let i = 0, len = node.sources.length; i < len; i++) {
-      cleanupSource(node.sources.pop(), node.sourceSlots.pop());
+  if (node.sources) {
+    while (node.sources.length) {
+      const source = node.sources.pop(),
+        index = node.sourceSlots.pop(),
+        obs = source.observers;
+      if (obs && obs.length) {
+        const n = obs.pop(),
+          s = source.observerSlots.pop();
+        if (index < obs.length) {
+          n.sourceSlots[s] = index;
+          obs[index] = n;
+          source.observerSlots[index] = s;
+        }
+      }
     }
   }
   if (node.owned) {
@@ -328,27 +273,6 @@ function cleanNode(node) {
   }
   node.state = 0;
   node.context = null;
-}
-function cleanupSource(source, slot) {
-  let nodes = source.observers,
-    nodeslots = source.observerSlots,
-    last,
-    lastslot;
-  if (slot === -1) {
-    source.observer = null;
-  } else {
-    last = nodes.pop();
-    lastslot = nodeslots.pop();
-    if (slot !== nodes.length) {
-      nodes[slot] = last;
-      nodeslots[slot] = lastslot;
-      if (lastslot === -1) {
-        last.sourceSlot = slot;
-      } else {
-        last.sourceSlots[lastslot] = slot;
-      }
-    }
-  }
 }
 exports.createComputed = createComputed;
 exports.createMemo = createMemo;

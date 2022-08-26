@@ -23,15 +23,17 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
-    const keys = Object.keys(value),
-      desc = Object.getOwnPropertyDescriptors(value);
-    for (let i = 0, l = keys.length; i < l; i++) {
-      const prop = keys[i];
-      if (desc[prop].get) {
-        const get = desc[prop].get!.bind(p);
-        Object.defineProperty(value, prop, {
-          get
-        });
+    if (!Array.isArray(value)) {
+      const keys = Object.keys(value),
+        desc = Object.getOwnPropertyDescriptors(value);
+      for (let i = 0, l = keys.length; i < l; i++) {
+        const prop = keys[i];
+        if (desc[prop].get) {
+          const get = desc[prop].get!.bind(p);
+          Object.defineProperty(value, prop, {
+            get
+          });
+        }
       }
     }
     if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
@@ -87,7 +89,7 @@ export function getDataNodes(target: StoreNode) {
 }
 
 export function getDataNode(nodes: Record<string, any>, property: string | symbol, value: any) {
-  return nodes[property as string] || (nodes[property as string] = createDataNode(value, true));
+  return nodes[property as string] || (nodes[property as string] = createDataNode(value));
 }
 
 export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
@@ -119,18 +121,11 @@ export function ownKeys(target: StoreNode) {
   return Reflect.ownKeys(target);
 }
 
-function createDataNode(value?: any, equals?: boolean) {
-  const [s, set] = createSignal<any>(
-    value,
-    equals
-      ? {
-          internal: true
-        }
-      : {
-          equals: false,
-          internal: true
-        }
-  );
+function createDataNode(value?: any) {
+  const [s, set] = createSignal<any>(value, {
+    equals: false,
+    internal: true
+  });
   (s as Accessor<any> & { $: (v: any) => void }).$ = set;
   return s as Accessor<any> & { $: (v: any) => void };
 }
@@ -139,9 +134,12 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    if (property === $TRACK) return trackSelf(target);
+    if (property === $TRACK) {
+      trackSelf(target);
+      return receiver;
+    }
     const nodes = getDataNodes(target);
-    const tracked = nodes[property];
+    const tracked = nodes.hasOwnProperty(property);
     let value = tracked ? nodes[property]() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
@@ -159,6 +157,14 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       : value;
   },
 
+  has(target, property) {
+    if (property === $RAW || property === $PROXY || property === $TRACK ||
+        property === $NODE || property === "__proto__") return true;
+    const tracked = getDataNodes(target)[property];
+    tracked && tracked();
+    return property in target;
+  },
+
   set() {
     if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
     return true;
@@ -174,8 +180,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(state: StoreNode, property: PropertyKey, value: any) {
-  if (state[property] === value) return;
+export function setProperty(state: StoreNode, property: PropertyKey, value: any, deleting: boolean = false) {
+  if (!deleting && state[property] === value) return;
   const prev = state[property];
   const len = state.length;
   if (value === undefined) {
@@ -406,10 +412,10 @@ export interface SetStoreFunction<T> {
  *
  * @description https://www.solidjs.com/docs/latest/api#createstore
  */
-export function createStore<T extends {}>(
+export function createStore<T extends object = {}>(
   ...[store, options]: {} extends T
     ? [store?: T | Store<T>, options?: { name?: string }]
-    : [store: object & (T | Store<T>), options?: { name?: string }]
+    : [store: T | Store<T>, options?: { name?: string }]
 ): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap((store || {}) as T);
   const isArray = Array.isArray(unwrappedStore);

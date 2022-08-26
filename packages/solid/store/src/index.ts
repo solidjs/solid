@@ -1,4 +1,4 @@
-export { createStore, unwrap, $RAW } from "./store";
+export { createStore, unwrap, $RAW } from "./store.js";
 export type {
   Store,
   SetStoreFunction,
@@ -11,6 +11,6 @@ export type {
   Part,
   DeepReadonly,
   DeepMutable
-} from "./store";
-export * from "./mutable";
-export * from "./modifiers";
+} from "./store.js";
+export * from "./mutable.js";
+export * from "./modifiers.js";

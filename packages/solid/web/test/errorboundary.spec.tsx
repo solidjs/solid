@@ -1,4 +1,8 @@
-/* @jsxImportSource solid-js */
+/** 
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import { createRoot, resetErrorBoundaries } from "../../src";
 import { ErrorBoundary } from "../src";
 

@@ -1,9 +1,13 @@
-/* @jsxImportSource solid-js */
+/**
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import "../../test/MessageChannel";
 import { lazy, createSignal, createResource, useTransition, enableScheduling } from "../../src";
 import { render, Suspense, SuspenseList } from "../src";
+import { createStore } from "../../store/src";
 
-global.queueMicrotask = setImmediate;
 enableScheduling();
 
 beforeEach(() => {
@@ -30,11 +34,11 @@ describe("Testing Suspense", () => {
   let div = document.createElement("div"),
     disposer: () => void,
     resolvers: Function[] = [],
-    [triggered, trigger] = createSignal(false);
+    [triggered, trigger] = createSignal<string>();
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
       const [value] = createResource<string, string>(
-        () => triggered() && "child",
+        triggered,
         () => new Promise(r => setTimeout(() => r("Jo"), 300)),
         { initialValue: "" }
       );
@@ -52,20 +56,21 @@ describe("Testing Suspense", () => {
     expect(div.innerHTML).toBe("Loading");
   });
 
-  test("Toggle Suspense control flow", async done => {
+  test("Toggle Suspense control flow", async () => {
     for (const r of resolvers) r({ default: ChildComponent });
 
-    queueMicrotask(() => {
-      expect(div.innerHTML).toBe("Hi, .Hello ");
-      done();
-    });
+    await Promise.resolve();
+    jest.runAllTimers();
+    await Promise.resolve();
+
+    expect(div.innerHTML).toBe("Hi, .Hello ");
   });
 
-  test("Toggle with refresh transition", async done => {
+  test("Toggle with refresh transition", async () => {
     const [pending, start] = useTransition();
     let finished = false;
 
-    start(() => trigger(true)).then(() => (finished = true));
+    start(() => trigger("Jo")).then(() => (finished = true));
     expect(div.innerHTML).toBe("Hi, .Hello ");
     expect(finished).toBe(false);
     // wait trigger resource refetch
@@ -80,16 +85,52 @@ describe("Testing Suspense", () => {
     // wait update suspence state
     await Promise.resolve();
     // wait update computation
-    jest.runAllTicks();
     jest.runAllTimers();
-    // wait write signal succ
-    queueMicrotask(() => {
-      expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
-      expect(pending()).toBe(false);
-      expect(finished).toBe(true);
-      done();
-    });
-    jest.runAllTicks();
+    // wait write signal suc
+    await Promise.resolve();
+
+    jest.runAllTimers();
+    await Promise.resolve();
+
+    expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
+    expect(pending()).toBe(false);
+    expect(finished).toBe(true);
+  });
+
+  test("Toggle with store and refresh transition", async () => {
+    const [store, setStore] = createStore({ count: 0 });
+    const [pending, start] = useTransition();
+    let finished = false;
+
+    start(() => {
+      setStore({ count: 1 });
+      trigger("Jack");
+    }).then(() => (finished = true));
+
+    expect(store.count).toBe(0);
+    expect(finished).toBe(false);
+    // wait trigger resource refetch
+    await Promise.resolve();
+
+    expect(store.count).toBe(0);
+    expect(pending()).toBe(true);
+    expect(finished).toBe(false);
+
+    // Exhausts create-resource setTimeout
+    jest.runAllTimers();
+    // wait update suspence state
+    await Promise.resolve();
+    // wait update computation
+    jest.runAllTimers();
+
+    // Await the rest of the things, TODO: figure out what these are
+    await Promise.resolve();
+    jest.runAllTimers();
+    await Promise.resolve();
+
+    expect(pending()).toBe(false);
+    expect(finished).toBe(true);
+    expect(store.count).toBe(1);
   });
 
   test("dispose", () => {

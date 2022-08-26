@@ -1,6 +1,6 @@
-import { setProperty, unwrap, isWrappable, StoreNode, $RAW } from "./store";
+import { setProperty, unwrap, isWrappable, StoreNode, $RAW } from "./store.js";
 
-const $ROOT = Symbol("store-root")
+const $ROOT = Symbol("store-root");
 
 export type ReconcileOptions = {
   key?: string | null;
@@ -139,7 +139,7 @@ const setterTraps: ProxyHandler<StoreNode> = {
   },
 
   deleteProperty(target, property) {
-    setProperty(target, property, undefined);
+    setProperty(target, property, undefined, true);
     return true;
   }
 };

@@ -1,20 +1,21 @@
-import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client";
+import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client.js";
 import {
   createSignal,
   createMemo,
   onCleanup,
   untrack,
   splitProps,
-  Component,
   JSX,
   createRoot,
   sharedConfig,
   Accessor,
   enableHydration,
-  $DEVCOMP
+  $DEVCOMP,
+  ComponentProps,
+  ValidComponent,
 } from "solid-js";
 
-export * from "./client";
+export * from "./client.js";
 
 export {
   For,
@@ -28,7 +29,7 @@ export {
   mergeProps
 } from "solid-js";
 
-export * from "./server-mock";
+export * from "./server-mock.js";
 export const isServer = false;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
@@ -99,9 +100,8 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   return marker;
 }
 
-type DynamicProps<T> = T & {
-  children?: any;
-  component?: Component<T> | string | keyof JSX.IntrinsicElements;
+type DynamicProps<T extends ValidComponent> = ComponentProps<T> & {
+  component: T | undefined;
 };
 /**
  * renders an arbitrary custom or native component and passes the other props
@@ -110,7 +110,7 @@ type DynamicProps<T> = T & {
  * ```
  * @description https://www.solidjs.com/docs/latest/api#%3Cdynamic%3E
  */
-export function Dynamic<T>(props: DynamicProps<T>): Accessor<JSX.Element> {
+export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
   const cached = createMemo(() => p.component)
   return createMemo(() => {

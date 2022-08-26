@@ -1,5 +1,4 @@
-import { createRoot, getOwner, createSignal, createEffect, createComponent, DEV } from "../src";
-import { Owner } from "../src/reactive/signal";
+import { createRoot, getOwner, createSignal, createEffect, createComponent, createComputed, DEV, Owner } from "../src";
 import { createStore } from "../store/src";
 
 describe("Dev features", () => {
@@ -57,6 +56,37 @@ describe("Dev features", () => {
     expect(triggered).toBe(3);
   });
 
+  test("AfterUpdate Hook with effect write", () => {
+    let triggered = 0;
+    let set1: (v: number) => number;
+    let log = "";
+    global._$afterUpdate = () => triggered++;
+    createRoot(() => {
+      const [s, set] = createSignal(5);
+      const [s2, set2] = createSignal(0);
+      const [s3, set3] = createSignal(0);
+      createComputed(() => {
+        log += "a";
+        set3(s2())
+      });
+      createEffect(() => {
+        log += "b";
+        set2(s());
+      });
+      createEffect(() => {
+        log += "c";
+        s3();
+      })
+      set1 = set;
+    });
+    expect(triggered).toBe(1);
+    expect(log).toBe("abcac");
+    log = "";
+    set1!(7);
+    expect(triggered).toBe(2);
+    expect(log).toBe("bac");
+  });
+
   test("AfterCreateRoot Hook", () => {
     const captured: Owner[] = [];
     global._$afterCreateRoot = root => captured.push(root);
@@ -71,5 +101,5 @@ describe("Dev features", () => {
         expect(inner.owner).toBe(root);
       });
     });
-  });
+  })
 });

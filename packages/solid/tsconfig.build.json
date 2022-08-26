@@ -4,5 +4,4 @@
     "outDir": "./types"
   },
   "include": ["./src"],
-  "exclude": ["./src/static"]
 }

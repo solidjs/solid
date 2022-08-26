@@ -5,7 +5,7 @@ import {
   splitProps,
   createUniqueId,
   createSignal,
-  createComputed
+  createEffect
 } from "../src";
 import { createStore } from "../store/src";
 
@@ -109,7 +109,7 @@ describe("Merge Signal", () => {
     const props = mergeProps(defaults, s);
     const res: string[] = [];
     createRoot(() => {
-      createComputed(() => {
+      createEffect(() => {
         res.push(props.a as string);
       });
     });
