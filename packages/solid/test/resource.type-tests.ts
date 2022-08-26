@@ -1,4 +1,10 @@
-import { createResource, ResourceReturn, createSignal, Resource } from "../src";
+import {
+  createResource,
+  ResourceReturn,
+  createSignal,
+  Resource,
+  Setter
+} from "../src";
 import { InitializedResource, InitializedResourceReturn } from "../src/reactive/signal";
 
 type Assert<T extends true> = T;
@@ -52,6 +58,9 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
       }
     }
   );
+
+  type ResourceActions = typeof resourceReturn[1];
+  type Tests = Assert<Equals<ResourceActions['mutate'], Setter<number>>>;
 }
 
 // without initialValue
@@ -74,6 +83,9 @@ type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y 
       }
     }
   );
+
+  type ResourceActions = typeof resourceReturn[1];
+  type Tests = Assert<Equals<ResourceActions['mutate'], Setter<number | undefined>>>;
 }
 
 // with source, fetcher, initialValue

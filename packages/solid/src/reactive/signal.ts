@@ -447,7 +447,7 @@ export type Resource<T> = Unresolved | Pending | Ready<T> | Refreshing<T> | Erro
 export type InitializedResource<T> = Ready<T> | Refreshing<T> | Errored;
 
 export type ResourceActions<T, R = unknown> = {
-  mutate: Setter<T | undefined>;
+  mutate: Setter<T>;
   refetch: (info?: R) => T | Promise<T> | undefined | null;
 };
 
@@ -476,7 +476,10 @@ export type InitializedResourceOptions<T, S = unknown> = ResourceOptions<T, S> &
   initialValue: T;
 };
 
-export type ResourceReturn<T, R = unknown> = [Resource<T>, ResourceActions<T, R>];
+export type ResourceReturn<T, R = unknown> = [
+  Resource<T>,
+  ResourceActions<T | undefined, R>
+];
 
 export type InitializedResourceReturn<T, R = unknown> = [
   InitializedResource<T>,
