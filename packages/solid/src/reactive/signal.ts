@@ -21,7 +21,6 @@ const UNOWNED: Owner = {
   owner: null
 };
 const NO_INIT = {};
-const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
@@ -31,6 +30,9 @@ let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
 let rootCount = 0;
+
+// keep immdiately evaluated module code, below its indirect declared let dependencies like Listener
+const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
 declare global {
   var _$afterUpdate: () => void;
@@ -1048,25 +1050,28 @@ export function hashValue(v: any): string {
     typeof v === "string"
       ? hash(v)
       : hash(
-          JSON.stringify(v, (k, v) => {
-            if (typeof v === "object" && v != null) {
-              if (s.has(v)) return;
-              s.add(v);
-              const keys = Object.keys(v);
-              const desc = Object.getOwnPropertyDescriptors(v);
-              const newDesc = keys.reduce((memo, key) => {
-                const value = desc[key];
-                // skip getters
-                if (!value.get) memo[key] = value;
-                return memo;
-              }, {} as any);
-              v = Object.create({}, newDesc);
-            }
-            if (typeof v === "bigint") {
-              return `${v.toString()}n`;
-            }
-            return v;
-          }) || ""
+          untrack(
+            () =>
+              JSON.stringify(v, (k, v) => {
+                if (typeof v === "object" && v != null) {
+                  if (s.has(v)) return;
+                  s.add(v);
+                  const keys = Object.keys(v);
+                  const desc = Object.getOwnPropertyDescriptors(v);
+                  const newDesc = keys.reduce((memo, key) => {
+                    const value = desc[key];
+                    // skip getters
+                    if (!value.get) memo[key] = value;
+                    return memo;
+                  }, {} as any);
+                  v = Object.create({}, newDesc);
+                }
+                if (typeof v === "bigint") {
+                  return `${v.toString()}n`;
+                }
+                return v;
+              }) || ""
+          )
         )
   }`;
 }
