@@ -29,32 +29,39 @@ export {
   $DEVCOMP,
   $PROXY,
   $TRACK
-} from "./reactive/signal";
+} from "./reactive/signal.js";
 export type {
   Accessor,
   Setter,
   Signal,
   Resource,
+  ResourceActions,
+  ResourceSource,
   ResourceOptions,
   ResourceReturn,
   ResourceFetcher,
   ResourceFetcherInfo,
+  ChildrenReturn,
   Context,
   ReturnTypes,
-  Owner
-} from "./reactive/signal";
+  Owner,
+  InitializedResource,
+  InitializedResourceOptions,
+  InitializedResourceReturn
+} from "./reactive/signal.js";
 
-export * from "./reactive/observable";
-export * from "./reactive/scheduler";
-export * from "./reactive/array";
-export * from "./render";
 
-import type { JSX } from "./jsx";
+export * from "./reactive/observable.js";
+export * from "./reactive/scheduler.js";
+export * from "./reactive/array.js";
+export * from "./render/index.js";
+
+import type { JSX } from "./jsx.js";
 type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal";
+import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal.js";
 let DEV: {
   writeSignal: typeof writeSignal;
   serializeGraph: typeof serializeGraph;

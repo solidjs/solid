@@ -1,4 +1,8 @@
-/* @jsxImportSource solid-js */
+/** 
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import { render, Switch, Match, For } from "../src";
 import { createRoot, createSignal } from "../../src";
 import { createStore } from "../../store/src";
@@ -78,6 +82,44 @@ describe("Testing an only child Switch control flow", () => {
   test("dispose", () => disposer());
 });
 
+describe("Testing keyed Switch control flow", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [a, setA] = createSignal(0),
+    [b, setB] = createSignal(0),
+    [c, setC] = createSignal(0);
+  const Component = () => (
+    <div ref={div}>
+      <Switch fallback={"fallback"}>
+        <Match when={a()} keyed>{a()}</Match>
+        <Match when={b()} keyed>{b()}</Match>
+        <Match when={c()} keyed>{c()}</Match>
+      </Switch>
+    </div>
+  );
+
+  test("Create Switch control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("fallback");
+  });
+
+  test("Toggle Switch control flow", () => {
+    setC(1);
+    expect(div.innerHTML).toBe("1");
+    setB(2);
+    expect(div.innerHTML).toBe("2");
+    setA(3);
+    expect(div.innerHTML).toBe("3");
+    setA(0);
+    expect(div.innerHTML).toBe("2");
+  });
+
+  test("dispose", () => disposer());
+});
+
 describe("Testing function handler Switch control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
   const [a, setA] = createSignal(0),
@@ -86,9 +128,9 @@ describe("Testing function handler Switch control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Switch fallback={"fallback"}>
-        <Match when={a()}>{a => a}</Match>
-        <Match when={b()}>{b => b}</Match>
-        <Match when={c()}>{c => c}</Match>
+        <Match when={a()} keyed>{a => a}</Match>
+        <Match when={b()} keyed>{b => b}</Match>
+        <Match when={c()} keyed>{c => c}</Match>
       </Switch>
     </div>
   );

@@ -3,7 +3,8 @@
   "compilerOptions": {
     "baseUrl": "",
     "paths": {
-      "../..": ["../../src"]
+      "solid-js/jsx-runtime": ["./src/jsx"],
+      "solid-js": ["./src"],
     }
   },
   "include": ["./test", "./web/test", "./store/test"]

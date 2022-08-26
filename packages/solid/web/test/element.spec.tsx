@@ -1,7 +1,11 @@
-/* @jsxImportSource solid-js */
-import { createRoot, createSignal, createUniqueId, JSX } from "../../src";
+/**
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
 
-declare module "solid-js" {
+import { createRoot, createSignal, createUniqueId, JSX, children } from "../../src";
+
+declare module "solid-js/jsx-runtime" {
   namespace JSX {
     interface Directives {
       getRef: boolean;
@@ -81,6 +85,36 @@ describe("Basic element attributes", () => {
     });
     expect((div!.firstChild as HTMLLabelElement).htmlFor).toBe(
       (div!.firstChild!.nextSibling as HTMLInputElement).id
+    );
+  });
+
+  test("children", () => {
+    const Comp = (props: { children?: JSX.Element }) => {
+      const c = children(() => props.children);
+      return (
+        <>
+          {c.toArray().map(i => (
+            <div>{i}</div>
+          ))}
+        </>
+      );
+    };
+    const res: HTMLDivElement = createRoot(() => {
+      return (
+        <div>
+          <Comp>
+            <span>Hello</span>
+          </Comp>
+          <Comp>
+            <span>Hello</span>
+            <span>Jake</span>
+          </Comp>
+          <Comp />
+        </div> as HTMLDivElement
+      );
+    });
+    expect(res.innerHTML).toBe(
+      "<div><span>Hello</span></div><div><span>Hello</span></div><div><span>Jake</span></div>"
     );
   });
 });

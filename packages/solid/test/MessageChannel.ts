@@ -1,5 +1,5 @@
 // @ts-ignore
-globalThis.MessageChannel =  class {
+globalThis.MessageChannel = class {
   port1: { onmessage?: any } = {};
   port2 = {
     postMessage: () => {

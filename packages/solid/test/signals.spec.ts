@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 import {
   createRoot,
   createSignal,
@@ -16,7 +17,7 @@ import {
   createContext,
   useContext,
   getOwner,
-  runWithOwner
+  runWithOwner,
 } from "../src";
 
 import "./MessageChannel";
@@ -49,36 +50,36 @@ describe("Create signals", () => {
     });
     expect(temp!).toBe("impure");
   });
-  test("Create a Computed with explicit deps", () => {
+  test("Create a Effect with explicit deps", () => {
+    let temp: string;
     createRoot(() => {
-      let temp: string;
       const [sign] = createSignal("thoughts");
       const fn = on(sign, v => (temp = `impure ${v}`));
-      createComputed(fn);
-      createComputed(on(sign, v => (temp = `impure ${v}`)));
-      expect(temp!).toBe("impure thoughts");
+      createEffect(fn);
+      createEffect(on(sign, v => (temp = `impure ${v}`)));
     });
+    expect(temp!).toBe("impure thoughts");
   });
-  test("Create a Computed with multiple explicit deps", () => {
+  test("Create a Effect with multiple explicit deps", () => {
+    let temp: string;
     createRoot(() => {
-      let temp: string;
       const [sign] = createSignal("thoughts");
       const [num] = createSignal(3);
       const fn = on([sign, num], v => (temp = `impure ${v[1]}`));
-      createComputed(fn);
-      expect(temp!).toBe("impure 3");
+      createEffect(fn);
     });
+    expect(temp!).toBe("impure 3");
   });
-  test("Create a Computed with explicit deps and lazy evaluation", () => {
+  test("Create a Effect with explicit deps and lazy evaluation", () => {
+    let temp: string;
+    const [sign, set] = createSignal("thoughts");
     createRoot(() => {
-      let temp: string;
-      const [sign, set] = createSignal("thoughts");
       const fn = on(sign, v => (temp = `impure ${v}`), { defer: true });
-      createComputed(fn);
-      expect(temp!).toBeUndefined();
-      set("minds");
-      expect(temp!).toBe("impure minds");
+      createEffect(fn);
     });
+    expect(temp!).toBeUndefined();
+    set("minds");
+    expect(temp!).toBe("impure minds");
   });
 });
 
@@ -116,6 +117,17 @@ describe("Update signals", () => {
       expect(memo()).toBe("Hello John");
       setName("Jake");
       expect(memo()).toBe("Hello Jake");
+    });
+  });
+  test("Create Signal and set equivalent value not trigger Memo", () => {
+    createRoot(() => {
+      const [name, setName] = createSignal("John", { equals: (a, b) => b.startsWith("J") }),
+        memo = createMemo(() => `Hello ${name()}`);
+      expect(name()).toBe("John");
+      expect(memo()).toBe("Hello John");
+      setName("Jake");
+      expect(name()).toBe("John");
+      expect(memo()).toBe("Hello John");
     });
   });
   test("Create and trigger a Memo in an effect", done => {
@@ -187,7 +199,23 @@ describe("Untrack signals", () => {
   });
 });
 
-describe("Batch signals", () => {
+describe("Batching signals", () => {
+  test("Mute an effect", done => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, setSign] = createSignal("thoughts");
+      createEffect(() => (temp = `unpure ${untrack(sign)}`));
+      setTimeout(() => {
+        expect(temp).toBe("unpure thoughts");
+        setSign("mind");
+        expect(temp).toBe("unpure thoughts");
+        done();
+      });
+    });
+  });
+});
+
+describe("Effect grouping of signals", () => {
   test("Groups updates", done => {
     createRoot(() => {
       let count = 0;
@@ -197,7 +225,7 @@ describe("Batch signals", () => {
         setA(1);
         setB(1);
       });
-      createComputed(() => (count = a() + b()));
+      createMemo(() => (count += a() + b()));
       setTimeout(() => {
         expect(count).toBe(2);
         done();
@@ -212,7 +240,7 @@ describe("Batch signals", () => {
         setA(1);
         setA(4);
       });
-      createComputed(() => (count = a()));
+      createMemo(() => (count += a()));
       setTimeout(() => {
         expect(count).toBe(4);
         done();
@@ -228,7 +256,7 @@ describe("Batch signals", () => {
         setA(a => a + 1);
         setB(b => b + 1);
       });
-      createComputed(() => (count = a() + b()));
+      createMemo(() => (count += a() + b()));
       setTimeout(() => {
         expect(count).toBe(2);
         done();
@@ -243,14 +271,14 @@ describe("Batch signals", () => {
         setA(a => a + 1);
         setA(a => a + 2);
       });
-      createComputed(() => (count = a()));
+      createMemo(() => (count += a()));
       setTimeout(() => {
         expect(count).toBe(3);
         done();
       });
     });
   });
-  test("Test cross setting in a batched update", done => {
+  test("Test cross setting in a effect update", done => {
     createRoot(() => {
       let count = 0;
       const [a, setA] = createSignal(1);
@@ -258,11 +286,11 @@ describe("Batch signals", () => {
       createEffect(() => {
         setA(a => a + b());
       });
-      createComputed(() => (count = a()));
+      createMemo(() => (count += a()));
       setTimeout(() => {
         setB(b => b + 1);
         setTimeout(() => {
-          expect(count).toBe(2);
+          expect(count).toBe(3);
           done();
         });
       });
@@ -282,7 +310,7 @@ describe("Batch signals", () => {
           error = e as Error;
         }
       });
-      createComputed(() => a() + b());
+      createMemo(() => a() + b());
       setTimeout(() => {
         expect(a()).toBe(1);
         expect(b()).toBe(0);
@@ -303,7 +331,7 @@ describe("Batch signals", () => {
         setA(1);
         setA(0);
       });
-      createComputed(() => (count = a()));
+      createMemo(() => (count = a()));
       setTimeout(() => {
         expect(count).toBe(0);
         done();

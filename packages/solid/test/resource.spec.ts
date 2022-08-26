@@ -2,16 +2,17 @@ import {
   createRoot,
   createSignal,
   createResource,
-  createComputed,
   createRenderEffect,
   onError,
   Resource,
   ResourceFetcherInfo,
+  Signal,
+  createMemo
 } from "../src";
 
-import { createStore, reconcile, Store, unwrap } from "../store/src";
+import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src";
 
-global.queueMicrotask = (fn) => Promise.resolve().then(fn);
+global.queueMicrotask = fn => Promise.resolve().then(fn);
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
@@ -26,7 +27,7 @@ describe("Simulate a dynamic fetch", () => {
     });
   }
 
-  test("initial async resource", async done => {
+  test("initial async resource", async () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
@@ -42,10 +43,9 @@ describe("Simulate a dynamic fetch", () => {
     expect(value()).toBe("John");
     expect(value.latest).toBe("John");
     expect(value.loading).toBe(false);
-    done();
   });
 
-  test("test out of order", async done => {
+  test("test out of order", async () => {
     trigger("2");
     expect(value.loading).toBe(true);
     const resolve1 = resolve;
@@ -56,10 +56,9 @@ describe("Simulate a dynamic fetch", () => {
     await Promise.resolve();
     expect(value()).toBe("Jake");
     expect(value.loading).toBe(false);
-    done();
   });
 
-  test("promise rejection", async done => {
+  test("promise rejection", async () => {
     trigger("4");
     expect(value.loading).toBe(true);
     expect(value.error).toBeUndefined();
@@ -68,7 +67,6 @@ describe("Simulate a dynamic fetch", () => {
     expect(error).toBe("Because I said so");
     expect(value.error).toBe("Because I said so");
     expect(value.loading).toBe(false);
-    done();
   });
 });
 
@@ -85,7 +83,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     user: Resource<User | undefined>,
     state: { user?: User; userLoading: boolean },
     count = 0;
-  function fetcher(_: string, { value }: ResourceFetcherInfo<Store<User>>) {
+  function fetcher(_: unknown, { value }: ResourceFetcherInfo<Store<User>>) {
     return new Promise<User>(r => {
       resolve = r;
     }).then(next => reconcile(next)(value!));
@@ -94,8 +92,8 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
   data.push({ firstName: "John", address: { streetNumber: 4, streetName: "Grindel Rd" } });
   data.push({ ...data[0], firstName: "Joseph" });
 
-  test("initial async resource", async done => {
-    createRoot(() => {
+  test("initial async resource", async () => {
+    createRoot(async () => {
       [user, { refetch }] = createResource(fetcher);
       [state] = createStore<{ user?: User; userLoading: boolean }>({
         get user() {
@@ -105,7 +103,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
           return user.loading;
         }
       });
-      createComputed(() => (state.user, count++));
+      createRenderEffect(() => (state.user, count++));
     });
     expect(state.user).toBeUndefined();
     expect(state.userLoading).toBe(true);
@@ -122,11 +120,10 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(unwrap(state.user)).toStrictEqual(data[0]);
-    expect(state.user!.firstName).toBe("Joseph");
-    expect(unwrap(state.user!.address)).toStrictEqual(data[0].address);
+    expect(state.user?.firstName).toBe("Joseph");
+    expect(unwrap(state.user?.address)).toStrictEqual(data[0].address);
     expect(state.userLoading).toBe(false);
     expect(count).toBe(2);
-    done();
   });
 });
 
@@ -166,5 +163,212 @@ describe("using Resource with initial Value", () => {
     await Promise.resolve();
     expect(value()).toBe("John");
     expect(value.loading).toBe(false);
+  });
+});
+
+describe("using Resource with errors", () => {
+  let resolve: (v: string) => void,
+    reject: (e: any) => void,
+    trigger: (v: string) => void,
+    value: Resource<string | undefined>,
+    error: string;
+  function fetcher(id: string) {
+    return new Promise<string>((r, f) => {
+      resolve = r;
+      reject = f;
+    });
+  }
+  test("works with falsy errors", async () => {
+    createRoot(() => {
+      const [id, setId] = createSignal("1");
+      trigger = setId;
+      onError(e => (error = e));
+      [value] = createResource(id, fetcher);
+      createRenderEffect(value);
+    });
+    expect(value()).toBeUndefined();
+    expect(value.state === "pending").toBe(true);
+    expect(value.error).toBeUndefined();
+    reject(null);
+    await Promise.resolve();
+    expect(value.state === "errored").toBe(true);
+    expect(value.error.message).toBe("Unknown error");
+  });
+});
+
+describe("using Resource with custom store", () => {
+  type User = {
+    firstName: string;
+    lastName: string;
+    address: {
+      streetNumber: number;
+      streetName: string;
+      city: string;
+      state: string;
+      zip: number;
+    };
+  };
+  let resolve: (v: User) => void;
+  let value: Resource<User>;
+  function fetcher() {
+    return new Promise<User>(r => {
+      resolve = r;
+    });
+  }
+  function createDeepSignal<T>(value: T, options?: ReconcileOptions): Signal<T> {
+    const [store, setStore] = createStore({
+      value
+    });
+    return [
+      () => store.value,
+      (v: T) => {
+        const unwrapped = unwrap(store.value);
+        typeof v === "function" && (v = v(unwrapped));
+        setStore("value", reconcile(v, options));
+        return store.value;
+      }
+    ] as Signal<T>;
+  }
+  test("loads and diffs", async () => {
+    let first = 0;
+    let last = 0;
+    let addr = 0;
+    let street = 0;
+    createRoot(() => {
+      [value] = createResource(fetcher, {
+        initialValue: {
+          firstName: "John",
+          lastName: "Smith",
+          address: {
+            streetNumber: 4,
+            streetName: "Grindel Rd",
+            city: "New York",
+            state: "NY",
+            zip: 10001
+          }
+        },
+        storage: createDeepSignal
+      });
+      createRenderEffect(() => (first++, value()?.firstName));
+      createRenderEffect(() => (last++, value()?.lastName));
+      const address = createMemo(() => (addr++, value()?.address));
+      createRenderEffect(() => (street++, address()?.streetName));
+    });
+    expect(value()).toEqual({
+      firstName: "John",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Grindel Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(true);
+    expect(first).toBe(1);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(1);
+    resolve({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    await Promise.resolve();
+    expect(value()).toEqual({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(false);
+    expect(first).toBe(2);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(2);
+  });
+
+  test("mutates", async () => {
+    let first = 0;
+    let last = 0;
+    let addr = 0;
+    let street = 0;
+    let mutate: <T>(v: T) => T;
+    createRoot(() => {
+      [value, { mutate }] = createResource(false, fetcher, {
+        initialValue: {
+          firstName: "John",
+          lastName: "Smith",
+          address: {
+            streetNumber: 4,
+            streetName: "Grindel Rd",
+            city: "New York",
+            state: "NY",
+            zip: 10001
+          }
+        },
+        storage: createDeepSignal
+      });
+      createRenderEffect(() => (first++, value()?.firstName));
+      createRenderEffect(() => (last++, value()?.lastName));
+      const address = createMemo(() => (addr++, value()?.address));
+      createRenderEffect(() => (street++, address()?.streetName));
+    });
+    expect(value()).toEqual({
+      firstName: "John",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Grindel Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(false);
+    expect(first).toBe(1);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(1);
+    mutate!({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    await Promise.resolve();
+    expect(value()).toEqual({
+      firstName: "Matt",
+      lastName: "Smith",
+      address: {
+        streetNumber: 4,
+        streetName: "Central Rd",
+        city: "New York",
+        state: "NY",
+        zip: 10001
+      }
+    });
+    expect(value.loading).toBe(false);
+    expect(first).toBe(2);
+    expect(last).toBe(1);
+    expect(addr).toBe(1);
+    expect(street).toBe(2);
   });
 });

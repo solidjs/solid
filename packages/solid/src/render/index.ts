@@ -1,4 +1,4 @@
-export * from "./component";
-export * from "./flow";
-export * from "./Suspense"
-export { sharedConfig } from "./hydration";
+export * from "./component.js";
+export * from "./flow.js";
+export * from "./Suspense.js"
+export { sharedConfig } from "./hydration.js";

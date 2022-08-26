@@ -1,5 +1,125 @@
 # Changelog
 
+## 1.5.0 - 2022-08-26
+
+### Key Highlights
+
+#### New Batching Behavior
+
+Solid 1.4 patched a long time hole in Solid's behavior. Until that point Stores did not obey batching. However, it shone a light on something that should maybe have been obvious before. Batching behavior which stays in the past is basically broken for mutable data, No Solid only has `createMutable` and `produce` but with these sort of primitives the sole purpose is that you perform a sequence of actions, and batching not making this properly was basically broken. Adding an element to an array then removing another item shouldn't just skip the first operation.
+
+```js
+const store = createMutable(["a", "b", "c"]);
+
+const move = store.splice(1, 1);
+store.splice(0, 0, ...move);
+
+// solid 1.4
+// ["b", "a", "b", "c"];
+
+// solid 1.5
+// ["b", "a", "c"];
+```
+
+After a bunch of careful thought and auditting we decided that Solid's `batch` function should behave the same as how reactivity propagates in the system once a signal is set. As in we just add observers to a queue to run, but if we read from a derived value that is stale it will evaluate eagerly. In so signals will update immediately in a batch now and any derived value will be on read. The only purpose of it is to group writes that begin outside of the reactive system, like in event handlers.
+
+#### More Powerful Resources
+
+Resources continue to get improvements. A common pattern in Islands frameworks like Astro is to fetch the data from the out side and pass it in. In this case you wouldn't want Solid to do the fetching on initial render or the serialization, but you still may want to pass it to a resource so it updates on any change. For that to work reactivity needs to run in the browser. The whole thing has been awkward to wire up but no longer.
+
+`ssrLoadFrom` field lets you specify where the value comes from during ssr. The default is `server` which fetches on the server and serializes it for client hydration. But `initial` will use the `initialValue` instead and not do any fetching or addtional serialization.
+
+```js
+const [user] = createResource(fetchUser, {
+  initialValue: globalThis.DATA.user,
+  ssrLoadFrom: "initial"
+});
+```
+
+We've improved TypeScript by adding a new `state` field which covers a more detailed view of the Resource state beyond `loading` and `error`. You can now check whether a Resource is `"unresolved"`, `"pending"`, `"ready"`, `"refreshing"`, or `"error"`.
+
+| state      | value resolved | loading | has error |
+| ---------- | -------------- | ------- | --------- |
+| unresolved | No             | No      | No        |
+| pending    | No             | Yes     | No        |
+| ready      | Yes            | No      | No        |
+| refreshing | Yes            | Yes     | No        |
+| errored    | No             | No      | Yes       |
+
+A widely requested feature has been allowing them to be stores. While higher level APIs are still being determined we now have a way to plugin the internal storage by passing something with the signature of a signal to the new _Experimental_ `storage` option.
+
+```js
+function createDeepSignal<T>(value: T): Signal<T> {
+  const [store, setStore] = createStore({
+    value
+  });
+  return [
+    () => store.value,
+    (v: T) => {
+      const unwrapped = unwrap(store.value);
+      typeof v === "function" && (v = v(unwrapped));
+      setStore("value", reconcile(v));
+      return store.value;
+    }
+  ] as Signal<T>;
+}
+
+const [resource] = createResource(fetcher, {
+  storage: createDeepSignal
+});
+```
+
+#### Consolidated SSR
+
+This release marks the end of years long effort to merge async and streaming mechanism. Since pre 1.0 these were seperate. Solid's original SSR efforts used reactivity on the server with different compilation. It was easiest to migrate synchronous and streaming rendering and for a time async had a different compilation. We got them on the same compilation 2 years ago but runtimes were different. Piece by piece things have progressed until finally async is now just streaming if flushed at the end.
+
+This means some things have improved across the board. Async triggered Error Boundaries previously were only ever client rendered (throwing an error across the network), but now if they happen any time before sending to the browser they are server rendered. `onCleanup` now runs on the server if a branch changes. Keep in mind this is for rendering effects (like setting a status code) and not true side effects as not all rendering cleans up.
+
+Finally we've had a chance to do a bunch of SSR rendering performance improvements. Including replacing our data serializer with an early copy of Dylan Piercey from [Marko](https://markojs.com)'s upcoming serializer for Marko 6. Which boasts performance improvements of up to 6x `devalue` which we used previously.
+
+#### Keyed Control Flow
+
+Solid's `<Show>` and `<Match>` control flow originally re-rendered based on value change rather than truthy-ness changing. This allowed the children to be "keyed" to the value but lead to over rendering in common cases. Pre 1.0 it was decided to make these only re-render when statement changed from `true` to `false` or vice versa, except for the callback form that was still keyed.
+
+This worked pretty well except it was not obvious that a callback was keyed. So in 1.5 we are making this behavior explicit. If you want keyed you should specify it via attribute:
+
+```js
+// re-render whenever user changes
+
+// normal
+<Show when={user()} keyed>
+  <div>{user().name}</div>
+</Show>
+
+// callback
+<Show when={user()} keyed>
+  {user => <div>{user.name}</div>}
+</Show>
+```
+
+However, to not be breaking if a callback is present we will assume it's keyed. We still recommend you start adding these attributes (and TS will fail without them).
+
+In the future we will introduce a non-keyed callback form as well so users can benefit from type narrowing in that case as well.
+
+### Other Improvements
+
+### `children.toArray`
+
+Children helper now has the ability to be coerced to an array:
+
+```js
+const resolved = children(() => props.children);
+resolved.toArray(); // definitely an array
+```
+
+#### Better SSR Spreads
+
+Finally fixed spread merging with non-spread properties during SSR, including the ability to merge children.
+
+#### Better Error Handling
+
+We weren't handling falsey errors previously. Now when Solid receives an error that isn't an `Error` object or a string it will coerce it into an `Unknown Error`.
+
 ## 1.4.0 - 2022-05-12
 
 ### New Features
@@ -19,6 +139,7 @@ const [user] = createResource(() => params.id, fetchUser);
 // fetches a user but only streams content after this resource has loaded
 const [user] = createResource(() => params.id, fetchUser, { deferStream: true });
 ```
+
 #### Top Level Arrays in Stores
 
 Since Stores were first introduced it has always bugged me that the most common case, creating a list required nesting it under a property to track properly. Thanks to some exploration into proxy traps and iteration we now support top level arrays. In addition to its other modes, the Store setter will accept an array which allows for common operations.
@@ -39,7 +160,7 @@ setTodos([...todos, { id: 3, title: "New Todo", done: false }])
 <For each={todos}>{todo => <Todo todo={todo} />}</For>;
 ```
 
-Through this change we also stopped over execution when listening to specific properties. To support iteration Solid previously would notify the owning object of any array when an  was index added/removed or object new property created or deleted on any object.
+Through this change we also stopped over execution when listening to specific properties. To support iteration Solid previously would notify the owning object of any array when an was index added/removed or object new property created or deleted on any object.
 
 The one caveat is downstream optimized control flow that untrack index reads on arrays will now need to track the iterated object explicity. Solid exports a `$TRACK` symbol used to subscribe to the object and all its properties.
 
@@ -50,7 +171,7 @@ Suspense and Transitions are amazingly powerful feature but occasionally you wan
 Solid's Resources now support being able to read the value without triggering Suspense. As long as it has loaded previously `latest` property won't cause fallback appear or Transitions to hold. This will always return the `latest` value regardless whether it is stale (ie.. a new value is being fetched) and will reactively update. This is super powerful in Transitions as you can use the Resources own `loading` state to know if it is stale. Since the Transition will hold while the critical data is loading, the loading state will not be applied to the in view screen until that Transition has ended. If the resource is still loading now you can show that it is stale.
 
 ```js
-const [resource] = createResource(source, fetcher)
+const [resource] = createResource(source, fetcher);
 
 // read it as usual
 resource();
@@ -115,12 +236,14 @@ Writing to a store or mutable within `batch` (including effects) no longer immed
 #### Better Support for React JSX transform
 
 We have added support to `solid-js/h` to support the new React JSX transform. You can use it directly in TypeScript by using:
+
 ```json
 {
   "jsx": "react-jsx",
   "jsxImportSource": "solid-js/h"
 }
 ```
+
 Keep in mind this has all the consequences of not using the custom transform. It means larger library code, slower performance, and worse ergonomics. Remember to wrap your reactive expressions in functions.
 
 #### HyperScript now returns functions

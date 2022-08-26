@@ -12,15 +12,18 @@ import {
   setProperty,
   proxyDescriptor,
   ownKeys
-} from "./store";
+} from "./store.js";
 
 const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
     if (property === $PROXY) return receiver;
-    if (property === $TRACK) return trackSelf(target);
+    if (property === $TRACK) {
+      trackSelf(target);
+      return receiver;
+    }
     const nodes = getDataNodes(target);
-    const tracked = nodes[property];
+    const tracked = nodes.hasOwnProperty(property);
     let value = tracked ? nodes[property]() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
@@ -39,13 +42,21 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       : value;
   },
 
+  has(target, property) {
+    if (property === $RAW || property === $PROXY || property === $TRACK ||
+        property === $NODE || property === "__proto__") return true;
+    const tracked = getDataNodes(target)[property];
+    tracked && tracked();
+    return property in target;
+  },
+
   set(target, property, value) {
     batch(() => setProperty(target, property, unwrap(value)));
     return true;
   },
 
   deleteProperty(target, property) {
-    batch(() => setProperty(target, property, undefined));
+    batch(() => setProperty(target, property, undefined, true));
     return true;
   },
 

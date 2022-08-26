@@ -1,4 +1,8 @@
-/* @jsxImportSource solid-js */
+/** 
+ * @jsxImportSource solid-js
+ * @jest-environment jsdom
+ */
+
 import { createRoot, createSignal, Component, JSX } from "../../src";
 import { createStore } from "../../store/src";
 import { Dynamic } from "../src";
@@ -6,18 +10,18 @@ import { Dynamic } from "../src";
 describe("Testing Dynamic control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
 
-  interface DynamicProps {
-    title: string;
+  interface ExampleProps {
+    id: string;
   }
-  const [comp, setComp] = createSignal<Component<DynamicProps> | keyof JSX.IntrinsicElements>(),
+  const [comp, setComp] = createSignal<Component<ExampleProps> | keyof JSX.IntrinsicElements>(),
     [name, setName] = createSignal("Smith");
   const Component = () => (
       <div ref={div}>
-        <Dynamic component={comp()} title={name()} />
+        <Dynamic component={comp()} id={name()} />
       </div>
     ),
-    CompA: Component<DynamicProps> = props => <div>Hi {props.title}</div>,
-    CompB: Component<DynamicProps> = props => <span>Yo {props.title}</span>;
+    CompA: Component<ExampleProps> = props => <div>Hi {props.id}</div>,
+    CompB: Component<ExampleProps> = props => <span>Yo {props.id}</span>;
 
   beforeEach(() => {
     createRoot(dispose => {
@@ -37,9 +41,9 @@ describe("Testing Dynamic control flow", () => {
     setComp(() => CompB);
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
-    expect(div.innerHTML).toBe(`<h1 title="Smithers"></h1>`);
+    expect(div.innerHTML).toBe(`<h1 id="Smithers"></h1>`);
     setName("Sunny")
-    expect(div.innerHTML).toBe(`<h1 title="Sunny"></h1>`);
+    expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
     expect(div.querySelector('h1')).toBeInstanceOf(HTMLElement);
   });
 
@@ -55,20 +59,20 @@ describe("Testing Dynamic control flow", () => {
 describe("Testing Dynamic with state spread", () => {
   let div: HTMLDivElement, disposer: () => void;
 
-  interface DynamicProps {
-    title: string;
+  interface ExampleProps {
+    id: string;
   }
-  const [comp, setComp] = createSignal<Component<DynamicProps> | keyof JSX.IntrinsicElements>(),
+  const [comp, setComp] = createSignal<Component<ExampleProps> | keyof JSX.IntrinsicElements>(),
     [state, setState] = createStore({
-      title: "Smith"
+      id: "Smith"
     });
   const Component = () => (
       <div ref={div}>
         <Dynamic component={comp()} {...state}  />
       </div>
     ),
-    CompA: Component<DynamicProps> = props => <div>Hi {props.title}</div>,
-    CompB: Component<DynamicProps> = props => <span>Yo {props.title}</span>;
+    CompA: Component<ExampleProps> = props => <div>Hi {props.id}</div>,
+    CompB: Component<ExampleProps> = props => <span>Yo {props.id}</span>;
 
   beforeEach(() => {
     createRoot(dispose => {
@@ -83,14 +87,14 @@ describe("Testing Dynamic with state spread", () => {
     expect(div.innerHTML).toBe("");
     setComp(() => CompA);
     expect(div.innerHTML).toBe("<div>Hi Smith</div>");
-    setState("title", "Smithers");
+    setState("id", "Smithers");
     expect(div.innerHTML).toBe("<div>Hi Smithers</div>");
     setComp(() => CompB);
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
-    expect(div.innerHTML).toBe(`<h1 title="Smithers"></h1>`);
-    setState("title", "Sunny")
-    expect(div.innerHTML).toBe(`<h1 title="Sunny"></h1>`);
+    expect(div.innerHTML).toBe(`<h1 id="Smithers"></h1>`);
+    setState("id", "Sunny")
+    expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
     expect(div.querySelector('h1')).toBeInstanceOf(HTMLElement);
   });
 });

@@ -1,7 +1,16 @@
-import { createMemo, untrack, createSignal, onError, children, Accessor, Setter, onCleanup } from "../reactive/signal";
-import { mapArray, indexArray } from "../reactive/array";
-import { sharedConfig } from "./hydration";
-import type { JSX } from "../jsx";
+import {
+  createMemo,
+  untrack,
+  createSignal,
+  onError,
+  children,
+  Accessor,
+  Setter,
+  onCleanup
+} from "../reactive/signal.js";
+import { mapArray, indexArray } from "../reactive/array.js";
+import { sharedConfig } from "./hydration.js";
+import type { JSX } from "../jsx.js";
 
 /**
  * creates a list elements from a list
@@ -57,10 +66,26 @@ export function Index<T, U extends JSX.Element>(props: {
  */
 export function Show<T>(props: {
   when: T | undefined | null | false;
+  keyed: true;
   fallback?: JSX.Element;
   children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
+}): () => JSX.Element;
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  fallback?: JSX.Element;
+  children: JSX.Element;
+}): () => JSX.Element;
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: boolean;
+  fallback?: JSX.Element;
+  children:
+    | JSX.Element
+    | ((item: NonNullable<T>) => JSX.Element);
 }) {
   let strictEqual = false;
+  const keyed = props.keyed;
   const condition = createMemo<T | undefined | null | boolean>(() => props.when, undefined, {
     equals: (a, b) => (strictEqual ? a === b : !a === !b)
   });
@@ -68,9 +93,9 @@ export function Show<T>(props: {
     const c = condition();
     if (c) {
       const child = props.children;
-      return (strictEqual = typeof child === "function" && child.length > 0)
-        ? untrack(() => (child as any)(c as T))
-        : child;
+      const fn = typeof child === "function" && child.length > 0;
+      strictEqual = keyed || fn;
+      return fn ? untrack(() => (child as any)(c as T)) : child;
     }
     return props.fallback;
   }) as () => JSX.Element;
@@ -97,6 +122,7 @@ export function Switch(props: {
   children: JSX.Element;
 }): Accessor<JSX.Element> {
   let strictEqual = false;
+  let keyed = false;
   const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
     evalConditions = createMemo(
       (): EvalConditions => {
@@ -104,7 +130,10 @@ export function Switch(props: {
         if (!Array.isArray(conds)) conds = [conds];
         for (let i = 0; i < conds.length; i++) {
           const c = conds[i].when;
-          if (c) return [i, c, conds[i]];
+          if (c) {
+            keyed = !!conds[i].keyed;
+            return [i, c, conds[i]];
+          }
         }
         return [-1];
       },
@@ -118,15 +147,18 @@ export function Switch(props: {
     const [index, when, cond] = evalConditions();
     if (index < 0) return props.fallback;
     const c = cond!.children;
-    return (strictEqual = typeof c === "function" && c.length > 0)
-      ? untrack(() => (c as any)(when))
-      : c;
+    const fn = typeof c === "function" && c.length > 0;
+    strictEqual = keyed || fn;
+    return fn ? untrack(() => (c as any)(when)) : c;
   });
 }
 
 export type MatchProps<T> = {
   when: T | undefined | null | false;
-  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
+  keyed?: boolean;
+  children:
+    | JSX.Element
+    | ((item: NonNullable<T>) => JSX.Element);
 };
 /**
  * selects a content based on condition when inside a `<Switch>` control flow
@@ -137,14 +169,23 @@ export type MatchProps<T> = {
  * ```
  * @description https://www.solidjs.com/docs/latest/api#%3Cswitch%3E%2F%3Cmatch%3E
  */
+export function Match<T>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
+}): JSX.Element;
+export function Match<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  children: JSX.Element;
+}): JSX.Element;
 export function Match<T>(props: MatchProps<T>) {
   return props as unknown as JSX.Element;
 }
 
 let Errors: Set<Setter<any>>;
-const NoErrors = {};
 export function resetErrorBoundaries() {
-  Errors && [...Errors].forEach(fn => fn(NoErrors));
+  Errors && [...Errors].forEach(fn => fn());
 }
 /**
  * catches uncaught errors inside components and renders a fallback content
@@ -165,20 +206,26 @@ export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }): Accessor<JSX.Element> {
-  let err = NoErrors;
-  if (sharedConfig!.context && sharedConfig!.load) {
-    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count) || NoErrors;
-  }
+  let err;
+  let v;
+  if (
+    sharedConfig!.context &&
+    sharedConfig!.load &&
+    (v = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count))
+  )
+    err = v[0];
   const [errored, setErrored] = createSignal<any>(err);
   Errors || (Errors = new Set());
   Errors.add(setErrored);
   onCleanup(() => Errors.delete(setErrored));
   return createMemo(() => {
     let e: any;
-    if ((e = errored()) !== NoErrors) {
+    if ((e = errored())) {
       const f = props.fallback;
       if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
-      return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored(NoErrors))) : f;
+      const res = typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
+      onError(setErrored);
+      return res;
     }
     onError(setErrored);
     return props.children;

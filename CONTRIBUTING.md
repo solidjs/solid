@@ -85,3 +85,14 @@ Contributing to ecosystem projects is just as important as contributing to Solid
 If you haven't found any interesting information on this page then we encourage you to start hacking at a Solid related utility or package that does. Building useful tools for fellow OSS ecosystem and Solid users enhances the whole platform.
 
 We can't wait to see what you build!
+
+## Building Solid
+
+This repository uses [pnpm](https://pnpm.io/) and
+[Turborepo](https://turborepo.org/).
+If you want to build Solid from scratch, use the following steps:
+
+1. `pnpm install` (install all dependencies)
+2. `pnpm run build`
+
+You can then run all tests via `pnpm test`.
