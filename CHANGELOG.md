@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.5.0 - 2022-08-x
+## 1.5.0 - 2022-08-26
 
 ### Key Highlights
 
@@ -46,9 +46,9 @@ We've improved TypeScript by adding a new `state` field which covers a more deta
 | refreshing | Yes            | Yes     | No        |
 | errored    | No             | No      | Yes       |
 
-A widely requested feature has been allowing them to be stores. While higher level APIs are still being determined we now have a way to plugin the internal storage by passing something with the signature of a signal to the new *Experimental* `storage` option.
+A widely requested feature has been allowing them to be stores. While higher level APIs are still being determined we now have a way to plugin the internal storage by passing something with the signature of a signal to the new _Experimental_ `storage` option.
 
-```ts
+```js
 function createDeepSignal<T>(value: T): Signal<T> {
   const [store, setStore] = createStore({
     value
@@ -83,30 +83,33 @@ Solid's `<Show>` and `<Match>` control flow originally re-rendered based on valu
 
 This worked pretty well except it was not obvious that a callback was keyed. So in 1.5 we are making this behavior explicit. If you want keyed you should specify it via attribute:
 
-```ts
+```js
 // re-render whenever user changes
-<Show when={user()} keyed>{
-  user => <div>{user.name}</div>
-}</Show>
+
+// normal
+<Show when={user()} keyed>
+  <div>{user().name}</div>
+</Show>
+
+// callback
+<Show when={user()} keyed>
+  {user => <div>{user.name}</div>}
+</Show>
 ```
 
-`keyed` also works on the non-callback form. However, to not be breaking if a callback is present we will assume it's keyed. We still recommend you start adding these attributes as this will open up a non-keyed callback form:
+However, to not be breaking if a callback is present we will assume it's keyed. We still recommend you start adding these attributes (and TS will fail without them).
 
-```ts
-<Show when={user()}>{
-  user => <div>{user().name}</div>
-}</Show>
-```
-Why have a non-keyed callback form if you can access variables from the outside and it won't re-render? Type narrowing. Although we can't release this currently as it is a breaking change it is coming in a future release.
+In the future we will introduce a non-keyed callback form as well so users can benefit from type narrowing in that case as well.
 
 ### Other Improvements
 
 ### `children.toArray`
 
 Children helper now has the ability to be coerced to an array:
+
 ```js
 const resolved = children(() => props.children);
-resolve.toArray() // definitely an array
+resolved.toArray(); // definitely an array
 ```
 
 #### Better SSR Spreads
