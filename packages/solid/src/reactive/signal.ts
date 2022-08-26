@@ -1537,9 +1537,7 @@ function runUserEffects(queue: Computation<any>[]) {
     else queue[userLength++] = e;
   }
   if (sharedConfig.context) setHydrateContext();
-  Effects = [];
   for (i = 0; i < userLength; i++) runTop(queue[i]);
-  if (Effects.length) runUserEffects(Effects);
 }
 
 function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
