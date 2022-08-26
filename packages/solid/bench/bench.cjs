@@ -249,7 +249,7 @@ function updateComputations2to1(n, sources) {
 
 function updateComputations4to1(n, sources) {
   var [get1, set1] = sources[0],
-    [get2] = sources[1];
+    [get2] = sources[1],
     [get3] = sources[2],
     [get4] = sources[3];
   createComputed(function () { return get1() + get2() + get3() + get4(); });
