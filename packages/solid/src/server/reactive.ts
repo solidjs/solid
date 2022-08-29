@@ -223,10 +223,10 @@ function resolveChildren(children: any): unknown {
 
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
-    return createMemo(() => {
+    return createMemo<JSX.Element>(() => {
       Owner!.context = { [id]: props.value };
       return children(() => props.children);
-    }) as unknown as JSX.Element;
+    });
   };
 }
 

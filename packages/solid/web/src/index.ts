@@ -112,9 +112,9 @@ type DynamicProps<T extends ValidComponent> = ComponentProps<T> & {
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
-  const cached = createMemo(() => p.component)
+  const cached = createMemo<Function | string>(() => p.component)
   return createMemo(() => {
-    const component = cached() as Function | string;
+    const component = cached();
     switch (typeof component) {
       case "function":
         if ("_DX_DEV_") Object.assign(component, { [$DEVCOMP]: true });
