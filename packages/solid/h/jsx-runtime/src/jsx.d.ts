@@ -283,9 +283,10 @@ export namespace JSX {
     onanimationiteration?: EventHandlerUnion<T, AnimationEvent>;
     ontransitionend?: EventHandlerUnion<T, TransitionEvent>;
   }
-  
+
   interface CSSProperties extends csstype.PropertiesHyphen {
     // Override
+    [key: `—${string}`]: string | number | undefined
   }
 
   type HTMLAutocapitalize = "off" | "none" | "on" | "sentences" | "words" | "characters";
@@ -527,6 +528,77 @@ export namespace JSX {
     "aria-valuenow"?: number | string;
     /** Defines the human readable text alternative of aria-valuenow for a range widget. */
     "aria-valuetext"?: string;
+    role?: FunctionMaybe<
+    | "alert"
+    | "alertdialog"
+    | "application"
+    | "article"
+    | "banner"
+    | "button"
+    | "cell"
+    | "checkbox"
+    | "columnheader"
+    | "combobox"
+    | "complementary"
+    | "contentinfo"
+    | "definition"
+    | "dialog"
+    | "directory"
+    | "document"
+    | "feed"
+    | "figure"
+    | "form"
+    | "grid"
+    | "gridcell"
+    | "group"
+    | "heading"
+    | "img"
+    | "link"
+    | "list"
+    | "listbox"
+    | "listitem"
+    | "log"
+    | "main"
+    | "marquee"
+    | "math"
+    | "menu"
+    | "menubar"
+    | "menuitem"
+    | "menuitemcheckbox"
+    | "menuitemradio"
+    | "meter"
+    | "navigation"
+    | "none"
+    | "note"
+    | "option"
+    | "presentation"
+    | "progressbar"
+    | "radio"
+    | "radiogroup"
+    | "region"
+    | "row"
+    | "rowgroup"
+    | "rowheader"
+    | "scrollbar"
+    | "search"
+    | "searchbox"
+    | "separator"
+    | "slider"
+    | "spinbutton"
+    | "status"
+    | "switch"
+    | "tab"
+    | "table"
+    | "tablist"
+    | "tabpanel"
+    | "term"
+    | "textbox"
+    | "timer"
+    | "toolbar"
+    | "tooltip"
+    | "tree"
+    | "treegrid"
+    | "treeitem">;
   }
 
   interface HTMLAttributes<T> extends AriaAttributes, DOMAttributes<T> {
@@ -552,77 +624,6 @@ export namespace JSX {
     resource?: FunctionMaybe<string>;
     typeof?: FunctionMaybe<string>;
     vocab?: FunctionMaybe<string>;
-    role?: FunctionMaybe<
-      | "alert"
-      | "alertdialog"
-      | "application"
-      | "article"
-      | "banner"
-      | "button"
-      | "cell"
-      | "checkbox"
-      | "columnheader"
-      | "combobox"
-      | "complementary"
-      | "contentinfo"
-      | "definition"
-      | "dialog"
-      | "directory"
-      | "document"
-      | "feed"
-      | "figure"
-      | "form"
-      | "grid"
-      | "gridcell"
-      | "group"
-      | "heading"
-      | "img"
-      | "link"
-      | "list"
-      | "listbox"
-      | "listitem"
-      | "log"
-      | "main"
-      | "marquee"
-      | "math"
-      | "menu"
-      | "menubar"
-      | "menuitem"
-      | "menuitemcheckbox"
-      | "menuitemradio"
-      | "meter"
-      | "navigation"
-      | "none"
-      | "note"
-      | "option"
-      | "presentation"
-      | "progressbar"
-      | "radio"
-      | "radiogroup"
-      | "region"
-      | "row"
-      | "rowgroup"
-      | "rowheader"
-      | "scrollbar"
-      | "search"
-      | "searchbox"
-      | "separator"
-      | "slider"
-      | "spinbutton"
-      | "status"
-      | "switch"
-      | "tab"
-      | "table"
-      | "tablist"
-      | "tabpanel"
-      | "term"
-      | "textbox"
-      | "timer"
-      | "toolbar"
-      | "tooltip"
-      | "tree"
-      | "treegrid"
-      | "treeitem">;
     autocapitalize?: FunctionMaybe<HTMLAutocapitalize>;
     slot?: FunctionMaybe<string>;
     color?: FunctionMaybe<string>;
@@ -1082,7 +1083,7 @@ export namespace JSX {
     | "defer xMidYMax slice"
     | "defer xMaxYMax slice";
   type SVGUnits = "userSpaceOnUse" | "objectBoundingBox";
-  interface CoreSVGAttributes<T> extends DOMAttributes<T> {
+  interface CoreSVGAttributes<T> extends AriaAttributes, DOMAttributes<T> {
     id?: FunctionMaybe<string>;
     lang?: FunctionMaybe<string>;
     tabIndex?: FunctionMaybe<number | string>;

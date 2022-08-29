@@ -547,8 +547,7 @@ export function createResource<T, S, R>(
     options = pOptions || ({} as ResourceOptions<T, S>);
   }
 
-  let err: unknown = undefined,
-    pr: Promise<T> | null = null,
+  let pr: Promise<T> | null = null,
     initP: Promise<T> | T | typeof NO_INIT = NO_INIT,
     id: string | null = null,
     loadedUnderTransition: boolean | null = false,
@@ -558,7 +557,10 @@ export function createResource<T, S, R>(
       typeof source === "function" && createMemo(source as () => S | false | null | undefined);
 
   const contexts = new Set<SuspenseContextType>(),
-    [value, setValue] = (options.storage || createSignal)(options.initialValue) as Signal<T | undefined>,
+    [value, setValue] = (options.storage || createSignal)(options.initialValue) as Signal<
+      T | undefined
+    >,
+    [error, setError] = createSignal<unknown>(undefined),
     [track, trigger] = createSignal(undefined, { equals: false }),
     [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "errored">(
       resolved ? "ready" : "unresolved"
@@ -570,7 +572,7 @@ export function createResource<T, S, R>(
     if (options.ssrLoadFrom === "initial") initP = options.initialValue as T;
     else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v[0];
   }
-  function loadEnd(p: Promise<T> | null, v: T | undefined, success: boolean, key?: S) {
+  function loadEnd(p: Promise<T> | null, v: T | undefined, error?: any, key?: S) {
     if (pr === p) {
       pr = null;
       resolved = true;
@@ -586,17 +588,17 @@ export function createResource<T, S, R>(
             Effects!.push.apply(Effects, Transition!.effects);
             Transition!.effects = [];
           }
-          completeLoad(v, success);
+          completeLoad(v, error);
         }, false);
-      } else completeLoad(v, success);
+      } else completeLoad(v, error);
     }
     return v;
   }
-  function completeLoad(v: T | undefined, success: boolean) {
-    !success && (err = castError(v));
+  function completeLoad(v: T | undefined, err: any) {
     runUpdates(() => {
-      setValue(() => v);
-      setState(success ? "ready" : "errored");
+      if (!err) setValue(() => v);
+      setError(err);
+      setState(err ? "errored" : "ready");
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     }, false);
@@ -604,8 +606,9 @@ export function createResource<T, S, R>(
 
   function read() {
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
-      v = value();
-    if (err) throw err;
+      v = value(),
+      err = error();
+    if (err && !pr) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
         track();
@@ -623,11 +626,10 @@ export function createResource<T, S, R>(
   function load(refetching: R | boolean = true) {
     if (refetching !== false && scheduled) return;
     scheduled = false;
-    err = undefined;
     const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = Transition && Transition.running;
     if (lookup == null || lookup === false) {
-      loadEnd(pr, untrack(value), true);
+      loadEnd(pr, untrack(value));
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
@@ -641,7 +643,7 @@ export function createResource<T, S, R>(
             })
           );
     if (typeof p !== "object" || !("then" in p)) {
-      loadEnd(pr, p, true);
+      loadEnd(pr, p);
       return p;
     }
     pr = p;
@@ -652,34 +654,31 @@ export function createResource<T, S, R>(
       trigger();
     }, false);
     return p.then(
-      v => loadEnd(p, v, true, lookup),
-      e => loadEnd(p, e, false)
+      v => loadEnd(p, v, undefined, lookup),
+      e => loadEnd(p, undefined, castError(e))
     ) as Promise<T>;
   }
   Object.defineProperties(read, {
     state: { get: () => state() },
+    error: { get: () => error() },
     loading: {
       get() {
         const s = state();
         return s === "pending" || s === "refreshing";
       }
     },
-    error: {
-      get() {
-        return state() === "errored" ? err : undefined;
-      }
-    },
     latest: {
       get() {
         if (!resolved) return read();
-        if (state() === "errored") throw err;
+        const err = error();
+        if (err && !pr) throw err;
         return value();
       }
     }
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: setValue }];
+  return [read as Resource<T>, { refetch: load, mutate: setValue } as ResourceActions<T>];
 }
 
 export interface DeferredOptions<T> {
