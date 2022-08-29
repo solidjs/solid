@@ -681,7 +681,7 @@ export function createResource<T, S, R>(
   });
   if (dynamic) createComputed(() => load(false));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: setValue } as ResourceActions<T>];
+  return [read as Resource<T>, { refetch: load, mutate: setValue }];
 }
 
 export interface DeferredOptions<T> {
