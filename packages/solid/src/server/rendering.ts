@@ -578,7 +578,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
   });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.async) {
-    setHydrateContext(undefined);
+    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f", noHydrate: true });
     const res = { t: `<span id="pl-${id}">${resolveSSRNode(props.fallback)}</span>` };
     setHydrateContext(ctx);
     return res;
