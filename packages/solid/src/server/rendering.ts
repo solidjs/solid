@@ -275,7 +275,6 @@ export interface Resource<T> {
 
 type SuspenseContextType = {
   resources: Map<string, { loading: boolean; error: any }>;
-  complete: boolean;
   completed: () => void;
 };
 
@@ -345,7 +344,7 @@ export function createResource<T, S>(
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.context!.id + sharedConfig.context!.count++;
   let resource: { ref?: any; data?: T } = {};
-  let value = options.storage ? options.storage(options.initialValue)[0](): options.initialValue;
+  let value = options.storage ? options.storage(options.initialValue)[0]() : options.initialValue;
   let p: Promise<T> | T | null;
   let error: any;
   if (sharedConfig.context!.async && options.ssrLoadFrom !== "initial") {
@@ -446,7 +445,6 @@ export function lazy<T extends Component<any>>(
     return p;
   };
   const contexts = new Set<SuspenseContextType>();
-  setTimeout(load);
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
@@ -459,11 +457,14 @@ export function lazy<T extends Component<any>>(
       ctx.resources.set(id, track);
       contexts.add(ctx);
     }
-    if (sharedConfig.context!.async)
-      p.then(() => {
-        track.loading = false;
-        notifySuspense(contexts);
-      });
+    if (sharedConfig.context!.async) {
+      sharedConfig.context!.block(
+        p.then(() => {
+          track.loading = false;
+          notifySuspense(contexts);
+        })
+      );
+    }
     return "";
   };
   wrap.preload = load;
@@ -471,11 +472,10 @@ export function lazy<T extends Component<any>>(
 }
 
 function suspenseComplete(c: SuspenseContextType) {
-  if (c.complete) return true;
   for (const r of c.resources.values()) {
     if (r.loading) return false;
   }
-  return (c.complete = true);
+  return true;
 }
 
 function notifySuspense(contexts: Set<SuspenseContextType>) {
@@ -512,6 +512,7 @@ type HydrationContext = {
     deferStream?: boolean
   ) => void;
   replace: (id: string, replacement: () => any) => void;
+  block: (p: Promise<any>) => void;
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
@@ -547,8 +548,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
         if (suspenseComplete(value)) {
           done!(resolveSSRNode(res));
         }
-      },
-      complete: false
+      }
     });
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
