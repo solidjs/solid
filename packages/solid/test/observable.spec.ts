@@ -58,7 +58,7 @@ describe("Observable operator", () => {
 
 describe("from transform", () => {
   test("from subscribable", async () => {
-    let out: () => string;
+    let out: () => string | undefined;
     let set: (v: string) => void;
     createRoot(() => {
       const [s, _set] = createSignal("Hi"),
@@ -73,7 +73,7 @@ describe("from transform", () => {
   });
 
   test("from producer", async () => {
-    let out: () => string;
+    let out: () => string | undefined;
     let set: (v: string) => void;
     createRoot(() => {
       const [s, _set] = createSignal("Hi"),

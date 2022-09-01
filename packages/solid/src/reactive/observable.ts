@@ -1,4 +1,4 @@
-import { Accessor, createEffect, createRoot, createSignal, getOwner, onCleanup, Setter, untrack } from "./signal.js";
+import { Accessor, createEffect, createRoot, createSignal, getOwner, onCleanup, Setter, Signal, untrack } from "./signal.js";
 
 // Note: This will add Symbol.observable globally for all TypeScript users,
 // however, we are not polyfilling Symbol.observable. Ensuring the type for
@@ -69,10 +69,10 @@ export function observable<T>(input: Accessor<T>) {
   };
 }
 
-export function from<T>(producer: ((setter: Setter<T>) => () => void) | {
+export function from<T>(producer: ((setter: Setter<T | undefined>) => () => void) | {
   subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
-}): Accessor<T> {
-  const [s, set] = createSignal<T | undefined>(undefined, { equals: false }) as [Accessor<T>, Setter<T>];
+}): Accessor<T | undefined> {
+  const [s, set] = createSignal<T | undefined>(undefined, { equals: false });
   if ("subscribe" in producer) {
     const unsub = producer.subscribe((v) => set(() => v));
     onCleanup(() => "unsubscribe" in unsub ? unsub.unsubscribe() : unsub())
