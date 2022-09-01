@@ -27,6 +27,7 @@ export {
   from,
   $PROXY,
   $DEVCOMP,
+  $TRACK,
   DEV,
   enableExternalSource
 } from "./reactive.js";
