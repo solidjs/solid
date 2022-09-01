@@ -31,7 +31,7 @@ let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
 let rootCount = 0;
 
-// keep immdiately evaluated module code, below its indirect declared let dependencies like Listener
+// keep immediately evaluated module code, below its indirect declared let dependencies like Listener
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
 declare global {
