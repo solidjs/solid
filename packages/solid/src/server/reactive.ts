@@ -77,7 +77,7 @@ export const createRenderEffect = createComputed;
 
 export function createEffect<T>(fn: (v?: T) => T, value?: T): void {}
 
-export function delegateEvent<T>(fn: (v?: T) => T, value?: T): void {}
+export function delegateEvents<T>(fn: (v?: T) => T, value?: T): void {}
 
 export function createReaction(fn: () => void) {
   return (fn: () => void) => {

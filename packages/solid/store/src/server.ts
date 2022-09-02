@@ -109,7 +109,7 @@ type ReconcileOptions = {
 };
 
 // Diff method for setStore
-export function reconcile<T extends U, U>(
+export function reconcile<T extends U, U extends Object>(
   value: T,
   options: ReconcileOptions = {}
 ): (state: U) => T {

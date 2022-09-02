@@ -218,7 +218,7 @@ export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
   Omit<T, K[number][number]>
 ];
 
-export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]>(
+export function splitProps<T extends Object, K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]>(
   props: T,
   ...keys: K
 ): SplitProps<T, K> {
