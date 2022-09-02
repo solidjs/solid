@@ -18,10 +18,10 @@
     "build": "pnpm run clean && tsc"
   },
   "dependencies": {
-    "component-register": "~0.8.2"
+    "component-register": "0.8.3"
   },
   "peerDependencies": {
-    "solid-js": "^1.0.0"
+    "solid-js": "^1.5.3"
   },
   "devDependencies": {
     "solid-js": "workspace:*"

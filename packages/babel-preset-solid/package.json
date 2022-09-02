@@ -17,6 +17,6 @@
     "babel-plugin-jsx-dom-expressions": "^0.34.2"
   },
   "peerDependencies": {
-    "@babel/core": "^7.0.0"
+    "@babel/core": "^7.18.13"
   }
 }
