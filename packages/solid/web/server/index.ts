@@ -17,7 +17,9 @@ export {
 
 export const isServer = true;
 
+export function insert() {}
 export function spread() {}
+export function delegateEvents(): void {}
 
 export function Dynamic<T>(
   props: T & { children?: any; component?: Component<T> | string | keyof JSX.IntrinsicElements }
