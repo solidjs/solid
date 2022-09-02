@@ -476,10 +476,7 @@ export type InitializedResourceOptions<T, S = unknown> = ResourceOptions<T, S> &
   initialValue: T;
 };
 
-export type ResourceReturn<T, R = unknown> = [
-  Resource<T>,
-  ResourceActions<T | undefined, R>
-];
+export type ResourceReturn<T, R = unknown> = [Resource<T>, ResourceActions<T | undefined, R>];
 
 export type InitializedResourceReturn<T, R = unknown> = [
   InitializedResource<T>,
@@ -1027,9 +1024,13 @@ export function resumeEffects(e: Computation<any>[]) {
   e.length = 0;
 }
 
+export interface DevComponent<T> extends Partial<Memo<JSX.Element, JSX.Element>> {
+  props: T;
+}
+
 // Dev
 export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
-  const c: Partial<Memo<JSX.Element, JSX.Element>> = createComputation<JSX.Element, JSX.Element>(
+  const c = createComputation<JSX.Element, JSX.Element>(
     () =>
       untrack(() => {
         Object.assign(Comp, { [$DEVCOMP]: true });
@@ -1037,7 +1038,8 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
       }),
     undefined,
     true
-  );
+  ) as DevComponent<T>;
+  c.props = props;
   c.observers = null;
   c.observerSlots = null;
   c.state = 0;
