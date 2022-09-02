@@ -8,6 +8,7 @@ export {
   createDeferred,
   createSelector,
   createMemo,
+  delegateEvent,
   getListener,
   onMount,
   onCleanup,
