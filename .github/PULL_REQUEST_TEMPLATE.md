@@ -5,10 +5,10 @@
   Before submitting a pull request, please make sure the following is done:
 
   1. Fork [the repository](https://github.com/solidjs/solid) and create your branch from `main`.
-  2. Run `npm i` in the repository root.
+  2. Run `pnpm i` in the repository root.
   3. If you've fixed a bug or added code that should be tested, add tests!
-  4. You should run `npm run build` before running any tests as it copies some files in that are required for Solid to work.
-  5. Ensure the test suite passes (`npm test`).
+  4. You should run `pnpm build` before running any tests as it copies some files in that are required for Solid to work.
+  5. Ensure the test suite passes (`pnpm test`).
   6. Format your code with [prettier](https://github.com/prettier/prettier).
   7. Commit with conventional commits standards
 -->
