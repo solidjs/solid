@@ -1024,13 +1024,14 @@ export function resumeEffects(e: Computation<any>[]) {
   e.length = 0;
 }
 
-export interface DevComponent<T> extends Partial<Memo<JSX.Element, JSX.Element>> {
+export interface DevComponent<T> extends Memo<JSX.Element> {
   props: T;
+  componentName: string;
 }
 
 // Dev
 export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
-  const c = createComputation<JSX.Element, JSX.Element>(
+  const c = createComputation(
     () =>
       untrack(() => {
         Object.assign(Comp, { [$DEVCOMP]: true });
@@ -1044,7 +1045,7 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   c.observerSlots = null;
   c.state = 0;
   c.componentName = Comp.name;
-  updateComputation(c as Memo<JSX.Element>);
+  updateComputation(c);
   return c.tValue !== undefined ? c.tValue : c.value;
 }
 
