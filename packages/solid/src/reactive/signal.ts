@@ -642,7 +642,7 @@ export function createResource<T, S, R>(
               refetching
             })
           );
-    if (typeof p !== "object" || !("then" in p)) {
+    if (typeof p !== "object" || !(p && "then" in p)) {
       loadEnd(pr, p);
       return p;
     }
