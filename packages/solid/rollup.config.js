@@ -2,7 +2,7 @@ import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath } from "node:url";
 
 const plugins = [
   nodeResolve({
@@ -48,7 +48,7 @@ export default [
         '"_SOLID_DEV_"': false,
         preventAssignment: true,
         delimiters: ["", ""]
-      }),
+      })
     ].concat(plugins)
   },
   {
@@ -149,7 +149,7 @@ export default [
         '"_DX_DEV_"': false,
         preventAssignment: true,
         delimiters: ["", ""]
-      }),
+      })
     ].concat(plugins)
   },
   {
@@ -200,7 +200,7 @@ export default [
         '"_DX_DEV_"': false,
         preventAssignment: true,
         delimiters: ["", ""]
-      }),
+      })
     ].concat(plugins)
   },
   {
