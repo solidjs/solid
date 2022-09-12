@@ -50,6 +50,7 @@ export const hydrate: typeof hydrateCore = (...args) => {
  * @description https://www.solidjs.com/docs/latest/api#%3Cportal%3E
  */
 export function Portal<T extends boolean = false, S extends boolean = false>(props: {
+  withoutContainer?: boolean;
   mount?: Node;
   useShadow?: T;
   isSVG?: S;
@@ -83,7 +84,9 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
       else cleanup();
     });
   } else {
-    const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
+    const container = props.withoutContainer
+        ? document.createDocumentFragment()
+        : createElement(props.isSVG ? "g" : "div", props.isSVG),
       renderRoot =
         useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
 
