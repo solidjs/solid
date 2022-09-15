@@ -1,6 +1,6 @@
 {
   "name": "babel-preset-solid",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Babel preset to transform JSX for Solid.js",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
   "homepage": "https://github.com/solidjs/solid/blob/main/packages/babel-preset-solid#readme",
