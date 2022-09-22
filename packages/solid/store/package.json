@@ -26,6 +26,20 @@
         },
         "require": "./dist/store.cjs"
       },
+      "deno": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": "./dist/server.cjs"
+      },
+      "worker": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": "./dist/server.cjs"
+      },
       "node": {
         "import": {
           "types": "./types/index.d.ts",

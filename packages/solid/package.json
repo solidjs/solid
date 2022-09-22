@@ -58,6 +58,20 @@
         },
         "require": "./dist/solid.cjs"
       },
+      "deno": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": "./dist/server.cjs"
+      },
+      "worker": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": "./dist/server.cjs"
+      },
       "node": {
         "import": {
           "types": "./types/index.d.ts",
@@ -98,6 +112,20 @@
         },
         "require": "./store/dist/store.cjs"
       },
+      "deno": {
+        "import": {
+          "types": "./store/types/index.d.ts",
+          "default": "./store/dist/server.js"
+        },
+        "require": "./store/dist/server.cjs"
+      },
+      "worker": {
+        "import": {
+          "types": "./store/types/index.d.ts",
+          "default": "./store/dist/server.js"
+        },
+        "require": "./store/dist/server.cjs"
+      },
       "node": {
         "import": {
           "types": "./store/types/index.d.ts",
@@ -133,6 +161,20 @@
           "default": "./web/dist/web.js"
         },
         "require": "./web/dist/web.cjs"
+      },
+      "deno": {
+        "import": {
+          "types": "./web/types/index.d.ts",
+          "default": "./web/dist/server.js"
+        },
+        "require": "./web/dist/server.cjs"
+      },
+      "worker": {
+        "import": {
+          "types": "./web/types/index.d.ts",
+          "default": "./web/dist/server.js"
+        },
+        "require": "./web/dist/server.cjs"
       },
       "node": {
         "import": {
