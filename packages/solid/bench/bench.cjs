@@ -1,4 +1,4 @@
-const { createRoot, createSignal, createComputed } = require("../dist/solid.cjs");
+const { createRoot, createSignal, createComputed } = require("./libraries/usignal.cjs");
 
 var now = typeof process === 'undefined' ? browserNow : nodeNow;
 

@@ -3,7 +3,6 @@ const signalOptions = {
   equals: equalFn
 };
 let runEffects = runQueue;
-const NOTPENDING = {};
 const UNOWNED = {
   owned: null,
   cleanups: null,
@@ -12,7 +11,6 @@ const UNOWNED = {
 };
 var Owner = null;
 let Listener = null;
-let Pending = null;
 let Effects = null;
 let ExecCount = 0;
 function createRoot(fn, detachedOwner) {
@@ -45,14 +43,13 @@ function createSignal(value, options) {
     value,
     observers: null,
     observerSlots: null,
-    pending: NOTPENDING,
     comparator: options.equals || undefined
   };
   return [
     readSignal.bind(s),
     value => {
       if (typeof value === "function") {
-        value = value(s.pending !== NOTPENDING ? s.pending : s.value);
+        value = value(s.value);
       }
       if (writeSignal(s, value) && s.observers && s.observers.length) {
         runUpdates(() => {
@@ -70,7 +67,6 @@ function createComputed(fn, value) {
 function createMemo(fn, value, options) {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const c = createComputation(fn, value, true);
-  c.pending = NOTPENDING;
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
@@ -79,28 +75,7 @@ function createMemo(fn, value, options) {
 }
 
 function batch(fn) {
-  if (Pending) return fn();
-  let result;
-  const q = (Pending = []);
-  try {
-    result = fn();
-  } finally {
-    Pending = null;
-  }
-  runUpdates(() => {
-    for (let i = 0; i < q.length; i += 1) {
-      const node = q[i];
-      if (node.pending !== NOTPENDING) {
-        const pending = node.pending;
-        node.pending = NOTPENDING;
-        if (writeSignal(node, pending) && node.observers && node.observers.length) {
-          markDownstream(node, false, true, true);
-        } else q[i] = null;
-      }
-    }
-    for (let i = 0; i < q.length; i += 1) q[i] && runImmediate(q[i]);
-  });
-  return result;
+  return runUpdates(fn);
 }
 function untrack(fn) {
   let result,
@@ -132,11 +107,6 @@ function readSignal() {
   return this.value;
 }
 function writeSignal(node, value) {
-  if (Pending) {
-    if (node.pending === NOTPENDING) Pending.push(node);
-    node.pending = value;
-    return;
-  }
   if (node.comparator && node.comparator(node.value, value)) return;
   node.value = value;
   return true;
@@ -204,19 +174,18 @@ function runUpdates(fn) {
   else Effects = [];
   ExecCount++;
   try {
-    fn();
-  } finally {
+    const res = fn();
     completeUpdates(wait);
+    return res;
+  } finally {
+    if (!wait) Effects = null;
   }
 }
 function completeUpdates(wait) {
   if (wait) return;
-  if (Effects.length) {
-    batch(() => {
-      runEffects(Effects);
-      Effects = null;
-    });
-  } else Effects = null;
+  const e = Effects;
+  Effects = null;
+  if (e.length) runUpdates(() => runEffects(e));
 }
 function runQueue(queue) {
   for (let i = 0; i < queue.length; i++) queue[i].stale && runTop(queue[i]);

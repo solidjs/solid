@@ -3,7 +3,6 @@ const signalOptions = {
   equals: equalFn
 };
 let runEffects = runQueue;
-const NOTPENDING = {};
 const UNOWNED = {
   owned: null,
   cleanups: null,
@@ -12,7 +11,6 @@ const UNOWNED = {
 };
 var Owner = null;
 let Listener = null;
-let Pending = null;
 let Effects = null;
 let ExecCount = 0;
 function createRoot(fn, detachedOwner) {
@@ -47,7 +45,6 @@ function createSignal(value, options) {
     observerSlot: 0,
     observers: null,
     observerSlots: null,
-    pending: NOTPENDING,
     comparator: options.equals || undefined
   };
   return [
@@ -57,7 +54,7 @@ function createSignal(value, options) {
     },
     value => {
       if (typeof value === "function") {
-        value = value(s.pending !== NOTPENDING ? s.pending : s.value);
+        value = value(s.value);
       }
       if (writeSignal(s, value) && (s.observer || s.observers)) {
         markDownstream(s, false, true, true);
@@ -87,32 +84,7 @@ function createMemo(fn, value, options) {
 }
 
 function batch(fn) {
-  if (Pending) return fn();
-  let result;
-  const q = (Pending = []);
-  try {
-    result = fn();
-  } finally {
-    Pending = null;
-  }
-  if (q.length) {
-    let update = false;
-    for (let i = 0; i < q.length; i += 1) {
-      const node = q[i];
-      if (node.pending !== NOTPENDING) {
-        const pending = node.pending;
-        node.pending = NOTPENDING;
-        if (writeSignal(node, pending) && (node.observer || node.observers)) {
-          update = true;
-          markDownstream(node, false, true, true);
-        } else q[i] = null;
-      }
-    }
-    update && runUpdates(() => {
-      for (let i = 0; i < q.length; i += 1) q[i] && runImmediate(q[i]);
-    });
-  }
-  return result;
+  return runUpdates(fn);
 }
 function untrack(fn) {
   let result,
@@ -152,11 +124,6 @@ function logRead(node) {
   }
 }
 function writeSignal(node, value) {
-  if (Pending) {
-    if (node.pending === NOTPENDING) Pending.push(node);
-    node.pending = value;
-    return;
-  }
   if (node.comparator && node.comparator(node.value, value)) return;
   node.value = value;
   return true;
@@ -168,14 +135,13 @@ function updateComputation(node, init) {
     listener = Listener,
     time = ExecCount;
   Listener = Owner = node;
-  runComputation(node, node.value, time, init);
+  runComputation(node, node.value, time);
   Listener = listener;
   Owner = owner;
 }
-function runComputation(node, value, time, init) {
+function runComputation(node, value, time) {
   let nextValue;
-  if (!init && node.pure && !("observer" in node)) nextValue = batch(() => node.fn(value));
-  else nextValue = node.fn(value);
+  nextValue = node.fn(value);
   if (!node.updatedAt || node.updatedAt <= time) {
     if (node.observer || (node.observers && node.observers.length)) {
       markDownstream(node, !writeSignal(node, nextValue));
@@ -222,22 +188,23 @@ function runTop(node) {
   }
 }
 function runUpdates(fn) {
+  let wait = false;
+  if (Effects) wait = true;
+  else Effects = [];
   ExecCount++;
-  if (Effects) return fn();
-  Effects = [];
   try {
-    fn();
+    const res = fn();
+    completeUpdates(wait);
+    return res;
   } finally {
-    completeUpdates();
+    if (!wait) Effects = null;
   }
 }
-function completeUpdates() {
-  if (Effects.length) {
-    batch(() => {
-      runEffects(Effects);
-      Effects = null;
-    });
-  } else Effects = null;
+function completeUpdates(wait) {
+  if (wait) return;
+  const e = Effects;
+  Effects = null;
+  if (e.length) runUpdates(() => runEffects(e));
 }
 function runQueue(queue) {
   for (let i = 0; i < queue.length; i++) queue[i].stale && runTop(queue[i]);

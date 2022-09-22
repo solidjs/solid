@@ -4,7 +4,6 @@ const signalOptions = {
 };
 let ERROR = null;
 let runEffects = runQueue;
-const NOTPENDING = {};
 const STALE = 1;
 const PENDING = 2;
 const UNOWNED = {
@@ -15,7 +14,6 @@ const UNOWNED = {
 };
 var Owner = null;
 let Listener = null;
-let Pending = null;
 let Updates = null;
 let Effects = null;
 let ExecCount = 0;
@@ -51,7 +49,6 @@ function createSignal(value, options) {
     observerSlot: 0,
     observers: null,
     observerSlots: null,
-    pending: NOTPENDING,
     comparator: options.equals || undefined
   };
   return [
@@ -61,7 +58,7 @@ function createSignal(value, options) {
     },
     value => {
       if (typeof value === "function") {
-        value = value(s.pending !== NOTPENDING ? s.pending : s.value);
+        value = value(s.value);
       }
       return writeSignal(s, value);
     }
@@ -73,7 +70,6 @@ function createComputed(fn, value) {
 function createMemo(fn, value, options) {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const c = createComputation(fn, value, true, 0);
-  c.pending = NOTPENDING;
   c.observer = null;
   c.observerSlot = 0;
   c.observers = null;
@@ -93,25 +89,7 @@ function createMemo(fn, value, options) {
 }
 
 function batch(fn) {
-  if (Pending) return fn();
-  let result;
-  const q = (Pending = []);
-  try {
-    result = fn();
-  } finally {
-    Pending = null;
-  }
-  runUpdates(() => {
-    for (let i = 0; i < q.length; i += 1) {
-      const data = q[i];
-      if (data.pending !== NOTPENDING) {
-        const pending = data.pending;
-        data.pending = NOTPENDING;
-        writeSignal(data, pending);
-      }
-    }
-  }, false);
-  return result;
+  return runUpdates(fn, false);
 }
 function untrack(fn) {
   let result,
@@ -152,11 +130,6 @@ function logRead(node) {
   }
 }
 function writeSignal(node, value) {
-  if (Pending) {
-    if (node.pending === NOTPENDING) Pending.push(node);
-    node.pending = value;
-    return value;
-  }
   if (node.comparator) {
     if (node.comparator(node.value, value)) return value;
   }
@@ -255,9 +228,12 @@ function runUpdates(fn, init) {
   else Effects = [];
   ExecCount++;
   try {
-    fn();
-  } finally {
+    const res = fn();
     completeUpdates(wait);
+    return res;
+  } finally {
+    Updates = null;
+    if (!wait) Effects = null;
   }
 }
 function completeUpdates(wait) {
@@ -266,14 +242,9 @@ function completeUpdates(wait) {
     Updates = null;
   }
   if (wait) return;
-  if (Effects.length)
-    batch(() => {
-      runEffects(Effects);
-      Effects = null;
-    });
-  else {
-    Effects = null;
-  }
+  const e = Effects;
+  Effects = null;
+  if (e.length) runUpdates(() => runEffects(e), false);
 }
 function runQueue(queue) {
   for (let i = 0; i < queue.length; i++) runTop(queue[i]);
