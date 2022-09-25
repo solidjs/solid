@@ -1910,6 +1910,7 @@ export namespace JSX {
     progress: ProgressHTMLAttributes<HTMLProgressElement>;
     q: QuoteHTMLAttributes<HTMLQuoteElement>;
     rp: HTMLAttributes<HTMLElement>;
+    rb: HTMLAttributes<HTMLElement>;
     rt: HTMLAttributes<HTMLElement>;
     ruby: HTMLAttributes<HTMLElement>;
     s: HTMLAttributes<HTMLElement>;
