@@ -100,9 +100,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   return marker;
 }
 
-type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
-
-type DynamicProps<T extends ValidComponent> = Expand<ComponentProps<T>> & {
+type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = { [K in keyof P]: P[K] } & {
   component: T | undefined;
 };
 /**
