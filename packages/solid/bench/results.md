@@ -1,5 +1,7 @@
 # Benchmark Results (22/09/2022)
 
+This benchmark is mostly to serve Solid's own R&D. Everything is co-erced to Solid's API shape as that is a necessity here. While most libaries presented are unsuitable for Solid's rendering because of missing features/capabilities it is still useful to help gauge where the implementations fall. In most UI libraries you'd be bringing in overhead from a VDOM or other rendering model where Solid's reactivity takes the brunt of that cost.
+
 ## Released Libraries
 
 ### Solid
@@ -27,6 +29,32 @@ updateComputations1to4: 28
 updateComputations1to1000: 26
 update total: 176
 total: 327
+```
+
+### S.js
+
+```
+createDataSignals: 4
+createComputations0to1: 3
+createComputations1to1: 15
+createComputations2to1: 13
+createComputations4to1: 15
+createComputations1000to1: 16
+createComputations1to2: 16
+createComputations1to4: 15
+createComputations1to8: 10
+createComputations1to1000: 9
+create total: 116
+---
+updateComputations1to1: 18
+updateComputations2to1: 14
+updateComputations4to1: 11
+updateComputations1000to1: 19
+updateComputations1to2: 18
+updateComputations1to4: 19
+updateComputations1to1000: 15
+update total: 115
+total: 232
 ```
 
 ### Kairo
