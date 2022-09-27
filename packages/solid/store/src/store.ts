@@ -158,8 +158,14 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   has(target, property) {
-    if (property === $RAW || property === $PROXY || property === $TRACK ||
-        property === $NODE || property === "__proto__") return true;
+    if (
+      property === $RAW ||
+      property === $PROXY ||
+      property === $TRACK ||
+      property === $NODE ||
+      property === "__proto__"
+    )
+      return true;
     const tracked = getDataNodes(target)[property];
     tracked && tracked();
     return property in target;
@@ -180,7 +186,12 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(state: StoreNode, property: PropertyKey, value: any, deleting: boolean = false) {
+export function setProperty(
+  state: StoreNode,
+  property: PropertyKey,
+  value: any,
+  deleting: boolean = false
+) {
   if (!deleting && state[property] === value) return;
   const prev = state[property];
   const len = state.length;
@@ -423,13 +434,13 @@ export function createStore<T extends object = {}>(
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
     );
-  const wrappedStore = wrap(
-    unwrappedStore,
-    "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
-  );
+  const wrappedStore = wrap(unwrappedStore, "_SOLID_DEV_" && options && options.name);
   if ("_SOLID_DEV_") {
-    const name = (options && options.name) || DEV.hashValue(unwrappedStore);
-    DEV.registerGraph(name, { value: unwrappedStore });
+    const s: { value: unknown; name?: string; id?: string } = {
+      value: unwrappedStore,
+      name: options && options.name
+    };
+    s.id = DEV.registerGraph(undefined, s);
   }
   function setStore(...args: any[]): void {
     batch(() => {

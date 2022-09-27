@@ -29,7 +29,8 @@ let Listener: Computation<any> | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
-let rootCount = 0;
+let ownerCount = 0;
+let signalCount = 0;
 
 // keep immediately evaluated module code, below its indirect declared let dependencies like Listener
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
@@ -40,12 +41,13 @@ declare global {
 }
 
 export interface SignalState<T> {
-  value?: T;
+  value: T | undefined;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
   name?: string;
+  id?: string;
 }
 
 export interface Owner {
@@ -53,9 +55,9 @@ export interface Owner {
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
-  sourceMap?: Record<string, { value: unknown }>;
+  sourceMap?: Record<string, { value: unknown; name?: string; id?: string }>;
   name?: string;
-  componentName?: string;
+  id?: string;
 }
 
 export interface Computation<Init, Next extends Init = Init> extends Owner {
@@ -64,7 +66,7 @@ export interface Computation<Init, Next extends Init = Init> extends Owner {
   tState?: number;
   sources: SignalState<Next>[] | null;
   sourceSlots: number[] | null;
-  value?: Init;
+  value: Init | undefined;
   updatedAt: number | null;
   pure: boolean;
   user?: boolean;
@@ -122,7 +124,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
       : () => fn(() => untrack(() => cleanNode(root)));
 
   if ("_SOLID_DEV_") {
-    if (owner) root.name = `${owner.name}-r${rootCount++}`;
+    root.id = (ownerCount++).toString(36);
     globalThis._$afterCreateRoot && globalThis._$afterCreateRoot(root);
   }
 
@@ -185,8 +187,10 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
     comparator: options.equals || undefined
   };
 
-  if ("_SOLID_DEV_" && !options.internal)
-    s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+  if ("_SOLID_DEV_" && !options.internal) {
+    if (options.name) s.name = options.name;
+    s.id = registerGraph(undefined, s);
+  }
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
@@ -1022,7 +1026,6 @@ export function resumeEffects(e: Computation<any>[]) {
 
 export interface DevComponent<T> extends Memo<JSX.Element> {
   props: T;
-  componentName: string;
 }
 
 // Dev
@@ -1034,13 +1037,14 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
         return Comp(props);
       }),
     undefined,
-    true
+    true,
+    undefined,
+    { name: Comp.name }
   ) as DevComponent<T>;
   c.props = props;
   c.observers = null;
   c.observerSlots = null;
   c.state = 0;
-  c.componentName = Comp.name;
   updateComputation(c);
   return c.tValue !== undefined ? c.tValue : c.value;
 }
@@ -1077,19 +1081,21 @@ export function hashValue(v: any): string {
   }`;
 }
 
-export function registerGraph(name: string, value: { value: unknown }): string {
-  let tryName = name;
+export function registerGraph(
+  id: string | undefined,
+  value: { value: unknown; name?: string; id?: string }
+): string {
+  const _id = (id || signalCount++).toString(36);
   if (Owner) {
-    let i = 0;
-    Owner.sourceMap || (Owner.sourceMap = {});
-    while (Owner.sourceMap[tryName]) tryName = `${name}-${++i}`;
-    Owner.sourceMap[tryName] = value;
+    (Owner.sourceMap || (Owner.sourceMap = {}))[_id] = value;
   }
-  return tryName;
+  return _id;
 }
+
 interface GraphRecord {
   [k: string]: GraphRecord | unknown;
 }
+
 export function serializeGraph(owner?: Owner | null): GraphRecord {
   owner || (owner = Owner);
   if (!"_SOLID_DEV_" || !owner) return {};
@@ -1351,6 +1357,8 @@ function createComputation<Next, Init = unknown>(
     pure
   };
 
+  if ("_SOLID_DEV_") c.id = (ownerCount++).toString(36);
+
   if (Transition && Transition.running) {
     c.state = 0;
     c.tState = state;
@@ -1369,12 +1377,7 @@ function createComputation<Next, Init = unknown>(
       if (!Owner.owned) Owner.owned = [c];
       else Owner.owned.push(c);
     }
-    if ("_SOLID_DEV_")
-      c.name =
-        (options && options.name) ||
-        `${(Owner as Computation<any>).name || "c"}-${
-          (Owner.owned || (Owner as Memo<Init, Next>).tOwned!).length
-        }`;
+    if ("_SOLID_DEV_" && options && options.name) c.name = options.name;
   }
 
   if (ExternalSourceFactory) {
@@ -1682,7 +1685,7 @@ function serializeValues(sources: Record<string, { value: unknown }> = {}) {
   const result: Record<string, unknown> = {};
   for (let i = 0; i < k.length; i++) {
     const key = k[i];
-    result[key] = sources[key].value;
+    result[`s${key}`] = sources[key].value;
   }
   return result;
 }
@@ -1691,7 +1694,7 @@ function serializeChildren(root: Owner): GraphRecord {
   const result: GraphRecord = {};
   for (let i = 0, len = root.owned!.length; i < len; i++) {
     const node = root.owned![i];
-    result[node.componentName ? `${node.componentName}:${node.name}` : node.name!] = {
+    result[node.name ? `${node.name}:c${node.id}` : `c${node.id}`] = {
       ...serializeValues(node.sourceMap),
       ...(node.owned ? serializeChildren(node) : {})
     };

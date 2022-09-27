@@ -43,8 +43,14 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   has(target, property) {
-    if (property === $RAW || property === $PROXY || property === $TRACK ||
-        property === $NODE || property === "__proto__") return true;
+    if (
+      property === $RAW ||
+      property === $PROXY ||
+      property === $TRACK ||
+      property === $NODE ||
+      property === "__proto__"
+    )
+      return true;
     const tracked = getDataNodes(target)[property];
     tracked && tracked();
     return property in target;
@@ -98,13 +104,13 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createMutable'. Expected an object.`
     );
-  const wrappedStore = wrap(
-    unwrappedStore,
-    "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
-  );
+  const wrappedStore = wrap(unwrappedStore, "_SOLID_DEV_" && options && options.name);
   if ("_SOLID_DEV_") {
-    const name = (options && options.name) || DEV.hashValue(unwrappedStore);
-    DEV.registerGraph(name, { value: unwrappedStore });
+    const s: { value: unknown; name?: string; id?: string } = {
+      value: unwrappedStore,
+      name: options && options.name
+    };
+    s.id = DEV.registerGraph(undefined, s);
   }
   return wrappedStore;
 }

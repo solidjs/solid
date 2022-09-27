@@ -1,4 +1,13 @@
-import { createRoot, getOwner, createSignal, createEffect, createComponent, createComputed, DEV, Owner } from "../src";
+import {
+  createRoot,
+  getOwner,
+  createSignal,
+  createEffect,
+  createComponent,
+  createComputed,
+  DEV,
+  Owner
+} from "../src";
 import { createStore } from "../store/src";
 
 describe("Dev features", () => {
@@ -6,8 +15,8 @@ describe("Dev features", () => {
     let owner: ReturnType<typeof getOwner>, set1: (v: number) => number, setState1: any;
 
     const SNAPSHOTS = [
-      `{"s1773325850":5,"s1773325850-1":5,"c-1":{"explicit":6},"CustomComponent:c-2":{"s533736025":{"firstName":"John","lastName":"Smith"}}}`,
-      `{"s1773325850":7,"s1773325850-1":5,"c-1":{"explicit":6},"CustomComponent:c-2":{"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."}}}`
+      `{"s1":5,"s2":5,"c1":{"s4":6},"CustomComponent:c2":{"s3":{"firstName":"John","lastName":"Smith"}}}`,
+      `{"s1":7,"s2":5,"c1":{"s4":6},"CustomComponent:c2":{"s3":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."}}}`
     ];
     const CustomComponent = () => {
       const [state, setState] = createStore({ firstName: "John", lastName: "Smith" });
@@ -67,7 +76,7 @@ describe("Dev features", () => {
       const [s3, set3] = createSignal(0);
       createComputed(() => {
         log += "a";
-        set3(s2())
+        set3(s2());
       });
       createEffect(() => {
         log += "b";
@@ -76,7 +85,7 @@ describe("Dev features", () => {
       createEffect(() => {
         log += "c";
         s3();
-      })
+      });
       set1 = set;
     });
     expect(triggered).toBe(1);
@@ -101,5 +110,5 @@ describe("Dev features", () => {
         expect(inner.owner).toBe(root);
       });
     });
-  })
+  });
 });
