@@ -584,10 +584,6 @@ export function createResource<T, S, R>(
         loadedUnderTransition = false;
         runUpdates(() => {
           Transition!.running = true;
-          if (!Transition!.promises.size) {
-            Effects!.push.apply(Effects, Transition!.effects);
-            Transition!.effects = [];
-          }
           completeLoad(v, error);
         }, false);
       } else completeLoad(v, error);
@@ -1478,6 +1474,7 @@ function completeUpdates(wait: boolean) {
     // finish transition
     const sources = Transition.sources;
     const disposed = Transition.disposed;
+    Effects!.push.apply(Effects, Transition!.effects);
     res = Transition.resolve;
     for (const e of Effects!) {
       "tState" in e && (e.state = e.tState!);
@@ -1522,10 +1519,6 @@ function scheduleQueue(queue: Computation<any>[]) {
         runUpdates(() => {
           Transition!.running = true;
           runTop(item);
-          if (!tasks.size) {
-            Effects!.push.apply(Effects, Transition!.effects);
-            Transition!.effects = [];
-          }
         }, false);
         Transition && (Transition.running = false);
       });
