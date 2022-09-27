@@ -609,7 +609,7 @@ export function createResource<T, S, R>(
       createComputed(() => {
         track();
         if (pr) {
-          if (c.resolved && Transition) Transition.promises.add(pr);
+          if (c.resolved && Transition && Transition.running) Transition.promises.add(pr);
           else if (!contexts.has(c)) {
             c.increment();
             contexts.add(c);
@@ -1463,39 +1463,40 @@ function completeUpdates(wait: boolean) {
   }
   if (wait) return;
   let res;
-  if (Transition && Transition.running) {
-    if (Transition.promises.size || Transition.queue.size) {
+  if (Transition) {
+    if (!Transition.promises.size && !Transition.queue.size) {
+      // finish transition
+      const sources = Transition.sources;
+      const disposed = Transition.disposed;
+      Effects!.push.apply(Effects, Transition!.effects);
+      res = Transition.resolve;
+      for (const e of Effects!) {
+        "tState" in e && (e.state = e.tState!);
+        delete e.tState;
+      }
+      Transition = null;
+      runUpdates(() => {
+        for (const d of disposed) cleanNode(d);
+        for (const v of sources) {
+          v.value = v.tValue;
+          if ((v as Memo<any>).owned) {
+            for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
+              cleanNode((v as Memo<any>).owned![i]);
+          }
+          if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
+          delete v.tValue;
+          delete (v as Memo<any>).tOwned;
+          (v as Memo<any>).tState = 0;
+        }
+        setTransPending(false);
+      }, false);
+    } else if (Transition.running) {
       Transition.running = false;
       Transition.effects.push.apply(Transition.effects, Effects!);
       Effects = null;
       setTransPending(true);
       return;
     }
-    // finish transition
-    const sources = Transition.sources;
-    const disposed = Transition.disposed;
-    Effects!.push.apply(Effects, Transition!.effects);
-    res = Transition.resolve;
-    for (const e of Effects!) {
-      "tState" in e && (e.state = e.tState!);
-      delete e.tState;
-    }
-    Transition = null;
-    runUpdates(() => {
-      for (const d of disposed) cleanNode(d);
-      for (const v of sources) {
-        v.value = v.tValue;
-        if ((v as Memo<any>).owned) {
-          for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
-            cleanNode((v as Memo<any>).owned![i]);
-        }
-        if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
-        delete v.tValue;
-        delete (v as Memo<any>).tOwned;
-        (v as Memo<any>).tState = 0;
-      }
-      setTransPending(false);
-    }, false);
   }
   const e = Effects!;
   Effects = null;
