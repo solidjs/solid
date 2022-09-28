@@ -12,6 +12,13 @@
   "sideEffects": false,
   "exports": {
     ".": {
+      "worker": {
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": "./dist/server.cjs"
+      },
       "browser": {
         "development": {
           "import": {
@@ -27,13 +34,6 @@
         "require": "./dist/web.cjs"
       },
       "deno": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
-        "require": "./dist/server.cjs"
-      },
-      "worker": {
         "import": {
           "types": "./types/index.d.ts",
           "default": "./dist/server.js"
