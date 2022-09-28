@@ -100,7 +100,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   return marker;
 }
 
-type DynamicProps<T extends ValidComponent> = ComponentProps<T> & {
+type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = { [K in keyof P]: P[K] } & {
   component: T | undefined;
 };
 /**
