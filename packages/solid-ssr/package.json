@@ -1,7 +1,7 @@
 {
   "name": "solid-ssr",
   "description": "Utilities to help with SSR",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "author": "Ryan Carniato",
   "license": "MIT",
   "repository": {
