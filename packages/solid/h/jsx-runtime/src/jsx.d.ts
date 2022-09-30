@@ -603,7 +603,7 @@ export namespace JSX {
 
   interface HTMLAttributes<T> extends AriaAttributes, DOMAttributes<T> {
     accessKey?: FunctionMaybe<string>;
-    class?: FunctionMaybe<string>;
+    class?: FunctionMaybe<string> | undefined;
     contenteditable?: FunctionMaybe<boolean | "inherit">;
     contextmenu?: FunctionMaybe<string>;
     dir?: FunctionMaybe<HTMLDir>;
@@ -1090,7 +1090,7 @@ export namespace JSX {
     tabindex?: FunctionMaybe<number | string>;
   }
   interface StylableSVGAttributes {
-    class?: FunctionMaybe<string>;
+    class?: FunctionMaybe<string> | undefined;
     style?: FunctionMaybe<CSSProperties | string>;
   }
   interface TransformableSVGAttributes {
