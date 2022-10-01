@@ -65,10 +65,7 @@ export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 /** @deprecated: use `ParentProps` instead */
 export type PropsWithChildren<P = {}> = ParentProps<P>;
 
-export type ValidComponent =
-  | keyof JSX.IntrinsicElements
-  | Component<any>
-  | (string & {});
+export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
 
 /**
  * Takes the props of the passed component and returns its type
@@ -77,13 +74,11 @@ export type ValidComponent =
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<T extends ValidComponent> =
-  T extends Component<infer P>
-    ? P
-    :
-  T extends keyof JSX.IntrinsicElements
-    ? JSX.IntrinsicElements[T]
-    : Record<string, unknown>;
+export type ComponentProps<T extends ValidComponent> = T extends Component<infer P>
+  ? P
+  : T extends keyof JSX.IntrinsicElements
+  ? JSX.IntrinsicElements[T]
+  : Record<string, unknown>;
 
 /**
  * Type of `props.ref`, for use in `Component` or `props` typing.
@@ -99,7 +94,7 @@ export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
       setHydrateContext(nextHydrateContext());
       const r = "_SOLID_DEV_"
         ? devComponent(Comp, props || ({} as T))
-        : untrack(() => Comp(props || ({} as T)));
+        : untrack(() => Comp.call(Comp, props || ({} as T)));
       setHydrateContext(c);
       return r;
     }
