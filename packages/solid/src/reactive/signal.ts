@@ -343,7 +343,7 @@ export function createReaction(onInvalidate: () => void, options?: EffectOptions
   };
 }
 
-interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
+export interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
   tOwned?: Computation<Prev | Next, Next>[];
 }
 
