@@ -10,7 +10,6 @@ import {
   $NAME,
   StoreNode,
   setProperty,
-  proxyDescriptor,
   ownKeys
 } from "./store.js";
 
@@ -43,8 +42,14 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   has(target, property) {
-    if (property === $RAW || property === $PROXY || property === $TRACK ||
-        property === $NODE || property === "__proto__") return true;
+    if (
+      property === $RAW ||
+      property === $PROXY ||
+      property === $TRACK ||
+      property === $NODE ||
+      property === "__proto__"
+    )
+      return true;
     const tracked = getDataNodes(target)[property];
     tracked && tracked();
     return property in target;
@@ -64,6 +69,25 @@ const proxyTraps: ProxyHandler<StoreNode> = {
 
   getOwnPropertyDescriptor: proxyDescriptor
 };
+
+function proxyDescriptor(target: StoreNode, property: PropertyKey) {
+  const desc = Reflect.getOwnPropertyDescriptor(target, property);
+  if (
+    !desc ||
+    desc.get ||
+    desc.set ||
+    !desc.configurable ||
+    property === $PROXY ||
+    property === $NODE ||
+    property === $NAME
+  )
+    return desc;
+
+  desc.get = () => target[$PROXY][property];
+  desc.set = v => (target[$PROXY][property] = v);
+
+  return desc;
+}
 
 function wrap<T extends StoreNode>(value: T, name?: string): T {
   let p = value[$PROXY];
