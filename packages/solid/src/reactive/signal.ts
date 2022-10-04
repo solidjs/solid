@@ -1303,7 +1303,9 @@ function updateComputation(node: Computation<any>) {
     queueMicrotask(() => {
       runUpdates(() => {
         Transition && (Transition.running = true);
+        Listener = Owner = node;
         runComputation(node, (node as Memo<any>).tValue, time);
+        Listener = Owner = null;
       }, false);
     });
   }
