@@ -1,4 +1,14 @@
-import { createRoot, getOwner, createSignal, createEffect, createComponent, createComputed, DEV, Owner } from "../src";
+import {
+  createRoot,
+  getOwner,
+  createSignal,
+  createEffect,
+  createComponent,
+  createComputed,
+  DEV,
+  Owner,
+  createContext
+} from "../src";
 import { createStore } from "../store/src";
 
 describe("Dev features", () => {
@@ -28,6 +38,16 @@ describe("Dev features", () => {
     set1!(7);
     setState1({ middleInitial: "R.", firstName: "Matt" });
     expect(JSON.stringify(DEV.serializeGraph(owner!))).toBe(SNAPSHOTS[1]);
+  });
+
+  test("Context nodes can be named", () => {
+    createRoot(dispose => {
+      const ctx = createContext(undefined, { name: "test" });
+      ctx.Provider({ value: undefined, children: undefined });
+      const ctxNode = getOwner()!.owned![0];
+      expect(ctxNode.name).toBe("test");
+      dispose();
+    });
   });
 
   test("AfterUpdate Hook", () => {
@@ -67,7 +87,7 @@ describe("Dev features", () => {
       const [s3, set3] = createSignal(0);
       createComputed(() => {
         log += "a";
-        set3(s2())
+        set3(s2());
       });
       createEffect(() => {
         log += "b";
@@ -76,7 +96,7 @@ describe("Dev features", () => {
       createEffect(() => {
         log += "c";
         s3();
-      })
+      });
       set1 = set;
     });
     expect(triggered).toBe(1);
@@ -101,5 +121,5 @@ describe("Dev features", () => {
         expect(inner.owner).toBe(root);
       });
     });
-  })
+  });
 });

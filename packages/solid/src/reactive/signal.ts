@@ -1116,18 +1116,28 @@ export interface Context<T> {
  *   Provider: FlowComponent<{ value: T }>;
  *   defaultValue: T;
  * }
- * export function createContext<T>(defaultValue?: T): Context<T | undefined>;
+ * export function createContext<T>(
+ *   defaultValue?: T,
+ *   options?: { name?: string }
+ * ): Context<T | undefined>;
  * ```
  * @param defaultValue optional default to inject into context
+ * @param options allows to set a name in dev mode for debugging purposes
  * @returns The context that contains the Provider Component and that can be used with `useContext`
  *
  * @description https://www.solidjs.com/docs/latest/api#createcontext
  */
-export function createContext<T>(): Context<T | undefined>;
-export function createContext<T>(defaultValue: T): Context<T>;
-export function createContext<T>(defaultValue?: T): Context<T | undefined> {
+export function createContext<T>(
+  defaultValue?: undefined,
+  options?: EffectOptions
+): Context<T | undefined>;
+export function createContext<T>(defaultValue: T, options?: EffectOptions): Context<T>;
+export function createContext<T>(
+  defaultValue?: T,
+  options?: EffectOptions
+): Context<T | undefined> {
   const id = Symbol("context");
-  return { id, Provider: createProvider(id), defaultValue };
+  return { id, Provider: createProvider(id, options), defaultValue };
 }
 
 /**
@@ -1660,7 +1670,7 @@ function resolveChildren(children: JSX.Element): ResolvedChildren {
   return children as ResolvedChildren;
 }
 
-function createProvider(id: symbol) {
+function createProvider(id: symbol, options?: EffectOptions) {
   return function provider(props: FlowProps<{ value: unknown }>) {
     let res;
     createRenderEffect(
@@ -1668,7 +1678,9 @@ function createProvider(id: symbol) {
         (res = untrack(() => {
           Owner!.context = { [id]: props.value };
           return children(() => props.children);
-        }))
+        })),
+      undefined,
+      options
     );
     return res;
   };
