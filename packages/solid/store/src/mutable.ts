@@ -26,6 +26,8 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   )
     return desc;
 
+  delete desc.value;
+  delete desc.writable;
   desc.get = () => target[$PROXY][property];
   desc.set = v => (target[$PROXY][property] = v);
 
