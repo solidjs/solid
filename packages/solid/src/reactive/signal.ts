@@ -609,7 +609,7 @@ export function createResource<T, S, R>(
       createComputed(() => {
         track();
         if (pr) {
-          if (c.resolved && Transition && Transition.running) Transition.promises.add(pr);
+          if (c.resolved && Transition && loadedUnderTransition) Transition.promises.add(pr);
           else if (!contexts.has(c)) {
             c.increment();
             contexts.add(c);
