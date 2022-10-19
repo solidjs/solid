@@ -10,6 +10,7 @@
   },
   "private": true,
   "scripts": {
+    "preinstall": "npx only-allow pnpm",
     "test": "turbo run test test-types",
     "coverage": "turbo run coverage",
     "build": "turbo run build",
