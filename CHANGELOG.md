@@ -12,7 +12,7 @@ Solid has worked for quite some time in partial hydrated ("Islands") frameworks 
 
 `<Hydration />` joins `<NoHydration />` as being a way to resume hydration and hydration ids during server rendering. Now we can stop and start hydratable sections. This is important because it opens up a new optimization.
 
-`createResource` calls under non-hydrating sections do not serialize. That means that resources that are server only stay on the server. The intention is that hydrating Islands cana then serialize their `props` coming in. Essentially only shipping the JSON for data actually used on the client.
+`createResource` calls under non-hydrating sections do not serialize. That means that resources that are server only stay on the server. The intention is that hydrating Islands can then serialize their `props` coming in. Essentially only shipping the JSON for data actually used on the client.
 
 The power here is static markup can interview dynamic components.
 
