@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.0 - 2022-10-x
+## 1.6.0 - 2022-10-20
 
 Solid v1.6 doesn't bring a ton of new features but brings some big improvements in existing ones.
 
