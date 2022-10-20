@@ -65,10 +65,7 @@ export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 /** @deprecated: use `ParentProps` instead */
 export type PropsWithChildren<P = {}> = ParentProps<P>;
 
-export type ValidComponent =
-  | keyof JSX.IntrinsicElements
-  | Component<any>
-  | (string & {});
+export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
 
 /**
  * Takes the props of the passed component and returns its type
@@ -77,13 +74,11 @@ export type ValidComponent =
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<T extends ValidComponent> =
-  T extends Component<infer P>
-    ? P
-    :
-  T extends keyof JSX.IntrinsicElements
-    ? JSX.IntrinsicElements[T]
-    : Record<string, unknown>;
+export type ComponentProps<T extends ValidComponent> = T extends Component<infer P>
+  ? P
+  : T extends keyof JSX.IntrinsicElements
+  ? JSX.IntrinsicElements[T]
+  : Record<string, unknown>;
 
 /**
  * Type of `props.ref`, for use in `Component` or `props` typing.
@@ -184,29 +179,39 @@ function resolveSource(s: any) {
 }
 
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
-  return new Proxy(
-    {
-      get(property: string | number | symbol) {
-        for (let i = sources.length - 1; i >= 0; i--) {
-          const v = resolveSource(sources[i])[property];
-          if (v !== undefined) return v;
+  if (sources.some(s => s && ($PROXY in (s as T) || typeof s === "function"))) {
+    return new Proxy(
+      {
+        get(property: string | number | symbol) {
+          for (let i = sources.length - 1; i >= 0; i--) {
+            const v = resolveSource(sources[i])[property];
+            if (v !== undefined) return v;
+          }
+        },
+        has(property: string | number | symbol) {
+          for (let i = sources.length - 1; i >= 0; i--) {
+            if (property in resolveSource(sources[i])) return true;
+          }
+          return false;
+        },
+        keys() {
+          const keys = [];
+          for (let i = 0; i < sources.length; i++)
+            keys.push(...Object.keys(resolveSource(sources[i])));
+          return [...new Set(keys)];
         }
       },
-      has(property: string | number | symbol) {
-        for (let i = sources.length - 1; i >= 0; i--) {
-          if (property in resolveSource(sources[i])) return true;
-        }
-        return false;
-      },
-      keys() {
-        const keys = [];
-        for (let i = 0; i < sources.length; i++)
-          keys.push(...Object.keys(resolveSource(sources[i])));
-        return [...new Set(keys)];
-      }
-    },
-    propTraps
-  ) as unknown as MergeProps<T>;
+      propTraps
+    ) as unknown as MergeProps<T>;
+  }
+  const target = {} as MergeProps<T>;
+  for (let i = 0; i < sources.length; i++) {
+    if (sources[i]) {
+      const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
+      Object.defineProperties(target, descriptors);
+    }
+  }
+  return target;
 }
 
 export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
@@ -224,6 +229,9 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
 ): SplitProps<T, K> {
   const blocked = new Set<keyof T>(keys.flat());
   const descriptors = Object.getOwnPropertyDescriptors(props);
+  const isProxy = $PROXY in props;
+  if (!isProxy)
+    keys.push(Object.keys(descriptors).filter(k => !blocked.has(k as keyof T)) as (keyof T)[]);
   const res = keys.map(k => {
     const clone = {};
     for (let i = 0; i < k.length; i++) {
@@ -245,22 +253,24 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
     }
     return clone;
   });
-  res.push(
-    new Proxy(
-      {
-        get(property: string | number | symbol) {
-          return blocked.has(property as keyof T) ? undefined : props[property as keyof T];
+  if (isProxy) {
+    res.push(
+      new Proxy(
+        {
+          get(property: string | number | symbol) {
+            return blocked.has(property as keyof T) ? undefined : props[property as keyof T];
+          },
+          has(property: string | number | symbol) {
+            return blocked.has(property as keyof T) ? false : property in props;
+          },
+          keys() {
+            return Object.keys(props).filter(k => !blocked.has(k as keyof T));
+          }
         },
-        has(property: string | number | symbol) {
-          return blocked.has(property as keyof T) ? false : property in props;
-        },
-        keys() {
-          return Object.keys(props).filter(k => !blocked.has(k as keyof T));
-        }
-      },
-      propTraps
-    )
-  );
+        propTraps
+      )
+    );
+  }
   return res as SplitProps<T, K>;
 }
 

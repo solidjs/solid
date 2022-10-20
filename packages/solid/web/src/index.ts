@@ -90,7 +90,8 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
     Object.defineProperty(container, "host", {
       get() {
         return marker.parentNode;
-      }
+      },
+      configurable: true
     });
     insert(renderRoot, renderPortal());
     mount.appendChild(container);

@@ -19,6 +19,7 @@ export const isServer = true;
 
 export function insert() {}
 export function spread() {}
+export function addEventListener() {}
 export function delegateEvents(): void {}
 
 export function Dynamic<T>(

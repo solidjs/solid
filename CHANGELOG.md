@@ -1,5 +1,79 @@
 # Changelog
 
+## 1.6.0 - 2022-10-x
+
+Solid v1.6 doesn't bring a ton of new features but brings some big improvements in existing ones.
+
+### Highlights
+
+#### Official Partial Hydration Support
+
+Solid has worked for quite some time in partial hydrated ("Islands") frameworks like Astro, Iles, Solitude, etc.. but now we have added core features to support this effort better. These features are mostly designed for metaframework authors rather than the end user they are exposed through a couple APIs.
+
+`<Hydration />` joins `<NoHydration />` as being a way to resume hydration and hydration ids during server rendering. Now we can stop and start hydratable sections. This is important because it opens up a new optimization.
+
+`createResource` calls under non-hydrating sections do not serialize. That means that resources that are server only stay on the server. The intention is that hydrating Islands can then serialize their `props` coming in. Essentially only shipping the JSON for data actually used on the client.
+
+The power here is static markup can interview dynamic components.
+
+```js
+<h1>Server Rendered Header</h1>
+<Island>
+  <h2>Server Rendered Sub Header</h2>
+  <p>{serverOnlyResource().text}</p>
+  <DifferentIsland>
+    <p>More server-renderd content</p>
+  </DifferentIsland>
+</Island>
+```
+
+Keep in mind Server rendered content like this can only be rendered on the server so to maintain a client navigation with this paradigm requires a special router that handles HTML partials.
+
+Similarly we want the trees to talk to each other so `hydrate` calls now have been expanded to accept a parent `Owner` this will allow Islands to communicate through Contex without shipping the whole tree to browser.
+
+```js
+<h1>Server Rendered Header</h1>
+<ClientProvider>
+  <h2>Server Rendered Sub Header</h2>
+  <ClientIslandThatReadsContext />
+</ClientProvider>
+```
+
+These improvements make it easier to create Partial Hydration solutions on top of Solid, and serve to improve the capabilities of the ones we already have.
+
+#### Native Spread Improvements
+
+Native spreads are something we started at very naively. Simply just iterating an object that has some reactive properties and updating the DOM element. However, this didn't take into consideration two problems.
+
+First properties on objects can change, they can be added or removed, and more so the object itself can be swapped. Since Solid doesn't re-render it needs to keep a fixed reference to the merged properties. Secondly, these are merged. Properties override others. What this means is we need to consider the element holistically to know that the right things are applied.
+
+For Components this was a never a problem since they are just function calls. Unfortunately for native elements this means all those compiler optimizations we do for specific bindings now need to get pulled into this. Which is why we avoided it in the past. But the behavior was too unpredictable.
+
+In 1.6 we have smartened spread to merge properly using similar approach to how process Components. We've also found new ways to optimize the experience. (See below).
+
+### Other Improvements
+
+#### Deproxification
+
+Working on new Spread behavior we realized that while we can't tell from compilation which spreads can change. We can tell at runtime which are proxies. And in so if we only need to merge things which don't swap, and aren't proxies we can avoid making a Proxy.
+
+What is great about this is it has a cascading effect. If component props aren't a proxy, then `splitProps` and `mergeProps` don't need to create them, and so on. While this requires a little extra code it is a real win.
+
+We get a lot request for low end IoT devices because of Solid's incredible performance. In tests Solid outperforms many of the Virtual DOM solutions in this space. However most of them don't support proxies.
+
+So now if you don't use a `Store` or swap out the props object:
+
+```js
+// this is fine
+<div {...props} />
+
+// these could swap out the object so they make proxies
+<div {...props.something} />
+// or
+<div {...someSignal()} />
+```
+We don't need to introduce any proxy the user didn't create. This makes Solid a viable option for these low-end devices.
+
 ## 1.5.0 - 2022-08-26
 
 ### Key Highlights

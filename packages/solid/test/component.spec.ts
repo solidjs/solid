@@ -20,6 +20,8 @@ const Comp = (props: { greeting: string; name: string }) => `${props.greeting} $
 
 const Comp2 = (props: { greeting: string; name: string; optional?: string }) => {
   const [p, q] = splitProps(props, ["greeting", "optional"]);
+  expect((p as any).name).toBeUndefined()
+  expect((q as any).greeting).toBeUndefined()
   return `${p.greeting} ${q.name}`;
 };
 
@@ -143,6 +145,13 @@ describe("SplitProps Props", () => {
         }
       });
       expect(out).toBe("Hi dynamic");
+    });
+  });
+  test("SplitProps in two with store", () => {
+    createRoot(() => {
+      const [state] = createStore({ greeting: "Yo", name: "Bob" });
+      const out = createComponent(Comp2, state);
+      expect(out).toBe("Yo Bob");
     });
   });
 });

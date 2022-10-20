@@ -158,8 +158,14 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   has(target, property) {
-    if (property === $RAW || property === $PROXY || property === $TRACK ||
-        property === $NODE || property === "__proto__") return true;
+    if (
+      property === $RAW ||
+      property === $PROXY ||
+      property === $TRACK ||
+      property === $NODE ||
+      property === "__proto__"
+    )
+      return true;
     const tracked = getDataNodes(target)[property];
     tracked && tracked();
     return property in target;
@@ -180,7 +186,12 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-export function setProperty(state: StoreNode, property: PropertyKey, value: any, deleting: boolean = false) {
+export function setProperty(
+  state: StoreNode,
+  property: PropertyKey,
+  value: any,
+  deleting: boolean = false
+) {
   if (!deleting && state[property] === value) return;
   const prev = state[property];
   const len = state.length;
