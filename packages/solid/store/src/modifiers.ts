@@ -145,14 +145,14 @@ const setterTraps: ProxyHandler<StoreNode> = {
 };
 
 // Immer style mutation style
-export function produce<T extends object>(fn: (state: T) => void): (state: T) => T {
+export function produce<T>(fn: (state: T) => void): (state: T) => T {
   return state => {
     if (isWrappable(state)) {
       let proxy;
       if (!(proxy = producers.get(state as Record<keyof T, T[keyof T]>))) {
         producers.set(
           state as Record<keyof T, T[keyof T]>,
-          (proxy = new Proxy(state, setterTraps))
+          (proxy = new Proxy(state as Extract<T, object>, setterTraps))
         );
       }
       fn(proxy);
