@@ -6,6 +6,7 @@ coverage/
 types/
 .DS_Store
 .turbo/
+.eslintcache
 
 packages/solid/src/jsx.d.ts
 packages/solid/web/server/server.d.ts
