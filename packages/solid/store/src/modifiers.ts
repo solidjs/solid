@@ -117,7 +117,7 @@ export function reconcile<T extends U, U>(
   return state => {
     if (!isWrappable(state) || !isWrappable(v)) return v;
     const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, key);
-    return res === undefined ? state as T : res as T;
+    return res === undefined ? (state as T) : res;
   };
 }
 
@@ -145,7 +145,7 @@ const setterTraps: ProxyHandler<StoreNode> = {
 };
 
 // Immer style mutation style
-export function produce<T>(fn: (state: T) => void): (state: T) => T {
+export function produce<T extends object>(fn: (state: T) => void): (state: T) => T {
   return state => {
     if (isWrappable(state)) {
       let proxy;

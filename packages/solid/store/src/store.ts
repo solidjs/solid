@@ -1,9 +1,31 @@
-import { getListener, batch, DEV, $PROXY, $TRACK, Accessor, createSignal } from "solid-js";
+import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js";
+
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
-  $NAME = Symbol("store-name");
+  $NAME = Symbol("store-name"),
+  $ON_UPDATE = Symbol("store-on-update");
 
-export type StoreNode = Record<PropertyKey, any>;
+type DataNode = {
+  (): any;
+  $(value?: any): void;
+};
+type DataNodes = Record<PropertyKey, DataNode>;
+
+export type OnStoreNodeUpdate = (
+  state: StoreNode,
+  property: PropertyKey,
+  value: StoreNode | NotWrappable,
+  deleting: boolean
+) => void;
+export interface StoreNode {
+  [$ON_UPDATE]?: {
+    [Symbol.iterator](): IterableIterator<OnStoreNodeUpdate>;
+  };
+  [$NAME]?: string;
+  [$NODE]?: DataNodes;
+  [key: PropertyKey]: any;
+}
+
 export namespace SolidStore {
   export interface Unwrappable {}
 }
@@ -54,6 +76,17 @@ export function isWrappable(obj: any) {
   );
 }
 
+/**
+ * Returns the underlying data in the store without a proxy.
+ * @param item store proxy object
+ * @example
+ * ```js
+ * const initial = {}
+ * const [state, setState] = createStore(initial)
+ * console.log(initial == state) // false
+ * console.log(initial == unwrap(state)) // true
+ * ```
+ */
 export function unwrap<T>(item: T, set?: Set<unknown>): T;
 export function unwrap<T>(item: any, set = new Set()): T {
   let result, unwrapped, v, prop;
@@ -74,7 +107,7 @@ export function unwrap<T>(item: any, set = new Set()): T {
       desc = Object.getOwnPropertyDescriptors(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       prop = keys[i];
-      if ((desc as any)[prop].get) continue;
+      if (desc[prop].get) continue;
       v = item[prop];
       if ((unwrapped = unwrap(v, set)) !== v) item[prop] = unwrapped;
     }
@@ -82,14 +115,14 @@ export function unwrap<T>(item: any, set = new Set()): T {
   return item;
 }
 
-export function getDataNodes(target: StoreNode) {
+export function getDataNodes(target: StoreNode): DataNodes {
   let nodes = target[$NODE];
   if (!nodes) Object.defineProperty(target, $NODE, { value: (nodes = {}) });
   return nodes;
 }
 
-export function getDataNode(nodes: Record<string, any>, property: string | symbol, value: any) {
-  return nodes[property as string] || (nodes[property as string] = createDataNode(value));
+export function getDataNode(nodes: DataNodes, property: PropertyKey, value: any) {
+  return nodes[property] || (nodes[property] = createDataNode(value));
 }
 
 export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
@@ -126,8 +159,8 @@ function createDataNode(value?: any) {
     equals: false,
     internal: true
   });
-  (s as Accessor<any> & { $: (v: any) => void }).$ = set;
-  return s as Accessor<any> & { $: (v: any) => void };
+  (s as DataNode).$ = set;
+  return s as DataNode;
 }
 
 const proxyTraps: ProxyHandler<StoreNode> = {
@@ -193,6 +226,10 @@ export function setProperty(
   deleting: boolean = false
 ) {
   if (!deleting && state[property] === value) return;
+  if ("_SOLID_DEV_" && state[$ON_UPDATE]) {
+    for (const cb of state[$ON_UPDATE]) cb(state, property, value, deleting);
+  }
+
   const prev = state[property];
   const len = state.length;
   if (value === undefined) {
@@ -200,7 +237,7 @@ export function setProperty(
   } else state[property] = value;
   let nodes = getDataNodes(state),
     node;
-  if ((node = getDataNode(nodes, property as string, prev))) node.$(() => value);
+  if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
 
   if (Array.isArray(state) && state.length !== len)
     (node = getDataNode(nodes, "length", len)) && node.$(state.length);
