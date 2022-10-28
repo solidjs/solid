@@ -247,7 +247,8 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
               },
               set() {
                 return true;
-              }
+              }, 
+              configurable: true
             }
       );
     }
