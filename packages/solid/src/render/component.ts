@@ -178,6 +178,81 @@ function resolveSource(s: any) {
   return (s = typeof s === "function" ? s() : s) == null ? {} : s;
 }
 
+
+function mergeProps2(...sources) {
+  if (sources.some((s) => s && ($PROXY in s || typeof s === "function"))) {
+    return new Proxy({
+      get(property) {
+        for (let i = sources.length - 1; i >= 0; i--) {
+          const v = resolveSource(sources[i])[property];
+          if (v !== void 0)
+            return v;
+        }
+      },
+      has(property) {
+        for (let i = sources.length - 1; i >= 0; i--) {
+          if (property in resolveSource(sources[i]))
+            return true;
+        }
+        return false;
+      },
+      keys() {
+        const keys = [];
+        for (let i = 0; i < sources.length; i++)
+          keys.push(...Object.keys(resolveSource(sources[i])));
+        return [...new Set(keys)];
+      }
+    }, propTraps);
+  }
+  const target = {};
+
+  // emulate logic of a proxy based source lookup
+  // for non proxy merge.
+  // ============================================
+  for (let i = 0; i < sources.length; i++) {
+    if (sources[i]) {
+      
+      const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
+        // undefined value is ignored in the sources lookup.
+        // setting a prop to undefined, will exclude the source from the lookup chain.
+        // which can result in older source with value to take over.
+        
+        for(let k in descriptors){
+          if(k in target) continue
+          Object.defineProperty(
+          target,
+          k,
+          {
+            configurable:true, 
+            get(){
+             for(let j=sources.length-1;j>=0;j--){
+              if(k in sources[j]){
+                let v =  sources[j][k]  
+                if(v !==undefined){ // find prop in sources that is not undefined
+                  return v
+                } 
+              }
+             }
+            },
+            set(v){
+             for(let j=sources.length-1;j>=0;j--){
+              if(k in sources[j] && sources[j][k] !==undefined){ // find prop in sources that is not undefined
+                sources[j][k] = v
+                return 
+              }
+             }
+              sources[sources.length][k]=v   // finally set the most recent source if prop was not found in any of the sources.
+            }
+          }  
+        );
+        }       
+    }
+  }
+  return target;
+}
+
+
+
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   if (sources.some(s => s && ($PROXY in (s as T) || typeof s === "function"))) {
     return new Proxy(
@@ -236,6 +311,7 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
     const clone = {};
     for (let i = 0; i < k.length; i++) {
       const key = k[i];
+      if(!(key in props)) continue // skip defining keys that do not exists  #1316
       Object.defineProperty(
         clone,
         key,
