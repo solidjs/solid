@@ -205,10 +205,21 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
     ) as unknown as MergeProps<T>;
   }
   const target = {} as MergeProps<T>;
-  for (let i = 0; i < sources.length; i++) {
+  for (let i = sources.length - 1; i >= 0; i--) {
     if (sources[i]) {
       const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
-      Object.defineProperties(target, descriptors);
+      for (const key in descriptors) {
+        if (key in target) continue;
+        Object.defineProperty(target, key, {
+          enumerable: true,
+          get() {
+            for (let i = sources.length - 1; i >= 0; i--) {
+              const v = ((sources[i] as any) || {})[key];
+              if (v !== undefined) return v;
+            }
+          }
+        });
+      }
     }
   }
   return target;
@@ -236,6 +247,7 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
     const clone = {};
     for (let i = 0; i < k.length; i++) {
       const key = k[i];
+      if (!isProxy && !(key in props)) continue; // skip defining keys that don't exist
       Object.defineProperty(
         clone,
         key,
@@ -247,8 +259,8 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
               },
               set() {
                 return true;
-              }, 
-              configurable: true
+              },
+              enumerable: true
             }
       );
     }

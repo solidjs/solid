@@ -20,8 +20,8 @@ const Comp = (props: { greeting: string; name: string }) => `${props.greeting} $
 
 const Comp2 = (props: { greeting: string; name: string; optional?: string }) => {
   const [p, q] = splitProps(props, ["greeting", "optional"]);
-  expect((p as any).name).toBeUndefined()
-  expect((q as any).greeting).toBeUndefined()
+  expect((p as any).name).toBeUndefined();
+  expect((q as any).greeting).toBeUndefined();
   return `${p.greeting} ${q.name}`;
 };
 
@@ -153,6 +153,22 @@ describe("SplitProps Props", () => {
       const out = createComponent(Comp2, state);
       expect(out).toBe("Yo Bob");
     });
+  });
+  test("Merge SplitProps", () => {
+    let value: string | undefined = undefined;
+    const [splittedProps] = splitProps({ color: "blue" } as { color: string; other?: string }, [
+      "color",
+      "other"
+    ]);
+    const mergedProps = mergeProps(splittedProps, {
+      get color() {
+        return value;
+      },
+      other: "value"
+    });
+    expect(mergedProps.color).toBe("blue");
+    value = "red";
+    expect(mergedProps.color).toBe("red");
   });
 });
 
