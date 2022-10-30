@@ -178,6 +178,9 @@ function resolveSource(s: any) {
   return (s = typeof s === "function" ? s() : s) == null ? {} : s;
 }
 
+
+const Undefined = Symbol('undefined')
+
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   if (sources.some(s => s && ($PROXY in (s as T) || typeof s === "function"))) {
     return new Proxy(
@@ -207,7 +210,12 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   const target = {} as MergeProps<T>;
   for (let i = 0; i < sources.length; i++) {
     if (sources[i]) {
-      const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
+      const descriptors = Object.getOwnPropertyDescriptors(sources[i])
+      for( let k in descriptors){
+          if((v[Undefined] && v[Undefined].has(k))){
+            delete descriptors[k]
+          }
+      }
       Object.defineProperties(target, descriptors);
     }
   }
@@ -233,9 +241,14 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
   if (!isProxy)
     keys.push(Object.keys(descriptors).filter(k => !blocked.has(k as keyof T)) as (keyof T)[]);
   const res = keys.map(k => {
-    const clone = {};
+    const undef = new Set()
+    const clone = { [Undefined]: undef };
     for (let i = 0; i < k.length; i++) {
       const key = k[i];
+      if (!(key in props)) {
+        undef.add(key)
+      }
+
       Object.defineProperty(
         clone,
         key,
