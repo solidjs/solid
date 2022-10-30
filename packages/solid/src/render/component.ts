@@ -212,7 +212,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
     if (sources[i]) {
       const descriptors = Object.getOwnPropertyDescriptors(sources[i])
       for( let k in descriptors){
-          if((v[Undefined] && v[Undefined].has(k))){
+          if((sources[i][Undefined] && sources[i][Undefined].has(k))){
             delete descriptors[k]
           }
       }
