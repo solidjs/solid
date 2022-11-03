@@ -15,7 +15,7 @@ export type OnStoreNodeUpdate = (
   state: StoreNode,
   property: PropertyKey,
   value: StoreNode | NotWrappable,
-  deleting: boolean
+  prev: StoreNode | NotWrappable
 ) => void;
 export interface StoreNode {
   [$ON_UPDATE]?: {
@@ -224,19 +224,17 @@ export function setProperty(
   property: PropertyKey,
   value: any,
   deleting: boolean = false
-) {
+): void {
   if (!deleting && state[property] === value) return;
+  const prev = state[property],
+    len = state.length;
   if ("_SOLID_DEV_" && state[$ON_UPDATE]) {
-    for (const cb of state[$ON_UPDATE]) cb(state, property, value, deleting);
+    for (const cb of state[$ON_UPDATE]) cb(state, property, value, prev);
   }
-
-  const prev = state[property];
-  const len = state.length;
-  if (value === undefined) {
-    delete state[property];
-  } else state[property] = value;
+  if (value === undefined) delete state[property];
+  else state[property] = value;
   let nodes = getDataNodes(state),
-    node;
+    node: DataNode;
   if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
 
   if (Array.isArray(state) && state.length !== len)
