@@ -9,7 +9,7 @@ import {
   Owner,
   createContext
 } from "../src";
-import { createStore } from "../store/src";
+import { createStore, unwrap } from "../store/src";
 
 describe("Dev features", () => {
   test("Reactive graph serialization", () => {
@@ -121,5 +121,18 @@ describe("Dev features", () => {
         expect(inner.owner).toBe(root);
       });
     });
+  });
+
+  test("OnStoreNodeUpdate Hook", () => {
+    const cb = jest.fn();
+    global._$onStoreNodeUpdate = cb;
+    const [s, set] = createStore({ firstName: "John", lastName: "Smith", inner: { foo: 1 } });
+    expect(cb).toHaveBeenCalledTimes(0);
+    set({ firstName: "Matt" });
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith(unwrap(s), "firstName", "Matt", "John");
+    set("inner", "foo", 2);
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenCalledWith(unwrap(s.inner), "foo", 2, 1);
   });
 });

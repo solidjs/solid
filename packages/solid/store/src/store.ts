@@ -2,8 +2,12 @@ import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js"
 
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
-  $NAME = Symbol("store-name"),
-  $ON_UPDATE = Symbol("store-on-update");
+  $NAME = Symbol("store-name");
+
+// dev
+declare global {
+  var _$onStoreNodeUpdate: OnStoreNodeUpdate | undefined;
+}
 
 type DataNode = {
   (): any;
@@ -17,10 +21,8 @@ export type OnStoreNodeUpdate = (
   value: StoreNode | NotWrappable,
   prev: StoreNode | NotWrappable
 ) => void;
+
 export interface StoreNode {
-  [$ON_UPDATE]?: {
-    [Symbol.iterator](): IterableIterator<OnStoreNodeUpdate>;
-  };
   [$NAME]?: string;
   [$NODE]?: DataNodes;
   [key: PropertyKey]: any;
@@ -81,10 +83,10 @@ export function isWrappable(obj: any) {
  * @param item store proxy object
  * @example
  * ```js
- * const initial = {}
- * const [state, setState] = createStore(initial)
- * console.log(initial == state) // false
- * console.log(initial == unwrap(state)) // true
+ * const initial = {z...};
+ * const [state, setState] = createStore(initial);
+ * initial === state; // => false
+ * initial === unwrap(state); // => true
  * ```
  */
 export function unwrap<T>(item: T, set?: Set<unknown>): T;
@@ -228,9 +230,10 @@ export function setProperty(
   if (!deleting && state[property] === value) return;
   const prev = state[property],
     len = state.length;
-  if ("_SOLID_DEV_" && state[$ON_UPDATE]) {
-    for (const cb of state[$ON_UPDATE]) cb(state, property, value, prev);
-  }
+
+  if ("_SOLID_DEV_" && globalThis._$onStoreNodeUpdate)
+    globalThis._$onStoreNodeUpdate(state, property, value, prev);
+
   if (value === undefined) delete state[property];
   else state[property] = value;
   let nodes = getDataNodes(state),
