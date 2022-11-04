@@ -805,14 +805,13 @@ export function batch<T>(fn: Accessor<T>): T {
  * @description https://www.solidjs.com/docs/latest/api#untrack
  */
 export function untrack<T>(fn: Accessor<T>): T {
-  let result: T,
-    listener = Listener;
-
+  const listener = Listener;
   Listener = null;
-  result = fn();
-  Listener = listener;
-
-  return result;
+  try {
+    return fn();
+  } finally {
+    Listener = listener;
+  }
 }
 
 /** @deprecated */
