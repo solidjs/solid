@@ -3,7 +3,7 @@
 'use strict';
 /*! (c) Andrea Giammarchi */
 
-const {is} = Object;
+const { is } = Object;
 
 let batches;
 
@@ -19,7 +19,7 @@ const batch = callback => {
   try {
     callback();
     if (!prev)
-      for (const {value} of batches);
+      for (const { value } of batches);
   }
   finally { batches = prev }
 };
@@ -72,7 +72,7 @@ class Computed extends Signal {
   }
 }
 
-const defaults = {async: false, equals: true};
+const defaults = { async: false, equals: true };
 
 /**
  * Returns a read-only Signal that is invoked only when any of the internally
@@ -81,10 +81,10 @@ const defaults = {async: false, equals: true};
  * @type {<T>(fn: (v: T) => T, value?: T, options?: { equals?: boolean | ((prev: T, next: T) => boolean) }) => Signal<T>}
  */
 const computed = (fn, value, options = defaults) =>
-                          new Computed(fn, value, options, false);
+  new Computed(fn, value, options, false);
 
 let outerEffect;
-const noop = () => {};
+const noop = () => { };
 class Effect extends Computed {
   constructor(_, v, o) {
     super(_, v, o, true);
@@ -92,23 +92,22 @@ class Effect extends Computed {
     this.a = !!o.async; // async
     this.m = true;      // microtask
     this.e = [];        // effects
-                        // "I am effects" ^_^;;
+    // "I am effects" ^_^;;
   }
   get value() {
     this.a ? this.async() : this.sync();
   }
   async() {
-    if (this.m) {
-      this.m = false;
-      queueMicrotask(() => {
-        this.m = true;
-        this.sync();
-      });
-    }
+    if (!this.m) return
+    this.m = false;
+    queueMicrotask(() => {
+      this.m = true;
+      this.sync();
+    });
   }
   sync() {
     const prev = outerEffect;
-    const {e} = (outerEffect = this);
+    const { e } = (outerEffect = this);
     this.i = 0;
     super.value;
     // if effects are present in loops, these can grow or shrink.
@@ -117,17 +116,15 @@ class Effect extends Computed {
     // however, if there were more effects before but none now, those can
     // just stop being referenced and go with the GC.
     if (this.i < e.length)
-      for (const effect of e.splice(this.i))
-        effect.stop();
-    for (const {value} of e);
+      e.splice(this.i).forEach(effect => effect.stop());
+    for (const { value } of e);
     outerEffect = prev;
   }
   stop() {
     this._ = noop;
     this.r.clear();
     this.s.c.clear();
-    for (const effect of this.e.splice(0))
-      effect.stop();
+    this.e.splice(0).forEach(effect => effect.stop());
   }
 }
 
@@ -141,7 +138,7 @@ class Effect extends Computed {
 const effect = (callback, value, options = defaults) => {
   let unique;
   if (outerEffect) {
-    const {i, e} = outerEffect;
+    const { i, e } = outerEffect;
     // bottleneck:
     // there's literally no way to optimize this path *unless* the callback is
     // already a known one. however, latter case is not really common code so
@@ -160,7 +157,7 @@ const effect = (callback, value, options = defaults) => {
 
 const skip = () => false;
 class Reactive extends Signal {
-  constructor(_, {equals}) {
+  constructor(_, { equals }) {
     super(_)
     this.c = new Set;                                 // computeds
     this.s = equals === true ? is : (equals || skip); // (don't) skip updates
@@ -174,36 +171,33 @@ class Reactive extends Signal {
     return this._;
   }
   set value(_) {
-    if (!this.s(this._, _)) {
-      this._ = _;
-      if (this.c.size) {
-        const effects = [];
-        const stack = [this];
-        for (const signal of stack) {
-          for (const computed of signal.c) {
-            if (!computed.$ && computed.r.has(signal)) {
-              computed.r.clear();
-              computed.$ = true;
-              if (computed.f) {
-                effects.push(computed);
-                const stack = [computed];
-                for (const c of stack) {
-                  for (const effect of c.e) {
-                    effect.r.clear();
-                    effect.$ = true;
-                    stack.push(effect);
-                  }
-                }
-              }
-              else
-                stack.push(computed.s);
+    if (this.s(this._, _)) return
+    this._ = _;
+    if (!this.c.size) return
+    const effects = [];
+    const stack = [this];
+    for (const signal of stack) {
+      for (const computed of signal.c) {
+        if (computed.$ || !computed.r.has(signal)) continue
+        computed.r.clear();
+        computed.$ = true;
+        if (computed.f) {
+          effects.push(computed);
+          const stack = [computed];
+          for (const c of stack) {
+            for (const effect of c.e) {
+              effect.r.clear();
+              effect.$ = true;
+              stack.push(effect);
             }
           }
         }
-        for (const effect of effects)
-          batches ? batches.push(effect) : effect.value;
+        else
+          stack.push(computed.s);
       }
     }
+    for (const effect of effects)
+      batches ? batches.push(effect) : effect.value;
   }
 }
 

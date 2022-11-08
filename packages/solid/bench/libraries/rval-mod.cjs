@@ -29,7 +29,7 @@ function runPendingObservers() {
     while (context.pending.length) {
       // N.B. errors here cause other pending subscriptions to be aborted!
       const fns = context.pending.splice(0);
-      for (let i = 0, len = fns.length; i < len; i += 1) fns[i]();
+      fns.forEach(fn => fn());
     }
     context.isRunningReactions = false;
   }

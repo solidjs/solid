@@ -178,7 +178,7 @@ function updateComputation(node) {
 
 function currentValue() {
   if (this._fresh) {
-    for (let i = 0; i < this._observables.length; i += 1) this._observables[i].current();
+    this._observables.forEach(_observable => _observable.current())
   } else {
     this.value = updateComputation(this);
   }

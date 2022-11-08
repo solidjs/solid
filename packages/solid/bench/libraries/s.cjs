@@ -7,14 +7,11 @@ var S = function S(fn, value) {
   var _a = makeComputationNode(fn, value, false, false),
     node = _a.node,
     _value = _a.value;
-  if (node === null) {
-    return function computation() {
-      return _value;
-    };
-  } else {
-    return function computation() {
-      return node.current();
-    };
+  const result = node === null
+    ? _value
+    : node.current()
+  return function computation() {
+    return result;
   }
 };
 // compatibility with commonjs systems that expect default export to be at require('s.js').default rather than just require('s-js')
@@ -25,13 +22,13 @@ S.root = function root(fn) {
       fn.length === 0
         ? null
         : function _dispose() {
-            if (root === null);
-            else if (RunningClock !== null) {
-              RootClock.disposes.add(root);
-            } else {
-              dispose(root);
-            }
-          },
+          if (root === null);
+          else if (RunningClock !== null) {
+            RootClock.disposes.add(root);
+          } else {
+            dispose(root);
+          }
+        },
     root = disposer === null ? UNOWNED : getCandidateNode(),
     result;
   Owner = root;
@@ -72,31 +69,28 @@ S.effect = function effect(fn, value) {
 S.data = function data(value) {
   var node = new DataNode(value);
   return function data(value) {
-    if (arguments.length === 0) {
-      return node.current();
-    } else {
-      return node.next(value);
-    }
+    return !arguments.length
+      ? node.current()
+      : node.next(value)
   };
 };
 S.value = function value(current, eq) {
   var node = new DataNode(current),
     age = -1;
   return function value(update) {
-    if (arguments.length === 0) {
+    if (arguments.length === 0)
       return node.current();
-    } else {
-      var same = eq ? eq(current, update) : current === update;
-      if (!same) {
-        var time = RootClock.time;
-        if (age === time)
-          throw new Error("conflicting values: " + update + " is not the same as " + current);
-        age = time;
-        current = update;
-        node.next(update);
-      }
-      return update;
+
+    var same = eq ? eq(current, update) : current === update;
+    if (!same) {
+      var time = RootClock.time;
+      if (age === time)
+        throw new Error("conflicting values: " + update + " is not the same as " + current);
+      age = time;
+      current = update;
+      node.next(update);
     }
+    return update;
   };
 };
 S.freeze = function freeze(fn) {
@@ -186,15 +180,13 @@ var DataNode = /** @class */ (function () {
         this.pending = value;
         RootClock.changes.add(this);
       }
-    } else {
+    } else if (this.log !== null) {
       // not batching, respond to change now
-      if (this.log !== null) {
-        this.pending = value;
-        RootClock.changes.add(this);
-        event();
-      } else {
-        this.value = value;
-      }
+      this.pending = value;
+      RootClock.changes.add(this);
+      event();
+    } else {
+      this.value = value;
     }
     return value;
   };
@@ -218,13 +210,13 @@ var ComputationNode = /** @class */ (function () {
     this.cleanups = null;
   }
   ComputationNode.prototype.current = function () {
-    if (Listener !== null) {
-      if (this.age === RootClock.time) {
-        if (this.state === RUNNING) throw new Error("circular dependency");
-        else updateNode(this); // checks for state === STALE internally, so don't need to check here
-      }
-      logComputationRead(this);
+    if (Listener === null)
+      return this.value;
+    if (this.age === RootClock.time) {
+      if (this.state === RUNNING) throw new Error("circular dependency");
+      else updateNode(this); // checks for state === STALE internally, so don't need to check here
     }
+    logComputationRead(this);
     return this.value;
   };
   ComputationNode.prototype.clock = function () {
@@ -283,11 +275,9 @@ function makeComputationNode(fn, value, orphan, sample) {
     toplevel = RunningClock === null;
   Owner = node;
   Listener = sample ? null : node;
-  if (toplevel) {
-    value = execToplevelComputation(fn, value);
-  } else {
-    value = fn(value);
-  }
+  value = toplevel
+    ? execToplevelComputation(fn, value)
+    : fn(value)
   Owner = owner;
   Listener = listener;
   var recycled = recycleOrClaimNode(node, fn, value, orphan);
@@ -331,33 +321,27 @@ function recycleOrClaimNode(node, fn, value, orphan) {
     i;
   if (recycle) {
     LastNode = node;
-    if (_owner !== null) {
-      if (node.owned !== null) {
-        if (_owner.owned === null) _owner.owned = node.owned;
-        else
-          for (i = 0; i < node.owned.length; i++) {
-            _owner.owned.push(node.owned[i]);
-          }
-        node.owned = null;
-      }
-      if (node.cleanups !== null) {
-        if (_owner.cleanups === null) _owner.cleanups = node.cleanups;
-        else
-          for (i = 0; i < node.cleanups.length; i++) {
-            _owner.cleanups.push(node.cleanups[i]);
-          }
-        node.cleanups = null;
-      }
+    if (_owner === null)
+      return recycle
+    if (node.owned !== null) {
+      if (_owner.owned === null) _owner.owned = node.owned;
+      else
+        node.owned.forEach(nodeOwned => _owner.owned.push(nodeOwned))
+      node.owned = null;
     }
-  } else {
-    node.fn = fn;
-    node.value = value;
-    node.age = RootClock.time;
-    if (_owner !== null) {
-      if (_owner.owned === null) _owner.owned = [node];
-      else _owner.owned.push(node);
-    }
+    if (node.cleanups === null) return recycle
+    if (_owner.cleanups === null) _owner.cleanups = node.cleanups;
+    else
+      node.cleanups.forEach(nodeCleanup => _owner.cleanups.push(nodeCleanup))
+    node.cleanups = null;
+    return recycle
   }
+  node.fn = fn;
+  node.value = value;
+  node.age = RootClock.time;
+  if (_owner === null) return recycle
+  if (_owner.owned === null) _owner.owned = [node];
+  else _owner.owned.push(node);
   return recycle;
 }
 function logRead(from) {
@@ -439,20 +423,17 @@ function markComputationsStale(log) {
   // mark all downstream nodes stale which haven't been already
   if (node1 !== null) markNodeStale(node1);
   if (nodes !== null) {
-    for (var i = 0, len = nodes.length; i < len; i++) {
-      markNodeStale(nodes[i]);
-    }
+    nodes.forEach(markNodeStale)
   }
 }
 function markNodeStale(node) {
   var time = RootClock.time;
-  if (node.age < time) {
-    node.age = time;
-    node.state = STALE;
-    RootClock.updates.add(node);
-    if (node.owned !== null) markOwnedNodesForDisposal(node.owned);
-    if (node.log !== null) markComputationsStale(node.log);
-  }
+  if (node.age <= time) return
+  node.age = time;
+  node.state = STALE;
+  RootClock.updates.add(node);
+  if (node.owned !== null) markOwnedNodesForDisposal(node.owned);
+  if (node.log !== null) markComputationsStale(node.log);
 }
 function markOwnedNodesForDisposal(owned) {
   for (var i = 0; i < owned.length; i++) {
@@ -484,15 +465,11 @@ function cleanup(node, final) {
     i,
     len;
   if (cleanups !== null) {
-    for (i = 0; i < cleanups.length; i++) {
-      cleanups[i](final);
-    }
+    cleanups.forEach(cleanup => cleanup(final))
     node.cleanups = null;
   }
   if (owned !== null) {
-    for (i = 0; i < owned.length; i++) {
-      dispose(owned[i]);
-    }
+    owned.forEach(dispose);
     node.owned = null;
   }
   if (source1 !== null) {
@@ -512,18 +489,17 @@ function cleanupSource(source, slot) {
     lastslot;
   if (slot === -1) {
     source.node1 = null;
+    return
+  }
+  last = nodes.pop();
+  lastslot = nodeslots.pop();
+  if (slot === nodes.length) return
+  nodes[slot] = last;
+  nodeslots[slot] = lastslot;
+  if (lastslot === -1) {
+    last.source1slot = slot;
   } else {
-    last = nodes.pop();
-    lastslot = nodeslots.pop();
-    if (slot !== nodes.length) {
-      nodes[slot] = last;
-      nodeslots[slot] = lastslot;
-      if (lastslot === -1) {
-        last.source1slot = slot;
-      } else {
-        last.sourceslots[lastslot] = slot;
-      }
-    }
+    last.sourceslots[lastslot] = slot;
   }
 }
 function dispose(node) {

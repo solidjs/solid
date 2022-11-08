@@ -27,7 +27,7 @@ function isListening() {
  */
 function root(fn) {
   const prevTracking = tracking;
-  const rootUpdate = () => {};
+  const rootUpdate = () => { };
   tracking = rootUpdate;
   resetUpdate(rootUpdate);
   const result = fn(() => {
@@ -68,11 +68,10 @@ function transaction(fn) {
   let q = queue;
   queue = prevQueue;
   q.forEach(data => {
-    if (data._pending !== EMPTY_ARR) {
-      const pending = data._pending;
-      data._pending = EMPTY_ARR;
-      data(pending);
-    }
+    if (data._pending === EMPTY_ARR) return
+    const pending = data._pending;
+    data._pending = EMPTY_ARR;
+    data(pending);
   });
   return result;
 }
@@ -113,9 +112,7 @@ function observable(value) {
     // Update can alter data._observers, make a copy before running.
     data._runObservers = new Set(data._observers);
     data._runObservers.forEach(observer => (observer._fresh = false));
-    data._runObservers.forEach(observer => {
-      if (!observer._fresh) observer();
-    });
+    data._runObservers.forEach(observer => !observer._fresh && observer());
 
     tracking = clearedUpdate;
     return value;
@@ -194,13 +191,10 @@ function computed(observer, value) {
 }
 
 function removeFreshChildren(u) {
-  if (u._fresh) {
-    u._observables.forEach(o => {
-      if (o._runObservers) {
-        o._runObservers.delete(u);
-      }
-    });
-  }
+  if (!u._fresh) return
+  u._observables.forEach(o =>
+    o._runObservers?.delete(u)
+  );
 }
 
 /**
@@ -220,9 +214,7 @@ function _unsubscribe(update) {
   update._children.forEach(_unsubscribe);
   update._observables.forEach(o => {
     o._observers.delete(update);
-    if (o._runObservers) {
-      o._runObservers.delete(update);
-    }
+    o._runObservers?.delete(update);
   });
   update._cleanups.forEach(c => c());
   resetUpdate(update);

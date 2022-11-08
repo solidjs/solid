@@ -15,16 +15,15 @@ const effects = [];
 function markObserversMaybeStale(computation) {
   if (computation.flags & 64 /* SingleObserver */) {
     const observer = computation.observer;
-    if (observer !== null) {
-      if ((observer.flags & 2048) /* Zombie */ === 0) {
-        observer.depsReadyBits |= 1 << computation.observerSlot; // maximum 52 dependencies
-      }
-      if (observer.flags & 8 /* MaybeStale */) {
-        return;
-      }
-      observer.flags |= 8 /* MaybeStale */;
-      markObserversMaybeStale(observer);
+    if (observer === null) return
+    if ((observer.flags & 2048) /* Zombie */ === 0) {
+      observer.depsReadyBits |= 1 << computation.observerSlot; // maximum 52 dependencies
     }
+    if (observer.flags & 8 /* MaybeStale */) {
+      return;
+    }
+    observer.flags |= 8 /* MaybeStale */;
+    markObserversMaybeStale(observer);
   } else {
     for (let i = 0; i < computation.observers.length; i++) {
       const observer = computation.observers[i];
@@ -40,17 +39,14 @@ function markObserversMaybeStale(computation) {
   }
 }
 function accessData(data) {
-  if (currentCollecting !== null) {
-    if (currentCollecting.flags & 256 /* Dynamic */) {
-      insertNewSource(currentCollecting, data);
-    } else if (currentCollecting.flags & 512 /* MaybeStable */) {
-      logUnstable(currentCollecting, data);
-    }
-    if (data.flags & 2048 /* Zombie */) {
-      if ((currentCollecting.flags & 2048) /* Zombie */ === 0) {
-        data.flags -= 2048 /* Zombie */; // dezombie naturally
-      }
-    }
+  if (currentCollecting === null) return data.value
+  if (currentCollecting.flags & 256 /* Dynamic */) {
+    insertNewSource(currentCollecting, data);
+  } else if (currentCollecting.flags & 512 /* MaybeStable */) {
+    logUnstable(currentCollecting, data);
+  }
+  if (data.flags & 2048 /* Zombie */ && (currentCollecting.flags & 2048) /* Zombie */ === 0) {
+    data.flags -= 2048 /* Zombie */; // dezombie naturally
   }
   return data.value;
 }
@@ -64,10 +60,8 @@ function accessComputation(data) {
     } else if (currentCollecting.flags & 512 /* MaybeStable */) {
       logUnstable(currentCollecting, data);
     }
-    if (data.flags & 2048 /* Zombie */) {
-      if ((currentCollecting.flags & 2048) /* Zombie */ === 0) {
-        data.flags -= 2048 /* Zombie */; // dezombie naturally
-      }
+    if (data.flags & 2048 /* Zombie */ && (currentCollecting.flags & 2048) /* Zombie */ === 0) {
+      data.flags -= 2048 /* Zombie */; // dezombie naturally
     }
   }
   if (data.flags & 8 /* MaybeStale */) {
@@ -241,18 +235,16 @@ function propagate(computation) {
     let hasObserver = false;
     if (computation.flags & 64 /* SingleObserver */) {
       const observer = computation.observer;
-      if (observer !== null) {
-        if ((observer.flags & 2048) /* Zombie */ === 0) {
-          observer.flags |= 4 /* Stale */;
-          observer.depsReadyBits -= 1 << computation.observerSlot;
-          if (observer.depsReadyBits === 0 && propagate(observer)) {
-            notZombie = true;
-          }
-          hasObserver = true;
+      if ((observer !== null) && ((observer.flags & 2048) /* Zombie */ === 0)) {
+        observer.flags |= 4 /* Stale */;
+        observer.depsReadyBits -= 1 << computation.observerSlot;
+        if (observer.depsReadyBits === 0 && propagate(observer)) {
+          notZombie = true;
         }
+        hasObserver = true;
       }
     } else {
-      for (let i = 0; i < computation.observers.length; ) {
+      for (let i = 0; i < computation.observers.length;) {
         let current = computation.observers[i];
         if (current.flags & 2048 /* Zombie */) {
           i++;
@@ -285,27 +277,25 @@ function propagate(computation) {
     } else if (!hasObserver) {
       computation.flags |= 2048 /* Zombie */;
     }
-  } else {
-    if (computation.flags & 64 /* SingleObserver */) {
-      if (computation.observer !== null) {
-        // TODO: make inline cache?
-        if (!((computation.observer.flags & 2048) /* Zombie */)) {
-          computation.observer.depsReadyBits -= 1 << computation.observerSlot;
-          if (computation.observer.depsReadyBits === 0 && propagate(computation.observer)) {
-            notZombie = true;
-          }
-        }
-      }
-    } else {
-      for (let i = 0; i < computation.observers.length; i++) {
-        let current = computation.observers[i];
-        if (current.flags & 2048 /* Zombie */) {
-          continue;
-        }
-        current.depsReadyBits -= 1 << computation.observerSlots[i];
-        if (current.depsReadyBits === 0 && propagate(current)) {
+  } else if (computation.flags & 64 /* SingleObserver */) {
+    if (computation.observer !== null) {
+      // TODO: make inline cache?
+      if (!((computation.observer.flags & 2048) /* Zombie */)) {
+        computation.observer.depsReadyBits -= 1 << computation.observerSlot;
+        if (computation.observer.depsReadyBits === 0 && propagate(computation.observer)) {
           notZombie = true;
         }
+      }
+    }
+  } else {
+    for (let i = 0; i < computation.observers.length; i++) {
+      let current = computation.observers[i];
+      if (current.flags & 2048 /* Zombie */) {
+        continue;
+      }
+      current.depsReadyBits -= 1 << computation.observerSlots[i];
+      if (current.depsReadyBits === 0 && propagate(current)) {
+        notZombie = true;
       }
     }
   }
@@ -466,6 +456,6 @@ module.exports = {
   },
   createComputed: fn => {
     const g = createComputation(fn);
-    watch(g, () => {});
+    watch(g, () => { });
   }
 };

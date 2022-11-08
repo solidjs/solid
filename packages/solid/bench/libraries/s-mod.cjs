@@ -37,15 +37,14 @@ function createSignal(value, areEqual) {
   if (areEqual) {
     let age = -1;
     setter = v => {
-      if (!areEqual(v, value)) {
-        const time = RootClock.time;
-        if (time === age) {
-          throw new Error(`Conflicting value update: ${v} is not the same as ${value}`);
-        }
-        age = time;
-        value = v;
-        d.next(v);
+      if (areEqual(v, value)) return
+      const time = RootClock.time;
+      if (time === age) {
+        throw new Error(`Conflicting value update: ${v} is not the same as ${value}`);
       }
+      age = time;
+      value = v;
+      d.next(v);
     };
   } else setter = d.next.bind(d);
   return [d.current.bind(d), setter];
@@ -168,15 +167,13 @@ class DataNode {
         this.pending = value;
         RootClock.changes.add(this);
       }
-    } else {
+    } else if (this.log !== null) {
       // not batching, respond to change now
-      if (this.log !== null) {
-        this.pending = value;
-        RootClock.changes.add(this);
-        event();
-      } else {
-        this.value = value;
-      }
+      this.pending = value;
+      RootClock.changes.add(this);
+      event();
+    } else {
+      this.value = value;
     }
     return value;
   }
@@ -403,24 +400,24 @@ function applyDataChange(data) {
 }
 function updateNode(node) {
   const state = node.state;
-  if ((state & 16) === 0) {
-    if ((state & 2) !== 0) {
-      node.dependents[node.dependentslot++] = null;
-      if (node.dependentslot === node.dependentcount) {
-        resetComputation(node, 14);
+  if ((state & 16) !== 0) return
+
+  if ((state & 2) !== 0) {
+    node.dependents[node.dependentslot++] = null;
+    if (node.dependentslot === node.dependentcount) {
+      resetComputation(node, 14);
+    }
+  } else if ((state & 1) !== 0) {
+    if ((state & 4) !== 0) {
+      liftComputation(node);
+    } else if (node.comparator) {
+      const current = updateComputation(node);
+      const comparator = node.comparator;
+      if (!comparator(current, node.value)) {
+        markDownstreamComputations(node, false, true);
       }
-    } else if ((state & 1) !== 0) {
-      if ((state & 4) !== 0) {
-        liftComputation(node);
-      } else if (node.comparator) {
-        const current = updateComputation(node);
-        const comparator = node.comparator;
-        if (!comparator(current, node.value)) {
-          markDownstreamComputations(node, false, true);
-        }
-      } else {
-        updateComputation(node);
-      }
+    } else {
+      updateComputation(node);
     }
   }
 }
@@ -455,15 +452,13 @@ function statePending(node) {
   }
 }
 function pendingStateStale(node) {
-  if ((node.state & 2) !== 0) {
-    node.state = 1;
-    const time = RootClock.time;
-    if (node.age < time) {
-      node.age = time;
-      if (!node.comparator) {
-        markDownstreamComputations(node, false, true);
-      }
-    }
+  if ((node.state & 2) === 0) return
+  node.state = 1;
+  const time = RootClock.time;
+  if (node.age <= time) return
+  node.age = time;
+  if (!node.comparator) {
+    markDownstreamComputations(node, false, true);
   }
 }
 function setDownstreamState(node, pending) {
@@ -493,26 +488,24 @@ function setComputationState(log, stateFn) {
     nodes = log.nodes;
   if (node1 !== null) stateFn(node1);
   if (nodes !== null) {
-    for (let i = 0, ln = nodes.length; i < ln; i++) {
-      stateFn(nodes[i]);
-    }
+    nodes.forEach(stateFn)
   }
 }
 function markForDisposal(children, pending, time) {
   for (let i = 0, ln = children.length; i < ln; i++) {
     const child = children[i];
-    if (child !== null) {
-      if (pending) {
-        if ((child.state & 16) === 0) {
-          child.state |= 4;
-        }
-      } else {
-        child.age = time;
-        child.state = 16;
+    if (child === null) continue
+
+    if (pending) {
+      if ((child.state & 16) === 0) {
+        child.state |= 4;
       }
-      const owned = child.owned;
-      if (owned !== null) markForDisposal(owned, pending, time);
+    } else {
+      child.age = time;
+      child.state = 16;
     }
+    const owned = child.owned;
+    if (owned !== null) markForDisposal(owned, pending, time);
   }
 }
 function applyUpstreamUpdates(node) {
@@ -572,14 +565,13 @@ function cleanupSource(source, slot) {
   } else {
     last = nodes.pop();
     lastslot = nodeslots.pop();
-    if (slot !== nodes.length) {
-      nodes[slot] = last;
-      nodeslots[slot] = lastslot;
-      if (lastslot === -1) {
-        last.source1slot = slot;
-      } else {
-        last.sourceslots[lastslot] = slot;
-      }
+    if (slot === nodes.length) return
+    nodes[slot] = last;
+    nodeslots[slot] = lastslot;
+    if (lastslot === -1) {
+      last.source1slot = slot;
+    } else {
+      last.sourceslots[lastslot] = slot;
     }
   }
 }
