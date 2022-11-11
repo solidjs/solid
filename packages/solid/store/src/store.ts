@@ -202,8 +202,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       property === "__proto__"
     )
       return true;
-    const tracked = getDataNodes(target)[property];
-    tracked && tracked();
+    this.get!(target, property, target);
     return property in target;
   },
 
