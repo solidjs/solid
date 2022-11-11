@@ -48,6 +48,22 @@ describe("CreateComponent", () => {
   });
 });
 
+describe("mergeProps", () => {
+  test("falsey values", () => {
+    let props: SimplePropTypes = {
+      get a() {
+        return "ji";
+      },
+      b: null,
+      c: "j"
+    };
+    props = mergeProps(props, false, null, undefined);
+    expect(props.a).toBe("ji");
+    expect(props.b).toBe(null);
+    expect(props.c).toBe("j");
+  });
+});
+
 describe("Set Default Props", () => {
   test("simple set", () => {
     let props: SimplePropTypes = {

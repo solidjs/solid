@@ -175,7 +175,7 @@ type _MergeProps<T extends unknown[], Curr = {}> = T extends [
 export type MergeProps<T extends unknown[]> = Simplify<_MergeProps<T>>;
 
 function resolveSource(s: any) {
-  return (s = typeof s === "function" ? s() : s) == null ? {} : s;
+  return !(s = typeof s === "function" ? s() : s) ? {} : s;
 }
 
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
