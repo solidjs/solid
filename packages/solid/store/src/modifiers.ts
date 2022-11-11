@@ -117,7 +117,7 @@ export function reconcile<T extends U, U>(
   return state => {
     if (!isWrappable(state) || !isWrappable(v)) return v;
     const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, key);
-    return res === undefined ? state as T : res as T;
+    return res === undefined ? (state as T) : res;
   };
 }
 
@@ -152,7 +152,7 @@ export function produce<T>(fn: (state: T) => void): (state: T) => T {
       if (!(proxy = producers.get(state as Record<keyof T, T[keyof T]>))) {
         producers.set(
           state as Record<keyof T, T[keyof T]>,
-          (proxy = new Proxy(state, setterTraps))
+          (proxy = new Proxy(state as Extract<T, object>, setterTraps))
         );
       }
       fn(proxy);

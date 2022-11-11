@@ -35,8 +35,8 @@ let rootCount = 0;
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
 declare global {
-  var _$afterUpdate: () => void;
-  var _$afterCreateRoot: (root: Owner) => void;
+  var _$afterUpdate: (() => void) | undefined;
+  var _$afterCreateRoot: ((root: Owner) => void) | undefined;
 }
 
 export interface SignalState<T> {

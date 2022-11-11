@@ -135,3 +135,5 @@ export function produce<T>(fn: (state: T) => void): (state: T) => T {
     return state;
   };
 }
+
+export const DEV = undefined;
