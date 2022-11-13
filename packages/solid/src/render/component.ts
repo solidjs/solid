@@ -17,7 +17,7 @@ export function enableHydration() {
 
 /**
  * A general `Component` has no implicit `children` prop.  If desired, you can
- * specify one as in `Component<{name: String, children: JSX.Element>}`.
+ * specify one as in `Component<{name: String, children: JSX.Element}>`.
  */
 export type Component<P = {}> = (props: P) => JSX.Element;
 
