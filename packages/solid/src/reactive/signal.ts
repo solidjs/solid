@@ -240,7 +240,7 @@ export function createComputed<Next, Init>(
   options?: EffectOptions
 ): void {
   const c = createComputation(fn, value!, true, STALE, "_SOLID_DEV_" ? options : undefined);
-  if (Scheduler && Transition?.running) Updates!.push(c);
+  if (Scheduler && && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
 
@@ -271,7 +271,7 @@ export function createRenderEffect<Next, Init>(
   options?: EffectOptions
 ): void {
   const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined);
-  if (Scheduler && Transition?.running) Updates!.push(c);
+  if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
 
@@ -395,7 +395,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
   c.observers = null;
   c.observerSlots = null;
   c.comparator = options.equals || undefined;
-  if (Scheduler && Transition?.running) {
+  if (Scheduler && Transition && Transition.running) {
     c.tState = STALE;
     Updates!.push(c as Memo<Init, Next>);
   } else updateComputation(c as Memo<Init, Next>);
@@ -698,7 +698,7 @@ export interface DeferredOptions<T> {
  */
 export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions<T>) {
   let t: Task,
-    timeout = options?.timeoutMs;
+    timeout = options && options.timeoutMs;
   const node = createComputation(
     () => {
       if (!t || !t.fn)
@@ -967,7 +967,7 @@ export function enableScheduling(scheduler = requestCallback) {
  * @description https://www.solidjs.com/docs/latest/api#usetransition
  */
 export function startTransition(fn: () => unknown): Promise<void> {
-  if (Transition?.running) {
+  if (Transition && Transition.running) {
     fn();
     return Transition.done!;
   }
@@ -1214,7 +1214,7 @@ export function enableExternalSource(factory: ExternalSourceFactory) {
 
 // Internal
 export function readSignal(this: SignalState<any> | Memo<any>) {
-  const runningTransition = Transition?.running;
+  const runningTransition = Transition && Transition.running;
   if (
     (this as Memo<any>).sources &&
     ((!runningTransition && (this as Memo<any>).state) ||
@@ -1233,7 +1233,7 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
     }
   }
   if (Listener) {
-    const sSlot = this.observers?.length ?? 0;
+    const sSlot = this.observers ? this.observers.length : 0;
     if (!Listener.sources) {
       Listener.sources = [this];
       Listener.sourceSlots = [sSlot];
@@ -1265,11 +1265,11 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       }
       if (!TransitionRunning) node.value = value;
     } else node.value = value;
-    if (node.observers?.length) {
+    if (node.observers && node.observers.length) {
       runUpdates(() => {
         for (let i = 0; i < node.observers!.length; i += 1) {
           const o = node.observers![i];
-          const TransitionRunning = Transition?.running;
+          const TransitionRunning = Transition && Transition.running;
           if (TransitionRunning && Transition!.disposed.has(o)) continue;
           if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
             o.pure ? Updates!.push(o) : Effects!.push(o);
@@ -1322,13 +1322,13 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   try {
     nextValue = node.fn(value);
   } catch (err) {
-    if (node.pure) node[Transition?.running ? 'tState' : 'state'] = STALE;
+    if (node.pure) node[(Transition && Transition.running) ? 'tState' : 'state'] = STALE;
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
     if (node.updatedAt != null && "observers" in (node as Memo<any>)) {
       writeSignal(node as Memo<any>, nextValue, true);
-    } else if (Transition?.running && node.pure) {
+    } else if (Transition && Transition.running && node.pure) {
       Transition.sources.add(node as Memo<any>);
       (node as Memo<any>).tValue = nextValue;
     } else node.value = nextValue;
@@ -1368,7 +1368,7 @@ function createComputation<Next, Init = unknown>(
         "computations created outside a `createRoot` or `render` will never be disposed"
       );
   else if (Owner !== UNOWNED) {
-    if (Transition?.running && (Owner as Memo<Init, Next>).pure) {
+    if (Transition && Transition.running && (Owner as Memo<Init, Next>).pure) {
       (Owner as Memo<Init, Next>).tOwned
         ? (Owner as Memo<Init, Next>).tOwned!.push(c)
         : (Owner as Memo<Init, Next>).tOwned = [c]
@@ -1398,7 +1398,7 @@ function createComputation<Next, Init = unknown>(
 }
 
 function runTop(node: Computation<any>) {
-  const runningTransition = Transition?.running;
+  const runningTransition = Transition && Transition.running;
   if ((!runningTransition && node.state === 0) || (runningTransition && node.tState === 0)) return;
   if (
     (!runningTransition && node.state === PENDING) ||
@@ -1461,7 +1461,7 @@ function runUpdates<T>(fn: () => T, init: boolean) {
 
 function completeUpdates(wait: boolean) {
   if (Updates) {
-    if (Scheduler && Transition?.running) scheduleQueue(Updates);
+    if (Scheduler && Transition && Transition.running) scheduleQueue(Updates);
     else runQueue(Updates);
     Updates = null;
   }
@@ -1505,8 +1505,8 @@ function completeUpdates(wait: boolean) {
   const e = Effects!;
   Effects = null;
   if (e!.length) runUpdates(() => runEffects(e), false);
-  else if ("_SOLID_DEV_") globalThis._$afterUpdate?.();
-  res?.();
+  else if ("_SOLID_DEV_" && globalThis._$afterUpdate) globalThis._$afterUpdate();
+  res && res();
 }
 
 function runQueue(queue: Computation<any>[]) {
@@ -1544,7 +1544,7 @@ function runUserEffects(queue: Computation<any>[]) {
 }
 
 function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
-  const runningTransition = Transition?.running;
+  const runningTransition = Transition && Transition.running;
   node[runningTransition ? 'tState' : 'state'] = 0
   for (let i = 0; i < node.sources!.length; i += 1) {
     const source = node.sources![i] as Memo<any>;
@@ -1580,7 +1580,7 @@ function cleanNode(node: Owner) {
       const source = (node as Computation<any>).sources!.pop()!,
         index = (node as Computation<any>).sourceSlots!.pop()!,
         obs = source.observers;
-      if (!obs?.length) continue
+      if (!obs || !obs.length) continue
       const n = obs.pop()!,
         s = source.observerSlots!.pop()!;
       if (index < obs.length) {
@@ -1591,7 +1591,7 @@ function cleanNode(node: Owner) {
     }
   }
 
-  if (Transition?.running && (node as Memo<any>).pure) {
+  if (Transition && Transition.running && (node as Memo<any>).pure) {
     if ((node as Memo<any>).tOwned) {
       for (i = 0; i < (node as Memo<any>).tOwned!.length; i++)
         cleanNode((node as Memo<any>).tOwned![i]);
@@ -1637,7 +1637,7 @@ function handleError(err: any) {
 
 function lookup(owner: Owner | null, key: symbol | string): any {
   return owner
-    ? owner.context?.[key] !== undefined
+    ? owner.context && owner.context[key] !== undefined
       ? owner.context[key]
       : lookup(owner.owner, key)
     : undefined;

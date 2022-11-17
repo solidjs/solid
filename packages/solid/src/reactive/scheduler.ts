@@ -49,7 +49,9 @@ function setupScheduler() {
   };
 
   if (
-    (navigator as NavigatorScheduling)?.scheduling?.isInputPending
+    navigator &&
+    (navigator as NavigatorScheduling).scheduling &&
+    (navigator as NavigatorScheduling).scheduling.isInputPending
   ) {
     const scheduling = (navigator as NavigatorScheduling).scheduling;
     shouldYieldToHost = () => {
@@ -103,7 +105,7 @@ export function requestCallback(fn: () => void, options?: { timeout: number }): 
   let startTime = performance.now(),
     timeout = maxSigned31BitInt;
 
-  if (options?.timeout) timeout = options.timeout;
+  if (options && options.timeout) timeout = options.timeout;
 
   const newTask: Task = {
     id: taskIdCounter++,
