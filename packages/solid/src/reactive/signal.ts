@@ -240,7 +240,7 @@ export function createComputed<Next, Init>(
   options?: EffectOptions
 ): void {
   const c = createComputation(fn, value!, true, STALE, "_SOLID_DEV_" ? options : undefined);
-  if (Scheduler && && Transition && Transition.running) Updates!.push(c);
+  if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
 
