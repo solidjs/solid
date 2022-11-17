@@ -133,12 +133,12 @@ export function mapArray<T, U>(
     });
     function mapper(disposer: () => void) {
       disposers[j] = disposer;
-      if (indexes) {
-        const [s, set] = createSignal(j);
-        indexes[j] = set;
-        return mapFn(newItems[j], s);
-      }
-      return (mapFn as any)(newItems[j]);
+      if (!indexes)
+        return (mapFn as any)(newItems[j]);
+
+      const [s, set] = createSignal(j);
+      indexes[j] = set;
+      return mapFn(newItems[j], s);
     }
   };
 }
