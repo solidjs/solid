@@ -698,7 +698,7 @@ export interface DeferredOptions<T> {
  */
 export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions<T>) {
   let t: Task,
-    timeout = options && options.timeoutMs;
+    timeout = options ? options.timeoutMs : undefined;
   const node = createComputation(
     () => {
       if (!t || !t.fn)
@@ -756,7 +756,10 @@ export function createSelector<T, U>(
         if (fn(key, v) === fn(key, p!)) continue
         for (const c of val.values()) {
           c.state = STALE;
-          c.pure ? Updates!.push(c) : Effects!.push(c)
+          if (c.pure)
+            Updates!.push(c)
+          else
+            Effects!.push(c)
         }
       }
       return v;
