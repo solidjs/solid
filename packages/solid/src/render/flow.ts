@@ -6,7 +6,8 @@ import {
   children,
   Accessor,
   Setter,
-  onCleanup
+  onCleanup,
+  MemoOptions
 } from "../reactive/signal.js";
 import { mapArray, indexArray } from "../reactive/array.js";
 import { sharedConfig } from "./hydration.js";
@@ -31,9 +32,13 @@ export function For<T, U extends JSX.Element>(props: {
   children: (item: T, index: Accessor<number>) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return createMemo(
-    mapArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  );
+  return "_SOLID_DEV_"
+    ? createMemo(
+        mapArray(() => props.each, props.children, fallback || undefined),
+        undefined,
+        { name: "value" }
+      )
+    : createMemo(mapArray(() => props.each, props.children, fallback || undefined));
 }
 
 /**
@@ -55,9 +60,13 @@ export function Index<T, U extends JSX.Element>(props: {
   children: (item: Accessor<T>, index: number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return createMemo(
-    indexArray<T, U>(() => props.each, props.children, fallback ? fallback : undefined)
-  );
+  return "_SOLID_DEV_"
+    ? createMemo(
+        indexArray(() => props.each, props.children, fallback || undefined),
+        undefined,
+        { name: "value" }
+      )
+    : createMemo(indexArray(() => props.each, props.children, fallback || undefined));
 }
 
 /**
@@ -80,25 +89,34 @@ export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: JSX.Element;
-  children:
-    | JSX.Element
-    | ((item: NonNullable<T>) => JSX.Element);
+  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
 }) {
   let strictEqual = false;
   const keyed = props.keyed;
-  const condition = createMemo<T | undefined | null | boolean>(() => props.when, undefined, {
-    equals: (a, b) => (strictEqual ? a === b : !a === !b)
-  });
-  return createMemo(() => {
-    const c = condition();
-    if (c) {
-      const child = props.children;
-      const fn = typeof child === "function" && child.length > 0;
-      strictEqual = keyed || fn;
-      return fn ? untrack(() => (child as any)(c as T)) : child;
-    }
-    return props.fallback;
-  }) as () => JSX.Element;
+  const condition = createMemo<T | undefined | null | boolean>(
+    () => props.when,
+    undefined,
+    "_SOLID_DEV_"
+      ? {
+          equals: (a, b) => (strictEqual ? a === b : !a === !b),
+          name: "condition"
+        }
+      : { equals: (a, b) => (strictEqual ? a === b : !a === !b) }
+  );
+  return createMemo(
+    () => {
+      const c = condition();
+      if (c) {
+        const child = props.children;
+        const fn = typeof child === "function" && child.length > 0;
+        strictEqual = keyed || fn;
+        return fn ? untrack(() => (child as any)(c as T)) : child;
+      }
+      return props.fallback;
+    },
+    undefined,
+    "_SOLID_DEV_" ? { name: "value" } : undefined
+  ) as () => JSX.Element;
 }
 
 type EvalConditions = [number, unknown?, MatchProps<unknown>?];
@@ -123,6 +141,8 @@ export function Switch(props: {
 }): Accessor<JSX.Element> {
   let strictEqual = false;
   let keyed = false;
+  const equals: MemoOptions<EvalConditions>["equals"] = (a, b) =>
+    a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2];
   const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
     evalConditions = createMemo(
       (): EvalConditions => {
@@ -138,27 +158,26 @@ export function Switch(props: {
         return [-1];
       },
       undefined,
-      {
-        equals: (a, b) =>
-          a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2]
-      }
+      "_SOLID_DEV_" ? { equals, name: "eval conditions" } : { equals }
     );
-  return createMemo(() => {
-    const [index, when, cond] = evalConditions();
-    if (index < 0) return props.fallback;
-    const c = cond!.children;
-    const fn = typeof c === "function" && c.length > 0;
-    strictEqual = keyed || fn;
-    return fn ? untrack(() => (c as any)(when)) : c;
-  });
+  return createMemo(
+    () => {
+      const [index, when, cond] = evalConditions();
+      if (index < 0) return props.fallback;
+      const c = cond!.children;
+      const fn = typeof c === "function" && c.length > 0;
+      strictEqual = keyed || fn;
+      return fn ? untrack(() => (c as any)(when)) : c;
+    },
+    undefined,
+    "_SOLID_DEV_" ? { name: "value" } : undefined
+  );
 }
 
 export type MatchProps<T> = {
   when: T | undefined | null | false;
   keyed?: boolean;
-  children:
-    | JSX.Element
-    | ((item: NonNullable<T>) => JSX.Element);
+  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
 };
 /**
  * selects a content based on condition when inside a `<Switch>` control flow
@@ -214,20 +233,28 @@ export function ErrorBoundary(props: {
     (v = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count))
   )
     err = v[0];
-  const [errored, setErrored] = createSignal<any>(err);
+  const [errored, setErrored] = createSignal<any>(
+    err,
+    "_SOLID_DEV_" ? { name: "errored" } : undefined
+  );
   Errors || (Errors = new Set());
   Errors.add(setErrored);
   onCleanup(() => Errors.delete(setErrored));
-  return createMemo(() => {
-    let e: any;
-    if ((e = errored())) {
-      const f = props.fallback;
-      if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
-      const res = typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
+  return createMemo(
+    () => {
+      let e: any;
+      if ((e = errored())) {
+        const f = props.fallback;
+        if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
+        const res =
+          typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
+        onError(setErrored);
+        return res;
+      }
       onError(setErrored);
-      return res;
-    }
-    onError(setErrored);
-    return props.children;
-  }) as Accessor<JSX.Element>;
+      return props.children;
+    },
+    undefined,
+    "_SOLID_DEV_" ? { name: "value" } : undefined
+  ) as Accessor<JSX.Element>;
 }
