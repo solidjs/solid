@@ -1,4 +1,12 @@
-import { onCleanup, createRoot, untrack, createSignal, Accessor, Setter, $TRACK } from "./signal.js";
+import {
+  onCleanup,
+  createRoot,
+  untrack,
+  createSignal,
+  Accessor,
+  Setter,
+  $TRACK
+} from "./signal.js";
 
 const FALLBACK = Symbol("fallback");
 function dispose(d: (() => void)[]) {
@@ -134,7 +142,7 @@ export function mapArray<T, U>(
     function mapper(disposer: () => void) {
       disposers[j] = disposer;
       if (indexes) {
-        const [s, set] = createSignal(j);
+        const [s, set] = "_SOLID_DEV_" ? createSignal(j, { name: "index" }) : createSignal(j);
         indexes[j] = set;
         return mapFn(newItems[j], s);
       }
@@ -210,7 +218,9 @@ export function indexArray<T, U>(
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;
-      const [s, set] = createSignal(newItems[i]);
+      const [s, set] = "_SOLID_DEV_"
+        ? createSignal(newItems[i], { name: "value" })
+        : createSignal(newItems[i]);
       signals[i] = set;
       return mapFn(s, i);
     }
