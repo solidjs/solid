@@ -639,7 +639,7 @@ export function createResource<T, S, R>(
             })
           );
     if (typeof p !== "object" || !(p && "then" in p)) {
-      loadEnd(pr, p);
+      loadEnd(pr, p, undefined, lookup);
       return p;
     }
     pr = p;
@@ -651,7 +651,7 @@ export function createResource<T, S, R>(
     }, false);
     return p.then(
       v => loadEnd(p, v, undefined, lookup),
-      e => loadEnd(p, undefined, castError(e))
+      e => loadEnd(p, undefined, castError(e), lookup)
     ) as Promise<T>;
   }
   Object.defineProperties(read, {
