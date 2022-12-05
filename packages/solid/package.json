@@ -33,6 +33,7 @@
     "h/jsx-runtime/dist",
     "h/jsx-runtime/types",
     "h/jsx-runtime/package.json",
+    "h/jsx-dev-runtime/package.json",
     "html/dist",
     "html/types",
     "html/package.json",
@@ -94,6 +95,10 @@
     },
     "./dist/*": "./dist/*",
     "./jsx-runtime": {
+      "types": "./types/jsx.d.ts",
+      "default": "./dist/solid.js"
+    },
+    "./jsx-dev-runtime": {
       "types": "./types/jsx.d.ts",
       "default": "./dist/solid.js"
     },
@@ -220,6 +225,13 @@
       "require": "./h/dist/h.cjs"
     },
     "./h/jsx-runtime": {
+      "import": {
+        "types": "./h/jsx-runtime/types/index.d.ts",
+        "default": "./h/jsx-runtime/dist/jsx.js"
+      },
+      "require": "./h/jsx-runtime/dist/jsx.cjs"
+    },
+    "./h/jsx-dev-runtime": {
       "import": {
         "types": "./h/jsx-runtime/types/index.d.ts",
         "default": "./h/jsx-runtime/dist/jsx.js"
