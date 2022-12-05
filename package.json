@@ -15,14 +15,16 @@
     "coverage": "turbo run coverage",
     "build": "turbo run build",
     "types": "turbo run types",
-    "publish": "pnpm run build && pnpm run types",
-    "bump": "node scripts/bump.js"
+    "publish": "pnpm run build && pnpm run types && pnpm run release:only",
+    "bump": "changeset add",
+    "release:only": "changeset publish"
   },
   "devDependencies": {
     "@babel/cli": "^7.18.9",
     "@babel/core": "^7.18.9",
     "@babel/preset-env": "^7.18.9",
     "@babel/preset-typescript": "^7.18.6",
+    "@changesets/cli": "^2.25.2",
     "@rollup/plugin-babel": "^5.3.1",
     "@rollup/plugin-commonjs": "^22.0.1",
     "@rollup/plugin-json": "^4.1.0",
