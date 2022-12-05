@@ -1166,7 +1166,9 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  */
 export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
   const children = createMemo(fn);
-  const memo = createMemo(() => resolveChildren(children()));
+  const memo = "_SOLID_DEV_"
+    ? createMemo(() => resolveChildren(children()), undefined, { name: "children" })
+    : createMemo(() => resolveChildren(children()));
   (memo as ChildrenReturn).toArray = () => {
     const c = memo();
     return Array.isArray(c) ? c : c != null ? [c] : [];
