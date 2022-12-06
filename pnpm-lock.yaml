@@ -18,7 +18,6 @@ importers:
       '@types/node': ^18.0.6
       babel-jest: ^28.1.3
       babel-plugin-jsx-dom-expressions: ^0.35.4
-      babel-preset-solid: ''
       coveralls: ^3.1.1
       csstype: ^3.1.0
       dom-expressions: 0.35.5
@@ -61,7 +60,7 @@ importers:
       hyper-dom-expressions: 0.35.5
       jest: 28.1.3_@types+node@18.0.6
       jest-environment-jsdom: 28.1.3
-      jest-ts-webcompat-resolver: 1.0.0_jest-resolve@28.1.3
+      jest-ts-webcompat-resolver: 1.0.0
       lit-dom-expressions: 0.35.5
       ncp: 2.0.0
       npm-run-all: 4.1.5
@@ -69,7 +68,7 @@ importers:
       rollup: 2.77.0
       rollup-plugin-cleanup: 3.2.1_rollup@2.77.0
       rollup-plugin-copy: 3.4.0
-      solid-jest: 0.2.0_rv3wy4vp77cf2brhfcbx3b2g7q
+      solid-jest: 0.2.0_@babel+core@7.18.9
       symlink-dir: 5.0.1
       tsconfig-replace-paths: 0.0.11
       turbo: 1.3.1
@@ -4535,12 +4534,10 @@ packages:
       - supports-color
     dev: true
 
-  /jest-ts-webcompat-resolver/1.0.0_jest-resolve@28.1.3:
+  /jest-ts-webcompat-resolver/1.0.0:
     resolution: {integrity: sha512-BFoaU7LeYqZNnTYEr6iMRf87xdCQntNc/Wk8YpzDBcuz+CIZ0JsTtzuMAMnKiEgTRTC1wRWLUo2RlVjVijBcHQ==}
     peerDependencies:
       jest-resolve: '*'
-    dependencies:
-      jest-resolve: 28.1.3
     dev: true
 
   /jest-util/27.5.1:
@@ -5865,14 +5862,13 @@ packages:
       yargs: 15.4.1
     dev: true
 
-  /solid-jest/0.2.0_rv3wy4vp77cf2brhfcbx3b2g7q:
+  /solid-jest/0.2.0_@babel+core@7.18.9:
     resolution: {integrity: sha512-1ILtAj+z6bh1vTvaDlcT8501vmkzkVZMk2aiexJy+XWTZ+sb9B7IWedvWadIhOwwL97fiW4eMmN6SrbaHjn12A==}
     peerDependencies:
       babel-preset-solid: ^1.0.0
     dependencies:
       '@babel/preset-env': 7.18.9_@babel+core@7.18.9
       babel-jest: 27.5.1_@babel+core@7.18.9
-      babel-preset-solid: link:packages/babel-preset-solid
       enhanced-resolve-jest: 1.1.0
     transitivePeerDependencies:
       - '@babel/core'
