@@ -16,7 +16,7 @@ describe("Testing a simple Portal", () => {
     disposer = render(Component, div);
     expect(div.innerHTML).toBe("");
     expect((testMount.firstChild as HTMLDivElement).innerHTML).toBe("Hi");
-    expect((testMount.firstChild as HTMLDivElement & { host: HTMLElement }).host).toBe(div);
+    expect((testMount.firstChild as HTMLDivElement & { _$host: HTMLElement })._$host).toBe(div);
   });
 
   test("dispose", () => {
@@ -35,7 +35,7 @@ describe("Testing an SVG Portal", () => {
     disposer = render(Component, div);
     expect(div.innerHTML).toBe("");
     expect((testMount.firstChild as SVGGElement).innerHTML).toBe("Hi");
-    expect((testMount.firstChild as SVGGElement & { host: SVGElement }).host).toBe(div);
+    expect((testMount.firstChild as SVGGElement & { _$host: SVGElement })._$host).toBe(div);
   });
 
   test("dispose", () => disposer());

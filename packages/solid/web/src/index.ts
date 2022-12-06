@@ -87,7 +87,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
       renderRoot =
         useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
 
-    Object.defineProperty(container, "host", {
+    Object.defineProperty(container, "_$host", {
       get() {
         return marker.parentNode;
       },
