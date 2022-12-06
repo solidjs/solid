@@ -93,7 +93,21 @@ export function mergeProps(...sources: any): any {
   for (let i = 0; i < sources.length; i++) {
     let source = sources[i];
     if (typeof source === "function") source = source();
-    if (source) Object.defineProperties(target, Object.getOwnPropertyDescriptors(source));
+    if (source) {
+      const descriptors = Object.getOwnPropertyDescriptors(source);
+      for (const key in descriptors) {
+        if (key in target) continue;
+        Object.defineProperty(target, key, {
+          enumerable: true,
+          get() {
+            for (let i = sources.length - 1; i >= 0; i--) {
+              const v = (sources[i] || {})[key];
+              if (v !== undefined) return v;
+            }
+          },
+        });
+      }
+    }
   }
   return target;
 }
