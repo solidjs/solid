@@ -306,9 +306,6 @@ export function lazy<T extends Component<any>>(
     } else if (!comp) {
       const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default));
       comp = s;
-    } else {
-      const c = comp();
-      if (c) return c(props);
     }
     let Comp: T | undefined;
     return createMemo(
