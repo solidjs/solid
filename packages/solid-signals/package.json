@@ -1,0 +1,15 @@
+{
+  "name": "x-reactivity",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "esbuild ./src/index.ts --outdir=dist"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "esbuild": "^0.16.3"
+  }
+}
