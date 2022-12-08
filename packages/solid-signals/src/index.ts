@@ -251,7 +251,7 @@ function stabilize() {
   for (let i = 0; i < EffectQueue.length; i++) {
     EffectQueue[i].get();
   }
-  EffectQueue.length = 0;
+  EffectQueue = null;
 }
 
 function setSignal<T>(this: Reactive<T>, value: T) {
@@ -282,6 +282,7 @@ export function createRoot(fn: () => void) {
   };
 }
 export function batch<T>(fn: () => T): T {
+  EffectQueue = [];
   let out = fn();
   stabilize();
   return out;
