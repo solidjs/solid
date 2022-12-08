@@ -35,7 +35,7 @@ let CurrentGets: Reactive<any>[] | null = null;
 let CurrentGetsIndex = 0;
 
 /** A list of non-clean 'effect' nodes that will be updated when stabilize() is called */
-let EffectQueue: Reactive<any>[] = [];
+let EffectQueue: Reactive<any>[] | null = null;
 
 /** reactive nodes are marked dirty when their source values change TBD*/
 const CacheClean = 0; // reactive value is valid, no need to recompute
@@ -120,7 +120,10 @@ class Reactive<T> {
       }
     }
     // If we were previously clean, then we know that we may need to update to get the new value
-    if (this.state === CacheClean && this.effect) EffectQueue.push(this);
+    if (this.state === CacheClean && this.effect) {
+      if (EffectQueue) EffectQueue.push(this);
+      else EffectQueue = [this];
+    }
   }
 
   /** run the computation fn, updating the cached value */
@@ -244,6 +247,7 @@ export function onCleanup(fn: () => void): void {
 
 /** run all non-clean effect nodes */
 function stabilize() {
+  if (!EffectQueue) return;
   for (let i = 0; i < EffectQueue.length; i++) {
     EffectQueue[i].get();
   }
@@ -251,8 +255,9 @@ function stabilize() {
 }
 
 function setSignal<T>(this: Reactive<T>, value: T) {
+  const notInBatch = !EffectQueue;
   this.set(value);
-  stabilize();
+  if (notInBatch) stabilize();
 }
 export function createSignal<T>(value: T): [() => T, (value: T) => void] {
   const signal = new Reactive(value);
@@ -277,5 +282,7 @@ export function createRoot(fn: () => void) {
   };
 }
 export function batch<T>(fn: () => T): T {
-  return fn();
+  let out = fn();
+  stabilize();
+  return out;
 }
