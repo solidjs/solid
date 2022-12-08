@@ -58,7 +58,7 @@ let Root: Reactive<any>[] | null;
  * cached.
  */
 class Reactive<T> {
-  private _value: T;
+  private value: T;
   private fn?: () => T;
   private observers: Reactive<any>[] | null = null; // nodes that have us as sources (down links)
   private sources: Reactive<any>[] | null = null; // sources in reference order, not deduplicated (up links)
@@ -71,7 +71,7 @@ class Reactive<T> {
   constructor(fnOrValue: (() => T) | T, effect?: boolean) {
     if (typeof fnOrValue === "function") {
       this.fn = fnOrValue as () => T;
-      this._value = undefined as any;
+      this.value = undefined as any;
       this.effect = effect || false;
       this.state = CacheDirty;
       if (Root) Root.push(this);
@@ -79,7 +79,7 @@ class Reactive<T> {
       if (effect) this.update(); // CONSIDER removing this?
     } else {
       this.fn = undefined;
-      this._value = fnOrValue;
+      this.value = fnOrValue;
       this.state = CacheClean;
       this.effect = false;
     }
@@ -99,16 +99,16 @@ class Reactive<T> {
       }
     }
     if (this.fn) this.updateIfNecessary();
-    return this._value;
+    return this.value;
   }
 
   set(value: T): void {
-    if ((this._value !== value || this.alwaysUpdate) && this.observers) {
+    if ((this.value !== value || this.alwaysUpdate) && this.observers) {
       for (let i = 0; i < this.observers.length; i++) {
         this.observers[i].stale(CacheDirty);
       }
     }
-    this._value = value;
+    this.value = value;
   }
 
   private stale(state: CacheNonClean): void {
@@ -130,7 +130,7 @@ class Reactive<T> {
 
   /** run the computation fn, updating the cached value */
   private update(): void {
-    const oldValue = this._value;
+    const oldValue = this.value;
 
     /* Evalute the reactive function body, dynamically capturing any other reactives used */
     const prevReaction = CurrentReaction;
@@ -146,7 +146,7 @@ class Reactive<T> {
         this.cleanups.forEach((c) => c());
         this.cleanups = null;
       }
-      this._value = this.fn!();
+      this.value = this.fn!();
 
       // if the sources have changed, update source & observer links
       if (CurrentGets) {
@@ -183,7 +183,7 @@ class Reactive<T> {
     }
 
     // handle diamond depenendencies if we're the parent of a diamond.
-    if ((oldValue !== this._value || this.alwaysUpdate) && this.observers) {
+    if ((oldValue !== this.value || this.alwaysUpdate) && this.observers) {
       // We've changed value, so mark our children as dirty so they'll reevaluate
       for (let i = 0; i < this.observers.length; i++) {
         this.observers[i].state = CacheDirty;
