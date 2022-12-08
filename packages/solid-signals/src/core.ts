@@ -43,6 +43,13 @@ const CacheCheck = 1; // reactive value might be stale, check parent nodes to de
 const CacheDirty = 2; // reactive value is invalid, parents have changed, valueneeds to be recomputed
 type CacheState = typeof CacheClean | typeof CacheCheck | typeof CacheDirty;
 type CacheNonClean = typeof CacheCheck | typeof CacheDirty;
+type SetterArg<T> = Exclude<T, Function> | ((prev: T) => T);
+export type Accessor<T> = () => T;
+export type Setter<T> = (undefined extends T ? () => undefined : {}) &
+  (<U extends T>(value: (prev: T) => U) => U) &
+  (<U extends T>(value: Exclude<U, Function>) => U) &
+  (<U extends T>(value: Exclude<U, Function> | ((prev: T) => U)) => U);
+export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 let Root: Reactive<any>[] | null;
 /** A reactive element contains a mutable value that can be observed by other reactive elements.
@@ -102,13 +109,14 @@ class Reactive<T> {
     return this.value;
   }
 
-  set(value: T): void {
-    if ((this.value !== value || this.alwaysUpdate) && this.observers) {
+  set(value: SetterArg<T>): void {
+    const newValue = typeof value === "function" ? (value as Function)(this.value) : value;
+    if ((this.value !== newValue || this.alwaysUpdate) && this.observers) {
       for (let i = 0; i < this.observers.length; i++) {
         this.observers[i].stale(CacheDirty);
       }
     }
-    this.value = value;
+    this.value = newValue;
   }
 
   private stale(state: CacheNonClean): void {
@@ -256,7 +264,7 @@ function stabilize() {
   EffectQueue = null;
 }
 
-function setSignal<T>(this: Reactive<T>, value: T) {
+function setSignal<T>(this: Reactive<T>, value: SetterArg<T>) {
   const notInBatch = !EffectQueue;
   this.set(value);
   if (notInBatch) stabilize();
@@ -264,7 +272,7 @@ function setSignal<T>(this: Reactive<T>, value: T) {
 export function createSignal<T>(
   value: T,
   options?: { equals?: false }
-): [() => T, (value: T) => void] {
+): Signal<T> {
   const signal = new Reactive(value);
   if (options?.equals !== undefined) signal.alwaysUpdate = true;
   return [signal.get.bind(signal), setSignal.bind(signal)];
