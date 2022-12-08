@@ -4,13 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild ./src/index.ts --outdir=dist",
+    "build": "esbuild ./src/index.ts --outdir=dist --bundle",
     "example": "esbuild ./example/basic.ts --bundle | node"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
+  "devDependencies": {
     "esbuild": "^0.16.3"
   }
 }

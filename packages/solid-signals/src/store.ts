@@ -1,4 +1,4 @@
-import { createSignal, batch, CurrentReaction } from "./";
+import { createSignal, batch, CurrentReaction } from "./core";
 
 export type Store<T> = T;
 export type SetStoreFunction<T> = (fn: (state: T) => void) => void;
