@@ -29,7 +29,7 @@ export type NotWrappable =
   | undefined
   | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
 
-function wrap<T extends StoreNode>(value: T, name?: string): T {
+function wrap<T extends StoreNode>(value: T): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, {
@@ -49,8 +49,6 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
         }
       }
     }
-    if ("_SOLID_DEV_" && name)
-      Object.defineProperty(value, $NAME, { value: name });
   }
   return p;
 }
@@ -182,10 +180,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     }
     return isWrappable(value)
       ? wrap(
-          value,
-          "_SOLID_DEV_" &&
-            target[$NAME] &&
-            `${target[$NAME]}:${property.toString()}`
+          value
         )
       : value;
   },
@@ -204,12 +199,10 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   set() {
-    if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
     return true;
   },
 
   deleteProperty() {
-    if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
     return true;
   },
 
@@ -251,10 +244,7 @@ export function setProperty(
   const prev = state[property],
     len = state.length;
 
-  if ("_SOLID_DEV_" && globalThis._$onStoreNodeUpdate)
-    globalThis._$onStoreNodeUpdate(state, property, value, prev);
-
-  if (value === undefined) delete state[property];
+  if (deleting) delete state[property];
   else state[property] = value;
   let nodes = getDataNodes(state),
     node: DataNode;
