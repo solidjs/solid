@@ -30,7 +30,7 @@
 
 /** current capture context for identifying @reactive sources (other reactive elements) and cleanups
  * - active while evaluating a reactive function body  */
-let CurrentReaction: Reactive<any> | undefined = undefined;
+export let CurrentReaction: Reactive<any> | undefined = undefined;
 let CurrentGets: Reactive<any>[] | null = null;
 let CurrentGetsIndex = 0;
 
