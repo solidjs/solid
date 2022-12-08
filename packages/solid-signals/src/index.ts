@@ -66,6 +66,7 @@ class Reactive<T> {
   private state: CacheState;
   private effect: boolean;
   cleanups: (() => void)[] | null = null;
+  alwaysUpdate: boolean = false;
 
   constructor(fnOrValue: (() => T) | T, effect?: boolean) {
     if (typeof fnOrValue === "function") {
@@ -102,7 +103,7 @@ class Reactive<T> {
   }
 
   set(value: T): void {
-    if (this._value !== value && this.observers) {
+    if ((this._value !== value || this.alwaysUpdate) && this.observers) {
       for (let i = 0; i < this.observers.length; i++) {
         this.observers[i].stale(CacheDirty);
       }
@@ -182,7 +183,7 @@ class Reactive<T> {
     }
 
     // handle diamond depenendencies if we're the parent of a diamond.
-    if (oldValue !== this._value && this.observers) {
+    if ((oldValue !== this._value || this.alwaysUpdate) && this.observers) {
       // We've changed value, so mark our children as dirty so they'll reevaluate
       for (let i = 0; i < this.observers.length; i++) {
         this.observers[i].state = CacheDirty;
@@ -260,8 +261,12 @@ function setSignal<T>(this: Reactive<T>, value: T) {
   this.set(value);
   if (notInBatch) stabilize();
 }
-export function createSignal<T>(value: T): [() => T, (value: T) => void] {
+export function createSignal<T>(
+  value: T,
+  options?: { equals?: false }
+): [() => T, (value: T) => void] {
   const signal = new Reactive(value);
+  if (options?.equals !== undefined) signal.alwaysUpdate = true;
   return [signal.get.bind(signal), setSignal.bind(signal)];
 }
 export function createMemo<T>(fn: () => T): () => T {
