@@ -178,11 +178,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       )
         value = getDataNode(nodes, property, value)();
     }
-    return isWrappable(value)
-      ? wrap(
-          value
-        )
-      : value;
+    return isWrappable(value) ? wrap(value) : value;
   },
 
   has(target, property) {
