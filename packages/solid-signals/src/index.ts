@@ -85,14 +85,6 @@ class Reactive<T> {
     }
   }
 
-  get value(): T {
-    return this.get();
-  }
-
-  set value(v: T) {
-    this.set(v);
-  }
-
   get(): T {
     if (CurrentReaction) {
       if (
@@ -250,25 +242,25 @@ function stabilize() {
   EffectQueue.length = 0;
 }
 
-function setSignal(value) {
+function setSignal<T>(this: Reactive<T>, value: T) {
   this.set(value);
   stabilize();
 }
-export function createSignal(value) {
+export function createSignal<T>(value: T): [() => T, (value: T) => void] {
   const signal = new Reactive(value);
   return [signal.get.bind(signal), setSignal.bind(signal)];
 }
-export function createMemo(fn) {
+export function createMemo<T>(fn: () => T): () => T {
   const memo = new Reactive(fn);
   return memo.get.bind(memo);
 }
-export function effect(fn) {
+export function createEffect(fn: () => void) {
   const effect = new Reactive(fn, true);
   return effect.get.bind(effect);
 }
-export function createRoot(fn) {
+export function createRoot(fn: () => void) {
   fn();
 }
-export function batch(fn) {
+export function batch<T>(fn: () => T): T {
   return fn();
 }
