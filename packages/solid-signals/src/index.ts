@@ -41,13 +41,10 @@ let EffectQueue: Reactive<any>[] = [];
 const CacheClean = 0; // reactive value is valid, no need to recompute
 const CacheCheck = 1; // reactive value might be stale, check parent nodes to decide whether to recompute
 const CacheDirty = 2; // reactive value is invalid, parents have changed, valueneeds to be recomputed
-type CacheState =
-  | typeof CacheClean
-  | typeof CacheCheck
-  | typeof CacheDirty;
+type CacheState = typeof CacheClean | typeof CacheCheck | typeof CacheDirty;
 type CacheNonClean = typeof CacheCheck | typeof CacheDirty;
 
-
+let Root: Reactive<any>[] | null;
 /** A reactive element contains a mutable value that can be observed by other reactive elements.
  *
  * The property can be modified externally by calling set().
@@ -68,7 +65,7 @@ class Reactive<T> {
 
   private state: CacheState;
   private effect: boolean;
-  cleanups: ((oldValue: T) => void)[] = [];
+  cleanups: (() => void)[] | null = null;
 
   constructor(fnOrValue: (() => T) | T, effect?: boolean) {
     if (typeof fnOrValue === "function") {
@@ -76,6 +73,8 @@ class Reactive<T> {
       this._value = undefined as any;
       this.effect = effect || false;
       this.state = CacheDirty;
+      if (Root) Root.push(this);
+      else console.error("Memos and effects must be wrapped in a createRoot");
       if (effect) this.update(); // CONSIDER removing this?
     } else {
       this.fn = undefined;
@@ -138,16 +137,16 @@ class Reactive<T> {
     CurrentGetsIndex = 0;
 
     try {
-      if (this.cleanups.length) {
-        this.cleanups.forEach((c) => c(this._value));
-        this.cleanups = [];
+      if (this.cleanups) {
+        this.cleanups.forEach((c) => c());
+        this.cleanups = null;
       }
       this._value = this.fn!();
 
       // if the sources have changed, update source & observer links
       if (CurrentGets) {
         // remove all old sources' .observers links to us
-        this.removeParentObservers();
+        this.removeParentObservers(CurrentGetsIndex);
         // update source up links
         if (this.sources && CurrentGetsIndex > 0) {
           this.sources.length = CurrentGetsIndex + CurrentGets.length;
@@ -169,7 +168,7 @@ class Reactive<T> {
         }
       } else if (this.sources && CurrentGetsIndex < this.sources.length) {
         // remove all old sources' .observers links to us
-        this.removeParentObservers();
+        this.removeParentObservers(CurrentGetsIndex);
         this.sources.length = CurrentGetsIndex;
       }
     } finally {
@@ -215,22 +214,31 @@ class Reactive<T> {
     this.state = CacheClean;
   }
 
-  private removeParentObservers(): void {
+  private removeParentObservers(index: number): void {
     if (!this.sources) return;
-    for (let i = CurrentGetsIndex; i < this.sources!.length; i++) {
+    for (let i = index; i < this.sources!.length; i++) {
       const source: Reactive<any> = this.sources![i]; // We don't actually delete sources here because we're replacing the entire array soon
       const swap = source.observers!.findIndex((v) => v === this);
       source.observers![swap] = source.observers![source.observers!.length - 1];
       source.observers!.pop();
     }
   }
+  
+  destroy(): void {
+    if(this.cleanups) {
+      this.cleanups.forEach((c) => c());
+      this.cleanups = null;
+    }
+    this.removeParentObservers(0);
+  }
 }
 
-export function onCleanup<T = any>(fn: (oldValue: T) => void): void {
+export function onCleanup(fn: () => void): void {
   if (CurrentReaction) {
-    CurrentReaction.cleanups.push(fn);
+    if (!CurrentReaction.cleanups) CurrentReaction.cleanups = [fn];
+    else CurrentReaction.cleanups.push(fn);
   } else {
-    console.error("onCleanup must be called from within a @reactive function");
+    console.error("onCleanup must be called from within a memo or effect");
   }
 }
 
@@ -259,7 +267,14 @@ export function createEffect(fn: () => void) {
   return effect.get.bind(effect);
 }
 export function createRoot(fn: () => void) {
+  let root: Reactive<any>[] = [];
+  Root = root;
   fn();
+  Root = null;
+  return () => {
+    root.forEach((r) => r.destroy());
+    root = null as any;
+  };
 }
 export function batch<T>(fn: () => T): T {
   return fn();
