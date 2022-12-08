@@ -112,17 +112,18 @@ class Reactive<T> {
 
   private stale(state: CacheNonClean): void {
     if (this.state < state) {
+      // If we were previously clean, then we know that we may need to update to get the new value
+      if (this.state === CacheClean && this.effect) {
+        if (EffectQueue) EffectQueue.push(this);
+        else EffectQueue = [this];
+      }
+
       this.state = state;
       if (this.observers) {
         for (let i = 0; i < this.observers.length; i++) {
           this.observers[i].stale(CacheCheck);
         }
       }
-    }
-    // If we were previously clean, then we know that we may need to update to get the new value
-    if (this.state === CacheClean && this.effect) {
-      if (EffectQueue) EffectQueue.push(this);
-      else EffectQueue = [this];
     }
   }
 
@@ -226,9 +227,9 @@ class Reactive<T> {
       source.observers!.pop();
     }
   }
-  
+
   destroy(): void {
-    if(this.cleanups) {
+    if (this.cleanups) {
       this.cleanups.forEach((c) => c());
       this.cleanups = null;
     }
