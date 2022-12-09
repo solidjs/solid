@@ -5,7 +5,8 @@ import {
   createMemo,
   devComponent,
   $PROXY,
-  $DEVCOMP
+  $DEVCOMP,
+  EffectFunction
 } from "../reactive/signal.js";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
 import type { JSX } from "../jsx.js";
@@ -179,8 +180,14 @@ function resolveSource(s: any) {
 }
 
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
-  sources = sources.map(source => typeof source === "function" ? createMemo(source) : source) as T
-  if (sources.some(s => s && ($PROXY in (s as T) || typeof s === "function"))) {
+  let proxy = false;
+  for (let i = 0; i < sources.length; i++) {
+    const s = sources[i];
+    proxy ||= !!s && $PROXY in (s as object);
+    sources[i] =
+      typeof s === "function" ? ((proxy = true), createMemo(s as EffectFunction<unknown>)) : s;
+  }
+  if (proxy) {
     return new Proxy(
       {
         get(property: string | number | symbol) {

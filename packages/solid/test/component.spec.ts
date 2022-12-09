@@ -124,9 +124,10 @@ describe("Merge Signal", () => {
         c: "j"
       }),
       defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
-    const props = mergeProps(defaults, s);
+    let props!: SimplePropTypes;;
     const res: string[] = [];
     createRoot(() => {
+      props = mergeProps(defaults, s);
       createEffect(() => {
         res.push(props.a as string);
       });
