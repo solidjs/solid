@@ -45,7 +45,7 @@ type CacheState = typeof CacheClean | typeof CacheCheck | typeof CacheDirty;
 type CacheNonClean = typeof CacheCheck | typeof CacheDirty;
 type SetterArg<T> = Exclude<T, Function> | ((prev: T) => T);
 export type Accessor<T> = () => T;
-export type Setter<T> = (value: SetterArg<T>) => T;
+export type Setter<T> = (value: SetterArg<T>) => void;
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 let Root: Reactive<any>[] | null;
@@ -61,7 +61,7 @@ let Root: Reactive<any>[] | null;
  * The reactive function is re-evaluated when any of its dependencies change, and the result is
  * cached.
  */
-class Reactive<T> {
+export class Reactive<T> {
   private value: T;
   private fn?: () => T;
   private observers: Reactive<any>[] | null = null; // nodes that have us as sources (down links)
@@ -107,6 +107,7 @@ class Reactive<T> {
   }
 
   set(value: SetterArg<T>): void {
+    const notInBatch = !EffectQueue;
     const newValue =
       typeof value === "function" ? (value as Function)(this.value) : value;
     if ((this.value !== newValue || this.alwaysUpdate) && this.observers) {
@@ -115,6 +116,7 @@ class Reactive<T> {
       }
     }
     this.value = newValue;
+    if (notInBatch) stabilize();
   }
 
   private stale(state: CacheNonClean): void {
@@ -262,21 +264,13 @@ function stabilize() {
   EffectQueue = null;
 }
 
-function setSignal<T>(this: Reactive<T>, value: SetterArg<T>) {
-  const notInBatch = !EffectQueue;
-  this.set(value);
-  if (notInBatch) stabilize();
-}
 export function createSignal<T>(
   value: T,
   options?: { equals?: false }
 ): Signal<T> {
   const signal = new Reactive(value);
   if (options?.equals !== undefined) signal.alwaysUpdate = true;
-  return [
-    signal.get.bind(signal),
-    (setSignal as typeof setSignal<T>).bind(signal) as Setter<T>,
-  ];
+  return [signal.get.bind(signal), signal.set.bind(signal)];
 }
 export function createMemo<T>(fn: () => T): () => T {
   const memo = new Reactive(fn);
@@ -287,11 +281,12 @@ export function createEffect(fn: () => void) {
   return effect.get.bind(effect);
 }
 export function createRoot(fn: () => void) {
-  let root: Reactive<any>[] = [];
+  let root: Reactive<any>[] | null = [];
   Root = root;
   fn();
   Root = null;
   return () => {
+    if (!root) return;
     root.forEach((r) => r.destroy());
     root = null as any;
   };

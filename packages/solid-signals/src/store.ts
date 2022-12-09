@@ -1,11 +1,8 @@
-import { createSignal, batch, CurrentReaction } from "./core";
+import { batch, CurrentReaction, Reactive } from "./core";
 
 export type Store<T> = Readonly<T>;
 export type SetStoreFunction<T> = (fn: (state: T) => void) => void;
-type DataNode = {
-  (): any;
-  $(value?: any): void;
-};
+type DataNode = Reactive<any> & { set: (value?: any) => void };
 type DataNodes = Record<PropertyKey, DataNode>;
 
 const $RAW = Symbol("store-raw"),
@@ -133,7 +130,7 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
 function trackSelf(target: StoreNode) {
   if (CurrentReaction) {
     const nodes = getDataNodes(target);
-    (nodes._ || (nodes._ = createDataNode()))();
+    (nodes._ || (nodes._ = createDataNode())).get();
   }
 }
 
@@ -143,11 +140,9 @@ function ownKeys(target: StoreNode) {
 }
 
 function createDataNode(value?: any) {
-  const [s, set] = createSignal<any>(value, {
-    equals: false,
-  });
-  (s as DataNode).$ = set;
-  return s as DataNode;
+  const s = new Reactive<any>(value);
+  s.alwaysUpdate = true;
+  return s;
 }
 
 let Writing = false;
@@ -161,7 +156,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     }
     const nodes = getDataNodes(target);
     const tracked = nodes.hasOwnProperty(property);
-    let value = tracked ? nodes[property]() : target[property];
+    let value = tracked ? nodes[property].get() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
     if (!tracked) {
@@ -171,7 +166,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
         (typeof value !== "function" || target.hasOwnProperty(property)) &&
         !(desc && desc.get)
       )
-        value = getDataNode(nodes, property, value)();
+        value = getDataNode(nodes, property, value).get();
     }
     return isWrappable(value) ? wrap(value) : value;
   },
@@ -216,13 +211,13 @@ function setProperty(
 
   if (deleting) delete state[property];
   else state[property] = value;
-  let nodes = getDataNodes(state);
+  const nodes = getDataNodes(state);
   let node: DataNode;
-  if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
+  if ((node = getDataNode(nodes, property, prev))) node.set(() => value);
 
   if (Array.isArray(state) && state.length !== len)
-    (node = getDataNode(nodes, "length", len)) && node.$(state.length);
-  (node = nodes._) && node.$();
+    (node = getDataNode(nodes, "length", len)) && node.set(state.length);
+  (node = nodes._) && node.set();
 }
 
 export function createStore<T extends object = {}>(
