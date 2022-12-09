@@ -305,3 +305,12 @@ export function batch<T>(fn: () => T): T {
   stabilize();
   return out;
 }
+export function untrack<T>(fn: () => T): T {
+  const listener = CurrentReaction;
+  CurrentReaction = undefined;
+  try {
+    return fn();
+  } finally {
+    CurrentReaction = listener;
+  }
+}

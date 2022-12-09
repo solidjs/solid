@@ -8,7 +8,7 @@ type DataNode = {
 };
 type DataNodes = Record<PropertyKey, DataNode>;
 
-export const $RAW = Symbol("store-raw"),
+const $RAW = Symbol("store-raw"),
   $TRACK = Symbol("track"),
   $PROXY = Symbol("store-proxy"),
   $NODE = Symbol("store-node"),
@@ -105,13 +105,13 @@ export function unwrap<T>(item: any, set = new Set()): T {
   return item;
 }
 
-export function getDataNodes(target: StoreNode): DataNodes {
+function getDataNodes(target: StoreNode): DataNodes {
   let nodes = target[$NODE];
   if (!nodes) Object.defineProperty(target, $NODE, { value: (nodes = {}) });
   return nodes;
 }
 
-export function getDataNode(
+function getDataNode(
   nodes: DataNodes,
   property: PropertyKey,
   value: any
@@ -119,7 +119,7 @@ export function getDataNode(
   return nodes[property] || (nodes[property] = createDataNode(value));
 }
 
-export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
+function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
   if (
     !desc ||
@@ -136,14 +136,14 @@ export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   return desc;
 }
 
-export function trackSelf(target: StoreNode) {
+function trackSelf(target: StoreNode) {
   if (CurrentReaction) {
     const nodes = getDataNodes(target);
     (nodes._ || (nodes._ = createDataNode()))();
   }
 }
 
-export function ownKeys(target: StoreNode) {
+function ownKeys(target: StoreNode) {
   trackSelf(target);
   return Reflect.ownKeys(target);
 }
@@ -230,7 +230,7 @@ const setterTraps: ProxyHandler<StoreNode> = {
   },
 };
 
-export function setProperty(
+function setProperty(
   state: StoreNode,
   property: PropertyKey,
   value: any,
