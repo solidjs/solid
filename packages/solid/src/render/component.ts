@@ -179,6 +179,7 @@ function resolveSource(s: any) {
 }
 
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
+  sources = sources.map(source => typeof source === "function" ? createMemo(source) : source) as T
   if (sources.some(s => s && ($PROXY in (s as T) || typeof s === "function"))) {
     return new Proxy(
       {
