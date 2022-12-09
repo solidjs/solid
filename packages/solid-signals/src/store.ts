@@ -1,6 +1,6 @@
 import { createSignal, batch, CurrentReaction } from "./core";
 
-export type Store<T> = T;
+export type Store<T> = Readonly<T>;
 export type SetStoreFunction<T> = (fn: (state: T) => void) => void;
 type DataNode = {
   (): any;
@@ -150,6 +150,7 @@ function createDataNode(value?: any) {
   return s as DataNode;
 }
 
+let Writing = false;
 const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
@@ -188,40 +189,19 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     return property in target;
   },
 
-  set() {
+  set(target, property, value) {
+    Writing && setProperty(target, property, unwrap(value));
     return true;
   },
 
-  deleteProperty() {
+  deleteProperty(target, property) {
+    Writing && setProperty(target, property, undefined, true);
     return true;
   },
 
   ownKeys: ownKeys,
 
   getOwnPropertyDescriptor: proxyDescriptor,
-};
-
-const producers = new WeakMap();
-const setterTraps: ProxyHandler<StoreNode> = {
-  get(target, property): any {
-    if (property === $RAW) return target;
-    const value = target[property];
-    let proxy;
-    return isWrappable(value)
-      ? producers.get(value) ||
-          (producers.set(value, (proxy = new Proxy(value, setterTraps))), proxy)
-      : value;
-  },
-
-  set(target, property, value) {
-    setProperty(target, property, unwrap(value));
-    return true;
-  },
-
-  deleteProperty(target, property) {
-    setProperty(target, property, undefined, true);
-    return true;
-  },
 };
 
 function setProperty(
@@ -252,19 +232,15 @@ export function createStore<T extends object = {}>(
 
   const wrappedStore = wrap(unwrappedStore);
   const setStore = (fn: (state: T) => void): void => {
-    batch(() => update<T>(unwrappedStore, fn));
+    batch(() => {
+      try {
+        Writing = true;
+        fn(wrappedStore);
+      } finally {
+        Writing = false;
+      }
+    });
   };
 
   return [wrappedStore, setStore];
-}
-
-function update<T extends object>(state: T, fn: (state: T) => void): void {
-  let proxy: T = producers.get(state as Record<keyof T, T[keyof T]>);
-  if (!proxy) {
-    producers.set(
-      state as Record<keyof T, T[keyof T]>,
-      (proxy = new Proxy(state, setterTraps))
-    );
-  }
-  fn(proxy);
 }
