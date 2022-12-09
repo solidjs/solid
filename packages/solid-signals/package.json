@@ -4,6 +4,9 @@
   "description": "",
   "type": "module",
   "main": "index.js",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc && esbuild ./src/index.ts --outdir=dist --bundle --format=esm",
     "example": "esbuild ./example/basic.ts --bundle | node"
