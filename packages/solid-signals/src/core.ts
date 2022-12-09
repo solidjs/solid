@@ -45,10 +45,7 @@ type CacheState = typeof CacheClean | typeof CacheCheck | typeof CacheDirty;
 type CacheNonClean = typeof CacheCheck | typeof CacheDirty;
 type SetterArg<T> = Exclude<T, Function> | ((prev: T) => T);
 export type Accessor<T> = () => T;
-export type Setter<T> = (undefined extends T ? () => undefined : {}) &
-  (<U extends T>(value: (prev: T) => U) => U) &
-  (<U extends T>(value: Exclude<U, Function>) => U) &
-  (<U extends T>(value: Exclude<U, Function> | ((prev: T) => U)) => U);
+export type Setter<T> = (value: SetterArg<T>) => T;
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 let Root: Reactive<any>[] | null;

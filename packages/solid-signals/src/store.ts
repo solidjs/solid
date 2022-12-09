@@ -11,8 +11,7 @@ type DataNodes = Record<PropertyKey, DataNode>;
 const $RAW = Symbol("store-raw"),
   $TRACK = Symbol("track"),
   $PROXY = Symbol("store-proxy"),
-  $NODE = Symbol("store-node"),
-  $NAME = Symbol("store-name");
+  $NODE = Symbol("store-node");
 
 export type StoreNode = Record<PropertyKey, any>;
 export namespace SolidStore {
@@ -36,8 +35,8 @@ function wrap<T extends StoreNode>(value: T): T {
       value: (p = new Proxy(value, proxyTraps)),
     });
     if (!Array.isArray(value)) {
-      const keys = Object.keys(value),
-        desc = Object.getOwnPropertyDescriptors(value);
+      const keys = Object.keys(value);
+      const desc = Object.getOwnPropertyDescriptors(value);
       for (let i = 0, l = keys.length; i < l; i++) {
         const prop = keys[i];
         if (desc[prop].get) {
@@ -93,8 +92,8 @@ export function unwrap<T>(item: any, set = new Set()): T {
   } else {
     if (Object.isFrozen(item)) item = Object.assign({}, item);
     else set.add(item);
-    const keys = Object.keys(item),
-      desc = Object.getOwnPropertyDescriptors(item);
+    const keys = Object.keys(item);
+    const desc = Object.getOwnPropertyDescriptors(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       prop = keys[i];
       if (desc[prop].get) continue;
@@ -111,11 +110,7 @@ function getDataNodes(target: StoreNode): DataNodes {
   return nodes;
 }
 
-function getDataNode(
-  nodes: DataNodes,
-  property: PropertyKey,
-  value: any
-) {
+function getDataNode(nodes: DataNodes, property: PropertyKey, value: any) {
   return nodes[property] || (nodes[property] = createDataNode(value));
 }
 
@@ -126,8 +121,7 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
     desc.get ||
     !desc.configurable ||
     property === $PROXY ||
-    property === $NODE ||
-    property === $NAME
+    property === $NODE
   )
     return desc;
   delete desc.value;
@@ -237,13 +231,13 @@ function setProperty(
   deleting: boolean = false
 ): void {
   if (!deleting && state[property] === value) return;
-  const prev = state[property],
-    len = state.length;
+  const prev = state[property];
+  const len = state.length;
 
   if (deleting) delete state[property];
   else state[property] = value;
-  let nodes = getDataNodes(state),
-    node: DataNode;
+  let nodes = getDataNodes(state);
+  let node: DataNode;
   if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
 
   if (Array.isArray(state) && state.length !== len)
@@ -254,19 +248,19 @@ function setProperty(
 export function createStore<T extends object = {}>(
   store: T | Store<T>
 ): [get: Store<T>, set: SetStoreFunction<T>] {
-  const unwrappedStore = unwrap((store || {}) as T);
+  const unwrappedStore = unwrap(store);
 
   const wrappedStore = wrap(unwrappedStore);
-  function setStore(fn: (state: T) => void): void {
+  const setStore = (fn: (state: T) => void): void => {
     batch(() => update<T>(unwrappedStore, fn));
-  }
+  };
 
   return [wrappedStore, setStore];
 }
 
 function update<T extends object>(state: T, fn: (state: T) => void): void {
-  let proxy: T;
-  if (!(proxy = producers.get(state as Record<keyof T, T[keyof T]>))) {
+  let proxy: T = producers.get(state as Record<keyof T, T[keyof T]>);
+  if (!proxy) {
     producers.set(
       state as Record<keyof T, T[keyof T]>,
       (proxy = new Proxy(state, setterTraps))
