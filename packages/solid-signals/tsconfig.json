@@ -6,7 +6,7 @@
     "newLine": "LF",
     "moduleResolution": "node",
     "strict": true,
-    "outDir": "./types",
+    "outDir": "./dist",
     "module": "esnext"
   },
   "include": [
