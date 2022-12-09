@@ -110,7 +110,8 @@ class Reactive<T> {
   }
 
   set(value: SetterArg<T>): void {
-    const newValue = typeof value === "function" ? (value as Function)(this.value) : value;
+    const newValue =
+      typeof value === "function" ? (value as Function)(this.value) : value;
     if ((this.value !== newValue || this.alwaysUpdate) && this.observers) {
       for (let i = 0; i < this.observers.length; i++) {
         this.observers[i].stale(CacheDirty);
@@ -275,7 +276,10 @@ export function createSignal<T>(
 ): Signal<T> {
   const signal = new Reactive(value);
   if (options?.equals !== undefined) signal.alwaysUpdate = true;
-  return [signal.get.bind(signal), setSignal.bind(signal)];
+  return [
+    signal.get.bind(signal),
+    (setSignal as typeof setSignal<T>).bind(signal) as Setter<T>,
+  ];
 }
 export function createMemo<T>(fn: () => T): () => T {
   const memo = new Reactive(fn);
