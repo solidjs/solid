@@ -49,6 +49,13 @@ export type Setter<T> = (value: SetterArg<T>) => void;
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 let Root: Reactive<any>[] | null;
+
+const enum ReactiveType {
+  Signal = 0,
+  Memo = 1,
+  Effect = 2,
+}
+
 /** A reactive element contains a mutable value that can be observed by other reactive elements.
  *
  * The property can be modified externally by calling set().
@@ -72,18 +79,20 @@ export class Reactive<T> {
   cleanups: (() => void)[] | null = null;
   alwaysUpdate: boolean = false;
 
-  constructor(fnOrValue: (() => T) | T, effect?: boolean) {
-    if (typeof fnOrValue === "function") {
+  constructor(value: T, type: ReactiveType.Signal);
+  constructor(value: () => T, type: ReactiveType.Memo | ReactiveType.Effect);
+  constructor(fnOrValue: (() => T) | T, type: ReactiveType) {
+    if (type != ReactiveType.Signal) {
       this.fn = fnOrValue as () => T;
       this.value = undefined as any;
-      this.effect = effect || false;
       this.state = CacheDirty;
       if (Root) Root.push(this);
       else console.error("Memos and effects must be wrapped in a createRoot");
-      if (effect) this.update(); // CONSIDER removing this?
+      this.effect = type == ReactiveType.Effect;
+      if (this.effect) this.update();
     } else {
       this.fn = undefined;
-      this.value = fnOrValue;
+      this.value = fnOrValue as T;
       this.state = CacheClean;
       this.effect = false;
     }
@@ -268,16 +277,16 @@ export function createSignal<T>(
   value: T,
   options?: { equals?: false }
 ): Signal<T> {
-  const signal = new Reactive(value);
+  const signal = new Reactive(value, ReactiveType.Signal);
   if (options?.equals !== undefined) signal.alwaysUpdate = true;
   return [signal.get.bind(signal), signal.set.bind(signal)];
 }
 export function createMemo<T>(fn: () => T): () => T {
-  const memo = new Reactive(fn);
+  const memo = new Reactive(fn, ReactiveType.Memo);
   return memo.get.bind(memo);
 }
 export function createEffect(fn: () => void) {
-  const effect = new Reactive(fn, true);
+  const effect = new Reactive(fn, ReactiveType.Effect);
   return effect.get.bind(effect);
 }
 export function createRoot(fn: () => void) {

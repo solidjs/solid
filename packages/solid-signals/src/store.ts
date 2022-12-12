@@ -140,7 +140,7 @@ function ownKeys(target: StoreNode) {
 }
 
 function createDataNode(value?: any) {
-  const s = new Reactive<any>(value);
+  const s = new Reactive<any>(value, 0);
   s.alwaysUpdate = true;
   return s;
 }
