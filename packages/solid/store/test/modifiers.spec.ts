@@ -14,6 +14,15 @@ describe("setState with reconcile", () => {
     expect(state.missing).toBeUndefined();
   });
 
+  test("Reconcile array with nulls", () => {
+    const [state, setState] = createStore([null, "a"]);
+    expect(state[0]).toBe(null);
+    expect(state[1]).toBe("a");
+    setState(reconcile(["b", null]));
+    expect(state[0]).toBe("b");
+    expect(state[1]).toBe(null);
+  });
+
   test("Reconcile a simple object on a nested path", () => {
     const [state, setState] = createStore<{
       data: { user: { firstName: string; middleName: string; lastName?: string } };
