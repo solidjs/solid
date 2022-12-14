@@ -45,7 +45,7 @@ type CacheState = typeof CacheClean | typeof CacheCheck | typeof CacheDirty;
 type CacheNonClean = typeof CacheCheck | typeof CacheDirty;
 type SetterArg<T> = Exclude<T, Function> | ((prev: T) => T);
 export type Accessor<T> = () => T;
-export type Setter<T> = (value: SetterArg<T>) => void;
+export type Setter<T> = (value: SetterArg<T>) => T;
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 let Root: Reactive<any>[] | null;
@@ -115,7 +115,7 @@ export class Reactive<T> {
     return this.value;
   }
 
-  set(value: SetterArg<T>): void {
+  set(value: SetterArg<T>): T {
     const notInBatch = !EffectQueue;
     const newValue =
       typeof value === "function" ? (value as Function)(this.value) : value;
@@ -126,6 +126,7 @@ export class Reactive<T> {
     }
     this.value = newValue;
     if (notInBatch) stabilize();
+    return newValue;
   }
 
   private stale(state: CacheNonClean): void {
