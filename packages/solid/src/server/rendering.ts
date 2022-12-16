@@ -496,9 +496,12 @@ function suspenseComplete(c: SuspenseContextType) {
 
 function notifySuspense(contexts: Set<SuspenseContextType>) {
   for (const c of contexts) {
-    if (suspenseComplete(c)) c.completed();
+    if (!suspenseComplete(c)) {
+      continue;
+    }
+    c.completed();
+    contexts.delete(c);
   }
-  contexts.clear();
 }
 
 export function enableScheduling() {}
