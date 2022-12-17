@@ -34,6 +34,7 @@ export type {
   Accessor,
   Setter,
   Signal,
+  SignalOptions,
   Resource,
   ResourceActions,
   ResourceSource,
