@@ -1,77 +1,37 @@
 <p>
-  <img width="100%" src="https://raw.githubusercontent.com/solidjs/solid/master/banner.png" alt="SolidJS">
+  <img src="https://assets.solidjs.com/banner?project=Library&type=core" alt="SolidJS" />
 </p>
 
-[![Build Status](https://github.com/solidjs/solid/workflows/Solid%20CI/badge.svg)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=flat)](https://coveralls.io/github/solidjs/solid?branch=main)
-[![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
-[![](https://img.shields.io/npm/dm/solid-js.svg?style=flat)](https://www.npmjs.com/package/solid-js)
-[![Discord](https://img.shields.io/discord/722131463138705510)](https://discord.com/invite/solidjs)
-[![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=social)](https://www.reddit.com/r/solidjs/)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/solidjs/solid/main-ci.yml?branch=main&logo=github&style=for-the-badge)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
+[![Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=for-the-badge)](https://coveralls.io/github/solidjs/solid?branch=main)
 
-Solid is a declarative JavaScript library for creating user interfaces. It does not use a Virtual DOM. Instead it opts to compile its templates down to real DOM nodes and wrap updates in fine grained reactions. This way when your state updates only the code that depends on it runs.
+[![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
+[![](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
+[![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
+[![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
 
-### Key Features
+**[Website](https://www.solidjs.com/) • [API Docs](https://www.solidjs.com/docs/latest/api) • [Features Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Playground](https://playground.solidjs.com/?version=1.3.13#NobwRAdghgtgpmAXGGUCWEwBowBcCeADgsrgM4Ae2YZA9gK4BOAxiWGjIbY7gAQi9GcCABM4jXgF9eAM0a0YvADo1aAGzQiAtACsyAegDucAEYqA3EogcuPfr2ZCouOAGU0Ac2hqps+YpU6DW09CysrGXoIZlw0WgheAGEGCBdGAAoASn4rXgd4sj5gZhTcLF4yOFxkqNwAXV4AXgcnF3cvKDV0gAZMywT8iELeDEc4eFSm3iymgD4KqprU9JLamYBqXgBGPvCBoVwmBPTcvN4AHhN6XFx43gJiRpUrm-iVXnjEjWYAa0aQUZCCa4SSzU5nfirZaZSTgi76F63CBgga7CCwiBWISicTpGaNebnJZpXj6WblES0Zj0YEAOg8VQAompxsJcAAhfAASREJzAUEIhBUmTRYEkdSAA) • [Discord](https://discord.com/invite/solidjs)**
 
-- Real DOM with fine-grained updates (<b>No Virtual DOM! No Dirty Checking Digest Loop!</b>).
-- Declarative data
-  - Simple composable primitives without the hidden rules.
-  - Function Components with no need for lifecycle methods or specialized configuration objects.
-  - Render once mental model.
-- Fast!
-  - Almost indistinguishable performance vs optimized painfully imperative vanilla DOM code. See Solid on [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark).
-  - Fastest at Server Rendering in the [Isomorphic UI Benchmarks](https://github.com/ryansolid/isomorphic-ui-benchmarks/tree/updated)
-- Small! Completely tree-shakeable Solid's compiler will only include parts of the library you use.
-- Supports and is built on TypeScript.
-- Supports modern features like JSX, Fragments, Context, Portals, Suspense, Streaming SSR, Progressive Hydration, Error Boundaries and Concurrent Rendering.
-- Works in serverless environments including AWS Lambda and Cloudflare Workers.
-- Webcomponent friendly and can author Custom Elements
-  - Context API that spans Custom Elements
-  - Implicit event delegation with Shadow DOM Retargeting
-  - Shadow DOM Portals
-- Transparent debugging: a `<div>` is just a div.
+Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [intro video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
 
-### Learn more on the [Solid Website](https://solidjs.com) and come chat with us on our [Discord](https://discord.com/invite/solidjs)
+## Key Features
 
+- Fine-grained updates to the real DOM
+- Declarative data: model your state as a system with reactive primitives
+- Render-once mental model: your components are regular JavaScript functions that run once to set up your view
+- Automatic dependency tracking: accessing your reactive state subscribes to it
+- [Small](https://dev.to/this-is-learning/javascript-framework-todomvc-size-comparison-504f) and [fast](https://krausest.github.io/js-framework-benchmark/current.html)
+- Simple: learn a few powerful concepts that can be reused, combined, and built on top of
+- Provides modern framework features like JSX, fragments, Context, Portals, Suspense, streaming SSR, progressive hydration, Error Boundaries and concurrent rendering.
+- Naturally debuggable: A `<div>` is a real div, so you can use your browser's devtools to inspect the rendering
+- [Web component friendly](https://github.com/solidjs/solid/tree/main/packages/solid-element#readme) and can author custom elements
+- Isomorphic: render your components on the client and the server
+- Universal: write [custom renderers](https://github.com/solidjs/solid/releases/tag/v1.2.0) to use Solid anywhere
+- A growing community and ecosystem with active core team support
 
-## The Gist
-
-```jsx
-import { render } from "solid-js/web";
-
-const HelloMessage = props => <div>Hello {props.name}</div>;
-
-render(() => <HelloMessage name="Taylor" />, document.getElementById("hello-example"));
-```
-
-A Simple Component is just a function that accepts properties. Solid uses a `render` function to create the reactive mount point of your application.
-
-The JSX is then compiled down to efficient real DOM expressions:
-
-```js
-import { render, template, insert, createComponent } from "solid-js/web";
-
-const _tmpl$ = template(`<div>Hello </div>`);
-
-const HelloMessage = props => {
-  const _el$ = _tmpl$.cloneNode(true);
-  insert(_el$, () => props.name);
-  return _el$;
-};
-
-render(
-  () => createComponent(HelloMessage, { name: "Taylor" }),
-  document.getElementById("hello-example")
-);
-```
-
-That `_el$` is a real div element and `props.name`, `Taylor` in this case, is appended to its child nodes. Notice that `props.name` is wrapped in a function. That is because that is the only part of this component that will ever execute again. Even if a name is updated from the outside only that one expression will be re-evaluated. The compiler optimizes initial render and the runtime optimizes updates. It's the best of both worlds.
-
-Want to see what code Solid generates:
-
-### [Try it Online](https://playground.solidjs.com/)
-
-## Quick Start
+<details>
+ 
+<summary>Quick Start</summary>
 
 You can get started with a simple app by running the following in your terminal:
 
@@ -91,21 +51,22 @@ Or for TypeScript:
 > npm run dev # or yarn or pnpm
 ```
 
-This will create a minimal client-rendered application powered by [Vite](https://vitejs.dev/).
+This will create a minimal, client-rendered application powered by [Vite](https://vitejs.dev/).
 
-Or you can install the dependencies in your own project. To use Solid with JSX (recommended) run:
+Or you can install the dependencies in your own setup. To use Solid with JSX (_recommended_), run:
 
 ```sh
-> npm install solid-js babel-preset-solid
+> npm i -D babel-preset-solid
+> npm i solid-js
 ```
 
-The easiest way to get setup is add `babel-preset-solid` to your .babelrc, or babel config for webpack, or rollup:
+The easiest way to get set up is to add `babel-preset-solid` to your `.babelrc`, babel config for webpack, or rollup configuration:
 
 ```js
 "presets": ["solid"]
 ```
 
-For TypeScript remember to set your TSConfig to handle Solid's JSX by:
+For TypeScript to work, remember to set your `.tsconfig` to handle Solid's JSX:
 
 ```js
 "compilerOptions": {
@@ -114,21 +75,114 @@ For TypeScript remember to set your TSConfig to handle Solid's JSX by:
 }
 ```
 
-## Documentation
+</details>
 
-Check out the [Documentation](https://www.solidjs.com/guide) website.
+## Why Solid?
 
-[Examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
+### Performant
+
+Meticulously engineered for performance and with half a decade of research behind it, Solid's performance is almost indistinguishable from optimized vanilla JavaScript (See Solid on the [JS Framework Benchmark](https://rawgit.com/krausest/js-framework-benchmark/master/webdriver-ts-results/table.html)). Solid is [small](https://bundlephobia.com/package/solid-js@1.3.15) and completely tree-shakable, and [fast](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) when rendering on the server, too. Whether you're writing a fully client-rendered SPA or a server-rendered app, your users see it faster than ever. ([Read more about Solid's performance](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) from the library's creator.)
+
+### Powerful
+
+Solid is fully-featured with everything you can expect from a modern framework. Performant state management is built-in with Context and Stores: you don't have to reach for a third party library to manage global state (if you don't want to). With Resources, you can use data loaded from the server like any other piece of state and build a responsive UI for it thanks to Suspense and concurrent rendering. And when you're ready to move to the server, Solid has full SSR and serverless support, with streaming and progressive hydration to get to interactive as quickly as possible. (Check out our full [interactive features walkthrough](https://www.solidjs.com/tutorial/introduction_basics).)
+
+### Pragmatic
+
+Do more with less: use simple, composable primitives without hidden rules and gotchas. In Solid, components are just functions - rendering is determined purely by how your state is used - so you're free to organize your code how you like and you don't have to learn a new rendering system. Solid encourages patterns like declarative code and read-write segregation that help keep your project maintainable, but isn't opinionated enough to get in your way.
+
+### Productive
+
+Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://hope-ui.com/), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
+
+<details>
+<summary>Show Me!</summary>
+
+```jsx
+import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
+
+// A component is just a function that (optionally) accepts properties and returns a DOM node
+const Counter = props => {
+  // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
+  const [count, setCount] = createSignal(props.startingCount || 1);
+
+  // The increment function calls the setter
+  const increment = () => setCount(count() + 1);
+
+  console.log(
+    "The body of the function runs once, like you'd expect from calling any other function, so you only ever see this console log once."
+  );
+
+  // JSX allows us to write HTML within our JavaScript function and include dynamic expressions using the { } syntax
+  // The only part of this that will ever rerender is the count() text.
+  return (
+    <button type="button" onClick={increment}>
+      Increment {count()}
+    </button>
+  );
+};
+
+// The render function mounts a component onto your page
+render(() => <Counter startingCount={2} />, document.getElementById("app"));
+```
+
+See it in action in our interactive [Playground](https://playground.solidjs.com/?hash=-894962706&version=1.3.13)!
+
+Solid compiles our JSX down to efficient real DOM expressions updates, still using the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
+
+```js
+import { render, createComponent, delegateEvents, insert, template } from "solid-js/web";
+import { createSignal } from "solid-js";
+
+const _tmpl$ = /*#__PURE__*/ template(`<button type="button">Increment </button>`, 2);
+
+const Counter = props => {
+  const [count, setCount] = createSignal(props.startingCount || 1);
+  const increment = () => setCount(count() + 1);
+
+  console.log("The body of the function runs once . . .");
+
+  return (() => {
+    //_el$ is a real DOM node!
+    const _el$ = _tmpl$.cloneNode(true);
+    _el$.firstChild;
+
+    _el$.$$click = increment;
+
+    //This inserts the count as a child of the button in a way that allows count to update without rerendering the whole button
+    insert(_el$, count, null);
+
+    return _el$;
+  })();
+};
+
+render(
+  () =>
+    createComponent(Counter, {
+      startingCount: 2
+    }),
+  document.getElementById("app")
+);
+
+delegateEvents(["click"]);
+```
+
+</details>
+
+## More
+
+Check out our official [documentation](https://www.solidjs.com/guide) or browse some [examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
 
 ## Browser Support
 
-The last 2 versions of modern evergreen browsers and Node LTS.
+SolidJS Core is committed to supporting the last 2 years of modern browsers including Firefox, Safari, Chrome and Edge (for desktop and mobile devices). We do not support IE or similar sunset browsers. For server environments, we support Node LTS and the latest Deno and Cloudflare Worker runtimes.
 
 <img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
 
 ## Community
 
-Come chat with us on [Discord](https://discord.com/invite/solidjs)
+Come chat with us on [Discord](https://discord.com/invite/solidjs)! Solid's creator and the rest of the core team are active there, and we're always looking for contributions.
 
 ### Contributors
 
@@ -165,3 +219,5 @@ Become a sponsor and get your logo on our README on GitHub with a link to your s
 <a href="https://opencollective.com/solid/sponsor/8/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/8/avatar.svg"></a>
 <a href="https://opencollective.com/solid/sponsor/9/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/9/avatar.svg"></a>
 <a href="https://opencollective.com/solid/sponsor/10/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/10/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/11/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/11/avatar.svg"></a>
+<a href="https://opencollective.com/solid/sponsor/12/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/12/avatar.svg"></a>
