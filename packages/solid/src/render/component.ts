@@ -118,6 +118,7 @@ const propTraps: ProxyHandler<{
     return _.get(property);
   },
   has(_, property) {
+    if (property === $PROXY) return true;
     return _.has(property);
   },
   set: trueFn,
@@ -183,7 +184,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   let proxy = false;
   for (let i = 0; i < sources.length; i++) {
     const s = sources[i];
-    proxy = proxy || !!s && $PROXY in (s as object);
+    proxy = proxy || (!!s && $PROXY in (s as object));
     sources[i] =
       typeof s === "function" ? ((proxy = true), createMemo(s as EffectFunction<unknown>)) : s;
   }
