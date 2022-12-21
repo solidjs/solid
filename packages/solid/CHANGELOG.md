@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.6.6
+
+### Patch Changes
+
+- a603850: Export SignalOptions
+- 2119211: fix #1423 - inlined arrow functions in SSR and update rollup
+- 5a5a72d: Fix #1436 incorrectly missing proxy detection
+- 5eb575a: fix: delete lazy contexts one by one as they are completed
+
 ## 1.6.5
 
 ### Patch Changes
