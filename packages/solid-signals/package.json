@@ -3,7 +3,8 @@
   "version": "0.0.6",
   "description": "",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "publishConfig": {
     "access": "public"
@@ -12,7 +13,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && esbuild ./src/index.ts --outdir=dist --bundle --format=esm",
+    "build": "pnpm build:types && pnpm build:esm && pnpm build:cjs",
+    "build:types": "tsc",
+    "build:esm": "esbuild ./src/index.ts --outfile=dist/index.js --bundle --format=esm",
+    "build:cjs": "esbuild ./src/index.ts --outfile=dist/index.cjs --bundle --format=cjs",
     "example": "esbuild ./example/basic.ts --bundle | node"
   },
   "keywords": [],
