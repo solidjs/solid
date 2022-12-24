@@ -340,14 +340,26 @@ export type CustomPartial<T> = T extends readonly unknown[]
     : { [x: number]: T[number] }
   : Partial<T>;
 
+export type PickMutable<T> = {
+  [K in keyof T as (
+    <U>() => U extends { [V in K]: T[V] } ? 1 : 2) extends 
+    <U>() => U extends { -readonly [V in K]: T[V]; } ? 1 : 2
+  ? K : never ]: T[K] 
+};
+
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
 export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
 
+export type PropStoreSetter<T, K extends keyof T, U extends PropertyKey[] = []> =
+  Extract<K, keyof T> extends keyof PickMutable<T>
+    ? StoreSetter<T[K],U>
+    : never;
+
 export type StoreSetter<T, U extends PropertyKey[] = []> =
-  | ((prevState: T, traversed: U) => T | CustomPartial<T>)
   | T
-  | CustomPartial<T>;
+  | CustomPartial<T>
+  | ((prevState: T, traversed: U) => T | CustomPartial<T>)
 
 export type Part<T, K extends KeyOf<T> = KeyOf<T>> =
   | K
@@ -413,7 +425,7 @@ export interface SetStoreFunction<T> {
     k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
     k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
     k6: Part<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>, K6>,
-    setter: StoreSetter<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6], [K6, K5, K4, K3, K2, K1]>
+    setter: PropStoreSetter<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>, K6, [K6, K5, K4, K3, K2, K1]>
   ): void;
   <
     K1 extends KeyOf<W<T>>,
@@ -427,7 +439,7 @@ export interface SetStoreFunction<T> {
     k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
     k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
     k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
-    setter: StoreSetter<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5], [K5, K4, K3, K2, K1]>
+    setter: PropStoreSetter<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5, [K5, K4, K3, K2, K1]>
   ): void;
   <
     K1 extends KeyOf<W<T>>,
@@ -439,21 +451,21 @@ export interface SetStoreFunction<T> {
     k2: Part<W<W<T>[K1]>, K2>,
     k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
     k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
-    setter: StoreSetter<W<W<W<W<T>[K1]>[K2]>[K3]>[K4], [K4, K3, K2, K1]>
+    setter: PropStoreSetter<W<W<W<W<T>[K1]>[K2]>[K3]>, K4, [K4, K3, K2, K1]>
   ): void;
   <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>, K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>>(
     k1: Part<W<T>, K1>,
     k2: Part<W<W<T>[K1]>, K2>,
     k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
-    setter: StoreSetter<W<W<W<T>[K1]>[K2]>[K3], [K3, K2, K1]>
+    setter: PropStoreSetter<W<W<W<T>[K1]>[K2]>, K3, [K3, K2, K1]>
   ): void;
   <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>>(
     k1: Part<W<T>, K1>,
     k2: Part<W<W<T>[K1]>, K2>,
-    setter: StoreSetter<W<W<T>[K1]>[K2], [K2, K1]>
+    setter: PropStoreSetter<W<W<T>[K1]>, K2, [K2, K1]>
   ): void;
-  <K1 extends KeyOf<W<T>>>(k1: Part<W<T>, K1>, setter: StoreSetter<W<T>[K1], [K1]>): void;
-  (setter: StoreSetter<T, []>): void;
+  <K1 extends KeyOf<W<T>>>(k1: Part<W<T>, K1>, setter: PropStoreSetter<W<T>, K1, [K1]>): void;
+  (setter: PropStoreSetter<[T], 0, []>): void;
 }
 
 /**

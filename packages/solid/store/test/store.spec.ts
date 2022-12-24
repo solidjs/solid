@@ -741,6 +741,17 @@ describe("Nested Classes", () => {
   setStore("a", "b", "c", "d", "e", "f", "g", "h");
 };
 
+// Cannot update readonly keys
+() => {
+  const [, setStore] = createStore({ get i() { return 1 }, j: { get k() { return 1 }}});
+  // @ts-expect-error i is readonly
+  setStore('i', 3);
+  // TODO @ts-expect-error i is readonly
+  setStore({ i : 3 });
+  // TODO @ts-expect-error k is readonly
+  setStore('j', { k: 3 });
+}
+
 // keys are narrowed
 () => {
   const [store, setStore] = createStore({ a: { b: 1 }, c: { d: 2 } });
