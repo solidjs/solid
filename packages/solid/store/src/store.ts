@@ -341,25 +341,30 @@ export type CustomPartial<T> = T extends readonly unknown[]
   : Partial<T>;
 
 export type PickMutable<T> = {
-  [K in keyof T as (
-    <U>() => U extends { [V in K]: T[V] } ? 1 : 2) extends 
-    <U>() => U extends { -readonly [V in K]: T[V]; } ? 1 : 2
-  ? K : never ]: T[K] 
+  [K in keyof T as (<U>() => U extends { [V in K]: T[V] } ? 1 : 2) extends <U>() => U extends {
+    -readonly [V in K]: T[V];
+  }
+    ? 1
+    : 2
+    ? K
+    : never]: T[K];
 };
 
 export type StorePathRange = { from?: number; to?: number; by?: number };
 
 export type ArrayFilterFn<T> = (item: T, index: number) => boolean;
 
-export type PropStoreSetter<T, K extends keyof T, U extends PropertyKey[] = []> =
-  Extract<K, keyof T> extends keyof PickMutable<T>
-    ? StoreSetter<T[K],U>
-    : never;
+export type PropStoreSetter<T, K extends keyof T, U extends PropertyKey[] = []> = Extract<
+  K,
+  keyof T
+> extends keyof PickMutable<T>
+  ? StoreSetter<T[K], U>
+  : never;
 
 export type StoreSetter<T, U extends PropertyKey[] = []> =
   | T
   | CustomPartial<T>
-  | ((prevState: T, traversed: U) => T | CustomPartial<T>)
+  | ((prevState: T, traversed: U) => T | CustomPartial<T>);
 
 export type Part<T, K extends KeyOf<T> = KeyOf<T>> =
   | K
