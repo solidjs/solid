@@ -729,7 +729,7 @@ describe("Nested Classes", () => {
 
 // type tests
 
-// NotWrappable keys are ignored
+// setter ignores NotWrappable keys (unsafe)
 () => {
   const [, setStore] = createStore<{
     a?:
@@ -739,6 +739,29 @@ describe("Nested Classes", () => {
         };
   }>({});
   setStore("a", "b", "c", "d", "e", "f", "g", "h");
+};
+
+// setter can set type unions as if it were a member (unsafe)
+() => {
+  interface Game {
+    name: string;
+  }
+  interface Boardgame extends Game {
+    type: "boardgame";
+    nested: { pieces: number };
+  }
+  interface VideoGame extends Game {
+    type: "videogame";
+    otherNested: { platform: "Sony" | "Mircosoft" | "Nintendo" };
+  }
+  type GameUnion = Boardgame | VideoGame;
+  const [games, setGames] = createStore<GameUnion[]>([
+    { name: "Settlers", nested: { pieces: 240 } } as Boardgame,
+    { name: "Zelda", otherNested: { platform: "Nintendo" } } as VideoGame
+  ]);
+
+  games[0].type === "boardgame" && games[0].nested.pieces;
+  setGames(0, "nested", "pieces", Math.floor(Math.random() * 100));
 };
 
 // keys are narrowed
