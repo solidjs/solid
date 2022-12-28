@@ -248,25 +248,18 @@ export function splitProps<
   K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
 >(props: T, ...keys: K): SplitProps<T, K> {
   const blocked = new Set<keyof T>(keys.flat());
-  const descriptors = Object.getOwnPropertyDescriptors(props);
-  const isProxy = $PROXY in props;
-  if (isProxy) {
+  if ($PROXY in props) {
     const res = keys.map(k => {
       return new Proxy(
         {
           get(property) {
-            if (k.includes(property) && props[property as any]) {
-              return props[property as any];
-            }
+            return k.includes(property) ? props[property as any] : undefined;
           },
           has(property) {
-            if (k.includes(property) && props[property as any]) {
-              return true;
-            }
-            return false;
+            return k.includes(property) && property in props;
           },
           keys() {
-            return [...new Set(k.filter(property => props[property]))];
+            return k.filter(property => property in props);
           }
         },
         propTraps
@@ -290,6 +283,7 @@ export function splitProps<
     );
     return res as SplitProps<T, K>;
   }
+  const descriptors = Object.getOwnPropertyDescriptors(props);
   keys.push(Object.keys(descriptors).filter(k => !blocked.has(k as keyof T)) as (keyof T)[]);
   return keys.map(k => {
     const clone = {};
