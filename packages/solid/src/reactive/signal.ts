@@ -946,11 +946,13 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T {
+export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
   const prev = Owner;
   Owner = o;
   try {
     return runUpdates(fn, true)!;
+  } catch (err) {
+    handleError(err);
   } finally {
     Owner = prev;
   }
