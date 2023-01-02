@@ -1030,13 +1030,13 @@ export function resumeEffects(e: Computation<any>[]) {
   e.length = 0;
 }
 
-export interface DevComponent<T> extends Memo<JSX.Element> {
+export interface DevComponent<T> extends Memo<unknown> {
   props: T;
   componentName: string;
 }
 
 // Dev
-export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+export function devComponent<T>(Comp: (props: T) => unknown, props: T) {
   const c = createComputation(
     () =>
       untrack(() => {
