@@ -17,6 +17,8 @@ export {
 
 export const isServer = true;
 
+export function render() {}
+export function hydrate() {}
 export function insert() {}
 export function spread() {}
 export function addEventListener() {}
