@@ -31,13 +31,19 @@ let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
 let rootCount = 0;
 
+/** Object storing callbacks for debugging during development */
+export const DevHooks: {
+  afterUpdate: (() => void) | null;
+  afterCreateOwner: ((owner: Owner) => void) | null;
+  afterWriteSignal: ((signal: SignalState<unknown>, value: unknown) => void) | null;
+} = {
+  afterUpdate: null,
+  afterCreateOwner: null,
+  afterWriteSignal: null
+};
+
 // keep immediately evaluated module code, below its indirect declared let dependencies like Listener
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
-
-declare global {
-  var _$afterUpdate: (() => void) | undefined;
-  var _$afterCreateRoot: ((root: Owner) => void) | undefined;
-}
 
 export type ComputationState = 0 | 1 | 2;
 
@@ -110,10 +116,11 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
   const listener = Listener,
     owner = Owner,
     unowned = fn.length === 0,
-    root: Owner =
-      unowned && !"_SOLID_DEV_"
-        ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
+    root: Owner = unowned
+      ? "_SOLID_DEV_"
+        ? { owned: null, cleanups: null, context: null, owner: null }
+        : UNOWNED
+      : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
     updateFn = unowned
       ? "_SOLID_DEV_"
         ? () =>
@@ -125,7 +132,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
 
   if ("_SOLID_DEV_") {
     if (owner) root.name = `${owner.name}-r${rootCount++}`;
-    globalThis._$afterCreateRoot && globalThis._$afterCreateRoot(root);
+    DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
   }
 
   Owner = root;
@@ -1274,6 +1281,9 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       }
       if (!TransitionRunning) node.value = value;
     } else node.value = value;
+
+    if ("_SOLID_DEV_") DevHooks.afterWriteSignal && DevHooks.afterWriteSignal(node, value);
+
     if (node.observers && node.observers.length) {
       runUpdates(() => {
         for (let i = 0; i < node.observers!.length; i += 1) {
@@ -1407,6 +1417,8 @@ function createComputation<Next, Init = unknown>(
     };
   }
 
+  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(c);
+
   return c;
 }
 
@@ -1518,7 +1530,7 @@ function completeUpdates(wait: boolean) {
   const e = Effects!;
   Effects = null;
   if (e!.length) runUpdates(() => runEffects(e), false);
-  else if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
+  else if ("_SOLID_DEV_") DevHooks.afterUpdate && DevHooks.afterUpdate();
   if (res) res();
 }
 
@@ -1716,6 +1728,19 @@ function serializeChildren(root: Owner): GraphRecord {
     };
   }
   return result;
+}
+
+/**
+ * This function is used to add a custom value to the debugged graph.
+ * It is not intended to be used in production, and won't have any effect there.
+ *
+ * It will attach the value to the current owner under the name provided, or "debugValue" if none is provided.
+ *
+ * @param value The value to attach to the graph
+ * @param name The name to attach the value under
+ */
+export function debugValue(value: unknown, name?: string): void {
+  "_SOLID_DEV_" && registerGraph(name ?? "debugValue", { value });
 }
 
 type TODO = any;

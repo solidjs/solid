@@ -4,7 +4,7 @@ export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 export const $TRACK = Symbol("solid-track");
 export const $DEVCOMP = Symbol("solid-dev-component");
-export const DEV = {};
+export const DEV = undefined;
 
 export type Accessor<T> = () => T;
 export type Setter<T> = undefined extends T

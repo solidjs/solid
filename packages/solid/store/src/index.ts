@@ -1,20 +1,29 @@
-export { createStore, unwrap, $RAW } from "./store.js";
-export type {
-  Store,
-  SetStoreFunction,
-  NotWrappable,
-  SolidStore,
-  StoreNode,
-  StoreSetter,
-  StorePathRange,
-  ArrayFilterFn,
-  Part,
-  DeepReadonly,
-  DeepMutable
-} from "./store.js";
-export * from "./mutable.js";
 export * from "./modifiers.js";
+export * from "./mutable.js";
+export { $RAW, createStore, unwrap } from "./store.js";
+export type {
+  ArrayFilterFn,
+  DeepMutable,
+  DeepReadonly,
+  NotWrappable,
+  Part,
+  SetStoreFunction,
+  SolidStore,
+  Store,
+  StoreNode,
+  StorePathRange,
+  StoreSetter
+} from "./store.js";
 
 // dev
-import { $NAME, $NODE, isWrappable } from "./store.js";
-export const DEV = "_SOLID_DEV_" ? ({ $NAME, $NODE, isWrappable } as const) : undefined;
+import { $NAME, $NODE, isWrappable, DevHooks } from "./store.js";
+let DEV:
+  | {
+      $NAME: typeof $NAME;
+      $NODE: typeof $NODE;
+      isWrappable: typeof isWrappable;
+      hooks: typeof DevHooks;
+    }
+  | undefined;
+if ("_SOLID_DEV_") DEV = { $NAME, $NODE, isWrappable, hooks: DevHooks };
+export { DEV };
