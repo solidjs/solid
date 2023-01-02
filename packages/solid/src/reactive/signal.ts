@@ -48,7 +48,7 @@ const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 export type ComputationState = 0 | 1 | 2;
 
 export interface SignalState<T> {
-  value?: T;
+  value: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
   tValue?: T;
@@ -184,10 +184,13 @@ export interface SignalOptions<T> extends MemoOptions<T> {
  */
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: T, options?: SignalOptions<T>): Signal<T>;
-export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T | undefined> {
+export function createSignal<T>(
+  value?: T,
+  options?: SignalOptions<T | undefined>
+): Signal<T | undefined> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
-  const s: SignalState<T> = {
+  const s: SignalState<T | undefined> = {
     value,
     observers: null,
     observerSlots: null,
@@ -195,7 +198,7 @@ export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T
   };
 
   if ("_SOLID_DEV_" && !options.internal)
-    s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+    s.name = registerGraph(options.name || hashValue(value), s);
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
@@ -353,6 +356,7 @@ export function createReaction(onInvalidate: () => void, options?: EffectOptions
 }
 
 export interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
+  value: Next;
   tOwned?: Computation<Prev | Next, Next>[];
 }
 
@@ -1036,7 +1040,7 @@ export interface DevComponent<T> extends Memo<unknown> {
 }
 
 // Dev
-export function devComponent<T>(Comp: (props: T) => unknown, props: T) {
+export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   const c = createComputation(
     () =>
       untrack(() => {
@@ -1045,14 +1049,14 @@ export function devComponent<T>(Comp: (props: T) => unknown, props: T) {
       }),
     undefined,
     true
-  ) as DevComponent<T>;
+  ) as DevComponent<P>;
   c.props = props;
   c.observers = null;
   c.observerSlots = null;
   c.state = 0;
   c.componentName = Comp.name;
   updateComputation(c);
-  return c.tValue !== undefined ? c.tValue : c.value;
+  return (c.tValue !== undefined ? c.tValue : c.value) as V;
 }
 
 export function hashValue(v: any): string {
