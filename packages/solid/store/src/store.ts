@@ -53,10 +53,9 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
       for (let i = 0, l = keys.length; i < l; i++) {
         const prop = keys[i];
         if (desc[prop].get) {
-          const get = desc[prop].get!.bind(p);
           Object.defineProperty(value, prop, {
             enumerable: desc[prop].enumerable,
-            get
+            get: desc[prop].get!.bind(p)
           });
         }
       }
