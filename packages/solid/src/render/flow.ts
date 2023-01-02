@@ -26,11 +26,11 @@ import type { JSX } from "../jsx.js";
  *
  * @description https://www.solidjs.com/docs/latest/api#%3Cfor%3E
  */
-export function For<T, U extends JSX.Element>(props: {
-  each: readonly T[] | undefined | null | false;
+export function For<T extends readonly any[], U extends JSX.Element>(props: {
+  each: T | undefined | null | false;
   fallback?: JSX.Element;
-  children: (item: T, index: Accessor<number>) => U;
-}) {
+  children: (item: T[number], index: Accessor<number>) => U;
+}): Accessor<U[]> {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return "_SOLID_DEV_"
     ? createMemo(
@@ -54,11 +54,11 @@ export function For<T, U extends JSX.Element>(props: {
  *
  * @description https://www.solidjs.com/docs/latest/api#%3Cindex%3E
  */
-export function Index<T, U extends JSX.Element>(props: {
-  each: readonly T[] | undefined | null | false;
+export function Index<T extends readonly any[], U extends JSX.Element>(props: {
+  each: T | undefined | null | false;
   fallback?: JSX.Element;
-  children: (item: Accessor<T>, index: number) => U;
-}) {
+  children: (item: Accessor<T[number]>, index: number) => U;
+}): Accessor<U[]> {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
   return "_SOLID_DEV_"
     ? createMemo(
