@@ -1,5 +1,3 @@
-export * from "./modifiers.js";
-export * from "./mutable.js";
 export { $RAW, createStore, unwrap } from "./store.js";
 export type {
   ArrayFilterFn,
@@ -14,6 +12,8 @@ export type {
   StorePathRange,
   StoreSetter
 } from "./store.js";
+export * from "./modifiers.js";
+export * from "./mutable.js";
 
 // dev
 import { $NAME, $NODE, isWrappable, DevHooks } from "./store.js";
