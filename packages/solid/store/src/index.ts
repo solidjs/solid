@@ -12,8 +12,8 @@ export type {
   StorePathRange,
   StoreSetter
 } from "./store.js";
-export * from "./modifiers.js";
 export * from "./mutable.js";
+export * from "./modifiers.js";
 
 // dev
 import { $NAME, $NODE, isWrappable, DevHooks } from "./store.js";
