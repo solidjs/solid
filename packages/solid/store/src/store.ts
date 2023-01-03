@@ -1,4 +1,4 @@
-import { getListener, batch, DEV, $PROXY, $TRACK, createSignal, debugValue } from "solid-js";
+import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js";
 
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
@@ -519,7 +519,8 @@ export function createStore<T extends object = {}>(
     "_SOLID_DEV_" && ((options && options.name) || DEV!.hashValue(unwrappedStore))
   );
   if ("_SOLID_DEV_") {
-    debugValue(unwrappedStore, (options && options.name) || DEV!.hashValue(unwrappedStore));
+    const name = (options && options.name) || DEV!.hashValue(unwrappedStore);
+    DEV!.registerGraph(name, { value: unwrappedStore });
   }
   function setStore(...args: any[]): void {
     batch(() => {

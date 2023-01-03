@@ -1,4 +1,4 @@
-import { batch, getListener, DEV, $PROXY, $TRACK, debugValue } from "solid-js";
+import { batch, getListener, DEV, $PROXY, $TRACK } from "solid-js";
 import {
   unwrap,
   isWrappable,
@@ -128,7 +128,8 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
     "_SOLID_DEV_" && ((options && options.name) || DEV!.hashValue(unwrappedStore))
   );
   if ("_SOLID_DEV_") {
-    debugValue(unwrappedStore, (options && options.name) || DEV!.hashValue(unwrappedStore));
+    const name = (options && options.name) || DEV!.hashValue(unwrappedStore);
+    DEV!.registerGraph(name, { value: unwrappedStore });
   }
   return wrappedStore;
 }

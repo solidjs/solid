@@ -47,7 +47,12 @@ const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
 export type ComputationState = 0 | 1 | 2;
 
-export interface SignalState<T> {
+export interface SourceMapValue {
+  value: unknown;
+  graph?: Owner;
+}
+
+export interface SignalState<T> extends SourceMapValue {
   value: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
@@ -61,7 +66,7 @@ export interface Owner {
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
-  sourceMap?: Record<string, { value: unknown }>;
+  sourceMap?: Record<string, SourceMapValue>;
   name?: string;
   componentName?: string;
 }
@@ -1091,13 +1096,14 @@ export function hashValue(v: any): string {
   }`;
 }
 
-export function registerGraph(name: string, value: { value: unknown }): string {
+export function registerGraph(name: string, value: SourceMapValue): string {
   let tryName = name;
   if (Owner) {
     let i = 0;
     Owner.sourceMap || (Owner.sourceMap = {});
     while (Owner.sourceMap[tryName]) tryName = `${name}-${++i}`;
     Owner.sourceMap[tryName] = value;
+    value.graph = Owner;
   }
   return tryName;
 }
@@ -1732,19 +1738,6 @@ function serializeChildren(root: Owner): GraphRecord {
     };
   }
   return result;
-}
-
-/**
- * This function is used to add a custom value to the debugged graph.
- * It is not intended to be used in production, and won't have any effect there.
- *
- * It will attach the value to the current owner under the name provided, or "debugValue" if none is provided.
- *
- * @param value The value to attach to the graph
- * @param name The name to attach the value under
- */
-export function debugValue(value: unknown, name?: string): void {
-  "_SOLID_DEV_" && registerGraph(name ?? "debugValue", { value });
 }
 
 type TODO = any;
