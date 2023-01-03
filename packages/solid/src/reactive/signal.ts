@@ -110,10 +110,11 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
   const listener = Listener,
     owner = Owner,
     unowned = fn.length === 0,
-    root: Owner =
-      unowned && !"_SOLID_DEV_"
-        ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
+    root: Owner = unowned
+      ? "_SOLID_DEV_"
+        ? { owned: null, cleanups: null, context: null, owner: null }
+        : UNOWNED
+      : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
     updateFn = unowned
       ? "_SOLID_DEV_"
         ? () =>
