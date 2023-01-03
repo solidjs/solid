@@ -35,11 +35,9 @@ let rootCount = 0;
 export const DevHooks: {
   afterUpdate: (() => void) | null;
   afterCreateOwner: ((owner: Owner) => void) | null;
-  afterWriteSignal: ((signal: SignalState<unknown>, value: unknown) => void) | null;
 } = {
   afterUpdate: null,
-  afterCreateOwner: null,
-  afterWriteSignal: null
+  afterCreateOwner: null
 };
 
 // keep immediately evaluated module code, below its indirect declared let dependencies like Listener
@@ -1291,9 +1289,6 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       }
       if (!TransitionRunning) node.value = value;
     } else node.value = value;
-
-    if ("_SOLID_DEV_") DevHooks.afterWriteSignal && DevHooks.afterWriteSignal(node, value);
-
     if (node.observers && node.observers.length) {
       runUpdates(() => {
         for (let i = 0; i < node.observers!.length; i += 1) {
