@@ -17,7 +17,7 @@ import {
   createContext,
   useContext,
   getOwner,
-  runWithOwner,
+  runWithOwner
 } from "../src";
 
 import "./MessageChannel";
@@ -305,7 +305,6 @@ describe("Effect grouping of signals", () => {
         try {
           setA(1);
           throw new Error("test");
-          setB(1);
         } catch (e) {
           error = e as Error;
         }
@@ -657,6 +656,22 @@ describe("create and use context", () => {
     const context = createContext<number>();
     const res = useContext(context);
     expect(res).toBe<typeof res>(undefined);
+  });
+});
+
+describe("createRoot", () => {
+  test("roots with dispose function unused are unowned", () => {
+    createRoot(_ => {
+      const root1 = getOwner()!;
+      createRoot(_ => {
+        const root2 = getOwner()!;
+        createRoot(() => {
+          const root3 = getOwner()!;
+          expect(root2.owner).toBe(root1);
+          expect(root3.owner).toBe(null);
+        });
+      });
+    });
   });
 });
 
