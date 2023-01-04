@@ -101,12 +101,12 @@ export function mergeProps(...sources: any): any {
           enumerable: true,
           get() {
             for (let i = sources.length - 1; i >= 0; i--) {
-              let s = (sources[i] || {});
+              let s = sources[i] || {};
               if (typeof s === "function") s = s();
               const v = s[key];
               if (v !== undefined) return v;
             }
-          },
+          }
         });
       }
     }
@@ -453,8 +453,14 @@ export function lazy<T extends Component<any>>(
 ): T & { preload: () => Promise<{ default: T }> } {
   let resolved: T;
   let p: Promise<{ default: T }>;
-  let load = () => {
+  let load = (id?: string) => {
     if (!p) {
+      if (id) {
+        let ref: { ref: Promise<{ default: T }>; data?: T } = (sharedConfig.context!.resources[id] =
+          { ref: (p = fn()) });
+        p.then(mod => (ref.data = resolved = mod.default));
+        return p;
+      }
       p = fn();
       p.then(mod => (resolved = mod.default));
     }
@@ -464,8 +470,12 @@ export function lazy<T extends Component<any>>(
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
-    load();
     const id = sharedConfig.context!.id.slice(0, -1);
+    let ref = sharedConfig.context!.resources[id];
+    if (ref) {
+      p = ref.ref;
+      resolved = ref.data;
+    } else load(id);
     if (resolved) return resolved(props);
     const ctx = useContext(SuspenseContext);
     const track = { loading: true, error: undefined };
