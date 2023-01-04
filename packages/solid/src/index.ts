@@ -66,16 +66,12 @@ type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { hashValue, registerGraph, serializeGraph, writeSignal } from "./reactive/signal.js";
+import { registerGraph, writeSignal } from "./reactive/signal.js";
 let DEV: {
   writeSignal: typeof writeSignal;
-  serializeGraph: typeof serializeGraph;
   registerGraph: typeof registerGraph;
-  hashValue: typeof hashValue;
 };
-if ("_SOLID_DEV_") {
-  DEV = { writeSignal, serializeGraph, registerGraph, hashValue };
-}
+if ("_SOLID_DEV_") DEV = { writeSignal, registerGraph };
 export { DEV };
 
 // handle multiple instance check
