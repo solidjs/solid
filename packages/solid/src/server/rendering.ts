@@ -451,18 +451,12 @@ export function createResource<T, S>(
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  let resolved: T;
-  let p: Promise<{ default: T }>;
+  let p: Promise<{ default: T }> & { resolved?: T };
   let load = (id?: string) => {
     if (!p) {
-      if (id) {
-        let ref: { ref: Promise<{ default: T }>; data?: T } = (sharedConfig.context!.resources[id] =
-          { ref: (p = fn()) });
-        p.then(mod => (ref.data = resolved = mod.default));
-        return p;
-      }
       p = fn();
-      p.then(mod => (resolved = mod.default));
+      p.then(mod => (p.resolved = mod.default));
+      if (id) sharedConfig.context!.lazy[id] = p;
     }
     return p;
   };
@@ -471,12 +465,10 @@ export function lazy<T extends Component<any>>(
     preload?: () => Promise<{ default: T }>;
   } = props => {
     const id = sharedConfig.context!.id.slice(0, -1);
-    let ref = sharedConfig.context!.resources[id];
-    if (ref) {
-      p = ref.ref;
-      resolved = ref.data;
-    } else load(id);
-    if (resolved) return resolved(props);
+    let ref = sharedConfig.context!.lazy[id];
+    if (ref) p = ref;
+    else load(id);
+    if (p.resolved) return p.resolved(props);
     const ctx = useContext(SuspenseContext);
     const track = { loading: true, error: undefined };
     if (ctx) {
@@ -545,6 +537,7 @@ type HydrationContext = {
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
+  lazy: Record<string, Promise<any>>;
   async?: boolean;
   noHydrate: boolean;
 };
