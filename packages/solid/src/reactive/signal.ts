@@ -39,6 +39,8 @@ declare global {
   var _$afterCreateRoot: ((root: Owner) => void) | undefined;
 }
 
+export type ComputationState = 0 | 1 | 2;
+
 export interface SourceMapValue {
   value: unknown;
   graph?: Owner;
@@ -65,8 +67,8 @@ export interface Owner {
 
 export interface Computation<Init, Next extends Init = Init> extends Owner {
   fn: EffectFunction<Init, Next>;
-  state: number;
-  tState?: number;
+  state: ComputationState;
+  tState?: ComputationState;
   sources: SignalState<Next>[] | null;
   sourceSlots: number[] | null;
   value?: Init;
@@ -113,10 +115,11 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
   const listener = Listener,
     owner = Owner,
     unowned = fn.length === 0,
-    root: Owner =
-      unowned && !"_SOLID_DEV_"
-        ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
+    root: Owner = unowned
+      ? "_SOLID_DEV_"
+        ? { owned: null, cleanups: null, context: null, owner: null }
+        : UNOWNED
+      : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
     updateFn = unowned
       ? "_SOLID_DEV_"
         ? () =>
@@ -955,11 +958,13 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T {
+export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
   const prev = Owner;
   Owner = o;
   try {
     return runUpdates(fn, true)!;
+  } catch (err) {
+    handleError(err);
   } finally {
     Owner = prev;
   }
@@ -1343,7 +1348,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
-    if (node.updatedAt != null && "observers" in (node as Memo<any>)) {
+    if (node.updatedAt != null && "observers" in node) {
       writeSignal(node as Memo<any>, nextValue, true);
     } else if (Transition && Transition.running && node.pure) {
       Transition.sources.add(node as Memo<any>);
@@ -1357,7 +1362,7 @@ function createComputation<Next, Init = unknown>(
   fn: EffectFunction<Init | Next, Next>,
   init: Init,
   pure: boolean,
-  state: number = STALE,
+  state: ComputationState = STALE,
   options?: EffectOptions
 ): Computation<Init | Next, Next> {
   const c: Computation<Init | Next, Next> = {

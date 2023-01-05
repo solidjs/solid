@@ -1,5 +1,17 @@
 # solid-js
 
+## 1.6.7
+
+### Patch Changes
+
+- c4ac14c: Format/Cleanup Types and code style
+- 1384496: Fix unowned roots having owner in dev
+- 1dbd5a9: stub out render and hydrate on server
+- 368e508: make splitProps with dynamic source return proxies
+- 54f3068: fix #1452 runWithOwner responsible for errors in its scope
+- c8edacd: Fix lazy defined in components during SSR
+- 89baf12: fix boolean escaping, improve ssr performance
+
 ## 1.6.6
 
 ### Patch Changes

@@ -1,4 +1,13 @@
-import { Accessor, createEffect, createRoot, createSignal, getOwner, onCleanup, Setter, Signal, untrack } from "./signal.js";
+import {
+  Accessor,
+  createEffect,
+  createRoot,
+  createSignal,
+  getOwner,
+  onCleanup,
+  Setter,
+  untrack
+} from "./signal.js";
 
 // Note: This will add Symbol.observable globally for all TypeScript users,
 // however, we are not polyfilling Symbol.observable. Ensuring the type for
@@ -13,10 +22,10 @@ declare global {
 export type ObservableObserver<T> =
   | ((v: T) => void)
   | {
-    next?: (v: T) => void;
-    error?: (v: any) => void;
-    complete?: (v: boolean) => void;
-  };
+      next?: (v: T) => void;
+      error?: (v: any) => void;
+      complete?: (v: boolean) => void;
+    };
 /**
  * creates a simple observable from a signal's accessor to be used with the `from` operator of observable libraries like e.g. rxjs
  * ```typescript
@@ -34,22 +43,21 @@ export function observable<T>(input: Accessor<T>) {
         throw new TypeError("Expected the observer to be an object.");
       }
 
-      const handler = typeof observer === 'function'
-        ? observer
-        : observer.next && observer.next.bind(observer);
+      const handler =
+        typeof observer === "function" ? observer : observer.next && observer.next.bind(observer);
 
       if (!handler) {
-        return { unsubscribe() { } };
+        return { unsubscribe() {} };
       }
 
-      const dispose = createRoot((disposer) => {
+      const dispose = createRoot(disposer => {
         createEffect(() => {
           const v = input();
           untrack(() => handler(v));
         });
 
         return disposer;
-      })
+      });
 
       if (getOwner()) onCleanup(dispose);
 
@@ -69,13 +77,15 @@ export function observable<T>(input: Accessor<T>) {
   };
 }
 
-export function from<T>(producer: ((setter: Setter<T | undefined>) => () => void) | {
-  subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void };
-}): Accessor<T | undefined> {
+export function from<T>(
+  producer:
+    | ((setter: Setter<T | undefined>) => () => void)
+    | { subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void } }
+): Accessor<T | undefined> {
   const [s, set] = createSignal<T | undefined>(undefined, { equals: false });
   if ("subscribe" in producer) {
-    const unsub = producer.subscribe((v) => set(() => v));
-    onCleanup(() => "unsubscribe" in unsub ? unsub.unsubscribe() : unsub())
+    const unsub = producer.subscribe(v => set(() => v));
+    onCleanup(() => ("unsubscribe" in unsub ? unsub.unsubscribe() : unsub()));
   } else {
     const clean = producer(set);
     onCleanup(clean);

@@ -1,56 +1,60 @@
 export {
-  createRoot,
-  createSignal,
-  createEffect,
-  createRenderEffect,
-  createComputed,
-  createReaction,
-  createDeferred,
-  createSelector,
-  createMemo,
-  createResource,
-  onMount,
-  onCleanup,
-  onError,
-  untrack,
-  batch,
-  on,
-  enableScheduling,
-  enableExternalSource,
-  startTransition,
-  useTransition,
-  createContext,
-  useContext,
-  children,
-  getListener,
-  getOwner,
-  runWithOwner,
-  equalFn,
   $DEVCOMP,
   $PROXY,
-  $TRACK
+  $TRACK,
+  batch,
+  children,
+  createComputed,
+  createContext,
+  createDeferred,
+  createEffect,
+  createMemo,
+  createReaction,
+  createRenderEffect,
+  createResource,
+  createRoot,
+  createSelector,
+  createSignal,
+  enableExternalSource,
+  enableScheduling,
+  equalFn,
+  getListener,
+  getOwner,
+  on,
+  onCleanup,
+  onError,
+  onMount,
+  runWithOwner,
+  startTransition,
+  untrack,
+  useContext,
+  useTransition
 } from "./reactive/signal.js";
 export type {
   Accessor,
-  Setter,
-  Signal,
-  SignalOptions,
-  Resource,
-  ResourceActions,
-  ResourceSource,
-  ResourceOptions,
-  ResourceReturn,
-  ResourceFetcher,
-  ResourceFetcherInfo,
+  AccessorArray,
   ChildrenReturn,
   Context,
-  ReturnTypes,
-  Owner,
+  EffectFunction,
   InitializedResource,
   InitializedResourceOptions,
-  InitializedResourceReturn
+  InitializedResourceReturn,
+  MemoOptions,
+  NoInfer,
+  OnEffectFunction,
+  Owner,
+  Resource,
+  ResourceActions,
+  ResourceFetcher,
+  ResourceFetcherInfo,
+  ResourceOptions,
+  ResourceReturn,
+  ResourceSource,
+  ReturnTypes,
+  Setter,
+  Signal,
+  SignalOptions
 } from "./reactive/signal.js";
-
 
 export * from "./reactive/observable.js";
 export * from "./reactive/scheduler.js";
@@ -62,7 +66,7 @@ type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { writeSignal, serializeGraph, registerGraph, hashValue } from "./reactive/signal.js";
+import { hashValue, registerGraph, serializeGraph, writeSignal } from "./reactive/signal.js";
 let DEV: {
   writeSignal: typeof writeSignal;
   serializeGraph: typeof serializeGraph;

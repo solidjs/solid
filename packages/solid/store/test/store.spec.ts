@@ -741,6 +741,38 @@ describe("Nested Classes", () => {
   setStore("a", "b", "c", "d", "e", "f", "g", "h");
 };
 
+// Cannot update readonly keys
+() => {
+  const [, setK1] = createStore({} as { readonly i: number });
+  // @ts-expect-error i is readonly
+  setK1("i", 2);
+  const [, setK2] = createStore({} as { i: { readonly j: number } });
+  // @ts-expect-error j is readonly
+  setK2("i", "j", 3);
+  const [, setK3] = createStore({} as { i: { j: { readonly k: number } } });
+  // @ts-expect-error k is readonly
+  setK3("i", "j", "k", 4);
+  const [, setK4] = createStore({} as { i: { j: { k: { readonly l: number } } } });
+  // @ts-expect-error l is readonly
+  setK4("i", "j", "k", "l", 5);
+  const [, setK5] = createStore({} as { i: { j: { k: { l: { readonly m: number } } } } });
+  // @ts-expect-error m is readonly
+  setK5("i", "j", "k", "l", "m", 6);
+  const [, setK6] = createStore({} as { i: { j: { k: { l: { m: { readonly n: number } } } } } });
+  // TODO @ts-expect-error n is readonly, nesting too deep?
+  setK6("i", "j", "k", "l", "m", "n", 7);
+  const [, setK7] = createStore(
+    {} as { i: { j: { k: { l: { m: { n: { readonly o: number } } } } } } }
+  );
+  // @ts-expect-error o is readonly, but has unreadable error due to method overloading
+  setK7("i", "j", "k", "l", "m", "n", "o", 8);
+  const [, setKn] = createStore(
+    {} as { i: { j: { k: { l: { m: { n: { o: { readonly p: number } } } } } } } }
+  );
+  // @ts-expect-error p is readonly
+  setKn("i", "j", "k", "l", "m", "n", "o", "p", 9);
+};
+
 // keys are narrowed
 () => {
   const [store, setStore] = createStore({ a: { b: 1 }, c: { d: 2 } });

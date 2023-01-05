@@ -243,20 +243,53 @@ export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
   Omit<T, K[number][number]>
 ];
 
-export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]>(
-  props: T,
-  ...keys: K
-): SplitProps<T, K> {
+export function splitProps<
+  T extends Record<any, any>,
+  K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
+>(props: T, ...keys: K): SplitProps<T, K> {
   const blocked = new Set<keyof T>(keys.flat());
+  if ($PROXY in props) {
+    const res = keys.map(k => {
+      return new Proxy(
+        {
+          get(property) {
+            return k.includes(property) ? props[property as any] : undefined;
+          },
+          has(property) {
+            return k.includes(property) && property in props;
+          },
+          keys() {
+            return k.filter(property => property in props);
+          }
+        },
+        propTraps
+      );
+    });
+    res.push(
+      new Proxy(
+        {
+          get(property) {
+            return blocked.has(property) ? undefined : props[property as any];
+          },
+          has(property) {
+            return blocked.has(property) ? false : property in props;
+          },
+          keys() {
+            return Object.keys(props).filter(k => !blocked.has(k));
+          }
+        },
+        propTraps
+      )
+    );
+    return res as SplitProps<T, K>;
+  }
   const descriptors = Object.getOwnPropertyDescriptors(props);
-  const isProxy = $PROXY in props;
-  if (!isProxy)
-    keys.push(Object.keys(descriptors).filter(k => !blocked.has(k as keyof T)) as (keyof T)[]);
-  const res = keys.map(k => {
+  keys.push(Object.keys(descriptors).filter(k => !blocked.has(k as keyof T)) as (keyof T)[]);
+  return keys.map(k => {
     const clone = {};
     for (let i = 0; i < k.length; i++) {
       const key = k[i];
-      if (!isProxy && !(key in props)) continue; // skip defining keys that don't exist
+      if (!(key in props)) continue; // skip defining keys that don't exist
       Object.defineProperty(
         clone,
         key,
@@ -274,26 +307,7 @@ export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (key
       );
     }
     return clone;
-  });
-  if (isProxy) {
-    res.push(
-      new Proxy(
-        {
-          get(property: string | number | symbol) {
-            return blocked.has(property as keyof T) ? undefined : props[property as keyof T];
-          },
-          has(property: string | number | symbol) {
-            return blocked.has(property as keyof T) ? false : property in props;
-          },
-          keys() {
-            return Object.keys(props).filter(k => !blocked.has(k as keyof T));
-          }
-        },
-        propTraps
-      )
-    );
-  }
-  return res as SplitProps<T, K>;
+  }) as SplitProps<T, K>;
 }
 
 // lazy load a function component asynchronously
