@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.6.8
+
+### Patch Changes
+
+- 6db2d89: Fix #1461 - streaming broken due to reusing same resources for lazy dedupe
+
 ## 1.6.7
 
 ### Patch Changes
