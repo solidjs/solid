@@ -290,16 +290,18 @@ export function createEffect(fn: () => void) {
   const effect = new Reactive(fn, ReactiveType.Effect);
   return effect.get.bind(effect);
 }
-export function createRoot(fn: () => void) {
+export function createRoot<T>(fn: (dispose: () => void) => T): T {
   let root: Reactive<any>[] | null = [];
   Root = root;
-  fn();
-  Root = null;
-  return () => {
-    if (!root) return;
-    root.forEach((r) => r.destroy());
-    root = null as any;
-  };
+  try {
+    return fn(() => {
+      if (!root) return;
+      root.forEach((r) => r.destroy());
+      root = null as any;
+    });
+  } finally {
+    Root = null;
+  }
 }
 export function batch<T>(fn: () => T): T {
   if (EffectQueue) return fn();
