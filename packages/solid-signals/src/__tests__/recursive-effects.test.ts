@@ -85,4 +85,14 @@ describe('recursive effects', () => {
     expect(next).not.toBe(prev)
     expect(called).toBe(3)
   })
+
+  it('supports getters that return frozen objects', () => {
+    const [store, setStore] = createStore({
+      get foo() {
+        return Object.freeze({ foo: 'foo' })
+      },
+    })
+
+    expect(() => store.foo).not.toThrow()
+  })
 })
