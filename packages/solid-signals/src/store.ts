@@ -158,9 +158,9 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     const tracked = nodes.hasOwnProperty(property);
     let value = tracked ? nodes[property].get() : target[property];
     if (property === $NODE || property === "__proto__") return value;
+    const desc = Object.getOwnPropertyDescriptor(target, property);
 
     if (!tracked) {
-      const desc = Object.getOwnPropertyDescriptor(target, property);
       if (
         CurrentReaction &&
         (typeof value !== "function" || target.hasOwnProperty(property)) &&
@@ -168,7 +168,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       )
         value = getDataNode(nodes, property, value).get();
     }
-    return isWrappable(value) ? wrap(value) : value;
+    return isWrappable(value) && !(desc && desc.get) ? wrap(value) : value;
   },
 
   has(target, property) {

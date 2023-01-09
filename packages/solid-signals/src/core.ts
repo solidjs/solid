@@ -302,6 +302,7 @@ export function createRoot(fn: () => void) {
   };
 }
 export function batch<T>(fn: () => T): T {
+  if (EffectQueue) return fn();
   EffectQueue = [];
   let out = fn();
   stabilize();
