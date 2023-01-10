@@ -1,31 +1,15 @@
-import { describe, it, expect, test } from 'vitest'
+import { describe, it, expect } from "vitest";
 
-import { createEffect, createRoot, untrack } from '../core'
-import { createStore, unwrap } from '../store'
-import { sharedClone } from './sharedClone'
+import { createStore } from "../store";
 
-describe('recursive effects', () => {
-  it('', () => {
-    const [store, setStore] = createStore({ foo: 'foo', bar: { baz: 'baz' } })
+describe("getters", () => {
+  it("supports getters that return frozen objects", () => {
+    const [store, setStore] = createStore({
+      get foo() {
+        return Object.freeze({ foo: "foo" });
+      },
+    });
 
-    let called = 0
-    let next: any
-
-    createRoot(() => {
-      createEffect(() => {
-        next = sharedClone(next, store)
-        called++
-      })
-    })
-
-    setStore((s) => {
-      s.foo = '1'
-    })
-
-    setStore((s) => {
-      s.bar.baz = '2'
-    })
-
-    expect(called).toBe(3)
-  })
-})
+    expect(() => store.foo).not.toThrow();
+  });
+});
