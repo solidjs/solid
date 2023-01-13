@@ -1038,12 +1038,12 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
         return Comp(props);
       }),
     undefined,
-    true
+    true,
+    0
   ) as DevComponent<T>;
   c.props = props;
   c.observers = null;
   c.observerSlots = null;
-  c.state = 0;
   c.componentName = Comp.name;
   updateComputation(c);
   return c.tValue !== undefined ? c.tValue : c.value;
@@ -1334,7 +1334,17 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   try {
     nextValue = node.fn(value);
   } catch (err) {
-    if (node.pure) Transition && Transition.running ? (node.tState = STALE) : (node.state = STALE);
+    if (node.pure) {
+      if (Transition && Transition.running) {
+        node.tState = STALE;
+        (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(cleanNode);
+        (node as Memo<any>).tOwned = undefined;
+      } else {
+        node.state = STALE;
+        node.owned && node.owned.forEach(cleanNode);
+        node.owned = null;
+      }
+    }
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
