@@ -41,8 +41,13 @@ declare global {
 
 export type ComputationState = 0 | 1 | 2;
 
-export interface SignalState<T> {
-  value?: T;
+export interface SourceMapValue {
+  value: unknown;
+  graph?: Owner;
+}
+
+export interface SignalState<T> extends SourceMapValue {
+  value: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
   tValue?: T;
@@ -55,7 +60,7 @@ export interface Owner {
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
-  sourceMap?: Record<string, { value: unknown }>;
+  sourceMap?: Record<string, SourceMapValue>;
   name?: string;
   componentName?: string;
 }
@@ -178,10 +183,13 @@ export interface SignalOptions<T> extends MemoOptions<T> {
  */
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: T, options?: SignalOptions<T>): Signal<T>;
-export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T | undefined> {
+export function createSignal<T>(
+  value?: T,
+  options?: SignalOptions<T | undefined>
+): Signal<T | undefined> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
-  const s: SignalState<T> = {
+  const s: SignalState<T | undefined> = {
     value,
     observers: null,
     observerSlots: null,
@@ -347,6 +355,7 @@ export function createReaction(onInvalidate: () => void, options?: EffectOptions
 }
 
 export interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
+  value: Next;
   tOwned?: Computation<Prev | Next, Next>[];
 }
 
@@ -1081,13 +1090,14 @@ export function hashValue(v: any): string {
   }`;
 }
 
-export function registerGraph(name: string, value: { value: unknown }): string {
+export function registerGraph(name: string, value: SourceMapValue): string {
   let tryName = name;
   if (Owner) {
     let i = 0;
     Owner.sourceMap || (Owner.sourceMap = {});
     while (Owner.sourceMap[tryName]) tryName = `${name}-${++i}`;
     Owner.sourceMap[tryName] = value;
+    value.graph = Owner;
   }
   return tryName;
 }
