@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.6.9
+
+### Patch Changes
+
+- a572c12: Streaming without a wrapper and compile time JSX validation
+
 ## 1.6.7
 
 ### Patch Changes

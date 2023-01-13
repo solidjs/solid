@@ -1,5 +1,19 @@
 # solid-js
 
+## 1.6.9
+
+### Patch Changes
+
+- a572c12: Streaming without a wrapper and compile time JSX validation
+- 0ad9859: fix #1478 error infinite loop
+- 12629a3: DEV: registerGraph `graph` property added to values
+
+## 1.6.8
+
+### Patch Changes
+
+- 6db2d89: Fix #1461 - streaming broken due to reusing same resources for lazy dedupe
+
 ## 1.6.7
 
 ### Patch Changes
