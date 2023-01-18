@@ -12,7 +12,7 @@ import {
   enableHydration,
   $DEVCOMP,
   ComponentProps,
-  ValidComponent,
+  ValidComponent
 } from "solid-js";
 
 export * from "./client.js";
@@ -47,7 +47,7 @@ export const hydrate: typeof hydrateCore = (...args) => {
  *
  * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
  *
- * @description https://www.solidjs.com/docs/latest/api#%3Cportal%3E
+ * @description https://www.solidjs.com/docs/latest/api#portal
  */
 export function Portal<T extends boolean = false, S extends boolean = false>(props: {
   mount?: Node;
@@ -109,11 +109,11 @@ type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = { [K in key
  * ```typescript
  * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
  * ```
- * @description https://www.solidjs.com/docs/latest/api#%3Cdynamic%3E
+ * @description https://www.solidjs.com/docs/latest/api#dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
-  const cached = createMemo<Function | string>(() => p.component)
+  const cached = createMemo<Function | string>(() => p.component);
   return createMemo(() => {
     const component = cached();
     switch (typeof component) {
