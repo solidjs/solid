@@ -921,9 +921,11 @@ export function onMount(fn: () => void) {
  * onCleanup - run an effect once before the reactive scope is disposed
  * @param fn an effect that should run only once on cleanup
  *
+ * @returns the same {@link fn} function that was passed in
+ *
  * @description https://www.solidjs.com/docs/latest/api#oncleanup
  */
-export function onCleanup(fn: () => void) {
+export function onCleanup<T extends () => any>(fn: T): T {
   if (Owner === null)
     "_SOLID_DEV_" &&
       console.warn("cleanups created outside a `createRoot` or `render` will never be run");
