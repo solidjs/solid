@@ -261,7 +261,7 @@ export function read(this: Computation): any {
     else currentObservers.push(this);
   }
 
-  if (this._compute) shouldUpdate(this);
+  if (this._compute) updateIfNecessary(this);
 
   return this._value;
 }
@@ -358,10 +358,10 @@ export function isZombie(node: Owner) {
   return false;
 }
 
-function shouldUpdate(node: Computation) {
+function updateIfNecessary(node: Computation) {
   if (node._state === STATE_CHECK) {
     for (let i = 0; i < node._sources!.length; i++) {
-      shouldUpdate(node._sources![i]);
+      updateIfNecessary(node._sources![i]);
       if ((node._state as number) === STATE_DIRTY) {
         // Stop the loop here so we won't trigger updates on other parents unnecessarily
         // If our computation changes to no longer use some sources, we don't
