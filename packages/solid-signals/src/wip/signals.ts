@@ -60,9 +60,6 @@ export function createEffect(
   effect: Effect,
   options?: { id?: string }
 ): StopEffect {
-  // TODO: what would we like to do here ?
-  if (__SERVER__) return () => {};
-
   const signal = createComputation<null>(
     null,
     function runEffect() {
