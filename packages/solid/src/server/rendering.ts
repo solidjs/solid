@@ -101,12 +101,12 @@ export function mergeProps(...sources: any): any {
           enumerable: true,
           get() {
             for (let i = sources.length - 1; i >= 0; i--) {
-              let s = (sources[i] || {});
+              let s = sources[i] || {};
               if (typeof s === "function") s = s();
               const v = s[key];
               if (v !== undefined) return v;
             }
-          },
+          }
         });
       }
     }
@@ -451,12 +451,12 @@ export function createResource<T, S>(
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  let resolved: T;
-  let p: Promise<{ default: T }>;
-  let load = () => {
+  let p: Promise<{ default: T }> & { resolved?: T };
+  let load = (id?: string) => {
     if (!p) {
       p = fn();
-      p.then(mod => (resolved = mod.default));
+      p.then(mod => (p.resolved = mod.default));
+      if (id) sharedConfig.context!.lazy[id] = p;
     }
     return p;
   };
@@ -464,9 +464,11 @@ export function lazy<T extends Component<any>>(
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
-    load();
     const id = sharedConfig.context!.id.slice(0, -1);
-    if (resolved) return resolved(props);
+    let ref = sharedConfig.context!.lazy[id];
+    if (ref) p = ref;
+    else load(id);
+    if (p.resolved) return p.resolved(props);
     const ctx = useContext(SuspenseContext);
     const track = { loading: true, error: undefined };
     if (ctx) {
@@ -535,6 +537,7 @@ type HydrationContext = {
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
+  lazy: Record<string, Promise<any>>;
   async?: boolean;
   noHydrate: boolean;
 };
@@ -598,7 +601,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.async) {
     setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f", noHydrate: true });
-    const res = { t: `<span id="pl-${id}">${resolveSSRNode(props.fallback)}</span>` };
+    const res = { t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>` };
     setHydrateContext(ctx);
     return res;
   }

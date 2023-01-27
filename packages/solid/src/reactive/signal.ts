@@ -925,9 +925,11 @@ export function onMount(fn: () => void) {
  * onCleanup - run an effect once before the reactive scope is disposed
  * @param fn an effect that should run only once on cleanup
  *
+ * @returns the same {@link fn} function that was passed in
+ *
  * @description https://www.solidjs.com/docs/latest/api#oncleanup
  */
-export function onCleanup(fn: () => void) {
+export function onCleanup<T extends () => any>(fn: T): T {
   if (Owner === null)
     "_SOLID_DEV_" &&
       console.warn("cleanups created outside a `createRoot` or `render` will never be run");
@@ -1051,12 +1053,12 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
         return Comp(props);
       }),
     undefined,
-    true
+    true,
+    0
   ) as DevComponent<P>;
   c.props = props;
   c.observers = null;
   c.observerSlots = null;
-  c.state = 0;
   c.componentName = Comp.name;
   updateComputation(c);
   return (c.tValue !== undefined ? c.tValue : c.value) as V;
@@ -1348,7 +1350,17 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   try {
     nextValue = node.fn(value);
   } catch (err) {
-    if (node.pure) Transition && Transition.running ? (node.tState = STALE) : (node.state = STALE);
+    if (node.pure) {
+      if (Transition && Transition.running) {
+        node.tState = STALE;
+        (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(cleanNode);
+        (node as Memo<any>).tOwned = undefined;
+      } else {
+        node.state = STALE;
+        node.owned && node.owned.forEach(cleanNode);
+        node.owned = null;
+      }
+    }
     handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {

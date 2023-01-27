@@ -534,6 +534,20 @@ describe("onError", () => {
     ).not.toThrow("fail");
     expect(errored).toBe(true);
   });
+
+  test("In nested memo", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        createMemo(() => {
+          onError(() => (errored = true));
+          createEffect(() => {});
+          throw new Error("fail");
+        });
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
 });
 
 describe("createDeferred", () => {
