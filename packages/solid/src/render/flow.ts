@@ -108,7 +108,7 @@ export function Show<T>(props: {
       const c = condition();
       if (c) {
         const child = props.children;
-        const fn = typeof child === "function" && child.length > 0;
+        const fn = typeof child === "function";
         strictEqual = keyed || fn;
         return fn ? untrack(() => (child as any)(c as T)) : child;
       }
