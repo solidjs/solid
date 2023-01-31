@@ -962,13 +962,16 @@ export function getOwner() {
 
 export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
   const prev = Owner;
+  const prevListener = Listener;
   Owner = o;
+  Listener = null;
   try {
     return runUpdates(fn, true)!;
   } catch (err) {
     handleError(err);
   } finally {
     Owner = prev;
+    Listener = prevListener;
   }
 }
 
@@ -1491,6 +1494,7 @@ function runUpdates<T>(fn: () => T, init: boolean) {
     return res;
   } catch (err) {
     if (!Updates) Effects = null;
+    Updates = null;
     handleError(err);
   }
 }
