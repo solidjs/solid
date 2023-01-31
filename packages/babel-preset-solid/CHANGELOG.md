@@ -1,5 +1,13 @@
 # babel-preset-solid
 
+## 1.6.10
+
+### Patch Changes
+
+- 7ab43a4: fix #1492 SSR Spread Breaks Hydration
+  fix #1495 runWithOwner not clearing listener
+  fix #1498 unrecoverable error in async batch
+
 ## 1.6.9
 
 ### Patch Changes

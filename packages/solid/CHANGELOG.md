@@ -1,5 +1,18 @@
 # solid-js
 
+## 1.6.10
+
+### Patch Changes
+
+- 1b32e63: Fix broken comments description link to solid docs
+- dd879da: fix #1493 export DynamicProps
+- d89e791: Add generic to onCleanup
+- 695d99b: Export `EffectOptions` and `OnOptions` from main module
+- d35a1ca: Fixed the return type of the `Symbol.observable` method of the `observable` in the generated `.d.ts`
+- 7ab43a4: fix #1492 SSR Spread Breaks Hydration
+  fix #1495 runWithOwner not clearing listener
+  fix #1498 unrecoverable error in async batch
+
 ## 1.6.9
 
 ### Patch Changes
