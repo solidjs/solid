@@ -194,8 +194,6 @@ export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
   Owner = o;
   try {
     return fn();
-  } catch (err) {
-    handleError(err);
   } finally {
     Owner = prev;
   }

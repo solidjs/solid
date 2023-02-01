@@ -967,8 +967,6 @@ export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
   Listener = null;
   try {
     return runUpdates(fn, true)!;
-  } catch (err) {
-    handleError(err);
   } finally {
     Owner = prev;
     Listener = prevListener;
