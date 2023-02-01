@@ -1482,7 +1482,13 @@ function runTop(node: Computation<any>) {
 }
 
 function runUpdates<T>(fn: () => T, init: boolean) {
-  if (Updates) return fn();
+  if (Updates) {
+    try {
+      return fn();
+    } catch (error) {
+      handleError(error);
+    }
+  }
   let wait = false;
   if (!init) Updates = [];
   if (Effects) wait = true;
