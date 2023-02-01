@@ -690,18 +690,37 @@ describe("createRoot", () => {
 });
 
 describe("runWithOwner", () => {
-  test("Top level owner execute and disposal", () => {
+  test("Top level run immediately executes effects", () => {
     let effectRun = false;
     let cleanupRun = false;
     const [owner, dispose] = createRoot(dispose => {
       return [getOwner()!, dispose];
     });
-
     runWithOwner(owner, () => {
       createEffect(() => (effectRun = true));
       onCleanup(() => (cleanupRun = true));
-      expect(effectRun).toBe(false);
+      expect(effectRun).toBe(true);
       expect(cleanupRun).toBe(false);
+    });
+    expect(effectRun).toBe(true);
+    expect(cleanupRun).toBe(false);
+    dispose();
+    expect(cleanupRun).toBe(true);
+  });
+
+  test("Executes and cleans in context of specific owner", () => {
+    let effectRun = false;
+    let cleanupRun = false;
+    const [owner, dispose] = createRoot(dispose => {
+      return [getOwner()!, dispose];
+    });
+    createRoot(() => {
+      runWithOwner(owner, () => {
+        createEffect(() => (effectRun = true));
+        onCleanup(() => (cleanupRun = true));
+        expect(effectRun).toBe(false);
+        expect(cleanupRun).toBe(false);
+      });
     });
     expect(effectRun).toBe(true);
     expect(cleanupRun).toBe(false);

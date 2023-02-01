@@ -960,13 +960,13 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
+export function runWithOwner<T>(o: typeof Owner, fn: () => T): T {
   const prev = Owner;
   const prevListener = Listener;
   Owner = o;
   Listener = null;
   try {
-    return runUpdates(fn, true)!;
+    return fn();
   } finally {
     Owner = prev;
     Listener = prevListener;
