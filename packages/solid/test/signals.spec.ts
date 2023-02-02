@@ -687,6 +687,28 @@ describe("createRoot", () => {
       });
     });
   });
+  
+  test("Allows to define detachedOwner", () => {
+    let owner1: any;
+    let owner2: any;
+    let owner3: any;
+    let owner4: any;
+    let owner5: any;
+
+    createRoot(_ => (owner1 = getOwner()!));
+    createRoot(_ => (owner2 = getOwner()!), owner1);
+    createRoot(_ => {
+      owner3 = getOwner()!;
+      createRoot(_ => (owner4 = getOwner()!));
+      createRoot(_ => (owner5 = getOwner()!), null);
+    });
+
+    expect(owner1.owner).toBe(null);
+    expect(owner2.owner).toBe(owner1);
+    expect(owner3.owner).toBe(null);
+    expect(owner4.owner).toBe(owner3);
+    expect(owner5.owner).toBe(null);
+  });
 });
 
 describe("runWithOwner", () => {

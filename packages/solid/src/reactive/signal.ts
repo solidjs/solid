@@ -111,7 +111,7 @@ export type RootFunction<T> = (dispose: () => void) => T;
  *
  * @description https://www.solidjs.com/docs/latest/api#createroot
  */
-export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
+export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner): T {
   const listener = Listener,
     owner = Owner,
     unowned = fn.length === 0,
@@ -119,7 +119,12 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
       ? "_SOLID_DEV_"
         ? { owned: null, cleanups: null, context: null, owner: null }
         : UNOWNED
-      : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
+      : {
+          owned: null,
+          cleanups: null,
+          context: null,
+          owner: detachedOwner === undefined ? owner : detachedOwner
+        },
     updateFn = unowned
       ? "_SOLID_DEV_"
         ? () =>
@@ -960,7 +965,7 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
+export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
   const prev = Owner;
   const prevListener = Listener;
   Owner = o;
