@@ -34,8 +34,8 @@ interface Owner {
   context: any | null;
 }
 
-export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Owner): T {
-  detachedOwner && (Owner = detachedOwner);
+export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: typeof Owner): T {
+  detachedOwner !== undefined && (Owner = detachedOwner);
   const owner = Owner,
     root: Owner = fn.length === 0 ? UNOWNED : { context: null, owner };
   Owner = root;
@@ -189,7 +189,7 @@ export function children(fn: () => any): ChildrenReturn {
   return memo as ChildrenReturn;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
+export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
   const prev = Owner;
   Owner = o;
   try {
