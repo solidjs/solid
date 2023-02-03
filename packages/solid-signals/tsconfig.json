@@ -5,12 +5,11 @@
     "target": "esnext",
     "newLine": "LF",
     "moduleResolution": "node",
+    "noImplicitAny": false,
     "strict": true,
-    "outDir": "./dist",
+    "outDir": "dist",
     "module": "esnext"
   },
-  "include": [
-    "./src"
-  ],
-  "exclude": ["node_modules/"]
+  "include": ["src"],
+  "exclude": ["dist", "node_modules"]
 }
