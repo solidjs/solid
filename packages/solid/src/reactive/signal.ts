@@ -40,13 +40,13 @@ declare global {
 
 export type ComputationState = 0 | 1 | 2;
 
-export interface SignalMapValue {
+export interface SourceMapValue {
   value: unknown;
   name?: string;
   graph?: Owner;
 }
 
-export interface SignalState<T> extends SignalMapValue {
+export interface SignalState<T> extends SourceMapValue {
   value: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
@@ -59,7 +59,7 @@ export interface Owner {
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
-  sourceMap?: SignalMapValue[];
+  sourceMap?: SourceMapValue[];
   name?: string;
 }
 
@@ -1055,7 +1055,7 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
   return c.tValue !== undefined ? c.tValue : c.value;
 }
 
-export function registerGraph(value: SignalMapValue): void {
+export function registerGraph(value: SourceMapValue): void {
   if (!Owner) return;
   if (Owner.sourceMap) Owner.sourceMap.push(value);
   else Owner.sourceMap = [value];
