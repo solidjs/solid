@@ -146,7 +146,7 @@ export function cleanNode(node: { cleanups?: Function[] | null }) {
   }
 }
 
-export function onError(fn: (err: any) => void): void {
+export function onError(fn: (err: Error) => void): void {
   if (Owner) {
     if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
     else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];

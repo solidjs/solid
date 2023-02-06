@@ -947,7 +947,7 @@ export function onCleanup<T extends () => any>(fn: T): T {
  *
  * @description https://www.solidjs.com/docs/latest/api#onerror
  */
-export function onError(fn: (err: any) => void): void {
+export function onError(fn: (err: Error) => void): void {
   ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
     "_SOLID_DEV_" &&

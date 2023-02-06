@@ -144,7 +144,7 @@ describe("using Resource with initial Value", () => {
     reject: (r: string) => void,
     trigger: (v: string) => void,
     value: Resource<string>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -173,7 +173,7 @@ describe("using Resource with errors", () => {
     reject: (e: any) => void,
     trigger: (v: string) => void,
     value: Resource<string | undefined>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;
