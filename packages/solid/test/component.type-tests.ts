@@ -135,7 +135,6 @@ function M4<T extends keyof M4Type = "a">(
   test4.test = "";
 
   const test5 = mergeProps(defaultProperties, ...[props], props);
-  // @ts-expect-error TODO this should be "a" | "b"
   const prop5: "a" | "b" = test5.prop;
   const propstr5: string = test5.prop;
   const as5: T = test5.as;
@@ -147,7 +146,6 @@ function M4<T extends keyof M4Type = "a">(
   test5.test = "";
 
   const test6 = mergeProps(props, props);
-  // @ts-expect-error TODO this should be "a" | "b"
   const prop6: "a" | "b" = test6.prop;
   const propstr6: string = test6.prop;
   const as6: T = test6.as;
