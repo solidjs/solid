@@ -1674,16 +1674,16 @@ function reset(node: Computation<any>, top?: boolean) {
   }
 }
 
-function castError(err: any) {
-  if (err instanceof Error || typeof err === "string") return err;
-  return new Error("Unknown error");
+function castError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
 
-function handleError(err: any) {
-  err = castError(err);
+function handleError(err: unknown): void {
+  const error = castError(err);
   const fns = ERROR && lookup(Owner, ERROR);
-  if (!fns) throw err;
-  for (const f of fns) f(err);
+  if (!fns) throw error;
+  for (const f of fns) f(error);
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {
