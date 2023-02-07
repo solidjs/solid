@@ -1,7 +1,6 @@
 import { describe, it, expect, test } from "vitest";
 
-import { createEffect, createRoot, untrack } from "../core";
-import { createStore, unwrap } from "../store";
+import { createEffect, createRoot, untrack, createStore, unwrap, flushSync } from "../";
 import { sharedClone } from "./sharedClone";
 
 describe("recursive effects", () => {
@@ -26,7 +25,8 @@ describe("recursive effects", () => {
       s.bar.baz = "2";
     });
 
-    expect(called).toBe(3);
+    flushSync();
+    expect(called).toBe(2);
   });
 
   it("respects untracked", () => {
@@ -56,7 +56,8 @@ describe("recursive effects", () => {
       };
     });
 
-    expect(called).toBe(3);
+    flushSync();
+    expect(called).toBe(2);
   });
 
   it("supports unwrapped values", () => {
@@ -82,7 +83,8 @@ describe("recursive effects", () => {
       s.bar.baz = "2";
     });
 
+    flushSync();
     expect(next).not.toBe(prev);
-    expect(called).toBe(3);
+    expect(called).toBe(2);
   });
 });

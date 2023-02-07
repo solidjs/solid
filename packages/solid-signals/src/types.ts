@@ -16,31 +16,31 @@ export interface Computation<T = any> extends Owner {
   /** @internal */
   _compute: (() => T) | null;
   /** @internal */
-  _changed: (prev: T, next: T) => boolean;
+  _equals: ((prev: T, next: T) => boolean) | false;
   /** read */
   call(this: Computation<T>): T;
 }
 
-export interface ReadSignal<T> {
+export interface Accessor<T> {
   (): T;
 }
 
 export interface SignalOptions<T> {
   id?: string;
-  dirty?: (prev: T, next: T) => boolean;
+  equals?: ((prev: T, next: T) => boolean) | false;
 }
 
 export interface MemoOptions<T, R = never> extends SignalOptions<T> {
   initial?: R;
 }
 
-export type InferSignalValue<T> = T extends ReadSignal<infer R> ? R : T;
+export type InferSignalValue<T> = T extends Accessor<infer R> ? R : T;
 
-export interface WriteSignal<T> {
+export interface Setter<T> {
   (value: T | NextValue<T>): T;
 }
 
-export type SignalTuple<T> = [read: ReadSignal<T>, write: WriteSignal<T>];
+export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
 
 export interface NextValue<T> {
   (prevValue: T): T;
@@ -69,14 +69,6 @@ export interface Dispose {
 
 export interface Disposable extends Callable {}
 
-export interface Effect {
-  (): MaybeStopEffect;
-}
-
-export interface StopEffect {
-  (): void;
-}
-
 export interface Callable<This = unknown, Return = void> {
   call($this: This): Return;
 }
@@ -84,6 +76,5 @@ export interface Callable<This = unknown, Return = void> {
 export type Maybe<T> = T | void | null | undefined | false;
 export type MaybeFunction = Maybe<(...args: any) => any>;
 export type MaybeDisposable = Maybe<Disposable>;
-export type MaybeStopEffect = Maybe<StopEffect>;
-export type MaybeSignal<T> = MaybeFunction | ReadSignal<T>;
+export type MaybeSignal<T> = MaybeFunction | Accessor<T>;
 export type ContextRecord = Record<string | symbol, unknown>;

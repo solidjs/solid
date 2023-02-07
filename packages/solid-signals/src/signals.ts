@@ -1,18 +1,13 @@
 import {
   createComputation,
-  dispose,
-  isFunction,
-  onDispose,
   read,
   write,
 } from "./core";
 import type {
   MemoOptions,
-  Effect,
-  ReadSignal,
+  Accessor,
   SignalOptions,
-  SignalTuple,
-  StopEffect,
+  Signal
 } from "./types";
 
 /**
@@ -25,7 +20,7 @@ import type {
 export function createSignal<T>(
   initialValue: T,
   options?: SignalOptions<T>
-): SignalTuple<T> {
+): Signal<T> {
   const node = createComputation(initialValue, null, options);
   return [read.bind(node), write.bind(node)];
 }
@@ -40,7 +35,7 @@ export function createSignal<T>(
 export function createMemo<T, R = never>(
   compute: () => T,
   options?: MemoOptions<T, R>
-): ReadSignal<T | R> {
+): Accessor<T | R> {
   return read.bind(
     createComputation<T | R>(
       options?.initial as R,
@@ -56,28 +51,16 @@ export function createMemo<T, R = never>(
  *
  * @see {@link https://github.com/solidjs/x-reactively#createeffect}
  */
-export function createEffect(
-  effect: Effect,
+export function createEffect<T>(
+  effect: () => T,
   options?: { id?: string }
-): StopEffect {
-  const signal = createComputation<null>(
-    null,
-    function runEffect() {
-      let effectResult = effect();
-      isFunction(effectResult) && onDispose(effectResult);
-      return null;
-    },
+): void {
+  const signal = createComputation<T>(
+    undefined,
+    effect,
     __DEV__ ? { id: options?.id ?? "effect" } : void 0
   );
 
   signal._effect = true;
   read.call(signal);
-
-  if (__DEV__) {
-    return function stopEffect() {
-      dispose.call(signal, true);
-    };
-  }
-
-  return dispose.bind(signal, true);
 }
