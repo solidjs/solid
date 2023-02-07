@@ -822,6 +822,8 @@ export function batch<T>(fn: Accessor<T>): T {
  * @description https://www.solidjs.com/docs/latest/api#untrack
  */
 export function untrack<T>(fn: Accessor<T>): T {
+  if (Listener === null) return fn();
+
   const listener = Listener;
   Listener = null;
   try {
