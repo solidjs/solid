@@ -34,11 +34,12 @@ export function createSignal<T>(
  */
 export function createMemo<T, R = never>(
   compute: () => T,
+  initialValue?: R,
   options?: MemoOptions<T, R>
 ): Accessor<T | R> {
   return read.bind(
     createComputation<T | R>(
-      options?.initial as R,
+      initialValue,
       compute,
       options as MemoOptions<T | R>
     )
@@ -53,10 +54,11 @@ export function createMemo<T, R = never>(
  */
 export function createEffect<T>(
   effect: () => T,
+  initialValue?: T,
   options?: { id?: string }
 ): void {
   const signal = createComputation<T>(
-    undefined,
+    initialValue,
     effect,
     __DEV__ ? { id: options?.id ?? "effect" } : void 0
   );

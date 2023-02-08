@@ -70,7 +70,7 @@ export interface Dispose {
 export interface Disposable extends Callable {}
 
 export interface Callable<This = unknown, Return = void> {
-  call($this: This): Return;
+  call($this: This, prev?: Return): Return;
 }
 
 export type Maybe<T> = T | void | null | undefined | false;

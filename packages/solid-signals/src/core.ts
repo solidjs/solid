@@ -54,8 +54,8 @@ function runEffects() {
  *
  * @see {@link https://github.com/solidjs/x-reactively#createroot}
  */
-export function createRoot<T>(init: (dispose: Dispose) => T): T {
-  const owner = createOwner();
+export function createRoot<T>(init: (dispose: Dispose) => T, detachedOwner?: Owner): T {
+  const owner = new OwnerNode(detachedOwner);
   return compute(
     owner,
     !init.length ? init : init.bind(null, dispose.bind(owner)),
@@ -214,7 +214,7 @@ export function compute<Result>(
   currentObserver = observer;
 
   try {
-    return compute.call(owner);
+    return compute.call(owner, observer ? observer._value : undefined);
   } finally {
     currentOwner = prevOwner;
     currentObserver = prevObserver;
@@ -282,7 +282,7 @@ export function write(this: Computation, newValue: any): any {
   return this._value;
 }
 
-const OwnerNode = function Owner(this: Owner) {
+const OwnerNode = function Owner(this: Owner, currentOwner?: Owner | null) {
   this._parent = null;
   this._nextSibling = null;
   this._prevSibling = null;
@@ -302,17 +302,13 @@ OwnerProto.append = function appendChild(owner: Owner) {
   this._nextSibling = owner;
 };
 
-export function createOwner(): Owner {
-  return new OwnerNode();
-}
-
 const ComputeNode = function Computation(
   this: Computation,
   initialValue,
   compute,
   options?: MemoOptions<any, any>
 ) {
-  OwnerNode.call(this);
+  OwnerNode.call(this, currentOwner);
 
   this._state = compute ? STATE_DIRTY : STATE_CLEAN;
   this._init = false;
