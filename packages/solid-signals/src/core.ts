@@ -54,8 +54,8 @@ function runEffects() {
  *
  * @see {@link https://github.com/solidjs/x-reactively#createroot}
  */
-export function createRoot<T>(init: (dispose: Dispose) => T, detachedOwner?: Owner): T {
-  const owner = new OwnerNode(detachedOwner);
+export function createRoot<T>(init: (dispose: Dispose) => T): T {
+  const owner = new OwnerNode();
   return compute(
     owner,
     !init.length ? init : init.bind(null, dispose.bind(owner)),
@@ -69,12 +69,9 @@ export function createRoot<T>(init: (dispose: Dispose) => T, detachedOwner?: Own
  *
  * @see {@link https://github.com/solidjs/x-reactively#untrack}
  */
-export function untrack<T>(compute: () => T): T {
-  const prev = currentObserver;
-  currentObserver = null;
-  const result = compute();
-  currentObserver = prev;
-  return result;
+export function untrack<T>(fn: () => T): T {
+  if (currentObserver === null) return fn();
+  return compute<T>(currentOwner, fn, null);
 }
 
 /**
@@ -102,8 +99,8 @@ export function getOwner(): Owner | null {
  * @see {@link https://github.com/solidjs/x-reactively#runwithowner}
  */
 export function runWithOwner<T>(
+  owner: Owner | null,
   run: () => T,
-  owner: Owner | null
 ): T | undefined {
   try {
     return compute<T>(owner, run, null);
@@ -282,7 +279,7 @@ export function write(this: Computation, newValue: any): any {
   return this._value;
 }
 
-const OwnerNode = function Owner(this: Owner, currentOwner?: Owner | null) {
+const OwnerNode = function Owner(this: Owner) {
   this._parent = null;
   this._nextSibling = null;
   this._prevSibling = null;
@@ -308,7 +305,7 @@ const ComputeNode = function Computation(
   compute,
   options?: MemoOptions<any, any>
 ) {
-  OwnerNode.call(this, currentOwner);
+  OwnerNode.call(this);
 
   this._state = compute ? STATE_DIRTY : STATE_CLEAN;
   this._init = false;
