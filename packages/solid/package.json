@@ -246,7 +246,8 @@
       },
       "require": "./html/dist/html.cjs"
     },
-    "./html/dist/*": "./html/dist/*"
+    "./html/dist/*": "./html/dist/*",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
