@@ -808,6 +808,18 @@ describe("Nested Classes", () => {
   setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", (v, t) => ({
     k: 2
   }));
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", 2);
+};
+
+// same as the above but with strings which have more types of keys
+() => {
+  const [, setStore] = createStore({
+    a: { b: { c: { d: { e: { f: { g: { h: { i: { j: { k: "l" } } } } } } } } } }
+  });
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "m");
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", (v, t) => ({
+    k: "m"
+  }));
 };
 
 // tuples are correctly typed
