@@ -128,8 +128,8 @@ export function onError<T = Error>(handler: (error: T) => void): void {
  *
  * @see {@link https://github.com/solidjs/x-reactively#ondispose}
  */
-export function onCleanup(disposable: MaybeDisposable): Dispose {
-  if (!disposable || !currentOwner) return (disposable as Dispose) || NOOP;
+export function onCleanup(disposable: MaybeDisposable): void {
+  if (!disposable || !currentOwner) return;// (disposable as Dispose) || NOOP;
 
   const node = currentOwner;
 
@@ -141,15 +141,15 @@ export function onCleanup(disposable: MaybeDisposable): Dispose {
     node._disposal = [node._disposal, disposable];
   }
 
-  return function removeDispose() {
-    if (node._state === STATE_DISPOSED) return;
-    disposable.call(null);
-    if (isFunction(node._disposal)) {
-      node._disposal = null;
-    } else if (Array.isArray(node._disposal)) {
-      node._disposal.splice(node._disposal.indexOf(disposable), 1);
-    }
-  };
+  // return function removeDispose() {
+  //   if (node._state === STATE_DISPOSED) return;
+  //   disposable.call(null);
+  //   if (isFunction(node._disposal)) {
+  //     node._disposal = null;
+  //   } else if (Array.isArray(node._disposal)) {
+  //     node._disposal.splice(node._disposal.indexOf(disposable), 1);
+  //   }
+  // };
 }
 
 let owners: Owner[] = [];
