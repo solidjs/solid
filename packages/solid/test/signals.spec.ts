@@ -453,19 +453,17 @@ describe("onError", () => {
   });
 
   test("With multiple error handlers", () => {
-    let errored = false;
-    let errored2 = false;
+    const errors: string[] = [];
     expect(() =>
       createRoot(() => {
         createEffect(() => {
-          onError(() => (errored = true));
-          onError(() => (errored2 = true));
+          onError(() => errors.push("first"));
+          onError(() => errors.push("second"));
           throw "fail";
         });
       })
     ).not.toThrow("fail");
-    expect(errored).toBe(true);
-    expect(errored2).toBe(true);
+    expect(errors).toEqual(["second", "first"]);
   });
 
   test("In update effect", () => {

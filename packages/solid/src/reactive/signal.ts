@@ -956,7 +956,7 @@ export function onError(fn: (err: any) => void): void {
       console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
   else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
-  else Owner.context[ERROR].push(fn);
+  else Owner.context[ERROR].unshift(fn);
 }
 
 export function getListener() {
