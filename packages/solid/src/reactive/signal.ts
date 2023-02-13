@@ -609,8 +609,8 @@ export function createResource<T, S, R>(
   }
   function completeLoad(v: T | undefined, err: any) {
     runUpdates(() => {
-      if (!err) setValue(() => v);
-      setState(err ? "errored" : "ready");
+      if (err !== undefined) setValue(() => v);
+      setState(err !== undefined ? "errored" : "ready");
       setError(err);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -621,7 +621,7 @@ export function createResource<T, S, R>(
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = value(),
       err = error();
-    if (err && !pr) throw err;
+    if (err !== undefined && !pr) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
         track();
