@@ -11,7 +11,7 @@ export type ComponentType<T> = mComponentType<T>;
 import { createRoot, createSignal } from "solid-js";
 import { insert } from "solid-js/web";
 
-function createProps<T>(raw: T) {
+function createProps<T extends object>(raw: T) {
   const keys = Object.keys(raw) as (keyof T)[];
   const props = {};
   for (let i = 0; i < keys.length; i++) {
@@ -40,7 +40,7 @@ function lookupContext(el: ICustomElement & { _$owner?: any }) {
     : el._$owner;
 }
 
-function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
+function withSolid<T extends object>(ComponentType: ComponentType<T>): ComponentType<T> {
   return (rawProps: T, options: ComponentOptions) => {
     const { element } = options as {
       element: ICustomElement & { _$owner?: any };
@@ -60,16 +60,16 @@ function withSolid<T>(ComponentType: ComponentType<T>): ComponentType<T> {
   };
 }
 
-function customElement<T>(
+function customElement<T extends object>(
   tag: string,
   ComponentType: ComponentType<T>
 ): (ComponentType: ComponentType<T>) => any;
-function customElement<T>(
+function customElement<T extends object>(
   tag: string,
   props: PropsDefinitionInput<T>,
   ComponentType: ComponentType<T>
 ): (ComponentType: ComponentType<T>) => any;
-function customElement<T>(
+function customElement<T extends object>(
   tag: string,
   props: PropsDefinitionInput<T> | ComponentType<T>,
   ComponentType?: ComponentType<T>
