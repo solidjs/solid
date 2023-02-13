@@ -35,9 +35,14 @@ interface Owner {
 }
 
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: typeof Owner): T {
-  detachedOwner !== undefined && (Owner = detachedOwner);
   const owner = Owner,
-    root: Owner = fn.length === 0 ? UNOWNED : { context: null, owner };
+    root =
+      fn.length === 0
+        ? UNOWNED
+        : {
+            context: null,
+            owner: detachedOwner === undefined ? owner : detachedOwner
+          };
   Owner = root;
   let result: T;
   try {
