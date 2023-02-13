@@ -1500,7 +1500,7 @@ function runUpdates<T>(fn: () => T, init: boolean) {
     completeUpdates(wait);
     return res;
   } catch (err) {
-    if (!Updates) Effects = null;
+    if (!wait) Effects = null;
     Updates = null;
     handleError(err);
   }
