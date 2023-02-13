@@ -422,7 +422,7 @@ export interface SetStoreFunction<T> {
     K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
     K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
     K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>,
-    K6 extends KeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>
+    K6 extends MutableKeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>
   >(
     k1: Part<W<T>, K1>,
     k2: Part<W<W<T>[K1]>, K2>,
