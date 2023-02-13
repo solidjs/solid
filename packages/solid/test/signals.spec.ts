@@ -458,7 +458,10 @@ describe("onError", () => {
       createRoot(() => {
         createEffect(() => {
           onError(() => errors.push("first"));
-          onError(() => errors.push("second"));
+          onError(e => {
+            errors.push("second");
+            throw e;
+          });
           throw "fail";
         });
       })

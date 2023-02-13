@@ -19,11 +19,19 @@ export function castError(err: any) {
   return new Error("Unknown error");
 }
 
-function handleError(err: any) {
+function handleError(err: unknown): void {
   err = castError(err);
   const fns = lookup(Owner, ERROR);
   if (!fns) throw err;
-  for (const f of fns) f(err);
+  for (const f of fns) {
+    try {
+      f(err);
+      return;
+    } catch (e) {
+      err = e;
+    }
+  }
+  throw err;
 }
 
 const UNOWNED: Owner = { context: null, owner: null };
