@@ -150,7 +150,7 @@ export function onError(fn: (err: any) => void): void {
   if (Owner) {
     if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
     else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
-    else Owner.context[ERROR].push(fn);
+    else Owner.context[ERROR].unshift(fn);
   }
 }
 
