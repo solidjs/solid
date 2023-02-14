@@ -1681,11 +1681,16 @@ function castError(err: any) {
   return new Error("Unknown error");
 }
 
+function runErrors(fns: ((err: any) => void)[], err: any) {
+  for (const f of fns) f(err)
+}
 function handleError(err: any) {
   err = castError(err);
   const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw err;
-  for (const f of fns) f(err);
+  if (Effects)
+    Effects!.push({ fn() { runErrors(fns, err); }, state: STALE } as unknown as Computation<any>);
+  else runErrors(fns, err);
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {
