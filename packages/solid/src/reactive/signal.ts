@@ -1631,14 +1631,13 @@ function castError(err: unknown): Error {
   if (err instanceof Error) return err;
   return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
-
 function runErrors(fns: ((err: any) => void)[], err: any) {
   for (const f of fns) f(err)
 }
 function handleError(err: unknown) {
-  const error = castError(err);
   const fns = ERROR && lookup(Owner, ERROR);
-  if (!fns) throw error;
+  if (!fns) throw err;
+  const error = castError(err);
   if (Effects)
     Effects!.push({ fn() { runErrors(fns, error); }, state: STALE } as unknown as Computation<any>);
   else runErrors(fns, error);
