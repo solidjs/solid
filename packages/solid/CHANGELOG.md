@@ -1,5 +1,19 @@
 # solid-js
 
+## 1.6.11
+
+### Patch Changes
+
+- bfbd002: Fixed the store setter's recursive fallback overload not terminating with non-numbers
+- 1ecdea4: chore: export package.json
+- 91d518a: fix: createResource should not ignores empty string throw
+- 18e734d: Support null for detachedOwner in createRoot
+- 12d458d: fix #1547, missing SVGPattern type
+- 4aaa94b: Fix: swap KeyOf for MutableKeyOf in one of the SetStoreFunction overload
+- c26f933: Add fast track for `untrack` in case of `null` listener
+- 6fb3cd8: fix #1541: process errors at the end of synchronous execution
+- c5b208c: fix #1522, errors stop future effects from running
+
 ## 1.6.10
 
 ### Patch Changes
