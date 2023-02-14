@@ -1,5 +1,32 @@
 # solid-js
 
+## 1.6.11
+
+### Patch Changes
+
+- bfbd002: Fixed the store setter's recursive fallback overload not terminating with non-numbers
+- 1ecdea4: chore: export package.json
+- 91d518a: fix: createResource should not ignores empty string throw
+- 18e734d: Support null for detachedOwner in createRoot
+- 12d458d: fix #1547, missing SVGPattern type
+- 4aaa94b: Fix: swap KeyOf for MutableKeyOf in one of the SetStoreFunction overload
+- c26f933: Add fast track for `untrack` in case of `null` listener
+- 6fb3cd8: fix #1541: process errors at the end of synchronous execution
+- c5b208c: fix #1522, errors stop future effects from running
+
+## 1.6.10
+
+### Patch Changes
+
+- 1b32e63: Fix broken comments description link to solid docs
+- dd879da: fix #1493 export DynamicProps
+- d89e791: Add generic to onCleanup
+- 695d99b: Export `EffectOptions` and `OnOptions` from main module
+- d35a1ca: Fixed the return type of the `Symbol.observable` method of the `observable` in the generated `.d.ts`
+- 7ab43a4: fix #1492 SSR Spread Breaks Hydration
+  fix #1495 runWithOwner not clearing listener
+  fix #1498 unrecoverable error in async batch
+
 ## 1.6.9
 
 ### Patch Changes

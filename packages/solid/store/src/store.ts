@@ -380,19 +380,17 @@ type KeyOf<T> = number extends keyof T // have to check this otherwise ts won't 
 type MutableKeyOf<T> = KeyOf<T> & keyof PickMutable<T>;
 
 // rest must specify at least one (additional) key, followed by a StoreSetter if the key is mutable.
-type Rest<
-  T,
-  U extends PropertyKey[],
-  K extends KeyOf<T> = KeyOf<T>
-> = K extends keyof PickMutable<T>
+type Rest<T, U extends PropertyKey[], K extends KeyOf<T> = KeyOf<T>> = [T] extends [never]
+  ? never
+  : K extends MutableKeyOf<T>
   ? [Part<T, K>, ...RestSetterOrContinue<T[K], [K, ...U]>]
-  : K extends KeyOf<K>
+  : K extends KeyOf<T>
   ? [Part<T, K>, ...RestContinue<T[K], [K, ...U]>]
   : never;
 
 type RestContinue<T, U extends PropertyKey[]> = 0 extends 1 & T
   ? [...Part<any>[], StoreSetter<any, PropertyKey[]>]
-  : Rest<T, U>;
+  : Rest<W<T>, U>;
 
 type RestSetterOrContinue<T, U extends PropertyKey[]> = [StoreSetter<T, U>] | RestContinue<T, U>;
 
@@ -424,7 +422,7 @@ export interface SetStoreFunction<T> {
     K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
     K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
     K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>,
-    K6 extends KeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>
+    K6 extends MutableKeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>
   >(
     k1: Part<W<T>, K1>,
     k2: Part<W<W<T>[K1]>, K2>,

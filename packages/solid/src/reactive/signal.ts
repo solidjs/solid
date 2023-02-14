@@ -115,7 +115,7 @@ export type RootFunction<T> = (dispose: () => void) => T;
  *
  * @description https://www.solidjs.com/docs/latest/api#createroot
  */
-export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
+export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner): T {
   const listener = Listener,
     owner = Owner,
     unowned = fn.length === 0,
@@ -123,7 +123,12 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
       ? "_SOLID_DEV_"
         ? { owned: null, cleanups: null, context: null, owner: null }
         : UNOWNED
-      : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
+      : {
+          owned: null,
+          cleanups: null,
+          context: null,
+          owner: detachedOwner === undefined ? owner : detachedOwner
+        },
     updateFn = unowned
       ? "_SOLID_DEV_"
         ? () =>
@@ -608,8 +613,8 @@ export function createResource<T, S, R>(
   }
   function completeLoad(v: T | undefined, err: any) {
     runUpdates(() => {
-      if (!err) setValue(() => v);
-      setState(err ? "errored" : "ready");
+      if (err === undefined) setValue(() => v);
+      setState(err !== undefined ? "errored" : "ready");
       setError(err);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -620,7 +625,7 @@ export function createResource<T, S, R>(
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = value(),
       err = error();
-    if (err && !pr) throw err;
+    if (err !== undefined && !pr) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
         track();
@@ -821,6 +826,8 @@ export function batch<T>(fn: Accessor<T>): T {
  * @description https://www.solidjs.com/docs/latest/api#untrack
  */
 export function untrack<T>(fn: Accessor<T>): T {
+  if (Listener === null) return fn();
+
   const listener = Listener;
   Listener = null;
   try {
@@ -964,15 +971,18 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
+export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
   const prev = Owner;
+  const prevListener = Listener;
   Owner = o;
+  Listener = null;
   try {
     return runUpdates(fn, true)!;
   } catch (err) {
     handleError(err);
   } finally {
     Owner = prev;
+    Listener = prevListener;
   }
 }
 
@@ -1496,7 +1506,8 @@ function runUpdates<T>(fn: () => T, init: boolean) {
     completeUpdates(wait);
     return res;
   } catch (err) {
-    if (!Updates) Effects = null;
+    if (!wait) Effects = null;
+    Updates = null;
     handleError(err);
   }
 }
@@ -1676,11 +1687,16 @@ function castError(err: any) {
   return new Error("Unknown error");
 }
 
+function runErrors(fns: ((err: any) => void)[], err: any) {
+  for (const f of fns) f(err)
+}
 function handleError(err: any) {
   err = castError(err);
   const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw err;
-  for (const f of fns) f(err);
+  if (Effects)
+    Effects!.push({ fn() { runErrors(fns, err); }, state: STALE } as unknown as Computation<any>);
+  else runErrors(fns, err);
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {

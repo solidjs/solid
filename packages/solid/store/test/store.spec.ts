@@ -759,7 +759,7 @@ describe("Nested Classes", () => {
   // @ts-expect-error m is readonly
   setK5("i", "j", "k", "l", "m", 6);
   const [, setK6] = createStore({} as { i: { j: { k: { l: { m: { readonly n: number } } } } } });
-  // TODO @ts-expect-error n is readonly, nesting too deep?
+  // TODO @ts-expect-error n is readonly, but has unreadable error due to method overloading
   setK6("i", "j", "k", "l", "m", "n", 7);
   const [, setK7] = createStore(
     {} as { i: { j: { k: { l: { m: { n: { readonly o: number } } } } } } }
@@ -807,6 +807,18 @@ describe("Nested Classes", () => {
   });
   setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", (v, t) => ({
     k: 2
+  }));
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", 2);
+};
+
+// same as the above but with strings which have more types of keys
+() => {
+  const [, setStore] = createStore({
+    a: { b: { c: { d: { e: { f: { g: { h: { i: { j: { k: "l" } } } } } } } } } }
+  });
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "m");
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", (v, t) => ({
+    k: "m"
   }));
 };
 
