@@ -29,7 +29,6 @@ let Listener: Computation<any> | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
-let rootCount = 0;
 
 /** Object storing callbacks for debugging during development */
 export const DevHooks: {
@@ -47,6 +46,7 @@ export type ComputationState = 0 | 1 | 2;
 
 export interface SourceMapValue {
   value: unknown;
+  name?: string;
   graph?: Owner;
 }
 
@@ -56,7 +56,6 @@ export interface SignalState<T> extends SourceMapValue {
   observerSlots: number[] | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
-  name?: string;
 }
 
 export interface Owner {
@@ -64,9 +63,8 @@ export interface Owner {
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
-  sourceMap?: Record<string, SourceMapValue>;
+  sourceMap?: SourceMapValue[];
   name?: string;
-  componentName?: string;
 }
 
 export interface Computation<Init, Next extends Init = Init> extends Owner {
@@ -138,10 +136,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
         : fn
       : () => fn(() => untrack(() => cleanNode(root)));
 
-  if ("_SOLID_DEV_") {
-    if (owner) root.name = `${owner.name}-r${rootCount++}`;
-    DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
-  }
+  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);;
 
   Owner = root;
   Listener = null;
@@ -205,8 +200,10 @@ export function createSignal<T>(
     comparator: options.equals || undefined
   };
 
-  if ("_SOLID_DEV_" && !options.internal)
-    s.name = registerGraph(options.name || hashValue(value), s);
+  if ("_SOLID_DEV_" && !options.internal) {
+    if (options.name) s.name = options.name;
+    registerGraph(s);
+  }
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
@@ -1074,59 +1071,11 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   return (c.tValue !== undefined ? c.tValue : c.value) as V;
 }
 
-export function hashValue(v: any): string {
-  const s = new Set();
-  return `s${
-    typeof v === "string"
-      ? hash(v)
-      : hash(
-          untrack(
-            () =>
-              JSON.stringify(v, (k, v) => {
-                if (typeof v === "object" && v != null) {
-                  if (s.has(v)) return;
-                  s.add(v);
-                  const keys = Object.keys(v);
-                  const desc = Object.getOwnPropertyDescriptors(v);
-                  const newDesc = keys.reduce((memo, key) => {
-                    const value = desc[key];
-                    // skip getters
-                    if (!value.get) memo[key] = value;
-                    return memo;
-                  }, {} as any);
-                  v = Object.create({}, newDesc);
-                }
-                if (typeof v === "bigint") {
-                  return `${v.toString()}n`;
-                }
-                return v;
-              }) || ""
-          )
-        )
-  }`;
-}
-
-export function registerGraph(name: string, value: SourceMapValue): string {
-  let tryName = name;
-  if (Owner) {
-    let i = 0;
-    Owner.sourceMap || (Owner.sourceMap = {});
-    while (Owner.sourceMap[tryName]) tryName = `${name}-${++i}`;
-    Owner.sourceMap[tryName] = value;
-    value.graph = Owner;
-  }
-  return tryName;
-}
-interface GraphRecord {
-  [k: string]: GraphRecord | unknown;
-}
-export function serializeGraph(owner?: Owner | null): GraphRecord {
-  owner || (owner = Owner);
-  if (!"_SOLID_DEV_" || !owner) return {};
-  return {
-    ...serializeValues(owner.sourceMap),
-    ...(owner.owned ? serializeChildren(owner) : {})
-  };
+export function registerGraph(value: SourceMapValue): void {
+  if (!Owner) return;
+  if (Owner.sourceMap) Owner.sourceMap.push(value);
+  else Owner.sourceMap = [value];
+  value.graph = Owner;
 }
 
 export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
@@ -1423,13 +1372,9 @@ function createComputation<Next, Init = unknown>(
       if (!Owner.owned) Owner.owned = [c];
       else Owner.owned.push(c);
     }
-    if ("_SOLID_DEV_")
-      c.name =
-        (options && options.name) ||
-        `${(Owner as Computation<any>).name || "c"}-${
-          (Owner.owned || (Owner as Memo<Init, Next>).tOwned!).length
-        }`;
   }
+
+  if ("_SOLID_DEV_" && options && options.name) c.name = options.name;
 
   if (ExternalSourceFactory) {
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
@@ -1734,33 +1679,6 @@ function createProvider(id: symbol, options?: EffectOptions) {
     );
     return res;
   };
-}
-
-function hash(s: string) {
-  for (var i = 0, h = 9; i < s.length; ) h = Math.imul(h ^ s.charCodeAt(i++), 9 ** 9);
-  return `${h ^ (h >>> 9)}`;
-}
-
-function serializeValues(sources: Record<string, { value: unknown }> = {}) {
-  const k = Object.keys(sources);
-  const result: Record<string, unknown> = {};
-  for (let i = 0; i < k.length; i++) {
-    const key = k[i];
-    result[key] = sources[key].value;
-  }
-  return result;
-}
-
-function serializeChildren(root: Owner): GraphRecord {
-  const result: GraphRecord = {};
-  for (let i = 0, len = root.owned!.length; i < len; i++) {
-    const node = root.owned![i];
-    result[node.componentName ? `${node.componentName}:${node.name}` : node.name!] = {
-      ...serializeValues(node.sourceMap),
-      ...(node.owned ? serializeChildren(node) : {})
-    };
-  }
-  return result;
 }
 
 type TODO = any;
