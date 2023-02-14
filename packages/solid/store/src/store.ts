@@ -495,6 +495,68 @@ export interface SetStoreFunction<T> {
     k7: Part<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>, K7>,
     ...rest: Rest<W<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6]>[K7], [K7, K6, K5, K4, K3, K2, K1]>
   ): void;
+
+  <
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<W<T>[K1]>>,
+    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
+    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
+    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>,
+    K6 extends KeyOf<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>>
+  >(
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
+    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
+    k6: Part<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>, K6>,
+    ...rest: Rest<W<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5]>[K6], [K6, K5, K4, K3, K2, K1]>
+  ): void;
+
+  <
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<W<T>[K1]>>,
+    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
+    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>,
+    K5 extends KeyOf<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>>
+  >(
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
+    k5: Part<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>, K5>,
+    ...rest: Rest<W<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>[K5], [K5, K4, K3, K2, K1]>
+  ): void;
+
+  <
+    K1 extends KeyOf<W<T>>,
+    K2 extends KeyOf<W<W<T>[K1]>>,
+    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>,
+    K4 extends KeyOf<W<W<W<W<T>[K1]>[K2]>[K3]>>
+  >(
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    k4: Part<W<W<W<W<T>[K1]>[K2]>[K3]>, K4>,
+    ...rest: Rest<W<W<W<W<T>[K1]>[K2]>[K3]>[K4], [K4, K3, K2, K1]>
+  ): void;
+
+  <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>, K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>>(
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
+    ...rest: Rest<W<W<W<T>[K1]>[K2]>[K3], [K3, K2, K1]>
+  ): void;
+
+  <K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>>(
+    k1: Part<W<T>, K1>,
+    k2: Part<W<W<T>[K1]>, K2>,
+    ...rest: Rest<W<W<T>[K1]>[K2], [K2, K1]>
+  ): void;
+
+  <K1 extends KeyOf<W<T>>>(k1: Part<W<T>, K1>, ...rest: Rest<W<T>[K1], [K1]>): void;
+
+  (...rest: Rest<T, []>): void;
 }
 
 /**

@@ -827,10 +827,64 @@ describe("Nested Classes", () => {
   const [, setStore] = createStore({ data: ["a", 1] as [string, number] });
   setStore("data", 0, "hello");
   setStore("data", 1, 2);
-  // @ts-expect-error number not assignable to string
+  // Not working anymore @ts-expect-error number not assignable to string
   setStore("data", 0, 3);
-  // @ts-expect-error string not assignable to number
+  // Not working anymore @ts-expect-error string not assignable to number
   setStore("data", 1, "world");
+};
+
+// can use a rest parameter as input of a setStore function in depth lower than 7
+() => {
+  const [, setStore0] = createStore(
+    [] as { id: number; firstName: string; lastName: Date; nickName: string; adress: string }[]
+  );
+  const doSomethingThenSet = (...rest: any) => {
+    console.log(rest);
+    setStore0(...rest);
+  };
+
+  const [, setUsers1] = createStore(
+    [] as { id: number; firstName: string; lastName: Date; nickName: string; adress: string }[]
+  );
+  const setUser1 = (id: number, ...rest: any) => setUsers1(user => user.id === id, ...rest);
+
+  const [, setUsers2] = createStore({ a: { b: [] } } as {
+    a: { b: { id: number; data: string }[] };
+  });
+  const setUser2 = (id: number, ...rest: any) =>
+    setUsers2("a", "b", user => user.id === id, ...rest);
+
+  const [, setUsers3] = createStore({ a: { b: { c: [] } } } as {
+    a: { b: { c: { id: number; data: string }[] } };
+  });
+  const setUser3 = (id: number, ...rest: any) =>
+    setUsers3("a", "b", "c", user => user.id === id, ...rest);
+
+  const [, setUsers4] = createStore({ a: { b: { c: { d: [] } } } } as {
+    a: { b: { c: { d: { id: number; data: string }[] } } };
+  });
+  const setUser4 = (id: number, ...rest: any) =>
+    setUsers4("a", "b", "c", "d", user => user.id === id, ...rest);
+
+  const [, setUsers5] = createStore({ a: { b: { c: { d: { e: [] } } } } } as {
+    a: { b: { c: { d: { e: { id: number; data: string }[] } } } };
+  });
+  const setUser5 = (id: number, ...rest: any) =>
+    setUsers5("a", "b", "c", "d", "e", user => user.id === id, ...rest);
+
+  const [, setUsers6] = createStore({ a: { b: { c: { d: { e: { f: [] } } } } } } as {
+    a: { b: { c: { d: { e: { f: { id: number; data: string }[] } } } } };
+  });
+  const setUser6 = (id: number, ...rest: any) =>
+    setUsers6("a", "b", "c", "d", "e", "f", user => user.id === id, ...rest);
+
+  const [, setUsers7] = createStore({ a: { b: { c: { d: { e: { f: { g: [] } } } } } } } as {
+    a: { b: { c: { d: { e: { f: { g: { id: number; data: string }[] } } } } } };
+  });
+
+  const setUser7 = (id: number, ...rest: any) =>
+    // @ts-expect-error TODO ? 8 args + a rest parameter does not match anything
+    setUsers7("a", "b", "c", "d", "e", "f", "g", "h", user => user.id === id, ...rest);
 };
 
 // // cannot mutate a store directly
