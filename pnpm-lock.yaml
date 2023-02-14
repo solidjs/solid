@@ -17,16 +17,16 @@ importers:
       '@types/jest': ^28.1.6
       '@types/node': ^18.11.19
       babel-jest: ^28.1.3
-      babel-plugin-jsx-dom-expressions: ^0.35.15
+      babel-plugin-jsx-dom-expressions: ^0.35.16
       coveralls: ^3.1.1
       csstype: ^3.1.0
-      dom-expressions: 0.35.15
+      dom-expressions: 0.35.16
       fast-glob: ^3.2.11
-      hyper-dom-expressions: 0.35.15
+      hyper-dom-expressions: 0.35.16
       jest: ^28.1.3
       jest-environment-jsdom: ^28.1.3
       jest-ts-webcompat-resolver: ^1.0.0
-      lit-dom-expressions: 0.35.15
+      lit-dom-expressions: 0.35.16
       ncp: ^2.0.0
       npm-run-all: ^4.1.5
       rimraf: ^3.0.2
@@ -52,16 +52,16 @@ importers:
       '@types/jest': 28.1.6
       '@types/node': 18.11.19
       babel-jest: 28.1.3_@babel+core@7.20.12
-      babel-plugin-jsx-dom-expressions: 0.35.15_@babel+core@7.20.12
+      babel-plugin-jsx-dom-expressions: 0.35.16_@babel+core@7.20.12
       coveralls: 3.1.1
       csstype: 3.1.0
-      dom-expressions: 0.35.15_csstype@3.1.0
+      dom-expressions: 0.35.16_csstype@3.1.0
       fast-glob: 3.2.11
-      hyper-dom-expressions: 0.35.15
+      hyper-dom-expressions: 0.35.16
       jest: 28.1.3_@types+node@18.11.19
       jest-environment-jsdom: 28.1.3
       jest-ts-webcompat-resolver: 1.0.0
-      lit-dom-expressions: 0.35.15
+      lit-dom-expressions: 0.35.16
       ncp: 2.0.0
       npm-run-all: 4.1.5
       rimraf: 3.0.2
@@ -493,11 +493,6 @@ packages:
   /@babel/helper-string-parser/7.19.4:
     resolution: {integrity: sha512-nHtDoQcuqFmwYNYPz3Rah5ph2p8PFeFCsZk9A/48dPc/rGocJ5J3hAAZ7pb76VWX3fZKu+uEr/FhH5jLx7umrw==}
     engines: {node: '>=6.9.0'}
-
-  /@babel/helper-validator-identifier/7.18.6:
-    resolution: {integrity: sha512-MmetCkz9ej86nJQV+sFCxoGGrUbU3q02kgLciwkrt9QqEB7cP39oKEY0PakknEO0Gu20SskMRi+AYZ3b1TpN9g==}
-    engines: {node: '>=6.9.0'}
-    dev: true
 
   /@babel/helper-validator-identifier/7.19.1:
     resolution: {integrity: sha512-awrNfaMtnHUr653GgGEs++LlAvW6w+DcPrOliSMXWCKo597CwL5Acf/wWdNkf/tfEQE3mjkeD1YOVZOUV/od1w==}
@@ -1155,7 +1150,7 @@ packages:
       '@babel/helper-hoist-variables': 7.18.6
       '@babel/helper-module-transforms': 7.18.9
       '@babel/helper-plugin-utils': 7.18.9
-      '@babel/helper-validator-identifier': 7.18.6
+      '@babel/helper-validator-identifier': 7.19.1
       babel-plugin-dynamic-import-node: 2.3.3
     transitivePeerDependencies:
       - supports-color
@@ -1430,7 +1425,7 @@ packages:
       '@babel/helper-plugin-utils': 7.18.9
       '@babel/plugin-proposal-unicode-property-regex': 7.18.6_@babel+core@7.20.12
       '@babel/plugin-transform-dotall-regex': 7.18.6_@babel+core@7.20.12
-      '@babel/types': 7.18.9
+      '@babel/types': 7.20.7
       esutils: 2.0.3
     dev: true
 
@@ -1513,7 +1508,7 @@ packages:
     resolution: {integrity: sha512-WwMLAg2MvJmt/rKEVQBBhIVffMmnilX4oe0sRe7iPOHIGsqpruFHHdrfj4O1CMMtgMtCU4oPafZjDPCRgO57Wg==}
     engines: {node: '>=6.9.0'}
     dependencies:
-      '@babel/helper-validator-identifier': 7.18.6
+      '@babel/helper-validator-identifier': 7.19.1
       to-fast-properties: 2.0.0
     dev: true
 
@@ -2653,8 +2648,8 @@ packages:
       validate-html-nesting: 1.2.0
     dev: false
 
-  /babel-plugin-jsx-dom-expressions/0.35.15_@babel+core@7.20.12:
-    resolution: {integrity: sha512-33GQnanjYKefOTO2lQK6EaKXPJ1W8vtzvBneGfhKaOZHQJLqe61P93jP0TLTz67sqsA0m1ph1cNdGpLc/Nx2Xg==}
+  /babel-plugin-jsx-dom-expressions/0.35.16_@babel+core@7.20.12:
+    resolution: {integrity: sha512-Z8vaeXRdtI4qyq3bmQiLjiZnbjn2Rr0mjpXMwN+QxHbWjtlAFOJSHlkcxbrwPz/DdcfSgkmZM0Atvt/zMLeLyA==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -2663,7 +2658,7 @@ packages:
       '@babel/plugin-syntax-jsx': 7.18.6_@babel+core@7.20.12
       '@babel/types': 7.20.7
       html-entities: 2.3.3
-      validate-html-nesting: 1.2.0
+      validate-html-nesting: 1.2.1
     dev: true
 
   /babel-plugin-polyfill-corejs2/0.3.1_@babel+core@7.20.12:
@@ -3291,8 +3286,8 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions/0.35.15_csstype@3.1.0:
-    resolution: {integrity: sha512-7KlYTOgs03Nl89SLJWnT6+DBrQ8mko+noW8o+mEp9JUlJKq7r0bCThFQ4cd6r1w0i8zz7kfBYyMze/AgB3K1YA==}
+  /dom-expressions/0.35.16_csstype@3.1.0:
+    resolution: {integrity: sha512-zk9zf+WQzbj4EBrmok8oL27hvjTvyVdIXeNFEC6VDP5EbETurPTIBxpXgOmKakWzbseEoQOcomBLiii1T5iyUQ==}
     peerDependencies:
       csstype: ^3.0
     dependencies:
@@ -4056,8 +4051,8 @@ packages:
     engines: {node: '>=10.17.0'}
     dev: true
 
-  /hyper-dom-expressions/0.35.15:
-    resolution: {integrity: sha512-HoutqiGveqovDYxfJootOE1Jl16CcpVNYhUrwKEUUu7WBBe3Tgp/FIxdXdv4QCOk/NVVVk6GX1/L6VL+hRJ0zQ==}
+  /hyper-dom-expressions/0.35.16:
+    resolution: {integrity: sha512-kAtJQsCzL7B67rMJjQ9x7/zA9wNhQzlLAqt1Nbe0spikGvN+HxOLRQsTrOWy2NZmiC4igkOXc/3cSnG/QVYxyg==}
     dev: true
 
   /iconv-lite/0.4.24:
@@ -5015,8 +5010,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions/0.35.15:
-    resolution: {integrity: sha512-NydJB2Eo52x/IGH61dIvJUzwpJJFTyfLQwzFR6jaK8WAJswQJY05HRwa5uHXoBWvJ1gnWqxku2KZzdHA73mDmw==}
+  /lit-dom-expressions/0.35.16:
+    resolution: {integrity: sha512-WPMQRaE72IlaTx/kunkAcYsAhIz2BcRk0NpsOjH/STC1Szry3HRizMh7uxkp3MwZeC0IfbJFrUl0xVWoZ/nr0A==}
     dev: true
 
   /load-json-file/4.0.0:
@@ -6758,6 +6753,11 @@ packages:
 
   /validate-html-nesting/1.2.0:
     resolution: {integrity: sha512-sI65QUd3T/e5wbQkdPKjikFsIVLPIaOQK+9uowPp6/k609SN8hs5eqBLrnN5DeW9Kd932Q4Imo0fzK2dxoOsCA==}
+    dev: false
+
+  /validate-html-nesting/1.2.1:
+    resolution: {integrity: sha512-T1ab131NkP3BfXB7KUSgV7Rhu81R2id+L6NaJ7NypAAG5iV6gXnPpQE5RK1fvb+3JYsPTL+ihWna5sr5RN9gaQ==}
+    dev: true
 
   /validate-npm-package-license/3.0.4:
     resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}
