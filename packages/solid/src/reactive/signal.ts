@@ -609,8 +609,8 @@ export function createResource<T, S, R>(
   }
   function completeLoad(v: T | undefined, err: any) {
     runUpdates(() => {
-      if (!err) setValue(() => v);
-      setState(err ? "errored" : "ready");
+      if (err === undefined) setValue(() => v);
+      setState(err !== undefined ? "errored" : "ready");
       setError(err);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
@@ -621,7 +621,7 @@ export function createResource<T, S, R>(
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = value(),
       err = error();
-    if (err && !pr) throw err;
+    if (err !== undefined && !pr) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
         track();
@@ -822,6 +822,8 @@ export function batch<T>(fn: Accessor<T>): T {
  * @description https://www.solidjs.com/docs/latest/api#untrack
  */
 export function untrack<T>(fn: Accessor<T>): T {
+  if (Listener === null) return fn();
+
   const listener = Listener;
   Listener = null;
   try {
@@ -1498,7 +1500,7 @@ function runUpdates<T>(fn: () => T, init: boolean) {
     completeUpdates(wait);
     return res;
   } catch (err) {
-    if (!Updates) Effects = null;
+    if (!wait) Effects = null;
     Updates = null;
     handleError(err);
   }
@@ -1679,11 +1681,16 @@ function castError(err: unknown): Error {
   return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
 
-function handleError(err: unknown): void {
+function runErrors(fns: ((err: any) => void)[], err: any) {
+  for (const f of fns) f(err)
+}
+function handleError(err: unknown) {
   const error = castError(err);
   const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw error;
-  for (const f of fns) f(error);
+  if (Effects)
+    Effects!.push({ fn() { runErrors(fns, error); }, state: STALE } as unknown as Computation<any>);
+  else runErrors(fns, error);
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {

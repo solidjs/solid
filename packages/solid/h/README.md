@@ -78,7 +78,7 @@ h(Button, { onClick: () => console.log("Hi")})
 
 4. All refs are callback form
 
-We can't do the compiled assigment trick so only the callback form is supported.
+We can't do the compiled assignment trick so only the callback form is supported.
 
 ```js
 let myEl;

@@ -1692,6 +1692,7 @@ export namespace JSX {
     patternUnits?: FunctionMaybe<SVGUnits>;
     patternContentUnits?: FunctionMaybe<SVGUnits>;
     patternTransform?: FunctionMaybe<string>;
+    href?: string;
   }
   interface PolygonSVGAttributes<T>
     extends GraphicsElementSVGAttributes<T>,

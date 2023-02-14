@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "1.6.10",
+  "version": "1.6.11",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -246,7 +246,8 @@
       },
       "require": "./html/dist/html.cjs"
     },
-    "./html/dist/*": "./html/dist/*"
+    "./html/dist/*": "./html/dist/*",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
