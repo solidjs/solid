@@ -502,7 +502,7 @@ export function createStore<T extends object = {}>(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
     );
   const wrappedStore = wrap(unwrappedStore);
-  if ("_SOLID_DEV_") DEV.registerGraph({ value: unwrappedStore, name: options && options.name });
+  if ("_SOLID_DEV_") DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
   function setStore(...args: any[]): void {
     batch(() => {
       isArray && args.length === 1

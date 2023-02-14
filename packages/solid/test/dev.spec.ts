@@ -4,7 +4,7 @@ import {
   createSignal,
   createEffect,
   createComputed,
-  Owner,
+  DEV,
   createContext
 } from "../src";
 import { createStore, unwrap, DEV as STORE_DEV } from "../store/src";

@@ -120,7 +120,7 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
     );
 
   const wrappedStore = wrap(unwrappedStore);
-  if ("_SOLID_DEV_") DEV.registerGraph({ value: unwrappedStore, name: options && options.name });
+  if ("_SOLID_DEV_") DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
   return wrappedStore;
 }
 
