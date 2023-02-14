@@ -950,7 +950,7 @@ export function onCleanup<T extends () => any>(fn: T): T {
  *
  * @description https://www.solidjs.com/docs/latest/api#onerror
  */
-export function onError(fn: (err: any) => void): void {
+export function onError(fn: (err: Error) => void): void {
   ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
     "_SOLID_DEV_" &&
@@ -1627,21 +1627,21 @@ function reset(node: Computation<any>, top?: boolean) {
   }
 }
 
-function castError(err: any) {
-  if (err instanceof Error || typeof err === "string") return err;
-  return new Error("Unknown error");
+function castError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
 
 function runErrors(fns: ((err: any) => void)[], err: any) {
   for (const f of fns) f(err)
 }
-function handleError(err: any) {
-  err = castError(err);
+function handleError(err: unknown) {
+  const error = castError(err);
   const fns = ERROR && lookup(Owner, ERROR);
-  if (!fns) throw err;
+  if (!fns) throw error;
   if (Effects)
-    Effects!.push({ fn() { runErrors(fns, err); }, state: STALE } as unknown as Computation<any>);
-  else runErrors(fns, err);
+    Effects!.push({ fn() { runErrors(fns, error); }, state: STALE } as unknown as Computation<any>);
+  else runErrors(fns, error);
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {

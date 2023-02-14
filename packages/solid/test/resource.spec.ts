@@ -19,7 +19,7 @@ describe("Simulate a dynamic fetch", () => {
     reject: (r: string) => void,
     trigger: (v: string) => void,
     value: Resource<string | undefined>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -64,8 +64,10 @@ describe("Simulate a dynamic fetch", () => {
     expect(value.error).toBeUndefined();
     reject("Because I said so");
     await Promise.resolve();
-    expect(error).toBe("Because I said so");
-    expect(value.error).toBe("Because I said so");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("Because I said so");
+    expect(value.error).toBeInstanceOf(Error);
+    expect(value.error.message).toBe("Because I said so");
     expect(value.loading).toBe(false);
   });
 });
@@ -142,7 +144,7 @@ describe("using Resource with initial Value", () => {
     reject: (r: string) => void,
     trigger: (v: string) => void,
     value: Resource<string>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -171,7 +173,7 @@ describe("using Resource with errors", () => {
     reject: (e: any) => void,
     trigger: (v: string) => void,
     value: Resource<string | undefined>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;

@@ -14,16 +14,16 @@ export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 const ERROR = Symbol("error");
 export const BRANCH = Symbol("branch");
-export function castError(err: any) {
-  if (err instanceof Error || typeof err === "string") return err;
-  return new Error("Unknown error");
+export function castError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
 
-function handleError(err: any) {
-  err = castError(err);
+function handleError(err: unknown): void {
+  const error = castError(err);
   const fns = lookup(Owner, ERROR);
-  if (!fns) throw err;
-  for (const f of fns) f(err);
+  if (!fns) throw error;
+  for (const f of fns) f(error);
 }
 
 const UNOWNED: Owner = { context: null, owner: null };
@@ -151,7 +151,7 @@ export function cleanNode(node: { cleanups?: Function[] | null }) {
   }
 }
 
-export function onError(fn: (err: any) => void): void {
+export function onError(fn: (err: Error) => void): void {
   if (Owner) {
     if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
     else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
