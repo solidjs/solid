@@ -6,5 +6,9 @@ function Fragment(props: { children: JSX.Element }) {
   return props.children;
 }
 
+function jsx(type: any, props: any) {
+  return h(type, props);
+}
+
 // support React Transform in case someone really wants it for some reason
-export { h as jsx, h as jsxs, h as jsxDEV, Fragment };
+export { jsx, jsx as jsxs, jsx as jsxDEV, Fragment };

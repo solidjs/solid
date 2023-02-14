@@ -4,7 +4,7 @@ export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 export const $TRACK = Symbol("solid-track");
 export const $DEVCOMP = Symbol("solid-dev-component");
-export const DEV = {};
+export const DEV = undefined;
 
 export type Accessor<T> = () => T;
 export type Setter<T> = undefined extends T
@@ -34,10 +34,15 @@ interface Owner {
   context: any | null;
 }
 
-export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: Owner): T {
-  detachedOwner && (Owner = detachedOwner);
+export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: typeof Owner): T {
   const owner = Owner,
-    root: Owner = fn.length === 0 ? UNOWNED : { context: null, owner };
+    root =
+      fn.length === 0
+        ? UNOWNED
+        : {
+            context: null,
+            owner: detachedOwner === undefined ? owner : detachedOwner
+          };
   Owner = root;
   let result: T;
   try {
@@ -189,7 +194,7 @@ export function children(fn: () => any): ChildrenReturn {
   return memo as ChildrenReturn;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T | undefined {
+export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
   const prev = Owner;
   Owner = o;
   try {

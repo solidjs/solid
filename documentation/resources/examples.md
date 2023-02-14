@@ -5,7 +5,7 @@
 - [Simple Todos](https://codesandbox.io/s/lrm786ojqz) Todos with LocalStorage persistence
 - [Simple Routing](https://codesandbox.io/s/jjp8m8nlz5) Use 'switch' control flow for simple routing
 - [Scoreboard](https://codesandbox.io/s/solid-scoreboard-sjpje) Make use of hooks to do some simple transitions
-- [Tic Tac Toe](https://playground.solidjs.com/?hash=1586517762&version=1.0.0) Simple Example of the classic game
+- [Tic Tac Toe](https://playground.solidjs.com/anonymous/335adbcd-289e-42f8-9a9c-152a96277747) Simple Example of the classic game
 - [Form Validation](https://codesandbox.io/s/solid-form-validation-2cdti) HTML 5 validators with custom async validation
 - [CSS Animations](https://codesandbox.io/s/basic-css-transition-36rln?file=/index.js) Using Solid Transition Group
 - [Styled Components](https://codesandbox.io/s/solid-styled-components-yv2t1) A simple example of creating Styled Components.

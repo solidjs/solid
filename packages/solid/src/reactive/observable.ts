@@ -19,6 +19,13 @@ declare global {
   }
 }
 
+interface Observable<T> {
+  subscribe(observer: ObservableObserver<T>): {
+    unsubscribe(): void;
+  };
+  [Symbol.observable](): Observable<T>;
+}
+
 export type ObservableObserver<T> =
   | ((v: T) => void)
   | {
@@ -36,7 +43,7 @@ export type ObservableObserver<T> =
  * ```
  * description https://www.solidjs.com/docs/latest/api#observable
  */
-export function observable<T>(input: Accessor<T>) {
+export function observable<T>(input: Accessor<T>): Observable<T> {
   return {
     subscribe(observer: ObservableObserver<T>) {
       if (!(observer instanceof Object) || observer == null) {

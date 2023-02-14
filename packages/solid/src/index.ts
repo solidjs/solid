@@ -36,12 +36,14 @@ export type {
   ChildrenReturn,
   Context,
   EffectFunction,
+  EffectOptions,
   InitializedResource,
   InitializedResourceOptions,
   InitializedResourceReturn,
   MemoOptions,
   NoInfer,
   OnEffectFunction,
+  OnOptions,
   Owner,
   Resource,
   ResourceActions,
@@ -66,12 +68,19 @@ type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { registerGraph, writeSignal } from "./reactive/signal.js";
-let DEV: {
-  writeSignal: typeof writeSignal;
-  registerGraph: typeof registerGraph;
-};
-if ("_SOLID_DEV_") DEV = { writeSignal, registerGraph };
+import {
+  registerGraph,
+  writeSignal,
+  DevHooks
+} from "./reactive/signal.js";
+let DEV:
+  | {
+      readonly hooks: typeof DevHooks;
+      readonly writeSignal: typeof writeSignal;
+      readonly registerGraph: typeof registerGraph;
+    }
+  | undefined;
+if ("_SOLID_DEV_") DEV = { hooks: DevHooks, writeSignal, registerGraph };
 export { DEV };
 
 // handle multiple instance check
