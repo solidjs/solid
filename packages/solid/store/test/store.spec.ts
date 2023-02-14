@@ -759,7 +759,7 @@ describe("Nested Classes", () => {
   // @ts-expect-error m is readonly
   setK5("i", "j", "k", "l", "m", 6);
   const [, setK6] = createStore({} as { i: { j: { k: { l: { m: { readonly n: number } } } } } });
-  // TODO @ts-expect-error n is readonly, but has unreadable error due to method overloading
+  // @ts-expect-error n is readonly, but has unreadable error due to method overloading
   setK6("i", "j", "k", "l", "m", "n", 7);
   const [, setK7] = createStore(
     {} as { i: { j: { k: { l: { m: { n: { readonly o: number } } } } } } }

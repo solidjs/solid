@@ -370,10 +370,11 @@ type W<T> = Exclude<T, NotWrappable>;
 type KeyOf<T> = number extends keyof T // have to check this otherwise ts won't allow KeyOf<T> to index T
   ? 0 extends 1 & T // if it's any just return keyof T
     ? keyof T
-    : [T] extends [readonly unknown[]]
-    ? number // it's an array or tuple; exclude the non-number properties
     : [T] extends [never]
-    ? never // keyof never is PropertyKey which number extends; return never
+    ? never // keyof never is PropertyKey, which number extends. this must go before
+    : // checking [T] extends [readonly unknown[]] because never extends everything
+    [T] extends [readonly unknown[]]
+    ? number // it's an array or tuple; exclude the non-number properties
     : keyof T // it's something which contains an index signature for strings or numbers
   : keyof T;
 
