@@ -4,10 +4,10 @@ export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $NAME = Symbol("store-name");
 
-// dev
-declare global {
-  var _$onStoreNodeUpdate: OnStoreNodeUpdate | undefined;
-}
+// debug hooks for devtools
+export const DevHooks: { onStoreNodeUpdate: OnStoreNodeUpdate | null } = {
+  onStoreNodeUpdate: null
+};
 
 type DataNode = {
   (): any;
@@ -230,8 +230,8 @@ export function setProperty(
   const prev = state[property],
     len = state.length;
 
-  if ("_SOLID_DEV_" && globalThis._$onStoreNodeUpdate)
-    globalThis._$onStoreNodeUpdate(state, property, value, prev);
+  if ("_SOLID_DEV_")
+    DevHooks.onStoreNodeUpdate && DevHooks.onStoreNodeUpdate(state, property, value, prev);
 
   if (value === undefined) delete state[property];
   else state[property] = value;
@@ -515,11 +515,11 @@ export function createStore<T extends object = {}>(
     );
   const wrappedStore = wrap(
     unwrappedStore,
-    "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
+    "_SOLID_DEV_" && ((options && options.name) || DEV!.hashValue(unwrappedStore))
   );
   if ("_SOLID_DEV_") {
-    const name = (options && options.name) || DEV.hashValue(unwrappedStore);
-    DEV.registerGraph(name, { value: unwrappedStore });
+    const name = (options && options.name) || DEV!.hashValue(unwrappedStore);
+    DEV!.registerGraph(name, { value: unwrappedStore });
   }
   function setStore(...args: any[]): void {
     batch(() => {

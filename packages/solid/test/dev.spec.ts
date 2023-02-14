@@ -9,7 +9,7 @@ import {
   Owner,
   createContext
 } from "../src";
-import { createStore, unwrap } from "../store/src";
+import { createStore, unwrap, DEV as STORE_DEV } from "../store/src";
 
 describe("Dev features", () => {
   test("Reactive graph serialization", () => {
@@ -34,10 +34,10 @@ describe("Dev features", () => {
       createComponent(CustomComponent, {});
       set1 = set;
     });
-    expect(JSON.stringify(DEV.serializeGraph(owner!))).toBe(SNAPSHOTS[0]);
+    expect(JSON.stringify(DEV!.serializeGraph(owner!))).toBe(SNAPSHOTS[0]);
     set1!(7);
     setState1({ middleInitial: "R.", firstName: "Matt" });
-    expect(JSON.stringify(DEV.serializeGraph(owner!))).toBe(SNAPSHOTS[1]);
+    expect(JSON.stringify(DEV!.serializeGraph(owner!))).toBe(SNAPSHOTS[1]);
   });
 
   test("Context nodes can be named", () => {
@@ -53,7 +53,7 @@ describe("Dev features", () => {
   test("AfterUpdate Hook", () => {
     let triggered = 0;
     let set1: (v: number) => number, setState1: any;
-    global._$afterUpdate = () => triggered++;
+    DEV!.hooks.afterUpdate = () => triggered++;
     createRoot(() => {
       const [s, set] = createSignal(5);
       const [s2] = createSignal(5);
@@ -80,7 +80,7 @@ describe("Dev features", () => {
     let triggered = 0;
     let set1: (v: number) => number;
     let log = "";
-    global._$afterUpdate = () => triggered++;
+    DEV!.hooks.afterUpdate = () => triggered++;
     createRoot(() => {
       const [s, set] = createSignal(5);
       const [s2, set2] = createSignal(0);
@@ -107,25 +107,26 @@ describe("Dev features", () => {
     expect(log).toBe("bac");
   });
 
-  test("AfterCreateRoot Hook", () => {
-    const captured: Owner[] = [];
-    global._$afterCreateRoot = root => captured.push(root);
+  test("afterCreateOwner Hook", () => {
+    const cb = jest.fn();
+    DEV!.hooks.afterCreateOwner = cb;
     createRoot(() => {
-      const root = getOwner()!;
-      expect(captured.length).toBe(1);
-      expect(captured[0]).toBe(root);
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).toHaveBeenLastCalledWith(getOwner());
       createRoot(_ => {
-        const inner = getOwner()!;
-        expect(captured.length).toBe(2);
-        expect(captured[1]).toBe(inner);
-        expect(inner.owner).toBe(root);
+        expect(cb).toHaveBeenCalledTimes(2);
+        expect(cb).toHaveBeenLastCalledWith(getOwner());
+      });
+      createComputed(() => {
+        expect(cb).toHaveBeenCalledTimes(3);
+        expect(cb).toHaveBeenLastCalledWith(getOwner());
       });
     });
   });
 
   test("OnStoreNodeUpdate Hook", () => {
     const cb = jest.fn();
-    global._$onStoreNodeUpdate = cb;
+    STORE_DEV!.hooks.onStoreNodeUpdate = cb;
     const [s, set] = createStore({ firstName: "John", lastName: "Smith", inner: { foo: 1 } });
     expect(cb).toHaveBeenCalledTimes(0);
     set({ firstName: "Matt" });

@@ -31,13 +31,17 @@ let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
 let rootCount = 0;
 
+/** Object storing callbacks for debugging during development */
+export const DevHooks: {
+  afterUpdate: (() => void) | null;
+  afterCreateOwner: ((owner: Owner) => void) | null;
+} = {
+  afterUpdate: null,
+  afterCreateOwner: null
+};
+
 // keep immediately evaluated module code, below its indirect declared let dependencies like Listener
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
-
-declare global {
-  var _$afterUpdate: (() => void) | undefined;
-  var _$afterCreateRoot: ((root: Owner) => void) | undefined;
-}
 
 export type ComputationState = 0 | 1 | 2;
 
@@ -136,7 +140,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
 
   if ("_SOLID_DEV_") {
     if (owner) root.name = `${owner.name}-r${rootCount++}`;
-    globalThis._$afterCreateRoot && globalThis._$afterCreateRoot(root);
+    DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
   }
 
   Owner = root;
@@ -202,7 +206,7 @@ export function createSignal<T>(
   };
 
   if ("_SOLID_DEV_" && !options.internal)
-    s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+    s.name = registerGraph(options.name || hashValue(value), s);
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
@@ -1045,13 +1049,13 @@ export function resumeEffects(e: Computation<any>[]) {
   e.length = 0;
 }
 
-export interface DevComponent<T> extends Memo<JSX.Element> {
+export interface DevComponent<T> extends Memo<unknown> {
   props: T;
   componentName: string;
 }
 
 // Dev
-export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   const c = createComputation(
     () =>
       untrack(() => {
@@ -1061,13 +1065,13 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
     undefined,
     true,
     0
-  ) as DevComponent<T>;
+  ) as DevComponent<P>;
   c.props = props;
   c.observers = null;
   c.observerSlots = null;
   c.componentName = Comp.name;
   updateComputation(c);
-  return c.tValue !== undefined ? c.tValue : c.value;
+  return (c.tValue !== undefined ? c.tValue : c.value) as V;
 }
 
 export function hashValue(v: any): string {
@@ -1440,6 +1444,8 @@ function createComputation<Next, Init = unknown>(
     };
   }
 
+  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(c);
+
   return c;
 }
 
@@ -1552,7 +1558,7 @@ function completeUpdates(wait: boolean) {
   const e = Effects!;
   Effects = null;
   if (e!.length) runUpdates(() => runEffects(e), false);
-  else if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
+  else if ("_SOLID_DEV_") DevHooks.afterUpdate && DevHooks.afterUpdate();
   if (res) res();
 }
 
