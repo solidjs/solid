@@ -1132,7 +1132,7 @@ export function useContext<T>(context: Context<T>): T {
   return (ctx = lookup(Owner, context.id)) !== undefined ? ctx : context.defaultValue;
 }
 
-export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement | JSX.FunctionElement>;
+export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement>;
 export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
 export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedJSXElement[] };
 
@@ -1651,7 +1651,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
     : undefined;
 }
 
-function resolveChildren(children: JSX.Element): ResolvedChildren {
+function resolveChildren(children: JSX.Element | Accessor<any>): ResolvedChildren {
   if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];

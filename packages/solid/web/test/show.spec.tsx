@@ -188,7 +188,7 @@ describe("Testing an only child show control flow with DOM children and fallback
   const Component = () => (
     <div ref={div}>
       <Show when={count() >= 5} fallback={<span>Too Low</span>}>
-        <span>{count}</span>
+        <span>{count()}</span>
       </Show>
     </div>
   );

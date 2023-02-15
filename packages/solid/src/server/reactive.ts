@@ -231,7 +231,7 @@ function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     return createMemo<JSX.Element>(() => {
       Owner!.context = { [id]: props.value };
-      return children(() => props.children);
+      return children(() => props.children) as unknown as JSX.Element;
     });
   };
 }

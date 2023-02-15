@@ -113,7 +113,7 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * ```
  * @description https://www.solidjs.com/docs/latest/api#dynamic
  */
-export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
+export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
   const cached = createMemo<Function | string>(() => p.component);
   return createMemo(() => {
@@ -132,5 +132,5 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Acces
       default:
         break;
     }
-  });
+  }) as unknown as JSX.Element;
 }

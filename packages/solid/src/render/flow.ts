@@ -30,15 +30,15 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
   each: T | undefined | null | false;
   fallback?: JSX.Element;
   children: (item: T[number], index: Accessor<number>) => U;
-}): Accessor<U[]> {
+}) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return "_SOLID_DEV_"
+  return ("_SOLID_DEV_"
     ? createMemo(
         mapArray(() => props.each, props.children, fallback || undefined),
         undefined,
         { name: "value" }
       )
-    : createMemo(mapArray(() => props.each, props.children, fallback || undefined));
+    : createMemo(mapArray(() => props.each, props.children, fallback || undefined))) as unknown as JSX.Element;
 }
 
 /**
@@ -58,15 +58,15 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
   each: T | undefined | null | false;
   fallback?: JSX.Element;
   children: (item: Accessor<T[number]>, index: number) => U;
-}): Accessor<U[]> {
+}) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return "_SOLID_DEV_"
+  return ("_SOLID_DEV_"
     ? createMemo(
         indexArray(() => props.each, props.children, fallback || undefined),
         undefined,
         { name: "value" }
       )
-    : createMemo(indexArray(() => props.each, props.children, fallback || undefined));
+    : createMemo(indexArray(() => props.each, props.children, fallback || undefined))) as unknown as JSX.Element;
 }
 
 /**
@@ -78,13 +78,13 @@ export function Show<T>(props: {
   keyed: true;
   fallback?: JSX.Element;
   children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
-}): () => JSX.Element;
+}): JSX.Element;
 export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: false;
   fallback?: JSX.Element;
   children: JSX.Element;
-}): () => JSX.Element;
+}): JSX.Element;
 export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
@@ -116,7 +116,7 @@ export function Show<T>(props: {
     },
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined
-  ) as () => JSX.Element;
+  ) as unknown as JSX.Element;
 }
 
 type EvalConditions = [number, unknown?, MatchProps<unknown>?];
@@ -138,7 +138,7 @@ type EvalConditions = [number, unknown?, MatchProps<unknown>?];
 export function Switch(props: {
   fallback?: JSX.Element;
   children: JSX.Element;
-}): Accessor<JSX.Element> {
+}): JSX.Element {
   let strictEqual = false;
   let keyed = false;
   const equals: MemoOptions<EvalConditions>["equals"] = (a, b) =>
@@ -171,7 +171,7 @@ export function Switch(props: {
     },
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined
-  );
+  ) as unknown as JSX.Element;
 }
 
 export type MatchProps<T> = {
@@ -224,7 +224,7 @@ export function resetErrorBoundaries() {
 export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
-}): Accessor<JSX.Element> {
+}): JSX.Element {
   let err;
   let v;
   if (
@@ -256,5 +256,5 @@ export function ErrorBoundary(props: {
     },
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined
-  ) as Accessor<JSX.Element>;
+  ) as unknown as JSX.Element;
 }
