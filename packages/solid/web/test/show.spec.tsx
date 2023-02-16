@@ -1,4 +1,4 @@
-/** 
+/**
  * @jsxImportSource solid-js
  * @jest-environment jsdom
  */
@@ -105,7 +105,7 @@ describe("Testing nonkeyed show control flow", () => {
   });
 
   test("dispose", () => disposer());
-})
+});
 
 describe("Testing keyed show control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -143,7 +143,91 @@ describe("Testing keyed show control flow", () => {
   });
 
   test("dispose", () => disposer());
-})
+});
+
+describe("Testing nonkeyed function show control flow", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [count, setCount] = createSignal(0);
+  let executed = 0;
+  const Component = () => (
+    <div ref={div}>
+      <Show when={count()}>
+        {count => (
+          <>
+            <span>{count()}</span>
+            <span>{executed++}</span>
+          </>
+        )}
+      </Show>
+    </div>
+  );
+
+  test("Create show control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("");
+    expect(executed).toBe(0);
+  });
+
+  test("Toggle show control flow", () => {
+    setCount(7);
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
+    expect(executed).toBe(1);
+    setCount(5);
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
+    expect(executed).toBe(1);
+    setCount(0);
+    expect(div.innerHTML).toBe("");
+    expect(executed).toBe(1);
+  });
+
+  test("dispose", () => disposer());
+});
+
+describe("Testing keyed function show control flow", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [count, setCount] = createSignal(0);
+  let executed = 0;
+  const Component = () => (
+    <div ref={div}>
+      <Show when={count()} keyed>
+        {(count) => (
+          <>
+            <span>{count}</span>
+            <span>{executed++}</span>
+          </>
+        )}
+      </Show>
+    </div>
+  );
+
+  test("Create show control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("");
+    expect(executed).toBe(0);
+  });
+
+  test("Toggle show control flow", () => {
+    setCount(7);
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
+    expect(executed).toBe(1);
+    setCount(5);
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
+    expect(executed).toBe(2);
+    setCount(0);
+    expect(div.innerHTML).toBe("");
+    expect(executed).toBe(2);
+  });
+
+  test("dispose", () => disposer());
+});
 
 describe("Testing an only child show control flow with keyed function", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -151,7 +235,7 @@ describe("Testing an only child show control flow with keyed function", () => {
   const Component = () => (
     <div ref={div}>
       <Show when={data()} keyed>
-        {({count}) => (
+        {({ count }) => (
           <>
             <span>{count}</span>
             <span>counted</span>
@@ -171,11 +255,48 @@ describe("Testing an only child show control flow with keyed function", () => {
   });
 
   test("Toggle show control flow", () => {
-    setData({count: 7});
+    setData({ count: 7 });
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
-    setData({count: 5});
+    setData({ count: 5 });
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
-    setData({count: 2});
+    setData({ count: 2 });
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("2");
+  });
+
+  test("dispose", () => disposer());
+});
+
+describe("Testing an only child show control flow with non-keyed function", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [data, setData] = createSignal<{ count: number }>();
+  const Component = () => (
+    <div ref={div}>
+      <Show when={data()}>
+        {(data) => (
+          <>
+            <span>{data().count}</span>
+            <span>counted</span>
+          </>
+        )}
+      </Show>
+    </div>
+  );
+
+  test("Create show control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("");
+  });
+
+  test("Toggle show control flow", () => {
+    setData({ count: 7 });
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
+    setData({ count: 5 });
+    expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
+    setData({ count: 2 });
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("2");
   });
 

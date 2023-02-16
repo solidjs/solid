@@ -38,7 +38,9 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
         undefined,
         { name: "value" }
       )
-    : createMemo(mapArray(() => props.each, props.children, fallback || undefined))) as unknown as JSX.Element;
+    : createMemo(
+        mapArray(() => props.each, props.children, fallback || undefined)
+      )) as unknown as JSX.Element;
 }
 
 /**
@@ -66,7 +68,9 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
         undefined,
         { name: "value" }
       )
-    : createMemo(indexArray(() => props.each, props.children, fallback || undefined))) as unknown as JSX.Element;
+    : createMemo(
+        indexArray(() => props.each, props.children, fallback || undefined)
+      )) as unknown as JSX.Element;
 }
 
 /**
@@ -83,25 +87,24 @@ export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: false;
   fallback?: JSX.Element;
-  children: JSX.Element;
+  children: JSX.Element | ((item: Accessor<NonNullable<T>>) => JSX.Element);
 }): JSX.Element;
 export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: JSX.Element;
-  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
+  children: JSX.Element | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => JSX.Element);
 }) {
-  let strictEqual = false;
   const keyed = props.keyed;
   const condition = createMemo<T | undefined | null | boolean>(
     () => props.when,
     undefined,
     "_SOLID_DEV_"
       ? {
-          equals: (a, b) => (strictEqual ? a === b : !a === !b),
+          equals: (a, b) => (keyed ? a === b : !a === !b),
           name: "condition"
         }
-      : { equals: (a, b) => (strictEqual ? a === b : !a === !b) }
+      : { equals: (a, b) => (keyed ? a === b : !a === !b) }
   );
   return createMemo(
     () => {
@@ -109,8 +112,7 @@ export function Show<T>(props: {
       if (c) {
         const child = props.children;
         const fn = typeof child === "function" && child.length > 0;
-        strictEqual = keyed || fn;
-        return fn ? untrack(() => (child as any)(c as T)) : child;
+        return fn ? untrack(() => (child as any)(keyed ? (c as T) : () => props.when)) : child;
       }
       return props.fallback;
     },
@@ -135,14 +137,10 @@ type EvalConditions = [number, unknown?, MatchProps<unknown>?];
  * ```
  * @description https://www.solidjs.com/docs/latest/api#switchmatch
  */
-export function Switch(props: {
-  fallback?: JSX.Element;
-  children: JSX.Element;
-}): JSX.Element {
-  let strictEqual = false;
+export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
   let keyed = false;
   const equals: MemoOptions<EvalConditions>["equals"] = (a, b) =>
-    a[0] === b[0] && (strictEqual ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2];
+    a[0] === b[0] && (keyed ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2];
   const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
     evalConditions = createMemo(
       (): EvalConditions => {
@@ -166,8 +164,7 @@ export function Switch(props: {
       if (index < 0) return props.fallback;
       const c = cond!.children;
       const fn = typeof c === "function" && c.length > 0;
-      strictEqual = keyed || fn;
-      return fn ? untrack(() => (c as any)(when)) : c;
+      return fn ? untrack(() => (c as any)(keyed ? when : () => cond!.when)) : c;
     },
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined
