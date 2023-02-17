@@ -16,8 +16,7 @@ let scheduledEffects = false,
 
 export let currentObserver: Computation | null = null;
 
-const NOOP = () => {},
-  HANDLERS = Symbol(__DEV__ ? "ERROR_HANDLERS" : 0),
+const HANDLERS = Symbol(__DEV__ ? "ERROR_HANDLERS" : 0),
   // For more information about this graph tracking scheme see Reactively:
   // https://github.com/modderme123/reactively/blob/main/packages/core/src/core.ts#L21
   STATE_CLEAN = 0,
@@ -106,7 +105,6 @@ export function runWithOwner<T>(
     return compute<T>(owner, run, null);
   } catch (error) {
     handleError(owner, error);
-    return; // TS -_-
   }
 }
 
@@ -129,7 +127,7 @@ export function onError<T = Error>(handler: (error: T) => void): void {
  * @see {@link https://github.com/solidjs/x-reactively#ondispose}
  */
 export function onCleanup(disposable: MaybeDisposable): void {
-  if (!disposable || !currentOwner) return;// (disposable as Dispose) || NOOP;
+  if (!disposable || !currentOwner) return;
 
   const node = currentOwner;
 
@@ -140,16 +138,6 @@ export function onCleanup(disposable: MaybeDisposable): void {
   } else {
     node._disposal = [node._disposal, disposable];
   }
-
-  // return function removeDispose() {
-  //   if (node._state === STATE_DISPOSED) return;
-  //   disposable.call(null);
-  //   if (isFunction(node._disposal)) {
-  //     node._disposal = null;
-  //   } else if (Array.isArray(node._disposal)) {
-  //     node._disposal.splice(node._disposal.indexOf(disposable), 1);
-  //   }
-  // };
 }
 
 let owners: Owner[] = [];
@@ -231,7 +219,7 @@ function lookup(owner: Owner | null, key: string | symbol): any {
   }
 }
 
-function handleError(owner: Owner | null, error: unknown, depth?: number) {
+function handleError(owner: Owner | null, error: unknown) {
   const handlers = lookup(owner, HANDLERS);
 
   if (!handlers) throw error;

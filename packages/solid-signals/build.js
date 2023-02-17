@@ -6,6 +6,7 @@ esbuild.build({
   bundle: true,
   format: "esm",
   outfile: "dist/index.js",
+  mangleProps: /_/,
   plugins: [
     replace({
       __DEV__: "false",
@@ -19,6 +20,7 @@ esbuild.build({
   bundle: true,
   format: "cjs",
   outfile: "dist/index.cjs",
+  mangleProps: /_/,
   plugins: [
     replace({
       __DEV__: "false",
