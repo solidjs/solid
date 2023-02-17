@@ -1,5 +1,20 @@
 # solid-js
 
+## 1.7.0-beta.0
+
+### Minor Changes
+
+- 503b632: Add type narrowing non-keyed control flow
+- 86c3227: always cast to errors when handled
+- f7dc355: Remove FunctionElement from JSX.Element types
+
+### Patch Changes
+
+- 4929530: Remove name generation of owners and signals
+- 71c40af: DEV: Minor additions and change the API of dev hooks
+- e245736: Fixed test case for setStore 7 parameter overload by fixing KeyOf giving number for KeyOf<never>
+- 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+
 ## 1.6.11
 
 ### Patch Changes

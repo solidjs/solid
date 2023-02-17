@@ -1,0 +1,20 @@
+{
+  "mode": "pre",
+  "tag": "beta",
+  "initialVersions": {
+    "babel-preset-solid": "1.6.10",
+    "solid-js": "1.6.11",
+    "solid-element": "1.6.3",
+    "solid-ssr": "1.6.3",
+    "test-integration": "1.6.11"
+  },
+  "changesets": [
+    "cool-olives-drum",
+    "green-wolves-kick",
+    "grumpy-peaches-protect",
+    "rare-terms-look",
+    "rich-laws-fix",
+    "selfish-dots-marry",
+    "small-horses-impress"
+  ]
+}

@@ -1,5 +1,15 @@
 # babel-preset-solid
 
+## 1.7.0-beta.0
+
+### Minor Changes
+
+- f7dc355: Remove FunctionElement from JSX.Element types
+
+### Patch Changes
+
+- 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+
 ## 1.6.10
 
 ### Patch Changes
