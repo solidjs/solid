@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/reactivity",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "",
   "type": "module",
   "main": "dist/index.cjs",
