@@ -136,7 +136,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
         : fn
       : () => fn(() => untrack(() => cleanNode(root)));
 
-  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);;
+  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
 
   Owner = root;
   Listener = null;
@@ -1048,7 +1048,8 @@ export function resumeEffects(e: Computation<any>[]) {
 
 export interface DevComponent<T> extends Memo<unknown> {
   props: T;
-  componentName: string;
+  name: string;
+  component: (props: T) => unknown;
 }
 
 // Dev
@@ -1066,7 +1067,8 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   c.props = props;
   c.observers = null;
   c.observerSlots = null;
-  c.componentName = Comp.name;
+  c.name = Comp.name;
+  c.component = Comp;
   updateComputation(c);
   return (c.tValue !== undefined ? c.tValue : c.value) as V;
 }
@@ -1632,14 +1634,19 @@ function castError(err: unknown): Error {
   return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
 function runErrors(fns: ((err: any) => void)[], err: any) {
-  for (const f of fns) f(err)
+  for (const f of fns) f(err);
 }
 function handleError(err: unknown) {
   const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw err;
   const error = castError(err);
   if (Effects)
-    Effects!.push({ fn() { runErrors(fns, error); }, state: STALE } as unknown as Computation<any>);
+    Effects!.push({
+      fn() {
+        runErrors(fns, error);
+      },
+      state: STALE
+    } as unknown as Computation<any>);
   else runErrors(fns, error);
 }
 
