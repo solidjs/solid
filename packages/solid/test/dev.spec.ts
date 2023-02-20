@@ -5,8 +5,10 @@ import {
   createEffect,
   createComputed,
   DEV,
-  createContext
+  createContext,
+  createComponent
 } from "../src";
+import type { DevComponent } from "../src/reactive/signal";
 import { createStore, unwrap, DEV as STORE_DEV } from "../store/src";
 
 describe("Dev features", () => {
@@ -138,5 +140,18 @@ describe("Dev features", () => {
     set("inner", "foo", 2);
     expect(cb).toHaveBeenCalledTimes(2);
     expect(cb).toHaveBeenCalledWith(unwrap(s.inner), "foo", 2, 1);
+  });
+
+  test("createComponent should create a component owner in DEV", () => {
+    createRoot(() => {
+      const props = {};
+      createComponent(function MyComponent() {
+        const owner = getOwner() as DevComponent<{}>;
+        expect(owner.name).toBe("MyComponent");
+        expect(owner.props).toBe(props);
+        expect(owner.component).toBe(MyComponent);
+        return null;
+      }, props);
+    });
   });
 });
