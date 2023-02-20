@@ -55,12 +55,12 @@ export function createMemo<T, R = never>(
 export function createEffect<T>(
   effect: () => T,
   initialValue?: T,
-  options?: { id?: string }
+  options?: { name?: string }
 ): void {
   const signal = createComputation<T>(
     initialValue,
     effect,
-    __DEV__ ? { id: options?.id ?? "effect" } : void 0
+    __DEV__ ? { name: options?.name ?? "effect" } : void 0
   );
 
   signal._effect = true;

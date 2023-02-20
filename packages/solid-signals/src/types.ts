@@ -1,5 +1,5 @@
 export interface Computation<T = any> extends Owner {
-  id?: string | undefined;
+  name?: string | undefined;
 
   /** @internal */
   _effect: boolean;
@@ -26,7 +26,7 @@ export interface Accessor<T> {
 }
 
 export interface SignalOptions<T> {
-  id?: string;
+  name?: string;
   equals?: ((prev: T, next: T) => boolean) | false;
 }
 

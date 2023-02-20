@@ -16,7 +16,7 @@ let scheduledEffects = false,
 
 export let currentObserver: Computation | null = null;
 
-const HANDLERS = Symbol(__DEV__ ? "ERROR_HANDLERS" : 0),
+const HANDLER = Symbol(__DEV__ ? "ERROR_HANDLER" : 0),
   // For more information about this graph tracking scheme see Reactively:
   // https://github.com/modderme123/reactively/blob/main/packages/core/src/core.ts#L21
   STATE_CLEAN = 0,
@@ -112,13 +112,12 @@ export function runWithOwner<T>(
  * Runs the given function when an error is thrown in a child owner. If the error is thrown again
  * inside the error handler, it will trigger the next available parent owner handler.
  *
- * @see {@link https://github.com/solidjs/x-reactively#onerror}
+ * @see {@link https://github.com/solidjs/x-reactively#catcherror}
  */
-export function onError<T = Error>(handler: (error: T) => void): void {
-  if (!currentOwner) return;
-  const context = (currentOwner._context ??= {});
-  if (!context[HANDLERS]) context[HANDLERS] = [handler];
-  else (context[HANDLERS] as any[]).push(handler);
+export function catchError<T, U = Error>(fn: () => T, handler: (error: U) => void): void {
+  const owner = new OwnerNode();
+  owner._context = { [HANDLER]: handler };
+  compute(owner, fn, null);
 }
 
 /**
@@ -220,14 +219,14 @@ function lookup(owner: Owner | null, key: string | symbol): any {
 }
 
 function handleError(owner: Owner | null, error: unknown) {
-  const handlers = lookup(owner, HANDLERS);
+  const handler = lookup(owner, HANDLER);
 
-  if (!handlers) throw error;
+  if (!handler) throw error;
 
   try {
     const coercedError =
       error instanceof Error ? error : Error(JSON.stringify(error));
-    for (const handler of handlers) handler(coercedError);
+    handler(coercedError);
   } catch (error) {
     handleError(owner!._parent, error);
   }
@@ -302,7 +301,7 @@ const ComputeNode = function Computation(
   this._observers = null;
   this._value = initialValue;
 
-  if (__DEV__) this.id = options?.id ?? (this._compute ? "computed" : "signal");
+  if (__DEV__) this.name = options?.name ?? (this._compute ? "computed" : "signal");
   if (compute) this._compute = compute;
   if (options && options.equals !== undefined) this._equals = options.equals;
 };
@@ -361,8 +360,7 @@ function cleanup(node: Computation) {
   if (node._nextSibling && node._nextSibling._parent === node)
     dispose.call(node, false);
   if (node._disposal) emptyDisposal(node);
-  if (node._context && node._context[HANDLERS])
-    (node._context[HANDLERS] as any[]) = [];
+  node._context = null;
 }
 
 function update(node: Computation) {
@@ -414,7 +412,7 @@ function update(node: Computation) {
       typeof node._value === "undefined"
     ) {
       console.error(
-        `computed \`${node.id}\` threw error during first run, this can be fatal.` +
+        `computed \`${node.name}\` threw error during first run, this can be fatal.` +
           "\n\nSolutions:\n\n" +
           "1. Set the `initial` option to silence this error",
         "\n2. Or, use an `effect` if the return value is not being used",
