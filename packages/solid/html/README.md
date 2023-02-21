@@ -15,7 +15,7 @@ html`<${Button} title="My button">Click me<//>`
 html`<div title=${() => selectedClass()} ...${props} />`
 ```
 
-Using `html` is slightly less efficient than JSX(but more than HyperScript), requires a larger runtime that isn't treeshakebable, and cannot leverage expression analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
+Using `html` is slightly less efficient than JSX(but more than HyperScript), requires a larger runtime that isn't treeshakeable, and cannot leverage expression analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
 
 ## Example
 
@@ -66,7 +66,7 @@ html`<${Button} onClick=${() => console.log("Hi")} />`;
 
 4. All refs are callback form
 
-We can't do the compiled assigment trick so only the callback form is supported.
+We can't do the compiled assignment trick so only the callback form is supported.
 
 ```js
 let myEl;

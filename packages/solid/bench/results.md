@@ -1,6 +1,6 @@
 # Benchmark Results (22/09/2022)
 
-This benchmark is mostly to serve Solid's own R&D. Everything is co-erced to Solid's API shape as that is a necessity here. While most libaries presented are unsuitable for Solid's rendering because of missing features/capabilities it is still useful to help gauge where the implementations fall. In most UI libraries you'd be bringing in overhead from a VDOM or other rendering model where Solid's reactivity takes the brunt of that cost.
+This benchmark is mostly to serve Solid's own R&D. Everything is coerced to Solid's API shape as that is a necessity here. While most libraries presented are unsuitable for Solid's rendering because of missing features/capabilities it is still useful to help gauge where the implementations fall. In most UI libraries you'd be bringing in overhead from a VDOM or other rendering model where Solid's reactivity takes the brunt of that cost.
 
 ## Released Libraries
 

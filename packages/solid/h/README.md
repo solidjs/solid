@@ -15,7 +15,7 @@ h(Button, { title: "My button" }, "Click Me")
 h("div", { title: "My button" }, h("span", "1"), h("span", "2"), h("span", "3"))
 ```
 
-This is the least efficient way to use Solid as it requires a slightly larger runtime that isn't treeshakebable, and cannot leverage anything in the way of analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
+This is the least efficient way to use Solid as it requires a slightly larger runtime that isn't treeshakeable, and cannot leverage anything in the way of analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
 
 ## Example
 

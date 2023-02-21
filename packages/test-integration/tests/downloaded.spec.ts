@@ -74,7 +74,7 @@ describe("Downloaded tests", () => {
       throw new Error("Solid is not built. Run `npm run build`");
     }
 
-    // clean downloded packages
+    // clean downloaded packages
     if (clean) {
       rm("-rf", resolve(join(__dirname, "./fixtures/downloaded")));
     }

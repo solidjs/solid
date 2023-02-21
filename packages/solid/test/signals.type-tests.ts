@@ -426,7 +426,7 @@ createMemo((v: number | string): number => 123, "asdf");
 createMemo((num: number | undefined): number | undefined => 123);
 
 // Return type should be `Accessor<number | undefined>`
-// Not sure how to write a test for this, becacuse `Accessor<number>` is assignable to `Accessor<number | undefined>`.
+// Not sure how to write a test for this, because `Accessor<number>` is assignable to `Accessor<number | undefined>`.
 let c1 = createMemo((num?: number): number | undefined => undefined);
 let n = c1();
 // @ts-expect-error n might be undefined

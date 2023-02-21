@@ -43,7 +43,7 @@ Via package.json
 ```
 
 ### Usage for SSR code
-When need to tranform JSX code to be used on the server, pass the following options
+When need to transform JSX code to be used on the server, pass the following options
 
 ```javascript
 {
