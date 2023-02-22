@@ -3,7 +3,7 @@ import {
   createSignal,
   createResource,
   createRenderEffect,
-  onError,
+  catchError,
   Resource,
   ResourceFetcherInfo,
   Signal,
@@ -31,9 +31,13 @@ describe("Simulate a dynamic fetch", () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
-      onError(e => (error = e));
-      [value] = createResource(id, fetcher);
-      createRenderEffect(value);
+      catchError(
+        () => {
+          [value] = createResource(id, fetcher);
+          createRenderEffect(value);
+        },
+        e => (error = e)
+      );
     });
     expect(value()).toBeUndefined();
     expect(value.latest).toBeUndefined();
@@ -155,9 +159,13 @@ describe("using Resource with initial Value", () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
-      onError(e => (error = e));
-      [value] = createResource(id, fetcher, { initialValue: "Loading" });
-      createRenderEffect(value);
+      catchError(
+        () => {
+          [value] = createResource(id, fetcher, { initialValue: "Loading" });
+          createRenderEffect(value);
+        },
+        e => (error = e)
+      );
     });
     expect(value()).toBe("Loading");
     expect(value.loading).toBe(true);
@@ -184,9 +192,13 @@ describe("using Resource with errors", () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
-      onError(e => (error = e));
-      [value] = createResource(id, fetcher);
-      createRenderEffect(value);
+      catchError(
+        () => {
+          [value] = createResource(id, fetcher);
+          createRenderEffect(value);
+        },
+        e => (error = e)
+      );
     });
     expect(value()).toBeUndefined();
     expect(value.state === "pending").toBe(true);

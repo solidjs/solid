@@ -23,6 +23,7 @@ export {
   on,
   onCleanup,
   onError,
+  catchError,
   onMount,
   runWithOwner,
   startTransition,

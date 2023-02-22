@@ -151,6 +151,20 @@ export function cleanNode(node: { cleanups?: Function[] | null }) {
   }
 }
 
+export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
+  Owner = { owner: Owner, context: { [ERROR]: [handler] } };
+  try {
+    return fn();
+  } catch(err) {
+    handleError(err);
+  } finally {
+    Owner = Owner!.owner;
+  }
+}
+
+/**
+ * @deprecated since version 1.7.0 and will be removed in next major - use catchError instead
+*/
 export function onError(fn: (err: Error) => void): void {
   if (Owner) {
     if (Owner.context === null) Owner.context = { [ERROR]: [fn] };

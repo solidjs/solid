@@ -2,7 +2,7 @@ import {
   createMemo,
   untrack,
   createSignal,
-  onError,
+  catchError,
   children,
   Accessor,
   Setter,
@@ -243,13 +243,9 @@ export function ErrorBoundary(props: {
       if ((e = errored())) {
         const f = props.fallback;
         if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
-        const res =
-          typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
-        onError(setErrored);
-        return res;
+        return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
       }
-      onError(setErrored);
-      return props.children;
+      return catchError(() => props.children, setErrored);
     },
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined

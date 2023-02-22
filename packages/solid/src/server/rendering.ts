@@ -4,7 +4,7 @@ import {
   createMemo,
   useContext,
   runWithOwner,
-  onError,
+  catchError,
   Accessor,
   Setter,
   Signal,
@@ -265,15 +265,17 @@ export function ErrorBoundary(props: {
     const f = props.fallback;
     return typeof f === "function" && f.length ? f(error, () => {}) : f;
   }
-  onError(err => {
-    error = err;
-    !sync && ctx.replace("e" + id, displayFallback);
-    sync = true;
-  });
   onCleanup(() => cleanNode(clean));
   createMemo(() => {
     Owner!.context = { [BRANCH]: (clean = {}) };
-    return (res = props.children);
+    return catchError(
+      () => (res = props.children),
+      err => {
+        error = err;
+        !sync && ctx.replace("e" + id, displayFallback);
+        sync = true;
+      }
+    );
   });
   if (error) return displayFallback();
   sync = false;
@@ -572,24 +574,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
         }
       }
     });
-  function runSuspense() {
-    setHydrateContext({ ...ctx, count: 0 });
-    return runWithOwner(o!, () => {
-      return createComponent(SuspenseContext.Provider, {
-        value,
-        get children() {
-          clean && cleanNode(clean);
-          return props.children;
-        }
-      });
-    });
-  }
-  const res = runSuspense();
-
-  // never suspended
-  if (suspenseComplete(value)) return res;
-
-  onError(err => {
+  function suspenseError(err: Error) {
     if (!done || !done(undefined, err)) {
       if (o)
         runWithOwner(o.owner!, () => {
@@ -597,15 +582,36 @@ export function Suspense(props: { fallback?: string; children: string }) {
         });
       else throw err;
     }
-  });
-  done = ctx.async ? ctx.registerFragment(id) : undefined;
-  if (ctx.async) {
-    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f", noHydrate: true });
-    const res = { t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>` };
-    setHydrateContext(ctx);
-    return res;
   }
-  setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
-  ctx.writeResource(id, "$$f");
-  return props.fallback;
+  function runSuspense() {
+    setHydrateContext({ ...ctx, count: 0 });
+    return runWithOwner(o!, () =>
+      createComponent(SuspenseContext.Provider, {
+        value,
+        get children() {
+          clean && cleanNode(clean);
+          return catchError(() => props.children, suspenseError);
+        }
+      })
+    );
+  }
+  const res = runSuspense();
+
+  // never suspended
+  if (suspenseComplete(value)) return res;
+
+  done = ctx.async ? ctx.registerFragment(id) : undefined;
+  return catchError(() => {
+    if (ctx.async) {
+      setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f", noHydrate: true });
+      const res = {
+        t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>`
+      };
+      setHydrateContext(ctx);
+      return res;
+    }
+    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
+    ctx.writeResource(id, "$$f");
+    return props.fallback;
+  }, suspenseError);
 }

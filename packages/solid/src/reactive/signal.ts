@@ -943,6 +943,29 @@ export function onCleanup<T extends () => any>(fn: T): T {
 }
 
 /**
+ * catchError - run an effect whenever an error is thrown within the context of the child scopes
+ * @param fn boundary for the error
+ * @param handler an error handler that receives the error
+ *
+ * * If the error is thrown again inside the error handler, it will trigger the next available parent handler
+ *
+ * @description https://www.solidjs.com/docs/latest/api#catcherror
+ */
+export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
+  ERROR || (ERROR = Symbol("error"));
+  Owner = createComputation(undefined!, undefined, true);
+  Owner.context = { [ERROR]: [handler] };
+  try {
+    return fn();
+  } catch(err) {
+    handleError(err);
+  } finally {
+    Owner = Owner.owner;
+  }
+}
+
+/**
+ * @deprecated since version 1.7.0 and will be removed in next major - use catchError instead
  * onError - run an effect whenever an error is thrown within the context of the child scopes
  * @param fn an error handler that receives the error
  *
