@@ -30,7 +30,8 @@ export {
 } from "solid-js";
 
 export * from "./server-mock.js";
-export const isServer = false;
+
+export const isServer: boolean = false;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement {
