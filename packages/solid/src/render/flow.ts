@@ -77,24 +77,28 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
  * Conditionally render its children or an optional fallback component
  * @description https://www.solidjs.com/docs/latest/api#show
  */
-export function Show<T>(props: {
-  when: T | undefined | null | false;
-  keyed: true;
-  fallback?: JSX.Element;
-  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
-}): JSX.Element;
-export function Show<T>(props: {
+type RequiredParameter<T> = T extends () => unknown ? never : T;
+export function Show<
+  T,
+  TRenderFunction extends (item: Accessor<NonNullable<T>>) => JSX.Element
+>(props: {
   when: T | undefined | null | false;
   keyed?: false;
   fallback?: JSX.Element;
-  children: JSX.Element | ((item: Accessor<NonNullable<T>>) => JSX.Element);
+  children: JSX.Element | RequiredParameter<TRenderFunction>;
+}): JSX.Element;
+export function Show<T, TRenderFunction extends (item: NonNullable<T>) => JSX.Element>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  fallback?: JSX.Element;
+  children: JSX.Element | RequiredParameter<TRenderFunction>;
 }): JSX.Element;
 export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: JSX.Element;
   children: JSX.Element | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => JSX.Element);
-}) {
+}): JSX.Element {
   const keyed = props.keyed;
   const condition = createMemo<T | undefined | null | boolean>(
     () => props.when,
@@ -174,7 +178,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
 export type MatchProps<T> = {
   when: T | undefined | null | false;
   keyed?: boolean;
-  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
+  children: JSX.Element | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => JSX.Element);
 };
 /**
  * selects a content based on condition when inside a `<Switch>` control flow
@@ -185,15 +189,18 @@ export type MatchProps<T> = {
  * ```
  * @description https://www.solidjs.com/docs/latest/api#switchmatch
  */
-export function Match<T>(props: {
-  when: T | undefined | null | false;
-  keyed: true;
-  children: JSX.Element | ((item: NonNullable<T>) => JSX.Element);
-}): JSX.Element;
-export function Match<T>(props: {
+export function Match<
+  T,
+  TRenderFunction extends (item: Accessor<NonNullable<T>>) => JSX.Element
+>(props: {
   when: T | undefined | null | false;
   keyed?: false;
-  children: JSX.Element;
+  children: JSX.Element | RequiredParameter<TRenderFunction>;
+}): JSX.Element;
+export function Match<T, TRenderFunction extends (item: NonNullable<T>) => JSX.Element>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  children: JSX.Element | RequiredParameter<TRenderFunction>;
 }): JSX.Element;
 export function Match<T>(props: MatchProps<T>) {
   return props as unknown as JSX.Element;
