@@ -10,7 +10,7 @@ import {
 } from "../../src";
 import { createStore, unwrap, $RAW, NotWrappable } from "../src";
 
-describe("State immutablity", () => {
+describe("State immutability", () => {
   test("Setting a property", () => {
     const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");

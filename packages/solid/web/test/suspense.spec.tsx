@@ -82,7 +82,7 @@ describe("Testing Suspense", () => {
 
     // Exhausts create-resource setTimeout
     jest.runAllTimers();
-    // wait update suspence state
+    // wait update suspense state
     await Promise.resolve();
     // wait update computation
     jest.runAllTimers();
@@ -118,7 +118,7 @@ describe("Testing Suspense", () => {
 
     // Exhausts create-resource setTimeout
     jest.runAllTimers();
-    // wait update suspence state
+    // wait update suspense state
     await Promise.resolve();
     // wait update computation
     jest.runAllTimers();
