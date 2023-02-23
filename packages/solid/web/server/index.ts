@@ -15,7 +15,8 @@ export {
   mergeProps
 } from "solid-js";
 
-export const isServer = true;
+export const isServer: boolean = true;
+export const isDev: boolean = false;
 
 export function render() {}
 export function hydrate() {}

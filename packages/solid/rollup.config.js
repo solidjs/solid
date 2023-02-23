@@ -30,6 +30,13 @@ const plugins = [
   })
 ];
 
+const replaceDev = isDev =>
+  replace({
+    '"_SOLID_DEV_"': isDev,
+    preventAssignment: true,
+    delimiters: ["", ""]
+  });
+
 export default [
   {
     input: "src/index.ts",
@@ -43,13 +50,7 @@ export default [
         format: "es"
       }
     ],
-    plugins: [
-      replace({
-        '"_SOLID_DEV_"': false,
-        preventAssignment: true,
-        delimiters: ["", ""]
-      })
-    ].concat(plugins)
+    plugins: [replaceDev(false)].concat(plugins)
   },
   {
     input: "src/server/index.ts",
@@ -78,7 +79,7 @@ export default [
         format: "es"
       }
     ],
-    plugins
+    plugins: [replaceDev(true)].concat(plugins)
   },
   {
     input: "store/src/index.ts",
@@ -93,13 +94,7 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins: [
-      replace({
-        '"_SOLID_DEV_"': false,
-        preventAssignment: true,
-        delimiters: ["", ""]
-      })
-    ].concat(plugins)
+    plugins: [replaceDev(false)].concat(plugins)
   },
   {
     input: "store/src/server.ts",
@@ -129,7 +124,7 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins
+    plugins: [replaceDev(true)].concat(plugins)
   },
   {
     input: "web/src/index.ts",
@@ -144,13 +139,7 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins: [
-      replace({
-        '"_DX_DEV_"': false,
-        preventAssignment: true,
-        delimiters: ["", ""]
-      })
-    ].concat(plugins)
+    plugins: [replaceDev(false)].concat(plugins)
   },
   {
     input: "web/server/index.ts",
@@ -180,7 +169,7 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins
+    plugins: [replaceDev(true)].concat(plugins)
   },
   {
     input: "universal/src/index.ts",
@@ -195,13 +184,7 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins: [
-      replace({
-        '"_DX_DEV_"': false,
-        preventAssignment: true,
-        delimiters: ["", ""]
-      })
-    ].concat(plugins)
+    plugins: [replaceDev(false)].concat(plugins)
   },
   {
     input: "universal/src/index.ts",
@@ -216,7 +199,7 @@ export default [
       }
     ],
     external: ["solid-js"],
-    plugins
+    plugins: [replaceDev(true)].concat(plugins)
   },
   {
     input: "html/src/index.ts",
