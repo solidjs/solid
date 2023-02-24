@@ -16,11 +16,11 @@ function applyState(
 ) {
   const previous = parent[property];
   if (target === previous) return;
-  if (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key])) {
-    if (target !== previous) {
-      if (property === $ROOT) return target;
-      setProperty(parent, property, target);
-    }
+  if (
+    property !== $ROOT &&
+    (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key]))
+  ) {
+    setProperty(parent, property, target);
     return;
   }
 

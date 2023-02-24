@@ -32,6 +32,7 @@ export {
 export * from "./server-mock.js";
 
 export const isServer: boolean = false;
+export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement {
