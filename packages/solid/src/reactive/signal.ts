@@ -980,7 +980,7 @@ export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
   Owner.context = { [ERROR]: [handler] };
   try {
     return fn();
-  } catch(err) {
+  } catch (err) {
     handleError(err);
   } finally {
     Owner = Owner.owner;
@@ -1645,18 +1645,18 @@ function cleanNode(node: Owner) {
 
   if (Transition && Transition.running && (node as Memo<any>).pure) {
     if ((node as Memo<any>).tOwned) {
-      for (i = 0; i < (node as Memo<any>).tOwned!.length; i++)
+      for (i = (node as Memo<any>).tOwned!.length; i >= 0; i--)
         cleanNode((node as Memo<any>).tOwned![i]);
       delete (node as Memo<any>).tOwned;
     }
     reset(node as Computation<any>, true);
   } else if (node.owned) {
-    for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
+    for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
     node.owned = null;
   }
 
   if (node.cleanups) {
-    for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
+    for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
     node.cleanups = null;
   }
   if (Transition && Transition.running) (node as Computation<any>).tState = 0;
