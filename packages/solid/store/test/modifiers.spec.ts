@@ -124,6 +124,16 @@ describe("setState with reconcile", () => {
     expect(user.user.id).toBe(2);
     expect(user.user.firstName).toBe("Ned");
   });
+
+  test("Reconcile top level key missing", () => {
+    const [store, setStore] = createStore<{ id?: number; value?: string }>({
+      id: 0,
+      value: "value"
+    });
+    setStore(reconcile({}));
+    expect(store.id).toBe(undefined);
+    expect(store.value).toBe(undefined);
+  });
 });
 
 describe("setState with produce", () => {
