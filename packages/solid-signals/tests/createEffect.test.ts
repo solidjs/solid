@@ -5,6 +5,7 @@ import {
   flushSync,
   onCleanup,
 } from "../src";
+import { createRoot } from "../src/core";
 
 afterEach(() => flushSync());
 
@@ -55,14 +56,18 @@ it("should handle nested effect", () => {
   const innerEffect = vi.fn();
   const innerDispose = vi.fn();
 
-  const stop = createEffect(() => {
-    $x();
-    outerEffect();
+  const stopEffect = createRoot((dispose) => {
     createEffect(() => {
-      $y();
-      innerEffect();
-      onCleanup(innerDispose);
+      $x();
+      outerEffect();
+      createEffect(() => {
+        $y();
+        innerEffect();
+        onCleanup(innerDispose);
+      });
     });
+
+    return dispose;
   });
 
   expect(outerEffect).toHaveBeenCalledTimes(1);
@@ -96,7 +101,7 @@ it("should handle nested effect", () => {
   expect(innerEffect).toHaveBeenCalledTimes(2);
   expect(innerDispose).toHaveBeenCalledTimes(2);
 
-  stop();
+  stopEffect();
   setX(10);
   setY(10);
   expect(outerEffect).toHaveBeenCalledTimes(2);
@@ -109,8 +114,12 @@ it("should stop effect", () => {
 
   const [$x, setX] = createSignal(10);
 
-  const stop = createEffect(() => effect($x()));
-  stop();
+  const stopEffect = createRoot((dispose) => {
+    createEffect(() => effect($x()));
+    return dispose;
+  });
+
+  stopEffect();
 
   setX(20);
   flushSync();
@@ -154,13 +163,17 @@ it("should dispose of nested effect", () => {
   const [$x, setX] = createSignal(0);
   const innerEffect = vi.fn();
 
-  const stop = createEffect(() => {
+  const stopEffect = createRoot((dispose) => {
     createEffect(() => {
-      innerEffect($x());
+      createEffect(() => {
+        innerEffect($x());
+      });
     });
+
+    return dispose;
   });
 
-  stop();
+  stopEffect();
 
   setX(10);
   flushSync();

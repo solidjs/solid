@@ -51,15 +51,19 @@ it("should create new tracking scope", () => {
   const [$x, setX] = createSignal(0);
   const effect = vi.fn();
 
-  const dispose = createEffect(() => {
-    $x();
-    createRoot(() => void createEffect(() => effect($x())));
+  const stopEffect = createRoot((dispose) => {
+    createEffect(() => {
+      $x();
+      createRoot(() => void createEffect(() => effect($x())));
+    });
+
+    return dispose;
   });
 
   expect(effect).toHaveBeenCalledWith(0);
   expect(effect).toHaveBeenCalledTimes(1);
 
-  dispose();
+  stopEffect();
 
   setX(10);
   flushSync();

@@ -1,4 +1,4 @@
-import { createComputation, dispose, read, write } from "./core";
+import { createComputation, read, write } from "./core";
 import type {
   MemoOptions,
   Accessor,
@@ -53,7 +53,7 @@ export function createEffect<T>(
   effect: () => T,
   initialValue?: T,
   options?: { name?: string }
-): Dispose {
+): void {
   const signal = createComputation<T>(
     initialValue,
     effect,
@@ -62,5 +62,4 @@ export function createEffect<T>(
 
   signal._effect = true;
   read.call(signal);
-  return () => dispose.call(signal, true);
 }

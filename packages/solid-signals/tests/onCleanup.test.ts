@@ -7,10 +7,14 @@ it("should be invoked when computation is disposed", () => {
   const disposeB = vi.fn();
   const disposeC = vi.fn();
 
-  const stopEffect = createEffect(() => {
-    onCleanup(disposeA);
-    onCleanup(disposeB);
-    onCleanup(disposeC);
+  const stopEffect = createRoot((dispose) => {
+    createEffect(() => {
+      onCleanup(disposeA);
+      onCleanup(disposeB);
+      onCleanup(disposeC);
+    });
+
+    return dispose;
   });
 
   stopEffect();
@@ -28,8 +32,12 @@ it("should not trigger wrong onCleanup", () => {
       onCleanup(dispose);
     });
 
-    const stop = createEffect(() => {});
-    stop();
+    const stopEffect = createRoot((dispose) => {
+      createEffect(() => {});
+      return dispose;
+    });
+
+    stopEffect();
     flushSync();
 
     expect(dispose).toHaveBeenCalledTimes(0);
@@ -43,16 +51,20 @@ it("should clean up in reverse order", () => {
 
   let calls = 0;
 
-  const stopEffect = createEffect(() => {
-    onCleanup(() => disposeParent(++calls));
-
+  const stopEffect = createRoot((dispose) => {
     createEffect(() => {
-      onCleanup(() => disposeA(++calls));
+      onCleanup(() => disposeParent(++calls));
+
+      createEffect(() => {
+        onCleanup(() => disposeA(++calls));
+      });
+
+      createEffect(() => {
+        onCleanup(() => disposeB(++calls));
+      });
     });
 
-    createEffect(() => {
-      onCleanup(() => disposeB(++calls));
-    });
+    return dispose;
   });
 
   stopEffect();

@@ -150,31 +150,21 @@ export function onCleanup(disposable: MaybeDisposable): void {
   }
 }
 
-let owners: Owner[] = [];
-
 export function dispose(this: Owner, self = true) {
   if (this._state === STATE_DISPOSED) return;
 
-  let current = this._nextSibling as Computation | null,
-    head = self ? this._prevSibling : this;
+  let head = self ? this._prevSibling : this,
+    current = this._nextSibling as Computation | null;
 
-  // Nothing to clean up.
-  if (!current && !self) return;
-
-  owners.push(this);
-
-  // Dispose of children first.
-  while (current && owners.includes(current._parent!)) {
+  while (current && current._parent === this) {
+    dispose.call(current, true);
     disposeNode(current);
-    owners.push(current);
-    current = current._nextSibling as Computation | null;
+    current = current._nextSibling as Computation;
   }
 
   if (self) disposeNode(this as Computation);
+  if (current) current._prevSibling = !self ? this : this._prevSibling;
   if (head) head._nextSibling = current;
-  if (current) current._prevSibling = head;
-
-  owners = [];
 }
 
 function disposeNode(node: Computation) {
@@ -190,20 +180,16 @@ function disposeNode(node: Computation) {
 }
 
 function emptyDisposal(owner: Computation) {
-  try {
-    if (Array.isArray(owner._disposal)) {
-      for (let i = 0; i < owner._disposal.length; i++) {
-        const callable = owner._disposal![i];
-        callable.call(callable);
-      }
-    } else {
-      owner._disposal!.call(owner._disposal);
+  if (Array.isArray(owner._disposal)) {
+    for (let i = 0; i < owner._disposal.length; i++) {
+      const callable = owner._disposal![i];
+      callable.call(callable);
     }
-
-    owner._disposal = null;
-  } catch (error) {
-    handleError(owner, error);
+  } else {
+    owner._disposal!.call(owner._disposal);
   }
+
+  owner._disposal = null;
 }
 
 export function compute<Result>(
