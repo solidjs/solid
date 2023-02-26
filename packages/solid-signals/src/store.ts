@@ -2,7 +2,9 @@ import { createComputation, getObserver, read, write } from "./core";
 import { Computation } from "./types";
 
 export type Store<T> = Readonly<T>;
+// TODO: should this be `StoreSetter`?
 export type SetStoreFunction<T> = (fn: (state: T) => void) => void;
+
 type DataNode = Computation<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
 
@@ -12,9 +14,11 @@ const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
   $NODE = Symbol(__DEV__ ? "STORE_NODE" : 0);
 
 export type StoreNode = Record<PropertyKey, any>;
+
 export namespace SolidStore {
   export interface Unwrappable {}
 }
+
 export type NotWrappable =
   | string
   | number
