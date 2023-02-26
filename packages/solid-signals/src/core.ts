@@ -50,7 +50,7 @@ function runEffects() {
  * Creates a computation root which is given a `dispose()` function to dispose of all inner
  * computations.
  *
- * @see {@link https://github.com/solidjs/x-reactively#createroot}
+ * @see {@link https://github.com/solidjs/x-reactivity#createroot}
  */
 export function createRoot<T>(init: (dispose: Dispose) => T): T {
   const owner = new OwnerNode();
@@ -65,7 +65,7 @@ export function createRoot<T>(init: (dispose: Dispose) => T): T {
  * Returns the current value stored inside the given compute function without triggering any
  * dependencies. Use `untrack` if you want to also disable owner tracking.
  *
- * @see {@link https://github.com/solidjs/x-reactively#untrack}
+ * @see {@link https://github.com/solidjs/x-reactivity#untrack}
  */
 export function untrack<T>(fn: () => T): T {
   if (currentObserver === null) return fn();
@@ -76,7 +76,7 @@ export function untrack<T>(fn: () => T): T {
  * By default, signal updates are batched on the microtask queue which is an async process. You can
  * flush the queue synchronously to get the latest updates by calling `tick()`.
  *
- * @see {@link https://github.com/solidjs/x-reactively#tick}
+ * @see {@link https://github.com/solidjs/x-reactivity#tick}
  */
 export function flushSync(): void {
   if (!runningEffects) runEffects();
@@ -85,7 +85,7 @@ export function flushSync(): void {
 /**
  * Returns the currently executing parent owner.
  *
- * @see {@link https://github.com/solidjs/x-reactively#getowner}
+ * @see {@link https://github.com/solidjs/x-reactivity#getowner}
  */
 export function getOwner(): Owner | null {
   return currentOwner;
@@ -99,7 +99,7 @@ export function getObserver() {
 /**
  * Runs the given function in the given owner so context and error handling continue to work.
  *
- * @see {@link https://github.com/solidjs/x-reactively#runwithowner}
+ * @see {@link https://github.com/solidjs/x-reactivity#runwithowner}
  */
 export function runWithOwner<T>(
   owner: Owner | null,
@@ -116,7 +116,7 @@ export function runWithOwner<T>(
  * Runs the given function when an error is thrown in a child owner. If the error is thrown again
  * inside the error handler, it will trigger the next available parent owner handler.
  *
- * @see {@link https://github.com/solidjs/x-reactively#catcherror}
+ * @see {@link https://github.com/solidjs/x-reactivity#catcherror}
  */
 export function catchError<T, U = Error>(
   fn: () => T,
@@ -134,7 +134,7 @@ export function catchError<T, U = Error>(
 /**
  * Runs the given function when the parent owner computation is being disposed.
  *
- * @see {@link https://github.com/solidjs/x-reactively#ondispose}
+ * @see {@link https://github.com/solidjs/x-reactivity#ondispose}
  */
 export function onCleanup(disposable: MaybeDisposable): void {
   if (!disposable || !currentOwner) return;
