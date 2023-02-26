@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { createStore } from "../store";
+import { createStore } from "../../src";
 
 describe("getters", () => {
   it("supports getters that return frozen objects", () => {

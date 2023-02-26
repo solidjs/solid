@@ -99,7 +99,7 @@ export function getOwner(): Owner | null {
  */
 export function runWithOwner<T>(
   owner: Owner | null,
-  run: () => T,
+  run: () => T
 ): T | undefined {
   try {
     return compute<T>(owner, run, null);
@@ -114,10 +114,17 @@ export function runWithOwner<T>(
  *
  * @see {@link https://github.com/solidjs/x-reactively#catcherror}
  */
-export function catchError<T, U = Error>(fn: () => T, handler: (error: U) => void): void {
+export function catchError<T, U = Error>(
+  fn: () => T,
+  handler: (error: U) => void
+): void {
   const owner = new OwnerNode();
   owner._context = { [HANDLER]: handler };
-  compute(owner, fn, null);
+  try {
+    compute(owner, fn, null);
+  } catch (error) {
+    handleError(owner, error);
+  }
 }
 
 /**
@@ -144,29 +151,38 @@ let owners: Owner[] = [];
 export function dispose(this: Owner, self = true) {
   if (this._state === STATE_DISPOSED) return;
 
-  let current = (self ? this : this._nextSibling) as Computation | null,
+  let current = this._nextSibling as Computation | null,
     head = self ? this._prevSibling : this;
 
-  if (current) {
-    owners.push(this);
-    do {
-      current._state = STATE_DISPOSED;
-      if (current._disposal) emptyDisposal(current);
-      if (current._sources) removeSourceObservers(current, 0);
-      if (current._prevSibling) current._prevSibling._nextSibling = null;
-      current._parent = null;
-      current._sources = null;
-      current._observers = null;
-      current._prevSibling = null;
-      current._context = null;
-      owners.push(current);
-      current = current._nextSibling as Computation | null;
-    } while (current && owners.includes(current._parent!));
+  // Nothing to clean up.
+  if (!current && !self) return;
+
+  owners.push(this);
+
+  // Dispose of children first.
+  while (current && owners.includes(current._parent!)) {
+    disposeNode(current);
+    owners.push(current);
+    current = current._nextSibling as Computation | null;
   }
 
+  if (self) disposeNode(this as Computation);
   if (head) head._nextSibling = current;
   if (current) current._prevSibling = head;
+
   owners = [];
+}
+
+function disposeNode(node: Computation) {
+  node._state = STATE_DISPOSED;
+  if (node._disposal) emptyDisposal(node);
+  if (node._sources) removeSourceObservers(node, 0);
+  if (node._prevSibling) node._prevSibling._nextSibling = null;
+  node._parent = null;
+  node._sources = null;
+  node._observers = null;
+  node._prevSibling = null;
+  node._context = null;
 }
 
 function emptyDisposal(owner: Computation) {
@@ -301,7 +317,8 @@ const ComputeNode = function Computation(
   this._observers = null;
   this._value = initialValue;
 
-  if (__DEV__) this.name = options?.name ?? (this._compute ? "computed" : "signal");
+  if (__DEV__)
+    this.name = options?.name ?? (this._compute ? "computed" : "signal");
   if (compute) this._compute = compute;
   if (options && options.equals !== undefined) this._equals = options.equals;
 };
@@ -331,7 +348,7 @@ export function isZombie(node: Owner) {
   let owner = node._parent;
 
   while (owner) {
-    // We're looking for a dirty parent effect owner.
+    // We're looking for a dirty parent owner.
     if (owner._compute && owner._state === STATE_DIRTY) return true;
     owner = owner._parent;
   }

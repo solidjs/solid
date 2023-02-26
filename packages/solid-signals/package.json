@@ -2,6 +2,7 @@
   "name": "@solidjs/reactivity",
   "version": "0.0.8",
   "description": "",
+  "license": "ISC",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -14,18 +15,19 @@
   ],
   "scripts": {
     "build": "pnpm build:types && node build.js",
-    "build:types": "tsc",
+    "types": "tsc -p tsconfig.build.json",
+    "format": "prettier src --write --loglevel warn",
     "example": "node ./example/build.js | node",
-    "test": "vitest",
-    "coverage": "vitest run --coverage"
+    "test": "vitest run",
+    "test:watch": "vitest watch tests",
+    "test:gc": "node --expose-gc ./vitest.js",
+    "test:gc:watch": "node --expose-gc ./vitest.js --watch",
+    "test:coverage": "vitest run --coverage"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
     "esbuild-plugin-replace": "^1.3.0",
     "esbuild": "^0.16.3",
     "typescript": "4.9.4",
-    "vitest": "^0.26.2"
+    "vitest": "^0.29.1"
   }
 }
