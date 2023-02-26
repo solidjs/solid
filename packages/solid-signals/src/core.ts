@@ -10,11 +10,10 @@ import type {
 let scheduledEffects = false,
   runningEffects = false,
   currentOwner: Owner | null = null,
+  currentObserver: Computation | null = null,
   currentObservers: Computation[] | null = null,
   currentObserversIndex = 0,
   effects: Computation[] = [];
-
-export let currentObserver: Computation | null = null;
 
 const HANDLER = Symbol(__DEV__ ? "ERROR_HANDLER" : 0),
   // For more information about this graph tracking scheme see Reactively:
@@ -90,6 +89,11 @@ export function flushSync(): void {
  */
 export function getOwner(): Owner | null {
   return currentOwner;
+}
+
+/** @internal */
+export function getObserver() {
+  return currentObserver;
 }
 
 /**
@@ -302,6 +306,7 @@ OwnerProto.append = function appendChild(owner: Owner) {
   this._nextSibling = owner;
 };
 
+/** @internal */
 export function createOwner() {
   return new OwnerNode();
 }
@@ -332,6 +337,7 @@ Object.setPrototypeOf(ComputeProto, OwnerProto);
 ComputeProto._equals = isEqual;
 ComputeProto.call = read;
 
+/** @internal */
 export function createComputation<T>(
   initialValue: T | undefined,
   compute: (() => T) | null,
@@ -384,7 +390,7 @@ function cleanup(node: Computation) {
   node._context = null;
 }
 
-function update(node: Computation) {
+export function update(node: Computation) {
   let prevObservers = currentObservers,
     prevObserversIndex = currentObserversIndex;
 
@@ -458,7 +464,7 @@ function update(node: Computation) {
   node._state = STATE_CLEAN;
 }
 
-function notify(node: Computation, state: number) {
+export function notify(node: Computation, state: number) {
   if (node._state >= state) return;
 
   if (node._effect && node._state === STATE_CLEAN) {
