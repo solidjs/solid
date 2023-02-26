@@ -146,7 +146,7 @@ it("should discover new dependencies", () => {
   expect($c()).toBe(10);
 });
 
-it("should accept dirty option", () => {
+it("should accept equals option", () => {
   const [$x, setX] = createSignal(0);
 
   const $a = createMemo(() => $x(), 0, {

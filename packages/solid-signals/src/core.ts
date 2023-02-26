@@ -302,6 +302,10 @@ OwnerProto.append = function appendChild(owner: Owner) {
   this._nextSibling = owner;
 };
 
+export function createOwner() {
+  return new OwnerNode();
+}
+
 const ComputeNode = function Computation(
   this: Computation,
   initialValue,
