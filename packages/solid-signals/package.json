@@ -17,7 +17,7 @@
     "build": "rimraf dist && tsup && pnpm types",
     "types": "tsc -p tsconfig.build.json",
     "format": "prettier src --write --loglevel warn",
-    "example": "node ./example/build.js | node",
+    "sandbox": "node ./.sandbox/launch.js",
     "test": "vitest run",
     "test:watch": "vitest watch tests",
     "test:gc": "node --expose-gc ./vitest.js",
@@ -25,9 +25,11 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@types/node": "^18.14.1",
     "rimraf": "^4.1.2",
     "tsup": "^6.6.3",
     "typescript": "4.9.4",
+    "vite": "^4.1.4",
     "vitest": "^0.29.1"
   },
   "exports": {
