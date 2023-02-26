@@ -7,9 +7,9 @@
     "moduleResolution": "node",
     "noImplicitAny": false,
     "strict": true,
-    "outDir": "dist",
+    "outDir": "dist/types",
     "module": "esnext",
-    "types": ["@types/node", "vitest/globals"]
+    "types": ["vitest/globals"]
   },
   "include": ["src", "tests"],
   "exclude": ["dist", "node_modules"]
