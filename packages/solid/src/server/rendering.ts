@@ -280,6 +280,10 @@ export function ErrorBoundary(props: {
   return { t: `<!e${id}>${resolveSSRNode(res)}<!/e${id}>` };
 }
 
+export function ClientOnly(props: { children?: JSX.Element }): JSX.Element {
+  return undefined;
+}
+
 // Suspense Context
 export interface Resource<T> {
   (): T | undefined;
