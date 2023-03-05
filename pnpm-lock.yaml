@@ -17,16 +17,16 @@ importers:
       '@types/jest': ^28.1.6
       '@types/node': ^18.11.19
       babel-jest: ^28.1.3
-      babel-plugin-jsx-dom-expressions: ^0.35.16
+      babel-plugin-jsx-dom-expressions: ^0.35.17
       coveralls: ^3.1.1
       csstype: ^3.1.0
-      dom-expressions: 0.35.16
+      dom-expressions: 0.35.17
       fast-glob: ^3.2.11
-      hyper-dom-expressions: 0.35.16
+      hyper-dom-expressions: 0.35.17
       jest: ^28.1.3
       jest-environment-jsdom: ^28.1.3
       jest-ts-webcompat-resolver: ^1.0.0
-      lit-dom-expressions: 0.35.16
+      lit-dom-expressions: 0.35.17
       ncp: ^2.0.0
       npm-run-all: ^4.1.5
       rimraf: ^3.0.2
@@ -52,16 +52,16 @@ importers:
       '@types/jest': 28.1.6
       '@types/node': 18.11.19
       babel-jest: 28.1.3_@babel+core@7.20.12
-      babel-plugin-jsx-dom-expressions: 0.35.16_@babel+core@7.20.12
+      babel-plugin-jsx-dom-expressions: 0.35.17_@babel+core@7.20.12
       coveralls: 3.1.1
       csstype: 3.1.0
-      dom-expressions: 0.35.16_csstype@3.1.0
+      dom-expressions: 0.35.17_csstype@3.1.0
       fast-glob: 3.2.11
-      hyper-dom-expressions: 0.35.16
+      hyper-dom-expressions: 0.35.17
       jest: 28.1.3_@types+node@18.11.19
       jest-environment-jsdom: 28.1.3
       jest-ts-webcompat-resolver: 1.0.0
-      lit-dom-expressions: 0.35.16
+      lit-dom-expressions: 0.35.17
       ncp: 2.0.0
       npm-run-all: 4.1.5
       rimraf: 3.0.2
@@ -76,9 +76,9 @@ importers:
 
   packages/babel-preset-solid:
     specifiers:
-      babel-plugin-jsx-dom-expressions: ^0.35.15
+      babel-plugin-jsx-dom-expressions: ^0.35.17
     dependencies:
-      babel-plugin-jsx-dom-expressions: 0.35.15
+      babel-plugin-jsx-dom-expressions: 0.35.17
 
   packages/solid:
     specifiers:
@@ -2636,8 +2636,8 @@ packages:
       '@types/babel__traverse': 7.17.1
     dev: true
 
-  /babel-plugin-jsx-dom-expressions/0.35.15:
-    resolution: {integrity: sha512-33GQnanjYKefOTO2lQK6EaKXPJ1W8vtzvBneGfhKaOZHQJLqe61P93jP0TLTz67sqsA0m1ph1cNdGpLc/Nx2Xg==}
+  /babel-plugin-jsx-dom-expressions/0.35.17:
+    resolution: {integrity: sha512-OtzYARZpeJv2PWGxV6ww8ejlzELkzcNuaS+2Yz9zI4A0fRVymLZLZr+vxljFSDnAsxlwTr1YBtrm7bXkU8y6/g==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -2645,11 +2645,11 @@ packages:
       '@babel/plugin-syntax-jsx': 7.18.6
       '@babel/types': 7.20.7
       html-entities: 2.3.3
-      validate-html-nesting: 1.2.0
+      validate-html-nesting: 1.2.1
     dev: false
 
-  /babel-plugin-jsx-dom-expressions/0.35.16_@babel+core@7.20.12:
-    resolution: {integrity: sha512-Z8vaeXRdtI4qyq3bmQiLjiZnbjn2Rr0mjpXMwN+QxHbWjtlAFOJSHlkcxbrwPz/DdcfSgkmZM0Atvt/zMLeLyA==}
+  /babel-plugin-jsx-dom-expressions/0.35.17_@babel+core@7.20.12:
+    resolution: {integrity: sha512-OtzYARZpeJv2PWGxV6ww8ejlzELkzcNuaS+2Yz9zI4A0fRVymLZLZr+vxljFSDnAsxlwTr1YBtrm7bXkU8y6/g==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -3286,8 +3286,8 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions/0.35.16_csstype@3.1.0:
-    resolution: {integrity: sha512-zk9zf+WQzbj4EBrmok8oL27hvjTvyVdIXeNFEC6VDP5EbETurPTIBxpXgOmKakWzbseEoQOcomBLiii1T5iyUQ==}
+  /dom-expressions/0.35.17_csstype@3.1.0:
+    resolution: {integrity: sha512-CJ2qr0wjYTVUwgBXwioW5YnCyMPkEKZWFGtZwaxCOB37BzC/YPXr7UEKdbuHnFV0Z/j1TzS8NMp1Zd6Is5eVDg==}
     peerDependencies:
       csstype: ^3.0
     dependencies:
@@ -4051,8 +4051,8 @@ packages:
     engines: {node: '>=10.17.0'}
     dev: true
 
-  /hyper-dom-expressions/0.35.16:
-    resolution: {integrity: sha512-kAtJQsCzL7B67rMJjQ9x7/zA9wNhQzlLAqt1Nbe0spikGvN+HxOLRQsTrOWy2NZmiC4igkOXc/3cSnG/QVYxyg==}
+  /hyper-dom-expressions/0.35.17:
+    resolution: {integrity: sha512-Euud7tnG+Vsm7XyIAGIzMDYCEaTc4hPQjy0wrDcSG8oiv2v0mDp0pLdxuRX2xzYDgVcqMzjC4Q1nsfjaWFtwGQ==}
     dev: true
 
   /iconv-lite/0.4.24:
@@ -5010,8 +5010,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions/0.35.16:
-    resolution: {integrity: sha512-WPMQRaE72IlaTx/kunkAcYsAhIz2BcRk0NpsOjH/STC1Szry3HRizMh7uxkp3MwZeC0IfbJFrUl0xVWoZ/nr0A==}
+  /lit-dom-expressions/0.35.17:
+    resolution: {integrity: sha512-JKHrc0f8ItArHjc6/3n0mJiJXWLtt/DfsAGSdxOfmVUIQMho6QDE5dGMyYNGOGkK/qFW4pNOE0pWHRAgZQWP4A==}
     dev: true
 
   /load-json-file/4.0.0:
@@ -6751,13 +6751,8 @@ packages:
       convert-source-map: 1.8.0
     dev: true
 
-  /validate-html-nesting/1.2.0:
-    resolution: {integrity: sha512-sI65QUd3T/e5wbQkdPKjikFsIVLPIaOQK+9uowPp6/k609SN8hs5eqBLrnN5DeW9Kd932Q4Imo0fzK2dxoOsCA==}
-    dev: false
-
   /validate-html-nesting/1.2.1:
     resolution: {integrity: sha512-T1ab131NkP3BfXB7KUSgV7Rhu81R2id+L6NaJ7NypAAG5iV6gXnPpQE5RK1fvb+3JYsPTL+ihWna5sr5RN9gaQ==}
-    dev: true
 
   /validate-npm-package-license/3.0.4:
     resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}

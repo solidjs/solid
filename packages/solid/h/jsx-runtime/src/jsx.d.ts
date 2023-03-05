@@ -1291,6 +1291,7 @@ export namespace JSX {
     gradientUnits?: FunctionMaybe<SVGUnits>;
     gradientTransform?: FunctionMaybe<string>;
     spreadMethod?: FunctionMaybe<"pad" | "reflect" | "repeat">;
+    href?: FunctionMaybe<string>
   }
   interface GraphicsElementSVGAttributes<T>
     extends CoreSVGAttributes<T>,
