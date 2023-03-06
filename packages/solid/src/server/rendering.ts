@@ -600,12 +600,12 @@ export function Suspense(props: { fallback?: string; children: string }) {
   });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.async) {
-    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f", noHydrate: true });
+    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f", noHydrate: true });
     const res = { t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>` };
     setHydrateContext(ctx);
     return res;
   }
-  setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
+  setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f" });
   ctx.writeResource(id, "$$f");
   return props.fallback;
 }
