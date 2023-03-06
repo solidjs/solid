@@ -1,5 +1,23 @@
 # test-integration
 
+## 1.6.12
+
+### Patch Changes
+
+- 676ed331: docs: fix typos
+- Updated dependencies [e2888c77]
+- Updated dependencies [676ed331]
+- Updated dependencies [b8a3ff13]
+- Updated dependencies [1aff80c6]
+- Updated dependencies [53db3f0f]
+- Updated dependencies [47d574a8]
+- Updated dependencies [e245736f]
+- Updated dependencies [61d1fe25]
+- Updated dependencies [081ca06c]
+- Updated dependencies [4fdec4f9]
+  - solid-js@1.6.12
+  - babel-preset-solid@1.6.12
+
 ## 1.6.11
 
 ### Patch Changes

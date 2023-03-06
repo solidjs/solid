@@ -1,5 +1,13 @@
 # babel-preset-solid
 
+## 1.6.12
+
+### Patch Changes
+
+- 676ed331: docs: fix typos
+- 081ca06c: fix #1553 html encoding for native strings on components
+- 4fdec4f9: fix #1564, fix #1567 template literal bugs
+
 ## 1.6.10
 
 ### Patch Changes
