@@ -12,7 +12,9 @@ import {
   enableHydration,
   $DEVCOMP,
   ComponentProps,
-  ValidComponent
+  ValidComponent,
+  createRenderEffect,
+  onMount
 } from "solid-js";
 
 export * from "./client.js";
@@ -65,41 +67,45 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
 }) {
   const { useShadow } = props,
     marker = document.createTextNode(""),
-    mount = props.mount || document.body;
+    mount = () => props.mount || document.body,
+    content = createMemo(renderPortal());
 
   // don't render when hydrating
   function renderPortal() {
     if (sharedConfig.context) {
       const [s, set] = createSignal(false);
-      queueMicrotask(() => set(true));
+      onMount(() => set(true));
       return () => s() && props.children;
     } else return () => props.children;
   }
 
-  if (mount instanceof HTMLHeadElement) {
-    const [clean, setClean] = createSignal(false);
-    const cleanup = () => setClean(true);
-    createRoot(dispose => insert(mount, () => (!clean() ? renderPortal()() : dispose()), null));
-    onCleanup(() => {
-      if (sharedConfig.context) queueMicrotask(cleanup);
-      else cleanup();
-    });
-  } else {
-    const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
-      renderRoot =
-        useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
+  createRenderEffect(() => {
+    const el = mount();
+    if (el instanceof HTMLHeadElement) {
+      const [clean, setClean] = createSignal(false);
+      const cleanup = () => setClean(true);
+      createRoot(dispose => insert(el, () => (!clean() ? content() : dispose()), null));
+      onCleanup(() => {
+        if (sharedConfig.context) queueMicrotask(cleanup);
+        else cleanup();
+      });
+    } else {
+      const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
+        renderRoot =
+          useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
 
-    Object.defineProperty(container, "_$host", {
-      get() {
-        return marker.parentNode;
-      },
-      configurable: true
-    });
-    insert(renderRoot, renderPortal());
-    mount.appendChild(container);
-    (props as any).ref && (props as any).ref(container);
-    onCleanup(() => mount.removeChild(container));
-  }
+      Object.defineProperty(container, "_$host", {
+        get() {
+          return marker.parentNode;
+        },
+        configurable: true
+      });
+      insert(renderRoot, content);
+      el.appendChild(container);
+      (props as any).ref && (props as any).ref(container);
+      onCleanup(() => el.removeChild(container));
+    }
+  })
   return marker;
 }
 
