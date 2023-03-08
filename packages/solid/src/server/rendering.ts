@@ -389,7 +389,7 @@ export function createResource<T, S>(
   };
   read.loading = false;
   read.error = undefined as any;
-  read.state = "initialValue" in options ? "resolved" : "unresolved";
+  read.state = "initialValue" in options ? "ready" : "unresolved";
   Object.defineProperty(read, "latest", {
     get() {
       return read();
@@ -422,7 +422,7 @@ export function createResource<T, S>(
       return p
         .then(res => {
           read.loading = false;
-          read.state = "resolved";
+          read.state = "ready";
           ctx.resources[id].data = res;
           p = null;
           notifySuspense(contexts);
