@@ -1,8 +1,9 @@
-/** 
+/**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
+import { describe, expect, test } from "vitest";
 import { createSignal } from "../../src";
 import { render, clearDelegatedEvents, Portal, Show } from "../src";
 
@@ -29,7 +30,11 @@ describe("Testing an SVG Portal", () => {
   let div = document.createElement("div"),
     disposer: () => void;
   const testMount = document.createElement("svg");
-  const Component = () => <Portal mount={testMount} isSVG={true}>Hi</Portal>;
+  const Component = () => (
+    <Portal mount={testMount} isSVG={true}>
+      Hi
+    </Portal>
+  );
 
   test("Create portal control flow", () => {
     disposer = render(Component, div);

@@ -1,3 +1,4 @@
+import { describe, expect, test } from "vitest";
 import { createRoot, createSignal, createEffect } from "../../src";
 import { createStore, createMutable, reconcile, produce, unwrap, modifyMutable } from "../src";
 

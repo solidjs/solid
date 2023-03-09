@@ -1,3 +1,4 @@
+import { describe, expect, test } from "vitest";
 import { createRoot, createSignal, createMemo, batch, createEffect } from "../../src";
 import { Accessor, Setter } from "../../types";
 import { createMutable, unwrap, $RAW } from "../src";
@@ -219,18 +220,19 @@ describe("Setting state from Effects", () => {
     expect(state!.data).toBe("signal");
   });
 
-  test("Select Promise", done => {
-    createRoot(async () => {
-      const p = new Promise<string>(resolve => {
-          setTimeout(resolve, 20, "promised");
-        }),
-        state = createMutable({ data: "" });
-      p.then(v => (state.data = v));
-      await p;
-      expect(state.data).toBe("promised");
-      done();
-    });
-  });
+  test("Select Promise", () =>
+    new Promise(done => {
+      createRoot(async () => {
+        const p = new Promise<string>(resolve => {
+            setTimeout(resolve, 20, "promised");
+          }),
+          state = createMutable({ data: "" });
+        p.then(v => (state.data = v));
+        await p;
+        expect(state.data).toBe("promised");
+        done(undefined);
+      });
+    }));
 });
 
 describe("State wrapping", () => {

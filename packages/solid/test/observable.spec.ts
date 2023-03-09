@@ -1,3 +1,4 @@
+import { describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, from, observable } from "../src";
 
 describe("Observable operator", () => {
@@ -18,7 +19,7 @@ describe("Observable operator", () => {
 
   test("preserve the observer's next binding", () => {
     const observer = {
-      next: jest.fn().mockReturnThis()
+      next: vi.fn().mockReturnThis()
     };
 
     createRoot(() => {

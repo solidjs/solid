@@ -1,7 +1,8 @@
+import { afterAll, beforeEach, expect, test, vi } from "vitest";
 import { renderToString, renderToStringAsync, renderToStream } from "../src/server-mock";
 
 const origConsoleError = console.error;
-const mockConsoleError = jest.fn();
+const mockConsoleError = vi.fn();
 
 beforeEach(() => {
   console.error = mockConsoleError;

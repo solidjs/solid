@@ -1,8 +1,9 @@
-/** 
+/**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
+import { describe, expect, test } from "vitest";
 import { render, Switch, Match, For } from "../src";
 import { createRoot, createSignal } from "../../src";
 import { createStore } from "../../store/src";
@@ -90,9 +91,15 @@ describe("Testing keyed Switch control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Switch fallback={"fallback"}>
-        <Match when={a()} keyed>{a()}</Match>
-        <Match when={b()} keyed>{b()}</Match>
-        <Match when={c()} keyed>{c()}</Match>
+        <Match when={a()} keyed>
+          {a()}
+        </Match>
+        <Match when={b()} keyed>
+          {b()}
+        </Match>
+        <Match when={c()} keyed>
+          {c()}
+        </Match>
       </Switch>
     </div>
   );
@@ -128,9 +135,15 @@ describe("Testing function handler Switch control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Switch fallback={"fallback"}>
-        <Match when={a()} keyed>{a => a}</Match>
-        <Match when={b()} keyed>{b => b}</Match>
-        <Match when={c()} keyed>{c => c}</Match>
+        <Match when={a()} keyed>
+          {a => a}
+        </Match>
+        <Match when={b()} keyed>
+          {b => b}
+        </Match>
+        <Match when={c()} keyed>
+          {c => c}
+        </Match>
       </Switch>
     </div>
   );

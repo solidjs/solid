@@ -1,3 +1,4 @@
+import { describe, expect, test } from "vitest";
 import { mapArray, indexArray, createSignal, createMemo, createRoot } from "../src";
 
 describe("Map operator", () => {
@@ -35,7 +36,6 @@ describe("Index operator", () => {
       expect(r()).toEqual([2, 4, 6, 8]);
     });
   });
-
 
   test("show fallback", () => {
     createRoot(() => {

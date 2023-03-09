@@ -1,8 +1,9 @@
-/** 
+/**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
+import { describe, expect, test } from "vitest";
 import { createRoot, resetErrorBoundaries } from "../../src";
 import { ErrorBoundary } from "../src";
 
