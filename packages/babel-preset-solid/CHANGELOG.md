@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.6.13
+
+### Patch Changes
+
+- 60f8624d: fix #1596 ssr fragment text merge, fix #1599 ssr onCleanup
+
 ## 1.6.12
 
 ### Patch Changes
