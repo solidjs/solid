@@ -11,7 +11,7 @@ import {
   castError,
   onCleanup,
   cleanNode,
-  BRANCH
+  createOwner
 } from "./reactive.js";
 import type { JSX } from "../jsx.js";
 
@@ -270,9 +270,8 @@ export function ErrorBoundary(props: {
     !sync && ctx.replace("e" + id, displayFallback);
     sync = true;
   });
-  onCleanup(() => cleanNode(clean));
   createMemo(() => {
-    Owner!.context = { [BRANCH]: (clean = {}) };
+    clean = Owner;
     return (res = props.children);
   });
   if (error) return displayFallback();
@@ -556,11 +555,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
   let clean: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
-  const o = Owner;
-  if (o) {
-    if (o.context) o.context[BRANCH] = clean = {};
-    else o.context = { [BRANCH]: (clean = {}) };
-  }
+  const o = createOwner();
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
@@ -574,11 +569,11 @@ export function Suspense(props: { fallback?: string; children: string }) {
     });
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
+    o && cleanNode(o);
     return runWithOwner(o!, () => {
       return createComponent(SuspenseContext.Provider, {
         value,
         get children() {
-          clean && cleanNode(clean);
           return props.children;
         }
       });
@@ -601,7 +596,9 @@ export function Suspense(props: { fallback?: string; children: string }) {
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.async) {
     setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f", noHydrate: true });
-    const res = { t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>` };
+    const res = {
+      t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>`
+    };
     setHydrateContext(ctx);
     return res;
   }
