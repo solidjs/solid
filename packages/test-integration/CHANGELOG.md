@@ -1,5 +1,14 @@
 # test-integration
 
+## 1.6.13
+
+### Patch Changes
+
+- Updated dependencies [af20f00b]
+- Updated dependencies [60f8624d]
+  - solid-js@1.6.13
+  - babel-preset-solid@1.6.13
+
 ## 1.6.12
 
 ### Patch Changes

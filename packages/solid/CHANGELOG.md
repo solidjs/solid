@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.6.13
+
+### Patch Changes
+
+- af20f00b: fix #1602 wrong resource state during SSR
+- 60f8624d: fix #1596 ssr fragment text merge, fix #1599 ssr onCleanup
+
 ## 1.6.12
 
 ### Patch Changes
