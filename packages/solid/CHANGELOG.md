@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.6.14
+
+### Patch Changes
+
+- 6cceab2f: fix #1613 broken renderToString
+
 ## 1.6.13
 
 ### Patch Changes
