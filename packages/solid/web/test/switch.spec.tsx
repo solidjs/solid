@@ -3,7 +3,6 @@
  * @vitest-environment jsdom
  */
 
-import { describe, expect, test } from "vitest";
 import { render, Switch, Match, For } from "../src";
 import { createRoot, createSignal } from "../../src";
 import { createStore } from "../../store/src";

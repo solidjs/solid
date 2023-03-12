@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import { createRoot, createSignal, createMemo, Accessor } from "../src";
 
 describe("createMemo", () => {

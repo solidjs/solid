@@ -3,7 +3,6 @@
  * @vitest-environment jsdom
  */
 
-import { describe, expect, it } from "vitest";
 import { createContext, useContext } from "../../src";
 import { render, Show } from "../src";
 

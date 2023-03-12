@@ -3,7 +3,6 @@
  * @vitest-environment jsdom
  */
 
-import { describe, expect, test } from "vitest";
 import { createSignal } from "../../src";
 import { render, clearDelegatedEvents, Portal, Show } from "../src";
 

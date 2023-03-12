@@ -3,7 +3,6 @@
  * @vitest-environment jsdom
  */
 
-import { beforeEach, afterEach, describe, expect, test } from "vitest";
 import { createRoot, createSignal, Component, JSX } from "../../src";
 import { createStore } from "../../store/src";
 import { Dynamic } from "../src";

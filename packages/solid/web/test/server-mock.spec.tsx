@@ -1,4 +1,3 @@
-import { afterAll, beforeEach, expect, test, vi } from "vitest";
 import { renderToString, renderToStringAsync, renderToStream } from "../src/server-mock";
 
 const origConsoleError = console.error;

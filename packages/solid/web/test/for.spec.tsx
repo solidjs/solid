@@ -3,7 +3,6 @@
  * @vitest-environment jsdom
  */
 
-import { describe, expect, test } from "vitest";
 import { createRoot, createSignal } from "../../src";
 import { insert, For } from "../src";
 

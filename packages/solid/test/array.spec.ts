@@ -1,4 +1,3 @@
-import { describe, expect, test } from "vitest";
 import { mapArray, indexArray, createSignal, createMemo, createRoot } from "../src";
 
 describe("Map operator", () => {

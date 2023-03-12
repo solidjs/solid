@@ -3,7 +3,6 @@
  * @vitest-environment jsdom
  */
 
-import { describe, expect, test } from "vitest";
 import { createRoot, createSignal, createUniqueId, JSX, children } from "../../src";
 
 declare module "solid-js/jsx-runtime" {

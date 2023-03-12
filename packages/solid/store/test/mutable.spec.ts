@@ -1,4 +1,3 @@
-import { describe, expect, test } from "vitest";
 import { createRoot, createSignal, createMemo, batch, createEffect } from "../../src";
 import { Accessor, Setter } from "../../types";
 import { createMutable, unwrap, $RAW } from "../src";
