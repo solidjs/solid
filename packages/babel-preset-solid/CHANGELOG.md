@@ -9,6 +9,19 @@
 ### Patch Changes
 
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+## 1.6.13
+
+### Patch Changes
+
+- 60f8624d: fix #1596 ssr fragment text merge, fix #1599 ssr onCleanup
+
+## 1.6.12
+
+### Patch Changes
+
+- 676ed331: docs: fix typos
+- 081ca06c: fix #1553 html encoding for native strings on components
+- 4fdec4f9: fix #1564, fix #1567 template literal bugs
 
 ## 1.6.10
 

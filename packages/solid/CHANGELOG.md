@@ -14,6 +14,32 @@
 - 71c40af: DEV: Minor additions and change the API of dev hooks
 - e245736: Fixed test case for setStore 7 parameter overload by fixing KeyOf giving number for KeyOf<never>
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+## 1.6.14
+
+### Patch Changes
+
+- 6cceab2f: fix #1613 broken renderToString
+
+## 1.6.13
+
+### Patch Changes
+
+- af20f00b: fix #1602 wrong resource state during SSR
+- 60f8624d: fix #1596 ssr fragment text merge, fix #1599 ssr onCleanup
+
+## 1.6.12
+
+### Patch Changes
+
+- e2888c77: Correct the type of `isServer` const to `boolean` from `false`.
+- 676ed331: docs: fix typos
+- b8a3ff13: fix #1586 error boundary called twice
+- 1aff80c6: fix #1573 top level reconcile not merging
+- 53db3f0f: fix fallback hydration
+- 47d574a8: fix #1588: dynamic mount elements in Portals without recreation
+- e245736f: Fixed test case for setStore 7 parameter overload by fixing KeyOf giving number for KeyOf<never>
+- 61d1fe25: Export `isDev` const from solid-js/web for differentiating between dev/prod env.
+- 4fdec4f9: fix #1564, fix #1567 template literal bugs
 
 ## 1.6.11
 

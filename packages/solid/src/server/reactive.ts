@@ -13,7 +13,6 @@ export type Setter<T> = undefined extends T
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 const ERROR = Symbol("error");
-export const BRANCH = Symbol("branch");
 export function castError(err: unknown): Error {
   if (err instanceof Error) return err;
   return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
@@ -26,12 +25,23 @@ function handleError(err: unknown): void {
   for (const f of fns) f(error);
 }
 
-const UNOWNED: Owner = { context: null, owner: null };
+const UNOWNED: Owner = { context: null, owner: null, owned: null, cleanups: null };
 export let Owner: Owner | null = null;
 
 interface Owner {
   owner: Owner | null;
   context: any | null;
+  owned: Owner[] | null;
+  cleanups: (() => void)[] | null;
+}
+
+export function createOwner(): Owner {
+  const o = { owner: Owner, context: null, owned: null, cleanups: null };
+  if (Owner) {
+    if (!Owner.owned) Owner.owned = [o];
+    else Owner.owned.push(o);
+  }
+  return o;
 }
 
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: typeof Owner): T {
@@ -41,12 +51,14 @@ export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: ty
         ? UNOWNED
         : {
             context: null,
-            owner: detachedOwner === undefined ? owner : detachedOwner
+            owner: detachedOwner === undefined ? owner : detachedOwner,
+            owned: null,
+            cleanups: null
           };
   Owner = root;
   let result: T;
   try {
-    result = fn(() => {});
+    result = fn(fn.length === 0 ? () => {} : () => cleanNode(root));
   } catch (err) {
     handleError(err);
   } finally {
@@ -68,7 +80,7 @@ export function createSignal<T>(
 }
 
 export function createComputed<T>(fn: (v?: T) => T, value?: T): void {
-  Owner = { owner: Owner, context: null };
+  Owner = createOwner();
   try {
     fn(value);
   } catch (err) {
@@ -89,7 +101,7 @@ export function createReaction(fn: () => void) {
 }
 
 export function createMemo<T>(fn: (v?: T) => T, value?: T): () => T {
-  Owner = { owner: Owner, context: null };
+  Owner = createOwner();
   let v: T;
   try {
     v = fn(value);
@@ -136,23 +148,26 @@ export function on<T, U>(
 export function onMount(fn: () => void) {}
 
 export function onCleanup(fn: () => void) {
-  let node;
-  if (Owner && (node = lookup(Owner, BRANCH))) {
-    if (!node.cleanups) node.cleanups = [fn];
-    else node.cleanups.push(fn);
+  if (Owner) {
+    if (!Owner.cleanups) Owner.cleanups = [fn];
+    else Owner.cleanups.push(fn);
   }
   return fn;
 }
 
-export function cleanNode(node: { cleanups?: Function[] | null }) {
+export function cleanNode(node: Owner) {
+  if (node.owned) {
+    for (let i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
+    node.owned = null;
+  }
   if (node.cleanups) {
     for (let i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
-    node.cleanups = undefined;
+    node.cleanups = null;
   }
 }
 
 export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
-  Owner = { owner: Owner, context: { [ERROR]: [handler] } };
+  Owner = { owner: Owner, context: { [ERROR]: [handler] }, owned: null, cleanups: null };
   try {
     return fn();
   } catch(err) {

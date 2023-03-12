@@ -1368,7 +1368,9 @@ function runComputation(node: Computation<any>, value: any, time: number) {
         node.owned = null;
       }
     }
-    handleError(err);
+    // won't be picked up until next update
+    node.updatedAt = time + 1;
+    return handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
     if (node.updatedAt != null && "observers" in node) {
@@ -1600,7 +1602,8 @@ function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
         (!runningTransition && source.state === STALE) ||
         (runningTransition && source.tState === STALE)
       ) {
-        if (source !== ignore) runTop(source);
+        if (source !== ignore && (!source.updatedAt || source.updatedAt < ExecCount))
+          runTop(source);
       } else if (
         (!runningTransition && source.state === PENDING) ||
         (runningTransition && source.tState === PENDING)
