@@ -21,7 +21,7 @@
     "component-register": "~0.8.2"
   },
   "peerDependencies": {
-    "solid-js": "^1.6.13"
+    "solid-js": "^1.6.14"
   },
   "devDependencies": {
     "solid-js": "workspace:*"
