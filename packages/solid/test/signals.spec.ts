@@ -97,6 +97,21 @@ describe("Create signals", () => {
     set("a", "b", "minds");
     expect(temp!).toBe('impure {"a":{"b":"minds"}}');
   });
+  test("Create a Effect with explicit deps and no deep evaluation", () => {
+    let temp: string;
+    const [sign, set] = createStore({ a: { b: "thoughts" } });
+    createRoot(() => {
+      const fn = on(
+        () => sign,
+        v => (temp = `impure ${JSON.stringify(v)}`)
+        // { deep: false } by default
+      );
+      createEffect(fn);
+    });
+    expect(temp!).toBe('impure {"a":{"b":"thoughts"}}');
+    set("a", "b", "minds");
+    expect(temp!).toBe('impure {"a":{"b":"thoughts"}}');
+  });
 });
 
 describe("Update signals", () => {
