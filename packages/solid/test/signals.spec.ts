@@ -19,6 +19,7 @@ import {
   getOwner,
   runWithOwner
 } from "../src";
+import { createStore } from "../store/src";
 
 import "./MessageChannel";
 
@@ -80,6 +81,21 @@ describe("Create signals", () => {
     expect(temp!).toBeUndefined();
     set("minds");
     expect(temp!).toBe("impure minds");
+  });
+  test("Create a Effect with explicit deps and deep evaluation", () => {
+    let temp: string;
+    const [sign, set] = createStore({ a: { b: "thoughts" } });
+    createRoot(() => {
+      const fn = on(
+        () => sign,
+        v => (temp = `impure ${JSON.stringify(v)}`),
+        { deep: true }
+      );
+      createEffect(fn);
+    });
+    expect(temp!).toBe('impure {"a":{"b":"thoughts"}}');
+    set("a", "b", "minds");
+    expect(temp!).toBe('impure {"a":{"b":"minds"}}');
   });
 });
 
@@ -687,7 +703,7 @@ describe("createRoot", () => {
       });
     });
   });
-  
+
   test("Allows to define detachedOwner", () => {
     let owner1: any;
     let owner2: any;

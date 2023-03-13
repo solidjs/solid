@@ -875,6 +875,7 @@ export type OnEffectFunction<S, Prev, Next extends Prev = Prev> = (
 
 export interface OnOptions {
   defer?: boolean;
+  deep?: boolean;
 }
 
 /**
@@ -906,7 +907,12 @@ export interface OnOptions {
 export function on<S, Next extends Prev, Prev = Next>(
   deps: AccessorArray<S> | Accessor<S>,
   fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
-  options?: OnOptions & { defer?: false }
+  options?: OnOptions & { defer?: false; deep?: false }
+): EffectFunction<undefined | NoInfer<Next>, NoInfer<Next>>;
+export function on<S, Next extends Prev, Prev = Next>(
+  deps: AccessorArray<S> | Accessor<S>,
+  fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
+  options?: OnOptions & { defer?: false; deep: true }
 ): EffectFunction<undefined | NoInfer<Next>, NoInfer<Next>>;
 export function on<S, Next extends Prev, Prev = Next>(
   deps: AccessorArray<S> | Accessor<S>,
@@ -921,12 +927,17 @@ export function on<S, Next extends Prev, Prev = Next>(
   const isArray = Array.isArray(deps);
   let prevInput: S;
   let defer = options && options.defer;
+  const deep = options && options.deep;
   return prevValue => {
     let input: S;
     if (isArray) {
       input = Array(deps.length) as unknown as S;
       for (let i = 0; i < deps.length; i++) (input as unknown as TODO[])[i] = deps[i]();
-    } else input = deps();
+    } else {
+      let depValue = deps();
+      depValue = deep && typeof depValue === "object" ? deepTraverse(deps()) : deps();
+      input = depValue;
+    }
     if (defer) {
       defer = false;
       return undefined;
@@ -935,6 +946,26 @@ export function on<S, Next extends Prev, Prev = Next>(
     prevInput = input;
     return result;
   };
+}
+
+/**
+ * deepTraverse - traverse an object
+ * @param obj an object to traverse
+ * @returns a new object with all functions called
+ * @description https://www.solidjs.com/docs/latest/api#deeptraverse
+ * @private
+ * */
+function deepTraverse<S>(obj: S): S {
+  const result: S = {} as S;
+  for (const key in obj) {
+    const value = obj[key];
+    if (typeof value === "object" && value !== null) {
+      result[key] = deepTraverse(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 /**
