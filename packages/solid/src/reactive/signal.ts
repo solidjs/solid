@@ -951,8 +951,7 @@ export function on<S, Next extends Prev, Prev = Next>(
 /**
  * deepTraverse - traverse an object
  * @param obj an object to traverse
- * @returns a new object with all functions called
- * @description https://www.solidjs.com/docs/latest/api#deeptraverse
+ * @returns an object with all values traversed
  * @private
  * */
 function deepTraverse<S>(obj: S): S {
