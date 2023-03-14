@@ -1,5 +1,147 @@
 # Changelog
 
+## 1.7.0 - 2023-03-x
+
+Solid has experienced incredible growth in usage the last 6 months. Companies using it to power production applications and SolidStart Beta has been a big part of that. It has also brought to light a lot of the rougher edges in Solid today.
+
+v1.7 marks the beginning of the migration to v2.0. We are starting to re-evaluate APIs and will be introducing new ones while we deprecate older ones. Ultimately to make the move to 2.0 smoother and improve things as we go.
+
+### Improved TypeScript
+
+#### Type-Narrowed Control Flow
+
+One of the pains of using SolidJS with TypeScript has been that JSX control flows can't really type narrow. This is true, but starting with the migration to explicit `keyed` in v1.5 we now complete this story by introducing callback forms for `<Show>` and `<Match>` that work when non-keyed.
+
+The main difference is the callback form instead of passing in the value as it does when `keyed`, passes in a function that is type narrowed.
+
+```js
+// keyed w/ callback
+<Show when={user()} keyed>
+  {user => <div>{user.name}</div>}
+</Show>
+
+// non-keyed w/ callback
+<Show when={user()}>
+  {user => <div>{user().name}</div>}
+</Show>
+
+// non-keyed w/o callback... needs ! assertion
+<Show when={user()}>
+  <div>{user()!.name}</div>
+</Show>
+```
+
+#### Stricter JSX Elements
+
+This has been a tricky one because we have to acknowledge at a certain point TypeScript is to serve our purposes rather than to represent all possible values that could work. For us the ambiguity lies in functions.
+
+Solid's JSX needs to accept functions to handle dynamic insertion. However, in authoring it leads to awkward situations.
+
+The first you hit the first time use SolidJS. You create that counter and don't call `count` as a function and it works.
+
+```js
+function Counter() {
+  const [count, setCount] = createSignal(1);
+
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>;
+}
+```
+
+The fact it works might lead to the wrong conclusions especially when it works some places and not others.
+
+The second place you might hit this is when you get a little further on your journey and decide you need a component to re-render and decide that you can just wrap the whole thing in a function:
+
+```js
+function MyComp(props) {
+  return () => {
+    // look working early returns
+    if (props.count > 5) {
+      return <div>Maximum Tries</div>;
+    }
+
+    return <div>Attempt {props.count}</div>;
+  };
+}
+```
+
+Again this seems fine, except the fact that every time `count` changes you are recreating all the DOM Elements even when it resolves to the same conditional.
+
+Eventually you might even not thing twice about passing functions into children of arbitrary components:
+
+```js
+<MyComp>
+  <MyComp2>
+    <MyComp3>{() => <div>{resource()}</div>}</MyComp3>
+  </MyComp2>
+</MyComp>
+```
+
+But what does this do? When is the function called?
+
+As it turns out removing functions from `JSX.Element` type makes all of these scenarios error. Components only expect the values dictated by their types.
+
+```js
+function MyLayout(props: { children: JSX.Element }): JSX.Element;
+
+function MyFor<T, U extends JSX.Element>(props: { each: T[],  children: (item: T) => U }): JSX.Element;
+
+// valid
+<MyLayout>Hello</MyLayout>
+<MyLayout><p>Hello</p></MyLayout>
+<MyLayout>{name()}</MyLayout>
+<MyLayout>{name() && <p>Hello</p>}</MyLayout>
+<MyLayout>{(() => {
+  return <p{name()}</p>
+})()}</MyLayout>
+<MyLayout>{untrack(() => {
+  return <p>{name()}</p>
+})}</MyLayout>
+<MyFor each={users()}>{(user) => <div>{user.name}</div>}</MyFor>
+
+// invalid
+<MyLayout>{name}</MyLayout>
+<MyLayout>{() => <p>Hello</p>}</MyLayout>
+<MyLayout>{() => "Hello"}</MyLayout>
+<MyLayout>{() => name() && <p>Hello</p>}</MyLayout>
+<MyFor each={users}>{(user) => <div>{user.name}</div>}</MyFor>
+<MyFor each={users()}><div>Not a Function</div></MyFor>
+```
+
+### Better Errors and Cleanup
+
+#### `catchError` replaces `onError`
+
+Error Handling is tricky enough without having to try to guess how they propagate. `onError` admittedly is a lower level primitive but fundamentally had this flaw. It worked by registering an error handler on the parent scope, but left it ambiguous how to handle siblings. Is it a queue? Are they independent?
+
+Instead in 1.7 we introduce `catchError` which introduces its own scope to catch any errors below it. The first argument is like the try and the second the catch.
+
+```js
+catchError(
+  () => {
+    // do stuff
+    throw new Error("I've Errored");
+  },
+  err => console.log(err)
+);
+```
+
+`onError` will still be present until it can be removed in a future major version.
+
+#### Standardized Errors
+
+Error Handling has had many weird edge cases introduced by applications throwing unusual values. In v1.7 we enforce that all errors are `Error` and attach the original thrown value as `.cause`.
+
+### More Performant Dev Tools
+
+Now that [SolidJS Dev Tools](https://github.com/thetarnav/solid-devtools) have been stabilizing we have a much better idea what support we need for them. In so we were able to remove the very costly serialization we we were doing for generating unique identifiers. Conventions around naming and exports were streamlined and standardized as well.
+
+### Others
+
+- Deprecating `/* @once */` JSX Directive
+- Support for `prop:` and `attr:` in Spreads
+- Don't apply special props (like `readonly`) to custom elements
+- Improved JSON Serializer
+
 ## 1.6.0 - 2022-10-20
 
 Solid v1.6 doesn't bring a ton of new features but brings some big improvements in existing ones.
@@ -72,6 +214,7 @@ So now if you don't use a `Store` or swap out the props object:
 // or
 <div {...someSignal()} />
 ```
+
 We don't need to introduce any proxy the user didn't create. This makes Solid a viable option for these low-end devices.
 
 ## 1.5.0 - 2022-08-26
