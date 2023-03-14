@@ -2,15 +2,15 @@
 
 ## 1.7.0 - 2023-03-x
 
-Solid has experienced incredible growth in usage the last 6 months. Companies using it to power production applications and SolidStart Beta has been a big part of that. It has also brought to light a lot of the rougher edges in Solid today.
+Solid has experienced incredible growth in usage the last 6 months. Companies are using it to power production applications and SolidStart Beta has been a big part of that. As a natural part of this growth and increased use at scale we are continuing to learn what works well and what the rough edges in Solid are today.
 
-v1.7 marks the beginning of the migration to v2.0. We are starting to re-evaluate APIs and will be introducing new ones while we deprecate older ones. Ultimately to make the move to 2.0 smoother and improve things as we go.
+This v1.7 release marks the beginning of the migration roadmap to v2.0. We are beginning to re-evaluate core APIs and will begin introducing new ones while reasonably deprecating older ones in a manner that eases breaking changes. Our intention is to ease the broader ecosystem into preparing for improvements that a major 2.0 will unlock for the whole community.
 
 ### Improved TypeScript
 
 #### Type-Narrowed Control Flow
 
-One of the pains of using SolidJS with TypeScript has been that JSX control flows can't really type narrow. This is true, but starting with the migration to explicit `keyed` in v1.5 we now complete this story by introducing callback forms for `<Show>` and `<Match>` that work when non-keyed.
+One of the pains of using Solid with TypeScript has been that JSX control flows can't really type narrow. This is true, but starting with the migration to explicit `keyed` in v1.5 we now complete this story by introducing callback forms for `<Show>` and `<Match>` that work when non-keyed.
 
 The main difference is the callback form instead of passing in the value as it does when `keyed`, passes in a function that is type narrowed.
 
@@ -33,11 +33,11 @@ The main difference is the callback form instead of passing in the value as it d
 
 #### Stricter JSX Elements
 
-This has been a tricky one because we have to acknowledge at a certain point TypeScript is to serve our purposes rather than to represent all possible values that could work. For us the ambiguity lies in functions.
+Strict JSX elements have been tricky because we have to acknowledge at a certain point that TypeScript is to serve our purposes rather than to represent all possible values that could work. For us the ambiguity lies in functions.
 
 Solid's JSX needs to accept functions to handle dynamic insertion. However, in authoring it leads to awkward situations.
 
-The first you hit the first time use SolidJS. You create that counter and don't call `count` as a function and it works.
+The first you hit the first time use Solid. You create that counter and don't call `count` as a function and it works.
 
 ```js
 function Counter() {
@@ -47,7 +47,7 @@ function Counter() {
 }
 ```
 
-The fact it works might lead to the wrong conclusions especially when it works some places and not others.
+This example works in some places and not others which might lead to the wrong conclusions.
 
 The second place you might hit this is when you get a little further on your journey and decide you need a component to re-render and decide that you can just wrap the whole thing in a function:
 
@@ -66,7 +66,7 @@ function MyComp(props) {
 
 Again this seems fine, except the fact that every time `count` changes you are recreating all the DOM Elements even when it resolves to the same conditional.
 
-Eventually you might even not thing twice about passing functions into children of arbitrary components:
+Eventually you might even not think twice about passing functions into children of arbitrary components:
 
 ```js
 <MyComp>
@@ -111,9 +111,9 @@ function MyFor<T, U extends JSX.Element>(props: { each: T[],  children: (item: T
 
 #### `catchError` replaces `onError`
 
-Error Handling is tricky enough without having to try to guess how they propagate. `onError` admittedly is a lower level primitive but fundamentally had this flaw. It worked by registering an error handler on the parent scope, but left it ambiguous how to handle siblings. Is it a queue? Are they independent?
+Error Handling is complicated enough without having to try to guess how they propagate. `onError` admittedly is a lower level primitive but fundamentally had this flaw. It worked by registering an error handler on the parent scope, but left it ambiguous how to handle siblings. Is it a queue? Are they independent?
 
-Instead in 1.7 we introduce `catchError` which introduces its own scope to catch any errors below it. The first argument is like the try and the second the catch.
+As a result we are introducing `catchError` in this release which introduces its own scope to catch any errors below it. The first argument in the primitive is similar to the try and the second argument is the catch.
 
 ```js
 catchError(
@@ -129,15 +129,14 @@ catchError(
 
 #### Standardized Errors
 
-Error Handling has had many weird edge cases introduced by applications throwing unusual values. In v1.7 we enforce that all errors are `Error` and attach the original thrown value as `.cause`.
+Error Handling has had many weird edge cases introduced by applications throwing unusual values. In v1.7 we wrap all thrown values that aren't of type `Error` in a `new Error` and attach the original thrown value as `.cause`.
 
 ### More Performant Dev Tools
 
-Now that [SolidJS Dev Tools](https://github.com/thetarnav/solid-devtools) have been stabilizing we have a much better idea what support we need for them. In so we were able to remove the very costly serialization we we were doing for generating unique identifiers. Conventions around naming and exports were streamlined and standardized as well.
+Now that [Solid Dev Tools](https://github.com/thetarnav/solid-devtools) have been stabilizing, we have a much better idea what support we need for them. In so we were able to remove the very costly serialization we were doing for generating unique identifiers. Conventions around naming and exports were streamlined and standardized as well.
 
 ### Others
 
-- Deprecating `/* @once */` JSX Directive
 - Support for `prop:` and `attr:` in Spreads
 - Don't apply special props (like `readonly`) to custom elements
 - Improved JSON Serializer
