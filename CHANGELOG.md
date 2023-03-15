@@ -31,6 +31,8 @@ The main difference is the callback form instead of passing in the value as it d
 </Show>
 ```
 
+Keep in mind because we are non-null asserting the input signal using it in closures that execute when the condition is no longer satisfied can receive null values. There is no good solution for this. Luckily this only applies to things like timers which you should be cleaning up anyway and not things like event handlers. We recommend using the original source in those closures if you must, and will warn in development if you attempt to use it that way.
+
 #### Stricter JSX Elements
 
 Strict JSX elements have been tricky because we have to acknowledge at a certain point that TypeScript is to serve our purposes rather than to represent all possible values that could work. For us the ambiguity lies in functions.

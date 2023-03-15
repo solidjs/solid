@@ -73,11 +73,11 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
       )) as unknown as JSX.Element;
 }
 
+type RequiredParameter<T> = T extends () => unknown ? never : T;
 /**
  * Conditionally render its children or an optional fallback component
  * @description https://www.solidjs.com/docs/latest/api#show
  */
-type RequiredParameter<T> = T extends () => unknown ? never : T;
 export function Show<
   T,
   TRenderFunction extends (item: Accessor<NonNullable<T>>) => JSX.Element
@@ -116,7 +116,19 @@ export function Show<T>(props: {
       if (c) {
         const child = props.children;
         const fn = typeof child === "function" && child.length > 0;
-        return fn ? untrack(() => (child as any)(keyed ? (c as T) : () => props.when)) : child;
+        return fn
+          ? untrack(() =>
+              (child as any)(
+                keyed
+                  ? (c as T)
+                  : () => {
+                      if ("_SOLID_DEV_" && !untrack(condition))
+                        console.warn("Accessing stale value from Show.");
+                      return props.when;
+                    }
+              )
+            )
+          : child;
       }
       return props.fallback;
     },
@@ -125,7 +137,7 @@ export function Show<T>(props: {
   ) as unknown as JSX.Element;
 }
 
-type EvalConditions = [number, unknown?, MatchProps<unknown>?];
+type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
 
 /**
  * switches between content based on mutually exclusive conditions
@@ -168,7 +180,19 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
       if (index < 0) return props.fallback;
       const c = cond!.children;
       const fn = typeof c === "function" && c.length > 0;
-      return fn ? untrack(() => (c as any)(keyed ? when : () => cond!.when)) : c;
+      return fn
+        ? untrack(() =>
+            (c as any)(
+              keyed
+                ? when
+                : () => {
+                    if ("_SOLID_DEV_" && untrack(evalConditions)[0] !== index)
+                      console.warn("Accessing stale value from Match.");
+                    return cond!.when;
+                  }
+            )
+          )
+        : c;
     },
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined

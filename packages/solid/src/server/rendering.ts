@@ -9,7 +9,6 @@ import {
   Setter,
   Signal,
   castError,
-  onCleanup,
   cleanNode,
   createOwner
 } from "./reactive.js";
@@ -207,16 +206,21 @@ export function Index<T>(props: {
   return simpleMap(props, (fn, item, i) => fn(() => item, i));
 }
 
+type RequiredParameter<T> = T extends () => unknown ? never : T;
+/**
+ * Conditionally render its children or an optional fallback component
+ * @description https://www.solidjs.com/docs/latest/api#show
+ */
 export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: string;
-  children: string | ((item: NonNullable<T>) => string);
-}) {
-  let c: string | ((item: NonNullable<T>) => string);
+  children: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
+}): string {
+  let c: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
   return props.when
     ? typeof (c = props.children) === "function"
-      ? c(props.when!)
+      ? c(props.keyed ? props.when! : () => props.when as any)
       : c
     : props.fallback || "";
 }
@@ -232,7 +236,7 @@ export function Switch(props: {
     const w = conditions[i].when;
     if (w) {
       const c = conditions[i].children;
-      return typeof c === "function" ? c(w) : c;
+      return typeof c === "function" ? c(conditions[i].keyed ? w : () => w) : c;
     }
   }
   return props.fallback || "";
@@ -241,7 +245,7 @@ export function Switch(props: {
 type MatchProps<T> = {
   when: T | false;
   keyed?: boolean;
-  children: string | ((item: T) => string);
+  children: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
 };
 export function Match<T>(props: MatchProps<T>) {
   return props;
