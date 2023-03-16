@@ -20,13 +20,13 @@ importers:
       babel-plugin-jsx-dom-expressions: ^0.35.19
       coveralls: ^3.1.1
       csstype: ^3.1.0
-      dom-expressions: 0.35.21
+      dom-expressions: 0.35.22
       fast-glob: ^3.2.11
-      hyper-dom-expressions: 0.35.21
+      hyper-dom-expressions: 0.35.22
       jest: ^28.1.3
       jest-environment-jsdom: ^28.1.3
       jest-ts-webcompat-resolver: ^1.0.0
-      lit-dom-expressions: 0.35.21
+      lit-dom-expressions: 0.35.22
       ncp: ^2.0.0
       npm-run-all: ^4.1.5
       rimraf: ^3.0.2
@@ -55,13 +55,13 @@ importers:
       babel-plugin-jsx-dom-expressions: 0.35.19_@babel+core@7.20.12
       coveralls: 3.1.1
       csstype: 3.1.0
-      dom-expressions: 0.35.21_csstype@3.1.0
+      dom-expressions: 0.35.22_csstype@3.1.0
       fast-glob: 3.2.11
-      hyper-dom-expressions: 0.35.21
+      hyper-dom-expressions: 0.35.22
       jest: 28.1.3_@types+node@18.11.19
       jest-environment-jsdom: 28.1.3
       jest-ts-webcompat-resolver: 1.0.0
-      lit-dom-expressions: 0.35.21
+      lit-dom-expressions: 0.35.22
       ncp: 2.0.0
       npm-run-all: 4.1.5
       rimraf: 3.0.2
@@ -3286,8 +3286,8 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions/0.35.21_csstype@3.1.0:
-    resolution: {integrity: sha512-dqyKZScH93xbLGGBDTVzXZMM8KSIxTJMBZwFQ8f7yTCI/GyLdURnjXUo56+84ed2Wp0Wmf9SZtGoza04Bt7+4A==}
+  /dom-expressions/0.35.22_csstype@3.1.0:
+    resolution: {integrity: sha512-kTR5O+LfCg7Bwmry+54SfgcKdXbYFm9GSPbvWA/sSYcOapMDOxhlLLsVjNx+Mr7kpk79bW0qDl/DZXUoRu/SnQ==}
     peerDependencies:
       csstype: ^3.0
     dependencies:
@@ -4051,8 +4051,8 @@ packages:
     engines: {node: '>=10.17.0'}
     dev: true
 
-  /hyper-dom-expressions/0.35.21:
-    resolution: {integrity: sha512-v131IiLuwCFzbRFucfawMVRREDKDMPlnCLxwxTHTDC90N+1nCGS4XD7RoPBqLe0QRCXRnMzl/NoY+A1fvyLipA==}
+  /hyper-dom-expressions/0.35.22:
+    resolution: {integrity: sha512-1edPrANZKLrzTeuttNKy5Mz0J88lWpZOMp7yhnhqCIRmF53lMtcVafDHgkwVB81X1xkqgK44JjliOH3r5ySrQg==}
     dev: true
 
   /iconv-lite/0.4.24:
@@ -5010,8 +5010,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions/0.35.21:
-    resolution: {integrity: sha512-dPlicq1zfUHH2eKPvXanyIxyfT8dJ/XeJYbp+7MNfhJkZFxV3J5pN/VbLTuqnAx/kCv4veKsrWzMwz02za+qMw==}
+  /lit-dom-expressions/0.35.22:
+    resolution: {integrity: sha512-QH0MIn0g3RbiTMZCqbFEot4kOF6fJPo0dNJF0doVvbK2pzhlGb7F1gcMPS82gHkBCXjR7zEdEZ2eoXCPmtnfGw==}
     dev: true
 
   /load-json-file/4.0.0:
