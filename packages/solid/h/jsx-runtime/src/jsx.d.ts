@@ -1209,6 +1209,7 @@ export namespace JSX {
     mask?: FunctionMaybe<string>;
     opacity?: FunctionMaybe<number | string | "inherit">;
     overflow?: FunctionMaybe<"visible" | "hidden" | "scroll" | "auto" | "inherit">;
+    pathLength?: FunctionMaybe<string | number>;
     "pointer-events"?: FunctionMaybe<
       | "bounding-box"
       | "visiblePainted"
@@ -1331,6 +1332,7 @@ export namespace JSX {
         | "stroke-dashoffset"
         | "stroke-opacity"
         | "shape-rendering"
+        | "pathLength"
       > {}
   interface TextContentElementSVGAttributes<T>
     extends CoreSVGAttributes<T>,

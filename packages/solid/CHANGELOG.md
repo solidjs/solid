@@ -14,6 +14,13 @@
 - 71c40af: DEV: Minor additions and change the API of dev hooks
 - e245736: Fixed test case for setStore 7 parameter overload by fixing KeyOf giving number for KeyOf<never>
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+## 1.6.15
+
+### Patch Changes
+
+- e8448ebd: fix #1624 early fallback removal, add missing svg pathLength type
+- da83ebda: defer ssr cleanup to next macrotask
+
 ## 1.6.14
 
 ### Patch Changes

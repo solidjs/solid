@@ -13,6 +13,14 @@
 - Updated dependencies [6a4fe46]
   - solid-js@1.7.0-beta.0
   - babel-preset-solid@1.7.0-beta.0
+## 1.6.15
+
+### Patch Changes
+
+- Updated dependencies [e8448ebd]
+- Updated dependencies [da83ebda]
+  - solid-js@1.6.15
+
 ## 1.6.14
 
 ### Patch Changes
