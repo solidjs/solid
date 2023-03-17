@@ -12,6 +12,9 @@ export default defineConfig({
     port: 3000
   },
   test: {
+    coverage: {
+      provider: "istanbul"
+    },
     environment: "jsdom",
     transformMode: { web: [/\.[jt]sx?$/] },
     // otherwise, solid would be loaded twice:

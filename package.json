@@ -31,6 +31,7 @@
     "@rollup/plugin-node-resolve": "^15.0.1",
     "@rollup/plugin-replace": "^5.0.2",
     "@types/node": "^18.11.19",
+    "@vitest/coverage-istanbul": "^0.29.3",
     "babel-plugin-jsx-dom-expressions": "^0.35.19",
     "coveralls": "^3.1.1",
     "csstype": "^3.1.0",
