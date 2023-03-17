@@ -9,12 +9,18 @@
     "test-integration": "1.6.11"
   },
   "changesets": [
+    "brown-pens-hang",
     "cool-olives-drum",
     "green-wolves-kick",
     "grumpy-peaches-protect",
+    "long-cows-flash",
+    "nice-dogs-draw",
+    "nine-turkeys-call",
+    "old-boxes-buy",
+    "proud-cars-join",
     "rare-terms-look",
     "rich-laws-fix",
-    "selfish-dots-marry",
-    "small-horses-impress"
+    "small-horses-impress",
+    "thin-rice-cheer"
   ]
 }

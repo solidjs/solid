@@ -1,5 +1,13 @@
 # babel-preset-solid
 
+## 1.7.0-beta.1
+
+### Minor Changes
+
+- 2b80f706: Reduce DOM compiler output size
+  Remove auxilary closing tags and lazy evaluate templates
+- 74f00e15: Support prop/attr directives in spreads, apply prop aliases only to specific elements
+
 ## 1.7.0-beta.0
 
 ### Minor Changes
@@ -9,6 +17,7 @@
 ### Patch Changes
 
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+
 ## 1.6.13
 
 ### Patch Changes
