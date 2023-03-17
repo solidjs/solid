@@ -14,7 +14,7 @@ export default defineConfig({
   test: {
     coverage: {
       provider: "istanbul",
-      reporter: ["lcov"]
+      reporter: ["text", "lcov"]
     },
     environment: "jsdom",
     transformMode: { web: [/\.[jt]sx?$/] },
