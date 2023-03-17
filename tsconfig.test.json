@@ -9,7 +9,9 @@
     // Necessary due to picocolors using weird export syntax.
     // This can be removed if the following issue gets fixed:
     // https://github.com/alexeyraspopov/picocolors/issues/50
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    // Allows TS to see the Vitest globals
+    "types": ["vitest/globals"]
   },
   "exclude": ["node_modules"]
 }
