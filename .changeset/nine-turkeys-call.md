@@ -3,5 +3,5 @@
 "solid-js": minor
 ---
 
-Add attr/prop namespaces to spreads
 Reduce DOM compiler output size
+Remove auxilary closing tags and lazy evaluate templates
