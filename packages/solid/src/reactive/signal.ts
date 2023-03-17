@@ -1648,7 +1648,7 @@ function cleanNode(node: Owner) {
 
   if (Transition && Transition.running && (node as Memo<any>).pure) {
     if ((node as Memo<any>).tOwned) {
-      for (i = (node as Memo<any>).tOwned!.length; i >= 0; i--)
+      for (i = (node as Memo<any>).tOwned!.length - 1; i >= 0; i--)
         cleanNode((node as Memo<any>).tOwned![i]);
       delete (node as Memo<any>).tOwned;
     }

@@ -139,6 +139,7 @@ Now that [Solid Dev Tools](https://github.com/thetarnav/solid-devtools) have bee
 
 ### Others
 
+- Smaller compiled output, remove auxilary closing tags
 - Support for `prop:` and `attr:` in Spreads
 - Don't apply special props (like `readonly`) to custom elements
 - Improved JSON Serializer
