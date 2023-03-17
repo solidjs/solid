@@ -15,14 +15,8 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ["text", "lcov"],
-      include: [
-        "src/**/*.ts",
-        "store/src/**/*.ts",
-        "web/src/**/*.ts",
-        "!**/*.d.ts",
-        "!src/server/*.ts",
-        "!store/src/**/server.ts"
-      ]
+      include: ["src/**/*.ts", "store/src/**/*.ts", "web/src/**/*.ts"],
+      exclude: ["**/*.d.ts", "src/server/*.ts", "store/src/**/server.ts"]
     },
     environment: "jsdom",
     transformMode: { web: [/\.[jt]sx?$/] },
