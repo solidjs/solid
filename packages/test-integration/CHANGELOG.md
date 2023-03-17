@@ -1,5 +1,13 @@
 # test-integration
 
+## 1.6.15
+
+### Patch Changes
+
+- Updated dependencies [e8448ebd]
+- Updated dependencies [da83ebda]
+  - solid-js@1.6.15
+
 ## 1.6.14
 
 ### Patch Changes

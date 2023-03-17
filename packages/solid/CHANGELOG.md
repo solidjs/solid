@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.6.15
+
+### Patch Changes
+
+- e8448ebd: fix #1624 early fallback removal, add missing svg pathLength type
+- da83ebda: defer ssr cleanup to next macrotask
+
 ## 1.6.14
 
 ### Patch Changes
