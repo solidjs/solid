@@ -14,7 +14,15 @@ export default defineConfig({
   test: {
     coverage: {
       provider: "istanbul",
-      reporter: ["text", "lcov"]
+      reporter: ["text", "lcov"],
+      include: [
+        "src/**/*.ts",
+        "store/src/**/*.ts",
+        "web/src/**/*.ts",
+        "!**/*.d.ts",
+        "!src/server/*.ts",
+        "!store/src/**/server.ts"
+      ]
     },
     environment: "jsdom",
     transformMode: { web: [/\.[jt]sx?$/] },
@@ -29,10 +37,10 @@ export default defineConfig({
   resolve: {
     conditions: ["development", "browser"],
     alias: {
-      rxcore: [resolve(rootDir, "packages/solid/web/src/core")],
-      "solid-js/jsx-runtime": [resolve(rootDir, "packages/solid/src/jsx")],
-      "solid-js/web": [resolve(rootDir, "packages/solid/web/src")],
-      "solid-js": [resolve(rootDir, "packages/solid/src")]
+      rxcore: [resolve(rootDir, "../../packages/solid/web/src/core")],
+      "solid-js/jsx-runtime": [resolve(rootDir, "../../packages/solid/src/jsx")],
+      "solid-js/web": [resolve(rootDir, "../../packages/solid/web/src")],
+      "solid-js": [resolve(rootDir, "../../packages/solid/src")]
     }
   }
 });
