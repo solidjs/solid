@@ -92,7 +92,9 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
     } else {
       const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
         renderRoot =
-          useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
+          useShadow && container.attachShadow
+            ? container.attachShadow({ mode: "open" })
+            : container;
 
       Object.defineProperty(container, "_$host", {
         get() {
@@ -105,7 +107,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
       (props as any).ref && (props as any).ref(container);
       onCleanup(() => el.removeChild(container));
     }
-  })
+  });
   return marker;
 }
 
@@ -123,18 +125,32 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
-  const cached = createMemo<Function | string>(() => p.component);
+  return DynamicComponent(() => p.component, others);
+}
+
+/**
+ * renders an arbitrary custom or native component with props
+ * ```typescript
+ * let Link = DynamicComponent('a', {href:'https://www.solidjs.com/'})
+ * ```
+ * @description https://www.solidjs.com/docs/latest/api#dynamiccomponent
+ */
+export function DynamicComponent<T extends ValidComponent>(
+  theComponent: Function | string,
+  props: DynamicProps<T>
+): Accessor<JSX.Element> {
+  const cached = createMemo<Function | string>(() => theComponent);
   return createMemo(() => {
     const component = cached();
     switch (typeof component) {
       case "function":
         if ("_DX_DEV_") Object.assign(component, { [$DEVCOMP]: true });
-        return untrack(() => component(others));
+        return untrack(() => component(props));
 
       case "string":
         const isSvg = SVGElements.has(component);
         const el = sharedConfig.context ? getNextElement() : createElement(component, isSvg);
-        spread(el, others, isSvg);
+        spread(el, props, isSvg);
         return el;
 
       default:
