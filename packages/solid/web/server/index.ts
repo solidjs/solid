@@ -33,11 +33,10 @@ export function Dynamic<T>(
 }
 
 export function DynamicComponent<T>(
-  theComponent: Component<T> | string | keyof JSX.IntrinsicElements,
+  comp: Component<T> | string | keyof JSX.IntrinsicElements,
   props: T & { children?: any }
 ) {
-  const comp = theComponent,
-    t = typeof comp;
+  const t = typeof comp;
 
   if (comp) {
     if (t === "function") return (comp as Function)(props);
