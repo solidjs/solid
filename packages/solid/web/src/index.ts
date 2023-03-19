@@ -136,10 +136,10 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Acces
  * @description https://www.solidjs.com/docs/latest/api#dynamiccomponent
  */
 export function DynamicComponent<T extends ValidComponent>(
-  theComponent: Function | string,
+  comp: Function | string,
   props: DynamicProps<T>
 ): Accessor<JSX.Element> {
-  const cached = createMemo<Function | string>(() => theComponent);
+  const cached = createMemo<Function | string>(typeof comp === "function" ? comp : () => comp);
   return createMemo(() => {
     const component = cached();
     switch (typeof component) {
