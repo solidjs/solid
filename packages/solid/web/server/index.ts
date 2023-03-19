@@ -29,13 +29,20 @@ export function Dynamic<T>(
   props: T & { children?: any; component?: Component<T> | string | keyof JSX.IntrinsicElements }
 ) {
   const [p, others] = splitProps(props, ["component"]);
-  const comp = p.component,
+  return DynamicComponent(() => p.component, others);
+}
+
+export function DynamicComponent<T>(
+  theComponent: Component<T> | string | keyof JSX.IntrinsicElements,
+  props: T & { children?: any }
+) {
+  const comp = theComponent,
     t = typeof comp;
 
   if (comp) {
-    if (t === "function") return (comp as Function)(others);
+    if (t === "function") return (comp as Function)(props);
     else if (t === "string") {
-      return ssrElement(comp as string, others, undefined, true);
+      return ssrElement(comp as string, props, undefined, true);
     }
   }
 }
