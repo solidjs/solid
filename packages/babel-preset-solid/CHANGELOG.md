@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.0-beta.2
+
+### Minor Changes
+
+- 940e5745: change to seroval serializer, better ssr fragment fixes
+
 ## 1.7.0-beta.1
 
 ### Minor Changes
