@@ -17,22 +17,23 @@ importers:
       '@types/jest': ^28.1.6
       '@types/node': ^18.11.19
       babel-jest: ^28.1.3
-      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.3
+      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.4
       coveralls: ^3.1.1
       csstype: ^3.1.0
-      dom-expressions: 0.36.0-beta.3
+      dom-expressions: 0.36.0-beta.5
       fast-glob: ^3.2.11
-      hyper-dom-expressions: 0.36.0-beta.3
+      hyper-dom-expressions: 0.36.0-beta.5
       jest: ^28.1.3
       jest-environment-jsdom: ^28.1.3
       jest-ts-webcompat-resolver: ^1.0.0
-      lit-dom-expressions: 0.36.0-beta.3
+      lit-dom-expressions: 0.36.0-beta.5
       ncp: ^2.0.0
       npm-run-all: ^4.1.5
       rimraf: ^3.0.2
       rollup: ^3.7.5
       rollup-plugin-cleanup: ^3.2.1
       rollup-plugin-copy: ^3.4.0
+      seroval: ^0.5.0
       solid-jest: ^0.2.0
       symlink-dir: ^5.0.1
       tsconfig-replace-paths: ^0.0.11
@@ -52,22 +53,23 @@ importers:
       '@types/jest': 28.1.6
       '@types/node': 18.11.19
       babel-jest: 28.1.3_@babel+core@7.20.12
-      babel-plugin-jsx-dom-expressions: 0.36.0-beta.3_@babel+core@7.20.12
+      babel-plugin-jsx-dom-expressions: 0.36.0-beta.4_@babel+core@7.20.12
       coveralls: 3.1.1
       csstype: 3.1.0
-      dom-expressions: 0.36.0-beta.3_csstype@3.1.0
+      dom-expressions: 0.36.0-beta.5_nej2xzkmkt6dvz7wu4g663hnr4
       fast-glob: 3.2.11
-      hyper-dom-expressions: 0.36.0-beta.3
+      hyper-dom-expressions: 0.36.0-beta.5
       jest: 28.1.3_@types+node@18.11.19
       jest-environment-jsdom: 28.1.3
       jest-ts-webcompat-resolver: 1.0.0
-      lit-dom-expressions: 0.36.0-beta.3
+      lit-dom-expressions: 0.36.0-beta.5
       ncp: 2.0.0
       npm-run-all: 4.1.5
       rimraf: 3.0.2
       rollup: 3.7.5
       rollup-plugin-cleanup: 3.2.1_rollup@3.7.5
       rollup-plugin-copy: 3.4.0
+      seroval: 0.5.0
       solid-jest: 0.2.0_@babel+core@7.20.12
       symlink-dir: 5.0.1
       tsconfig-replace-paths: 0.0.11
@@ -76,15 +78,17 @@ importers:
 
   packages/babel-preset-solid:
     specifiers:
-      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.3
+      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.4
     dependencies:
-      babel-plugin-jsx-dom-expressions: 0.36.0-beta.3
+      babel-plugin-jsx-dom-expressions: 0.36.0-beta.4
 
   packages/solid:
     specifiers:
       csstype: ^3.1.0
+      seroval: ^0.5.0
     dependencies:
       csstype: 3.1.0
+      seroval: 0.5.0
 
   packages/solid-element:
     specifiers:
@@ -2636,8 +2640,8 @@ packages:
       '@types/babel__traverse': 7.17.1
     dev: true
 
-  /babel-plugin-jsx-dom-expressions/0.36.0-beta.3:
-    resolution: {integrity: sha512-MnCBmXZ5PunWC+UHVDg61aJiJEkugWnB0oZ496XeUkLXfRxJkKLelUUp9QOqFFSq4Qao9tdvbC/kaYRMIgUaaw==}
+  /babel-plugin-jsx-dom-expressions/0.36.0-beta.4:
+    resolution: {integrity: sha512-zqTUD4zjpy69ONXpSsLHL0gn1EwdUw8k3FFoj860ETyaopWx570KSeRcVNGGi6WW2JuI0AOMJ8YrPVCG30BvoA==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -2648,8 +2652,8 @@ packages:
       validate-html-nesting: 1.2.1
     dev: false
 
-  /babel-plugin-jsx-dom-expressions/0.36.0-beta.3_@babel+core@7.20.12:
-    resolution: {integrity: sha512-MnCBmXZ5PunWC+UHVDg61aJiJEkugWnB0oZ496XeUkLXfRxJkKLelUUp9QOqFFSq4Qao9tdvbC/kaYRMIgUaaw==}
+  /babel-plugin-jsx-dom-expressions/0.36.0-beta.4_@babel+core@7.20.12:
+    resolution: {integrity: sha512-zqTUD4zjpy69ONXpSsLHL0gn1EwdUw8k3FFoj860ETyaopWx570KSeRcVNGGi6WW2JuI0AOMJ8YrPVCG30BvoA==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -3270,10 +3274,6 @@ packages:
     engines: {node: '>=8'}
     dev: true
 
-  /devalue/4.2.1:
-    resolution: {integrity: sha512-YBJUuWIDFor9zhRQJguMjvzBC4cUjZXgebcmCQO/Va4RLQ1b33+JKXJapOyuaHGW8Y986ygKyXQvR3LlOonLow==}
-    dev: true
-
   /diff-sequences/28.1.1:
     resolution: {integrity: sha512-FU0iFaH/E23a+a718l8Qa/19bF9p06kgE0KipMOMadwa3SjnaElKzPaUC0vnibs6/B/9ni97s61mcejk8W1fQw==}
     engines: {node: ^12.13.0 || ^14.15.0 || ^16.10.0 || >=17.0.0}
@@ -3286,14 +3286,15 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions/0.36.0-beta.3_csstype@3.1.0:
-    resolution: {integrity: sha512-EXNFy5yiVFDdfTV4/PKDtyn8yoSIx5/koks1VkNk1j3eyg2hVHOKvNisYVMc7D28FXHFFFrdnumLAY/Sk4tUng==}
+  /dom-expressions/0.36.0-beta.5_nej2xzkmkt6dvz7wu4g663hnr4:
+    resolution: {integrity: sha512-y+VRwfDvilqasRfzC0GxJbse79ZeKAHOFR/VqDwCy+kayW8InecgAuGPF9HWQ//q4Mq+uZKE762HiYpwZwy1sw==}
     peerDependencies:
       csstype: ^3.0
+      seroval: ^0.5.0
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.0
-      devalue: 4.2.1
+      seroval: 0.5.0
     dev: true
 
   /domexception/4.0.0:
@@ -4051,8 +4052,8 @@ packages:
     engines: {node: '>=10.17.0'}
     dev: true
 
-  /hyper-dom-expressions/0.36.0-beta.3:
-    resolution: {integrity: sha512-QQAchXlQlPgQD8ch1k9/t5fUgLDEx5wm2X2ZcDcEp9OR3UpXPu7HR6zfFXcE4iYjhripJAtNu6NYG+E9ZzFWlg==}
+  /hyper-dom-expressions/0.36.0-beta.5:
+    resolution: {integrity: sha512-DrH2Gn9yGCHfxtpCgVSnoQYei/6E80Ad52DMOKV6RvqW2zEV/Pethsn8/guDUTFEY7wMI1XCnc8Xsf8tclBMLg==}
     dev: true
 
   /iconv-lite/0.4.24:
@@ -5010,8 +5011,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions/0.36.0-beta.3:
-    resolution: {integrity: sha512-UTh5SuFWMxG4ceN8xgwi/JfxaUg//0ItA9HZyjPOOmW5qxsHh4RwzMjAcsyVh8WklRYT1VgjQHd7GGw9OmuiaQ==}
+  /lit-dom-expressions/0.36.0-beta.5:
+    resolution: {integrity: sha512-oPC1RddGyHsWL2RATaxq+HefPO2rmuq0z2WHfG3BG0kL5w6clMlZ0msI6zA5qfFUWzovByj+8E7PdshTmfHlsA==}
     dev: true
 
   /load-json-file/4.0.0:
@@ -6012,6 +6013,10 @@ packages:
     transitivePeerDependencies:
       - supports-color
     dev: true
+
+  /seroval/0.5.0:
+    resolution: {integrity: sha512-HhHyJhaNP78446cuyUEVVhrJMM9L/c1U83VxJofRiHvyBcqOwMBMlRNG+fTEx7k1BCjH81UoAFcbkzvgmRA6CQ==}
+    engines: {node: '>=10'}
 
   /serve-static/1.15.0:
     resolution: {integrity: sha512-XGuRDNjXUijsUL0vl6nSD7cwURuzEgglbOaFuZM9g3kwDXOWVTck0jLzjPzGD+TazWbboZYu52/9/XPdUgne9g==}

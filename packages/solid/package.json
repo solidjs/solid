@@ -280,6 +280,7 @@
     "performance"
   ],
   "dependencies": {
-    "csstype": "^3.1.0"
+    "csstype": "^3.1.0",
+    "seroval": "^0.5.0"
   }
 }
