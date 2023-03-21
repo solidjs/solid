@@ -142,7 +142,8 @@ Now that [Solid Dev Tools](https://github.com/thetarnav/solid-devtools) have bee
 - Smaller compiled output, remove auxilary closing tags
 - Support for `prop:` and `attr:` in Spreads
 - Don't apply special props (like `readonly`) to custom elements
-- Improved JSON Serializer
+- Introduced improved serializer, [seroval](https://github.com/lxsmnsyc/seroval)
+- Fixed quirks in Solid's treeshaking in Rollup
 
 ## 1.6.0 - 2022-10-20
 

@@ -1,4 +1,4 @@
-export type HydrationContext = { id: string; count: number; };
+export type HydrationContext = { id: string; count: number };
 
 type SharedConfig = {
   context?: HydrationContext;
@@ -9,7 +9,7 @@ type SharedConfig = {
   done?: boolean;
 };
 
-export const sharedConfig: SharedConfig = {};
+export const sharedConfig: SharedConfig = { context: undefined, registry: undefined };
 
 export function setHydrateContext(context?: HydrationContext): void {
   sharedConfig.context = context;
