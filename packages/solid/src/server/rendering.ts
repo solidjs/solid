@@ -282,7 +282,7 @@ export function ErrorBoundary(props: {
   });
   if (error) return displayFallback();
   sync = false;
-  return { t: `<!e${id}>${resolveSSRNode(res)}<!/e${id}>` };
+  return { t: `<!!$e${id}>${resolveSSRNode(res)}<!!$/e${id}>` };
 }
 
 // Suspense Context

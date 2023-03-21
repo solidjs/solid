@@ -17,16 +17,16 @@ importers:
       '@types/jest': ^28.1.6
       '@types/node': ^18.11.19
       babel-jest: ^28.1.3
-      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.4
+      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.6
       coveralls: ^3.1.1
       csstype: ^3.1.0
-      dom-expressions: 0.36.0-beta.5
+      dom-expressions: 0.36.0-beta.6
       fast-glob: ^3.2.11
-      hyper-dom-expressions: 0.36.0-beta.5
+      hyper-dom-expressions: 0.36.0-beta.6
       jest: ^28.1.3
       jest-environment-jsdom: ^28.1.3
       jest-ts-webcompat-resolver: ^1.0.0
-      lit-dom-expressions: 0.36.0-beta.5
+      lit-dom-expressions: 0.36.0-beta.6
       ncp: ^2.0.0
       npm-run-all: ^4.1.5
       rimraf: ^3.0.2
@@ -53,16 +53,16 @@ importers:
       '@types/jest': 28.1.6
       '@types/node': 18.11.19
       babel-jest: 28.1.3_@babel+core@7.20.12
-      babel-plugin-jsx-dom-expressions: 0.36.0-beta.4_@babel+core@7.20.12
+      babel-plugin-jsx-dom-expressions: 0.36.0-beta.6_@babel+core@7.20.12
       coveralls: 3.1.1
       csstype: 3.1.0
-      dom-expressions: 0.36.0-beta.5_nej2xzkmkt6dvz7wu4g663hnr4
+      dom-expressions: 0.36.0-beta.6_nej2xzkmkt6dvz7wu4g663hnr4
       fast-glob: 3.2.11
-      hyper-dom-expressions: 0.36.0-beta.5
+      hyper-dom-expressions: 0.36.0-beta.6
       jest: 28.1.3_@types+node@18.11.19
       jest-environment-jsdom: 28.1.3
       jest-ts-webcompat-resolver: 1.0.0
-      lit-dom-expressions: 0.36.0-beta.5
+      lit-dom-expressions: 0.36.0-beta.6
       ncp: 2.0.0
       npm-run-all: 4.1.5
       rimraf: 3.0.2
@@ -78,9 +78,9 @@ importers:
 
   packages/babel-preset-solid:
     specifiers:
-      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.4
+      babel-plugin-jsx-dom-expressions: ^0.36.0-beta.6
     dependencies:
-      babel-plugin-jsx-dom-expressions: 0.36.0-beta.4
+      babel-plugin-jsx-dom-expressions: 0.36.0-beta.6
 
   packages/solid:
     specifiers:
@@ -2640,8 +2640,8 @@ packages:
       '@types/babel__traverse': 7.17.1
     dev: true
 
-  /babel-plugin-jsx-dom-expressions/0.36.0-beta.4:
-    resolution: {integrity: sha512-zqTUD4zjpy69ONXpSsLHL0gn1EwdUw8k3FFoj860ETyaopWx570KSeRcVNGGi6WW2JuI0AOMJ8YrPVCG30BvoA==}
+  /babel-plugin-jsx-dom-expressions/0.36.0-beta.6:
+    resolution: {integrity: sha512-77V25mzfMTnV+eMqz12WPp38I20s1wxz++XV9CWe8HbLulWMIq+ws15Ol+Ehfb+SR8A38zMKL0HLAqfRVnVV1w==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -2652,8 +2652,8 @@ packages:
       validate-html-nesting: 1.2.1
     dev: false
 
-  /babel-plugin-jsx-dom-expressions/0.36.0-beta.4_@babel+core@7.20.12:
-    resolution: {integrity: sha512-zqTUD4zjpy69ONXpSsLHL0gn1EwdUw8k3FFoj860ETyaopWx570KSeRcVNGGi6WW2JuI0AOMJ8YrPVCG30BvoA==}
+  /babel-plugin-jsx-dom-expressions/0.36.0-beta.6_@babel+core@7.20.12:
+    resolution: {integrity: sha512-77V25mzfMTnV+eMqz12WPp38I20s1wxz++XV9CWe8HbLulWMIq+ws15Ol+Ehfb+SR8A38zMKL0HLAqfRVnVV1w==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -3286,8 +3286,8 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions/0.36.0-beta.5_nej2xzkmkt6dvz7wu4g663hnr4:
-    resolution: {integrity: sha512-y+VRwfDvilqasRfzC0GxJbse79ZeKAHOFR/VqDwCy+kayW8InecgAuGPF9HWQ//q4Mq+uZKE762HiYpwZwy1sw==}
+  /dom-expressions/0.36.0-beta.6_nej2xzkmkt6dvz7wu4g663hnr4:
+    resolution: {integrity: sha512-HqpGIYEw9i9B5jubShQkYeVMabh74aq6LfyRqSXCXnHz0e7n2sr0ntNOPLSe+AvZ+ywwP3gghyBVqWq1zfX5ng==}
     peerDependencies:
       csstype: ^3.0
       seroval: ^0.5.0
@@ -4052,8 +4052,8 @@ packages:
     engines: {node: '>=10.17.0'}
     dev: true
 
-  /hyper-dom-expressions/0.36.0-beta.5:
-    resolution: {integrity: sha512-DrH2Gn9yGCHfxtpCgVSnoQYei/6E80Ad52DMOKV6RvqW2zEV/Pethsn8/guDUTFEY7wMI1XCnc8Xsf8tclBMLg==}
+  /hyper-dom-expressions/0.36.0-beta.6:
+    resolution: {integrity: sha512-VJVyBqKkytf+IdJAus4G1yBbeqIYDwO1pItcDIMgj3RWHICuN+ykKFlMOW3RUwAMcCu8gxGAxg/btJLKxi8C1w==}
     dev: true
 
   /iconv-lite/0.4.24:
@@ -5011,8 +5011,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions/0.36.0-beta.5:
-    resolution: {integrity: sha512-oPC1RddGyHsWL2RATaxq+HefPO2rmuq0z2WHfG3BG0kL5w6clMlZ0msI6zA5qfFUWzovByj+8E7PdshTmfHlsA==}
+  /lit-dom-expressions/0.36.0-beta.6:
+    resolution: {integrity: sha512-0qcbrVFYGfJ7YGp9VtLMABE565NhXQPiYoVEYOCDBtNhevIRWUuFlyfK5rZnXOAQyl6B40w2FggulupP15rqaQ==}
     dev: true
 
   /load-json-file/4.0.0:
