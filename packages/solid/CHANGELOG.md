@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.7.0-beta.3
+
+### Patch Changes
+
+- 41ca6522: fixes around templates and hydration
+
 ## 1.7.0-beta.2
 
 ### Minor Changes
