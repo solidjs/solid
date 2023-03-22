@@ -33,6 +33,13 @@ The main difference is the callback form instead of passing in the value as it d
 
 Keep in mind because we are non-null asserting the input signal using it in closures that execute when the condition is no longer satisfied can receive null values. There is no good solution for this. Luckily this only applies to things like timers which you should be cleaning up anyway and not things like event handlers. We recommend using the original source in those closures if you must, and will warn in development if you attempt to use it that way.
 
+#### Better Event Types for Input Elements
+
+This has irked people for a while but we come by it honestly, `target` is gives you a type of `Element` rather than the specific element that is the target. That means no access to `.value` or `.checked`. The reason is there is no way to know at compile time what the target of an event will be. The `currentTarget` will be the element you attach the event to but the target can be anything.
+
+There is a way to work around this though, in that if we know the `currentTarget` is of type that generates the event and that the `currentTarget` is the the type of this element we can assume it is the `target` as well. Not perfect logic but it is what React does and we do too.
+
+Now `onInput`, `onChange`, `onBlur`, `onFocus`, `onFocusIn`, and `onFocusOut` all support more detailed `target` when applied to `HTMLInputElement`, `HTMLTextAreaElement`, and `HTMLSelectElement`.
 #### Stricter JSX Elements
 
 Strict JSX elements have been tricky because we have to acknowledge at a certain point that TypeScript is to serve our purposes rather than to represent all possible values that could work. For us the ambiguity lies in functions.
@@ -108,6 +115,8 @@ function MyFor<T, U extends JSX.Element>(props: { each: T[],  children: (item: T
 <MyFor each={users}>{(user) => <div>{user.name}</div>}</MyFor>
 <MyFor each={users()}><div>Not a Function</div></MyFor>
 ```
+
+The tradeoff here is that authoring components you can no longer just return a Signal or Memo without casting. If using JSX you can always return a Fragment. If not you will need to cast to `unknown as JSX.Element`.
 
 ### Better Errors and Cleanup
 
