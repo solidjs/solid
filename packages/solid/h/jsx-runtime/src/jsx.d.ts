@@ -763,6 +763,7 @@ export namespace JSX {
     src?: FunctionMaybe<string>;
     srcdoc?: FunctionMaybe<string>;
     width?: FunctionMaybe<number | string>;
+    loading?: FunctionMaybe<"eager" | "lazy">;
     referrerPolicy?: FunctionMaybe<HTMLReferrerPolicy>;
   }
   interface ImgHTMLAttributes<T> extends HTMLAttributes<T> {
