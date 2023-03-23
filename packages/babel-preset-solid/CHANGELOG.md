@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.0-beta.4
+
+### Patch Changes
+
+- 3de9432c: Better Input Event Types, Template Pruning, Universal Renderer Fixes
+
 ## 1.7.0-beta.3
 
 ### Patch Changes

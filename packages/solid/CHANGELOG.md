@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.7.0-beta.4
+
+### Patch Changes
+
+- cb6a383d: ensure narrowed values are non-null
+- 3de9432c: Better Input Event Types, Template Pruning, Universal Renderer Fixes
+- 2cb6f3d6: fix treeshaking in rollup 3
+- 23c157ac: fix backward compatibility of template, fix #1639 loading on iframe
+
 ## 1.7.0-beta.3
 
 ### Patch Changes
