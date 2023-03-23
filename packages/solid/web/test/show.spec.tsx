@@ -194,7 +194,7 @@ describe("Testing keyed function show control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Show when={count()} keyed>
-        {(count) => (
+        {count => (
           <>
             <span>{count}</span>
             <span>{executed++}</span>
@@ -272,7 +272,7 @@ describe("Testing an only child show control flow with non-keyed function", () =
   const Component = () => (
     <div ref={div}>
       <Show when={data()}>
-        {(data) => (
+        {data => (
           <>
             <span>{data().count}</span>
             <span>counted</span>

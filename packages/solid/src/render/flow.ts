@@ -121,11 +121,9 @@ export function Show<T>(props: {
               (child as any)(
                 keyed
                   ? (c as T)
-                  : () => {
-                      if ("_SOLID_DEV_" && !untrack(condition))
-                        console.warn("Accessing stale value from Show.");
-                      return props.when;
-                    }
+                  : createMemo(
+                      p => (condition() ? props.when : p) as T
+                    )
               )
             )
           : child;
@@ -185,11 +183,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
             (c as any)(
               keyed
                 ? when
-                : () => {
-                    if ("_SOLID_DEV_" && untrack(evalConditions)[0] !== index)
-                      console.warn("Accessing stale value from Match.");
-                    return cond!.when;
-                  }
+                : createMemo(p => (evalConditions()[0] === index ? cond!.when : p))
             )
           )
         : c;

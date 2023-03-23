@@ -1,4 +1,4 @@
-/** 
+/**
  * @jsxImportSource solid-js
  * @jest-environment jsdom
  */
@@ -90,9 +90,15 @@ describe("Testing keyed Switch control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Switch fallback={"fallback"}>
-        <Match when={a()} keyed>{a()}</Match>
-        <Match when={b()} keyed>{b()}</Match>
-        <Match when={c()} keyed>{c()}</Match>
+        <Match when={a()} keyed>
+          {a()}
+        </Match>
+        <Match when={b()} keyed>
+          {b()}
+        </Match>
+        <Match when={c()} keyed>
+          {c()}
+        </Match>
       </Switch>
     </div>
   );
@@ -128,9 +134,15 @@ describe("Testing keyed function handler Switch control flow", () => {
   const Component = () => (
     <div ref={div}>
       <Switch fallback={"fallback"}>
-        <Match when={a()} keyed>{a => a}</Match>
-        <Match when={b()} keyed>{b => b}</Match>
-        <Match when={c()} keyed>{c => c}</Match>
+        <Match when={a()} keyed>
+          {a => a}
+        </Match>
+        <Match when={b()} keyed>
+          {b => b}
+        </Match>
+        <Match when={c()} keyed>
+          {c => c}
+        </Match>
       </Switch>
     </div>
   );
@@ -191,6 +203,46 @@ describe("Testing non-keyed function handler Switch control flow", () => {
     expect(div.innerHTML).toBe("3");
     setA(0);
     expect(div.innerHTML).toBe("2");
+  });
+
+  test("dispose", () => disposer());
+});
+
+describe("Testing non-keyed function handler Switch control flow with dangling callback", () => {
+  let div: HTMLDivElement, disposer: () => void;
+  const [a, setA] = createSignal(0),
+    [b] = createSignal(2);
+  let callback: () => void;
+  let delayed: number;
+  const Component = () => (
+    <div ref={div}>
+      <Switch fallback={"fallback"}>
+        <Match when={a()}>{a => <>{a()}</>}</Match>
+        <Match when={b()}>
+          {b => {
+            setTimeout(() => {
+              delayed = b();
+              callback();
+            }, 0);
+            return <>{b()}</>;
+          }}
+        </Match>
+      </Switch>
+    </div>
+  );
+
+  test("Create Switch control flow", c => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+    setA(1);
+
+    expect(div.innerHTML).toBe("1");
+    callback = () => {
+      expect(delayed).toBe(2);
+      c()
+    }
   });
 
   test("dispose", () => disposer());
