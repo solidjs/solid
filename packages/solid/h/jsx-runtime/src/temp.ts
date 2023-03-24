@@ -16,9 +16,6 @@ interface GlobalInputHTMLAttributes<T> extends HTMLAttributes<T> {
   value?: FunctionMaybe<string | string[] | number>;
   crossOrigin?: FunctionMaybe<HTMLCrossorigin>;
 }
-
-type HTMLFormTargetType = "_self" | "_blank" | "_parent" | "_top" | string;
-
 type ConditionalInputHTMLAttributeTypes = {
   accept?: FunctionMaybe<string>;
   alt?: FunctionMaybe<string>;
@@ -29,7 +26,7 @@ type ConditionalInputHTMLAttributeTypes = {
   formenctype?: FunctionMaybe<HTMLFormEncType>;
   formmethod?: FunctionMaybe<HTMLFormMethod>;
   formnovalidate?: FunctionMaybe<boolean>;
-  formtarget?: FunctionMaybe<HTMLFormTargetType>;
+  formtarget?: FunctionMaybe<string>;
   height?: FunctionMaybe<number | string>;
   list?: FunctionMaybe<string>;
   max?: FunctionMaybe<number | string>;
@@ -56,7 +53,6 @@ type ConditionalInputHTMLAttributeTypes = {
   minLength?: FunctionMaybe<number | string>;
   readOnly?: FunctionMaybe<boolean>;
 };
-
 // TODO
 type NonStandardInputTypes = {
   autocapitalize?: "none" | "sentences" | "words" | "characters" | undefined; // Safari only
@@ -68,7 +64,6 @@ type NonStandardInputTypes = {
 };
 
 type HiddenInput = { type: "hidden" } & Pick<ConditionalInputHTMLAttributeTypes, "autocomplete">;
-
 type TextInput = { type: "text" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "autocomplete"
@@ -82,7 +77,6 @@ type TextInput = { type: "text" } & Pick<
   | "required"
   | "size"
 >;
-
 type SearchInput = { type: "search" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "autocomplete"
@@ -96,7 +90,6 @@ type SearchInput = { type: "search" } & Pick<
   | "required"
   | "size"
 >;
-
 type UrlInput = { type: "url" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "autocomplete"
@@ -109,7 +102,6 @@ type UrlInput = { type: "url" } & Pick<
   | "required"
   | "size"
 >;
-
 type TelephoneInput = { type: "tel" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "autocomplete"
@@ -122,7 +114,6 @@ type TelephoneInput = { type: "tel" } & Pick<
   | "required"
   | "size"
 >;
-
 type EmailInput = { type: "email" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "autocomplete"
@@ -136,7 +127,6 @@ type EmailInput = { type: "email" } & Pick<
   | "required"
   | "size"
 >;
-
 type PasswordInput = { type: "password" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "autocomplete"
@@ -148,62 +138,50 @@ type PasswordInput = { type: "password" } & Pick<
   | "required"
   | "size"
 >;
-
 type DateInput = { type: "date" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
 >;
-
 type MonthInput = { type: "month" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
 >;
-
 type WeekInput = { type: "week" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
 >;
-
 type TimeInput = { type: "time" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
 >;
-
 type DatetimeLocalInput = { type: "datetime-local" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
 >;
-
 type NumberInput = { type: "number" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list" | "max" | "min" | "placeholder" | "readonly" | "required" | "step"
 >;
-
 type RangeInput = { type: "range" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list" | "max" | "min" | "step"
 >;
-
 type ColorInput = { type: "color" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "autocomplete" | "list"
 >;
-
 type CheckboxInput = { type: "checkbox" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "checked" | "required"
 >;
-
 type RadioButtonInput = { type: "radio" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "checked" | "required"
 >;
-
 type FileUploadInput = { type: "file" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "accept" | "multiple" | "required"
 >;
-
 type SubmitButtonInput = { type: "submit" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "formaction"
@@ -214,7 +192,6 @@ type SubmitButtonInput = { type: "submit" } & Pick<
   | "popovertarget"
   | "popovertargetaction"
 >;
-
 type ImageButtonInput = { type: "image" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "alt"
@@ -229,17 +206,14 @@ type ImageButtonInput = { type: "image" } & Pick<
   | "src"
   | "width"
 >;
-
 type ResetButtonInput = { type: "reset" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "popovertarget" | "popovertargetaction"
 >;
-
-interface ButtonInput
-  extends Pick<ConditionalInputHTMLAttributeTypes, "popovertarget" | "popovertargetaction"> {
-  type: "button";
-}
-
+type ButtonInput = { type: "button" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "popovertarget" | "popovertargetaction"
+>;
 type ConditionalInputHTMLAttributes =
   | HiddenInput
   | TextInput
@@ -263,5 +237,4 @@ type ConditionalInputHTMLAttributes =
   | ImageButtonInput
   | ResetButtonInput
   | ButtonInput;
-
 type InputHTMLAttributes<T> = GlobalInputHTMLAttributes<T> & ConditionalInputHTMLAttributes;
