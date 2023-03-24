@@ -40,6 +40,8 @@ type ConditionalInputHTMLAttributeTypes = {
   multiple?: FunctionMaybe<boolean>;
   pattern?: FunctionMaybe<string>;
   placeholder?: FunctionMaybe<string>;
+  popovertarget?: FunctionMaybe<string>;
+  popovertargetaction?: FunctionMaybe<string>;
   readonly?: FunctionMaybe<boolean>;
   required?: FunctionMaybe<boolean>;
   size?: FunctionMaybe<number | string>;
@@ -81,6 +83,159 @@ type TextInput = { type: "text" } & Pick<
   | "size"
 >;
 
-type TestType = HiddenInput | TextInput;
+type SearchInput = { type: "search" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  | "autocomplete"
+  | "dirname"
+  | "list"
+  | "maxlength"
+  | "minlength"
+  | "pattern"
+  | "placeholder"
+  | "readonly"
+  | "required"
+  | "size"
+>;
 
-type InputHTMLAttributes<T> = HTMLAttributes<T> & TestType;
+type UrlInput = { type: "url" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  | "autocomplete"
+  | "list"
+  | "maxlength"
+  | "minlength"
+  | "pattern"
+  | "placeholder"
+  | "readonly"
+  | "required"
+  | "size"
+>;
+
+type TelInput = { type: "tel" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  | "autocomplete"
+  | "list"
+  | "maxlength"
+  | "minlength"
+  | "pattern"
+  | "placeholder"
+  | "readonly"
+  | "required"
+  | "size"
+>;
+
+type EmailInput = { type: "email" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  | "autocomplete"
+  | "list"
+  | "maxlength"
+  | "minlength"
+  | "multiple"
+  | "pattern"
+  | "placeholder"
+  | "readonly"
+  | "required"
+  | "size"
+>;
+
+type PasswordInput = { type: "password" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  | "autocomplete"
+  | "maxlength"
+  | "minlength"
+  | "pattern"
+  | "placeholder"
+  | "readonly"
+  | "required"
+  | "size"
+>;
+
+type DateInput = { type: "date" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
+>;
+
+type MonthInput = { type: "month" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
+>;
+
+type WeekInput = { type: "week" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
+>;
+
+type TimeInput = { type: "time" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
+>;
+
+type DatetimeLocalInput = { type: "datetime-local" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
+>;
+
+type NumberInput = { type: "number" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list" | "max" | "min" | "placeholder" | "readonly" | "required" | "step"
+>;
+
+type RangeInput = { type: "range" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list" | "max" | "min" | "step"
+>;
+
+type ColorInput = { type: "color" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "autocomplete" | "list"
+>;
+
+type CheckboxInput = { type: "checkbox" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "checked" | "required"
+>;
+
+type RadioButtonInput = { type: "radio" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "checked" | "required"
+>;
+
+type FileUploadInput = { type: "file" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "accept" | "multiple" | "required"
+>;
+
+type SubmitButtonInput = { type: "submit" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  | "formaction"
+  | "formenctype"
+  | "formmethod"
+  | "formnovalidate"
+  | "formtarget"
+  | "popovertarget"
+  | "popovertargetaction"
+>;
+
+type ImageButtonInput = { type: "image" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  | "alt"
+  | "formaction"
+  | "formenctype"
+  | "formmethod"
+  | "formnovalidate"
+  | "formtarget"
+  | "height"
+  | "popovertarget"
+  | "popovertargetaction"
+  | "src"
+  | "width"
+>;
+
+type ResetButtonInput = { type: "reset" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "popovertarget" | "popovertargetaction"
+>;
+
+type ButtonInput = { type: "button" } & Pick<
+  ConditionalInputHTMLAttributeTypes,
+  "popovertarget" | "popovertargetaction"
+>;
