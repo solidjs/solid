@@ -57,6 +57,7 @@ type ConditionalInputHTMLAttributeTypes = {
   readOnly?: FunctionMaybe<boolean>;
 };
 
+// TODO
 type NonStandardInputTypes = {
   autocapitalize?: "none" | "sentences" | "words" | "characters" | undefined; // Safari only
   autocorrect?: "on" | "off" | undefined; // Safari only
