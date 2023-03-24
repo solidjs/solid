@@ -110,7 +110,7 @@ type UrlInput = { type: "url" } & Pick<
   | "size"
 >;
 
-type TelInput = { type: "tel" } & Pick<
+type TelephoneInput = { type: "tel" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   | "autocomplete"
   | "list"
@@ -239,3 +239,30 @@ type ButtonInput = { type: "button" } & Pick<
   ConditionalInputHTMLAttributeTypes,
   "popovertarget" | "popovertargetaction"
 >;
+
+type ConditionalInputHTMLAttributes =
+  | HiddenInput
+  | TextInput
+  | SearchInput
+  | UrlInput
+  | TelephoneInput
+  | EmailInput
+  | PasswordInput
+  | DateInput
+  | MonthInput
+  | WeekInput
+  | TimeInput
+  | DatetimeLocalInput
+  | NumberInput
+  | RangeInput
+  | ColorInput
+  | CheckboxInput
+  | RadioButtonInput
+  | FileUploadInput
+  | SubmitButtonInput
+  | ImageButtonInput
+  | ResetButtonInput
+  | ButtonInput;
+
+type InputHTMLAttributes<T = unknown> = GlobalInputHTMLAttributes<T> &
+  ConditionalInputHTMLAttributes;
