@@ -13,7 +13,6 @@ interface GlobalInputHTMLAttributes<T> extends HTMLAttributes<T> {
   disabled?: FunctionMaybe<boolean>;
   form?: FunctionMaybe<string>;
   name?: FunctionMaybe<string>;
-  type?: FunctionMaybe<string>;
   value?: FunctionMaybe<string | string[] | number>;
   crossOrigin?: FunctionMaybe<HTMLCrossorigin>;
 }
@@ -235,10 +234,10 @@ type ResetButtonInput = { type: "reset" } & Pick<
   "popovertarget" | "popovertargetaction"
 >;
 
-type ButtonInput = { type: "button" } & Pick<
-  ConditionalInputHTMLAttributeTypes,
-  "popovertarget" | "popovertargetaction"
->;
+interface ButtonInput
+  extends Pick<ConditionalInputHTMLAttributeTypes, "popovertarget" | "popovertargetaction"> {
+  type: "button";
+}
 
 type ConditionalInputHTMLAttributes =
   | HiddenInput
@@ -264,5 +263,4 @@ type ConditionalInputHTMLAttributes =
   | ResetButtonInput
   | ButtonInput;
 
-type InputHTMLAttributes<T = unknown> = GlobalInputHTMLAttributes<T> &
-  ConditionalInputHTMLAttributes;
+type InputHTMLAttributes<T> = GlobalInputHTMLAttributes<T> & ConditionalInputHTMLAttributes;
