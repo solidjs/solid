@@ -8,30 +8,31 @@ This v1.7 release marks the beginning of the migration roadmap to v2.0. We are b
 
 ### Improved TypeScript
 
-#### Type-Narrowed Control Flow
+#### Null-Asserted Control Flow
 
 One of the pains of using Solid with TypeScript has been that JSX control flows can't really type narrow. This is true, but starting with the migration to explicit `keyed` in v1.5 we now complete this story by introducing callback forms for `<Show>` and `<Match>` that work when non-keyed.
 
 The main difference is the callback form instead of passing in the value as it does when `keyed`, passes in a function that is type narrowed.
 
 ```js
-// keyed w/ callback
+// keyed w/ callback - reruns full callback on change
 <Show when={user()} keyed>
-  {user => <div>{user.name}</div>}
+  {nonNullUser => <div>{nonNullUser.name}</div>}
 </Show>
 
-// non-keyed w/ callback
-<Show when={user()}>
-  {user => <div>{user().name}</div>}
-</Show>
-
-// non-keyed w/o callback... needs ! assertion
+// non-keyed w/o callback... - only updates the one expression, needs ! assertion
 <Show when={user()}>
   <div>{user()!.name}</div>
 </Show>
+
+// NEW!
+// non-keyed w/ callback - only updates the one expression
+<Show when={user()}>
+  {nonNullUser => <div>{nonNullUser().name}</div>}
+</Show>
 ```
 
-Keep in mind because we are non-null asserting the input signal so it won't expect null in closures that execute when the condition is no longer satisfied. For this reason the accessor from the callback is special and will hold the last non-falsey value. This may be unexpected but there is no good solution for this. Luckily this only applies to things like timers which you should be cleaning up anyway and not things like event handlers. We recommend using the original source in those closures if you must.
+Keep in mind because we are non-null asserting the input signal so it won't expect null in closures that execute when the condition is no longer satisfied. For this reason the accessor from the callback is special and will throw when attempted to be accessed when the condition is no longer true. This may be unexpected but it is our best attempt to keep TypeScript strict and not present inconsistency in reactivity. Luckily this only applies to things like timers which you should be cleaning up anyway and not things like event handlers. We recommend using the original conditions source in those closures if you must.
 
 #### Better Event Types for Input Elements
 

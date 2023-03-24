@@ -221,7 +221,7 @@ describe("Testing non-keyed function handler Switch control flow with dangling c
         <Match when={b()}>
           {b => {
             setTimeout(() => {
-              delayed = b();
+              expect(() => delayed = b()).toThrow();
               callback();
             }, 0);
             return <>{b()}</>;
@@ -240,7 +240,7 @@ describe("Testing non-keyed function handler Switch control flow with dangling c
 
     expect(div.innerHTML).toBe("1");
     callback = () => {
-      expect(delayed).toBe(2);
+      expect(delayed).toBeUndefined();
       c()
     }
   });

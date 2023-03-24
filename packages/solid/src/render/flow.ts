@@ -13,6 +13,11 @@ import { mapArray, indexArray } from "../reactive/array.js";
 import { sharedConfig } from "./hydration.js";
 import type { JSX } from "../jsx.js";
 
+const narrowedError = (name: string) =>
+  "_SOLID_DEV_"
+    ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
+    : `Stale read from <${name}>.`;
+
 /**
  * creates a list elements from a list
  *
@@ -121,9 +126,10 @@ export function Show<T>(props: {
               (child as any)(
                 keyed
                   ? (c as T)
-                  : createMemo(
-                      p => (condition() ? props.when : p) as T
-                    )
+                  : () => {
+                      if (!untrack(condition)) throw narrowedError("Show");
+                      return props.when;
+                    }
               )
             )
           : child;
@@ -183,7 +189,10 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
             (c as any)(
               keyed
                 ? when
-                : createMemo(p => (evalConditions()[0] === index ? cond!.when : p))
+                : () => {
+                    if (untrack(evalConditions)[0] !== index) throw narrowedError("Match");
+                    return cond!.when;
+                  }
             )
           )
         : c;
