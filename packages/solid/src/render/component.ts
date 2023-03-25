@@ -6,7 +6,8 @@ import {
   devComponent,
   $PROXY,
   $DEVCOMP,
-  EffectFunction
+  EffectFunction,
+  onMount
 } from "../reactive/signal.js";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
 import type { JSX } from "../jsx.js";
@@ -353,4 +354,27 @@ let counter = 0;
 export function createUniqueId(): string {
   const ctx = sharedConfig.context;
   return ctx ? `${ctx.id}${ctx.count++}` : `cl-${counter++}`;
+}
+
+export function clientOnly<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>
+): T {
+  const Lazy = lazy(fn);
+  return ((props: any) => {
+    if (sharedConfig.context) {
+      const [flag, setFlag] = createSignal(false);
+
+      onMount(() => {
+        setFlag(true);
+      });
+
+      return createMemo(() => {
+        if (flag()) {
+          return createComponent(Lazy, props);
+        }
+        return undefined;
+      });
+    }
+    return createComponent(Lazy, props);
+  }) as unknown as T;
 }

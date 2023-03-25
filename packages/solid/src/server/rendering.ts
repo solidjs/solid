@@ -613,3 +613,9 @@ export function Suspense(props: { fallback?: string; children: string }) {
   ctx.writeResource(id, "$$f");
   return props.fallback;
 }
+
+export function clientOnly<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>
+): T {
+  return (() => undefined) as unknown as T;
+}
