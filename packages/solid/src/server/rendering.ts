@@ -552,7 +552,6 @@ export function SuspenseList(props: {
 
 export function Suspense(props: { fallback?: string; children: string }) {
   let done: undefined | ((html?: string, error?: any) => boolean);
-  let clean: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
   const o = createOwner();
@@ -569,8 +568,8 @@ export function Suspense(props: { fallback?: string; children: string }) {
     });
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
-    o && cleanNode(o);
-    return runWithOwner(o!, () => {
+    cleanNode(o);
+    return runWithOwner(o, () => {
       return createComponent(SuspenseContext.Provider, {
         value,
         get children() {
@@ -584,14 +583,14 @@ export function Suspense(props: { fallback?: string; children: string }) {
   // never suspended
   if (suspenseComplete(value)) return res;
 
-  onError(err => {
-    if (!done || !done(undefined, err)) {
-      if (o)
-        runWithOwner(o.owner!, () => {
+  runWithOwner(o, () => {
+    onError(err => {
+      if (!done || !done(undefined, err)) {
+        runWithOwner(o.owner, () => {
           throw err;
         });
-      else throw err;
-    }
+      }
+    });
   });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.async) {
