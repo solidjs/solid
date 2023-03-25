@@ -784,7 +784,6 @@ export namespace JSX {
     width?: FunctionMaybe<number | string>;
     crossOrigin?: FunctionMaybe<HTMLCrossorigin>;
   }
-
   interface GlobalInputHTMLAttributes<T> extends HTMLAttributes<T> {
     autofocus?: FunctionMaybe<boolean>;
     capture?: FunctionMaybe<boolean | string>;
