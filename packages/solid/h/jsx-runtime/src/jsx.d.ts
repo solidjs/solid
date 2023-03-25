@@ -784,6 +784,7 @@ export namespace JSX {
     width?: FunctionMaybe<number | string>;
     crossOrigin?: FunctionMaybe<HTMLCrossorigin>;
   }
+
   interface GlobalInputHTMLAttributes<T> extends HTMLAttributes<T> {
     autofocus?: FunctionMaybe<boolean>;
     capture?: FunctionMaybe<boolean | string>;
@@ -831,17 +832,25 @@ export namespace JSX {
     minLength?: FunctionMaybe<number | string>;
     readOnly?: FunctionMaybe<boolean>;
   };
-  // TODO
-  type NonStandardInputTypes = {
-    autocapitalize?: "none" | "sentences" | "words" | "characters" | undefined; // Safari only
-    autocorrect?: "on" | "off" | undefined; // Safari only
-    incremental?: boolean | undefined; // WebKit and Blink extension (Safari, Opera, Chrome, etc.)
-    orient?: "horizontal" | "vertical" | undefined; // Firefox only
-    results?: number | undefined; // Safari only
-    webkitdirectory?: boolean | undefined; // Broad support but still non-standard
+  type NonStandardInputHTMLAttributeTypes = {
+    /** Safari only. Valid for all text inputs (text, search, url, email) */
+    autocapitalize?: FunctionMaybe<"none" | "sentences" | "words" | "characters">;
+    /** Safari only. Valid for all text inputs (text, search, url, email) */
+    autocorrect?: FunctionMaybe<"on" | "off">;
+    /** Safari only. Valid for input type="search" */
+    results?: FunctionMaybe<number>;
+    /** WebKit and Blink extension (Safari, Opera, Chrome, etc.). Valid for input type="search" */
+    incremental?: FunctionMaybe<boolean>;
+    /** Firefox only. Valid for input type="range" */
+    orient?: FunctionMaybe<"horizontal" | "vertical">;
+    /** Broad support but still non-standard. Valid for input type="file" */
+    webkitdirectory?: FunctionMaybe<boolean>;
   };
-  type HiddenInput = { type: "hidden" } & Pick<ConditionalInputHTMLAttributeTypes, "autocomplete">;
-  type TextInput = { type: "text" } & Pick<
+  type HiddenInputAttributes = { type: "hidden" } & Pick<
+    ConditionalInputHTMLAttributeTypes,
+    "autocomplete"
+  >;
+  type TextInputAttributes = { type: "text" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     | "autocomplete"
     | "dirname"
@@ -853,8 +862,9 @@ export namespace JSX {
     | "readonly"
     | "required"
     | "size"
-  >;
-  type SearchInput = { type: "search" } & Pick<
+  > &
+    Pick<NonStandardInputHTMLAttributeTypes, "autocapitalize" | "autocorrect">;
+  type SearchInputAttributes = { type: "search" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     | "autocomplete"
     | "dirname"
@@ -866,8 +876,25 @@ export namespace JSX {
     | "readonly"
     | "required"
     | "size"
-  >;
-  type UrlInput = { type: "url" } & Pick<
+  > &
+    Pick<
+      NonStandardInputHTMLAttributeTypes,
+      "autocapitalize" | "autocorrect" | "results" | "incremental"
+    >;
+  type UrlInputAttributes = { type: "url" } & Pick<
+    ConditionalInputHTMLAttributeTypes,
+    | "autocomplete"
+    | "list"
+    | "maxlength"
+    | "minlength"
+    | "pattern"
+    | "placeholder"
+    | "readonly"
+    | "required"
+    | "size"
+  > &
+    Pick<NonStandardInputHTMLAttributeTypes, "autocapitalize" | "autocorrect">;
+  type TelephoneInputAttributes = { type: "tel" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     | "autocomplete"
     | "list"
@@ -879,19 +906,7 @@ export namespace JSX {
     | "required"
     | "size"
   >;
-  type TelephoneInput = { type: "tel" } & Pick<
-    ConditionalInputHTMLAttributeTypes,
-    | "autocomplete"
-    | "list"
-    | "maxlength"
-    | "minlength"
-    | "pattern"
-    | "placeholder"
-    | "readonly"
-    | "required"
-    | "size"
-  >;
-  type EmailInput = { type: "email" } & Pick<
+  type EmailInputAttributes = { type: "email" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     | "autocomplete"
     | "list"
@@ -903,8 +918,9 @@ export namespace JSX {
     | "readonly"
     | "required"
     | "size"
-  >;
-  type PasswordInput = { type: "password" } & Pick<
+  > &
+    Pick<NonStandardInputHTMLAttributeTypes, "autocapitalize" | "autocorrect">;
+  type PasswordInputAttributes = { type: "password" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     | "autocomplete"
     | "maxlength"
@@ -915,51 +931,53 @@ export namespace JSX {
     | "required"
     | "size"
   >;
-  type DateInput = { type: "date" } & Pick<
+  type DateInputAttributes = { type: "date" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
   >;
-  type MonthInput = { type: "month" } & Pick<
+  type MonthInputAttributes = { type: "month" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
   >;
-  type WeekInput = { type: "week" } & Pick<
+  type WeekInputAttributes = { type: "week" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
   >;
-  type TimeInput = { type: "time" } & Pick<
+  type TimeInputAttributes = { type: "time" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
   >;
-  type DatetimeLocalInput = { type: "datetime-local" } & Pick<
+  type DatetimeLocalInputAttributes = { type: "datetime-local" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list" | "max" | "min" | "readonly" | "required" | "step"
   >;
-  type NumberInput = { type: "number" } & Pick<
+  type NumberInputAttributes = { type: "number" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list" | "max" | "min" | "placeholder" | "readonly" | "required" | "step"
   >;
-  type RangeInput = { type: "range" } & Pick<
+  type RangeInputAttributes = { type: "range" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list" | "max" | "min" | "step"
-  >;
-  type ColorInput = { type: "color" } & Pick<
+  > &
+    Pick<NonStandardInputHTMLAttributeTypes, "orient">;
+  type ColorInputAttributes = { type: "color" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "autocomplete" | "list"
   >;
-  type CheckboxInput = { type: "checkbox" } & Pick<
+  type CheckboxInputAttributes = { type: "checkbox" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "checked" | "required"
   >;
-  type RadioButtonInput = { type: "radio" } & Pick<
+  type RadioButtonInputAttributes = { type: "radio" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "checked" | "required"
   >;
-  type FileUploadInput = { type: "file" } & Pick<
+  type FileUploadInputAttributes = { type: "file" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "accept" | "multiple" | "required"
-  >;
-  type SubmitButtonInput = { type: "submit" } & Pick<
+  > &
+    Pick<NonStandardInputHTMLAttributeTypes, "webkitdirectory">;
+  type SubmitButtonInputAttributes = { type: "submit" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     | "formaction"
     | "formenctype"
@@ -969,7 +987,7 @@ export namespace JSX {
     | "popovertarget"
     | "popovertargetaction"
   >;
-  type ImageButtonInput = { type: "image" } & Pick<
+  type ImageButtonInputAttributes = { type: "image" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     | "alt"
     | "formaction"
@@ -983,37 +1001,37 @@ export namespace JSX {
     | "src"
     | "width"
   >;
-  type ResetButtonInput = { type: "reset" } & Pick<
+  type ResetButtonInputAttributes = { type: "reset" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "popovertarget" | "popovertargetaction"
   >;
-  type ButtonInput = { type: "button" } & Pick<
+  type ButtonInputAttributes = { type: "button" } & Pick<
     ConditionalInputHTMLAttributeTypes,
     "popovertarget" | "popovertargetaction"
   >;
   type ConditionalInputHTMLAttributes =
-    | HiddenInput
-    | TextInput
-    | SearchInput
-    | UrlInput
-    | TelephoneInput
-    | EmailInput
-    | PasswordInput
-    | DateInput
-    | MonthInput
-    | WeekInput
-    | TimeInput
-    | DatetimeLocalInput
-    | NumberInput
-    | RangeInput
-    | ColorInput
-    | CheckboxInput
-    | RadioButtonInput
-    | FileUploadInput
-    | SubmitButtonInput
-    | ImageButtonInput
-    | ResetButtonInput
-    | ButtonInput;
+    | HiddenInputAttributes
+    | TextInputAttributes
+    | SearchInputAttributes
+    | UrlInputAttributes
+    | TelephoneInputAttributes
+    | EmailInputAttributes
+    | PasswordInputAttributes
+    | DateInputAttributes
+    | MonthInputAttributes
+    | WeekInputAttributes
+    | TimeInputAttributes
+    | DatetimeLocalInputAttributes
+    | NumberInputAttributes
+    | RangeInputAttributes
+    | ColorInputAttributes
+    | CheckboxInputAttributes
+    | RadioButtonInputAttributes
+    | FileUploadInputAttributes
+    | SubmitButtonInputAttributes
+    | ImageButtonInputAttributes
+    | ResetButtonInputAttributes
+    | ButtonInputAttributes;
   type InputHTMLAttributes<T> = GlobalInputHTMLAttributes<T> & ConditionalInputHTMLAttributes;
   interface InsHTMLAttributes<T> extends HTMLAttributes<T> {
     cite?: FunctionMaybe<string>;
