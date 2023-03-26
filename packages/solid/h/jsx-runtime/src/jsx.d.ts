@@ -757,6 +757,7 @@ export namespace JSX {
     allow?: FunctionMaybe<string>;
     allowfullscreen?: FunctionMaybe<boolean>;
     height?: FunctionMaybe<number | string>;
+    loading?: FunctionMaybe<"eager" | "lazy">;
     name?: FunctionMaybe<string>;
     referrerpolicy?: FunctionMaybe<HTMLReferrerPolicy>;
     sandbox?: HTMLIframeSandbox | string;
