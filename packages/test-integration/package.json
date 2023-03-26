@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "npm run test:imports",
-    "test:integrations": "jest",
+    "test:integrations": "vitest run",
     "test:imports": "node test-imports.mjs"
   },
   "dependencies": {

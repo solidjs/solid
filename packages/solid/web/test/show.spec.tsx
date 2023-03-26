@@ -1,6 +1,6 @@
-/** 
+/**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
 import { createRoot, createSignal } from "../../src";
@@ -105,7 +105,7 @@ describe("Testing nonkeyed show control flow", () => {
   });
 
   test("dispose", () => disposer());
-})
+});
 
 describe("Testing keyed show control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -143,7 +143,7 @@ describe("Testing keyed show control flow", () => {
   });
 
   test("dispose", () => disposer());
-})
+});
 
 describe("Testing an only child show control flow with keyed function", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -151,7 +151,7 @@ describe("Testing an only child show control flow with keyed function", () => {
   const Component = () => (
     <div ref={div}>
       <Show when={data()} keyed>
-        {({count}) => (
+        {({ count }) => (
           <>
             <span>{count}</span>
             <span>counted</span>
@@ -171,11 +171,11 @@ describe("Testing an only child show control flow with keyed function", () => {
   });
 
   test("Toggle show control flow", () => {
-    setData({count: 7});
+    setData({ count: 7 });
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
-    setData({count: 5});
+    setData({ count: 5 });
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
-    setData({count: 2});
+    setData({ count: 2 });
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("2");
   });
 

@@ -6,7 +6,9 @@
     "newLine": "LF",
     "moduleResolution": "node",
     "strict": true,
-    "jsx": "preserve"
+    "jsx": "preserve",
+    // Allows TS to see the Vitest globals
+    "types": ["vitest/globals"]
   },
   "exclude": ["node_modules"]
 }

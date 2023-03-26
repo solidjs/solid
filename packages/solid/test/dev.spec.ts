@@ -124,7 +124,7 @@ describe("Dev features", () => {
   });
 
   test("OnStoreNodeUpdate Hook", () => {
-    const cb = jest.fn();
+    const cb = vi.fn();
     global._$onStoreNodeUpdate = cb;
     const [s, set] = createStore({ firstName: "John", lastName: "Smith", inner: { foo: 1 } });
     expect(cb).toHaveBeenCalledTimes(0);
