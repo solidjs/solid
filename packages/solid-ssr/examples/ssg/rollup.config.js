@@ -9,8 +9,7 @@ export default [
     output: [
       {
         dir: "examples/ssg/lib",
-        exports: "auto",
-        format: "cjs"
+        format: "esm"
       }
     ],
     external: ["solid-js", "solid-js/web"],

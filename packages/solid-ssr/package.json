@@ -4,14 +4,15 @@
   "version": "1.6.3",
   "author": "Ryan Carniato",
   "license": "MIT",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/solidjs/solid/blob/main/packages/solid-ssr"
   },
   "exports": {
     "./static": {
-      "require": "./static/index.js",
-      "import": "./static/index.mjs"
+      "require": "./static/index.cjs",
+      "import": "./static/index.js"
     }
   },
   "files": [
@@ -29,13 +30,13 @@
     "clean": "rimraf examples/**/lib/ examples/**/public/"
   },
   "devDependencies": {
-    "@babel/core": "^7.16.7",
-    "@rollup/plugin-babel": "5.3.0",
-    "@rollup/plugin-commonjs": "21.0.1",
-    "@rollup/plugin-node-resolve": "13.1.2",
+    "@babel/core": "^7.21.3",
+    "@rollup/plugin-babel": "6.0.3",
+    "@rollup/plugin-commonjs": "24.0.1",
+    "@rollup/plugin-node-resolve": "15.0.1",
     "babel-preset-solid": "workspace:*",
     "express": "^4.17.1",
-    "rollup": "^2.75.5",
+    "rollup": "^3.20.0",
     "rollup-plugin-copy": "^3.4.0",
     "solid-js": "workspace:*"
   }
