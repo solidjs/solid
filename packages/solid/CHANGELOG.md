@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.6.16
+
+### Patch Changes
+
+- d10da016: Fix #1651 hydration markers introduced too early
+- 620c7636: Switch test runner from Jest to Vitest
+
 ## 1.6.15
 
 ### Patch Changes
