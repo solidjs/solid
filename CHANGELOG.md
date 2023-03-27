@@ -157,6 +157,8 @@ Now that [Solid Dev Tools](https://github.com/thetarnav/solid-devtools) have bee
 - Don't apply special props (like `readonly`) to custom elements
 - Introduced improved serializer, [seroval](https://github.com/lxsmnsyc/seroval)
 - Fixed quirks in Solid's treeshaking in Rollup
+- Minify inline class and style attributes
+- Update `solid-ssr` to type `"module"`
 
 ## 1.6.0 - 2022-10-20
 
