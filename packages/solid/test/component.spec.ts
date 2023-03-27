@@ -104,14 +104,19 @@ describe("Clone Props", () => {
 });
 
 describe("Clone Store", () => {
-  const [state, setState] = createStore<{ a: string; b: string; c?: string }>({ a: "Hi", b: "Jo" });
-  const clone = mergeProps(state);
-  expect(clone.a).toBe("Hi");
-  expect(clone.b).toBe("Jo");
-  setState({ a: "Greetings", c: "John" });
-  expect(clone.a).toBe("Greetings");
-  expect(clone.b).toBe("Jo");
-  expect(clone.c).toBe("John");
+  test("simple set", () => {
+    const [state, setState] = createStore<{ a: string; b: string; c?: string }>({
+      a: "Hi",
+      b: "Jo"
+    });
+    const clone = mergeProps(state);
+    expect(clone.a).toBe("Hi");
+    expect(clone.b).toBe("Jo");
+    setState({ a: "Greetings", c: "John" });
+    expect(clone.a).toBe("Greetings");
+    expect(clone.b).toBe("Jo");
+    expect(clone.c).toBe("John");
+  });
 });
 
 describe("Merge Signal", () => {
@@ -124,7 +129,7 @@ describe("Merge Signal", () => {
         c: "j"
       }),
       defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
-    let props!: SimplePropTypes;;
+    let props!: SimplePropTypes;
     const res: string[] = [];
     createRoot(() => {
       props = mergeProps(defaults, s);

@@ -558,7 +558,6 @@ export function SuspenseList(props: {
 
 export function Suspense(props: { fallback?: string; children: string }) {
   let done: undefined | ((html?: string, error?: any) => boolean);
-  let clean: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
   const o = createOwner();
@@ -576,18 +575,16 @@ export function Suspense(props: { fallback?: string; children: string }) {
 
   function suspenseError(err: Error) {
     if (!done || !done(undefined, err)) {
-      if (o)
-        runWithOwner(o.owner!, () => {
-          throw err;
-        });
-      else throw err;
+      runWithOwner(o.owner!, () => {
+        throw err;
+      });
     }
   }
 
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
-    o && cleanNode(o);
-    return runWithOwner(o!, () =>
+    cleanNode(o);
+    return runWithOwner(o, () =>
       createComponent(SuspenseContext.Provider, {
         value,
         get children() {

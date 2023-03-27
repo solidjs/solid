@@ -266,8 +266,8 @@
     "types:universal": "tsc --project ./universal/tsconfig.json && ncp ../../node_modules/dom-expressions/src/universal.d.ts ./universal/types/universal.d.ts",
     "bench": "node --allow-natives-syntax bench/bench.cjs",
     "link": "symlink-dir . node_modules/solid-js",
-    "test": "jest",
-    "coverage": "jest --coverage",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
     "test-types": "tsc --project tsconfig.test.json"
   },
   "keywords": [

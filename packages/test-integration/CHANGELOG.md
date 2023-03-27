@@ -54,6 +54,15 @@
 - Updated dependencies [6a4fe46]
   - solid-js@1.7.0-beta.0
   - babel-preset-solid@1.7.0-beta.0
+## 1.6.16
+
+### Patch Changes
+
+- 620c7636: Switch test runner from Jest to Vitest
+- Updated dependencies [d10da016]
+- Updated dependencies [620c7636]
+  - babel-preset-solid@1.6.16
+  - solid-js@1.6.16
 
 ## 1.6.15
 

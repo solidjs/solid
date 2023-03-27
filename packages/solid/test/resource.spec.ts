@@ -12,8 +12,6 @@ import {
 
 import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src";
 
-global.queueMicrotask = fn => Promise.resolve().then(fn);
-
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,

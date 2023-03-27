@@ -1,6 +1,6 @@
 /**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
 import "../../test/MessageChannel";
@@ -11,10 +11,10 @@ import { createStore } from "../../store/src";
 enableScheduling();
 
 beforeEach(() => {
-  jest.useFakeTimers();
+  vi.useFakeTimers();
 });
 afterEach(() => {
-  jest.useRealTimers();
+  vi.useRealTimers();
 });
 describe("Testing Basics", () => {
   test("Children are reactive", () => {
@@ -60,7 +60,7 @@ describe("Testing Suspense", () => {
     for (const r of resolvers) r({ default: ChildComponent });
 
     await Promise.resolve();
-    jest.runAllTimers();
+    vi.runAllTimers();
     await Promise.resolve();
 
     expect(div.innerHTML).toBe("Hi, .Hello ");
@@ -81,15 +81,15 @@ describe("Testing Suspense", () => {
     expect(finished).toBe(false);
 
     // Exhausts create-resource setTimeout
-    jest.runAllTimers();
+    vi.runAllTimers();
     // wait update suspense state
     await Promise.resolve();
     // wait update computation
-    jest.runAllTimers();
+    vi.runAllTimers();
     // wait write signal suc
     await Promise.resolve();
 
-    jest.runAllTimers();
+    vi.runAllTimers();
     await Promise.resolve();
 
     expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
@@ -117,15 +117,15 @@ describe("Testing Suspense", () => {
     expect(finished).toBe(false);
 
     // Exhausts create-resource setTimeout
-    jest.runAllTimers();
+    vi.runAllTimers();
     // wait update suspense state
     await Promise.resolve();
     // wait update computation
-    jest.runAllTimers();
+    vi.runAllTimers();
 
     // Await the rest of the things, TODO: figure out what these are
     await Promise.resolve();
-    jest.runAllTimers();
+    vi.runAllTimers();
     await Promise.resolve();
 
     expect(pending()).toBe(false);
@@ -178,13 +178,13 @@ describe("SuspenseList", () => {
       );
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     // wait effect update
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
@@ -209,15 +209,15 @@ describe("SuspenseList", () => {
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
     dispose();
@@ -241,15 +241,15 @@ describe("SuspenseList", () => {
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("");
 
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
     dispose();
@@ -273,15 +273,15 @@ describe("SuspenseList", () => {
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
     dispose();
@@ -305,15 +305,15 @@ describe("SuspenseList", () => {
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("<div>Loading 1</div>");
 
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
     dispose();
@@ -337,15 +337,15 @@ describe("SuspenseList", () => {
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("<div>Loading 3</div>");
 
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
     dispose();
@@ -373,15 +373,15 @@ describe("SuspenseList", () => {
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
     dispose();
@@ -409,15 +409,15 @@ describe("SuspenseList", () => {
     const dispose = render(Comp, div);
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(110);
+    vi.advanceTimersByTime(110);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>Loading 1</div><div>Loading 2</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>Loading 3</div>");
 
-    jest.advanceTimersByTime(100);
+    vi.advanceTimersByTime(100);
     await Promise.resolve();
     expect(div.innerHTML).toBe("<div>A</div><div>B</div><div>C</div>");
     dispose();

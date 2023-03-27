@@ -1,6 +1,6 @@
 /**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
 import { render, Switch, Match, For } from "../src";
@@ -221,7 +221,7 @@ describe("Testing non-keyed function handler Switch control flow with dangling c
         <Match when={b()}>
           {b => {
             setTimeout(() => {
-              expect(() => delayed = b()).toThrow();
+              expect(() => (delayed = b())).toThrow();
               callback();
             }, 0);
             return <>{b()}</>;
@@ -231,18 +231,20 @@ describe("Testing non-keyed function handler Switch control flow with dangling c
     </div>
   );
 
-  test("Create Switch control flow", c => {
-    createRoot(dispose => {
-      disposer = dispose;
-      <Component />;
-    });
-    setA(1);
+  test("Create Switch control flow", () => {
+    return new Promise<void>(c => {
+      createRoot(dispose => {
+        disposer = dispose;
+        <Component />;
+      });
+      setA(1);
 
-    expect(div.innerHTML).toBe("1");
-    callback = () => {
-      expect(delayed).toBeUndefined();
-      c()
-    }
+      expect(div.innerHTML).toBe("1");
+      callback = () => {
+        expect(delayed).toBeUndefined();
+        c();
+      };
+    });
   });
 
   test("dispose", () => disposer());

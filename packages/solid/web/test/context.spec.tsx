@@ -1,6 +1,6 @@
-/** 
+/**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
 import { createContext, useContext } from "../../src";

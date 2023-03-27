@@ -1,6 +1,6 @@
 /**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
 import { createRoot, createSignal, createUniqueId, JSX, children } from "../../src";
@@ -39,19 +39,20 @@ describe("Basic element attributes", () => {
     expect(d.className).toBe("first third fourth");
   });
 
-  test("ternary expression triggered", done => {
-    let div: HTMLDivElement;
-    createRoot(() => {
-      const [s, setS] = createSignal(0);
-      div = (<div>{s() > 5 ? "Large" : "Small"}</div>) as HTMLDivElement;
-      expect(div.innerHTML).toBe("Small");
-      setTimeout(() => {
-        setS(7);
-        expect(div.innerHTML).toBe("Large");
-        done();
+  test("ternary expression triggered", () =>
+    new Promise(done => {
+      let div: HTMLDivElement;
+      createRoot(() => {
+        const [s, setS] = createSignal(0);
+        div = (<div>{s() > 5 ? "Large" : "Small"}</div>) as HTMLDivElement;
+        expect(div.innerHTML).toBe("Small");
+        setTimeout(() => {
+          setS(7);
+          expect(div.innerHTML).toBe("Large");
+          done(undefined);
+        });
       });
-    });
-  });
+    }));
 
   test("boolean expression triggered once", () => {
     let div1: HTMLDivElement, div2: HTMLDivElement;
@@ -110,8 +111,8 @@ describe("Basic element attributes", () => {
             <span>Jake</span>
           </Comp>
           <Comp />
-        </div> as HTMLDivElement
-      );
+        </div>
+      ) as HTMLDivElement;
     });
     expect(res.innerHTML).toBe(
       "<div><span>Hello</span></div><div><span>Hello</span></div><div><span>Jake</span></div>"

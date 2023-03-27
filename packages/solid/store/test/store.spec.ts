@@ -548,18 +548,19 @@ describe("Setting state from Effects", () => {
     expect(state.data).toBe("signal");
   });
 
-  test("Select Promise", done => {
-    createRoot(async () => {
-      const p = new Promise<string>(resolve => {
-        setTimeout(resolve, 20, "promised");
+  test("Select Promise", () =>
+    new Promise(done => {
+      createRoot(async () => {
+        const p = new Promise<string>(resolve => {
+          setTimeout(resolve, 20, "promised");
+        });
+        const [state, setState] = createStore({ data: "" });
+        p.then(v => setState("data", v));
+        await p;
+        expect(state.data).toBe("promised");
+        done(undefined);
       });
-      const [state, setState] = createStore({ data: "" });
-      p.then(v => setState("data", v));
-      await p;
-      expect(state.data).toBe("promised");
-      done();
-    });
-  });
+    }));
 });
 
 describe("Batching", () => {

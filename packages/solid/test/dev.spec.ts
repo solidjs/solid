@@ -113,7 +113,7 @@ describe("Dev features", () => {
   });
 
   test("afterCreateOwner Hook", () => {
-    const cb = jest.fn();
+    const cb = vi.fn();
     DEV!.hooks.afterCreateOwner = cb;
     createRoot(() => {
       expect(cb).toHaveBeenCalledTimes(1);
@@ -130,7 +130,7 @@ describe("Dev features", () => {
   });
 
   test("OnStoreNodeUpdate Hook", () => {
-    const cb = jest.fn();
+    const cb = vi.fn();
     STORE_DEV!.hooks.onStoreNodeUpdate = cb;
     const [s, set] = createStore({ firstName: "John", lastName: "Smith", inner: { foo: 1 } });
     expect(cb).toHaveBeenCalledTimes(0);

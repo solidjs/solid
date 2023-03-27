@@ -35,6 +35,11 @@
 ### Patch Changes
 
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+## 1.6.16
+
+### Patch Changes
+
+- d10da016: Fix #1651 hydration markers introduced too early
 
 ## 1.6.13
 

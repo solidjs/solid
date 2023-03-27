@@ -52,6 +52,12 @@
 - 71c40af: DEV: Minor additions and change the API of dev hooks
 - e245736: Fixed test case for setStore 7 parameter overload by fixing KeyOf giving number for KeyOf<never>
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+## 1.6.16
+
+### Patch Changes
+
+- d10da016: Fix #1651 hydration markers introduced too early
+- 620c7636: Switch test runner from Jest to Vitest
 
 ## 1.6.15
 
