@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.0-beta.5
+
+### Patch Changes
+
+- a382c0c5: minify inline style, class
+
 ## 1.7.0-beta.4
 
 ### Patch Changes
@@ -35,6 +41,7 @@
 ### Patch Changes
 
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+
 ## 1.6.16
 
 ### Patch Changes

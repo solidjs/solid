@@ -8,7 +8,6 @@ import {
   JSX,
   createRoot,
   sharedConfig,
-  Accessor,
   enableHydration,
   $DEVCOMP,
   ComponentProps,

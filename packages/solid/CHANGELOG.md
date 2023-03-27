@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.7.0-beta.5
+
+### Patch Changes
+
+- 0dc8e365: Make non-null control flow assertion stricter by throwing
+
 ## 1.7.0-beta.4
 
 ### Patch Changes
@@ -52,6 +58,7 @@
 - 71c40af: DEV: Minor additions and change the API of dev hooks
 - e245736: Fixed test case for setStore 7 parameter overload by fixing KeyOf giving number for KeyOf<never>
 - 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+
 ## 1.6.16
 
 ### Patch Changes
