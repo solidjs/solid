@@ -14,7 +14,7 @@
     "test": "node test.js"
   },
   "dependencies": {
-    "babel-plugin-jsx-dom-expressions": "^0.36.0-beta.7"
+    "babel-plugin-jsx-dom-expressions": "^0.36.0-beta.9"
   },
   "peerDependencies": {
     "@babel/core": "^7.0.0"
