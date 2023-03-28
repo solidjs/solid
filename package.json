@@ -53,5 +53,10 @@
     "typescript": "^4.9.5",
     "vite-plugin-solid": "^2.7.0-beta.0",
     "vitest": "^0.29.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "babel-preset-solid": "workspace:*"
+    }
   }
 }
