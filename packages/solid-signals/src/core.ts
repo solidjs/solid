@@ -28,6 +28,18 @@ function flushEffects() {
   queueMicrotask(runEffects);
 }
 
+function runTop(node: Computation<any>) {
+  let ancestors = [node];
+  while ((node = node._parent as Computation<any>)) {
+    if (node._state !== STATE_CLEAN) {
+      ancestors.push(node);
+    }
+  }
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    updateIfNecessary(ancestors[i]);
+  }
+}
+
 function runEffects() {
   if (!effects.length) {
     scheduledEffects = false;
@@ -37,8 +49,9 @@ function runEffects() {
   runningEffects = true;
 
   for (let i = 0; i < effects.length; i++) {
-    // If parent owner is dirty it means that this effect will be disposed of so we skip.
-    if (!isZombie(effects[i])) read.call(effects[i]);
+    if (effects[i]._state !== STATE_CLEAN) {
+      runTop(effects[i]);
+    }
   }
 
   effects = [];
@@ -241,7 +254,7 @@ function handleError(owner: Owner | null, error: unknown) {
 export function read(this: Computation): any {
   if (this._state === STATE_DISPOSED) return this._value;
 
-  if (currentObserver) {
+  if (currentObserver && !this._effect) {
     if (
       !currentObservers &&
       currentObserver._sources &&
@@ -312,9 +325,8 @@ const ComputeNode = function Computation(
   this._observers = null;
   this._value = initialValue;
 
-  if (__DEV__)
-    this.name = options?.name ?? (this._compute ? "computed" : "signal");
   if (compute) this._compute = compute;
+  if (__DEV__) this.name = options?.name ?? (this._compute ? "computed" : "signal");
   if (options && options.equals !== undefined) this._equals = options.equals;
 };
 
@@ -338,18 +350,6 @@ export function isEqual(a: unknown, b: unknown) {
 
 export function isFunction(value: unknown): value is Function {
   return typeof value === "function";
-}
-
-export function isZombie(node: Owner) {
-  let owner = node._parent;
-
-  while (owner) {
-    // We're looking for a dirty parent owner.
-    if (owner._compute && owner._state === STATE_DIRTY) return true;
-    owner = owner._parent;
-  }
-
-  return false;
 }
 
 function updateIfNecessary(node: Computation) {

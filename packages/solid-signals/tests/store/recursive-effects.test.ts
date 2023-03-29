@@ -7,6 +7,8 @@ import {
   createStore,
   unwrap,
   flushSync,
+  createSignal,
+  createMemo,
 } from "../../src";
 import { sharedClone } from "./shared-clone";
 
@@ -93,5 +95,21 @@ describe("recursive effects", () => {
     flushSync();
     expect(next).not.toBe(prev);
     expect(called).toBe(2);
+  });
+
+  it("runs parent effects before child effects", () => {
+    const [x, setX] = createSignal(0);
+    const simpleM = createMemo(() => x());
+    let calls = 0;
+    createEffect(() => {
+      createEffect(() => {
+        void x();
+        calls++;
+      });
+      void simpleM();
+    });
+    setX(1);
+    flushSync();
+    expect(calls).toBe(2);
   });
 });

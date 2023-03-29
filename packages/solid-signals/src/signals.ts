@@ -1,10 +1,14 @@
-import { createComputation, read, write } from "./core";
+import {
+  createComputation,
+  read,
+  update,
+  write,
+} from "./core";
 import type {
   MemoOptions,
   Accessor,
   SignalOptions,
   Signal,
-  Dispose,
 } from "./types";
 
 /**
@@ -61,5 +65,5 @@ export function createEffect<T>(
   );
 
   signal._effect = true;
-  read.call(signal);
+  update(signal);
 }
