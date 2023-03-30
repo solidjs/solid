@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.0 - 2023-03-x
+## 1.7.0 - 2023-03-30
 
 Solid has experienced incredible growth in usage the last 6 months. Companies are using it to power production applications and SolidStart Beta has been a big part of that. As a natural part of this growth and increased use at scale we are continuing to learn what works well and what the rough edges in Solid are today.
 
