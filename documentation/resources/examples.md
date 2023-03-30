@@ -25,6 +25,7 @@
 - [Real World Demo](https://github.com/solidjs/solid-realworld) Real World Demo for Solid
 - [Hacker News](https://github.com/solidjs/solid-hackernews) Hacker News Clone for Solid
 - [Storybook](https://github.com/rturnq/storybook-solid) Solid with Storybook
+- [ezMCQ](https://github.com/xyntechx/ezMCQ) MCQ Builder using Solid, Solid Router, and PocketBase
 
 ## Benchmarks
 - [JS Framework Benchmark](https://github.com/krausest/js-framework-benchmark/tree/master/frameworks/keyed/solid) The one and only
