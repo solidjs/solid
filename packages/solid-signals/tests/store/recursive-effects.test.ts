@@ -1,7 +1,14 @@
-import { describe, it, expect, test } from "vitest";
+import { describe, it, expect } from "vitest";
 
-import { createEffect, createRoot, untrack, createStore, unwrap, flushSync } from "../";
-import { sharedClone } from "./sharedClone";
+import {
+  createEffect,
+  createRoot,
+  untrack,
+  createStore,
+  unwrap,
+  flushSync,
+} from "../../src";
+import { sharedClone } from "./shared-clone";
 
 describe("recursive effects", () => {
   it("can track deeply with cloning", () => {

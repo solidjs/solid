@@ -2,10 +2,11 @@
   "name": "@solidjs/reactivity",
   "version": "0.0.8",
   "description": "",
+  "license": "ISC",
   "type": "module",
-  "main": "dist/index.cjs",
-  "module": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/node.cjs",
+  "module": "dist/prod.js",
+  "types": "dist/types/index.d.ts",
   "publishConfig": {
     "access": "public"
   },
@@ -13,19 +14,33 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm build:types && node build.js",
-    "build:types": "tsc",
-    "example": "node ./example/build.js | node",
-    "test": "vitest",
-    "coverage": "vitest run --coverage"
+    "build": "rimraf dist && tsup && pnpm types",
+    "types": "tsc -p tsconfig.build.json",
+    "format": "prettier src --write --loglevel warn",
+    "sandbox": "node ./.sandbox/launch.js",
+    "test": "vitest run",
+    "test:watch": "vitest watch tests",
+    "test:gc": "node --expose-gc ./vitest.js",
+    "test:gc:watch": "node --expose-gc ./vitest.js --watch",
+    "test:coverage": "vitest run --coverage"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "esbuild-plugin-replace": "^1.3.0",
-    "esbuild": "^0.16.3",
+    "@types/node": "^18.14.1",
+    "rimraf": "^4.1.2",
+    "tsup": "^6.6.3",
     "typescript": "4.9.4",
-    "vitest": "^0.26.2"
+    "vite": "^4.1.4",
+    "vitest": "^0.29.1"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": {
+        "test": "./dist/dev.js",
+        "development": "./dist/dev.js",
+        "default": "./dist/prod.js"
+      },
+      "require": "./dist/node.cjs"
+    }
   }
 }

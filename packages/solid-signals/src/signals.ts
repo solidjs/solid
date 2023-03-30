@@ -1,13 +1,10 @@
-import {
-  createComputation,
-  read,
-  write,
-} from "./core";
+import { createComputation, read, write } from "./core";
 import type {
   MemoOptions,
   Accessor,
   SignalOptions,
-  Signal
+  Signal,
+  Dispose,
 } from "./types";
 
 /**
@@ -15,7 +12,7 @@ import type {
  * `fn()`, and provide a simple write API via `set()`. The value can now be observed
  * when used inside other computations created with `computed` and `effect`.
  *
- * @see {@link https://github.com/solidjs/x-reactively#createsignal}
+ * @see {@link https://github.com/solidjs/x-reactivity#createsignal}
  */
 export function createSignal<T>(
   initialValue: T,
@@ -30,7 +27,7 @@ export function createSignal<T>(
  * compute function is _only_ re-run when one of it's dependencies are updated. Dependencies are
  * are all signals that are read during execution.
  *
- * @see {@link https://github.com/solidjs/x-reactively#creatememo}
+ * @see {@link https://github.com/solidjs/x-reactivity#creatememo}
  */
 export function createMemo<T, R = never>(
   compute: () => T,
@@ -50,7 +47,7 @@ export function createMemo<T, R = never>(
  * Invokes the given function each time any of the signals that are read inside are updated
  * (i.e., their value changes). The effect is immediately invoked on initialization.
  *
- * @see {@link https://github.com/solidjs/x-reactively#createeffect}
+ * @see {@link https://github.com/solidjs/x-reactivity#createeffect}
  */
 export function createEffect<T>(
   effect: () => T,

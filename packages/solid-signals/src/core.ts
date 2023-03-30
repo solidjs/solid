@@ -10,11 +10,10 @@ import type {
 let scheduledEffects = false,
   runningEffects = false,
   currentOwner: Owner | null = null,
+  currentObserver: Computation | null = null,
   currentObservers: Computation[] | null = null,
   currentObserversIndex = 0,
   effects: Computation[] = [];
-
-export let currentObserver: Computation | null = null;
 
 const HANDLER = Symbol(__DEV__ ? "ERROR_HANDLER" : 0),
   // For more information about this graph tracking scheme see Reactively:
@@ -51,7 +50,7 @@ function runEffects() {
  * Creates a computation root which is given a `dispose()` function to dispose of all inner
  * computations.
  *
- * @see {@link https://github.com/solidjs/x-reactively#createroot}
+ * @see {@link https://github.com/solidjs/x-reactivity#createroot}
  */
 export function createRoot<T>(init: (dispose: Dispose) => T): T {
   const owner = new OwnerNode();
@@ -66,7 +65,7 @@ export function createRoot<T>(init: (dispose: Dispose) => T): T {
  * Returns the current value stored inside the given compute function without triggering any
  * dependencies. Use `untrack` if you want to also disable owner tracking.
  *
- * @see {@link https://github.com/solidjs/x-reactively#untrack}
+ * @see {@link https://github.com/solidjs/x-reactivity#untrack}
  */
 export function untrack<T>(fn: () => T): T {
   if (currentObserver === null) return fn();
@@ -77,7 +76,7 @@ export function untrack<T>(fn: () => T): T {
  * By default, signal updates are batched on the microtask queue which is an async process. You can
  * flush the queue synchronously to get the latest updates by calling `tick()`.
  *
- * @see {@link https://github.com/solidjs/x-reactively#tick}
+ * @see {@link https://github.com/solidjs/x-reactivity#tick}
  */
 export function flushSync(): void {
   if (!runningEffects) runEffects();
@@ -86,20 +85,25 @@ export function flushSync(): void {
 /**
  * Returns the currently executing parent owner.
  *
- * @see {@link https://github.com/solidjs/x-reactively#getowner}
+ * @see {@link https://github.com/solidjs/x-reactivity#getowner}
  */
 export function getOwner(): Owner | null {
   return currentOwner;
 }
 
+/** @internal */
+export function getObserver() {
+  return currentObserver;
+}
+
 /**
  * Runs the given function in the given owner so context and error handling continue to work.
  *
- * @see {@link https://github.com/solidjs/x-reactively#runwithowner}
+ * @see {@link https://github.com/solidjs/x-reactivity#runwithowner}
  */
 export function runWithOwner<T>(
   owner: Owner | null,
-  run: () => T,
+  run: () => T
 ): T | undefined {
   try {
     return compute<T>(owner, run, null);
@@ -112,18 +116,25 @@ export function runWithOwner<T>(
  * Runs the given function when an error is thrown in a child owner. If the error is thrown again
  * inside the error handler, it will trigger the next available parent owner handler.
  *
- * @see {@link https://github.com/solidjs/x-reactively#catcherror}
+ * @see {@link https://github.com/solidjs/x-reactivity#catcherror}
  */
-export function catchError<T, U = Error>(fn: () => T, handler: (error: U) => void): void {
+export function catchError<T, U = Error>(
+  fn: () => T,
+  handler: (error: U) => void
+): void {
   const owner = new OwnerNode();
   owner._context = { [HANDLER]: handler };
-  compute(owner, fn, null);
+  try {
+    compute(owner, fn, null);
+  } catch (error) {
+    handleError(owner, error);
+  }
 }
 
 /**
  * Runs the given function when the parent owner computation is being disposed.
  *
- * @see {@link https://github.com/solidjs/x-reactively#ondispose}
+ * @see {@link https://github.com/solidjs/x-reactivity#ondispose}
  */
 export function onCleanup(disposable: MaybeDisposable): void {
   if (!disposable || !currentOwner) return;
@@ -139,51 +150,46 @@ export function onCleanup(disposable: MaybeDisposable): void {
   }
 }
 
-let owners: Owner[] = [];
-
 export function dispose(this: Owner, self = true) {
   if (this._state === STATE_DISPOSED) return;
 
-  let current = (self ? this : this._nextSibling) as Computation | null,
-    head = self ? this._prevSibling : this;
+  let head = self ? this._prevSibling : this,
+    current = this._nextSibling as Computation | null;
 
-  if (current) {
-    owners.push(this);
-    do {
-      current._state = STATE_DISPOSED;
-      if (current._disposal) emptyDisposal(current);
-      if (current._sources) removeSourceObservers(current, 0);
-      if (current._prevSibling) current._prevSibling._nextSibling = null;
-      current._parent = null;
-      current._sources = null;
-      current._observers = null;
-      current._prevSibling = null;
-      current._context = null;
-      owners.push(current);
-      current = current._nextSibling as Computation | null;
-    } while (current && owners.includes(current._parent!));
+  while (current && current._parent === this) {
+    dispose.call(current, true);
+    disposeNode(current);
+    current = current._nextSibling as Computation;
   }
 
+  if (self) disposeNode(this as Computation);
+  if (current) current._prevSibling = !self ? this : this._prevSibling;
   if (head) head._nextSibling = current;
-  if (current) current._prevSibling = head;
-  owners = [];
+}
+
+function disposeNode(node: Computation) {
+  node._state = STATE_DISPOSED;
+  if (node._disposal) emptyDisposal(node);
+  if (node._sources) removeSourceObservers(node, 0);
+  if (node._prevSibling) node._prevSibling._nextSibling = null;
+  node._parent = null;
+  node._sources = null;
+  node._observers = null;
+  node._prevSibling = null;
+  node._context = null;
 }
 
 function emptyDisposal(owner: Computation) {
-  try {
-    if (Array.isArray(owner._disposal)) {
-      for (let i = 0; i < owner._disposal.length; i++) {
-        const callable = owner._disposal![i];
-        callable.call(callable);
-      }
-    } else {
-      owner._disposal!.call(owner._disposal);
+  if (Array.isArray(owner._disposal)) {
+    for (let i = 0; i < owner._disposal.length; i++) {
+      const callable = owner._disposal![i];
+      callable.call(callable);
     }
-
-    owner._disposal = null;
-  } catch (error) {
-    handleError(owner, error);
+  } else {
+    owner._disposal!.call(owner._disposal);
   }
+
+  owner._disposal = null;
 }
 
 export function compute<Result>(
@@ -286,6 +292,11 @@ OwnerProto.append = function appendChild(owner: Owner) {
   this._nextSibling = owner;
 };
 
+/** @internal */
+export function createOwner() {
+  return new OwnerNode();
+}
+
 const ComputeNode = function Computation(
   this: Computation,
   initialValue,
@@ -301,7 +312,8 @@ const ComputeNode = function Computation(
   this._observers = null;
   this._value = initialValue;
 
-  if (__DEV__) this.name = options?.name ?? (this._compute ? "computed" : "signal");
+  if (__DEV__)
+    this.name = options?.name ?? (this._compute ? "computed" : "signal");
   if (compute) this._compute = compute;
   if (options && options.equals !== undefined) this._equals = options.equals;
 };
@@ -311,6 +323,7 @@ Object.setPrototypeOf(ComputeProto, OwnerProto);
 ComputeProto._equals = isEqual;
 ComputeProto.call = read;
 
+/** @internal */
 export function createComputation<T>(
   initialValue: T | undefined,
   compute: (() => T) | null,
@@ -331,7 +344,7 @@ export function isZombie(node: Owner) {
   let owner = node._parent;
 
   while (owner) {
-    // We're looking for a dirty parent effect owner.
+    // We're looking for a dirty parent owner.
     if (owner._compute && owner._state === STATE_DIRTY) return true;
     owner = owner._parent;
   }
@@ -363,7 +376,7 @@ function cleanup(node: Computation) {
   node._context = null;
 }
 
-function update(node: Computation) {
+export function update(node: Computation) {
   let prevObservers = currentObservers,
     prevObserversIndex = currentObserversIndex;
 
@@ -437,7 +450,7 @@ function update(node: Computation) {
   node._state = STATE_CLEAN;
 }
 
-function notify(node: Computation, state: number) {
+export function notify(node: Computation, state: number) {
   if (node._state >= state) return;
 
   if (node._effect && node._state === STATE_CLEAN) {

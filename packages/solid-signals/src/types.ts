@@ -40,10 +40,19 @@ export interface Setter<T> {
   (value: T | NextValue<T>): T;
 }
 
-export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
-
 export interface NextValue<T> {
   (prevValue: T): T;
+}
+
+export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
+
+export interface SelectorSignal<T> {
+  (key: T): Boolean;
+}
+
+export interface SelectorOptions<Key, Value> {
+  name?: string;
+  equals?: (key: Key, value: Value | undefined) => boolean;
 }
 
 export interface Owner {

@@ -1,8 +1,10 @@
-import { createComputation, currentObserver, read, write } from "./core";
+import { createComputation, getObserver, read, write } from "./core";
 import { Computation } from "./types";
 
 export type Store<T> = Readonly<T>;
+// TODO: should this be `StoreSetter`?
 export type SetStoreFunction<T> = (fn: (state: T) => void) => void;
+
 type DataNode = Computation<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
 
@@ -12,9 +14,11 @@ const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
   $NODE = Symbol(__DEV__ ? "STORE_NODE" : 0);
 
 export type StoreNode = Record<PropertyKey, any>;
+
 export namespace SolidStore {
   export interface Unwrappable {}
 }
+
 export type NotWrappable =
   | string
   | number
@@ -129,9 +133,9 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
 }
 
 function trackSelf(target: StoreNode) {
-  if (currentObserver) {
+  if (getObserver()) {
     const nodes = getDataNodes(target);
-    (nodes._ || read.call(nodes._ = createDataNode()));
+    nodes._ || read.call((nodes._ = createDataNode()));
   }
 }
 
@@ -162,7 +166,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
 
     if (!tracked) {
       if (
-        currentObserver &&
+        getObserver() &&
         (typeof value !== "function" || target.hasOwnProperty(property)) &&
         !(desc && desc.get)
       )
@@ -216,7 +220,8 @@ function setProperty(
   if ((node = getDataNode(nodes, property, prev))) write.call(node, value);
 
   if (Array.isArray(state) && state.length !== len)
-    (node = getDataNode(nodes, "length", len)) && write.call(node, state.length);
+    (node = getDataNode(nodes, "length", len)) &&
+      write.call(node, state.length);
   (node = nodes._) && write.call(node, undefined);
 }
 
