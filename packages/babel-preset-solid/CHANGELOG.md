@@ -1,5 +1,22 @@
 # babel-preset-solid
 
+## 1.7.0
+
+### Minor Changes
+
+- f7dc355f: Remove FunctionElement from JSX.Element types
+- 940e5745: change to seroval serializer, better ssr fragment fixes
+- 2b80f706: Reduce DOM compiler output size
+  Remove auxilary closing tags and lazy evaluate templates
+- 74f00e15: Support prop/attr directives in spreads, apply prop aliases only to specific elements
+
+### Patch Changes
+
+- 41ca6522: fixes around templates and hydration
+- 3de9432c: Better Input Event Types, Template Pruning, Universal Renderer Fixes
+- a382c0c5: minify inline style, class
+- 6a4fe46c: fix #1553 improper html entity encoding in literal expressions
+
 ## 1.7.0-beta.5
 
 ### Patch Changes
