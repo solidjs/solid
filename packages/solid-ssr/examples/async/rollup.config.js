@@ -9,7 +9,7 @@ export default [
     output: [
       {
         dir: "examples/async/lib",
-        format: "cjs"
+        format: "esm"
       }
     ],
     preserveEntrySignatures: false,

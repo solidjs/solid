@@ -3,7 +3,7 @@ import {
   createSignal,
   createResource,
   createRenderEffect,
-  onError,
+  catchError,
   Resource,
   ResourceFetcherInfo,
   Signal,
@@ -12,14 +12,12 @@ import {
 
 import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src";
 
-global.queueMicrotask = fn => Promise.resolve().then(fn);
-
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,
     reject: (r: string) => void,
     trigger: (v: string) => void,
     value: Resource<string | undefined>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -31,9 +29,13 @@ describe("Simulate a dynamic fetch", () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
-      onError(e => (error = e));
-      [value] = createResource(id, fetcher);
-      createRenderEffect(value);
+      catchError(
+        () => {
+          [value] = createResource(id, fetcher);
+          createRenderEffect(value);
+        },
+        e => (error = e)
+      );
     });
     expect(value()).toBeUndefined();
     expect(value.latest).toBeUndefined();
@@ -64,8 +66,10 @@ describe("Simulate a dynamic fetch", () => {
     expect(value.error).toBeUndefined();
     reject("Because I said so");
     await Promise.resolve();
-    expect(error).toBe("Because I said so");
-    expect(value.error).toBe("Because I said so");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("Because I said so");
+    expect(value.error).toBeInstanceOf(Error);
+    expect(value.error.message).toBe("Because I said so");
     expect(value.loading).toBe(false);
   });
 });
@@ -142,7 +146,7 @@ describe("using Resource with initial Value", () => {
     reject: (r: string) => void,
     trigger: (v: string) => void,
     value: Resource<string>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -153,9 +157,13 @@ describe("using Resource with initial Value", () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
-      onError(e => (error = e));
-      [value] = createResource(id, fetcher, { initialValue: "Loading" });
-      createRenderEffect(value);
+      catchError(
+        () => {
+          [value] = createResource(id, fetcher, { initialValue: "Loading" });
+          createRenderEffect(value);
+        },
+        e => (error = e)
+      );
     });
     expect(value()).toBe("Loading");
     expect(value.loading).toBe(true);
@@ -171,7 +179,7 @@ describe("using Resource with errors", () => {
     reject: (e: any) => void,
     trigger: (v: string) => void,
     value: Resource<string | undefined>,
-    error: string;
+    error: Error;
   function fetcher(id: string) {
     return new Promise<string>((r, f) => {
       resolve = r;
@@ -182,9 +190,13 @@ describe("using Resource with errors", () => {
     createRoot(() => {
       const [id, setId] = createSignal("1");
       trigger = setId;
-      onError(e => (error = e));
-      [value] = createResource(id, fetcher);
-      createRenderEffect(value);
+      catchError(
+        () => {
+          [value] = createResource(id, fetcher);
+          createRenderEffect(value);
+        },
+        e => (error = e)
+      );
     });
     expect(value()).toBeUndefined();
     expect(value.state === "pending").toBe(true);

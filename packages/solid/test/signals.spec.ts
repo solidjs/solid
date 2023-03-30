@@ -13,7 +13,7 @@ import {
   on,
   onMount,
   onCleanup,
-  onError,
+  catchError,
   createContext,
   useContext,
   getOwner,
@@ -433,7 +433,7 @@ describe("onCleanup", () => {
   });
 });
 
-describe("onError", () => {
+describe("catchError", () => {
   test("No Handler", () => {
     expect(() =>
       createRoot(() => {
@@ -445,8 +445,12 @@ describe("onError", () => {
     let errored = false;
     expect(() =>
       createRoot(() => {
-        onError(() => (errored = true));
-        throw "fail";
+        catchError(
+          () => {
+            throw "fail";
+          },
+          () => (errored = true)
+        );
       })
     ).not.toThrow("fail");
     expect(errored).toBe(true);
@@ -457,29 +461,33 @@ describe("onError", () => {
     expect(() =>
       createRoot(() => {
         createEffect(() => {
-          onError(() => (errored = true));
-          throw "fail";
+          catchError(
+            () => {
+              throw "fail";
+            },
+            () => (errored = true)
+          );
         });
       })
     ).not.toThrow("fail");
     expect(errored).toBe(true);
   });
 
-  test("With multiple error handlers", () => {
-    let errored = false;
-    let errored2 = false;
-    expect(() =>
-      createRoot(() => {
-        createEffect(() => {
-          onError(() => (errored = true));
-          onError(() => (errored2 = true));
-          throw "fail";
-        });
-      })
-    ).not.toThrow("fail");
-    expect(errored).toBe(true);
-    expect(errored2).toBe(true);
-  });
+  // test("With multiple error handlers", () => {
+  //   let errored = false;
+  //   let errored2 = false;
+  //   expect(() =>
+  //     createRoot(() => {
+  //       createEffect(() => {
+  //         onError(() => (errored = true));
+  //         onError(() => (errored2 = true));
+  //         throw "fail";
+  //       });
+  //     })
+  //   ).not.toThrow("fail");
+  //   expect(errored).toBe(true);
+  //   expect(errored2).toBe(true);
+  // });
 
   test("In update effect", () => {
     let errored = false;
@@ -488,8 +496,12 @@ describe("onError", () => {
         const [s, set] = createSignal(0);
         createEffect(() => {
           const v = s();
-          onError(() => (errored = true));
-          if (v) throw "fail";
+          catchError(
+            () => {
+              if (v) throw "fail";
+            },
+            () => (errored = true)
+          );
         });
         set(1);
       })
@@ -503,8 +515,12 @@ describe("onError", () => {
       createRoot(() => {
         createEffect(() => {
           createEffect(() => {
-            onError(() => (errored = true));
-            throw "fail";
+            catchError(
+              () => {
+                throw "fail";
+              },
+              () => (errored = true)
+            );
           });
         });
       })
@@ -520,8 +536,12 @@ describe("onError", () => {
         createEffect(() => {
           createEffect(() => {
             const v = s();
-            onError(() => (errored = true));
-            if (v) throw "fail";
+            catchError(
+              () => {
+                if (v) throw "fail";
+              },
+              () => (errored = true)
+            );
           });
         });
         set(1);
@@ -536,11 +556,14 @@ describe("onError", () => {
       createRoot(() => {
         const [s, set] = createSignal(0);
         createEffect(() => {
-          onError(() => (errored = true));
-          createEffect(() => {
-            const v = s();
-            if (v) throw "fail";
-          });
+          catchError(
+            () =>
+              createEffect(() => {
+                const v = s();
+                if (v) throw "fail";
+              }),
+            () => (errored = true)
+          );
         });
         set(1);
       })
@@ -553,9 +576,13 @@ describe("onError", () => {
     expect(() =>
       createRoot(() => {
         createMemo(() => {
-          onError(() => (errored = true));
-          createEffect(() => {});
-          throw new Error("fail");
+          catchError(
+            () => {
+              createEffect(() => {});
+              throw new Error("fail");
+            },
+            () => (errored = true)
+          );
         });
       })
     ).not.toThrow("fail");

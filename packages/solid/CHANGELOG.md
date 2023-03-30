@@ -1,5 +1,64 @@
 # solid-js
 
+## 1.7.0-beta.5
+
+### Patch Changes
+
+- 0dc8e365: Make non-null control flow assertion stricter by throwing
+
+## 1.7.0-beta.4
+
+### Patch Changes
+
+- cb6a383d: ensure narrowed values are non-null
+- 3de9432c: Better Input Event Types, Template Pruning, Universal Renderer Fixes
+- 2cb6f3d6: fix treeshaking in rollup 3
+- 23c157ac: fix backward compatibility of template, fix #1639 loading on iframe
+
+## 1.7.0-beta.3
+
+### Patch Changes
+
+- 41ca6522: fixes around templates and hydration
+
+## 1.7.0-beta.2
+
+### Minor Changes
+
+- 940e5745: change to seroval serializer, better ssr fragment fixes
+
+## 1.7.0-beta.1
+
+### Minor Changes
+
+- 608b3c3a: Add catchError/deprecate onError
+- 2b80f706: Reduce DOM compiler output size
+  Remove auxilary closing tags and lazy evaluate templates
+- 8d0877e4: fix #1562 cleanup order
+- 74f00e15: Support prop/attr directives in spreads, apply prop aliases only to specific elements
+
+### Patch Changes
+
+- 6b77d9ed: Better types on function callback control flow
+- 24469762: Add a reference to the component funciton to DevComponent owner.
+  Rename DevComponent's property from `componentName` to `name`.
+- 5545d3ee: Type narrowed flow on the server, add stale warning
+
+## 1.7.0-beta.0
+
+### Minor Changes
+
+- 503b632: Add type narrowing non-keyed control flow
+- 86c3227: always cast to errors when handled
+- f7dc355: Remove FunctionElement from JSX.Element types
+
+### Patch Changes
+
+- 4929530: Remove name generation of owners and signals
+- 71c40af: DEV: Minor additions and change the API of dev hooks
+- e245736: Fixed test case for setStore 7 parameter overload by fixing KeyOf giving number for KeyOf<never>
+- 6a4fe46: fix #1553 improper html entity encoding in literal expressions
+
 ## 1.6.16
 
 ### Patch Changes

@@ -2,8 +2,6 @@ import { createRoot, createMemo, enableExternalSource } from "../src";
 
 import "./MessageChannel";
 
-global.queueMicrotask = (fn) => Promise.resolve().then(fn);
-
 class ExternalSource<T = any> {
   listeners: Set<() => void> = new Set();
 
@@ -31,34 +29,35 @@ let listener: (() => void) | null = null;
 
 let sources: Map<() => void, Set<ExternalSource>> = new Map();
 
-enableExternalSource((fn, trigger) => {
-  sources.set(trigger, new Set());
-  return {
-    track: x => {
-      const tmp = listener;
-      // trigger could play the role of listener，as it has stable reference
-      listener = trigger;
-      try {
-        return fn(x);
-      } finally {
-        listener = tmp;
-      }
-    },
-    dispose: () => {
-      sources.get(trigger)!.forEach(x => x.removeListener(trigger));
-      sources.delete(trigger);
-    }
-  };
-});
-
-enableExternalSource(fn => {
-  return {
-    track: fn,
-    dispose: () => {}
-  };
-}); // do nothing, make sure multiple factories be piped.
-
 describe("external source", () => {
+  beforeEach(() => {
+    enableExternalSource((fn, trigger) => {
+      sources.set(trigger, new Set());
+      return {
+        track: x => {
+          const tmp = listener;
+          // trigger could play the role of listener，as it has stable reference
+          listener = trigger;
+          try {
+            return fn(x);
+          } finally {
+            listener = tmp;
+          }
+        },
+        dispose: () => {
+          sources.get(trigger)!.forEach(x => x.removeListener(trigger));
+          sources.delete(trigger);
+        }
+      };
+    });
+
+    enableExternalSource(fn => {
+      return {
+        track: fn,
+        dispose: () => {}
+      };
+    }); // do nothing, make sure multiple factories be piped.
+  });
   it("should trigger solid primitive update", () => {
     createRoot(fn => {
       const e = new ExternalSource(0);
@@ -70,5 +69,9 @@ describe("external source", () => {
       expect(memo()).toBe(1);
       fn();
     });
+  });
+
+  afterEach(() => {
+    vi.resetModules();
   });
 });

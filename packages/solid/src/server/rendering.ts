@@ -4,12 +4,11 @@ import {
   createMemo,
   useContext,
   runWithOwner,
-  onError,
+  catchError,
   Accessor,
   Setter,
   Signal,
   castError,
-  onCleanup,
   cleanNode,
   createOwner
 } from "./reactive.js";
@@ -207,16 +206,21 @@ export function Index<T>(props: {
   return simpleMap(props, (fn, item, i) => fn(() => item, i));
 }
 
+type RequiredParameter<T> = T extends () => unknown ? never : T;
+/**
+ * Conditionally render its children or an optional fallback component
+ * @description https://www.solidjs.com/docs/latest/api#show
+ */
 export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: string;
-  children: string | ((item: NonNullable<T>) => string);
-}) {
-  let c: string | ((item: NonNullable<T>) => string);
+  children: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
+}): string {
+  let c: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
   return props.when
     ? typeof (c = props.children) === "function"
-      ? c(props.when!)
+      ? c(props.keyed ? props.when! : () => props.when as any)
       : c
     : props.fallback || "";
 }
@@ -232,7 +236,7 @@ export function Switch(props: {
     const w = conditions[i].when;
     if (w) {
       const c = conditions[i].children;
-      return typeof c === "function" ? c(w) : c;
+      return typeof c === "function" ? c(conditions[i].keyed ? w : () => w) : c;
     }
   }
   return props.fallback || "";
@@ -241,7 +245,7 @@ export function Switch(props: {
 type MatchProps<T> = {
   when: T | false;
   keyed?: boolean;
-  children: string | ((item: T) => string);
+  children: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
 };
 export function Match<T>(props: MatchProps<T>) {
   return props;
@@ -265,18 +269,20 @@ export function ErrorBoundary(props: {
     const f = props.fallback;
     return typeof f === "function" && f.length ? f(error, () => {}) : f;
   }
-  onError(err => {
-    error = err;
-    !sync && ctx.replace("e" + id, displayFallback);
-    sync = true;
-  });
   createMemo(() => {
     clean = Owner;
-    return (res = props.children);
+    return catchError(
+      () => (res = props.children),
+      err => {
+        error = err;
+        !sync && ctx.replace("e" + id, displayFallback);
+        sync = true;
+      }
+    );
   });
   if (error) return displayFallback();
   sync = false;
-  return { t: `<!e${id}>${resolveSSRNode(res)}<!/e${id}>` };
+  return { t: `<!!$e${id}>${resolveSSRNode(res)}<!!$/e${id}>` };
 }
 
 // Suspense Context
@@ -566,42 +572,44 @@ export function Suspense(props: { fallback?: string; children: string }) {
         }
       }
     });
+
+  function suspenseError(err: Error) {
+    if (!done || !done(undefined, err)) {
+      runWithOwner(o.owner!, () => {
+        throw err;
+      });
+    }
+  }
+
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
     cleanNode(o);
-    return runWithOwner(o, () => {
-      return createComponent(SuspenseContext.Provider, {
+    return runWithOwner(o, () =>
+      createComponent(SuspenseContext.Provider, {
         value,
         get children() {
-          return props.children;
+          return catchError(() => props.children, suspenseError);
         }
-      });
-    });
+      })
+    );
   }
   const res = runSuspense();
 
   // never suspended
   if (suspenseComplete(value)) return res;
 
-  runWithOwner(o, () => {
-    onError(err => {
-      if (!done || !done(undefined, err)) {
-        runWithOwner(o.owner, () => {
-          throw err;
-        });
-      }
-    });
-  });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
-  if (ctx.async) {
-    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f", noHydrate: true });
-    const res = {
-      t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>`
-    };
-    setHydrateContext(ctx);
-    return res;
-  }
-  setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f" });
-  ctx.writeResource(id, "$$f");
-  return props.fallback;
+  return catchError(() => {
+    if (ctx.async) {
+      setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f", noHydrate: true });
+      const res = {
+        t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>`
+      };
+      setHydrateContext(ctx);
+      return res;
+    }
+    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f" });
+    ctx.writeResource(id, "$$f");
+    return props.fallback;
+  }, suspenseError);
 }

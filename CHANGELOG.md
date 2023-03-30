@@ -1,5 +1,165 @@
 # Changelog
 
+## 1.7.0 - 2023-03-30
+
+Solid has experienced incredible growth in usage the last 6 months. Companies are using it to power production applications and SolidStart Beta has been a big part of that. As a natural part of this growth and increased use at scale we are continuing to learn what works well and what the rough edges in Solid are today.
+
+This v1.7 release marks the beginning of the migration roadmap to v2.0. We are beginning to re-evaluate core APIs and will begin introducing new ones while reasonably deprecating older ones in a manner that eases breaking changes. Our intention is to ease the broader ecosystem into preparing for improvements that a major 2.0 will unlock for the whole community.
+
+### Improved TypeScript
+
+#### Null-Asserted Control Flow
+
+One of the pains of using Solid with TypeScript has been that JSX control flows can't really type narrow. This is true, but starting with the migration to explicit `keyed` in v1.5 we now complete this story by introducing callback forms for `<Show>` and `<Match>` that work when non-keyed.
+
+The main difference is the callback form instead of passing in the value as it does when `keyed`, passes in a function that is type narrowed.
+
+```js
+// keyed w/ callback - reruns full callback on change
+<Show when={user()} keyed>
+  {nonNullUser => <div>{nonNullUser.name}</div>}
+</Show>
+
+// non-keyed w/o callback... - only updates the one expression, needs ! assertion
+<Show when={user()}>
+  <div>{user()!.name}</div>
+</Show>
+
+// NEW!
+// non-keyed w/ callback - only updates the one expression
+<Show when={user()}>
+  {nonNullUser => <div>{nonNullUser().name}</div>}
+</Show>
+```
+
+Keep in mind because we are non-null asserting the input signal so it won't expect null in closures that execute when the condition is no longer satisfied. For this reason the accessor from the callback is special and will throw when attempted to be accessed when the condition is no longer true. This may be unexpected but it is our best attempt to keep TypeScript strict and not present inconsistency in reactivity. Luckily this only applies to things like timers which you should be cleaning up anyway and not things like event handlers. We recommend using the original conditions source in those closures if you must.
+
+#### Better Event Types for Input Elements
+
+This has irked people for a while but we come by it honestly, `target` is gives you a type of `Element` rather than the specific element that is the target. That means no access to `.value` or `.checked`. The reason is there is no way to know at compile time what the target of an event will be. The `currentTarget` will be the element you attach the event to but the target can be anything.
+
+There is a way to work around this though, in that if we know the `currentTarget` is of type that generates the event and that the `currentTarget` is the the type of this element we can assume it is the `target` as well. Not perfect logic but it is what React does and we do too.
+
+Now `onInput`, `onChange`, `onBlur`, `onFocus`, `onFocusIn`, and `onFocusOut` all support more detailed `target` when applied to `HTMLInputElement`, `HTMLTextAreaElement`, and `HTMLSelectElement`.
+
+#### Stricter JSX Elements
+
+Strict JSX elements have been tricky because we have to acknowledge at a certain point that TypeScript is to serve our purposes rather than to represent all possible values that could work. For us the ambiguity lies in functions.
+
+Solid's JSX needs to accept functions to handle dynamic insertion. However, in authoring it leads to awkward situations.
+
+The first you hit the first time use Solid. You create that counter and don't call `count` as a function and it works.
+
+```js
+function Counter() {
+  const [count, setCount] = createSignal(1);
+
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>;
+}
+```
+
+This example works in some places and not others which might lead to the wrong conclusions.
+
+The second place you might hit this is when you get a little further on your journey and decide you need a component to re-render and decide that you can just wrap the whole thing in a function:
+
+```js
+function MyComp(props) {
+  return () => {
+    // look working early returns
+    if (props.count > 5) {
+      return <div>Maximum Tries</div>;
+    }
+
+    return <div>Attempt {props.count}</div>;
+  };
+}
+```
+
+Again this seems fine, except the fact that every time `count` changes you are recreating all the DOM Elements even when it resolves to the same conditional.
+
+Eventually you might even not think twice about passing functions into children of arbitrary components:
+
+```js
+<MyComp>
+  <MyComp2>
+    <MyComp3>{() => <div>{resource()}</div>}</MyComp3>
+  </MyComp2>
+</MyComp>
+```
+
+But what does this do? When is the function called?
+
+As it turns out removing functions from `JSX.Element` type makes all of these scenarios error. Components only expect the values dictated by their types.
+
+```js
+function MyLayout(props: { children: JSX.Element }): JSX.Element;
+
+function MyFor<T, U extends JSX.Element>(props: { each: T[],  children: (item: T) => U }): JSX.Element;
+
+// valid
+<MyLayout>Hello</MyLayout>
+<MyLayout><p>Hello</p></MyLayout>
+<MyLayout>{name()}</MyLayout>
+<MyLayout>{name() && <p>Hello</p>}</MyLayout>
+<MyLayout>{(() => {
+  return <p{name()}</p>
+})()}</MyLayout>
+<MyLayout>{untrack(() => {
+  return <p>{name()}</p>
+})}</MyLayout>
+<MyFor each={users()}>{(user) => <div>{user.name}</div>}</MyFor>
+
+// invalid
+<MyLayout>{name}</MyLayout>
+<MyLayout>{() => <p>Hello</p>}</MyLayout>
+<MyLayout>{() => "Hello"}</MyLayout>
+<MyLayout>{() => name() && <p>Hello</p>}</MyLayout>
+<MyFor each={users}>{(user) => <div>{user.name}</div>}</MyFor>
+<MyFor each={users()}><div>Not a Function</div></MyFor>
+```
+
+The tradeoff here is that authoring components you can no longer just return a Signal or Memo without casting. If using JSX you can always return a Fragment.
+
+If not you will need to cast to `unknown as JSX.Element`.
+
+### Better Errors and Cleanup
+
+#### `catchError` replaces `onError`
+
+Error Handling is complicated enough without having to try to guess how they propagate. `onError` admittedly is a lower level primitive but fundamentally had this flaw. It worked by registering an error handler on the parent scope, but left it ambiguous how to handle siblings. Is it a queue? Are they independent?
+
+As a result we are introducing `catchError` in this release which introduces its own scope to catch any errors below it. The first argument in the primitive is similar to the try and the second argument is the catch.
+
+```js
+catchError(
+  () => {
+    // do stuff
+    throw new Error("I've Errored");
+  },
+  err => console.log(err)
+);
+```
+
+`onError` will still be present until it can be removed in a future major version.
+
+#### Standardized Errors
+
+Error Handling has had many weird edge cases introduced by applications throwing unusual values. In v1.7 we wrap all thrown values that aren't of type `Error` in a `new Error` and attach the original thrown value as `.cause`.
+
+### More Performant Dev Tools
+
+Now that [Solid Dev Tools](https://github.com/thetarnav/solid-devtools) have been stabilizing, we have a much better idea what support we need for them. In so we were able to remove the very costly serialization we were doing for generating unique identifiers. Conventions around naming and exports were streamlined and standardized as well.
+
+### Others
+
+- Smaller compiled output, remove auxilary closing tags
+- Support for `prop:` and `attr:` in Spreads
+- Don't apply special props (like `readonly`) to custom elements
+- Introduced improved serializer, [seroval](https://github.com/lxsmnsyc/seroval)
+- Fixed quirks in Solid's treeshaking in Rollup
+- Minify inline class and style attributes
+- Update `solid-ssr` to type `"module"`
+
 ## 1.6.0 - 2022-10-20
 
 Solid v1.6 doesn't bring a ton of new features but brings some big improvements in existing ones.
@@ -72,6 +232,7 @@ So now if you don't use a `Store` or swap out the props object:
 // or
 <div {...someSignal()} />
 ```
+
 We don't need to introduce any proxy the user didn't create. This makes Solid a viable option for these low-end devices.
 
 ## 1.5.0 - 2022-08-26

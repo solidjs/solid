@@ -1,5 +1,69 @@
 # test-integration
 
+## 1.7.0-beta.5
+
+### Patch Changes
+
+- Updated dependencies [a382c0c5]
+- Updated dependencies [0dc8e365]
+  - babel-preset-solid@1.7.0-beta.5
+  - solid-js@1.7.0-beta.5
+
+## 1.7.0-beta.4
+
+### Patch Changes
+
+- Updated dependencies [cb6a383d]
+- Updated dependencies [3de9432c]
+- Updated dependencies [2cb6f3d6]
+- Updated dependencies [23c157ac]
+  - solid-js@1.7.0-beta.4
+  - babel-preset-solid@1.7.0-beta.4
+
+## 1.7.0-beta.3
+
+### Patch Changes
+
+- Updated dependencies [41ca6522]
+  - babel-preset-solid@1.7.0-beta.3
+  - solid-js@1.7.0-beta.3
+
+## 1.7.0-beta.2
+
+### Patch Changes
+
+- Updated dependencies [940e5745]
+  - babel-preset-solid@1.7.0-beta.2
+  - solid-js@1.7.0-beta.2
+
+## 1.7.0-beta.1
+
+### Patch Changes
+
+- Updated dependencies [6b77d9ed]
+- Updated dependencies [608b3c3a]
+- Updated dependencies [24469762]
+- Updated dependencies [2b80f706]
+- Updated dependencies [8d0877e4]
+- Updated dependencies [5545d3ee]
+- Updated dependencies [74f00e15]
+  - solid-js@1.7.0-beta.1
+  - babel-preset-solid@1.7.0-beta.1
+
+## 1.7.0-beta.0
+
+### Patch Changes
+
+- Updated dependencies [503b632]
+- Updated dependencies [86c3227]
+- Updated dependencies [f7dc355]
+- Updated dependencies [4929530]
+- Updated dependencies [71c40af]
+- Updated dependencies [e245736]
+- Updated dependencies [6a4fe46]
+  - solid-js@1.7.0-beta.0
+  - babel-preset-solid@1.7.0-beta.0
+
 ## 1.6.16
 
 ### Patch Changes

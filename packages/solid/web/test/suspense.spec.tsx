@@ -42,7 +42,7 @@ describe("Testing Suspense", () => {
         () => new Promise(r => setTimeout(() => r("Jo"), 300)),
         { initialValue: "" }
       );
-      return () => `${props.greeting} ${value()}`;
+      return <>{props.greeting} {value()}</>;
     },
     Component = () => (
       <Suspense fallback="Loading">

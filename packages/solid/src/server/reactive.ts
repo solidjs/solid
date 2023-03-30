@@ -4,7 +4,7 @@ export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 export const $TRACK = Symbol("solid-track");
 export const $DEVCOMP = Symbol("solid-dev-component");
-export const DEV = {};
+export const DEV = undefined;
 
 export type Accessor<T> = () => T;
 export type Setter<T> = undefined extends T
@@ -13,16 +13,16 @@ export type Setter<T> = undefined extends T
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 const ERROR = Symbol("error");
-export function castError(err: any) {
-  if (err instanceof Error || typeof err === "string") return err;
-  return new Error("Unknown error");
+export function castError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
 
-function handleError(err: any) {
-  err = castError(err);
+function handleError(err: unknown): void {
+  const error = castError(err);
   const fns = lookup(Owner, ERROR);
-  if (!fns) throw err;
-  for (const f of fns) f(err);
+  if (!fns) throw error;
+  for (const f of fns) f(error);
 }
 
 const UNOWNED: Owner = { context: null, owner: null, owned: null, cleanups: null };
@@ -166,7 +166,21 @@ export function cleanNode(node: Owner) {
   }
 }
 
-export function onError(fn: (err: any) => void): void {
+export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
+  Owner = { owner: Owner, context: { [ERROR]: [handler] }, owned: null, cleanups: null };
+  try {
+    return fn();
+  } catch(err) {
+    handleError(err);
+  } finally {
+    Owner = Owner!.owner;
+  }
+}
+
+/**
+ * @deprecated since version 1.7.0 and will be removed in next major - use catchError instead
+*/
+export function onError(fn: (err: Error) => void): void {
   if (Owner) {
     if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
     else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
@@ -246,7 +260,7 @@ function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     return createMemo<JSX.Element>(() => {
       Owner!.context = { [id]: props.value };
-      return children(() => props.children);
+      return children(() => props.children) as unknown as JSX.Element;
     });
   };
 }

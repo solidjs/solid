@@ -8,12 +8,11 @@ import {
   JSX,
   createRoot,
   sharedConfig,
-  Accessor,
   enableHydration,
   $DEVCOMP,
   ComponentProps,
   ValidComponent,
-  createRenderEffect,
+  createEffect,
   onMount
 } from "solid-js";
 
@@ -79,16 +78,13 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
     } else return () => props.children;
   }
 
-  createRenderEffect(() => {
+  createEffect(() => {
     const el = mount();
     if (el instanceof HTMLHeadElement) {
       const [clean, setClean] = createSignal(false);
       const cleanup = () => setClean(true);
       createRoot(dispose => insert(el, () => (!clean() ? content() : dispose()), null));
-      onCleanup(() => {
-        if (sharedConfig.context) queueMicrotask(cleanup);
-        else cleanup();
-      });
+      onCleanup(cleanup);
     } else {
       const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
         renderRoot =
@@ -121,7 +117,7 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * ```
  * @description https://www.solidjs.com/docs/latest/api#dynamic
  */
-export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
+export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
   const cached = createMemo<Function | string>(() => p.component);
   return createMemo(() => {
@@ -140,5 +136,5 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Acces
       default:
         break;
     }
-  });
+  }) as unknown as JSX.Element;
 }

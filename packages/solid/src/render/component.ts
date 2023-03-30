@@ -343,7 +343,7 @@ export function lazy<T extends Component<any>>(
           setHydrateContext(c);
           return r;
         })
-    );
+    ) as unknown as JSX.Element;
   }) as T;
   wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
   return wrap as T & { preload: () => Promise<{ default: T }> };

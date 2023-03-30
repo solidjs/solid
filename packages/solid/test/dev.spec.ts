@@ -3,49 +3,54 @@ import {
   getOwner,
   createSignal,
   createEffect,
-  createComponent,
   createComputed,
   DEV,
-  Owner,
-  createContext
+  createContext,
+  createComponent
 } from "../src";
-import { createStore, unwrap } from "../store/src";
+import type { DevComponent } from "../src/reactive/signal";
+import { createStore, unwrap, DEV as STORE_DEV } from "../store/src";
 
 describe("Dev features", () => {
-  test("Reactive graph serialization", () => {
-    let owner: ReturnType<typeof getOwner>, set1: (v: number) => number, setState1: any;
-
-    const SNAPSHOTS = [
-      `{"s1773325850":5,"s1773325850-1":5,"c-1":{"explicit":6},"CustomComponent:c-2":{"s533736025":{"firstName":"John","lastName":"Smith"}}}`,
-      `{"s1773325850":7,"s1773325850-1":5,"c-1":{"explicit":6},"CustomComponent:c-2":{"s533736025":{"firstName":"Matt","lastName":"Smith","middleInitial":"R."}}}`
-    ];
-    const CustomComponent = () => {
-      const [state, setState] = createStore({ firstName: "John", lastName: "Smith" });
-      setState1 = setState;
-      return "";
-    };
+  test("Signals being added to sourceMap with user-provided names", () => {
     createRoot(() => {
-      owner = getOwner();
-      const [s, set] = createSignal(5);
-      const [s2] = createSignal(5);
-      createEffect(() => {
-        const [s] = createSignal(6, { name: "explicit" });
-      });
-      createComponent(CustomComponent, {});
-      set1 = set;
+      const owner = getOwner()!;
+      createSignal(3, { name: "test" });
+      createSignal(5);
+      createSignal(6, { name: "explicit" });
+      expect(owner).toHaveProperty("sourceMap");
+      expect(owner.sourceMap![0].name).toBe("test");
+      expect(owner.sourceMap![0].value).toBe(3);
+      expect(owner.sourceMap![1].name).toBe(undefined);
+      expect(owner.sourceMap![1].value).toBe(5);
+      expect(owner.sourceMap![2].name).toBe("explicit");
+      expect(owner.sourceMap![2].value).toBe(6);
     });
-    expect(JSON.stringify(DEV.serializeGraph(owner!))).toBe(SNAPSHOTS[0]);
-    set1!(7);
-    setState1({ middleInitial: "R.", firstName: "Matt" });
-    expect(JSON.stringify(DEV.serializeGraph(owner!))).toBe(SNAPSHOTS[1]);
+  });
+
+  test("Computations can be named", () => {
+    createRoot(() => {
+      const owner = getOwner()!;
+      createComputed(() => {}, undefined, { name: "test" });
+      createEffect(() => {}, undefined, { name: "test_effect" });
+      createComputed(() => {});
+      createEffect(() => {});
+      expect(owner).toHaveProperty("owned");
+      expect(owner.owned![0].name).toBe("test");
+      expect(owner.owned![1].name).toBe("test_effect");
+      expect(owner.owned![2].name).toBe(undefined);
+      expect(owner.owned![3].name).toBe(undefined);
+    });
   });
 
   test("Context nodes can be named", () => {
     createRoot(dispose => {
-      const ctx = createContext(undefined, { name: "test" });
-      ctx.Provider({ value: undefined, children: undefined });
-      const ctxNode = getOwner()!.owned![0];
-      expect(ctxNode.name).toBe("test");
+      const ctx1 = createContext(undefined);
+      const ctx2 = createContext(undefined, { name: "test" });
+      ctx1.Provider({ value: undefined, children: undefined });
+      ctx2.Provider({ value: undefined, children: undefined });
+      expect(getOwner()!.owned![0].name).toBe(undefined);
+      expect(getOwner()!.owned![1].name).toBe("test");
       dispose();
     });
   });
@@ -53,7 +58,7 @@ describe("Dev features", () => {
   test("AfterUpdate Hook", () => {
     let triggered = 0;
     let set1: (v: number) => number, setState1: any;
-    global._$afterUpdate = () => triggered++;
+    DEV!.hooks.afterUpdate = () => triggered++;
     createRoot(() => {
       const [s, set] = createSignal(5);
       const [s2] = createSignal(5);
@@ -80,7 +85,7 @@ describe("Dev features", () => {
     let triggered = 0;
     let set1: (v: number) => number;
     let log = "";
-    global._$afterUpdate = () => triggered++;
+    DEV!.hooks.afterUpdate = () => triggered++;
     createRoot(() => {
       const [s, set] = createSignal(5);
       const [s2, set2] = createSignal(0);
@@ -107,25 +112,26 @@ describe("Dev features", () => {
     expect(log).toBe("bac");
   });
 
-  test("AfterCreateRoot Hook", () => {
-    const captured: Owner[] = [];
-    global._$afterCreateRoot = root => captured.push(root);
+  test("afterCreateOwner Hook", () => {
+    const cb = vi.fn();
+    DEV!.hooks.afterCreateOwner = cb;
     createRoot(() => {
-      const root = getOwner()!;
-      expect(captured.length).toBe(1);
-      expect(captured[0]).toBe(root);
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).toHaveBeenLastCalledWith(getOwner());
       createRoot(_ => {
-        const inner = getOwner()!;
-        expect(captured.length).toBe(2);
-        expect(captured[1]).toBe(inner);
-        expect(inner.owner).toBe(root);
+        expect(cb).toHaveBeenCalledTimes(2);
+        expect(cb).toHaveBeenLastCalledWith(getOwner());
+      });
+      createComputed(() => {
+        expect(cb).toHaveBeenCalledTimes(3);
+        expect(cb).toHaveBeenLastCalledWith(getOwner());
       });
     });
   });
 
   test("OnStoreNodeUpdate Hook", () => {
     const cb = vi.fn();
-    global._$onStoreNodeUpdate = cb;
+    STORE_DEV!.hooks.onStoreNodeUpdate = cb;
     const [s, set] = createStore({ firstName: "John", lastName: "Smith", inner: { foo: 1 } });
     expect(cb).toHaveBeenCalledTimes(0);
     set({ firstName: "Matt" });
@@ -134,5 +140,18 @@ describe("Dev features", () => {
     set("inner", "foo", 2);
     expect(cb).toHaveBeenCalledTimes(2);
     expect(cb).toHaveBeenCalledWith(unwrap(s.inner), "foo", 2, 1);
+  });
+
+  test("createComponent should create a component owner in DEV", () => {
+    createRoot(() => {
+      const props = {};
+      createComponent(function MyComponent() {
+        const owner = getOwner() as DevComponent<{}>;
+        expect(owner.name).toBe("MyComponent");
+        expect(owner.props).toBe(props);
+        expect(owner.component).toBe(MyComponent);
+        return null;
+      }, props);
+    });
   });
 });

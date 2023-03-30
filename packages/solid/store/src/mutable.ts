@@ -7,7 +7,6 @@ import {
   getDataNode,
   $RAW,
   $NODE,
-  $NAME,
   StoreNode,
   setProperty,
   ownKeys
@@ -21,8 +20,7 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
     desc.set ||
     !desc.configurable ||
     property === $PROXY ||
-    property === $NODE ||
-    property === $NAME
+    property === $NODE
   )
     return desc;
 
@@ -57,9 +55,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
           batch(() => Array.prototype[property as any].apply(receiver, args));
       }
     }
-    return isWrappable(value)
-      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
-      : value;
+    return isWrappable(value) ? wrap(value) : value;
   },
 
   has(target, property) {
@@ -90,7 +86,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   getOwnPropertyDescriptor: proxyDescriptor
 };
 
-function wrap<T extends StoreNode>(value: T, name?: string): T {
+function wrap<T extends StoreNode>(value: T): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -112,7 +108,6 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
         });
       }
     }
-    if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
   }
   return p;
 }
@@ -123,14 +118,9 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createMutable'. Expected an object.`
     );
-  const wrappedStore = wrap(
-    unwrappedStore,
-    "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
-  );
-  if ("_SOLID_DEV_") {
-    const name = (options && options.name) || DEV.hashValue(unwrappedStore);
-    DEV.registerGraph(name, { value: unwrappedStore });
-  }
+
+  const wrappedStore = wrap(unwrappedStore);
+  if ("_SOLID_DEV_") DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
   return wrappedStore;
 }
 
