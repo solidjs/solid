@@ -69,19 +69,14 @@ type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import {
-  registerGraph,
-  writeSignal,
-  DevHooks
-} from "./reactive/signal.js";
-let DEV:
-  | {
+import { registerGraph, writeSignal, DevHooks } from "./reactive/signal.js";
+const DEV = "_SOLID_DEV_"
+  ? ({ hooks: DevHooks, writeSignal, registerGraph } as {
       readonly hooks: typeof DevHooks;
       readonly writeSignal: typeof writeSignal;
       readonly registerGraph: typeof registerGraph;
-    }
-  | undefined;
-if ("_SOLID_DEV_") DEV = { hooks: DevHooks, writeSignal, registerGraph };
+    })
+  : undefined;
 export { DEV };
 
 // handle multiple instance check
