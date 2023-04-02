@@ -56,7 +56,7 @@ function Counter() {
   
   console.log("The body of the function runs once...");
 
-  // JSX allows us to write HTML within our JavaScript function and include dynamic expressions using the { } syntax
+  // JSX allows you to write HTML within your JavaScript function and include dynamic expressions using the { } syntax
   // The only part of this that will ever rerender is the count() text.
   return (
     <>
@@ -71,7 +71,7 @@ function Counter() {
 render(Counter, document.getElementById("app")!);
 ```
 
-Solid compiles our JSX down to efficient real DOM updates. It uses the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
+Solid compiles your JSX down to efficient real DOM updates. It uses the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
 
 ```js
 import { template as _$template } from "solid-js/web";
