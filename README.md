@@ -14,6 +14,98 @@
 
 Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [intro video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
 
+## At a Glance
+```tsx
+import { createSignal } from "solid-js";
+import { render } from "solid-js/web";
+
+function Counter() {
+  const [count, setCount] = createSignal(0);
+  const doubleCount = () => count() * 2;
+  
+  console.log("The body of the function runs once...");
+
+  return (
+    <>
+      <button onClick={() => setCount(c => c + 1)}>
+        {doubleCount()}
+      </button>
+    </>
+  );
+}
+
+render(Counter, document.getElementById("app")!);
+```
+
+Try this code in our [playground](https://playground.solidjs.com/anonymous/0c88df54-91b0-4c88-bd20-e962bde49725)!
+
+<details>
+<summary>Explain this!</summary>
+
+```tsx
+import { createSignal } from "solid-js";
+import { render } from "solid-js/web";
+
+// A component is just a function that returns a DOM node
+function Counter() {
+  // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
+  const [count, setCount] = createSignal(0);
+  
+  //To create derived state, just wrap an expression in a function
+  const doubleCount = () => count() * 2;
+  
+  console.log("The body of the function runs once...");
+
+  // JSX allows us to write HTML within our JavaScript function and include dynamic expressions using the { } syntax
+  // The only part of this that will ever rerender is the count() text.
+  return (
+    <>
+      <button onClick={() => setCount(c => c + 1)}>
+        Increment: {doubleCount()}
+      </button>
+    </>
+  );
+}
+
+// The render function mounts a component onto your page
+render(Counter, document.getElementById("app")!);
+```
+
+Solid compiles our JSX down to efficient real DOM updates. It uses the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
+
+```js
+import { template as _$template } from "solid-js/web";
+import { delegateEvents as _$delegateEvents } from "solid-js/web";
+import { insert as _$insert } from "solid-js/web";
+//The compiler pulls out any static HTML
+const _tmpl$ = /*#__PURE__*/_$template(`<button>Increment: `);
+
+import { createSignal, createEffect } from "solid-js";
+import { render } from "solid-js/web";
+
+function Counter() {
+  const [count, setCount] = createSignal(0);
+  
+  const doubleCount = () => count() * 2;
+  
+  console.log("The body of the function runs once...");
+  
+  return (() => {
+    //_el$ is a real DOM node!
+    const _el$ = _tmpl$();
+    _el$.$$click = () => setCount(c => c + 1);
+     //This inserts the count as a child of the button in a way that allows count to update without rerendering the whole button
+    _$insert(_el$, doubleCount);
+    return _el$;
+  })();
+}
+render(Counter, document.getElementById("app"));
+_$delegateEvents(["click"]);
+```
+```
+
+</details>
+
 ## Key Features
 
 - Fine-grained updates to the real DOM
@@ -94,81 +186,6 @@ Do more with less: use simple, composable primitives without hidden rules and go
 ### Productive
 
 Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://hope-ui.com/), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
-
-<details>
-<summary>Show Me!</summary>
-
-```jsx
-import { render } from "solid-js/web";
-import { createSignal } from "solid-js";
-
-// A component is just a function that (optionally) accepts properties and returns a DOM node
-const Counter = props => {
-  // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
-  const [count, setCount] = createSignal(props.startingCount || 1);
-
-  // The increment function calls the setter
-  const increment = () => setCount(count() + 1);
-
-  console.log(
-    "The body of the function runs once, like you'd expect from calling any other function, so you only ever see this console log once."
-  );
-
-  // JSX allows us to write HTML within our JavaScript function and include dynamic expressions using the { } syntax
-  // The only part of this that will ever rerender is the count() text.
-  return (
-    <button type="button" onClick={increment}>
-      Increment {count()}
-    </button>
-  );
-};
-
-// The render function mounts a component onto your page
-render(() => <Counter startingCount={2} />, document.getElementById("app"));
-```
-
-See it in action in our interactive [Playground](https://playground.solidjs.com/?hash=-894962706&version=1.3.13)!
-
-Solid compiles our JSX down to efficient real DOM expressions updates, still using the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
-
-```js
-import { render, createComponent, delegateEvents, insert, template } from "solid-js/web";
-import { createSignal } from "solid-js";
-
-const _tmpl$ = /*#__PURE__*/ template(`<button type="button">Increment </button>`, 2);
-
-const Counter = props => {
-  const [count, setCount] = createSignal(props.startingCount || 1);
-  const increment = () => setCount(count() + 1);
-
-  console.log("The body of the function runs once . . .");
-
-  return (() => {
-    //_el$ is a real DOM node!
-    const _el$ = _tmpl$.cloneNode(true);
-    _el$.firstChild;
-
-    _el$.$$click = increment;
-
-    //This inserts the count as a child of the button in a way that allows count to update without rerendering the whole button
-    insert(_el$, count, null);
-
-    return _el$;
-  })();
-};
-
-render(
-  () =>
-    createComponent(Counter, {
-      startingCount: 2
-    }),
-  document.getElementById("app")
-);
-
-delegateEvents(["click"]);
-```
-
-</details>
 
 ## More
 
