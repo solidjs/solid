@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.7.1
+
+### Patch Changes
+
+- ba024813: fix ref timing in portals
+
 ## 1.7.0
 
 ### Minor Changes

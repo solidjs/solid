@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.1
+
+### Patch Changes
+
+- d4087fe7: fix 1663: template element closing errors
+
 ## 1.7.0
 
 ### Minor Changes
