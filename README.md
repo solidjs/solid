@@ -14,6 +14,29 @@
 
 Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [intro video](https://www.youtube.com/watch?v=J70HXl1KhWE&ab_channel=SolidJS) or read on!
 
+## At a Glance
+```tsx
+import { createSignal } from "solid-js";
+import { render } from "solid-js/web";
+
+function Counter() {
+  const [count, setCount] = createSignal(0);
+  const doubleCount = () => count() * 2;
+
+  return (
+    <>
+      <button onClick={() => setCount(c => c + 1)}>
+        {doubleCount()}
+      </button>
+    </>
+  );
+}
+
+render(Counter, document.getElementById("app")!);
+```
+
+Try this code in our [playground](https://playground.solidjs.com/anonymous/4cc9d74e-d465-49ae-a66a-39ab85d640f3)!
+
 ## Key Features
 
 - Fine-grained updates to the real DOM
