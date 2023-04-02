@@ -102,7 +102,6 @@ function Counter() {
 render(Counter, document.getElementById("app"));
 _$delegateEvents(["click"]);
 ```
-```
 
 </details>
 
