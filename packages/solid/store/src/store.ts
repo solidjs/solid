@@ -12,7 +12,7 @@ type DataNode = {
   (): any;
   $(value?: any): void;
 };
-type DataNodes = Record<PropertyKey, DataNode>;
+type DataNodes = Record<PropertyKey, DataNode | undefined>;
 
 export type OnStoreNodeUpdate = (
   state: StoreNode,
@@ -116,7 +116,8 @@ export function unwrap<T>(item: any, set = new Set()): T {
 
 export function getDataNodes(target: StoreNode): DataNodes {
   let nodes = target[$NODE];
-  if (!nodes) Object.defineProperty(target, $NODE, { value: (nodes = {}) });
+  if (!nodes)
+    Object.defineProperty(target, $NODE, { value: (nodes = Object.create(null) as DataNodes) });
   return nodes;
 }
 
@@ -164,8 +165,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       return receiver;
     }
     const nodes = getDataNodes(target);
-    const tracked = nodes.hasOwnProperty(property);
-    let value = tracked ? nodes[property]() : target[property];
+    const tracked = nodes[property];
+    let value = tracked ? tracked() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
     if (!tracked) {
@@ -224,7 +225,7 @@ export function setProperty(
   if (value === undefined) delete state[property];
   else state[property] = value;
   let nodes = getDataNodes(state),
-    node: DataNode;
+    node: DataNode | undefined;
   if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
 
   if (Array.isArray(state) && state.length !== len)

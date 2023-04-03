@@ -17,12 +17,6 @@ export * from "./modifiers.js";
 
 // dev
 import { $NODE, isWrappable, DevHooks } from "./store.js";
-let DEV:
-  | {
-      $NODE: typeof $NODE;
-      isWrappable: typeof isWrappable;
-      hooks: typeof DevHooks;
-    }
-  | undefined;
-if ("_SOLID_DEV_") DEV = { $NODE, isWrappable, hooks: DevHooks };
+const DEV = "_SOLID_DEV_" ? ({ $NODE, isWrappable, hooks: DevHooks } as const) : undefined;
+
 export { DEV };

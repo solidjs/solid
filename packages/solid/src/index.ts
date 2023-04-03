@@ -70,13 +70,7 @@ export type { JSXElement, JSX };
 
 // dev
 import { registerGraph, writeSignal, DevHooks } from "./reactive/signal.js";
-const DEV = "_SOLID_DEV_"
-  ? ({ hooks: DevHooks, writeSignal, registerGraph } as {
-      readonly hooks: typeof DevHooks;
-      readonly writeSignal: typeof writeSignal;
-      readonly registerGraph: typeof registerGraph;
-    })
-  : undefined;
+const DEV = "_SOLID_DEV_" ? ({ hooks: DevHooks, writeSignal, registerGraph } as const) : undefined;
 export { DEV };
 
 // handle multiple instance check
