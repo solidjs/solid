@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.2
+
+### Patch Changes
+
+- 699d88eb: More thorough close tag ommission fix
+
 ## 1.7.1
 
 ### Patch Changes

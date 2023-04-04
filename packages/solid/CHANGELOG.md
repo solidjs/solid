@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.7.2
+
+### Patch Changes
+
+- 27994dc9: Another attempt at fixing skypack
+- dfec6883: fix #1668 proto methods on store data nodes
+
 ## 1.7.1
 
 ### Patch Changes
