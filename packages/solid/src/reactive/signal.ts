@@ -334,18 +334,18 @@ export function createEffect<Next>(fn: EffectFunction<undefined | NoInfer<Next>,
 export function createEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
-  options?: EffectOptions
+  options?: EffectOptions & { render?: boolean }
 ): void;
 export function createEffect<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
   value?: Init,
-  options?: EffectOptions
+  options?: EffectOptions & { render?: boolean }
 ): void {
   runEffects = runUserEffects;
   const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
-  c.user = true;
+  if (!options || !options.render) c.user = true;
   Effects ? Effects.push(c) : updateComputation(c);
 }
 
@@ -978,6 +978,7 @@ export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
   ERROR || (ERROR = Symbol("error"));
   Owner = createComputation(undefined!, undefined, true);
   Owner.context = { [ERROR]: [handler] };
+  if (Transition && Transition.running) Transition.sources.add(Owner as Memo<any>);
   try {
     return fn();
   } catch (err) {

@@ -70,32 +70,41 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
     mount = () => props.mount || document.body,
     owner = getOwner();
   let content: JSX.Element;
+  let hydrating = !!sharedConfig.context;
 
-  createEffect(() => {
-    content || (content = runWithOwner(owner, () => props.children));
-    const el = mount();
-    if (el instanceof HTMLHeadElement) {
-      const [clean, setClean] = createSignal(false);
-      const cleanup = () => setClean(true);
-      createRoot(dispose => insert(el, () => (!clean() ? content : dispose()), null));
-      onCleanup(cleanup);
-    } else {
-      const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
-        renderRoot =
-          useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
+  createEffect(
+    () => {
+      // basically we backdoor into a sort of renderEffect here
+      if (hydrating) (getOwner() as any).user = hydrating = false;
+      content || (content = runWithOwner(owner, () => props.children));
+      const el = mount();
+      if (el instanceof HTMLHeadElement) {
+        const [clean, setClean] = createSignal(false);
+        const cleanup = () => setClean(true);
+        createRoot(dispose => insert(el, () => (!clean() ? content : dispose()), null));
+        onCleanup(cleanup);
+      } else {
+        const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
+          renderRoot =
+            useShadow && container.attachShadow
+              ? container.attachShadow({ mode: "open" })
+              : container;
 
-      Object.defineProperty(container, "_$host", {
-        get() {
-          return marker.parentNode;
-        },
-        configurable: true
-      });
-      insert(renderRoot, content);
-      el.appendChild(container);
-      (props as any).ref && (props as any).ref(container);
-      onCleanup(() => el.removeChild(container));
-    }
-  })
+        Object.defineProperty(container, "_$host", {
+          get() {
+            return marker.parentNode;
+          },
+          configurable: true
+        });
+        insert(renderRoot, content);
+        el.appendChild(container);
+        props.ref && (props as any).ref(container);
+        onCleanup(() => el.removeChild(container));
+      }
+    },
+    undefined,
+    { render: !hydrating }
+  );
   return marker;
 }
 
