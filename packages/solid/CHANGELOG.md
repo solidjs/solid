@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.7.3
+
+### Patch Changes
+
+- 655f0b7e: fix attr in ssr spread, fix static undefined classList values, fix #1666 directives in TTLs
+- 8ce2c47b: Portal fixes #1676, #1677
+
 ## 1.7.2
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.3
+
+### Patch Changes
+
+- 655f0b7e: fix attr in ssr spread, fix static undefined classList values, fix #1666 directives in TTLs
+
 ## 1.7.2
 
 ### Patch Changes
