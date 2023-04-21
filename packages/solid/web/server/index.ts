@@ -29,10 +29,10 @@ export function Dynamic<T>(
   props: T & { children?: any; component?: Component<T> | string | keyof JSX.IntrinsicElements }
 ) {
   const [p, others] = splitProps(props, ["component"]);
-  return DynamicComponent(() => p.component, others);
+  return dynamicComponent(() => p.component, others);
 }
 
-export function DynamicComponent<T>(
+function dynamicComponent<T>(
   comp: Component<T> | string | keyof JSX.IntrinsicElements,
   props: T & { children?: any }
 ) {
@@ -45,6 +45,8 @@ export function DynamicComponent<T>(
     }
   }
 }
+
+export { dynamicComponent as createTag };
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
   return "";

@@ -125,17 +125,16 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
   const [p, others] = splitProps(props, ["component"]);
-  return DynamicComponent(() => p.component, others);
+  return dynamicComponent(() => p.component, others);
 }
 
 /**
  * renders an arbitrary custom or native component with props
  * ```typescript
- * let Link = DynamicComponent('a', {href:'https://www.solidjs.com/'})
+ * let Link = dynamicComponent('a', {href:'https://www.solidjs.com/'})
  * ```
- * @description https://www.solidjs.com/docs/latest/api#dynamiccomponent
  */
-export function DynamicComponent<T extends ValidComponent>(
+function dynamicComponent<T extends ValidComponent>(
   comp: Function | string,
   props: DynamicProps<T>
 ): Accessor<JSX.Element> {
@@ -158,3 +157,5 @@ export function DynamicComponent<T extends ValidComponent>(
     }
   });
 }
+
+export { dynamicComponent as createTag };
