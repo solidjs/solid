@@ -23,6 +23,7 @@ export {
   on,
   onCleanup,
   onError,
+  catchError,
   onMount,
   runWithOwner,
   startTransition,
@@ -68,17 +69,8 @@ type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { hashValue, registerGraph, serializeGraph, writeSignal } from "./reactive/signal.js";
-let DEV: {
-  writeSignal: typeof writeSignal;
-  serializeGraph: typeof serializeGraph;
-  registerGraph: typeof registerGraph;
-  hashValue: typeof hashValue;
-};
-if ("_SOLID_DEV_") {
-  DEV = { writeSignal, serializeGraph, registerGraph, hashValue };
-}
-export { DEV };
+import { registerGraph, writeSignal, DevHooks } from "./reactive/signal.js";
+export const DEV = "_SOLID_DEV_" ? ({ hooks: DevHooks, writeSignal, registerGraph } as const) : undefined;
 
 // handle multiple instance check
 declare global {

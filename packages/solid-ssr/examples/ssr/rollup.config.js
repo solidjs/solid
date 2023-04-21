@@ -9,7 +9,7 @@ export default [
     output: [
       {
         dir: "examples/ssr/lib",
-        format: "cjs"
+        format: "esm"
       }
     ],
     external: ["solid-js", "solid-js/web", "path", "express", "stream"],

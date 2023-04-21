@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "npm run test:imports",
-    "test:integrations": "jest",
+    "test:integrations": "vitest run",
     "test:imports": "node test-imports.mjs"
   },
   "dependencies": {
@@ -14,5 +14,5 @@
     "gitly": "^2.2.1",
     "shelljs": "^0.8.5"
   },
-  "version": "1.6.15"
+  "version": "1.7.3"
 }

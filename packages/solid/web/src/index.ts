@@ -8,13 +8,13 @@ import {
   JSX,
   createRoot,
   sharedConfig,
-  Accessor,
   enableHydration,
   $DEVCOMP,
   ComponentProps,
   ValidComponent,
-  createRenderEffect,
-  onMount
+  createEffect,
+  getOwner,
+  runWithOwner
 } from "solid-js";
 
 export * from "./client.js";
@@ -68,46 +68,43 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   const { useShadow } = props,
     marker = document.createTextNode(""),
     mount = () => props.mount || document.body,
-    content = createMemo(renderPortal());
+    owner = getOwner();
+  let content: JSX.Element;
+  let hydrating = !!sharedConfig.context;
 
-  // don't render when hydrating
-  function renderPortal() {
-    if (sharedConfig.context) {
-      const [s, set] = createSignal(false);
-      onMount(() => set(true));
-      return () => s() && props.children;
-    } else return () => props.children;
-  }
+  createEffect(
+    () => {
+      // basically we backdoor into a sort of renderEffect here
+      if (hydrating) (getOwner() as any).user = hydrating = false;
+      content || (content = runWithOwner(owner, () => props.children));
+      const el = mount();
+      if (el instanceof HTMLHeadElement) {
+        const [clean, setClean] = createSignal(false);
+        const cleanup = () => setClean(true);
+        createRoot(dispose => insert(el, () => (!clean() ? content : dispose()), null));
+        onCleanup(cleanup);
+      } else {
+        const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
+          renderRoot =
+            useShadow && container.attachShadow
+              ? container.attachShadow({ mode: "open" })
+              : container;
 
-  createRenderEffect(() => {
-    const el = mount();
-    if (el instanceof HTMLHeadElement) {
-      const [clean, setClean] = createSignal(false);
-      const cleanup = () => setClean(true);
-      createRoot(dispose => insert(el, () => (!clean() ? content() : dispose()), null));
-      onCleanup(() => {
-        if (sharedConfig.context) queueMicrotask(cleanup);
-        else cleanup();
-      });
-    } else {
-      const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
-        renderRoot =
-          useShadow && container.attachShadow
-            ? container.attachShadow({ mode: "open" })
-            : container;
-
-      Object.defineProperty(container, "_$host", {
-        get() {
-          return marker.parentNode;
-        },
-        configurable: true
-      });
-      insert(renderRoot, content);
-      el.appendChild(container);
-      (props as any).ref && (props as any).ref(container);
-      onCleanup(() => el.removeChild(container));
-    }
-  });
+        Object.defineProperty(container, "_$host", {
+          get() {
+            return marker.parentNode;
+          },
+          configurable: true
+        });
+        insert(renderRoot, content);
+        el.appendChild(container);
+        props.ref && (props as any).ref(container);
+        onCleanup(() => el.removeChild(container));
+      }
+    },
+    undefined,
+    { render: !hydrating }
+  );
   return marker;
 }
 
@@ -123,7 +120,7 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * ```
  * @description https://www.solidjs.com/docs/latest/api#dynamic
  */
-export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
+export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
   return dynamicComponent(() => p.component, others);
 }
@@ -137,7 +134,7 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Acces
 function dynamicComponent<T extends ValidComponent>(
   comp: Function | string,
   props: DynamicProps<T>
-): Accessor<JSX.Element> {
+): JSX.Element {
   const cached = createMemo<Function | string>(typeof comp === "function" ? comp : () => comp);
   return createMemo(() => {
     const component = cached();
@@ -155,7 +152,7 @@ function dynamicComponent<T extends ValidComponent>(
       default:
         break;
     }
-  });
+  }) as unknown as JSX.Element;
 }
 
 export { dynamicComponent as createTag };

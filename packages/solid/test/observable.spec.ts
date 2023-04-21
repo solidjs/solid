@@ -18,7 +18,7 @@ describe("Observable operator", () => {
 
   test("preserve the observer's next binding", () => {
     const observer = {
-      next: jest.fn().mockReturnThis()
+      next: vi.fn().mockReturnThis()
     };
 
     createRoot(() => {

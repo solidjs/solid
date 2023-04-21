@@ -1,6 +1,6 @@
-/** 
+/**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
 import { createRoot, createSignal, Component, JSX } from "../../src";
@@ -28,7 +28,7 @@ describe("Testing Dynamic control flow", () => {
       disposer = dispose;
       <Component />;
     });
-  })
+  });
 
   afterEach(() => disposer());
 
@@ -42,19 +42,18 @@ describe("Testing Dynamic control flow", () => {
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
     expect(div.innerHTML).toBe(`<h1 id="Smithers"></h1>`);
-    setName("Sunny")
+    setName("Sunny");
     expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
-    expect(div.querySelector('h1')).toBeInstanceOf(HTMLElement);
+    expect(div.querySelector("h1")).toBeInstanceOf(HTMLElement);
   });
 
   test("Renders SVG elements", () => {
-    setComp("svg")
-    expect(div.querySelector('svg')).toBeInstanceOf(SVGSVGElement);
-    setComp("path")
-    expect(div.querySelector('path')).toBeInstanceOf(SVGElement);
+    setComp("svg");
+    expect(div.querySelector("svg")).toBeInstanceOf(SVGSVGElement);
+    setComp("path");
+    expect(div.querySelector("path")).toBeInstanceOf(SVGElement);
   });
 });
-
 
 describe("Testing Dynamic with state spread", () => {
   let div: HTMLDivElement, disposer: () => void;
@@ -68,7 +67,7 @@ describe("Testing Dynamic with state spread", () => {
     });
   const Component = () => (
       <div ref={div}>
-        <Dynamic component={comp()} {...state}  />
+        <Dynamic component={comp()} {...state} />
       </div>
     ),
     CompA: Component<ExampleProps> = props => <div>Hi {props.id}</div>,
@@ -79,7 +78,7 @@ describe("Testing Dynamic with state spread", () => {
       disposer = dispose;
       <Component />;
     });
-  })
+  });
 
   afterEach(() => disposer());
 
@@ -93,8 +92,8 @@ describe("Testing Dynamic with state spread", () => {
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
     expect(div.innerHTML).toBe(`<h1 id="Smithers"></h1>`);
-    setState("id", "Sunny")
+    setState("id", "Sunny");
     expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
-    expect(div.querySelector('h1')).toBeInstanceOf(HTMLElement);
+    expect(div.querySelector("h1")).toBeInstanceOf(HTMLElement);
   });
 });

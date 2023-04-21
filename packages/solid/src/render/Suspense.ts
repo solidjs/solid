@@ -200,7 +200,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
             return props.fallback;
           }, owner!);
         });
-      });
+      }) as unknown as JSX.Element;
     }
   });
 }

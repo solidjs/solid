@@ -1,19 +1,18 @@
 import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js";
 
 export const $RAW = Symbol("store-raw"),
-  $NODE = Symbol("store-node"),
-  $NAME = Symbol("store-name");
+  $NODE = Symbol("store-node");
 
-// dev
-declare global {
-  var _$onStoreNodeUpdate: OnStoreNodeUpdate | undefined;
-}
+// debug hooks for devtools
+export const DevHooks: { onStoreNodeUpdate: OnStoreNodeUpdate | null } = {
+  onStoreNodeUpdate: null
+};
 
 type DataNode = {
   (): any;
   $(value?: any): void;
 };
-type DataNodes = Record<PropertyKey, DataNode>;
+type DataNodes = Record<PropertyKey, DataNode | undefined>;
 
 export type OnStoreNodeUpdate = (
   state: StoreNode,
@@ -23,7 +22,6 @@ export type OnStoreNodeUpdate = (
 ) => void;
 
 export interface StoreNode {
-  [$NAME]?: string;
   [$NODE]?: DataNodes;
   [key: PropertyKey]: any;
 }
@@ -43,7 +41,7 @@ export type NotWrappable =
   | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
 export type Store<T> = T;
 
-function wrap<T extends StoreNode>(value: T, name?: string): T {
+function wrap<T extends StoreNode>(value: T): T {
   let p = value[$PROXY];
   if (!p) {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
@@ -60,7 +58,6 @@ function wrap<T extends StoreNode>(value: T, name?: string): T {
         }
       }
     }
-    if ("_SOLID_DEV_" && name) Object.defineProperty(value, $NAME, { value: name });
   }
   return p;
 }
@@ -119,7 +116,8 @@ export function unwrap<T>(item: any, set = new Set()): T {
 
 export function getDataNodes(target: StoreNode): DataNodes {
   let nodes = target[$NODE];
-  if (!nodes) Object.defineProperty(target, $NODE, { value: (nodes = {}) });
+  if (!nodes)
+    Object.defineProperty(target, $NODE, { value: (nodes = Object.create(null) as DataNodes) });
   return nodes;
 }
 
@@ -129,14 +127,7 @@ export function getDataNode(nodes: DataNodes, property: PropertyKey, value: any)
 
 export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
-  if (
-    !desc ||
-    desc.get ||
-    !desc.configurable ||
-    property === $PROXY ||
-    property === $NODE ||
-    property === $NAME
-  )
+  if (!desc || desc.get || !desc.configurable || property === $PROXY || property === $NODE)
     return desc;
   delete desc.value;
   delete desc.writable;
@@ -174,8 +165,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       return receiver;
     }
     const nodes = getDataNodes(target);
-    const tracked = nodes.hasOwnProperty(property);
-    let value = tracked ? nodes[property]() : target[property];
+    const tracked = nodes[property];
+    let value = tracked ? tracked() : target[property];
     if (property === $NODE || property === "__proto__") return value;
 
     if (!tracked) {
@@ -187,9 +178,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       )
         value = getDataNode(nodes, property, value)();
     }
-    return isWrappable(value)
-      ? wrap(value, "_SOLID_DEV_" && target[$NAME] && `${target[$NAME]}:${property.toString()}`)
-      : value;
+    return isWrappable(value) ? wrap(value) : value;
   },
 
   has(target, property) {
@@ -230,13 +219,13 @@ export function setProperty(
   const prev = state[property],
     len = state.length;
 
-  if ("_SOLID_DEV_" && globalThis._$onStoreNodeUpdate)
-    globalThis._$onStoreNodeUpdate(state, property, value, prev);
+  if ("_SOLID_DEV_")
+    DevHooks.onStoreNodeUpdate && DevHooks.onStoreNodeUpdate(state, property, value, prev);
 
   if (value === undefined) delete state[property];
   else state[property] = value;
   let nodes = getDataNodes(state),
-    node: DataNode;
+    node: DataNode | undefined;
   if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
 
   if (Array.isArray(state) && state.length !== len)
@@ -513,14 +502,8 @@ export function createStore<T extends object = {}>(
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
     );
-  const wrappedStore = wrap(
-    unwrappedStore,
-    "_SOLID_DEV_" && ((options && options.name) || DEV.hashValue(unwrappedStore))
-  );
-  if ("_SOLID_DEV_") {
-    const name = (options && options.name) || DEV.hashValue(unwrappedStore);
-    DEV.registerGraph(name, { value: unwrappedStore });
-  }
+  const wrappedStore = wrap(unwrappedStore);
+  if ("_SOLID_DEV_") DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
   function setStore(...args: any[]): void {
     batch(() => {
       isArray && args.length === 1

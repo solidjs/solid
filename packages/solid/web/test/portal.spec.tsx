@@ -1,6 +1,6 @@
-/** 
+/**
  * @jsxImportSource solid-js
- * @jest-environment jsdom
+ * @vitest-environment jsdom
  */
 
 import { createSignal } from "../../src";
@@ -29,7 +29,11 @@ describe("Testing an SVG Portal", () => {
   let div = document.createElement("div"),
     disposer: () => void;
   const testMount = document.createElement("svg");
-  const Component = () => <Portal mount={testMount} isSVG={true}>Hi</Portal>;
+  const Component = () => (
+    <Portal mount={testMount} isSVG={true}>
+      Hi
+    </Portal>
+  );
 
   test("Create portal control flow", () => {
     disposer = render(Component, div);
