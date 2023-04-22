@@ -130,6 +130,7 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.E
  * ```typescript
  * let Link = createDynamicComponent('a', {href:'https://www.solidjs.com/'})
  * ```
+ * @description https://www.solidjs.com/docs/latest/api#createDynamicComponent
  */
 export function createDynamicComponent<T extends ValidComponent>(
   comp: Function | string,
