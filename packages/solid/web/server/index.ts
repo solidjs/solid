@@ -29,24 +29,20 @@ export function Dynamic<T>(
   props: T & { children?: any; component?: Component<T> | string | keyof JSX.IntrinsicElements }
 ) {
   const [p, others] = splitProps(props, ["component"]);
-  return dynamicComponent(() => p.component, others);
+  return createDynamicComponent(() => p.component, others);
 }
 
-function dynamicComponent<T>(
+export function createDynamicComponent<T>(
   comp: Component<T> | string | keyof JSX.IntrinsicElements,
   props: T & { children?: any }
 ) {
   const t = typeof comp;
 
-  if (comp) {
-    if (t === "function") return (comp as Function)(props);
-    else if (t === "string") {
-      return ssrElement(comp as string, props, undefined, true);
-    }
+  if (t === "function") return (comp as Function)(props);
+  else if (t === "string") {
+    return ssrElement(comp as string, props, undefined, true);
   }
 }
-
-export { dynamicComponent as createTag };
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
   return "";

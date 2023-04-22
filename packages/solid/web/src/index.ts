@@ -122,20 +122,21 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
-  return dynamicComponent(() => p.component, others);
+  return createDynamicComponent(() => p.component, others);
 }
 
 /**
  * renders an arbitrary custom or native component with props
  * ```typescript
- * let Link = dynamicComponent('a', {href:'https://www.solidjs.com/'})
+ * let Link = createDynamicComponent('a', {href:'https://www.solidjs.com/'})
  * ```
  */
-function dynamicComponent<T extends ValidComponent>(
+export function createDynamicComponent<T extends ValidComponent>(
   comp: Function | string,
   props: DynamicProps<T>
 ): JSX.Element {
-  const cached = createMemo<Function | string>(typeof comp === "function" ? comp : () => comp);
+  const cached = typeof comp === "function" ? createMemo<Function | string>(comp) : () => comp;
+
   return createMemo(() => {
     const component = cached();
     switch (typeof component) {
@@ -154,5 +155,3 @@ function dynamicComponent<T extends ValidComponent>(
     }
   }) as unknown as JSX.Element;
 }
-
-export { dynamicComponent as createTag };
