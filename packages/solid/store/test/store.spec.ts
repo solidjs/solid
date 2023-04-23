@@ -292,6 +292,27 @@ describe("Tracking State changes", () => {
     setState("user", "firstName", "Jake");
   });
 
+  test("Track array item on removal", () => {
+    const [state, setState] = createStore([1]);
+    createRoot(() => {
+      let executionCount = 0;
+
+      expect.assertions(2);
+      createEffect(() => {
+        if (executionCount === 0) {
+          expect(state[0]).toBe(1);
+        } else if (executionCount === 1) {
+          expect(state[0]).toBe(undefined);
+        } else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      });
+    });
+    setState([]);
+  });
+
   test("Tracking Top-Level Array iteration", () => {
     const [state, setState] = createStore(["hi"]);
     let executionCount = 0;
