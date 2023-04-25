@@ -247,7 +247,7 @@ export function splitProps<
   T extends Record<any, any>,
   K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
 >(props: T, ...keys: K): SplitProps<T, K> {
-  const blocked = new Set<keyof T>(keys.flat());
+  const blocked = new Set<keyof T>(keys.length > 1 ? keys.flat() : keys[0]);
   if ($PROXY in props) {
     const res = keys.map(k => {
       return new Proxy(
