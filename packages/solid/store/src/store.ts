@@ -228,8 +228,10 @@ export function setProperty(
     node: DataNode | undefined;
   if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
 
-  if (Array.isArray(state) && state.length !== len)
+  if (Array.isArray(state) && state.length !== len) {
+    for (let i = state.length; i < len; i++) (node = nodes[i]) && node.$();
     (node = getDataNode(nodes, "length", len)) && node.$(state.length);
+  }
   (node = nodes._) && node.$();
 }
 
