@@ -1,5 +1,14 @@
 # babel-preset-solid
 
+## 1.7.4
+
+### Patch Changes
+
+- 91110701: fix element/test mismatch issues #1684, #1697, #1707
+  fix solid-ssr types
+  add missing JSX types #1690
+  fix firefox iframe #1688
+
 ## 1.7.3
 
 ### Patch Changes
