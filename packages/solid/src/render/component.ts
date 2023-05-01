@@ -180,7 +180,16 @@ function resolveSource(s: any) {
   return !(s = typeof s === "function" ? s() : s) ? {} : s;
 }
 
+function resolveSources(this: (() => any)[]) {
+  for (let i = 0, length = this.length; i < length; ++i) {
+    const v = this[i]();
+    if (v !== undefined) return v;
+  }
+}
+
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
+  // [breaking && performance]
+  //if (sources.length === 1) return sources[0] as any;
   let proxy = false;
   for (let i = 0; i < sources.length; i++) {
     const s = sources[i];
@@ -213,25 +222,66 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
       propTraps
     ) as unknown as MergeProps<T>;
   }
-  const target = {} as MergeProps<T>;
+  const target: Record<string, any> = {};
+  const sourcesMap: Record<string, any[]> = {};
+  let someNonTargetKey = false;
+
   for (let i = sources.length - 1; i >= 0; i--) {
-    if (sources[i]) {
-      const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
-      for (const key in descriptors) {
-        if (key in target) continue;
-        Object.defineProperty(target, key, {
-          enumerable: true,
-          get() {
-            for (let i = sources.length - 1; i >= 0; i--) {
-              const v = ((sources[i] as any) || {})[key];
-              if (v !== undefined) return v;
-            }
+    const source = sources[i] as Record<string, any>;
+    if (!source) continue;
+    const sourceKeys = Object.getOwnPropertyNames(source);
+    someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
+    for (let i = 0, length = sourceKeys.length; i < length; i++) {
+      const key = sourceKeys[i];
+      if (key === "__proto__" || key === "constructor") {
+        continue;
+      } else if (!(key in target)) {
+        const desc = Object.getOwnPropertyDescriptor(source, key)!;
+        if (desc.get) {
+          Object.defineProperty(target, key, {
+            enumerable: true,
+            // [breaking && performance]
+            // configurable: false, 
+            configurable: true, 
+            get: resolveSources.bind(
+              (sourcesMap[key] = [desc.get.bind(source)])
+            ),
+          });
+        } else {
+          // [breaking && performance]
+          // target[key] = desc.value;
+          Object.defineProperty(target, key, {
+            enumerable: true,
+            configurable: true,
+            get: () => source[key],
+          });
+        }
+      } else {
+        const sources = sourcesMap[key];
+        const desc = Object.getOwnPropertyDescriptor(source, key)!;
+        if (sources) {
+          if (desc.get) {
+            sources.push(desc.get.bind(source));
+          } else if (desc.value !== undefined) {
+            // [breaking && performance]
+            // sources.push(() => desc.value);
+            sources.push(() => source[key]);
           }
-        });
+        } else if (target[key] === undefined) {
+          // [breaking && performance]
+          // target[key] = desc.value;
+          Object.defineProperty(target, key, {
+            enumerable: true,
+            configurable: true,
+            get: () => source[key],
+          });
+        }
       }
     }
   }
-  return target;
+  // [breaking && performance]
+  //return (someNonTargetKey ? target : sources[0]) as any;
+  return target as any  
 }
 
 export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
@@ -247,8 +297,8 @@ export function splitProps<
   T extends Record<any, any>,
   K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
 >(props: T, ...keys: K): SplitProps<T, K> {
-  const blocked = new Set<keyof T>(keys.length > 1 ? keys.flat() : keys[0]);
   if ($PROXY in props) {
+    const blocked = new Set<keyof T>(keys.length > 1 ? keys.flat() : keys[0]);
     const res = keys.map(k => {
       return new Proxy(
         {
@@ -283,31 +333,35 @@ export function splitProps<
     );
     return res as SplitProps<T, K>;
   }
-  const descriptors = Object.getOwnPropertyDescriptors(props);
-  keys.push(Object.keys(descriptors).filter(k => !blocked.has(k as keyof T)) as (keyof T)[]);
-  return keys.map(k => {
-    const clone = {};
-    for (let i = 0; i < k.length; i++) {
-      const key = k[i];
-      if (!(key in props)) continue; // skip defining keys that don't exist
-      Object.defineProperty(
-        clone,
-        key,
-        descriptors[key]
-          ? descriptors[key]
-          : {
-              get() {
-                return props[key];
-              },
-              set() {
-                return true;
-              },
-              enumerable: true
-            }
-      );
+  const otherObject: Record<string, any> = {};
+  const objects: Record<string, any>[] = keys.map(() => ({}));
+
+  for (const propName of Object.getOwnPropertyNames(props)) {
+    const desc = Object.getOwnPropertyDescriptor(props, propName)!;
+    const isDefaultDesc =
+      !desc.get &&
+      !desc.set &&
+      desc.enumerable &&
+      desc.writable &&
+      desc.configurable;
+    let blocked = false;
+    let objectIndex = 0;
+    for (const k of keys) {
+      if (k.includes(propName)) {
+        blocked = true;
+        isDefaultDesc
+          ? (objects[objectIndex][propName] = desc.value)
+          : Object.defineProperty(objects[objectIndex], propName, desc)
+      }
+      ++objectIndex;
     }
-    return clone;
-  }) as SplitProps<T, K>;
+    if (!blocked) {
+      isDefaultDesc
+        ? (otherObject[propName] = desc.value)
+        : Object.defineProperty(otherObject, propName, desc);
+    }
+  }
+  return [...objects, otherObject] as any;
 }
 
 // lazy load a function component asynchronously
