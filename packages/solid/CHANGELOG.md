@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.7.5
+
+### Patch Changes
+
+- 5288cfa8: fix #1713, fix non-option jsx types
+- 8852c199: test: add tests to `splitProps` and `mergeProps`
+
 ## 1.7.4
 
 ### Patch Changes
