@@ -22,11 +22,11 @@ importers:
       babel-plugin-jsx-dom-expressions: ^0.36.10
       coveralls: ^3.1.1
       csstype: ^3.1.0
-      dom-expressions: 0.36.11
+      dom-expressions: 0.36.12
       fast-glob: ^3.2.11
-      hyper-dom-expressions: 0.36.11
+      hyper-dom-expressions: 0.36.12
       jsdom: ^21.1.1
-      lit-dom-expressions: 0.36.11
+      lit-dom-expressions: 0.36.12
       ncp: ^2.0.0
       npm-run-all: ^4.1.5
       rimraf: ^3.0.2
@@ -56,11 +56,11 @@ importers:
       babel-plugin-jsx-dom-expressions: 0.36.10_@babel+core@7.20.12
       coveralls: 3.1.1
       csstype: 3.1.0
-      dom-expressions: 0.36.11_nej2xzkmkt6dvz7wu4g663hnr4
+      dom-expressions: 0.36.12_nej2xzkmkt6dvz7wu4g663hnr4
       fast-glob: 3.2.11
-      hyper-dom-expressions: 0.36.11
+      hyper-dom-expressions: 0.36.12
       jsdom: 21.1.1
-      lit-dom-expressions: 0.36.11
+      lit-dom-expressions: 0.36.12
       ncp: 2.0.0
       npm-run-all: 4.1.5
       rimraf: 3.0.2
@@ -3149,8 +3149,8 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions/0.36.11_nej2xzkmkt6dvz7wu4g663hnr4:
-    resolution: {integrity: sha512-0R96B22cMfeWGf8XQlgUmw70XtsOBiII+oyspFpq92gIfGVlUdL2QaR89+8p2y4v8XAOybvnRQlIVkMIDU4xYw==}
+  /dom-expressions/0.36.12_nej2xzkmkt6dvz7wu4g663hnr4:
+    resolution: {integrity: sha512-HgvkbfGtrADTmKn/TUgBPKHZyeq8mdAJVGib/bbj3DQ/nSFc2FbcWPa9YFUhYRFtsdueoJpE2eBmLXFqZpzjQA==}
     peerDependencies:
       csstype: ^3.0
       seroval: ^0.7.0
@@ -3881,8 +3881,8 @@ packages:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
     dev: true
 
-  /hyper-dom-expressions/0.36.11:
-    resolution: {integrity: sha512-GSMmBHH5himSdBxYyCmuluQYJaKfN/yC9WiN/NIncHVEud+l94QhPL++io/tfUq6wCVz37pOcOE2VqyHCGa2Ow==}
+  /hyper-dom-expressions/0.36.12:
+    resolution: {integrity: sha512-hvRbsRhCHdr4M/UOD3G0654eHdv7hTbdjzNkOPcUaZvH0cG4SMWtV+uhlkudGKlMVkU5sFECiCnf2oNX0W/UuA==}
     dev: true
 
   /iconv-lite/0.4.24:
@@ -4306,8 +4306,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions/0.36.11:
-    resolution: {integrity: sha512-2OEQP2zEBnYrGHzXnZ/6HkeOzOiPPWxRMN/prhFfCplGtWZ/NpjmrtMfG37yuZU2jrtVp47x9jJu88uz6lVVkg==}
+  /lit-dom-expressions/0.36.12:
+    resolution: {integrity: sha512-sz2hu4WX+DjkYrq7icB5KBIVCXF8S/CIv2+6gJCpg6c20TS4cJhWajZzlB39OUcADdygCeHwMwnrCbJDo0nN6g==}
     dev: true
 
   /load-json-file/4.0.0:
