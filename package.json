@@ -36,7 +36,6 @@
     "coveralls": "^3.1.1",
     "csstype": "^3.1.0",
     "dom-expressions": "0.36.12",
-    "fast-glob": "^3.2.11",
     "hyper-dom-expressions": "0.36.12",
     "jsdom": "^21.1.1",
     "lit-dom-expressions": "0.36.12",
