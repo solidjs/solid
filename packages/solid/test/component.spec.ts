@@ -371,6 +371,51 @@ describe("SplitProps Props", () => {
     expect(otherProps.id).toBe("input")
     expect(Object.keys(otherProps).length).toBe(1)
   });
+  test("SplitProps returns same prop descriptors", () => {
+    const inProps = {
+      a: 1,
+      b: 2,
+      get c() {
+        return 3;
+      },
+      d: undefined,
+      x: 1,
+      y: 2,
+      get w() {
+        return 3;
+      },
+      z: undefined
+    }
+    const inDescriptor = Object.getOwnPropertyDescriptors(inProps)
+    const [props, otherProps] = splitProps(inProps, ["a", "b", "c", "d", "e" as "d"]);
+
+    const propsDesc = Object.getOwnPropertyDescriptors(props)
+    expect(propsDesc.a).toMatchObject(inDescriptor.a)
+    expect(propsDesc.b).toMatchObject(inDescriptor.b)
+    expect(propsDesc.c).toMatchObject(inDescriptor.c)
+    expect(propsDesc.d).toMatchObject(inDescriptor.d)
+    expect(propsDesc.e).toBeUndefined()
+
+    const otherDesc = Object.getOwnPropertyDescriptors(otherProps)
+    expect(otherDesc.w).toMatchObject(otherDesc.w)
+    expect(otherDesc.x).toMatchObject(otherDesc.x)
+    expect(otherDesc.y).toMatchObject(otherDesc.y)
+    expect(otherDesc.z).toMatchObject(otherDesc.z)
+    
+  });
+  test("SplitProps is safe", () => {
+    const inProps = JSON.parse('{"__proto__": { "evil": true } }')
+    const [, evilProps1] = splitProps(inProps, []);
+    
+    expect(evilProps1.__proto__?.evil).toBeTruthy()
+    expect(({} as any).evil).toBeUndefined()
+
+    const [evilProps2] = splitProps(inProps, ["__proto__"]);
+
+    expect(evilProps2.__proto__?.evil).toBeTruthy()
+    expect(({} as any).evil).toBeUndefined()
+  });
+  
   test("Merge SplitProps", () => {
     let value: string | undefined = undefined;
     const [splittedProps] = splitProps({ color: "blue" } as { color: string; other?: string }, [
