@@ -57,6 +57,87 @@ describe("Observable operator", () => {
 });
 
 describe("from transform", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("without initialValue but setting a value in the setup", async () => {
+   let out: () => undefined | number;
+
+    createRoot(() => {
+      out = from({
+        subscribe: (set) => {
+          let counter = 0;
+          const interval = setInterval(() => {
+            set(counter++);
+          }, 100);
+          return () => { 
+            clearInterval(interval) 
+          };
+        },
+      });
+    });
+
+    expect(out!()).toBe(undefined);
+    vi.advanceTimersByTime(100);
+    expect(out!()).toBe(0);
+    vi.advanceTimersByTime(100);
+    expect(out!()).toBe(1);
+  });
+
+  test("without initialValue but setting a value in the setup", async () => {
+    let out: () => undefined | number;
+
+    createRoot(() => {
+      out = from({
+        subscribe: (set) => {
+          let counter = 0;
+          set(0);
+          const interval = setInterval(() => {
+            set(++counter);
+          }, 100);
+          return () => { 
+            clearInterval(interval) 
+          };
+        },
+      });
+    });
+
+    expect(out!()).toBe(0);
+    vi.advanceTimersByTime(100);
+    expect(out!()).toBe(1);
+    vi.advanceTimersByTime(100);
+    expect(out!()).toBe(2);
+  });
+
+  test("with initialValue", async () => {
+    let out: () => number; // froms with initalValue can be strongly typed
+
+    createRoot(() => {
+      let counter = 0;
+      out = from({
+        subscribe: (set) => {
+          const interval = setInterval(() => {
+            set(++counter);
+          }, 100);
+          return () => { 
+            clearInterval(interval) 
+          };
+        },
+        initialValue: counter,
+      });
+    });
+
+    expect(out!()).toBe(0);
+    vi.advanceTimersByTime(100);
+    expect(out!()).toBe(1);
+    vi.advanceTimersByTime(100);
+    expect(out!()).toBe(2);
+  });
+
   test("from subscribable", async () => {
     let out: () => string | undefined;
     let set: (v: string) => void;
@@ -72,6 +153,7 @@ describe("from transform", () => {
     expect(out!()).toBe("John");
   });
 
+ 
   test("from producer", async () => {
     let out: () => string | undefined;
     let set: (v: string) => void;
