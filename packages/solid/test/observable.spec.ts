@@ -64,7 +64,7 @@ describe("from transform", () => {
     vi.useRealTimers();
   });
 
-  test("without initialValue but setting a value in the setup", async () => {
+  test("manual set without initialValue", async () => {
    let out: () => undefined | number;
 
     createRoot(() => {
@@ -88,7 +88,7 @@ describe("from transform", () => {
     expect(out!()).toBe(1);
   });
 
-  test("without initialValue but setting a value in the setup", async () => {
+  test("manual set without initialValue but setting a value in the setup", async () => {
     let out: () => undefined | number;
 
     createRoot(() => {
@@ -113,7 +113,7 @@ describe("from transform", () => {
     expect(out!()).toBe(2);
   });
 
-  test("with initialValue", async () => {
+  test("manual set with initialValue", async () => {
     let out: () => number; // froms with initalValue can be strongly typed
 
     createRoot(() => {
@@ -153,7 +153,6 @@ describe("from transform", () => {
     expect(out!()).toBe("John");
   });
 
- 
   test("from producer", async () => {
     let out: () => string | undefined;
     let set: (v: string) => void;
