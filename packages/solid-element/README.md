@@ -22,7 +22,7 @@ The simplest way to create a Web Component is to use the `customElement` method.
 
 The arguments of `customElement` are:
 1) custom element tag (e.g. `'my-component'`)
-2) (optional) props (e.g. `{someProp: 'one', otherProp: 'two'}`)
+2) (optional) Default prop values (e.g. `{someProp: 'one', otherProp: 'two'}`). Props without default values will be ignored by the customElement.
 3) the Solid template function. The arguments of this function are state wrapped props as the first argument, and the underlying element as the 2nd (e.g. `(props, { element }) => {  solid code here
  }`)
 
