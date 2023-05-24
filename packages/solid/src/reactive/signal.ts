@@ -82,6 +82,7 @@ export interface SignalState<T> extends SourceMapValue {
 }
 
 export interface Owner {
+  root?: Owner;
   owned: Computation<any>[] | null;
   cleanups: (() => void)[] | null;
   owner: Owner | null;
@@ -145,6 +146,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
         ? { owned: null, cleanups: null, context: null, owner: null }
         : UNOWNED
       : {
+          root: detachedOwner?.root ?? owner?.root,
           owned: null,
           cleanups: null,
           context: null,
@@ -1396,6 +1398,7 @@ function createComputation<Next, Init = unknown>(
     sourceSlots: null,
     cleanups: null,
     value: init,
+    root: Owner?.root,
     owner: Owner,
     context: null,
     pure
