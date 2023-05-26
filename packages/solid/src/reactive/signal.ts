@@ -616,7 +616,7 @@ export function createResource<T, S, R>(
   function loadEnd(p: Promise<T> | null, v: T | undefined, error?: any, key?: S) {
     if (pr === p) {
       pr = null;
-      resolved = true;
+      key !== undefined && (resolved = true);
       if ((p === initP || v === initP) && options.onHydrated)
         queueMicrotask(() => options.onHydrated!(key, { value: v }));
       initP = NO_INIT;
