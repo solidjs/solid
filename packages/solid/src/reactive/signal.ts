@@ -634,7 +634,7 @@ export function createResource<T, S, R>(
   function completeLoad(v: T | undefined, err: any) {
     runUpdates(() => {
       if (err === undefined) setValue(() => v);
-      setState(err !== undefined ? "errored" : "ready");
+      setState(err !== undefined ? "errored" : resolved ? "ready" : "unresolved");
       setError(err);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
