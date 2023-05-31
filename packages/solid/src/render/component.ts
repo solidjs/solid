@@ -241,21 +241,13 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
           Object.defineProperty(target, key, {
             enumerable: true,
             // [breaking && performance]
-            // configurable: false, 
-            configurable: true, 
+            // configurable: false,
+            configurable: true,
             get: resolveSources.bind(
               (sourcesMap[key] = [desc.get.bind(source)])
             ),
           });
-        } else {
-          // [breaking && performance]
-          // target[key] = desc.value;
-          Object.defineProperty(target, key, {
-            enumerable: true,
-            configurable: true,
-            get: () => source[key],
-          });
-        }
+        } else target[key] = desc.value;
       } else {
         const sources = sourcesMap[key];
         const desc = Object.getOwnPropertyDescriptor(source, key)!;
@@ -263,25 +255,15 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
           if (desc.get) {
             sources.push(desc.get.bind(source));
           } else if (desc.value !== undefined) {
-            // [breaking && performance]
-            // sources.push(() => desc.value);
-            sources.push(() => source[key]);
+            sources.push(() => desc.value);
           }
-        } else if (target[key] === undefined) {
-          // [breaking && performance]
-          // target[key] = desc.value;
-          Object.defineProperty(target, key, {
-            enumerable: true,
-            configurable: true,
-            get: () => source[key],
-          });
-        }
+        } else if (target[key] === undefined) target[key] = desc.value;
       }
     }
   }
   // [breaking && performance]
   //return (someNonTargetKey ? target : sources[0]) as any;
-  return target as any  
+  return target as any;
 }
 
 export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [

@@ -72,20 +72,20 @@ describe("mergeProps", () => {
     bValue = 2;
     expect(props.value).toBe(2)
   });
-  it("keeps references", () => {
+  it("doesn't keep references for non-getters", () => {
     const a = { value1: 1 }
     const b = { value2: 2 }
     const props = mergeProps(a, b)
     a.value1 = b.value2 = 3
-    expect(props.value1).toBe(3)
-    expect(props.value2).toBe(3)
+    expect(props.value1).toBe(1)
+    expect(props.value2).toBe(2)
   });
-  it("with getter keeps references", () => {
+  it("without getter transfers only value", () => {
     const a = { value1: 1 }
     const b = { get value2() { return undefined } }
     const props = mergeProps(a, b)
     a.value1 = 3
-    expect(props.value1).toBe(3)
+    expect(props.value1).toBe(1)
   });
   it("overrides enumerables", () => {
     const a = Object.defineProperties({}, {
@@ -121,18 +121,6 @@ describe("mergeProps", () => {
     const props = mergeProps({ a: 1 }, { b })
     b.value = 2
     expect(props.b.value).toBe(2)
-  });
-  it("always returns getters", () => {
-    const props = mergeProps({ a: 1 }, { b: 2 })
-    const desc = Object.getOwnPropertyDescriptors(props)
-    expect(!!desc.a.get).toBeTruthy()
-    expect(!!desc.b.get).toBeTruthy()
-  });
-  it("always returns unwritables", () => {
-    const props = mergeProps({ a: 1 }, { b: 2 })
-    const desc = Object.getOwnPropertyDescriptors(props)
-    expect(!!desc.a.writable).toBeFalsy()
-    expect(!!desc.b.writable).toBeFalsy()
   });
   it("ignores undefined values", () => {
     const props = mergeProps({ a: 1 }, { a: undefined })
