@@ -53,17 +53,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       dom-expressions:
-        specifier: 0.36.12
-        version: 0.36.12(csstype@3.1.0)(seroval@0.7.0)
+        specifier: 0.36.13
+        version: 0.36.13(csstype@3.1.0)(seroval@0.7.0)
       hyper-dom-expressions:
-        specifier: 0.36.12
-        version: 0.36.12
+        specifier: 0.36.13
+        version: 0.36.13
       jsdom:
         specifier: ^21.1.1
         version: 21.1.1
       lit-dom-expressions:
-        specifier: 0.36.12
-        version: 0.36.12
+        specifier: 0.36.13
+        version: 0.36.13
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -2840,8 +2840,8 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions@0.36.12(csstype@3.1.0)(seroval@0.7.0):
-    resolution: {integrity: sha512-HgvkbfGtrADTmKn/TUgBPKHZyeq8mdAJVGib/bbj3DQ/nSFc2FbcWPa9YFUhYRFtsdueoJpE2eBmLXFqZpzjQA==}
+  /dom-expressions@0.36.13(csstype@3.1.0)(seroval@0.7.0):
+    resolution: {integrity: sha512-piCxEHEsgyrcG5+y2e7365HjeR9SMbiOzlR80mKDUpVgoHmk5Q0xHXHF/TrcIwR7l9jFhGmy8TLww3/LeYEHrg==}
     peerDependencies:
       csstype: ^3.0
       seroval: ^0.7.0
@@ -3588,8 +3588,8 @@ packages:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
     dev: true
 
-  /hyper-dom-expressions@0.36.12:
-    resolution: {integrity: sha512-hvRbsRhCHdr4M/UOD3G0654eHdv7hTbdjzNkOPcUaZvH0cG4SMWtV+uhlkudGKlMVkU5sFECiCnf2oNX0W/UuA==}
+  /hyper-dom-expressions@0.36.13:
+    resolution: {integrity: sha512-As1RV08XDxk9DUAqMX3LeW4z2UQLf4qxKZg3X5dxfgEiHbfgY3H6x2KwCo3mqIME6h0hxZ8t4sQWK1+V28FsMg==}
     dev: true
 
   /iconv-lite@0.4.24:
@@ -4030,8 +4030,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions@0.36.12:
-    resolution: {integrity: sha512-sz2hu4WX+DjkYrq7icB5KBIVCXF8S/CIv2+6gJCpg6c20TS4cJhWajZzlB39OUcADdygCeHwMwnrCbJDo0nN6g==}
+  /lit-dom-expressions@0.36.13:
+    resolution: {integrity: sha512-1dwIEt71oax4X8uKCp14U3NW+NTWJLRWRFVXwl4ykFBMRjvA9mZR1n+YrgORv/nhfpxmtJz3wyKOMRNEd30+Ig==}
     dev: true
 
   /load-json-file@4.0.0:
