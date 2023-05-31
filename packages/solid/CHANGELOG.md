@@ -1,5 +1,16 @@
 # solid-js
 
+## 1.7.6
+
+### Patch Changes
+
+- 83c99d51: fix #1739 resolved state of disabled resources
+- f99dd044: Solid-Element: Add clarification on 'props' parameter in customElement function
+- 88493691: apply reference optimization to mergeProps
+- 514ef679: test: add tests to `splitProps`
+- 20261537: fix #1735 web component instantiation before constructor
+- 194f93c7: Improve performance in `splitProps` and `mergeProps`
+
 ## 1.7.5
 
 ### Patch Changes
