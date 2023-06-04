@@ -784,18 +784,8 @@ export type EqualityCheckerFunction<T, U> = (a: U, b: T) => boolean;
  *
  * @description https://www.solidjs.com/docs/latest/api#createselector
  */
-// default equality checke
-export function createSelector<T, U /* U left for backwards compatibility */>(
-  source: Accessor<T>
-): (key: T) => boolean;
-// custom equality checker
-export function createSelector<T, U /* U left for backwards compatibility */>(
-  source: Accessor<T>,
-  fn: EqualityCheckerFunction<T, T>,
-  options?: BaseOptions
-): (key: T) => boolean;
-// custom equality checker and key type
-export function createSelector<T, U>(
+export function createSelector<T, U = T>(source: Accessor<T>): (key: U) => boolean;
+export function createSelector<T, U = T>(
   source: Accessor<T>,
   fn: EqualityCheckerFunction<T, U>,
   options?: BaseOptions
