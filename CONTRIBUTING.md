@@ -92,7 +92,8 @@ This repository uses [pnpm](https://pnpm.io/) and
 [Turborepo](https://turborepo.org/).
 If you want to build Solid from scratch, use the following steps:
 
-1. `pnpm install` (install all dependencies)
-2. `pnpm run build`
+1. `corepack enable` (use the correct version of PNPM, https://nodejs.org/api/corepack.html#enabling-the-feature)
+2. `pnpm install` (install all dependencies)
+3. `pnpm build`
 
 You can then run all tests via `pnpm test`.
