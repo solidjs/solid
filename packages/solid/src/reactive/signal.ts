@@ -784,7 +784,7 @@ export type EqualityCheckerFunction<T, U> = (a: U, b: T) => boolean;
  *
  * @description https://www.solidjs.com/docs/latest/api#createselector
  */
-export function createSelector<T, U>(
+export function createSelector<T, U = T>(
   source: Accessor<T>,
   fn: EqualityCheckerFunction<T, U> = equalFn as TODO,
   options?: BaseOptions
