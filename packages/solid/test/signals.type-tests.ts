@@ -722,6 +722,12 @@ const onMemo4: Accessor<number> = onMemo3;
   const bool2: boolean = selector("123");
 }
 {
+  const selector = createSelector(() => 123, undefined, { name: "test" });
+  const bool: boolean = selector(123);
+  // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'number'. ts(2345)
+  const bool2: boolean = selector("123");
+}
+{
   const selector = createSelector<number | string>(() => 123);
   const bool: boolean = selector(123);
   const bool2: boolean = selector("123");
@@ -744,6 +750,16 @@ const onMemo4: Accessor<number> = onMemo3;
   );
   // @ts-expect-error Argument of type 'number' is not assignable to parameter of type 'string'. ts(2345)
   const bool: boolean = selector(123);
+  const bool2: boolean = selector("123");
+}
+{
+  const selector = createSelector(
+    () => 123,
+    (key, source) => key === source,
+    { name: "test" }
+  );
+  const bool: boolean = selector(123);
+  // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'number'. ts(2345)
   const bool2: boolean = selector("123");
 }
 
