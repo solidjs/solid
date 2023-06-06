@@ -224,13 +224,13 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   }
   const target: Record<string, any> = {};
   const sourcesMap: Record<string, any[]> = {};
-  let someNonTargetKey = false;
+  //let someNonTargetKey = false;
 
   for (let i = sources.length - 1; i >= 0; i--) {
     const source = sources[i] as Record<string, any>;
     if (!source) continue;
     const sourceKeys = Object.getOwnPropertyNames(source);
-    someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
+    //someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
     for (let i = 0, length = sourceKeys.length; i < length; i++) {
       const key = sourceKeys[i];
       if (key === "__proto__" || key === "constructor") {
