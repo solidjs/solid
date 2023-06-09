@@ -1,7 +1,7 @@
 {
   "name": "solid-js",
   "description": "A declarative JavaScript library for building user interfaces.",
-  "version": "1.6.0",
+  "version": "1.7.6",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -33,6 +33,7 @@
     "h/jsx-runtime/dist",
     "h/jsx-runtime/types",
     "h/jsx-runtime/package.json",
+    "h/jsx-dev-runtime/package.json",
     "html/dist",
     "html/types",
     "html/package.json",
@@ -94,6 +95,10 @@
     },
     "./dist/*": "./dist/*",
     "./jsx-runtime": {
+      "types": "./types/jsx.d.ts",
+      "default": "./dist/solid.js"
+    },
+    "./jsx-dev-runtime": {
       "types": "./types/jsx.d.ts",
       "default": "./dist/solid.js"
     },
@@ -226,6 +231,13 @@
       },
       "require": "./h/jsx-runtime/dist/jsx.cjs"
     },
+    "./h/jsx-dev-runtime": {
+      "import": {
+        "types": "./h/jsx-runtime/types/index.d.ts",
+        "default": "./h/jsx-runtime/dist/jsx.js"
+      },
+      "require": "./h/jsx-runtime/dist/jsx.cjs"
+    },
     "./h/dist/*": "./h/dist/*",
     "./html": {
       "import": {
@@ -234,7 +246,8 @@
       },
       "require": "./html/dist/html.cjs"
     },
-    "./html/dist/*": "./html/dist/*"
+    "./html/dist/*": "./html/dist/*",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
@@ -253,9 +266,14 @@
     "types:universal": "tsc --project ./universal/tsconfig.json && ncp ../../node_modules/dom-expressions/src/universal.d.ts ./universal/types/universal.d.ts",
     "bench": "node --allow-natives-syntax bench/bench.cjs",
     "link": "symlink-dir . node_modules/solid-js",
+<<<<<<< HEAD
     "lint": "eslint --cache .",
     "test": "jest",
     "coverage": "jest --coverage",
+=======
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+>>>>>>> main
     "test-types": "tsc --project tsconfig.test.json"
   },
   "keywords": [
@@ -268,6 +286,7 @@
     "performance"
   ],
   "dependencies": {
-    "csstype": "^3.1.0"
+    "csstype": "^3.1.0",
+    "seroval": "^0.5.0"
   }
 }

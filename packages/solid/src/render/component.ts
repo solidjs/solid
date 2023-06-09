@@ -5,7 +5,8 @@ import {
   createMemo,
   devComponent,
   $PROXY,
-  $DEVCOMP
+  $DEVCOMP,
+  EffectFunction
 } from "../reactive/signal.js";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
 import type { JSX } from "../jsx.js";
@@ -17,7 +18,7 @@ export function enableHydration() {
 
 /**
  * A general `Component` has no implicit `children` prop.  If desired, you can
- * specify one as in `Component<{name: String, children: JSX.Element>}`.
+ * specify one as in `Component<{name: String, children: JSX.Element}>`.
  */
 export type Component<P = {}> = (props: P) => JSX.Element;
 
@@ -117,6 +118,7 @@ const propTraps: ProxyHandler<{
     return _.get(property);
   },
   has(_, property) {
+    if (property === $PROXY) return true;
     return _.has(property);
   },
   set: trueFn,
@@ -175,11 +177,27 @@ type _MergeProps<T extends unknown[], Curr = {}> = T extends [
 export type MergeProps<T extends unknown[]> = Simplify<_MergeProps<T>>;
 
 function resolveSource(s: any) {
-  return (s = typeof s === "function" ? s() : s) == null ? {} : s;
+  return !(s = typeof s === "function" ? s() : s) ? {} : s;
+}
+
+function resolveSources(this: (() => any)[]) {
+  for (let i = 0, length = this.length; i < length; ++i) {
+    const v = this[i]();
+    if (v !== undefined) return v;
+  }
 }
 
 export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
-  if (sources.some(s => s && ($PROXY in (s as T) || typeof s === "function"))) {
+  // [breaking && performance]
+  //if (sources.length === 1) return sources[0] as any;
+  let proxy = false;
+  for (let i = 0; i < sources.length; i++) {
+    const s = sources[i];
+    proxy = proxy || (!!s && $PROXY in (s as object));
+    sources[i] =
+      typeof s === "function" ? ((proxy = true), createMemo(s as EffectFunction<unknown>)) : s;
+  }
+  if (proxy) {
     return new Proxy(
       {
         get(property: string | number | symbol) {
@@ -204,14 +222,48 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
       propTraps
     ) as unknown as MergeProps<T>;
   }
-  const target = {} as MergeProps<T>;
-  for (let i = 0; i < sources.length; i++) {
-    if (sources[i]) {
-      const descriptors = Object.getOwnPropertyDescriptors(sources[i]);
-      Object.defineProperties(target, descriptors);
+  const target: Record<string, any> = {};
+  const sourcesMap: Record<string, any[]> = {};
+  let someNonTargetKey = false;
+
+  for (let i = sources.length - 1; i >= 0; i--) {
+    const source = sources[i] as Record<string, any>;
+    if (!source) continue;
+    const sourceKeys = Object.getOwnPropertyNames(source);
+    someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
+    for (let i = 0, length = sourceKeys.length; i < length; i++) {
+      const key = sourceKeys[i];
+      if (key === "__proto__" || key === "constructor") {
+        continue;
+      } else if (!(key in target)) {
+        const desc = Object.getOwnPropertyDescriptor(source, key)!;
+        if (desc.get) {
+          Object.defineProperty(target, key, {
+            enumerable: true,
+            // [breaking && performance]
+            // configurable: false,
+            configurable: true,
+            get: resolveSources.bind(
+              (sourcesMap[key] = [desc.get.bind(source)])
+            ),
+          });
+        } else target[key] = desc.value;
+      } else {
+        const sources = sourcesMap[key];
+        const desc = Object.getOwnPropertyDescriptor(source, key)!;
+        if (sources) {
+          if (desc.get) {
+            sources.push(desc.get.bind(source));
+          } else if (desc.value !== undefined) {
+            sources.push(() => desc.value);
+          }
+        } else if (target[key] === undefined) target[key] = desc.value;
+      }
     }
   }
-  return target;
+  // [breaking && performance]
+  //return (someNonTargetKey ? target : sources[0]) as any;
+  return target as any;
 }
 
 export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
@@ -223,55 +275,75 @@ export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
   Omit<T, K[number][number]>
 ];
 
-export function splitProps<T, K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]>(
-  props: T,
-  ...keys: K
-): SplitProps<T, K> {
-  const blocked = new Set<keyof T>(keys.flat());
-  const descriptors = Object.getOwnPropertyDescriptors(props);
-  const isProxy = $PROXY in props;
-  if (!isProxy)
-    keys.push(Object.keys(descriptors).filter(k => !blocked.has(k as keyof T)) as (keyof T)[]);
-  const res = keys.map(k => {
-    const clone = {};
-    for (let i = 0; i < k.length; i++) {
-      const key = k[i];
-      Object.defineProperty(
-        clone,
-        key,
-        descriptors[key]
-          ? descriptors[key]
-          : {
-              get() {
-                return props[key];
-              },
-              set() {
-                return true;
-              }
-            }
+export function splitProps<
+  T extends Record<any, any>,
+  K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
+>(props: T, ...keys: K): SplitProps<T, K> {
+  if ($PROXY in props) {
+    const blocked = new Set<keyof T>(keys.length > 1 ? keys.flat() : keys[0]);
+    const res = keys.map(k => {
+      return new Proxy(
+        {
+          get(property) {
+            return k.includes(property) ? props[property as any] : undefined;
+          },
+          has(property) {
+            return k.includes(property) && property in props;
+          },
+          keys() {
+            return k.filter(property => property in props);
+          }
+        },
+        propTraps
       );
-    }
-    return clone;
-  });
-  if (isProxy) {
+    });
     res.push(
       new Proxy(
         {
-          get(property: string | number | symbol) {
-            return blocked.has(property as keyof T) ? undefined : props[property as keyof T];
+          get(property) {
+            return blocked.has(property) ? undefined : props[property as any];
           },
-          has(property: string | number | symbol) {
-            return blocked.has(property as keyof T) ? false : property in props;
+          has(property) {
+            return blocked.has(property) ? false : property in props;
           },
           keys() {
-            return Object.keys(props).filter(k => !blocked.has(k as keyof T));
+            return Object.keys(props).filter(k => !blocked.has(k));
           }
         },
         propTraps
       )
     );
+    return res as SplitProps<T, K>;
   }
-  return res as SplitProps<T, K>;
+  const otherObject: Record<string, any> = {};
+  const objects: Record<string, any>[] = keys.map(() => ({}));
+
+  for (const propName of Object.getOwnPropertyNames(props)) {
+    const desc = Object.getOwnPropertyDescriptor(props, propName)!;
+    const isDefaultDesc =
+      !desc.get &&
+      !desc.set &&
+      desc.enumerable &&
+      desc.writable &&
+      desc.configurable;
+    let blocked = false;
+    let objectIndex = 0;
+    for (const k of keys) {
+      if (k.includes(propName)) {
+        blocked = true;
+        isDefaultDesc
+          ? (objects[objectIndex][propName] = desc.value)
+          : Object.defineProperty(objects[objectIndex], propName, desc)
+      }
+      ++objectIndex;
+    }
+    if (!blocked) {
+      isDefaultDesc
+        ? (otherObject[propName] = desc.value)
+        : Object.defineProperty(otherObject, propName, desc);
+    }
+  }
+  return [...objects, otherObject] as any;
 }
 
 // lazy load a function component asynchronously
@@ -293,9 +365,6 @@ export function lazy<T extends Component<any>>(
     } else if (!comp) {
       const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default));
       comp = s;
-    } else {
-      const c = comp();
-      if (c) return c(props);
     }
     let Comp: T | undefined;
     return createMemo(
@@ -310,7 +379,7 @@ export function lazy<T extends Component<any>>(
           setHydrateContext(c);
           return r;
         })
-    );
+    ) as unknown as JSX.Element;
   }) as T;
   wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
   return wrap as T & { preload: () => Promise<{ default: T }> };

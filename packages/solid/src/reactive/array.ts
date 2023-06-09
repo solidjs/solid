@@ -1,4 +1,12 @@
-import { onCleanup, createRoot, untrack, createSignal, Accessor, Setter, $TRACK } from "./signal.js";
+import {
+  onCleanup,
+  createRoot,
+  untrack,
+  createSignal,
+  Accessor,
+  Setter,
+  $TRACK
+} from "./signal.js";
 
 const FALLBACK = Symbol("fallback");
 function dispose(d: (() => void)[]) {
@@ -6,6 +14,29 @@ function dispose(d: (() => void)[]) {
 }
 
 // Modified version of mapSample from S-array[https://github.com/adamhaile/S-array] by Adam Haile
+/**
+The MIT License (MIT)
+
+Copyright (c) 2017 Adam Haile
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 /**
  * reactively transforms an array with a callback function - underlying helper for the `<For>` control flow
  *
@@ -134,7 +165,7 @@ export function mapArray<T, U>(
     function mapper(disposer: () => void) {
       disposers[j] = disposer;
       if (indexes) {
-        const [s, set] = createSignal(j);
+        const [s, set] = "_SOLID_DEV_" ? createSignal(j, { name: "index" }) : createSignal(j);
         indexes[j] = set;
         return mapFn(newItems[j], s);
       }
@@ -210,7 +241,9 @@ export function indexArray<T, U>(
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;
-      const [s, set] = createSignal(newItems[i]);
+      const [s, set] = "_SOLID_DEV_"
+        ? createSignal(newItems[i], { name: "value" })
+        : createSignal(newItems[i]);
       signals[i] = set;
       return mapFn(s, i);
     }

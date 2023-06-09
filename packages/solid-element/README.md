@@ -4,7 +4,7 @@
 ![](https://img.shields.io/librariesio/release/npm/solid-element)
 ![](https://img.shields.io/npm/dm/solid-element.svg?style=flat)
 
-This library extends [Solid](https://github.com/solidjs/solid) by adding Custom Web Components and extensions to manage modular behaviors and composition. It uses [Component Register](https://github.com/ryansolid/component-register) to create Web Components and its composed mixin pattern to construct modular re-usable behaviors. This allows your code to available as simple HTML elements for library interopt and to leverage Shadow DOM style isolation. Solid already supports binding to Web Components so this fills the gap allowing full modular applications to be built out of nested Web Components. Component Register makes use of the V1 Standards and on top of being compatible with the common webcomponent.js polyfills, has a solution for Polyfilling Shadow DOM CSS using the ShadyCSS Parser from Polymer in a generic framework agnostic way (unlike the ShadyCSS package).
+This library extends [Solid](https://github.com/solidjs/solid) by adding Custom Web Components and extensions to manage modular behaviors and composition. It uses [Component Register](https://github.com/ryansolid/component-register) to create Web Components and its composed mixin pattern to construct modular re-usable behaviors. This allows your code to available as simple HTML elements for library interop and to leverage Shadow DOM style isolation. Solid already supports binding to Web Components so this fills the gap allowing full modular applications to be built out of nested Web Components. Component Register makes use of the V1 Standards and on top of being compatible with the common webcomponent.js polyfills, has a solution for Polyfilling Shadow DOM CSS using the ShadyCSS Parser from Polymer in a generic framework agnostic way (unlike the ShadyCSS package).
 
 ## Example
 
@@ -22,7 +22,7 @@ The simplest way to create a Web Component is to use the `customElement` method.
 
 The arguments of `customElement` are:
 1) custom element tag (e.g. `'my-component'`)
-2) (optional) props (e.g. `{someProp: 'one', otherProp: 'two'}`)
+2) (optional) Default prop values (e.g. `{someProp: 'one', otherProp: 'two'}`). Props without default values will be ignored by the customElement.
 3) the Solid template function. The arguments of this function are state wrapped props as the first argument, and the underlying element as the 2nd (e.g. `(props, { element }) => {  solid code here
  }`)
 

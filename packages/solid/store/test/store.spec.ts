@@ -10,7 +10,7 @@ import {
 } from "../../src";
 import { createStore, unwrap, $RAW, NotWrappable } from "../src";
 
-describe("State immutablity", () => {
+describe("State immutability", () => {
   test("Setting a property", () => {
     const [state] = createStore({ name: "John" });
     expect(state.name).toBe("John");
@@ -292,6 +292,27 @@ describe("Tracking State changes", () => {
     setState("user", "firstName", "Jake");
   });
 
+  test("Track array item on removal", () => {
+    const [state, setState] = createStore([1]);
+    createRoot(() => {
+      let executionCount = 0;
+
+      expect.assertions(2);
+      createEffect(() => {
+        if (executionCount === 0) {
+          expect(state[0]).toBe(1);
+        } else if (executionCount === 1) {
+          expect(state[0]).toBe(undefined);
+        } else {
+          // should never get here
+          expect(executionCount).toBe(-1);
+        }
+        executionCount++;
+      });
+    });
+    setState([]);
+  });
+
   test("Tracking Top-Level Array iteration", () => {
     const [state, setState] = createStore(["hi"]);
     let executionCount = 0;
@@ -548,18 +569,19 @@ describe("Setting state from Effects", () => {
     expect(state.data).toBe("signal");
   });
 
-  test("Select Promise", done => {
-    createRoot(async () => {
-      const p = new Promise<string>(resolve => {
-        setTimeout(resolve, 20, "promised");
+  test("Select Promise", () =>
+    new Promise(done => {
+      createRoot(async () => {
+        const p = new Promise<string>(resolve => {
+          setTimeout(resolve, 20, "promised");
+        });
+        const [state, setState] = createStore({ data: "" });
+        p.then(v => setState("data", v));
+        await p;
+        expect(state.data).toBe("promised");
+        done(undefined);
       });
-      const [state, setState] = createStore({ data: "" });
-      p.then(v => setState("data", v));
-      await p;
-      expect(state.data).toBe("promised");
-      done();
-    });
-  });
+    }));
 });
 
 describe("Batching", () => {
@@ -741,6 +763,38 @@ describe("Nested Classes", () => {
   setStore("a", "b", "c", "d", "e", "f", "g", "h");
 };
 
+// Cannot update readonly keys
+() => {
+  const [, setK1] = createStore({} as { readonly i: number });
+  // @ts-expect-error i is readonly
+  setK1("i", 2);
+  const [, setK2] = createStore({} as { i: { readonly j: number } });
+  // @ts-expect-error j is readonly
+  setK2("i", "j", 3);
+  const [, setK3] = createStore({} as { i: { j: { readonly k: number } } });
+  // @ts-expect-error k is readonly
+  setK3("i", "j", "k", 4);
+  const [, setK4] = createStore({} as { i: { j: { k: { readonly l: number } } } });
+  // @ts-expect-error l is readonly
+  setK4("i", "j", "k", "l", 5);
+  const [, setK5] = createStore({} as { i: { j: { k: { l: { readonly m: number } } } } });
+  // @ts-expect-error m is readonly
+  setK5("i", "j", "k", "l", "m", 6);
+  const [, setK6] = createStore({} as { i: { j: { k: { l: { m: { readonly n: number } } } } } });
+  // @ts-expect-error n is readonly, but has unreadable error due to method overloading
+  setK6("i", "j", "k", "l", "m", "n", 7);
+  const [, setK7] = createStore(
+    {} as { i: { j: { k: { l: { m: { n: { readonly o: number } } } } } } }
+  );
+  // @ts-expect-error o is readonly, but has unreadable error due to method overloading
+  setK7("i", "j", "k", "l", "m", "n", "o", 8);
+  const [, setKn] = createStore(
+    {} as { i: { j: { k: { l: { m: { n: { o: { readonly p: number } } } } } } } }
+  );
+  // @ts-expect-error p is readonly
+  setKn("i", "j", "k", "l", "m", "n", "o", "p", 9);
+};
+
 // keys are narrowed
 () => {
   const [store, setStore] = createStore({ a: { b: 1 }, c: { d: 2 } });
@@ -775,6 +829,18 @@ describe("Nested Classes", () => {
   });
   setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", (v, t) => ({
     k: 2
+  }));
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", 2);
+};
+
+// same as the above but with strings which have more types of keys
+() => {
+  const [, setStore] = createStore({
+    a: { b: { c: { d: { e: { f: { g: { h: { i: { j: { k: "l" } } } } } } } } } }
+  });
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "m");
+  setStore("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", (v, t) => ({
+    k: "m"
   }));
 };
 

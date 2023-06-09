@@ -6,6 +6,7 @@
     "paths": {
       "solid-js": ["../.."],
       "solid-js/jsx-runtime": ["../../src/jsx"],
+      "solid-js/jsx-dev-runtime": ["../../src/jsx"],
     }
   },
   "include": ["./src"]

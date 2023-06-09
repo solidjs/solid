@@ -6,6 +6,7 @@ import {
   Accessor,
   on,
   createSignal,
+  createSelector,
   Signal,
   Setter
   // } from "../types/index";
@@ -426,7 +427,7 @@ createMemo((v: number | string): number => 123, "asdf");
 createMemo((num: number | undefined): number | undefined => 123);
 
 // Return type should be `Accessor<number | undefined>`
-// Not sure how to write a test for this, becacuse `Accessor<number>` is assignable to `Accessor<number | undefined>`.
+// Not sure how to write a test for this, because `Accessor<number>` is assignable to `Accessor<number | undefined>`.
 let c1 = createMemo((num?: number): number | undefined => undefined);
 let n = c1();
 // @ts-expect-error n might be undefined
@@ -709,6 +710,58 @@ const onMemo3 = createMemo(
 );
 // @ts-expect-error when deferred the type includes undefined
 const onMemo4: Accessor<number> = onMemo3;
+
+//////////////////////////////////////////////////////////////////////////
+// createSelector ////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
+{
+  const selector = createSelector(() => 123);
+  const bool: boolean = selector(123);
+  // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'number'. ts(2345)
+  const bool2: boolean = selector("123");
+}
+{
+  const selector = createSelector(() => 123, undefined, { name: "test" });
+  const bool: boolean = selector(123);
+  // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'number'. ts(2345)
+  const bool2: boolean = selector("123");
+}
+{
+  const selector = createSelector<number | string>(() => 123);
+  const bool: boolean = selector(123);
+  const bool2: boolean = selector("123");
+  // @ts-expect-error Argument of type 'null' is not assignable to parameter of type 'string | number'. ts(2345)
+  const bool3: boolean = selector(null);
+}
+{
+  const selector = createSelector(
+    () => 123,
+    (key, source) => key === source
+  );
+  const bool: boolean = selector(123);
+  // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'number'. ts(2345)
+  const bool2: boolean = selector("123");
+}
+{
+  const selector = createSelector(
+    () => 123,
+    (key: string, source) => Number(key) === source
+  );
+  // @ts-expect-error Argument of type 'number' is not assignable to parameter of type 'string'. ts(2345)
+  const bool: boolean = selector(123);
+  const bool2: boolean = selector("123");
+}
+{
+  const selector = createSelector(
+    () => 123,
+    (key, source) => key === source,
+    { name: "test" }
+  );
+  const bool: boolean = selector(123);
+  // @ts-expect-error Argument of type 'string' is not assignable to parameter of type 'number'. ts(2345)
+  const bool2: boolean = selector("123");
+}
 
 //////////////////////////////////////////////////////////////////////////
 // variations of signal types ////////////////////////////////////////////

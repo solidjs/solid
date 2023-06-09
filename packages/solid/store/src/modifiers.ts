@@ -16,22 +16,27 @@ function applyState(
 ) {
   const previous = parent[property];
   if (target === previous) return;
-  if (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key])) {
-    if (target !== previous) {
-      if (property === $ROOT) return target;
-      setProperty(parent, property, target);
-    }
+  if (
+    property !== $ROOT &&
+    (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key]))
+  ) {
+    setProperty(parent, property, target);
     return;
   }
 
   if (Array.isArray(target)) {
-    if (target.length && previous.length && (!merge || (key && target[0][key] != null))) {
+    if (
+      target.length &&
+      previous.length &&
+      (!merge || (key && target[0] && target[0][key] != null))
+    ) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
       // common prefix
       for (
         start = 0, end = Math.min(previous.length, target.length);
         start < end &&
-        (previous[start] === target[start] || (key && previous[start][key] === target[start][key]));
+        (previous[start] === target[start] ||
+          (key && previous[start] && target[start] && previous[start][key] === target[start][key]));
         start++
       ) {
         applyState(target[start], previous, start, merge, key);
@@ -44,7 +49,8 @@ function applyState(
         end = previous.length - 1, newEnd = target.length - 1;
         end >= start &&
         newEnd >= start &&
-        (previous[end] === target[newEnd] || (key && previous[end][key] === target[newEnd][key]));
+        (previous[end] === target[newEnd] ||
+          (key && previous[start] && target[start] && previous[end][key] === target[newEnd][key]));
         end--, newEnd--
       ) {
         temp[newEnd] = previous[end];
@@ -65,7 +71,7 @@ function applyState(
       newIndicesNext = new Array(newEnd + 1);
       for (j = newEnd; j >= start; j--) {
         item = target[j];
-        keyVal = key ? item[key] : item;
+        keyVal = key && item ? item[key] : item;
         i = newIndices.get(keyVal);
         newIndicesNext[j] = i === undefined ? -1 : i;
         newIndices.set(keyVal, j);
@@ -73,7 +79,7 @@ function applyState(
       // step through all old items to check reuse
       for (i = start; i <= end; i++) {
         item = previous[i];
-        keyVal = key ? item[key] : item;
+        keyVal = key && item ? item[key] : item;
         j = newIndices.get(keyVal);
         if (j !== undefined && j !== -1) {
           temp[j] = previous[i];
@@ -117,7 +123,7 @@ export function reconcile<T extends U, U>(
   return state => {
     if (!isWrappable(state) || !isWrappable(v)) return v;
     const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, key);
-    return res === undefined ? state as T : res as T;
+    return res === undefined ? (state as T) : res;
   };
 }
 
@@ -152,7 +158,7 @@ export function produce<T>(fn: (state: T) => void): (state: T) => T {
       if (!(proxy = producers.get(state as Record<keyof T, T[keyof T]>))) {
         producers.set(
           state as Record<keyof T, T[keyof T]>,
-          (proxy = new Proxy(state, setterTraps))
+          (proxy = new Proxy(state as Extract<T, object>, setterTraps))
         );
       }
       fn(proxy);

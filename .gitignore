@@ -2,6 +2,7 @@ node_modules/
 dist/
 lib/
 .vscode/
+.idea/
 coverage/
 types/
 .DS_Store
@@ -9,6 +10,7 @@ types/
 .eslintcache
 
 packages/solid/src/jsx.d.ts
+packages/solid/h/jsx-runtime/src/jsx.d.ts
 packages/solid/web/server/server.d.ts
 packages/solid/web/src/client.d.ts
 packages/solid/universal/src/universal.d.ts

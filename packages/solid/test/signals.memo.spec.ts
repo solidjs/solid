@@ -318,7 +318,7 @@ describe("createMemo", () => {
       });
     });
 
-    it("evaluates stale computations before dependendees when trackers stay unchanged", () => {
+    it("evaluates stale computations before dependees when trackers stay unchanged", () => {
       createRoot(() => {
         let [s1, set] = createSignal(1, { equals: false });
         let order = "";

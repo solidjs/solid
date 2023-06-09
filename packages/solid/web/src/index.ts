@@ -8,11 +8,13 @@ import {
   JSX,
   createRoot,
   sharedConfig,
-  Accessor,
   enableHydration,
   $DEVCOMP,
   ComponentProps,
   ValidComponent,
+  createEffect,
+  getOwner,
+  runWithOwner
 } from "solid-js";
 
 export * from "./client.js";
@@ -30,7 +32,9 @@ export {
 } from "solid-js";
 
 export * from "./server-mock.js";
-export const isServer = false;
+
+export const isServer: boolean = false;
+export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement {
@@ -47,7 +51,7 @@ export const hydrate: typeof hydrateCore = (...args) => {
  *
  * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
  *
- * @description https://www.solidjs.com/docs/latest/api#%3Cportal%3E
+ * @description https://www.solidjs.com/docs/latest/api#portal
  */
 export function Portal<T extends boolean = false, S extends boolean = false>(props: {
   mount?: Node;
@@ -63,45 +67,50 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
 }) {
   const { useShadow } = props,
     marker = document.createTextNode(""),
-    mount = props.mount || document.body;
+    mount = () => props.mount || document.body,
+    owner = getOwner();
+  let content: JSX.Element;
+  let hydrating = !!sharedConfig.context;
 
-  // don't render when hydrating
-  function renderPortal() {
-    if (sharedConfig.context) {
-      const [s, set] = createSignal(false);
-      queueMicrotask(() => set(true));
-      return () => s() && props.children;
-    } else return () => props.children;
-  }
+  createEffect(
+    () => {
+      // basically we backdoor into a sort of renderEffect here
+      if (hydrating) (getOwner() as any).user = hydrating = false;
+      content || (content = runWithOwner(owner, () => props.children));
+      const el = mount();
+      if (el instanceof HTMLHeadElement) {
+        const [clean, setClean] = createSignal(false);
+        const cleanup = () => setClean(true);
+        createRoot(dispose => insert(el, () => (!clean() ? content : dispose()), null));
+        onCleanup(cleanup);
+      } else {
+        const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
+          renderRoot =
+            useShadow && container.attachShadow
+              ? container.attachShadow({ mode: "open" })
+              : container;
 
-  if (mount instanceof HTMLHeadElement) {
-    const [clean, setClean] = createSignal(false);
-    const cleanup = () => setClean(true);
-    createRoot(dispose => insert(mount, () => (!clean() ? renderPortal()() : dispose()), null));
-    onCleanup(() => {
-      if (sharedConfig.context) queueMicrotask(cleanup);
-      else cleanup();
-    });
-  } else {
-    const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
-      renderRoot =
-        useShadow && container.attachShadow ? container.attachShadow({ mode: "open" }) : container;
-
-    Object.defineProperty(container, "host", {
-      get() {
-        return marker.parentNode;
-      },
-      configurable: true
-    });
-    insert(renderRoot, renderPortal());
-    mount.appendChild(container);
-    (props as any).ref && (props as any).ref(container);
-    onCleanup(() => mount.removeChild(container));
-  }
+        Object.defineProperty(container, "_$host", {
+          get() {
+            return marker.parentNode;
+          },
+          configurable: true
+        });
+        insert(renderRoot, content);
+        el.appendChild(container);
+        props.ref && (props as any).ref(container);
+        onCleanup(() => el.removeChild(container));
+      }
+    },
+    undefined,
+    { render: !hydrating }
+  );
   return marker;
 }
 
-type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = { [K in keyof P]: P[K] } & {
+export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
+  [K in keyof P]: P[K];
+} & {
   component: T | undefined;
 };
 /**
@@ -109,11 +118,11 @@ type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = { [K in key
  * ```typescript
  * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
  * ```
- * @description https://www.solidjs.com/docs/latest/api#%3Cdynamic%3E
+ * @description https://www.solidjs.com/docs/latest/api#dynamic
  */
-export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Accessor<JSX.Element> {
+export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
-  const cached = createMemo<Function | string>(() => p.component)
+  const cached = createMemo<Function | string>(() => p.component);
   return createMemo(() => {
     const component = cached();
     switch (typeof component) {
@@ -130,5 +139,5 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): Acces
       default:
         break;
     }
-  });
+  }) as unknown as JSX.Element;
 }

@@ -1,4 +1,27 @@
 // Inspired by S.js by Adam Haile, https://github.com/adamhaile/S
+/**
+The MIT License (MIT)
+
+Copyright (c) 2017 Adam Haile
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 
 import { requestCallback, Task } from "./scheduler.js";
 import { setHydrateContext, sharedConfig } from "../render/hydration.js";
@@ -29,23 +52,33 @@ let Listener: Computation<any> | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
 let ExecCount = 0;
-let rootCount = 0;
+
+/** Object storing callbacks for debugging during development */
+export const DevHooks: {
+  afterUpdate: (() => void) | null;
+  afterCreateOwner: ((owner: Owner) => void) | null;
+} = {
+  afterUpdate: null,
+  afterCreateOwner: null
+};
 
 // keep immediately evaluated module code, below its indirect declared let dependencies like Listener
 const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
-declare global {
-  var _$afterUpdate: () => void;
-  var _$afterCreateRoot: (root: Owner) => void;
+export type ComputationState = 0 | 1 | 2;
+
+export interface SourceMapValue {
+  value: unknown;
+  name?: string;
+  graph?: Owner;
 }
 
-export interface SignalState<T> {
-  value?: T;
+export interface SignalState<T> extends SourceMapValue {
+  value: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
-  name?: string;
 }
 
 export interface Owner {
@@ -53,15 +86,14 @@ export interface Owner {
   cleanups: (() => void)[] | null;
   owner: Owner | null;
   context: any | null;
-  sourceMap?: Record<string, { value: unknown }>;
+  sourceMap?: SourceMapValue[];
   name?: string;
-  componentName?: string;
 }
 
 export interface Computation<Init, Next extends Init = Init> extends Owner {
   fn: EffectFunction<Init, Next>;
-  state: number;
-  tState?: number;
+  state: ComputationState;
+  tState?: ComputationState;
   sources: SignalState<Next>[] | null;
   sourceSlots: number[] | null;
   value?: Init;
@@ -104,14 +136,20 @@ export type RootFunction<T> = (dispose: () => void) => T;
  *
  * @description https://www.solidjs.com/docs/latest/api#createroot
  */
-export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
+export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner): T {
   const listener = Listener,
     owner = Owner,
     unowned = fn.length === 0,
-    root: Owner =
-      unowned && !"_SOLID_DEV_"
-        ? UNOWNED
-        : { owned: null, cleanups: null, context: null, owner: detachedOwner || owner },
+    root: Owner = unowned
+      ? "_SOLID_DEV_"
+        ? { owned: null, cleanups: null, context: null, owner: null }
+        : UNOWNED
+      : {
+          owned: null,
+          cleanups: null,
+          context: null,
+          owner: detachedOwner === undefined ? owner : detachedOwner
+        },
     updateFn = unowned
       ? "_SOLID_DEV_"
         ? () =>
@@ -121,10 +159,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: Owner): T {
         : fn
       : () => fn(() => untrack(() => cleanNode(root)));
 
-  if ("_SOLID_DEV_") {
-    if (owner) root.name = `${owner.name}-r${rootCount++}`;
-    globalThis._$afterCreateRoot && globalThis._$afterCreateRoot(root);
-  }
+  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
 
   Owner = root;
   Listener = null;
@@ -175,18 +210,23 @@ export interface SignalOptions<T> extends MemoOptions<T> {
  */
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: T, options?: SignalOptions<T>): Signal<T>;
-export function createSignal<T>(value?: T, options?: SignalOptions<T>): Signal<T | undefined> {
+export function createSignal<T>(
+  value?: T,
+  options?: SignalOptions<T | undefined>
+): Signal<T | undefined> {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
 
-  const s: SignalState<T> = {
+  const s: SignalState<T | undefined> = {
     value,
     observers: null,
     observerSlots: null,
     comparator: options.equals || undefined
   };
 
-  if ("_SOLID_DEV_" && !options.internal)
-    s.name = registerGraph(options.name || hashValue(value), s as { value: unknown });
+  if ("_SOLID_DEV_" && !options.internal) {
+    if (options.name) s.name = options.name;
+    registerGraph(s);
+  }
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
@@ -294,18 +334,18 @@ export function createEffect<Next>(fn: EffectFunction<undefined | NoInfer<Next>,
 export function createEffect<Next, Init = Next>(
   fn: EffectFunction<Init | Next, Next>,
   value: Init,
-  options?: EffectOptions
+  options?: EffectOptions & { render?: boolean }
 ): void;
 export function createEffect<Next, Init>(
   fn: EffectFunction<Init | Next, Next>,
   value?: Init,
-  options?: EffectOptions
+  options?: EffectOptions & { render?: boolean }
 ): void {
   runEffects = runUserEffects;
   const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined),
     s = SuspenseContext && lookup(Owner, SuspenseContext.id);
   if (s) c.suspense = s;
-  c.user = true;
+  if (!options || !options.render) c.user = true;
   Effects ? Effects.push(c) : updateComputation(c);
 }
 
@@ -344,6 +384,7 @@ export function createReaction(onInvalidate: () => void, options?: EffectOptions
 }
 
 export interface Memo<Prev, Next = Prev> extends SignalState<Next>, Computation<Next> {
+  value: Next;
   tOwned?: Computation<Prev | Next, Next>[];
 }
 
@@ -575,7 +616,7 @@ export function createResource<T, S, R>(
   function loadEnd(p: Promise<T> | null, v: T | undefined, error?: any, key?: S) {
     if (pr === p) {
       pr = null;
-      resolved = true;
+      key !== undefined && (resolved = true);
       if ((p === initP || v === initP) && options.onHydrated)
         queueMicrotask(() => options.onHydrated!(key, { value: v }));
       initP = NO_INIT;
@@ -592,9 +633,9 @@ export function createResource<T, S, R>(
   }
   function completeLoad(v: T | undefined, err: any) {
     runUpdates(() => {
-      if (!err) setValue(() => v);
+      if (err === undefined) setValue(() => v);
+      setState(err !== undefined ? "errored" : resolved ? "ready" : "unresolved");
       setError(err);
-      setState(err ? "errored" : "ready");
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     }, false);
@@ -604,7 +645,7 @@ export function createResource<T, S, R>(
     const c = SuspenseContext && lookup(Owner, SuspenseContext.id),
       v = value(),
       err = error();
-    if (err && !pr) throw err;
+    if (err !== undefined && !pr) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
         track();
@@ -639,7 +680,7 @@ export function createResource<T, S, R>(
             })
           );
     if (typeof p !== "object" || !(p && "then" in p)) {
-      loadEnd(pr, p);
+      loadEnd(pr, p, undefined, lookup);
       return p;
     }
     pr = p;
@@ -651,7 +692,7 @@ export function createResource<T, S, R>(
     }, false);
     return p.then(
       v => loadEnd(p, v, undefined, lookup),
-      e => loadEnd(p, undefined, castError(e))
+      e => loadEnd(p, undefined, castError(e), lookup)
     ) as Promise<T>;
   }
   Object.defineProperties(read, {
@@ -743,7 +784,7 @@ export type EqualityCheckerFunction<T, U> = (a: U, b: T) => boolean;
  *
  * @description https://www.solidjs.com/docs/latest/api#createselector
  */
-export function createSelector<T, U>(
+export function createSelector<T, U = T>(
   source: Accessor<T>,
   fn: EqualityCheckerFunction<T, U> = equalFn as TODO,
   options?: BaseOptions
@@ -805,14 +846,15 @@ export function batch<T>(fn: Accessor<T>): T {
  * @description https://www.solidjs.com/docs/latest/api#untrack
  */
 export function untrack<T>(fn: Accessor<T>): T {
-  let result: T,
-    listener = Listener;
+  if (Listener === null) return fn();
 
+  const listener = Listener;
   Listener = null;
-  result = fn();
-  Listener = listener;
-
-  return result;
+  try {
+    return fn();
+  } finally {
+    Listener = listener;
+  }
 }
 
 /** @deprecated */
@@ -910,9 +952,11 @@ export function onMount(fn: () => void) {
  * onCleanup - run an effect once before the reactive scope is disposed
  * @param fn an effect that should run only once on cleanup
  *
+ * @returns the same {@link fn} function that was passed in
+ *
  * @description https://www.solidjs.com/docs/latest/api#oncleanup
  */
-export function onCleanup(fn: () => void) {
+export function onCleanup<T extends () => any>(fn: T): T {
   if (Owner === null)
     "_SOLID_DEV_" &&
       console.warn("cleanups created outside a `createRoot` or `render` will never be run");
@@ -922,6 +966,30 @@ export function onCleanup(fn: () => void) {
 }
 
 /**
+ * catchError - run an effect whenever an error is thrown within the context of the child scopes
+ * @param fn boundary for the error
+ * @param handler an error handler that receives the error
+ *
+ * * If the error is thrown again inside the error handler, it will trigger the next available parent handler
+ *
+ * @description https://www.solidjs.com/docs/latest/api#catcherror
+ */
+export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
+  ERROR || (ERROR = Symbol("error"));
+  Owner = createComputation(undefined!, undefined, true);
+  Owner.context = { [ERROR]: [handler] };
+  if (Transition && Transition.running) Transition.sources.add(Owner as Memo<any>);
+  try {
+    return fn();
+  } catch (err) {
+    handleError(err);
+  } finally {
+    Owner = Owner.owner;
+  }
+}
+
+/**
+ * @deprecated since version 1.7.0 and will be removed in next major - use catchError instead
  * onError - run an effect whenever an error is thrown within the context of the child scopes
  * @param fn an error handler that receives the error
  *
@@ -929,7 +997,7 @@ export function onCleanup(fn: () => void) {
  *
  * @description https://www.solidjs.com/docs/latest/api#onerror
  */
-export function onError(fn: (err: any) => void): void {
+export function onError(fn: (err: Error) => void): void {
   ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
     "_SOLID_DEV_" &&
@@ -947,13 +1015,18 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(o: Owner, fn: () => T): T {
+export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
   const prev = Owner;
+  const prevListener = Listener;
   Owner = o;
+  Listener = null;
   try {
     return runUpdates(fn, true)!;
+  } catch (err) {
+    handleError(err);
   } finally {
     Owner = prev;
+    Listener = prevListener;
   }
 }
 
@@ -1020,13 +1093,14 @@ export function resumeEffects(e: Computation<any>[]) {
   e.length = 0;
 }
 
-export interface DevComponent<T> extends Memo<JSX.Element> {
+export interface DevComponent<T> extends Memo<unknown> {
   props: T;
-  componentName: string;
+  name: string;
+  component: (props: T) => unknown;
 }
 
 // Dev
-export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
+export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   const c = createComputation(
     () =>
       untrack(() => {
@@ -1034,69 +1108,23 @@ export function devComponent<T>(Comp: (props: T) => JSX.Element, props: T) {
         return Comp(props);
       }),
     undefined,
-    true
-  ) as DevComponent<T>;
+    true,
+    0
+  ) as DevComponent<P>;
   c.props = props;
   c.observers = null;
   c.observerSlots = null;
-  c.state = 0;
-  c.componentName = Comp.name;
+  c.name = Comp.name;
+  c.component = Comp;
   updateComputation(c);
-  return c.tValue !== undefined ? c.tValue : c.value;
+  return (c.tValue !== undefined ? c.tValue : c.value) as V;
 }
 
-export function hashValue(v: any): string {
-  const s = new Set();
-  return `s${
-    typeof v === "string"
-      ? hash(v)
-      : hash(
-          untrack(
-            () =>
-              JSON.stringify(v, (k, v) => {
-                if (typeof v === "object" && v != null) {
-                  if (s.has(v)) return;
-                  s.add(v);
-                  const keys = Object.keys(v);
-                  const desc = Object.getOwnPropertyDescriptors(v);
-                  const newDesc = keys.reduce((memo, key) => {
-                    const value = desc[key];
-                    // skip getters
-                    if (!value.get) memo[key] = value;
-                    return memo;
-                  }, {} as any);
-                  v = Object.create({}, newDesc);
-                }
-                if (typeof v === "bigint") {
-                  return `${v.toString()}n`;
-                }
-                return v;
-              }) || ""
-          )
-        )
-  }`;
-}
-
-export function registerGraph(name: string, value: { value: unknown }): string {
-  let tryName = name;
-  if (Owner) {
-    let i = 0;
-    Owner.sourceMap || (Owner.sourceMap = {});
-    while (Owner.sourceMap[tryName]) tryName = `${name}-${++i}`;
-    Owner.sourceMap[tryName] = value;
-  }
-  return tryName;
-}
-interface GraphRecord {
-  [k: string]: GraphRecord | unknown;
-}
-export function serializeGraph(owner?: Owner | null): GraphRecord {
-  owner || (owner = Owner);
-  if (!"_SOLID_DEV_" || !owner) return {};
-  return {
-    ...serializeValues(owner.sourceMap),
-    ...(owner.owned ? serializeChildren(owner) : {})
-  };
+export function registerGraph(value: SourceMapValue): void {
+  if (!Owner) return;
+  if (Owner.sourceMap) Owner.sourceMap.push(value);
+  else Owner.sourceMap = [value];
+  value.graph = Owner;
 }
 
 export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
@@ -1153,7 +1181,7 @@ export function useContext<T>(context: Context<T>): T {
   return (ctx = lookup(Owner, context.id)) !== undefined ? ctx : context.defaultValue;
 }
 
-export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement | JSX.FunctionElement>;
+export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement>;
 export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
 export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedJSXElement[] };
 
@@ -1167,7 +1195,9 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  */
 export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
   const children = createMemo(fn);
-  const memo = createMemo(() => resolveChildren(children()));
+  const memo = "_SOLID_DEV_"
+    ? createMemo(() => resolveChildren(children()), undefined, { name: "children" })
+    : createMemo(() => resolveChildren(children()));
   (memo as ChildrenReturn).toArray = () => {
     const c = memo();
     return Array.isArray(c) ? c : c != null ? [c] : [];
@@ -1221,13 +1251,9 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
   const runningTransition = Transition && Transition.running;
   if (
     (this as Memo<any>).sources &&
-    ((!runningTransition && (this as Memo<any>).state) ||
-      (runningTransition && (this as Memo<any>).tState))
+    (runningTransition ? (this as Memo<any>).tState : (this as Memo<any>).state)
   ) {
-    if (
-      (!runningTransition && (this as Memo<any>).state === STALE) ||
-      (runningTransition && (this as Memo<any>).tState === STALE)
-    )
+    if ((runningTransition ? (this as Memo<any>).tState : (this as Memo<any>).state) === STALE)
       updateComputation(this as Memo<any>);
     else {
       const updates = Updates;
@@ -1275,13 +1301,13 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
           const o = node.observers![i];
           const TransitionRunning = Transition && Transition.running;
           if (TransitionRunning && Transition!.disposed.has(o)) continue;
-          if ((TransitionRunning && !o.tState) || (!TransitionRunning && !o.state)) {
+          if (TransitionRunning ? !o.tState : !o.state) {
             if (o.pure) Updates!.push(o);
             else Effects!.push(o);
             if ((o as Memo<any>).observers) markDownstream(o as Memo<any>);
           }
-          if (TransitionRunning) o.tState = STALE;
-          else o.state = STALE;
+          if (!TransitionRunning) o.state = STALE;
+          else o.tState = STALE;
         }
         if (Updates!.length > 10e5) {
           Updates = [];
@@ -1328,11 +1354,23 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   try {
     nextValue = node.fn(value);
   } catch (err) {
-    if (node.pure) Transition && Transition.running ? (node.tState = STALE) : (node.state = STALE);
-    handleError(err);
+    if (node.pure) {
+      if (Transition && Transition.running) {
+        node.tState = STALE;
+        (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(cleanNode);
+        (node as Memo<any>).tOwned = undefined;
+      } else {
+        node.state = STALE;
+        node.owned && node.owned.forEach(cleanNode);
+        node.owned = null;
+      }
+    }
+    // won't be picked up until next update
+    node.updatedAt = time + 1;
+    return handleError(err);
   }
   if (!node.updatedAt || node.updatedAt <= time) {
-    if (node.updatedAt != null && "observers" in (node as Memo<any>)) {
+    if (node.updatedAt != null && "observers" in node) {
       writeSignal(node as Memo<any>, nextValue, true);
     } else if (Transition && Transition.running && node.pure) {
       Transition.sources.add(node as Memo<any>);
@@ -1346,7 +1384,7 @@ function createComputation<Next, Init = unknown>(
   fn: EffectFunction<Init | Next, Next>,
   init: Init,
   pure: boolean,
-  state: number = STALE,
+  state: ComputationState = STALE,
   options?: EffectOptions
 ): Computation<Init | Next, Next> {
   const c: Computation<Init | Next, Next> = {
@@ -1381,13 +1419,9 @@ function createComputation<Next, Init = unknown>(
       if (!Owner.owned) Owner.owned = [c];
       else Owner.owned.push(c);
     }
-    if ("_SOLID_DEV_")
-      c.name =
-        (options && options.name) ||
-        `${(Owner as Computation<any>).name || "c"}-${
-          (Owner.owned || (Owner as Memo<Init, Next>).tOwned!).length
-        }`;
   }
+
+  if ("_SOLID_DEV_" && options && options.name) c.name = options.name;
 
   if (ExternalSourceFactory) {
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
@@ -1402,17 +1436,15 @@ function createComputation<Next, Init = unknown>(
     };
   }
 
+  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(c);
+
   return c;
 }
 
 function runTop(node: Computation<any>) {
   const runningTransition = Transition && Transition.running;
-  if ((!runningTransition && node.state === 0) || (runningTransition && node.tState === 0)) return;
-  if (
-    (!runningTransition && node.state === PENDING) ||
-    (runningTransition && node.tState === PENDING)
-  )
-    return lookUpstream(node);
+  if ((runningTransition ? node.tState : node.state) === 0) return;
+  if ((runningTransition ? node.tState : node.state) === PENDING) return lookUpstream(node);
   if (node.suspense && untrack(node.suspense.inFallback!))
     return node!.suspense.effects!.push(node!);
   const ancestors = [node];
@@ -1421,8 +1453,7 @@ function runTop(node: Computation<any>) {
     (!node.updatedAt || node.updatedAt < ExecCount)
   ) {
     if (runningTransition && Transition!.disposed.has(node)) return;
-    if ((!runningTransition && node.state) || (runningTransition && node.tState))
-      ancestors.push(node);
+    if (runningTransition ? node.tState : node.state) ancestors.push(node);
   }
   for (let i = ancestors.length - 1; i >= 0; i--) {
     node = ancestors[i];
@@ -1433,15 +1464,9 @@ function runTop(node: Computation<any>) {
         if (Transition!.disposed.has(top)) return;
       }
     }
-    if (
-      (!runningTransition && node.state === STALE) ||
-      (runningTransition && node.tState === STALE)
-    ) {
+    if ((runningTransition ? node.tState : node.state) === STALE) {
       updateComputation(node);
-    } else if (
-      (!runningTransition && node.state === PENDING) ||
-      (runningTransition && node.tState === PENDING)
-    ) {
+    } else if ((runningTransition ? node.tState : node.state) === PENDING) {
       const updates = Updates;
       Updates = null;
       runUpdates(() => lookUpstream(node, ancestors[0]), false);
@@ -1462,7 +1487,8 @@ function runUpdates<T>(fn: () => T, init: boolean) {
     completeUpdates(wait);
     return res;
   } catch (err) {
-    if (!Updates) Effects = null;
+    if (!wait) Effects = null;
+    Updates = null;
     handleError(err);
   }
 }
@@ -1513,7 +1539,7 @@ function completeUpdates(wait: boolean) {
   const e = Effects!;
   Effects = null;
   if (e!.length) runUpdates(() => runEffects(e), false);
-  else if ("_SOLID_DEV_") globalThis._$afterUpdate && globalThis._$afterUpdate();
+  else if ("_SOLID_DEV_") DevHooks.afterUpdate && DevHooks.afterUpdate();
   if (res) res();
 }
 
@@ -1558,16 +1584,11 @@ function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
   for (let i = 0; i < node.sources!.length; i += 1) {
     const source = node.sources![i] as Memo<any>;
     if (source.sources) {
-      if (
-        (!runningTransition && source.state === STALE) ||
-        (runningTransition && source.tState === STALE)
-      ) {
-        if (source !== ignore) runTop(source);
-      } else if (
-        (!runningTransition && source.state === PENDING) ||
-        (runningTransition && source.tState === PENDING)
-      )
-        lookUpstream(source, ignore);
+      const state = runningTransition ? source.tState : source.state;
+      if (state === STALE) {
+        if (source !== ignore && (!source.updatedAt || source.updatedAt < ExecCount))
+          runTop(source);
+      } else if (state === PENDING) lookUpstream(source, ignore);
     }
   }
 }
@@ -1576,7 +1597,7 @@ function markDownstream(node: Memo<any>) {
   const runningTransition = Transition && Transition.running;
   for (let i = 0; i < node.observers!.length; i += 1) {
     const o = node.observers![i];
-    if ((!runningTransition && !o.state) || (runningTransition && !o.tState)) {
+    if (runningTransition ? !o.tState : !o.state) {
       if (runningTransition) o.tState = PENDING;
       else o.state = PENDING;
       if (o.pure) Updates!.push(o);
@@ -1607,18 +1628,18 @@ function cleanNode(node: Owner) {
 
   if (Transition && Transition.running && (node as Memo<any>).pure) {
     if ((node as Memo<any>).tOwned) {
-      for (i = 0; i < (node as Memo<any>).tOwned!.length; i++)
+      for (i = (node as Memo<any>).tOwned!.length - 1; i >= 0; i--)
         cleanNode((node as Memo<any>).tOwned![i]);
       delete (node as Memo<any>).tOwned;
     }
     reset(node as Computation<any>, true);
   } else if (node.owned) {
-    for (i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
+    for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
     node.owned = null;
   }
 
   if (node.cleanups) {
-    for (i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
+    for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
     node.cleanups = null;
   }
   if (Transition && Transition.running) (node as Computation<any>).tState = 0;
@@ -1637,16 +1658,25 @@ function reset(node: Computation<any>, top?: boolean) {
   }
 }
 
-function castError(err: any) {
-  if (err instanceof Error || typeof err === "string") return err;
-  return new Error("Unknown error");
+function castError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
-
-function handleError(err: any) {
-  err = castError(err);
+function runErrors(fns: ((err: any) => void)[], err: any) {
+  for (const f of fns) f(err);
+}
+function handleError(err: unknown) {
   const fns = ERROR && lookup(Owner, ERROR);
   if (!fns) throw err;
-  for (const f of fns) f(err);
+  const error = castError(err);
+  if (Effects)
+    Effects!.push({
+      fn() {
+        runErrors(fns, error);
+      },
+      state: STALE
+    } as unknown as Computation<any>);
+  else runErrors(fns, error);
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {
@@ -1657,7 +1687,7 @@ function lookup(owner: Owner | null, key: symbol | string): any {
     : undefined;
 }
 
-function resolveChildren(children: JSX.Element): ResolvedChildren {
+function resolveChildren(children: JSX.Element | Accessor<any>): ResolvedChildren {
   if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
@@ -1684,33 +1714,6 @@ function createProvider(id: symbol, options?: EffectOptions) {
     );
     return res;
   };
-}
-
-function hash(s: string) {
-  for (var i = 0, h = 9; i < s.length; ) h = Math.imul(h ^ s.charCodeAt(i++), 9 ** 9);
-  return `${h ^ (h >>> 9)}`;
-}
-
-function serializeValues(sources: Record<string, { value: unknown }> = {}) {
-  const k = Object.keys(sources);
-  const result: Record<string, unknown> = {};
-  for (let i = 0; i < k.length; i++) {
-    const key = k[i];
-    result[key] = sources[key].value;
-  }
-  return result;
-}
-
-function serializeChildren(root: Owner): GraphRecord {
-  const result: GraphRecord = {};
-  for (let i = 0, len = root.owned!.length; i < len; i++) {
-    const node = root.owned![i];
-    result[node.componentName ? `${node.componentName}:${node.name}` : node.name!] = {
-      ...serializeValues(node.sourceMap),
-      ...(node.owned ? serializeChildren(node) : {})
-    };
-  }
-  return result;
 }
 
 type TODO = any;

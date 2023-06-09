@@ -4,14 +4,13 @@ import {
   createMemo,
   useContext,
   runWithOwner,
-  onError,
+  catchError,
   Accessor,
   Setter,
   Signal,
   castError,
-  onCleanup,
   cleanNode,
-  BRANCH
+  createOwner
 } from "./reactive.js";
 import type { JSX } from "../jsx.js";
 
@@ -93,7 +92,23 @@ export function mergeProps(...sources: any): any {
   for (let i = 0; i < sources.length; i++) {
     let source = sources[i];
     if (typeof source === "function") source = source();
-    if (source) Object.defineProperties(target, Object.getOwnPropertyDescriptors(source));
+    if (source) {
+      const descriptors = Object.getOwnPropertyDescriptors(source);
+      for (const key in descriptors) {
+        if (key in target) continue;
+        Object.defineProperty(target, key, {
+          enumerable: true,
+          get() {
+            for (let i = sources.length - 1; i >= 0; i--) {
+              let s = sources[i] || {};
+              if (typeof s === "function") s = s();
+              const v = s[key];
+              if (v !== undefined) return v;
+            }
+          }
+        });
+      }
+    }
   }
   return target;
 }
@@ -191,16 +206,21 @@ export function Index<T>(props: {
   return simpleMap(props, (fn, item, i) => fn(() => item, i));
 }
 
+type RequiredParameter<T> = T extends () => unknown ? never : T;
+/**
+ * Conditionally render its children or an optional fallback component
+ * @description https://www.solidjs.com/docs/latest/api#show
+ */
 export function Show<T>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: string;
-  children: string | ((item: NonNullable<T>) => string);
-}) {
-  let c: string | ((item: NonNullable<T>) => string);
+  children: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
+}): string {
+  let c: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
   return props.when
     ? typeof (c = props.children) === "function"
-      ? c(props.when!)
+      ? c(props.keyed ? props.when! : () => props.when as any)
       : c
     : props.fallback || "";
 }
@@ -216,7 +236,7 @@ export function Switch(props: {
     const w = conditions[i].when;
     if (w) {
       const c = conditions[i].children;
-      return typeof c === "function" ? c(w) : c;
+      return typeof c === "function" ? c(conditions[i].keyed ? w : () => w) : c;
     }
   }
   return props.fallback || "";
@@ -225,7 +245,7 @@ export function Switch(props: {
 type MatchProps<T> = {
   when: T | false;
   keyed?: boolean;
-  children: string | ((item: T) => string);
+  children: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
 };
 export function Match<T>(props: MatchProps<T>) {
   return props;
@@ -249,19 +269,20 @@ export function ErrorBoundary(props: {
     const f = props.fallback;
     return typeof f === "function" && f.length ? f(error, () => {}) : f;
   }
-  onError(err => {
-    error = err;
-    !sync && ctx.replace("e" + id, displayFallback);
-    sync = true;
-  });
-  onCleanup(() => cleanNode(clean));
   createMemo(() => {
-    Owner!.context = { [BRANCH]: (clean = {}) };
-    return (res = props.children);
+    clean = Owner;
+    return catchError(
+      () => (res = props.children),
+      err => {
+        error = err;
+        !sync && ctx.replace("e" + id, displayFallback);
+        sync = true;
+      }
+    );
   });
   if (error) return displayFallback();
   sync = false;
-  return { t: `<!e${id}>${resolveSSRNode(res)}<!/e${id}>` };
+  return { t: `<!!$e${id}>${resolveSSRNode(res)}<!!$/e${id}>` };
 }
 
 // Suspense Context
@@ -373,7 +394,7 @@ export function createResource<T, S>(
   };
   read.loading = false;
   read.error = undefined as any;
-  read.state = "initialValue" in options ? "resolved" : "unresolved";
+  read.state = "initialValue" in options ? "ready" : "unresolved";
   Object.defineProperty(read, "latest", {
     get() {
       return read();
@@ -406,7 +427,7 @@ export function createResource<T, S>(
       return p
         .then(res => {
           read.loading = false;
-          read.state = "resolved";
+          read.state = "ready";
           ctx.resources[id].data = res;
           p = null;
           notifySuspense(contexts);
@@ -435,12 +456,12 @@ export function createResource<T, S>(
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  let resolved: T;
-  let p: Promise<{ default: T }>;
-  let load = () => {
+  let p: Promise<{ default: T }> & { resolved?: T };
+  let load = (id?: string) => {
     if (!p) {
       p = fn();
-      p.then(mod => (resolved = mod.default));
+      p.then(mod => (p.resolved = mod.default));
+      if (id) sharedConfig.context!.lazy[id] = p;
     }
     return p;
   };
@@ -448,9 +469,11 @@ export function lazy<T extends Component<any>>(
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
-    load();
     const id = sharedConfig.context!.id.slice(0, -1);
-    if (resolved) return resolved(props);
+    let ref = sharedConfig.context!.lazy[id];
+    if (ref) p = ref;
+    else load(id);
+    if (p.resolved) return p.resolved(props);
     const ctx = useContext(SuspenseContext);
     const track = { loading: true, error: undefined };
     if (ctx) {
@@ -480,9 +503,12 @@ function suspenseComplete(c: SuspenseContextType) {
 
 function notifySuspense(contexts: Set<SuspenseContextType>) {
   for (const c of contexts) {
-    if (suspenseComplete(c)) c.completed();
+    if (!suspenseComplete(c)) {
+      continue;
+    }
+    c.completed();
+    contexts.delete(c);
   }
-  contexts.clear();
 }
 
 export function enableScheduling() {}
@@ -516,6 +542,7 @@ type HydrationContext = {
   resources: Record<string, any>;
   suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
+  lazy: Record<string, Promise<any>>;
   async?: boolean;
   noHydrate: boolean;
 };
@@ -531,14 +558,9 @@ export function SuspenseList(props: {
 
 export function Suspense(props: { fallback?: string; children: string }) {
   let done: undefined | ((html?: string, error?: any) => boolean);
-  let clean: any;
   const ctx = sharedConfig.context!;
   const id = ctx.id + ctx.count;
-  const o = Owner;
-  if (o) {
-    if (o.context) o.context[BRANCH] = clean = {};
-    else o.context = { [BRANCH]: (clean = {}) };
-  }
+  const o = createOwner();
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
@@ -550,40 +572,44 @@ export function Suspense(props: { fallback?: string; children: string }) {
         }
       }
     });
+
+  function suspenseError(err: Error) {
+    if (!done || !done(undefined, err)) {
+      runWithOwner(o.owner!, () => {
+        throw err;
+      });
+    }
+  }
+
   function runSuspense() {
     setHydrateContext({ ...ctx, count: 0 });
-    return runWithOwner(o!, () => {
-      return createComponent(SuspenseContext.Provider, {
+    cleanNode(o);
+    return runWithOwner(o, () =>
+      createComponent(SuspenseContext.Provider, {
         value,
         get children() {
-          clean && cleanNode(clean);
-          return props.children;
+          return catchError(() => props.children, suspenseError);
         }
-      });
-    });
+      })
+    );
   }
   const res = runSuspense();
 
   // never suspended
   if (suspenseComplete(value)) return res;
 
-  onError(err => {
-    if (!done || !done(undefined, err)) {
-      if (o)
-        runWithOwner(o.owner!, () => {
-          throw err;
-        });
-      else throw err;
-    }
-  });
   done = ctx.async ? ctx.registerFragment(id) : undefined;
-  if (ctx.async) {
-    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f", noHydrate: true });
-    const res = { t: `<span id="pl-${id}">${resolveSSRNode(props.fallback)}</span>` };
-    setHydrateContext(ctx);
-    return res;
-  }
-  setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0.f" });
-  ctx.writeResource(id, "$$f");
-  return props.fallback;
+  return catchError(() => {
+    if (ctx.async) {
+      setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f", noHydrate: true });
+      const res = {
+        t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>`
+      };
+      setHydrateContext(ctx);
+      return res;
+    }
+    setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f" });
+    ctx.writeResource(id, "$$f");
+    return props.fallback;
+  }, suspenseError);
 }
