@@ -11,6 +11,7 @@
   "private": true,
   "scripts": {
     "preinstall": "npx only-allow pnpm",
+    "postinstall": "simple-git-hooks",
     "test": "turbo run test test-types",
     "coverage": "turbo run coverage",
     "build": "turbo run build",
@@ -57,7 +58,7 @@
     "vitest": "^0.29.3"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm exec format"
+    "pre-commit": "pnpm run format"
   },
   "pnpm": {
     "overrides": {

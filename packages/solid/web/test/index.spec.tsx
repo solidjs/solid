@@ -272,7 +272,14 @@ describe("Testing an only child each control flow with array children", () => {
   const [list, setList] = createSignal([n1, n2, n3, n4]);
   const Component = () => (
     <div ref={div}>
-      <Index each={list()}>{item => <>{item()}{item()}</>}</Index>
+      <Index each={list()}>
+        {item => (
+          <>
+            {item()}
+            {item()}
+          </>
+        )}
+      </Index>
     </div>
   );
 

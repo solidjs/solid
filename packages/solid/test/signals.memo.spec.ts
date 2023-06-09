@@ -15,18 +15,30 @@ describe("createMemo", () => {
         //
         var seq = "",
           [a1, setA1] = createSignal(false),
-          b1 = createMemo(() => {
-            a1();
-            seq += "b1";
-          }, undefined, { equals: false }),
-          b2 = createMemo(() => {
-            a1();
-            seq += "b2";
-          }, undefined, { equals: false }),
-          c1 = createMemo(() => {
-            b1(), b2();
-            seq += "c1";
-          }, undefined, { equals: false });
+          b1 = createMemo(
+            () => {
+              a1();
+              seq += "b1";
+            },
+            undefined,
+            { equals: false }
+          ),
+          b2 = createMemo(
+            () => {
+              a1();
+              seq += "b2";
+            },
+            undefined,
+            { equals: false }
+          ),
+          c1 = createMemo(
+            () => {
+              b1(), b2();
+              seq += "c1";
+            },
+            undefined,
+            { equals: false }
+          );
 
         seq = "";
         setA1(true);

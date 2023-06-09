@@ -170,7 +170,7 @@ export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
   Owner = { owner: Owner, context: { [ERROR]: [handler] }, owned: null, cleanups: null };
   try {
     return fn();
-  } catch(err) {
+  } catch (err) {
     handleError(err);
   } finally {
     Owner = Owner!.owner;
@@ -179,7 +179,7 @@ export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
 
 /**
  * @deprecated since version 1.7.0 and will be removed in next major - use catchError instead
-*/
+ */
 export function onError(fn: (err: Error) => void): void {
   if (Owner) {
     if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
