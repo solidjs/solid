@@ -1662,21 +1662,30 @@ function castError(err: unknown): Error {
   if (err instanceof Error) return err;
   return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
-function runErrors(fns: ((err: any) => void)[], err: any) {
-  for (const f of fns) f(err);
-}
-function handleError(err: unknown) {
-  const fns = ERROR && lookup(Owner, ERROR);
-  if (!fns) throw err;
+
+function handleError(err: unknown, owner = Owner) {
+  const fns = ERROR && lookup(owner, ERROR);
   const error = castError(err);
+  if (!fns) throw error;
+
   if (Effects)
     Effects!.push({
       fn() {
-        runErrors(fns, error);
+        try {
+          for (const f of fns) f(error);
+        } catch (e) {
+          handleError(e, owner?.owner || null);
+        }
       },
       state: STALE
     } as unknown as Computation<any>);
-  else runErrors(fns, error);
+  else {
+    try {
+      for (const f of fns) f(error);
+    } catch (e) {
+      handleError(e, owner?.owner || null);
+    }
+  }
 }
 
 function lookup(owner: Owner | null, key: symbol | string): any {

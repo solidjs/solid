@@ -18,11 +18,16 @@ export function castError(err: unknown): Error {
   return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
 }
 
-function handleError(err: unknown): void {
+function handleError(err: unknown, owner = Owner): void {
+  const fns = lookup(owner, ERROR);
   const error = castError(err);
-  const fns = lookup(Owner, ERROR);
   if (!fns) throw error;
-  for (const f of fns) f(error);
+
+  try {
+    for (const f of fns) f(error);
+  } catch (e) {
+    handleError(e, owner?.owner || null);
+  }
 }
 
 const UNOWNED: Owner = { context: null, owner: null, owned: null, cleanups: null };
