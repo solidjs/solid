@@ -114,3 +114,27 @@ describe("Testing a Portal with Synthetic Events", () => {
 
   test("dispose", () => disposer());
 });
+
+describe("Testing a Portal with direct reactive children", () => {
+  let div = document.createElement("div"),
+    disposer: () => void,
+    [count, setCount] = createSignal(0),
+    portalElem: HTMLDivElement;
+  const Component = () => <Portal ref={portalElem}>{count()}</Portal>;
+
+  test("Create portal control flow", () => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("");
+    expect(document.body.firstChild).toBe(portalElem);
+  });
+
+  test("Click to trigger reactive update", () => {
+    expect(portalElem.innerHTML).toBe("0");
+    setCount(count() + 1);
+    expect(portalElem.innerHTML).toBe("1");
+    setCount(count() + 1);
+    expect(portalElem.innerHTML).toBe("2");
+  });
+
+  test("dispose", () => disposer());
+});
