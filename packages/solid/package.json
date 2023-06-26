@@ -46,51 +46,37 @@
   "exports": {
     ".": {
       "worker": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
       "browser": {
         "development": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/dev.js"
-          },
+          "types": "./types/index.d.ts",
+          "import": "./dist/dev.js",
           "require": "./dist/dev.cjs"
         },
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/solid.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/solid.js",
         "require": "./dist/solid.cjs"
       },
       "deno": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
       "node": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
       "development": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/dev.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/dev.js",
         "require": "./dist/dev.cjs"
       },
-      "import": {
-        "types": "./types/index.d.ts",
-        "default": "./dist/solid.js"
-      },
+      "types": "./types/index.d.ts",
+      "import": "./dist/solid.js",
       "require": "./dist/solid.cjs"
     },
     "./dist/*": "./dist/*",
@@ -104,146 +90,106 @@
     },
     "./store": {
       "worker": {
-        "import": {
-          "types": "./store/types/index.d.ts",
-          "default": "./store/dist/server.js"
-        },
+        "types": "./store/types/index.d.ts",
+        "import": "./store/dist/server.js",
         "require": "./store/dist/server.cjs"
       },
       "browser": {
         "development": {
-          "import": {
-            "types": "./store/types/index.d.ts",
-            "default": "./store/dist/dev.js"
-          },
+          "types": "./store/types/index.d.ts",
+          "import": "./store/dist/dev.js",
           "require": "./store/dist/dev.cjs"
         },
-        "import": {
-          "types": "./store/types/index.d.ts",
-          "default": "./store/dist/store.js"
-        },
+        "types": "./store/types/index.d.ts",
+        "import": "./store/dist/store.js",
         "require": "./store/dist/store.cjs"
       },
       "deno": {
-        "import": {
-          "types": "./store/types/index.d.ts",
-          "default": "./store/dist/server.js"
-        },
+        "types": "./store/types/index.d.ts",
+        "import": "./store/dist/server.js",
         "require": "./store/dist/server.cjs"
       },
       "node": {
-        "import": {
-          "types": "./store/types/index.d.ts",
-          "default": "./store/dist/server.js"
-        },
+        "types": "./store/types/index.d.ts",
+        "import": "./store/dist/server.js",
         "require": "./store/dist/server.cjs"
       },
       "development": {
-        "import": {
-          "types": "./store/types/index.d.ts",
-          "default": "./store/dist/dev.js"
-        },
+        "types": "./store/types/index.d.ts",
+        "import": "./store/dist/dev.js",
         "require": "./store/dist/dev.cjs"
       },
-      "import": {
-        "types": "./store/types/index.d.ts",
-        "default": "./store/dist/store.js"
-      },
+      "types": "./store/types/index.d.ts",
+      "import": "./store/dist/store.js",
       "require": "./store/dist/store.cjs"
     },
     "./store/dist/*": "./store/dist/*",
     "./web": {
       "worker": {
-        "import": {
-          "types": "./web/types/index.d.ts",
-          "default": "./web/dist/server.js"
-        },
+        "types": "./web/types/index.d.ts",
+        "import": "./web/dist/server.js",
         "require": "./web/dist/server.cjs"
       },
       "browser": {
         "development": {
-          "import": {
-            "types": "./web/types/index.d.ts",
-            "default": "./web/dist/dev.js"
-          },
+          "types": "./web/types/index.d.ts",
+          "import": "./web/dist/dev.js",
           "require": "./web/dist/dev.cjs"
         },
-        "import": {
-          "types": "./web/types/index.d.ts",
-          "default": "./web/dist/web.js"
-        },
+        "types": "./web/types/index.d.ts",
+        "import": "./web/dist/web.js",
         "require": "./web/dist/web.cjs"
       },
       "deno": {
-        "import": {
-          "types": "./web/types/index.d.ts",
-          "default": "./web/dist/server.js"
-        },
+        "types": "./web/types/index.d.ts",
+        "import": "./web/dist/server.js",
         "require": "./web/dist/server.cjs"
       },
       "node": {
-        "import": {
-          "types": "./web/types/index.d.ts",
-          "default": "./web/dist/server.js"
-        },
+        "types": "./web/types/index.d.ts",
+        "import": "./web/dist/server.js",
         "require": "./web/dist/server.cjs"
       },
       "development": {
-        "import": {
-          "types": "./web/types/index.d.ts",
-          "default": "./web/dist/dev.js"
-        },
+        "types": "./web/types/index.d.ts",
+        "import": "./web/dist/dev.js",
         "require": "./web/dist/dev.cjs"
       },
-      "import": {
-        "types": "./web/types/index.d.ts",
-        "default": "./web/dist/web.js"
-      },
+      "types": "./web/types/index.d.ts",
+      "import": "./web/dist/web.js",
       "require": "./web/dist/web.cjs"
     },
     "./web/dist/*": "./web/dist/*",
     "./universal": {
       "development": {
-        "import": {
-          "types": "./universal/types/index.d.ts",
-          "default": "./universal/dist/dev.js"
-        },
+        "types": "./universal/types/index.d.ts",
+        "import": "./universal/dist/dev.js",
         "require": "./universal/dist/dev.cjs"
       },
-      "import": {
-        "types": "./universal/types/index.d.ts",
-        "default": "./universal/dist/universal.js"
-      },
+      "types": "./universal/types/index.d.ts",
+      "import": "./universal/dist/universal.js",
       "require": "./universal/dist/universal.cjs"
     },
     "./universal/dist/*": "./universal/dist/*",
     "./h": {
-      "import": {
-        "types": "./h/types/index.d.ts",
-        "default": "./h/dist/h.js"
-      },
+      "types": "./h/types/index.d.ts",
+      "import": "./h/dist/h.js",
       "require": "./h/dist/h.cjs"
     },
     "./h/jsx-runtime": {
-      "import": {
-        "types": "./h/jsx-runtime/types/index.d.ts",
-        "default": "./h/jsx-runtime/dist/jsx.js"
-      },
+      "types": "./h/jsx-runtime/types/index.d.ts",
+      "import": "./h/jsx-runtime/dist/jsx.js",
       "require": "./h/jsx-runtime/dist/jsx.cjs"
     },
     "./h/jsx-dev-runtime": {
-      "import": {
-        "types": "./h/jsx-runtime/types/index.d.ts",
-        "default": "./h/jsx-runtime/dist/jsx.js"
-      },
+      "types": "./h/jsx-runtime/types/index.d.ts",
+      "import": "./h/jsx-runtime/dist/jsx.js",
       "require": "./h/jsx-runtime/dist/jsx.cjs"
     },
     "./h/dist/*": "./h/dist/*",
     "./html": {
-      "import": {
-        "types": "./html/types/index.d.ts",
-        "default": "./html/dist/html.js"
-      },
+      "types": "./html/types/index.d.ts",
+      "import": "./html/dist/html.js",
       "require": "./html/dist/html.cjs"
     },
     "./html/dist/*": "./html/dist/*",

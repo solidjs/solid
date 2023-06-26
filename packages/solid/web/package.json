@@ -13,51 +13,37 @@
   "exports": {
     ".": {
       "worker": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
       "browser": {
         "development": {
-          "import": {
-            "types": "./types/index.d.ts",
-            "default": "./dist/dev.js"
-          },
+          "types": "./types/index.d.ts",
+          "import": "./dist/dev.js",
           "require": "./dist/dev.cjs"
         },
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/web.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/web.js",
         "require": "./dist/web.cjs"
       },
       "deno": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
       "node": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/server.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/server.js",
         "require": "./dist/server.cjs"
       },
       "development": {
-        "import": {
-          "types": "./types/index.d.ts",
-          "default": "./dist/dev.js"
-        },
+        "types": "./types/index.d.ts",
+        "import": "./dist/dev.js",
         "require": "./dist/dev.cjs"
       },
-      "import": {
-        "types": "./types/index.d.ts",
-        "default": "./dist/web.js"
-      },
+      "types": "./types/index.d.ts",
+      "import": "./dist/web.js",
       "require": "./dist/web.cjs"
     }
   }
