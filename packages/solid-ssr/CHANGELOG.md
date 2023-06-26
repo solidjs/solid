@@ -1,5 +1,11 @@
 # solid-ssr
 
+## 1.7.2
+
+### Patch Changes
+
+- e660e5a3: add prettier code format in git-commit-hook
+
 ## 1.7.1
 
 ### Patch Changes

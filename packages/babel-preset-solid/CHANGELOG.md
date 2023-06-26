@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.7
+
+### Patch Changes
+
+- e660e5a3: add prettier code format in git-commit-hook
+
 ## 1.7.4
 
 ### Patch Changes

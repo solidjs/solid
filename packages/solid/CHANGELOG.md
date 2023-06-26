@@ -1,5 +1,16 @@
 # solid-js
 
+## 1.7.7
+
+### Patch Changes
+
+- c4cbfd3c: fix(Portal): reactive in children when pass signal directly
+- 0100bd12: Propagate errors to parents when throwing errors in nested catchError
+- 46e5e787: Improve type inference of `createSelector`.
+- 8ba0e80a: Fix `mergeProps`.
+- e660e5a3: add prettier code format in git-commit-hook
+- 93d44d45: fix #1787 missing CJS types
+
 ## 1.7.6
 
 ### Patch Changes

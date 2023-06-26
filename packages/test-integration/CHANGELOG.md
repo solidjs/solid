@@ -1,5 +1,18 @@
 # test-integration
 
+## 1.7.7
+
+### Patch Changes
+
+- Updated dependencies [c4cbfd3c]
+- Updated dependencies [0100bd12]
+- Updated dependencies [46e5e787]
+- Updated dependencies [8ba0e80a]
+- Updated dependencies [e660e5a3]
+- Updated dependencies [93d44d45]
+  - solid-js@1.7.7
+  - babel-preset-solid@1.7.7
+
 ## 1.7.6
 
 ### Patch Changes
