@@ -57,5 +57,9 @@
     "overrides": {
       "babel-preset-solid": "workspace:*"
     }
-  }
+  },
+  "engines": {
+    "pnpm": ">=8.6.1"
+  },
+  "packageManager": "pnpm@8.6.1"
 }
