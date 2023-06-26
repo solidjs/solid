@@ -224,7 +224,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   }
   const target: Record<string, any> = {};
   const sourcesMap: Record<string, any[]> = {};
-  const defined = new Set<string>()
+  const defined = new Set<string>();
   //let someNonTargetKey = false;
 
   for (let i = sources.length - 1; i >= 0; i--) {
@@ -234,8 +234,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
     //someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
     for (let i = 0, length = sourceKeys.length; i < length; i++) {
       const key = sourceKeys[i];
-      if (key === "__proto__" || key === "constructor")
-        continue;
+      if (key === "__proto__" || key === "constructor") continue;
       const desc = Object.getOwnPropertyDescriptor(source, key)!;
       if (!defined.has(key)) {
         if (desc.get) {

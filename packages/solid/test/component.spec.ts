@@ -75,19 +75,23 @@ describe("mergeProps", () => {
         return undefined;
       }
     };
-    const d = { value: undefined }
+    const d = { value: undefined };
     const props = mergeProps(a, b, c, d);
     expect(props.value).toBe(1);
     bValue = 2;
     expect(props.value).toBe(2);
   });
   it("includes undefined property", () => {
-    const value = { a: undefined }
-    const getter = { get a() { return undefined; } }
-    expect("a" in mergeProps(value)).toBeTruthy()
-    expect("a" in mergeProps(getter)).toBeTruthy()
-    expect("a" in mergeProps(value, getter)).toBeTruthy()
-    expect("a" in mergeProps(getter, value)).toBeTruthy()
+    const value = { a: undefined };
+    const getter = {
+      get a() {
+        return undefined;
+      }
+    };
+    expect("a" in mergeProps(value)).toBeTruthy();
+    expect("a" in mergeProps(getter)).toBeTruthy();
+    expect("a" in mergeProps(value, getter)).toBeTruthy();
+    expect("a" in mergeProps(getter, value)).toBeTruthy();
   });
   it("doesn't keep references for non-getters", () => {
     const a = { value1: 1 };
@@ -216,8 +220,8 @@ describe("mergeProps", () => {
     expect(({} as any).evil).toBeUndefined();
   });
   it("sets already prototyped properties", () => {
-    expect(mergeProps({ toString: 1 }).toString).toBe(1)
-    expect(({}).toString).toBeTypeOf("function")
+    expect(mergeProps({ toString: 1 }).toString).toBe(1);
+    expect({}.toString).toBeTypeOf("function");
   });
 });
 
