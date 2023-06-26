@@ -36,7 +36,6 @@ describe("Index operator", () => {
     });
   });
 
-
   test("show fallback", () => {
     createRoot(() => {
       const [s, set] = createSignal([1, 2, 3, 4]),

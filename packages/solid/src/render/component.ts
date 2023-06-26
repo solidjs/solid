@@ -243,9 +243,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
           Object.defineProperty(target, key, {
             enumerable: true,
             configurable: true,
-            get: resolveSources.bind(
-              (sourcesMap[key] = [desc.get.bind(source)])
-            ),
+            get: resolveSources.bind((sourcesMap[key] = [desc.get.bind(source)]))
           });
         } else {
           if (desc.value !== undefined) defined.add(key);
@@ -323,11 +321,7 @@ export function splitProps<
   for (const propName of Object.getOwnPropertyNames(props)) {
     const desc = Object.getOwnPropertyDescriptor(props, propName)!;
     const isDefaultDesc =
-      !desc.get &&
-      !desc.set &&
-      desc.enumerable &&
-      desc.writable &&
-      desc.configurable;
+      !desc.get && !desc.set && desc.enumerable && desc.writable && desc.configurable;
     let blocked = false;
     let objectIndex = 0;
     for (const k of keys) {
@@ -335,7 +329,7 @@ export function splitProps<
         blocked = true;
         isDefaultDesc
           ? (objects[objectIndex][propName] = desc.value)
-          : Object.defineProperty(objects[objectIndex], propName, desc)
+          : Object.defineProperty(objects[objectIndex], propName, desc);
       }
       ++objectIndex;
     }

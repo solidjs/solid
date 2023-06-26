@@ -6,4 +6,4 @@ globalThis.MessageChannel = class {
       setTimeout(this.port1.onmessage, 0);
     }
   };
-}
+};

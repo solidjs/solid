@@ -39,7 +39,12 @@ export function renderToStream<T>(
   throwInBrowser(renderToStream);
 }
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {}
-export function ssrElement(name: string, props: any, children: any, needsId: boolean): { t: string } {};
+export function ssrElement(
+  name: string,
+  props: any,
+  children: any,
+  needsId: boolean
+): { t: string } {}
 export function ssrClassList(value: { [k: string]: boolean }): string {}
 export function ssrStyle(value: { [k: string]: string }): string {}
 export function ssrAttribute(key: string, value: boolean): string {}
@@ -50,7 +55,7 @@ export function escape(html: string): string {}
 /**
  * @deprecated Replaced by ssrElement
  */
-export function ssrSpread(props: any, isSVG: boolean, skipChildren: boolean): void {};
+export function ssrSpread(props: any, isSVG: boolean, skipChildren: boolean): void {}
 export type LegacyResults = {
   startWriting: () => void;
 };

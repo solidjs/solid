@@ -63,15 +63,23 @@ describe("mergeProps", () => {
     expect(props.c).toBe("j");
   });
   it("skips undefined values", () => {
-    let bValue: number | undefined
-    const a = { value: 1 }
-    const b = { get value() { return bValue } }
-    const c = { get value() { return undefined } }
+    let bValue: number | undefined;
+    const a = { value: 1 };
+    const b = {
+      get value() {
+        return bValue;
+      }
+    };
+    const c = {
+      get value() {
+        return undefined;
+      }
+    };
     const d = { value: undefined }
-    const props = mergeProps(a, b, c, d)
-    expect(props.value).toBe(1)
+    const props = mergeProps(a, b, c, d);
+    expect(props.value).toBe(1);
     bValue = 2;
-    expect(props.value).toBe(2)
+    expect(props.value).toBe(2);
   });
   it("includes undefined property", () => {
     const value = { a: undefined }
@@ -82,100 +90,130 @@ describe("mergeProps", () => {
     expect("a" in mergeProps(getter, value)).toBeTruthy()
   });
   it("doesn't keep references for non-getters", () => {
-    const a = { value1: 1 }
-    const b = { value2: 2 }
-    const props = mergeProps(a, b)
-    a.value1 = b.value2 = 3
-    expect(props.value1).toBe(1)
-    expect(props.value2).toBe(2)
+    const a = { value1: 1 };
+    const b = { value2: 2 };
+    const props = mergeProps(a, b);
+    a.value1 = b.value2 = 3;
+    expect(props.value1).toBe(1);
+    expect(props.value2).toBe(2);
   });
   it("without getter transfers only value", () => {
-    const a = { value1: 1 }
-    const b = { get value2() { return undefined } }
-    const props = mergeProps(a, b)
-    a.value1 = 3
-    expect(props.value1).toBe(1)
+    const a = { value1: 1 };
+    const b = {
+      get value2() {
+        return undefined;
+      }
+    };
+    const props = mergeProps(a, b);
+    a.value1 = 3;
+    expect(props.value1).toBe(1);
   });
   it("overrides enumerables", () => {
-    const a = Object.defineProperties({}, {
-      value1: {
-        enumerable: false,
-        value: 2
+    const a = Object.defineProperties(
+      {},
+      {
+        value1: {
+          enumerable: false,
+          value: 2
+        }
       }
-    })
-    const props = mergeProps({}, a)
-    expect((props as any).value1).toBe(2)
-    expect(Object.getOwnPropertyDescriptor(props, 'value1')?.enumerable).toBeTruthy()
-    expect(Object.keys(props).join()).toBe("value1")
+    );
+    const props = mergeProps({}, a);
+    expect((props as any).value1).toBe(2);
+    expect(Object.getOwnPropertyDescriptor(props, "value1")?.enumerable).toBeTruthy();
+    expect(Object.keys(props).join()).toBe("value1");
   });
   it("does not write the target", () => {
-    const props = { value1: 1 }
-    mergeProps(props, { value2: 2, get value3() { return 3 } })
-    expect(Object.keys(props).join("")).toBe('value1')
+    const props = { value1: 1 };
+    mergeProps(props, {
+      value2: 2,
+      get value3() {
+        return 3;
+      }
+    });
+    expect(Object.keys(props).join("")).toBe("value1");
   });
   it("always returns a new reference", () => {
-    const props = {}
-    const newProps = mergeProps(props)
-    expect(props === newProps).toBeFalsy()
+    const props = {};
+    const newProps = mergeProps(props);
+    expect(props === newProps).toBeFalsy();
   });
   it("uses the source instances", () => {
-    const source1 = { get a() { return this } }
-    const source2 = { get b() { return this } }
-    const props = mergeProps(source1, source2)
-    expect(props.a === source1).toBeTruthy()
-    expect(props.b === source2).toBeTruthy()
+    const source1 = {
+      get a() {
+        return this;
+      }
+    };
+    const source2 = {
+      get b() {
+        return this;
+      }
+    };
+    const props = mergeProps(source1, source2);
+    expect(props.a === source1).toBeTruthy();
+    expect(props.b === source2).toBeTruthy();
   });
   it("does not clone nested objects", () => {
-    const b = { value: 1 }
-    const props = mergeProps({ a: 1 }, { b })
-    b.value = 2
-    expect(props.b.value).toBe(2)
+    const b = { value: 1 };
+    const props = mergeProps({ a: 1 }, { b });
+    b.value = 2;
+    expect(props.b.value).toBe(2);
   });
   it("ignores undefined values", () => {
-    const props = mergeProps({ a: 1 }, { a: undefined })
-    expect(props.a).toBe(1)
+    const props = mergeProps({ a: 1 }, { a: undefined });
+    expect(props.a).toBe(1);
   });
   it("handles null values", () => {
-    const props = mergeProps({ a: 1 }, { a: null })
-    expect(props.a).toBeNull()
+    const props = mergeProps({ a: 1 }, { a: null });
+    expect(props.a).toBeNull();
   });
   it("contains null values", () => {
-    const props = mergeProps({ a: null, get b() { return null; } })
+    const props = mergeProps({
+      a: null,
+      get b() {
+        return null;
+      }
+    });
     expect(props.a).toBeNull();
     expect(props.b).toBeNull();
   });
   it("contains undefined values", () => {
-    const props = mergeProps({ a: undefined, get b() { return undefined; } })
-    expect(Object.keys(props).join()).toBe('a,b')
-    expect('a' in props).toBeTruthy()
-    expect('b' in props).toBeTruthy()
+    const props = mergeProps({
+      a: undefined,
+      get b() {
+        return undefined;
+      }
+    });
+    expect(Object.keys(props).join()).toBe("a,b");
+    expect("a" in props).toBeTruthy();
+    expect("b" in props).toBeTruthy();
     expect(props.a).toBeUndefined();
     expect(props.b).toBeUndefined();
   });
   it("ignores falsy sources", () => {
-    const props = mergeProps(undefined, null, { value: 1 }, null, undefined)
-    expect(Object.keys(props).join()).toBe('value')
+    const props = mergeProps(undefined, null, { value: 1 }, null, undefined);
+    expect(Object.keys(props).join()).toBe("value");
   });
   it("fails with non objects sources", () => {
-    expect(() => mergeProps({ value: 1 }, true)).toThrowError()
-    expect(() => mergeProps({ value: 1 }, 1)).toThrowError()
+    expect(() => mergeProps({ value: 1 }, true)).toThrowError();
+    expect(() => mergeProps({ value: 1 }, 1)).toThrowError();
   });
   it("works with a array source", () => {
-    const props = mergeProps({ value: 1 }, [2])
-    expect(Object.keys(props).join()).toBe('0,length,value')
-    expect(props.value).toBe(1)
-    expect(props.length).toBe(1)
-    expect(props[0]).toBe(2)
+    const props = mergeProps({ value: 1 }, [2]);
+    expect(Object.keys(props).join()).toBe("0,length,value");
+    expect(props.value).toBe(1);
+    expect(props.length).toBe(1);
+    expect(props[0]).toBe(2);
   });
   it("is safe", () => {
-    mergeProps({}, JSON.parse('{ "__proto__": { "evil": true } }'))
-    expect(({} as any).evil).toBeUndefined()
-    mergeProps({}, JSON.parse('{ "prototype": { "evil": true } }'))
-    expect(({} as any).evil).toBeUndefined()
-    mergeProps({ value: 1 }, JSON.parse('{ "__proto__": { "evil": true } }'))
-    expect(({} as any).evil).toBeUndefined()
-    mergeProps({ value: 1 }, JSON.parse('{ "prototype": { "evil": true } }'))
-    expect(({} as any).evil).toBeUndefined()
+    mergeProps({}, JSON.parse('{ "__proto__": { "evil": true } }'));
+    expect(({} as any).evil).toBeUndefined();
+    mergeProps({}, JSON.parse('{ "prototype": { "evil": true } }'));
+    expect(({} as any).evil).toBeUndefined();
+    mergeProps({ value: 1 }, JSON.parse('{ "__proto__": { "evil": true } }'));
+    expect(({} as any).evil).toBeUndefined();
+    mergeProps({ value: 1 }, JSON.parse('{ "prototype": { "evil": true } }'));
+    expect(({} as any).evil).toBeUndefined();
   });
   it("sets already prototyped properties", () => {
     expect(mergeProps({ toString: 1 }).toString).toBe(1)
@@ -186,12 +224,12 @@ describe("mergeProps", () => {
 describe("Set Default Props", () => {
   test("simple set", () => {
     let props: SimplePropTypes = {
-      get a() {
-        return "ji";
+        get a() {
+          return "ji";
+        },
+        b: null,
+        c: "j"
       },
-      b: null,
-      c: "j"
-    },
       defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
     props = mergeProps(defaults, props);
     expect(props.a).toBe("ji");
@@ -241,12 +279,12 @@ describe("Clone Store", () => {
 describe("Merge Signal", () => {
   test("simple set", () => {
     const [s, set] = createSignal<SimplePropTypes>({
-      get a() {
-        return "ji";
-      },
-      b: null,
-      c: "j"
-    }),
+        get a() {
+          return "ji";
+        },
+        b: null,
+        c: "j"
+      }),
       defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
     let props!: SimplePropTypes;
     const res: string[] = [];
@@ -296,19 +334,19 @@ describe("SplitProps Props", () => {
     });
   });
   test("SplitProps result is inmutable", () => {
-    const inProps = { first: 1, second: 2 }
+    const inProps = { first: 1, second: 2 };
     const [props, otherProps] = splitProps(inProps, ["first"]);
-    inProps.first = inProps.second = 3
-    expect(props.first).toBe(1)
-    expect(otherProps.second).toBe(2)
+    inProps.first = inProps.second = 3;
+    expect(props.first).toBe(1);
+    expect(otherProps.second).toBe(2);
   });
   test("SplitProps clones the descriptor", () => {
-    let signalValue = 1
+    let signalValue = 1;
     const desc = {
       signal: {
         enumerable: true,
         get() {
-          return signalValue
+          return signalValue;
         }
       },
       static: {
@@ -316,43 +354,42 @@ describe("SplitProps Props", () => {
         enumerable: false,
         value: 2
       }
-    }
-    const inProps = Object.defineProperties({}, desc) as { signal: number, value1: number }
+    };
+    const inProps = Object.defineProperties({}, desc) as { signal: number; value1: number };
     const [props, otherProps] = splitProps(inProps, ["signal"]);
 
-    expect(props.signal).toBe(1)
-    signalValue++
-    expect(props.signal).toBe(2)
+    expect(props.signal).toBe(1);
+    signalValue++;
+    expect(props.signal).toBe(2);
 
-    const signalDesc = Object.getOwnPropertyDescriptor(props, "signal")!
-    expect(signalDesc.get === desc.signal.get).toBeTruthy()
-    expect(signalDesc.set).toBeUndefined()
-    expect(signalDesc.enumerable).toBeTruthy()
-    expect(signalDesc.configurable).toBeFalsy()
+    const signalDesc = Object.getOwnPropertyDescriptor(props, "signal")!;
+    expect(signalDesc.get === desc.signal.get).toBeTruthy();
+    expect(signalDesc.set).toBeUndefined();
+    expect(signalDesc.enumerable).toBeTruthy();
+    expect(signalDesc.configurable).toBeFalsy();
 
-    const staticDesc = Object.getOwnPropertyDescriptor(otherProps, "static")!
-    expect(staticDesc.value).toBe(2)
-    expect(staticDesc.get).toBeUndefined()
-    expect(staticDesc.set).toBeUndefined()
-    expect(staticDesc.enumerable).toBeFalsy()
-    expect(staticDesc.configurable).toBeTruthy()
-
+    const staticDesc = Object.getOwnPropertyDescriptor(otherProps, "static")!;
+    expect(staticDesc.value).toBe(2);
+    expect(staticDesc.get).toBeUndefined();
+    expect(staticDesc.set).toBeUndefined();
+    expect(staticDesc.enumerable).toBeFalsy();
+    expect(staticDesc.configurable).toBeTruthy();
   });
   test("SplitProps with multiple keys", () => {
     const inProps: {
-      id?: string,
-      color?: string,
-      margin?: number,
-      padding?: number,
-      variant?: string,
-      description?: string
+      id?: string;
+      color?: string;
+      margin?: number;
+      padding?: number;
+      variant?: string;
+      description?: string;
     } = {
       id: "input",
       color: "red",
       margin: 3,
       variant: "outlined",
-      description: "test",
-    }
+      description: "test"
+    };
 
     const [styleProps, inputProps, otherProps] = splitProps(
       inProps,
@@ -360,17 +397,17 @@ describe("SplitProps Props", () => {
       ["variant", "description"]
     );
 
-    expect(styleProps.color).toBe("red")
-    expect(styleProps.margin).toBe(3)
-    expect(styleProps.padding).toBeUndefined()
-    expect(Object.keys(styleProps).length).toBe(2)
+    expect(styleProps.color).toBe("red");
+    expect(styleProps.margin).toBe(3);
+    expect(styleProps.padding).toBeUndefined();
+    expect(Object.keys(styleProps).length).toBe(2);
 
-    expect(inputProps.description).toBe("test")
-    expect(inputProps.variant).toBe("outlined")
-    expect(Object.keys(inputProps).length).toBe(2)
+    expect(inputProps.description).toBe("test");
+    expect(inputProps.variant).toBe("outlined");
+    expect(Object.keys(inputProps).length).toBe(2);
 
-    expect(otherProps.id).toBe("input")
-    expect(Object.keys(otherProps).length).toBe(1)
+    expect(otherProps.id).toBe("input");
+    expect(Object.keys(otherProps).length).toBe(1);
   });
   test("SplitProps returns same prop descriptors", () => {
     const inProps = {
@@ -386,37 +423,36 @@ describe("SplitProps Props", () => {
         return 3;
       },
       z: undefined
-    }
-    const inDescriptor = Object.getOwnPropertyDescriptors(inProps)
+    };
+    const inDescriptor = Object.getOwnPropertyDescriptors(inProps);
     const [props, otherProps] = splitProps(inProps, ["a", "b", "c", "d", "e" as "d"]);
 
-    const propsDesc = Object.getOwnPropertyDescriptors(props)
-    expect(propsDesc.a).toMatchObject(inDescriptor.a)
-    expect(propsDesc.b).toMatchObject(inDescriptor.b)
-    expect(propsDesc.c).toMatchObject(inDescriptor.c)
-    expect(propsDesc.d).toMatchObject(inDescriptor.d)
-    expect(propsDesc.e).toBeUndefined()
+    const propsDesc = Object.getOwnPropertyDescriptors(props);
+    expect(propsDesc.a).toMatchObject(inDescriptor.a);
+    expect(propsDesc.b).toMatchObject(inDescriptor.b);
+    expect(propsDesc.c).toMatchObject(inDescriptor.c);
+    expect(propsDesc.d).toMatchObject(inDescriptor.d);
+    expect(propsDesc.e).toBeUndefined();
 
-    const otherDesc = Object.getOwnPropertyDescriptors(otherProps)
-    expect(otherDesc.w).toMatchObject(otherDesc.w)
-    expect(otherDesc.x).toMatchObject(otherDesc.x)
-    expect(otherDesc.y).toMatchObject(otherDesc.y)
-    expect(otherDesc.z).toMatchObject(otherDesc.z)
-    
+    const otherDesc = Object.getOwnPropertyDescriptors(otherProps);
+    expect(otherDesc.w).toMatchObject(otherDesc.w);
+    expect(otherDesc.x).toMatchObject(otherDesc.x);
+    expect(otherDesc.y).toMatchObject(otherDesc.y);
+    expect(otherDesc.z).toMatchObject(otherDesc.z);
   });
   test("SplitProps is safe", () => {
-    const inProps = JSON.parse('{"__proto__": { "evil": true } }')
+    const inProps = JSON.parse('{"__proto__": { "evil": true } }');
     const [, evilProps1] = splitProps(inProps, []);
-    
-    expect(evilProps1.__proto__?.evil).toBeTruthy()
-    expect(({} as any).evil).toBeUndefined()
+
+    expect(evilProps1.__proto__?.evil).toBeTruthy();
+    expect(({} as any).evil).toBeUndefined();
 
     const [evilProps2] = splitProps(inProps, ["__proto__"]);
 
-    expect(evilProps2.__proto__?.evil).toBeTruthy()
-    expect(({} as any).evil).toBeUndefined()
+    expect(evilProps2.__proto__?.evil).toBeTruthy();
+    expect(({} as any).evil).toBeUndefined();
   });
-  
+
   test("Merge SplitProps", () => {
     let value: string | undefined = undefined;
     const [splittedProps] = splitProps({ color: "blue" } as { color: string; other?: string }, [

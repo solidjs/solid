@@ -56,6 +56,3 @@ export {
 } from "./rendering.js";
 
 export type { Component, Resource } from "./rendering.js";
-
-
-
