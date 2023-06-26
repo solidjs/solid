@@ -224,33 +224,35 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   }
   const target: Record<string, any> = {};
   const sourcesMap: Record<string, any[]> = {};
-  let someNonTargetKey = false;
+  const defined = new Set<string>()
+  //let someNonTargetKey = false;
 
   for (let i = sources.length - 1; i >= 0; i--) {
     const source = sources[i] as Record<string, any>;
     if (!source) continue;
     const sourceKeys = Object.getOwnPropertyNames(source);
-    someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
+    //someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
     for (let i = 0, length = sourceKeys.length; i < length; i++) {
       const key = sourceKeys[i];
-      if (key === "__proto__" || key === "constructor") {
+      if (key === "__proto__" || key === "constructor")
         continue;
-      } else if (!(key in target)) {
-        const desc = Object.getOwnPropertyDescriptor(source, key)!;
+      const desc = Object.getOwnPropertyDescriptor(source, key)!;
+      if (!defined.has(key)) {
         if (desc.get) {
+          defined.add(key);
           Object.defineProperty(target, key, {
             enumerable: true,
-            // [breaking && performance]
-            // configurable: false,
             configurable: true,
             get: resolveSources.bind(
               (sourcesMap[key] = [desc.get.bind(source)])
             ),
           });
-        } else target[key] = desc.value;
+        } else {
+          if (desc.value !== undefined) defined.add(key);
+          target[key] = desc.value;
+        }
       } else {
         const sources = sourcesMap[key];
-        const desc = Object.getOwnPropertyDescriptor(source, key)!;
         if (sources) {
           if (desc.get) {
             sources.push(desc.get.bind(source));
