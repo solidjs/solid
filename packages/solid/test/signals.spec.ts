@@ -456,6 +456,28 @@ describe("catchError", () => {
     expect(errored).toBe(true);
   });
 
+  test("Nested in catchError", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        catchError(
+          () => {
+            catchError(
+              () => {
+                throw "fail";
+              },
+              error => {
+                throw error;
+              }
+            );
+          },
+          () => (errored = true)
+        );
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
+
   test("In initial effect", () => {
     let errored = false;
     expect(() =>
