@@ -69,19 +69,19 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
     marker = document.createTextNode(""),
     mount = () => props.mount || document.body,
     owner = getOwner();
-  let content: JSX.Element;
+  let content: undefined | (() => JSX.Element);
   let hydrating = !!sharedConfig.context;
 
   createEffect(
     () => {
       // basically we backdoor into a sort of renderEffect here
       if (hydrating) (getOwner() as any).user = hydrating = false;
-      content || (content = runWithOwner(owner, () => props.children));
+      content || (content = runWithOwner(owner, () => createMemo(() => props.children)));
       const el = mount();
       if (el instanceof HTMLHeadElement) {
         const [clean, setClean] = createSignal(false);
         const cleanup = () => setClean(true);
-        createRoot(dispose => insert(el, () => (!clean() ? content : dispose()), null));
+        createRoot(dispose => insert(el, () => (!clean() ? content!() : dispose()), null));
         onCleanup(cleanup);
       } else {
         const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
