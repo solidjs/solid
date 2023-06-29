@@ -2,6 +2,7 @@ import {
   createRoot,
   createComponent,
   mergeProps,
+  defaultProps,
   splitProps,
   createUniqueId,
   createSignal,
@@ -225,21 +226,60 @@ describe("mergeProps", () => {
   });
 });
 
-describe("Set Default Props", () => {
-  test("simple set", () => {
+describe("defaultProps", () => {
+  test("empty defaults", () => {
     let props: SimplePropTypes = {
-        get a() {
-          return "ji";
-        },
-        b: null,
-        c: "j"
+      get a() {
+        return "beep";
       },
-      defaults: SimplePropTypes = { a: "yy", b: "ggg", d: "DD" };
-    props = mergeProps(defaults, props);
-    expect(props.a).toBe("ji");
+      b: null,
+      c: "boop"
+    };
+    props = defaultProps({}, props);
+    expect(props.a).toBe("beep");
     expect(props.b).toBe(null);
-    expect(props.c).toBe("j");
-    expect(props.d).toBe("DD");
+    expect(props.c).toBe("boop");
+    expect(props.d).toBe(undefined);
+  });
+  it("overwrites only undefined values", () => {
+    let props: SimplePropTypes = {
+      get a() {
+        return "beep";
+      },
+      b: null,
+      c: "boop"
+    };
+    props = defaultProps(
+      {
+        a: "xxx",
+        b: "xxx",
+        c: "xxx",
+        d: "xxx"
+      },
+      props
+    );
+    expect(props.a).toBe("beep");
+    expect(props.b).toBe(null);
+    expect(props.c).toBe("boop");
+    expect(props.d).toBe("xxx");
+  });
+  it("allows null as a default", () => {
+    let props: SimplePropTypes = {
+      a: "defined",
+      c: null
+    };
+    props = defaultProps(
+      {
+        a: null,
+        b: null,
+        c: null
+      },
+      props
+    );
+    expect(props.a).toBe("defined");
+    expect(props.b).toBe(null);
+    expect(props.c).toBe(null);
+    expect(props.d).toBe(undefined);
   });
 });
 
