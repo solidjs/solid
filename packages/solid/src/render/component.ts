@@ -267,8 +267,8 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
 
 export type DefaultProps<T, K extends keyof T> = MergeProps<[Required<Pick<T, K>>, T]>;
 export function defaultProps<T, K extends keyof T>(
-  defaults: Required<Pick<T, K>>,
-  props: T
+  props: T,
+  defaults: Required<Pick<T, K>>
 ): DefaultProps<T, K> {
   return mergeProps(defaults, props);
 }

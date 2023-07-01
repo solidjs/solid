@@ -195,25 +195,25 @@ type D1Props = {
   i?: null;
   j: null;
 };
-const d1 = defaultProps({}, {} as D1Props);
+const d1 = defaultProps({} as D1Props, {});
 type D1 = typeof d1;
 type TestD1 = Assert<IsExact<D1, D1Props>>;
 
 // d2: defaultProps removes undefined on merged props
 const d2 = defaultProps(
-  {
-    a: "hello",
-    b: "two",
-    c: [1, 2, 3],
-    d: ["string", 99, "one", 4],
-    e: null
-  },
   {} as {
     a?: string;
     b?: "one" | "two" | "three";
     c?: [1, 2, 3];
     d?: [string, number, "one" | "two", 3 | 4];
     e?: null;
+  },
+  {
+    a: "hello",
+    b: "two",
+    c: [1, 2, 3],
+    d: ["string", 99, "one", 4],
+    e: null
   }
 );
 type D2 = typeof d2;

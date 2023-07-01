@@ -235,7 +235,7 @@ describe("defaultProps", () => {
       b: null,
       c: "boop"
     };
-    props = defaultProps({}, props);
+    props = defaultProps(props, {});
     expect(props.a).toBe("beep");
     expect(props.b).toBe(null);
     expect(props.c).toBe("boop");
@@ -249,15 +249,12 @@ describe("defaultProps", () => {
       b: null,
       c: "boop"
     };
-    props = defaultProps(
-      {
-        a: "xxx",
-        b: "xxx",
-        c: "xxx",
-        d: "xxx"
-      },
-      props
-    );
+    props = defaultProps(props, {
+      a: "xxx",
+      b: "xxx",
+      c: "xxx",
+      d: "xxx"
+    });
     expect(props.a).toBe("beep");
     expect(props.b).toBe(null);
     expect(props.c).toBe("boop");
@@ -268,14 +265,11 @@ describe("defaultProps", () => {
       a: "defined",
       c: null
     };
-    props = defaultProps(
-      {
-        a: null,
-        b: null,
-        c: null
-      },
-      props
-    );
+    props = defaultProps(props, {
+      a: null,
+      b: null,
+      c: null
+    });
     expect(props.a).toBe("defined");
     expect(props.b).toBe(null);
     expect(props.c).toBe(null);
