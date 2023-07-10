@@ -282,7 +282,7 @@ export function ErrorBoundary(props: {
   });
   if (error) return displayFallback();
   sync = false;
-  return { t: `<!!$e${id}>${resolveSSRNode(res)}<!!$/e${id}>` };
+  return { t: `<!--!$e${id}-->${resolveSSRNode(res)}<!--!$/e${id}-->` };
 }
 
 // Suspense Context
@@ -603,7 +603,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
     if (ctx.async) {
       setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f", noHydrate: true });
       const res = {
-        t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!pl-${id}>`
+        t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!--pl-${id}-->`
       };
       setHydrateContext(ctx);
       return res;
