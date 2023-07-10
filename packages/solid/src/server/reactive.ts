@@ -26,7 +26,7 @@ function handleError(err: unknown, owner = Owner): void {
   try {
     for (const f of fns) f(error);
   } catch (e) {
-    handleError(e, owner?.owner || null);
+    handleError(e, (owner && owner.owner) || null);
   }
 }
 
