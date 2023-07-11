@@ -1,5 +1,13 @@
 # solid-js
 
+## 1.7.8
+
+### Patch Changes
+
+- efd23186: fix #1780 invalid HTML comments
+- 51074fab: remove optional chaining, reduce bundle size
+- fe6f03f9: fix #1795 early effects running during async hydration
+
 ## 1.7.7
 
 ### Patch Changes
