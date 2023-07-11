@@ -1573,7 +1573,18 @@ function runUserEffects(queue: Computation<any>[]) {
     if (!e.user) runTop(e);
     else queue[userLength++] = e;
   }
-  if (sharedConfig.context) setHydrateContext();
+  if (sharedConfig.context) {
+    if (sharedConfig.count) {
+      sharedConfig.effects || (sharedConfig.effects = []);
+      sharedConfig.effects.push(...queue.slice(0, userLength));
+      return;
+    } else if (sharedConfig.effects) {
+      queue = [...sharedConfig.effects, ...queue];
+      userLength += sharedConfig.effects.length;
+      delete sharedConfig.effects;
+    }
+    setHydrateContext();
+  }
   for (i = 0; i < userLength; i++) runTop(queue[i]);
 }
 

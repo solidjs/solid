@@ -351,8 +351,11 @@ export function lazy<T extends Component<any>>(
     const ctx = sharedConfig.context;
     if (ctx) {
       const [s, set] = createSignal<T>();
+      sharedConfig.count || (sharedConfig.count = 0);
+      sharedConfig.count++;
       (p || (p = fn())).then(mod => {
         setHydrateContext(ctx);
+        sharedConfig.count!--;
         set(() => mod.default);
         setHydrateContext();
       });
