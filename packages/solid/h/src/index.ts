@@ -1,4 +1,5 @@
 import { createHyperScript } from "./hyperscript";
+import type { HyperScript } from "./hyperscript";
 import {
   spread,
   assign,
@@ -8,7 +9,7 @@ import {
   SVGElements
 } from "solid-js/web";
 
-export default createHyperScript({
+const h: HyperScript = createHyperScript({
   spread,
   assign,
   insert,
@@ -16,3 +17,5 @@ export default createHyperScript({
   dynamicProperty,
   SVGElements
 });
+
+export default h;
