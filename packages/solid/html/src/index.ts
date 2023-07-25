@@ -1,4 +1,5 @@
 import { createHTML } from "./lit";
+import type { HTMLTag } from "./lit";
 import {
   effect,
   style,
@@ -22,7 +23,7 @@ import {
   SVGNamespace
 } from "solid-js/web";
 
-export default createHTML({
+const html: HTMLTag = createHTML({
   effect,
   style,
   insert,
@@ -44,3 +45,5 @@ export default createHTML({
   SVGElements,
   SVGNamespace
 });
+
+export default html;
