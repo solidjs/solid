@@ -1,22 +1,22 @@
 # Solid Universal
 
-This contains the means to create the runtime for a custom renderer for Solid. This can enable using Solid to render to different platforms like native mobile and desktop, canvas or WebGL, or even the terminal. It relies on custom compilation from `babel-preset-solid` and exporting the result of `createRenderer` at a referenceable location.
+This contains the means to create the runtime for a custom renderer for Solid. This can enable using Solid to render to different platforms like native mobile and desktop, canvas or WebGL, or even the terminal. It relies on custom compilation from the vite-plugin-solid.
 
 ## Example
 
-To use a custom renderer available in the (fictional) `solid-custom-dom` package you'd configure your babelrc as:
-```json
-{
-  "presets": [
-    [
-      "babel-preset-solid",
-      {
-        "moduleName": "solid-custom-dom",
-        "generate": "universal"
-      }
-    ]
-  ]
-}
+To use a custom renderer available in the (fictional) `solid-custom-dom` package you'd configure your vite config as:
+```js
+import { defineConfig } from 'vite';
+import solidPlugin from 'vite-plugin-solid';
+
+export default defineConfig({
+  plugins: [solidPlugin({
+    solid: {
+      moduleName: "solid-custom-dom",
+      generate: 'universal'
+    }
+  })]
+});
 ```
 
 To create a custom renderer you must implement certain methods and export (as named exports) the results. You may also want to forward `solid-js` control flow to allow them to be auto imported as well.
@@ -97,6 +97,14 @@ function App() {
 }
 
 render(() => <App />, mountNode)
+```
+
+You may also run into an issue where you need to export a use function like so:
+
+```
+export const use = function(node) {
+  return node;
+}
 ```
 
 > Note: For TypeScript support of non-standard JSX you will need to provide your own types at a jsx-runtime entry on your package so that it can be set as the `jsxImportSource`. If mixing and matching different JSX implementations you will need use the per file pragmas.
