@@ -1051,3 +1051,11 @@ createEffect<number>((v: number | string) => 123, "asd");
 createComputed<number>((v: number | string) => 123, "asd");
 // @ts-expect-error second generic is not inferred and remains as number
 createRenderEffect<number>((v: number | string) => 123, "asd");
+
+
+//////////////////////////////////////////////////////////////////////////
+// test setter invariance ////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+declare const s1: Setter<number>;
+// @ts-expect-error should be invariant
+const s2: Setter<bigint> = s1;
