@@ -1052,10 +1052,25 @@ createComputed<number>((v: number | string) => 123, "asd");
 // @ts-expect-error second generic is not inferred and remains as number
 createRenderEffect<number>((v: number | string) => 123, "asd");
 
-
 //////////////////////////////////////////////////////////////////////////
 // test setter invariance ////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
-declare const s1: Setter<number>;
-// @ts-expect-error should be invariant
-const s2: Setter<bigint> = s1;
+declare const setNumber: Setter<number>;
+declare const setNumberOrUndefined: Setter<number | undefined>;
+declare const setUndefined: Setter<undefined>;
+// @ts-expect-error can't set string to number, function form receives number
+const s1: Setter<string> = setNumber;
+// @ts-expect-error can't set string | undefined to number, function form receives number
+const s2: Setter<string | undefined> = setNumber;
+// @ts-expect-error can't set undefined to number, function form receives number
+const s3: Setter<undefined> = setNumber;
+// @ts-expect-error can't set string to number | undefined, function form receives number | undefined
+const s4: Setter<string> = setNumberOrUndefined;
+// @ts-expect-error can't set string to number, function form receives number
+const s5: Setter<string | undefined> = setNumberOrUndefined;
+// @ts-expect-error function form receives number
+const s6: Setter<undefined> = setNumberOrUndefined;
+// @ts-expect-error can't set string to undefined, function form receives undefined
+const s7: Setter<string> = setUndefined;
+// @ts-expect-error can't set string to undefined
+const s8: Setter<string | undefined> = setUndefined;
