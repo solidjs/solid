@@ -12,7 +12,8 @@ Note: If you would like your project listed here please submit a PR or contact a
 
 There are a lot of opportunities to get involved. We organize Solid community efforts via Discord and typically onboard dedicated contributors into focused teams:
 
-- Docs (headed by [@Jutanium](https://github.com/Jutanium))
+- Core Docs (headed by [@LadyBluenotes](https://github.com/ladybluenotes))
+- Solid Start Docs (headed by [@michaelessiet](https://github.com/michaelessiet))
 - Infrastructure (headed by [@davedbase](https://github.com/davedbase))
 - Advocacy (headed by [@hindsight](https://github.com/eslachance))
 - Growth (headed by [@davedbase](https://github.com/davedbase))
