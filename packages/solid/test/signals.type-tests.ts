@@ -852,14 +852,14 @@ setStringOrNumber("");
 
 function createGenericSignal<T>(): Signal<T | undefined> {
   const [generic, setGeneric] = createSignal<T>();
-  const customSet: Setter<T | undefined> = (v?) => setGeneric(v);
-  return [generic, (v?) => setGeneric(v)];
+  const customSet: Setter<T | undefined> = (v?) => setGeneric(v!);
+  return [generic, (v?) => setGeneric(v!)];
 }
 
 function createInitializedSignal<T>(init: T): Signal<T> {
   const [generic, setGeneric] = createSignal<T>(init);
-  const customSet: Setter<T> = (v?) => setGeneric(v);
-  return [generic, (v?) => setGeneric(v)];
+  const customSet: Setter<T> = (v?) => setGeneric(v!);
+  return [generic, (v?) => setGeneric(v!)];
 }
 
 //////////////////////////////////////////////////////////////////////////
