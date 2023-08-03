@@ -2,11 +2,12 @@ import { batch, getListener, DEV, $PROXY, $TRACK } from "solid-js";
 import {
   unwrap,
   isWrappable,
-  getDataNodes,
+  getNodes,
   trackSelf,
-  getDataNode,
+  getNode,
   $RAW,
   $NODE,
+  $HAS,
   StoreNode,
   setProperty,
   ownKeys
@@ -40,16 +41,16 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       trackSelf(target);
       return receiver;
     }
-    const nodes = getDataNodes(target);
+    const nodes = getNodes(target, $NODE);
     const tracked = nodes[property];
     let value = tracked ? tracked() : target[property];
-    if (property === $NODE || property === "__proto__") return value;
+    if (property === $NODE || property === $HAS || property === "__proto__") return value;
 
     if (!tracked) {
       const desc = Object.getOwnPropertyDescriptor(target, property);
       const isFunction = typeof value === "function";
       if (getListener() && (!isFunction || target.hasOwnProperty(property)) && !(desc && desc.get))
-        value = getDataNode(nodes, property, value)();
+        value = getNode(nodes, property, value)();
       else if (value != null && isFunction && value === Array.prototype[property as any]) {
         return (...args: unknown[]) =>
           batch(() => Array.prototype[property as any].apply(receiver, args));
@@ -64,10 +65,11 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       property === $PROXY ||
       property === $TRACK ||
       property === $NODE ||
+      property === $HAS ||
       property === "__proto__"
     )
       return true;
-    this.get!(target, property, target);
+    getListener() && getNode(getNodes(target, $HAS), property)();
     return property in target;
   },
 

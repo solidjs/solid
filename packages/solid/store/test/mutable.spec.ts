@@ -267,3 +267,52 @@ describe("State wrapping", () => {
     expect(state).toEqual([2, 1, 3]);
   });
 });
+
+describe("In Operator", () => {
+  test("wrapped nested class", () => {
+    let access = 0;
+    const store = createMutable<{ a?: number; b?: number; c?: number }>({
+      a: 1,
+      get b() {
+        access++;
+        return 2;
+      }
+    });
+
+    expect("a" in store).toBe(true);
+    expect("b" in store).toBe(true);
+    expect("c" in store).toBe(false);
+    expect(access).toBe(0);
+
+    const [a, b, c] = createRoot(() => {
+      return [
+        createMemo(() => "a" in store),
+        createMemo(() => "b" in store),
+        createMemo(() => "c" in store)
+      ];
+    });
+
+    expect(a()).toBe(true);
+    expect(b()).toBe(true);
+    expect(c()).toBe(false);
+    expect(access).toBe(0);
+
+    store.c = 3;
+
+    expect(a()).toBe(true);
+    expect(b()).toBe(true);
+    expect(c()).toBe(true);
+    expect(access).toBe(0);
+
+    delete store.a;
+    expect(a()).toBe(false);
+    expect(b()).toBe(true);
+    expect(c()).toBe(true);
+    expect(access).toBe(0);
+
+    expect("a" in store).toBe(false);
+    expect("b" in store).toBe(true);
+    expect("c" in store).toBe(true);
+    expect(access).toBe(0);
+  });
+});

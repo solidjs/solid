@@ -1,7 +1,8 @@
 import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js";
 
 export const $RAW = Symbol("store-raw"),
-  $NODE = Symbol("store-node");
+  $NODE = Symbol("store-node"),
+  $HAS = Symbol("store-has");
 
 // debug hooks for devtools
 export const DevHooks: { onStoreNodeUpdate: OnStoreNodeUpdate | null } = {
@@ -114,15 +115,21 @@ export function unwrap<T>(item: any, set = new Set()): T {
   return item;
 }
 
-export function getDataNodes(target: StoreNode): DataNodes {
-  let nodes = target[$NODE];
+export function getNodes(target: StoreNode, symbol: typeof $NODE | typeof $HAS): DataNodes {
+  let nodes = target[symbol];
   if (!nodes)
-    Object.defineProperty(target, $NODE, { value: (nodes = Object.create(null) as DataNodes) });
+    Object.defineProperty(target, symbol, { value: (nodes = Object.create(null) as DataNodes) });
   return nodes;
 }
 
-export function getDataNode(nodes: DataNodes, property: PropertyKey, value: any) {
-  return nodes[property] || (nodes[property] = createDataNode(value));
+export function getNode(nodes: DataNodes, property: PropertyKey, value?: any) {
+  if (nodes[property]) return nodes[property]!;
+  const [s, set] = createSignal<any>(value, {
+    equals: false,
+    internal: true
+  });
+  (s as DataNode).$ = set;
+  return (nodes[property] = s as DataNode);
 }
 
 export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
@@ -136,24 +143,12 @@ export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
 }
 
 export function trackSelf(target: StoreNode) {
-  if (getListener()) {
-    const nodes = getDataNodes(target);
-    (nodes._ || (nodes._ = createDataNode()))();
-  }
+  getListener() && getNode(getNodes(target, $NODE), "_")();
 }
 
 export function ownKeys(target: StoreNode) {
   trackSelf(target);
   return Reflect.ownKeys(target);
-}
-
-function createDataNode(value?: any) {
-  const [s, set] = createSignal<any>(value, {
-    equals: false,
-    internal: true
-  });
-  (s as DataNode).$ = set;
-  return s as DataNode;
 }
 
 const proxyTraps: ProxyHandler<StoreNode> = {
@@ -164,10 +159,10 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       trackSelf(target);
       return receiver;
     }
-    const nodes = getDataNodes(target);
+    const nodes = getNodes(target, $NODE);
     const tracked = nodes[property];
     let value = tracked ? tracked() : target[property];
-    if (property === $NODE || property === "__proto__") return value;
+    if (property === $NODE || property === $HAS || property === "__proto__") return value;
 
     if (!tracked) {
       const desc = Object.getOwnPropertyDescriptor(target, property);
@@ -176,7 +171,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
         (typeof value !== "function" || target.hasOwnProperty(property)) &&
         !(desc && desc.get)
       )
-        value = getDataNode(nodes, property, value)();
+        value = getNode(nodes, property, value)();
     }
     return isWrappable(value) ? wrap(value) : value;
   },
@@ -187,10 +182,11 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       property === $PROXY ||
       property === $TRACK ||
       property === $NODE ||
+      property === $HAS ||
       property === "__proto__"
     )
       return true;
-    this.get!(target, property, target);
+    getListener() && getNode(getNodes(target, $HAS), property)();
     return property in target;
   },
 
@@ -222,15 +218,20 @@ export function setProperty(
   if ("_SOLID_DEV_")
     DevHooks.onStoreNodeUpdate && DevHooks.onStoreNodeUpdate(state, property, value, prev);
 
-  if (value === undefined) delete state[property];
-  else state[property] = value;
-  let nodes = getDataNodes(state),
+  if (value === undefined) {
+    delete state[property];
+    if (state[$HAS] && state[$HAS][property] && prev !== undefined) state[$HAS][property].$();
+  } else {
+    state[property] = value;
+    if (state[$HAS] && state[$HAS][property] && prev === undefined) state[$HAS][property].$();
+  }
+  let nodes = getNodes(state, $NODE),
     node: DataNode | undefined;
-  if ((node = getDataNode(nodes, property, prev))) node.$(() => value);
+  if ((node = getNode(nodes, property, prev))) node.$(() => value);
 
   if (Array.isArray(state) && state.length !== len) {
     for (let i = state.length; i < len; i++) (node = nodes[i]) && node.$();
-    (node = getDataNode(nodes, "length", len)) && node.$(state.length);
+    (node = getNode(nodes, "length", len)) && node.$(state.length);
   }
   (node = nodes._) && node.$();
 }
