@@ -174,10 +174,14 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
 
 export type Accessor<T> = () => T;
 
-export type Setter<T> = (undefined extends T ? () => undefined : {}) &
-  (<U extends T>(value: (prev: T) => U) => U) &
-  (<U extends T>(value: Exclude<U, Function>) => U) &
-  (<U extends T>(value: Exclude<U, Function> | ((prev: T) => U)) => U);
+export type Setter<in out T> = {
+  <U extends T>(...args: undefined extends T ? [] : [value: (prev: T) => U]): undefined extends T
+    ? undefined
+    : U;
+  <U extends T>(value: (prev: T) => U): U;
+  <U extends T>(value: Exclude<U, Function>): U;
+  <U extends T>(value: Exclude<U, Function> | ((prev: T) => U)): U;
+};
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
