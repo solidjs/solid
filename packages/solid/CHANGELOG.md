@@ -1,5 +1,30 @@
 # solid-js
 
+## 1.7.9
+
+### Patch Changes
+
+- 44a2bf0b: fix #1814 incorrect typing embedding for h and html
+- 6cd10c73: Changes how the Setter type was declared without actually functionally changing it, fixing the Setter type being assignable to any other Setter type; fixes #1818.
+
+  Generically typed Setters must now non-null assert their parameter, i.e.
+
+  ```diff
+  function myCustomSignal<T>(v: T) {
+    const [get, set] = createSignal<T>();
+  -   const mySetter: Setter<T | undefined> = (v?) => set(v);
+  +   const mySetter: Setter<T | undefined> = (v?) => set(v!);
+
+    const [get, set] = createSignal<T>(v);
+  -   const mySetter: Setter<T> = (v?) => set(v);
+  +   const mySetter: Setter<T> = (v?) => set(v!);
+  }
+  ```
+
+- 6c9879c9: fix in introspection in stores
+- 039cf60d: update universal runtime readme
+- 852f4c76: add missing link jsx types
+
 ## 1.7.8
 
 ### Patch Changes
