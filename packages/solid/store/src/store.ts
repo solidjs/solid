@@ -2,7 +2,8 @@ import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js"
 
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
-  $HAS = Symbol("store-has");
+  $HAS = Symbol("store-has"),
+  $SELF = Symbol("store-self");
 
 // debug hooks for devtools
 export const DevHooks: { onStoreNodeUpdate: OnStoreNodeUpdate | null } = {
@@ -143,7 +144,7 @@ export function proxyDescriptor(target: StoreNode, property: PropertyKey) {
 }
 
 export function trackSelf(target: StoreNode) {
-  getListener() && getNode(getNodes(target, $NODE), "_")();
+  getListener() && getNode(getNodes(target, $NODE), $SELF)();
 }
 
 export function ownKeys(target: StoreNode) {
@@ -233,7 +234,7 @@ export function setProperty(
     for (let i = state.length; i < len; i++) (node = nodes[i]) && node.$();
     (node = getNode(nodes, "length", len)) && node.$(state.length);
   }
-  (node = nodes._) && node.$();
+  (node = nodes[$SELF]) && node.$();
 }
 
 function mergeStoreNode(state: StoreNode, value: Partial<StoreNode>) {
