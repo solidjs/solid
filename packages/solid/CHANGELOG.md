@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.7.10
+
+### Patch Changes
+
+- 5ed448ae: Export `ContextProviderComponent`, `ResolvedChildren` and `ResolvedJSXElement` types
+- 7dd1f413: fix .pipeTo signature to return promise
+- c2008f02: Fix underscore property
+- 792e7dea: fix #1821 improve context performance
+
 ## 1.7.9
 
 ### Patch Changes

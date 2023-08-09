@@ -1,5 +1,15 @@
 # test-integration
 
+## 1.7.10
+
+### Patch Changes
+
+- Updated dependencies [5ed448ae]
+- Updated dependencies [7dd1f413]
+- Updated dependencies [c2008f02]
+- Updated dependencies [792e7dea]
+  - solid-js@1.7.10
+
 ## 1.7.9
 
 ### Patch Changes
