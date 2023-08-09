@@ -1,4 +1,5 @@
 export {
+  catchError,
   createRoot,
   createSignal,
   createComputed,

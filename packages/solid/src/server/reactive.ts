@@ -19,7 +19,7 @@ export function castError(err: unknown): Error {
 }
 
 function handleError(err: unknown, owner = Owner): void {
-  const fns = lookup(owner, ERROR);
+  const fns = owner && owner.context && owner.context[ERROR];
   const error = castError(err);
   if (!fns) throw error;
 
@@ -41,7 +41,7 @@ interface Owner {
 }
 
 export function createOwner(): Owner {
-  const o = { owner: Owner, context: null, owned: null, cleanups: null };
+  const o = { owner: Owner, context: Owner ? Owner.context : null, owned: null, cleanups: null };
   if (Owner) {
     if (!Owner.owned) Owner.owned = [o];
     else Owner.owned.push(o);
@@ -51,12 +51,13 @@ export function createOwner(): Owner {
 
 export function createRoot<T>(fn: (dispose: () => void) => T, detachedOwner?: typeof Owner): T {
   const owner = Owner,
+    current = detachedOwner === undefined ? owner : detachedOwner,
     root =
       fn.length === 0
         ? UNOWNED
         : {
-            context: null,
-            owner: detachedOwner === undefined ? owner : detachedOwner,
+            context: current ? current.context : null,
+            owner: current,
             owned: null,
             cleanups: null
           };
@@ -172,24 +173,15 @@ export function cleanNode(node: Owner) {
 }
 
 export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
-  Owner = { owner: Owner, context: { [ERROR]: [handler] }, owned: null, cleanups: null };
+  const owner = createOwner();
+  owner.context = { ...owner.context, [ERROR]: [handler] };
+  Owner = owner;
   try {
     return fn();
   } catch (err) {
     handleError(err);
   } finally {
     Owner = Owner!.owner;
-  }
-}
-
-/**
- * @deprecated since version 1.7.0 and will be removed in next major - use catchError instead
- */
-export function onError(fn: (err: Error) => void): void {
-  if (Owner) {
-    if (Owner.context === null) Owner.context = { [ERROR]: [fn] };
-    else if (!Owner.context[ERROR]) Owner.context[ERROR] = [fn];
-    else Owner.context[ERROR].push(fn);
   }
 }
 
@@ -210,8 +202,9 @@ export function createContext<T>(defaultValue?: T): Context<T> {
 }
 
 export function useContext<T>(context: Context<T>): T {
-  let ctx;
-  return (ctx = lookup(Owner, context.id)) !== undefined ? ctx : context.defaultValue;
+  return Owner && Owner.context && Owner.context[context.id] !== undefined
+    ? Owner.context[context.id]
+    : context.defaultValue;
 }
 
 export function getOwner() {
@@ -240,14 +233,6 @@ export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
   }
 }
 
-export function lookup(owner: Owner | null, key: symbol | string): any {
-  return owner
-    ? owner.context && owner.context[key] !== undefined
-      ? owner.context[key]
-      : lookup(owner.owner, key)
-    : undefined;
-}
-
 function resolveChildren(children: any): unknown {
   if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
@@ -264,7 +249,7 @@ function resolveChildren(children: any): unknown {
 function createProvider(id: symbol) {
   return function provider(props: { value: unknown; children: any }) {
     return createMemo<JSX.Element>(() => {
-      Owner!.context = { [id]: props.value };
+      Owner!.context = { ...Owner!.context, [id]: props.value };
       return children(() => props.children) as unknown as JSX.Element;
     });
   };
@@ -365,3 +350,31 @@ export function from<T>(
 }
 
 export function enableExternalSource(factory: any) {}
+
+/**
+ * @deprecated since version 1.7.0 and will be removed in next major - use catchError instead
+ */
+export function onError(fn: (err: Error) => void): void {
+  if (Owner) {
+    if (Owner.context === null || !Owner.context[ERROR]) {
+      // terrible de-opt
+      Owner.context = { ...Owner.context, [ERROR]: [fn] };
+      mutateContext(Owner, ERROR, [fn]);
+    } else Owner.context[ERROR].push(fn);
+  }
+}
+
+function mutateContext(o: Owner, key: symbol, value: any) {
+  if (o.owned) {
+    for (let i = 0; i < o.owned.length; i++) {
+      if (o.owned[i].context === o.context) mutateContext(o.owned[i], key, value);
+      if (!o.owned[i].context) {
+        o.owned[i].context = o.context;
+        mutateContext(o.owned[i], key, value);
+      } else if (!o.owned[i].context[key]) {
+        o.owned[i].context[key] = value;
+        mutateContext(o.owned[i], key, value);
+      }
+    }
+  }
+}
