@@ -1201,7 +1201,7 @@ export type SuspenseContextType = {
   resolved?: boolean;
 };
 
-type SuspenseContext = Context<SuspenseContextType> & {
+type SuspenseContext = Context<SuspenseContextType | undefined> & {
   active?(): boolean;
   increment?(): void;
   decrement?(): void;
@@ -1210,7 +1210,7 @@ type SuspenseContext = Context<SuspenseContextType> & {
 let SuspenseContext: SuspenseContext;
 
 export function getSuspenseContext() {
-  return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>({}));
+  return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType | undefined>());
 }
 
 // Interop
