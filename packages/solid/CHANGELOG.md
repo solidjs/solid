@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.7.11
+
+### Patch Changes
+
+- 26740b88: fix #1848 Suspense Default Context Non-Null
+
 ## 1.7.10
 
 ### Patch Changes
