@@ -341,13 +341,23 @@ export function splitProps<
   return [...objects, otherObject] as any;
 }
 
+type AsyncComponent<T extends Component<any>> = () => Promise<{ default: T }>;
+
 // lazy load a function component asynchronously
 export function lazy<T extends Component<any>>(
-  fn: () => Promise<{ default: T }>
-): T & { preload: () => Promise<{ default: T }> } {
+  fn: AsyncComponent<T>
+): T & {
+  /** @deprecated use `load` instead */
+  preload: AsyncComponent<T>;
+  load: AsyncComponent<T>;
+} {
   let comp: () => T | undefined;
   let p: Promise<{ default: T }> | undefined;
-  const wrap: T & { preload?: () => void } = ((props: any) => {
+  const wrap: T & {
+    /** @deprecated use `load` instead */
+    preload?: () => void;
+    load?: () => void;
+  } = ((props: any) => {
     const ctx = sharedConfig.context;
     if (ctx) {
       const [s, set] = createSignal<T>();
@@ -380,7 +390,12 @@ export function lazy<T extends Component<any>>(
     ) as unknown as JSX.Element;
   }) as T;
   wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
-  return wrap as T & { preload: () => Promise<{ default: T }> };
+  wrap.load = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
+  return wrap as T & {
+    /** @deprecated use `load` instead */
+    preload: AsyncComponent<T>;
+    load: AsyncComponent<T>;
+  };
 }
 
 let counter = 0;
