@@ -342,15 +342,14 @@ export function splitProps<
 }
 
 type AsyncComponent<T extends Component<any>> = () => Promise<{ default: T }>;
-
-// lazy load a function component asynchronously
-export function lazy<T extends Component<any>>(
-  fn: AsyncComponent<T>
-): T & {
+type LazyReturns<T extends Component<any>> = T & {
   /** @deprecated use `load` instead */
   preload: AsyncComponent<T>;
   load: AsyncComponent<T>;
-} {
+};
+
+// lazy load a function component asynchronously
+export function lazy<T extends Component<any>>(fn: AsyncComponent<T>): LazyReturns<T> {
   let comp: () => T | undefined;
   let p: Promise<{ default: T }> | undefined;
   const wrap: T & {
@@ -391,11 +390,7 @@ export function lazy<T extends Component<any>>(
   }) as T;
   wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
   wrap.load = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
-  return wrap as T & {
-    /** @deprecated use `load` instead */
-    preload: AsyncComponent<T>;
-    load: AsyncComponent<T>;
-  };
+  return wrap as LazyReturns<T>;
 }
 
 let counter = 0;
