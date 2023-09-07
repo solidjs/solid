@@ -25,12 +25,12 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@types/node": "^18.14.1",
-    "rimraf": "^4.1.2",
-    "tsup": "^6.6.3",
-    "typescript": "4.9.4",
-    "vite": "^4.1.4",
-    "vitest": "^0.29.1"
+    "@types/node": "^20.5.1",
+    "rimraf": "^5.0.1",
+    "tsup": "^7.2.0",
+    "typescript": "5.1.6",
+    "vite": "^4.4.9",
+    "vitest": "^0.34.2"
   },
   "exports": {
     ".": {

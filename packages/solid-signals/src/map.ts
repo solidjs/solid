@@ -1,13 +1,11 @@
+import {compute,} from './bubble-reactivity/core'
+import { Owner } from './bubble-reactivity/owner';
 import {
-  compute,
-  createComputation,
-  createOwner,
-  dispose,
-  read,
   runWithOwner,
-  write,
-} from "./core";
-import type { Accessor, Computation, Maybe, Owner } from "./types";
+} from "./reactivity";
+import { Accessor, Computation } from "./reactivity";
+
+export type Maybe<T> = T | void | null | undefined | false;
 
 /**
  * Reactive map helper that caches each item by index to reduce unnecessary mapping on updates.
@@ -23,11 +21,11 @@ export function indexArray<Item, MappedItem>(
   map: (value: Accessor<Item>, index: number) => MappedItem,
   options?: { name?: string }
 ): Accessor<MappedItem[]> {
-  return read.bind(
-    createComputation<MappedItem[]>(
+  return Computation.prototype.read.bind(
+    new Computation<MappedItem[]>(
       [],
       updateMap.bind({
-        _owner: createOwner(),
+        _owner: new Owner(),
         _len: 0,
         _list: list,
         _items: [],
@@ -45,12 +43,12 @@ function updateMap<Item, MappedItem>(
 ): any[] {
   let i = 0,
     newItems = this._list() || [],
-    mapper = () => this._map(read.bind(this._nodes[i]), i);
+    mapper = () => this._map(Computation.prototype.read.bind(this._nodes[i]), i);
 
   runWithOwner(this._owner, () => {
     if (newItems.length === 0) {
       if (this._len !== 0) {
-        dispose.call(this._owner, false);
+        this._owner.dispose(false);
         this._items = [];
         this._mappings = [];
         this._len = 0;
@@ -62,17 +60,17 @@ function updateMap<Item, MappedItem>(
 
     for (i = 0; i < newItems.length; i++) {
       if (i < this._items.length && this._items[i] !== newItems[i]) {
-        write.call(this._nodes[i], newItems[i]);
+        this._nodes[i].write(newItems[i]);
       } else if (i >= this._items.length) {
         this._mappings[i] = compute<MappedItem>(
-          (this._nodes[i] = createComputation(newItems[i], null)),
+          (this._nodes[i] = new Computation(newItems[i], null)),
           mapper,
           null
         );
       }
     }
 
-    for (; i < this._items.length; i++) dispose.call(this._nodes[i]);
+    for (; i < this._items.length; i++) this._nodes[i].dispose();
 
     this._len = this._nodes.length = newItems.length;
     this._items = newItems.slice(0);
@@ -96,11 +94,11 @@ export function mapArray<Item, MappedItem>(
   map: (value: Item, index: Accessor<number>) => MappedItem,
   options?: { name?: string }
 ): Accessor<MappedItem[]> {
-  return read.bind(
-    createComputation<MappedItem[]>(
+  return Computation.prototype.read.bind(
+    new Computation<MappedItem[]>(
       [],
       updateKeyedMap.bind({
-        _owner: createOwner(),
+        _owner: new Owner(),
         _len: 0,
         _list: list,
         _items: [],
@@ -124,13 +122,13 @@ function updateKeyedMap<Item, MappedItem>(
       i: number,
       j: number,
       mapper = indexed
-        ? () => this._map(newItems[j], read.bind(this._nodes[j]))
+        ? () => this._map(newItems[j], Computation.prototype.read.bind(this._nodes[j]))
         : () => (this._map as (value: Item) => MappedItem)(newItems[j]);
 
     // fast path for empty arrays
     if (newLen === 0) {
       if (this._len !== 0) {
-        dispose.call(this._owner, false);
+        this._owner.dispose(false);
         this._nodes = [];
         this._items = [];
         this._mappings = [];
@@ -144,7 +142,7 @@ function updateKeyedMap<Item, MappedItem>(
       for (j = 0; j < newLen; j++) {
         this._items[j] = newItems[j];
         this._mappings[j] = compute<MappedItem>(
-          (this._nodes[j] = createComputation(j, null)),
+          (this._nodes[j] = new Computation(j, null)),
           mapper,
           null
         );
@@ -199,7 +197,7 @@ function updateKeyedMap<Item, MappedItem>(
           tempNodes[j] = this._nodes[i];
           j = newIndicesNext[j];
           newIndices.set(item, j);
-        } else dispose.call(this._nodes[i]);
+        } else this._nodes[i].dispose();
       }
 
       // 2) set all the new values, pulling from the temp array if copied, otherwise entering the new value
@@ -207,10 +205,10 @@ function updateKeyedMap<Item, MappedItem>(
         if (j in temp) {
           this._mappings[j] = temp[j];
           this._nodes[j] = tempNodes[j];
-          write.call(this._nodes[j], j);
+          this._nodes[j].write(j);
         } else {
           this._mappings[j] = compute<MappedItem>(
-            (this._nodes[j] = createComputation(j, null)),
+            (this._nodes[j] = new Computation(j, null)),
             mapper,
             null
           );

@@ -1,5 +1,5 @@
-import { createComputation, getObserver, read, write } from "./core";
-import { Computation } from "./types";
+import { getObserver } from "./bubble-reactivity/core";
+import { Computation } from "./bubble-reactivity/core";
 
 export type Store<T> = Readonly<T>;
 // TODO: should this be `StoreSetter`?
@@ -16,7 +16,7 @@ const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
 export type StoreNode = Record<PropertyKey, any>;
 
 export namespace SolidStore {
-  export interface Unwrappable {}
+  export interface Unwrappable { }
 }
 
 export type NotWrappable =
@@ -135,7 +135,7 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
 function trackSelf(target: StoreNode) {
   if (getObserver()) {
     const nodes = getDataNodes(target);
-    nodes._ || read.call((nodes._ = createDataNode()));
+    nodes._ || ((nodes._ = createDataNode())).read();
   }
 }
 
@@ -145,7 +145,7 @@ function ownKeys(target: StoreNode) {
 }
 
 function createDataNode(value?: any) {
-  const s = createComputation<any>(value, null, { equals: false });
+  const s = new Computation<any>(value, null, { equals: false });
   return s;
 }
 
@@ -160,7 +160,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     }
     const nodes = getDataNodes(target);
     const tracked = nodes.hasOwnProperty(property);
-    let value = tracked ? read.call(nodes[property]) : target[property];
+    let value = tracked ? (nodes[property]).read() : target[property];
     if (property === $NODE || property === "__proto__") return value;
     const desc = Object.getOwnPropertyDescriptor(target, property);
 
@@ -170,7 +170,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
         (typeof value !== "function" || target.hasOwnProperty(property)) &&
         !(desc && desc.get)
       )
-        value = read.call(getDataNode(nodes, property, value));
+        value = getDataNode(nodes, property, value).read();
     }
     return isWrappable(value) && !(desc && desc.get) ? wrap(value) : value;
   },
@@ -217,12 +217,12 @@ function setProperty(
   else state[property] = value;
   const nodes = getDataNodes(state);
   let node: DataNode;
-  if ((node = getDataNode(nodes, property, prev))) write.call(node, value);
+  if ((node = getDataNode(nodes, property, prev))) node.write(value);
 
   if (Array.isArray(state) && state.length !== len)
     (node = getDataNode(nodes, "length", len)) &&
-      write.call(node, state.length);
-  (node = nodes._) && write.call(node, undefined);
+      node.write(state.length);
+  (node = nodes._) && node.write(undefined);
 }
 
 export function createStore<T extends object = {}>(
