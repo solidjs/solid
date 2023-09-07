@@ -17,6 +17,32 @@ describe("Testing a simple Portal", () => {
     expect(div.innerHTML).toBe("");
     expect((testMount.firstChild as HTMLDivElement).innerHTML).toBe("Hi");
     expect((testMount.firstChild as HTMLDivElement & { _$host: HTMLElement })._$host).toBe(div);
+    expect((testMount.firstChild as HTMLDivElement).classList.value).toBe("");
+  });
+
+  test("dispose", () => {
+    disposer();
+    expect(div.innerHTML).toBe("");
+  });
+});
+
+describe("Testing a Portal with class prop", () => {
+  const className = "test classname";
+  let div = document.createElement("div"),
+    disposer: () => void;
+  const testMount = document.createElement("div");
+  const Component = () => (
+    <Portal mount={testMount} class={className}>
+      Hi
+    </Portal>
+  );
+
+  test("Create portal control flow", () => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("");
+    expect((testMount.firstChild as HTMLDivElement).innerHTML).toBe("Hi");
+    expect((testMount.firstChild as HTMLDivElement & { _$host: HTMLElement })._$host).toBe(div);
+    expect((testMount.firstChild as HTMLDivElement).classList.value).toBe(className);
   });
 
   test("dispose", () => {
@@ -40,6 +66,29 @@ describe("Testing an SVG Portal", () => {
     expect(div.innerHTML).toBe("");
     expect((testMount.firstChild as SVGGElement).innerHTML).toBe("Hi");
     expect((testMount.firstChild as SVGGElement & { _$host: SVGElement })._$host).toBe(div);
+    expect((testMount.firstChild as SVGGElement).classList.value).toBe("");
+  });
+
+  test("dispose", () => disposer());
+});
+
+describe("Testing an SVG Portal with class prop", () => {
+  const className = "test svg classname";
+  let div = document.createElement("div"),
+    disposer: () => void;
+  const testMount = document.createElement("svg");
+  const Component = () => (
+    <Portal mount={testMount} isSVG={true} class={className}>
+      Hi
+    </Portal>
+  );
+
+  test("Create portal control flow", () => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("");
+    expect((testMount.firstChild as SVGGElement).innerHTML).toBe("Hi");
+    expect((testMount.firstChild as SVGGElement & { _$host: SVGElement })._$host).toBe(div);
+    expect((testMount.firstChild as SVGGElement).classList.value).toBe(className);
   });
 
   test("dispose", () => disposer());

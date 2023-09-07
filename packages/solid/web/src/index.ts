@@ -57,6 +57,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   mount?: Node;
   useShadow?: T;
   isSVG?: S;
+  class?: string;
   ref?:
     | (S extends true ? SVGGElement : HTMLDivElement)
     | ((
@@ -90,6 +91,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
               ? container.attachShadow({ mode: "open" })
               : container;
 
+        container.setAttribute("class", props.class ?? "");
         Object.defineProperty(container, "_$host", {
           get() {
             return marker.parentNode;
