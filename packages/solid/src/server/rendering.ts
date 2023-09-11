@@ -101,7 +101,7 @@ export function mergeProps(...sources: any): any {
           get() {
             for (let i = sources.length - 1; i >= 0; i--) {
               let s = sources[i] || {};
-              if (typeof s === "function") s = s();
+              if (typeof s === "function") s = s() || {};
               const v = s[key];
               if (v !== undefined) return v;
             }
