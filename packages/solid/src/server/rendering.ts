@@ -100,9 +100,10 @@ export function mergeProps(...sources: any): any {
           enumerable: true,
           get() {
             for (let i = sources.length - 1; i >= 0; i--) {
-              let s = sources[i] || {};
+              let v,
+                s = sources[i];
               if (typeof s === "function") s = s();
-              const v = s[key];
+              v = (s || {})[key];
               if (v !== undefined) return v;
             }
           }
