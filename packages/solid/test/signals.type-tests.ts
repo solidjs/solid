@@ -710,6 +710,25 @@ const onMemo3 = createMemo(
 );
 // @ts-expect-error when deferred the type includes undefined
 const onMemo4: Accessor<number> = onMemo3;
+// Allow passing boolean to defer
+const memoCreator = (defer: boolean) =>
+  createMemo(
+    on(
+      [one, two],
+      (input, prevInput, prev) => {
+        const [one, two]: [number, boolean] = input;
+        if (prevInput) {
+          const [prevOne, prevTwo]: [number, boolean] = prevInput;
+        }
+        // @ts-expect-error FIXME computed type is unknown, should be `number`.
+        const _prev: number = prev;
+        return one + +two;
+      },
+      { defer }
+    )
+  );
+const memoCreator1: Accessor<number | undefined> = memoCreator(true);
+const memoCreator2: Accessor<number | undefined> = memoCreator(false);
 
 //////////////////////////////////////////////////////////////////////////
 // createSelector ////////////////////////////////////////////////////////
