@@ -756,10 +756,15 @@ export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions
     },
     undefined,
     true
+  ) as Memo<any>;
+  const [deferred, setDeferred] = createSignal(
+    Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value,
+    options
   );
-  const [deferred, setDeferred] = createSignal(node.value as T, options);
   updateComputation(node);
-  setDeferred(() => node.value as T);
+  setDeferred(() =>
+    Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value
+  );
   return deferred;
 }
 
