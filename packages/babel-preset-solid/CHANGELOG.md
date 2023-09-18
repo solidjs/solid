@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.7.12
+
+### Patch Changes
+
+- 10ac07af: update jsx types, iife compiler optimization
+
 ## 1.7.7
 
 ### Patch Changes

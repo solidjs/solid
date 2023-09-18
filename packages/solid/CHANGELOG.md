@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.7.12
+
+### Patch Changes
+
+- 12eb1552: fix #1875 - mergeProps not handling undefined on SSR
+- 13b1fa6e: fix #1883 initialize createDeferred with transition value
+- 10ac07af: update jsx types, iife compiler optimization
+- 8b49110b: Allow passing defer:boolean to `on`
+
 ## 1.7.11
 
 ### Patch Changes
