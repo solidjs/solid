@@ -922,7 +922,7 @@ export function on<S, Next extends Prev, Prev = Next>(
 export function on<S, Next extends Prev, Prev = Next>(
   deps: AccessorArray<S> | Accessor<S>,
   fn: OnEffectFunction<S, undefined | NoInfer<Prev>, Next>,
-  options: OnOptions & { defer: true }
+  options: OnOptions | { defer: true }
 ): EffectFunction<undefined | NoInfer<Next>>;
 export function on<S, Next extends Prev, Prev = Next>(
   deps: AccessorArray<S> | Accessor<S>,
