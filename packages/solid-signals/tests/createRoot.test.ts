@@ -9,7 +9,7 @@ import {
   onCleanup,
   Signal,
 } from "../src";
-import { Computation } from "../src/types";
+import { Computation } from "../src";
 
 afterEach(() => flushSync());
 
