@@ -529,6 +529,10 @@ export type InitializedResourceReturn<T, R = unknown> = [
   ResourceActions<T, R>
 ];
 
+function isPromise(v: any): v is Promise<any> {
+  return v && typeof v === "object" && "then" in v;
+}
+
 /**
  * Creates a resource that wraps a repeated promise in a reactive pattern:
  * ```typescript
@@ -616,7 +620,8 @@ export function createResource<T, S, R>(
     id = `${sharedConfig.context.id}${sharedConfig.context.count++}`;
     let v;
     if (options.ssrLoadFrom === "initial") initP = options.initialValue as T;
-    else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v[0];
+    else if (sharedConfig.load && (v = sharedConfig.load(id)))
+      initP = isPromise(v) && "value" in v ? v.value : v;
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, error?: any, key?: S) {
     if (pr === p) {
@@ -684,7 +689,7 @@ export function createResource<T, S, R>(
               refetching
             })
           );
-    if (typeof p !== "object" || !(p && "then" in p)) {
+    if (!isPromise(p)) {
       loadEnd(pr, p, undefined, lookup);
       return p;
     }
