@@ -77,3 +77,44 @@ it("should clean up in reverse order", () => {
   expect(disposeA).toHaveBeenCalledWith(2);
   expect(disposeParent).toHaveBeenCalledWith(3);
 });
+
+it("should dispose all roots", () => {
+  const disposals: string[] = [];
+
+  const dispose = createRoot((dispose) => {
+    createRoot(() => {
+      onCleanup(() => disposals.push("SUBTREE 1"));
+      createEffect(() => onCleanup(() => disposals.push("+A1")));
+      createEffect(() => onCleanup(() => disposals.push("+B1")));
+      createEffect(() => onCleanup(() => disposals.push("+C1")));
+    });
+
+    createRoot(() => {
+      onCleanup(() => disposals.push("SUBTREE 2"));
+      createEffect(() => onCleanup(() => disposals.push("+A2")));
+      createEffect(() => onCleanup(() => disposals.push("+B2")));
+      createEffect(() => onCleanup(() => disposals.push("+C2")));
+    });
+
+    onCleanup(() => disposals.push("ROOT"));
+
+    return dispose;
+  });
+
+  flushSync();
+  dispose();
+
+  expect(disposals).toMatchInlineSnapshot(`
+    [
+      "+C2",
+      "+B2",
+      "+A2",
+      "SUBTREE 2",
+      "+C1",
+      "+B1",
+      "+A1",
+      "SUBTREE 1",
+      "ROOT",
+    ]
+  `);
+});
