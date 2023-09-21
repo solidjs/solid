@@ -1,10 +1,11 @@
-import { Computation, type MemoOptions } from "./core";
+import { Computation, UNCHANGED, type MemoOptions } from "./core";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
 import type { Owner } from "./owner";
 import { handleError } from "./owner";
 
 let scheduledEffects = false;
 let runningEffects = false;
+let renderEffects: RenderEffect[] = [];
 let effects: Effect[] = [];
 
 /**
@@ -53,6 +54,17 @@ function runEffects() {
   runningEffects = true;
 
   try {
+    for (let i = 0; i < renderEffects.length; i++) {
+      if (renderEffects[i]._state !== STATE_CLEAN) {
+        renderEffects[i]._updateIfNecessary();
+      }
+    }
+    for (let i = 0; i < renderEffects.length; i++) {
+      if (renderEffects[i].modified) {
+        renderEffects[i].effect(renderEffects[i]._value);
+        renderEffects[i].modified = false;
+      }
+    }
     for (let i = 0; i < effects.length; i++) {
       if (effects[i]._state !== STATE_CLEAN) {
         runTop(effects[i]);
@@ -90,6 +102,45 @@ export class Effect<T = any> extends Computation<T> {
 
   override write(value: T): T {
     this._value = value;
+
+    return value;
+  }
+
+  override _setError(error: unknown): void {
+    handleError(this, error);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export class RenderEffect<T = any> extends Computation<T> {
+  effect: (val: T) => void;
+  modified: boolean = false;
+  constructor(
+    compute: () => T,
+    effect: (val: T) => void,
+    options?: MemoOptions<T>,
+  ) {
+    super(undefined, compute, options);
+
+    this.effect = effect;
+    renderEffects.push(this);
+    // this._updateIfNecessary()
+  }
+
+  override _notify(state: number): void {
+    if (this._state >= state) return;
+
+    if (this._state === STATE_CLEAN) {
+      renderEffects.push(this);
+      if (!scheduledEffects) flushEffects();
+    }
+
+    this._state = state;
+  }
+
+  override write(value: T): T {
+    this._value = value;
+    this.modified = true;
 
     return value;
   }
