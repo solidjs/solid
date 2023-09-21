@@ -13,7 +13,7 @@ function gc() {
       flushSync(); // flush call stack (holds a reference)
       global.gc!();
       resolve(void 0);
-    }, 0)
+    }, 0),
   );
 }
 
@@ -51,7 +51,7 @@ if (global.gc) {
       ref = new WeakRef(
         (pointer = createMemo(() => {
           $x();
-        }))
+        })),
       );
 
       return dispose;

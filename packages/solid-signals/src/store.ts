@@ -16,7 +16,7 @@ const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
 export type StoreNode = Record<PropertyKey, any>;
 
 export namespace SolidStore {
-  export interface Unwrappable { }
+  export interface Unwrappable {}
 }
 
 export type NotWrappable =
@@ -135,7 +135,7 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
 function trackSelf(target: StoreNode) {
   if (getObserver()) {
     const nodes = getDataNodes(target);
-    nodes._ || ((nodes._ = createDataNode())).read();
+    nodes._ || (nodes._ = createDataNode()).read();
   }
 }
 
@@ -160,7 +160,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     }
     const nodes = getDataNodes(target);
     const tracked = nodes.hasOwnProperty(property);
-    let value = tracked ? (nodes[property]).read() : target[property];
+    let value = tracked ? nodes[property].read() : target[property];
     if (property === $NODE || property === "__proto__") return value;
     const desc = Object.getOwnPropertyDescriptor(target, property);
 
@@ -207,7 +207,7 @@ function setProperty(
   state: StoreNode,
   property: PropertyKey,
   value: any,
-  deleting: boolean = false
+  deleting: boolean = false,
 ): void {
   if (!deleting && state[property] === value) return;
   const prev = state[property];
@@ -220,13 +220,12 @@ function setProperty(
   if ((node = getDataNode(nodes, property, prev))) node.write(value);
 
   if (Array.isArray(state) && state.length !== len)
-    (node = getDataNode(nodes, "length", len)) &&
-      node.write(state.length);
+    (node = getDataNode(nodes, "length", len)) && node.write(state.length);
   (node = nodes._) && node.write(undefined);
 }
 
 export function createStore<T extends object = {}>(
-  store: T | Store<T>
+  store: T | Store<T>,
 ): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap(store);
 

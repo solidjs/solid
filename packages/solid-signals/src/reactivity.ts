@@ -1,13 +1,13 @@
-import type { MemoOptions, SignalOptions } from './bubble-reactivity/core'
-import { Computation, compute, UNCHANGED } from './bubble-reactivity/core'
-import { Effect } from './bubble-reactivity/effect'
-import { ERROR_BIT, LOADING_BIT } from './bubble-reactivity/flags'
-import { handleError, HANDLER, Owner } from './bubble-reactivity/owner'
+import type { MemoOptions, SignalOptions } from "./bubble-reactivity/core";
+import { Computation, compute, UNCHANGED } from "./bubble-reactivity/core";
+import { Effect } from "./bubble-reactivity/effect";
+import { ERROR_BIT, LOADING_BIT } from "./bubble-reactivity/flags";
+import { handleError, HANDLER, Owner } from "./bubble-reactivity/owner";
 
-export {Computation}
-export type Accessor<T> = () => T
-export type Setter<T> = ((value: T|((prev: T) => T)) => T)
-export type Signal<T> = [read: Accessor<T>, write: Setter<T>]
+export { Computation };
+export type Accessor<T> = () => T;
+export type Setter<T> = (value: T | ((prev: T) => T)) => T;
+export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
 
 /**
  * Wraps the given value into a signal. The signal will return the current value when invoked
@@ -16,62 +16,66 @@ export type Signal<T> = [read: Accessor<T>, write: Setter<T>]
  */
 export function createSignal<T>(
   initialValue: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Signal<T> {
-  const node = new Computation(initialValue, null, options)
-  return [() => node.read(), (v) => {
-    if (typeof v === "function") return node.write((v as (prev: T) => T)(node._value!))
-    else return node.write(v)
-  }]
+  const node = new Computation(initialValue, null, options);
+  return [
+    () => node.read(),
+    (v) => {
+      if (typeof v === "function")
+        return node.write((v as (prev: T) => T)(node._value!));
+      else return node.write(v);
+    },
+  ];
 }
 
 export function _createPromise<T>(
   promise: Promise<T>,
   initial?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Computation<T> {
-  const signal = new Computation(initial, null, options)
-  signal.write(UNCHANGED, LOADING_BIT)
+  const signal = new Computation(initial, null, options);
+  signal.write(UNCHANGED, LOADING_BIT);
   promise.then(
     (value) => {
-      signal.write(value, 0)
+      signal.write(value, 0);
     },
     (error) => {
-      signal.write(error as T, ERROR_BIT)
-    }
-  )
-  return signal
+      signal.write(error as T, ERROR_BIT);
+    },
+  );
+  return signal;
 }
 
 export function createPromise<T>(
   promise: Promise<T>,
   initial?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Accessor<T> {
-  const signal = _createPromise(promise, initial, options)
-  return () => signal.read()
+  const signal = _createPromise(promise, initial, options);
+  return () => signal.read();
 }
 
 export function _createAsync<T>(
   fn: () => Promise<T>,
   initial?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Computation<T> {
   const lhs = new Computation(undefined, () => {
-    const promise = Promise.resolve(fn())
-    return _createPromise(promise, initial)
-  })
-  const rhs = new Computation(undefined, () => lhs.read().read(), options)
-  return rhs
+    const promise = Promise.resolve(fn());
+    return _createPromise(promise, initial);
+  });
+  const rhs = new Computation(undefined, () => lhs.read().read(), options);
+  return rhs;
 }
 
 export function createAsync<T>(
   fn: () => Promise<T>,
   initial?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Accessor<T> {
-  const rhs = _createAsync(fn, initial, options)
-  return () => rhs.read()
+  const rhs = _createAsync(fn, initial, options);
+  return () => rhs.read();
 }
 
 /**
@@ -82,10 +86,10 @@ export function createAsync<T>(
 export function createMemo<T>(
   compute: () => T,
   initialValue?: T,
-  options?: MemoOptions<T>
+  options?: MemoOptions<T>,
 ): Accessor<T> {
-  const node = new Computation(initialValue, compute, options)
-  return () => node.read()
+  const node = new Computation(initialValue, compute, options);
+  return () => node.read();
 }
 
 /**
@@ -95,13 +99,13 @@ export function createMemo<T>(
 export function createEffect<T>(
   effect: () => T,
   initialValue?: T,
-  options?: { name?: string }
+  options?: { name?: string },
 ): void {
   void new Effect(
     initialValue,
     effect,
-    __DEV__ ? { name: options?.name ?? 'effect' } : undefined
-  )
+    __DEV__ ? { name: options?.name ?? "effect" } : undefined,
+  );
 }
 
 /**
@@ -109,14 +113,14 @@ export function createEffect<T>(
  * computations.
  */
 export function createRoot<T>(
-  init: ((dispose: () => void) => T) | (() => T)
+  init: ((dispose: () => void) => T) | (() => T),
 ): T {
-  const owner = new Owner()
+  const owner = new Owner();
   return compute(
     owner,
     !init.length ? (init as () => T) : () => init(() => owner.dispose()),
-    null
-  )
+    null,
+  );
 }
 
 /**
@@ -126,13 +130,13 @@ export function createRoot<T>(
  */
 export function runWithOwner<T>(
   owner: Owner | null,
-  run: () => T
+  run: () => T,
 ): T | undefined {
   try {
-    return compute(owner, run, null)
+    return compute(owner, run, null);
   } catch (error) {
-    handleError(owner, error)
-    return undefined
+    handleError(owner, error);
+    return undefined;
   }
 }
 
@@ -142,17 +146,17 @@ export function runWithOwner<T>(
  */
 export function catchError<T, U = Error>(
   fn: () => T,
-  handler: (error: U) => void
+  handler: (error: U) => void,
 ): void {
-  const owner = new Owner()
-  owner._context = { [HANDLER]: handler }
+  const owner = new Owner();
+  owner._context = { [HANDLER]: handler };
   try {
-    compute(owner, fn, null)
+    compute(owner, fn, null);
   } catch (error) {
-    handleError(owner, error)
+    handleError(owner, error);
   }
 }
 
-export { untrack } from './bubble-reactivity/core'
-export { flushSync } from './bubble-reactivity/effect'
-export { getOwner, onCleanup } from './bubble-reactivity/owner'
+export { untrack } from "./bubble-reactivity/core";
+export { flushSync } from "./bubble-reactivity/effect";
+export { getOwner, onCleanup } from "./bubble-reactivity/owner";

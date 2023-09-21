@@ -1,23 +1,23 @@
-import { Computation, type MemoOptions } from './core'
-import { STATE_CLEAN, STATE_DISPOSED } from './constants'
-import type { Owner } from './owner'
-import { handleError } from './owner'
+import { Computation, type MemoOptions } from "./core";
+import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
+import type { Owner } from "./owner";
+import { handleError } from "./owner";
 
-let scheduledEffects = false
-let runningEffects = false
-let effects: Effect[] = []
+let scheduledEffects = false;
+let runningEffects = false;
+let effects: Effect[] = [];
 
 /**
  * By default, changes are batched on the microtask queue which is an async process. You can flush the queue
  * synchronously to get the latest updates by calling `flushSync()`.
  */
 export function flushSync(): void {
-  if (!runningEffects) runEffects()
+  if (!runningEffects) runEffects();
 }
 
 function flushEffects() {
-  scheduledEffects = true
-  queueMicrotask(runEffects)
+  scheduledEffects = true;
+  queueMicrotask(runEffects);
 }
 
 /**
@@ -26,7 +26,7 @@ function flushEffects() {
  * See tests/createEffect: "should run parent effect before child effect" and "should run parent memo before child effect"
  */
 function runTop(node: Computation): void {
-  const ancestors: Computation[] = []
+  const ancestors: Computation[] = [];
 
   for (
     let current: Owner | null = node;
@@ -34,34 +34,34 @@ function runTop(node: Computation): void {
     current = current._parent
   ) {
     if (current._state !== STATE_CLEAN) {
-      ancestors.push(current as Computation)
+      ancestors.push(current as Computation);
     }
   }
 
   for (let i = ancestors.length - 1; i >= 0; i--) {
     if (ancestors[i]._state !== STATE_DISPOSED)
-      ancestors[i]._updateIfNecessary()
+      ancestors[i]._updateIfNecessary();
   }
 }
 
 function runEffects() {
   if (!effects.length) {
-    scheduledEffects = false
-    return
+    scheduledEffects = false;
+    return;
   }
 
-  runningEffects = true
+  runningEffects = true;
 
   try {
     for (let i = 0; i < effects.length; i++) {
       if (effects[i]._state !== STATE_CLEAN) {
-        runTop(effects[i])
+        runTop(effects[i]);
       }
     }
   } finally {
-    effects = []
-    scheduledEffects = false
-    runningEffects = false
+    effects = [];
+    scheduledEffects = false;
+    runningEffects = false;
   }
 }
 
@@ -72,29 +72,29 @@ function runEffects() {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Effect<T = any> extends Computation<T> {
   constructor(initialValue: T, compute: () => T, options?: MemoOptions<T>) {
-    super(initialValue, compute, options)
+    super(initialValue, compute, options);
     // effects.push(this)
-    this._updateIfNecessary()
+    this._updateIfNecessary();
   }
 
   override _notify(state: number): void {
-    if (this._state >= state) return
+    if (this._state >= state) return;
 
     if (this._state === STATE_CLEAN) {
-      effects.push(this)
-      if (!scheduledEffects) flushEffects()
+      effects.push(this);
+      if (!scheduledEffects) flushEffects();
     }
 
-    this._state = state
+    this._state = state;
   }
 
   override write(value: T): T {
-    this._value = value
+    this._value = value;
 
-    return value
+    return value;
   }
 
   override _setError(error: unknown): void {
-    handleError(this, error)
+    handleError(this, error);
   }
 }

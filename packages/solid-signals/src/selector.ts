@@ -20,11 +20,13 @@ export interface SelectorOptions<Key, Value> {
  */
 export function createSelector<Source, Key = Source>(
   source: Accessor<Source>,
-  options?: SelectorOptions<Key, Source>
+  options?: SelectorOptions<Key, Source>,
 ): SelectorSignal<Key> {
   let prevSource: Source | undefined,
     selectors = new Map<Key, Selector<Key>>(),
-    equals = options?.equals ?? isEqual as (key: Key, value: Source | undefined) => boolean;
+    equals =
+      options?.equals ??
+      (isEqual as (key: Key, value: Source | undefined) => boolean);
 
   const node = new Effect<Source | undefined>(
     undefined,
@@ -41,7 +43,7 @@ export function createSelector<Source, Key = Source>(
 
       return (prevSource = newSource);
     },
-    __DEV__ ? { name: options?.name } : undefined
+    __DEV__ ? { name: options?.name } : undefined,
   );
 
   node.read();
@@ -65,16 +67,13 @@ class Selector<Key> extends Computation<undefined> {
   _key: Key;
   _refs: number;
   _selectors: Map<Key, Selector<Key>> | null;
-  constructor(
-    key: Key,
-    selectors: Map<Key, Selector<Key>>
-  ) {
-    super(undefined, null)
-  this._state = /** CLEAN */ 0;
-  this._key = key;
-  this._refs = 0;
-  this._selectors = selectors;
-  this._observers = [];
+  constructor(key: Key, selectors: Map<Key, Selector<Key>>) {
+    super(undefined, null);
+    this._state = /** CLEAN */ 0;
+    this._key = key;
+    this._refs = 0;
+    this._selectors = selectors;
+    this._observers = [];
   }
   call() {
     this._refs -= 1;

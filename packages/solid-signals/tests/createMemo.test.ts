@@ -183,7 +183,7 @@ it("should use fallback if error is thrown during init", () => {
 
         expect($a()).toBe("foo");
       },
-      () => {}
+      () => {},
     );
   });
 });

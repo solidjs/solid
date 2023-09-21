@@ -232,7 +232,7 @@ it("propagates in topological order", () => {
         seq += "b1";
       },
       undefined,
-      { equals: false }
+      { equals: false },
     ),
     b2 = createMemo(
       () => {
@@ -240,7 +240,7 @@ it("propagates in topological order", () => {
         seq += "b2";
       },
       undefined,
-      { equals: false }
+      { equals: false },
     ),
     c1 = createMemo(
       () => {
@@ -248,7 +248,7 @@ it("propagates in topological order", () => {
         seq += "c1";
       },
       undefined,
-      { equals: false }
+      { equals: false },
     );
 
   c1();
@@ -558,7 +558,7 @@ it("evaluates stale computations before dependees when trackers stay unchanged",
       s1();
     },
     undefined,
-    { equals: false }
+    { equals: false },
   );
   const c2 = createMemo(() => {
     order += "c2";

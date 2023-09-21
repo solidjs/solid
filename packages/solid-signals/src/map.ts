@@ -1,8 +1,6 @@
-import {compute,} from './bubble-reactivity/core'
-import { Owner } from './bubble-reactivity/owner';
-import {
-  runWithOwner,
-} from "./reactivity";
+import { compute } from "./bubble-reactivity/core";
+import { Owner } from "./bubble-reactivity/owner";
+import { runWithOwner } from "./reactivity";
 import { Accessor, Computation } from "./reactivity";
 
 export type Maybe<T> = T | void | null | undefined | false;
@@ -19,7 +17,7 @@ export type Maybe<T> = T | void | null | undefined | false;
 export function indexArray<Item, MappedItem>(
   list: Accessor<Maybe<readonly Item[]>>,
   map: (value: Accessor<Item>, index: number) => MappedItem,
-  options?: { name?: string }
+  options?: { name?: string },
 ): Accessor<MappedItem[]> {
   return Computation.prototype.read.bind(
     new Computation<MappedItem[]>(
@@ -33,17 +31,18 @@ export function indexArray<Item, MappedItem>(
         _mappings: [],
         _nodes: [],
       }),
-      options
-    )
+      options,
+    ),
   );
 }
 
 function updateMap<Item, MappedItem>(
-  this: IndexMapData<Item, MappedItem>
+  this: IndexMapData<Item, MappedItem>,
 ): any[] {
   let i = 0,
     newItems = this._list() || [],
-    mapper = () => this._map(Computation.prototype.read.bind(this._nodes[i]), i);
+    mapper = () =>
+      this._map(Computation.prototype.read.bind(this._nodes[i]), i);
 
   runWithOwner(this._owner, () => {
     if (newItems.length === 0) {
@@ -65,7 +64,7 @@ function updateMap<Item, MappedItem>(
         this._mappings[i] = compute<MappedItem>(
           (this._nodes[i] = new Computation(newItems[i], null)),
           mapper,
-          null
+          null,
         );
       }
     }
@@ -92,7 +91,7 @@ function updateMap<Item, MappedItem>(
 export function mapArray<Item, MappedItem>(
   list: Accessor<Maybe<readonly Item[]>>,
   map: (value: Item, index: Accessor<number>) => MappedItem,
-  options?: { name?: string }
+  options?: { name?: string },
 ): Accessor<MappedItem[]> {
   return Computation.prototype.read.bind(
     new Computation<MappedItem[]>(
@@ -106,13 +105,13 @@ export function mapArray<Item, MappedItem>(
         _mappings: [],
         _nodes: [],
       }),
-      options
-    )
+      options,
+    ),
   );
 }
 
 function updateKeyedMap<Item, MappedItem>(
-  this: MapData<Item, MappedItem>
+  this: MapData<Item, MappedItem>,
 ): any[] {
   const newItems = this._list() || [],
     indexed = this._map.length > 1;
@@ -122,7 +121,11 @@ function updateKeyedMap<Item, MappedItem>(
       i: number,
       j: number,
       mapper = indexed
-        ? () => this._map(newItems[j], Computation.prototype.read.bind(this._nodes[j]))
+        ? () =>
+            this._map(
+              newItems[j],
+              Computation.prototype.read.bind(this._nodes[j]),
+            )
         : () => (this._map as (value: Item) => MappedItem)(newItems[j]);
 
     // fast path for empty arrays
@@ -144,7 +147,7 @@ function updateKeyedMap<Item, MappedItem>(
         this._mappings[j] = compute<MappedItem>(
           (this._nodes[j] = new Computation(j, null)),
           mapper,
-          null
+          null,
         );
       }
 
@@ -210,7 +213,7 @@ function updateKeyedMap<Item, MappedItem>(
           this._mappings[j] = compute<MappedItem>(
             (this._nodes[j] = new Computation(j, null)),
             mapper,
-            null
+            null,
           );
         }
       }

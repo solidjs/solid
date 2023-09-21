@@ -4,7 +4,7 @@ import {
   createSignal,
   flushSync,
   onCleanup,
-  createRoot
+  createRoot,
 } from "../src";
 
 afterEach(() => flushSync());
@@ -283,8 +283,8 @@ it("should apply changes in effect in same flush", async () => {
     [$y, setY] = createSignal(0);
 
   const $a = createMemo(() => {
-    return $x() + 1;
-  }),
+      return $x() + 1;
+    }),
     $b = createMemo(() => {
       return $a() + 2;
     });

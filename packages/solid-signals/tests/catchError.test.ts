@@ -44,7 +44,7 @@ it("should forward error to another handler", () => {
         (e) => {
           expect(e).toBe(error);
           throw e;
-        }
+        },
       );
     });
   }, rootHandler);
