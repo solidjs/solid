@@ -79,7 +79,6 @@ export class Owner {
   dispose(this: Owner, self = true): void {
     if (this._state === STATE_DISPOSED) return;
 
-    const head = self ? this._prevSibling : this;
     let current = this._nextSibling as Computation | null;
 
     while (current && current._parent === this) {
@@ -88,13 +87,14 @@ export class Owner {
       current = current._nextSibling as Computation;
     }
 
+    const head = self ? this._prevSibling : this;
     if (self) this._disposeNode();
-    if (current) current._prevSibling = !self ? this : this._prevSibling;
+    else if (current) current._prevSibling = this._prevSibling;
     if (head) head._nextSibling = current;
   }
 
   _disposeNode(): void {
-    if (this._prevSibling) this._prevSibling._nextSibling = null;
+    if (this._nextSibling) this._nextSibling._prevSibling = this._prevSibling;
     this._parent = null;
     this._prevSibling = null;
     this._context = null;

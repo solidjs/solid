@@ -1,6 +1,6 @@
 import type { MemoOptions, SignalOptions } from "./bubble-reactivity/core";
 import { Computation, compute, UNCHANGED } from "./bubble-reactivity/core";
-import { Effect } from "./bubble-reactivity/effect";
+import { Effect, RenderEffect } from "./bubble-reactivity/effect";
 import { ERROR_BIT, LOADING_BIT } from "./bubble-reactivity/flags";
 import { handleError, HANDLER, Owner } from "./bubble-reactivity/owner";
 
@@ -103,6 +103,18 @@ export function createEffect<T>(
 ): void {
   void new Effect(
     initialValue,
+    effect,
+    __DEV__ ? { name: options?.name ?? "effect" } : undefined,
+  );
+}
+
+export function createRenderEffect<T>(
+  compute: () => T,
+  effect: (val: T) => void,
+  options?: { name?: string },
+): void {
+  void new RenderEffect(
+    compute,
     effect,
     __DEV__ ? { name: options?.name ?? "effect" } : undefined,
   );
