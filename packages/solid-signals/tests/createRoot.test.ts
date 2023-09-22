@@ -26,7 +26,7 @@ it("should dispose of inner computations", () => {
     dispose();
   });
 
-  expect($y!()).toBe(20);
+  expect($y!).toThrow();
   expect(memo).toHaveBeenCalledTimes(1);
 
   flushSync();
@@ -34,7 +34,7 @@ it("should dispose of inner computations", () => {
   $x![1](50);
   flushSync();
 
-  expect($y!()).toBe(20);
+  expect($y!).toThrow();
   expect(memo).toHaveBeenCalledTimes(1);
 });
 

@@ -1,6 +1,6 @@
 import type { MemoOptions, SignalOptions } from "./bubble-reactivity/core";
 import { Computation, compute, UNCHANGED } from "./bubble-reactivity/core";
-import { Effect, RenderEffect } from "./bubble-reactivity/effect";
+import { Effect, RenderEffect } from "./effect";
 import { ERROR_BIT, LOADING_BIT } from "./bubble-reactivity/flags";
 import { handleError, HANDLER, Owner } from "./bubble-reactivity/owner";
 
@@ -170,5 +170,5 @@ export function catchError<T, U = Error>(
 }
 
 export { untrack } from "./bubble-reactivity/core";
-export { flushSync } from "./bubble-reactivity/effect";
+export { flushSync } from "./effect";
 export { getOwner, onCleanup } from "./bubble-reactivity/owner";

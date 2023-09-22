@@ -1,6 +1,6 @@
 import type { MemoOptions, SignalOptions } from "./core";
 import { Computation, compute, UNCHANGED } from "./core";
-import { Effect } from "./effect";
+import { Effect } from "../effect";
 import { ERROR_BIT, LOADING_BIT } from "./flags";
 import { handleError, HANDLER, Owner } from "./owner";
 
@@ -150,5 +150,5 @@ export function catchError<T, U = Error>(
 }
 
 export { untrack } from "./core";
-export { flushSync } from "./effect";
+export { flushSync } from "../effect";
 export { getOwner, onCleanup } from "./owner";

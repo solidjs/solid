@@ -1,7 +1,7 @@
-import { Computation, UNCHANGED, type MemoOptions } from "./core";
-import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
-import type { Owner } from "./owner";
-import { handleError } from "./owner";
+import { Computation, type MemoOptions } from "./bubble-reactivity/core";
+import { STATE_CLEAN, STATE_DISPOSED } from "./bubble-reactivity/constants";
+import type { Owner } from "./bubble-reactivity/owner";
+import { handleError } from "./bubble-reactivity/owner";
 
 let scheduledEffects = false;
 let runningEffects = false;

@@ -1,4 +1,4 @@
-import { Effect } from "./bubble-reactivity/effect";
+import { Effect } from "./effect";
 import { isEqual, getObserver } from "./bubble-reactivity/core";
 import { Accessor, onCleanup } from "./reactivity";
 import { Computation } from "./reactivity";
