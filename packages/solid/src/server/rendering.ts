@@ -70,6 +70,9 @@ export function createUniqueId(): string {
 
 export function createServerValue<T>(cb: () => T): T {
   const ctx = sharedConfig.context;
+  // This might be fun specially if the value is a Promise
+  // but of course, the only way they can translate the Promise
+  // is through createResource
   const value = cb();
   if (ctx) {
     ctx.serialize(`${ctx.id}${ctx.count++}`, value, true);
