@@ -68,6 +68,16 @@ export function createUniqueId(): string {
   return `${ctx.id}${ctx.count++}`;
 }
 
+export function createServerValue<T>(cb: () => T): T {
+  const ctx = sharedConfig.context;
+  const value = cb();
+  if (ctx) {
+    ctx.serialize(`${ctx.id}${ctx.count++}`, value, true);
+  }
+  return value;
+}
+
+
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
   if (sharedConfig.context && !sharedConfig.context.noHydrate) {
     const c = sharedConfig.context;

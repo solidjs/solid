@@ -388,3 +388,15 @@ export function createUniqueId(): string {
   const ctx = sharedConfig.context;
   return ctx ? `${ctx.id}${ctx.count++}` : `cl-${counter++}`;
 }
+
+
+export function createServerValue<T>(cb: () => T): T {
+  const ctx = sharedConfig.context;
+  if (ctx && sharedConfig.load) {
+    const id = `${ctx.id}${ctx.count++}`;
+    // TODO we should check if the value is actually serialized
+    // otherwise we fallback to `cb()`
+    return sharedConfig.load(id);
+  }
+  return cb();
+}
