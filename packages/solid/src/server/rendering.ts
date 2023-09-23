@@ -77,7 +77,6 @@ export function createServerValue<T>(cb: () => T): T {
   return value;
 }
 
-
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
   if (sharedConfig.context && !sharedConfig.context.noHydrate) {
     const c = sharedConfig.context;
