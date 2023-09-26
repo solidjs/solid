@@ -8,10 +8,12 @@ type DataNode = Computation<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
 
 const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
-  $TRACK = Symbol(__DEV__ ? "TRACK" : 0),
-  $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0),
-  $NODE = Symbol(__DEV__ ? "STORE_NODE" : 0),
-  $HAS = Symbol(__DEV__ ? "STORE_HAS" : 0);
+  $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
+  $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0);
+
+const PROXIES = new WeakMap<any, any>();
+// 0: DATA, 1: HAS
+const NODES = [new WeakMap<any, DataNodes>(), new WeakMap<any, DataNodes>()];
 
 export type StoreNode = Record<PropertyKey, any>;
 
@@ -31,25 +33,8 @@ export type NotWrappable =
   | SolidStore.Unwrappable[keyof SolidStore.Unwrappable];
 
 function wrap<T extends StoreNode>(value: T): T {
-  let p = value[$PROXY];
-  if (!p) {
-    Object.defineProperty(value, $PROXY, {
-      value: (p = new Proxy(value, proxyTraps)),
-    });
-    if (!Array.isArray(value)) {
-      const keys = Object.keys(value);
-      const desc = Object.getOwnPropertyDescriptors(value);
-      for (let i = 0, l = keys.length; i < l; i++) {
-        const prop = keys[i];
-        if (desc[prop].get) {
-          Object.defineProperty(value, prop, {
-            enumerable: desc[prop].enumerable,
-            get: desc[prop].get!.bind(p),
-          });
-        }
-      }
-    }
-  }
+  let p = PROXIES.get(value);
+  if (!p) PROXIES.set(value, (p = new Proxy(value, proxyTraps)));
   return p;
 }
 
@@ -59,7 +44,7 @@ export function isWrappable(obj: any) {
   return (
     obj != null &&
     typeof obj === "object" &&
-    (obj[$PROXY] ||
+    (PROXIES.has(obj) ||
       !(proto = Object.getPrototypeOf(obj)) ||
       proto === Object.prototype ||
       Array.isArray(obj))
@@ -94,10 +79,10 @@ export function unwrap<T>(item: any, set = new Set()): T {
     if (Object.isFrozen(item)) item = Object.assign({}, item);
     else set.add(item);
     const keys = Object.keys(item);
-    const desc = Object.getOwnPropertyDescriptors(item);
     for (let i = 0, l = keys.length; i < l; i++) {
       prop = keys[i];
-      if (desc[prop].get) continue;
+      const desc = Object.getOwnPropertyDescriptor(item, prop)!;
+      if (desc.get) continue;
       v = item[prop];
       if ((unwrapped = unwrap(v, set)) !== v) item[prop] = unwrapped;
     }
@@ -105,15 +90,10 @@ export function unwrap<T>(item: any, set = new Set()): T {
   return item;
 }
 
-function getNodes(
-  target: StoreNode,
-  symbol: typeof $NODE | typeof $HAS
-): DataNodes {
-  let nodes = target[symbol];
+function getNodes(target: StoreNode, type: 0 | 1): DataNodes {
+  let nodes = NODES[type].get(target);
   if (!nodes)
-    Object.defineProperty(target, symbol, {
-      value: (nodes = Object.create(null) as DataNodes),
-    });
+    NODES[type].set(target, (nodes = Object.create(null) as DataNodes));
   return nodes;
 }
 
@@ -126,22 +106,16 @@ function getNode(nodes: DataNodes, property: PropertyKey, value?: any) {
 
 function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   const desc = Reflect.getOwnPropertyDescriptor(target, property);
-  if (
-    !desc ||
-    desc.get ||
-    !desc.configurable ||
-    property === $PROXY ||
-    property === $NODE
-  )
+  if (!desc || desc.get || !desc.configurable || property === $PROXY)
     return desc;
   delete desc.value;
   delete desc.writable;
-  desc.get = () => target[$PROXY][property];
+  desc.get = () => PROXIES.get(target)[property];
   return desc;
 }
 
 function trackSelf(target: StoreNode) {
-  getObserver() && getNode(getNodes(target, $NODE), $TRACK).read();
+  getObserver() && getNode(getNodes(target, 0), $TRACK).read();
 }
 
 function ownKeys(target: StoreNode) {
@@ -158,22 +132,18 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       trackSelf(target);
       return receiver;
     }
-    const nodes = getNodes(target, $NODE);
+    const desc = Object.getOwnPropertyDescriptor(target, property);
+    if (desc && desc.get) return desc.get.call(receiver);
+    const nodes = getNodes(target, 0);
     const tracked = nodes[property];
     let value = tracked ? nodes[property].read() : target[property];
-    if (property === $NODE || property === $HAS || property === "__proto__")
-      return value;
-    const desc = Object.getOwnPropertyDescriptor(target, property);
-
-    if (!tracked) {
-      if (
-        getObserver() &&
-        (typeof value !== "function" || target.hasOwnProperty(property)) &&
-        !(desc && desc.get)
-      )
-        value = getNode(nodes, property, value).read();
-    }
-    return isWrappable(value) && !(desc && desc.get) ? wrap(value) : value;
+    if (
+      !tracked &&
+      getObserver() &&
+      (typeof value !== "function" || target.hasOwnProperty(property))
+    )
+      value = getNode(nodes, property, value).read();
+    return isWrappable(value) ? wrap(value) : value;
   },
 
   has(target, property) {
@@ -181,11 +151,10 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       property === $RAW ||
       property === $PROXY ||
       property === $TRACK ||
-      property === $NODE ||
       property === "__proto__"
     )
       return true;
-    getObserver() && getNode(getNodes(target, $HAS), property).read();
+    getObserver() && getNode(getNodes(target, 1), property).read();
     return property in target;
   },
 
@@ -216,7 +185,7 @@ function setProperty(
 
   if (deleting) delete state[property];
   else state[property] = value;
-  const nodes = getNodes(state, $NODE);
+  const nodes = getNodes(state, 0);
   let node: DataNode;
   if ((node = getNode(nodes, property, prev))) node.write(value);
 
