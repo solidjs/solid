@@ -68,9 +68,9 @@ it("should observe key changes", () => {
     setSource(2);
     flushSync();
 
-    expect($effect0()).toBe(false);
-    expect($effect1()).toBe(false);
-    expect($effect2()).toBe(false);
+    expect($effect0).toThrow();
+    expect($effect1).toThrow();
+    expect($effect2).toThrow();
 
     expect(effect0).toHaveBeenCalledTimes(2);
     expect(effect1).toHaveBeenCalledTimes(3);

@@ -2,6 +2,7 @@ import { Effect } from "./effect";
 import { isEqual, getObserver } from "./bubble-reactivity/core";
 import { Accessor, onCleanup } from "./reactivity";
 import { Computation } from "./reactivity";
+import { STATE_DIRTY } from "./bubble-reactivity/constants";
 
 export interface SelectorSignal<T> {
   (key: T): Boolean;
@@ -20,10 +21,10 @@ export interface SelectorOptions<Key, Value> {
  */
 export function createSelector<Source, Key = Source>(
   source: Accessor<Source>,
-  options?: SelectorOptions<Key, Source>,
+  options?: SelectorOptions<Key, Source>
 ): SelectorSignal<Key> {
   let prevSource: Source | undefined,
-    selectors = new Map<Key, Selector<Key>>(),
+    subs = new Map<Key, Set<Computation<any>>>(),
     equals =
       options?.equals ??
       (isEqual as (key: Key, value: Source | undefined) => boolean);
@@ -33,53 +34,31 @@ export function createSelector<Source, Key = Source>(
     () => {
       const newSource = source();
 
-      for (const [key, selector] of selectors) {
+      for (const [key, val] of subs) {
         if (equals(key, newSource) !== equals(key, prevSource)) {
-          for (let i = 0; i < selector._observers!.length; i++) {
-            selector._observers![i]._notify(2 /* DIRTY */);
+          for (const c of val.values()) {
+            c._notify(STATE_DIRTY);
           }
         }
       }
 
       return (prevSource = newSource);
     },
-    __DEV__ ? { name: options?.name } : undefined,
+    __DEV__ ? { name: options?.name } : undefined
   );
-
-  node.read();
 
   return function observeSelector(key: Key) {
     const observer = getObserver() as Computation;
 
     if (observer) {
-      let node = selectors.get(key);
-      if (!node) selectors.set(key, (node = new Selector(key, selectors)));
-      node!.read();
-      node!._refs += 1;
-      observer.append(node!);
+      let l: Set<Computation<any>> | undefined;
+      if ((l = subs.get(key))) l.add(observer);
+      else subs.set(key, (l = new Set([observer])));
+      onCleanup(() => {
+        l!.delete(observer!);
+        !l!.size && subs.delete(key);
+      });
     }
-
-    return equals(key, node._value);
+    return equals(key, node.read());
   };
-}
-
-class Selector<Key> extends Computation<undefined> {
-  _key: Key;
-  _refs: number;
-  _selectors: Map<Key, Selector<Key>> | null;
-  constructor(key: Key, selectors: Map<Key, Selector<Key>>) {
-    super(undefined, null);
-    this._state = /** CLEAN */ 0;
-    this._key = key;
-    this._refs = 0;
-    this._selectors = selectors;
-    this._observers = [];
-  }
-  call() {
-    this._refs -= 1;
-    if (!this._refs) {
-      this._selectors!.delete(this._key);
-      this._selectors = null;
-    }
-  }
 }
