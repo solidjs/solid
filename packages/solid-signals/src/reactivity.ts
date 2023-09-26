@@ -29,11 +29,11 @@ export function createSignal<T>(
   ];
 }
 
-export function _createPromise<T>(
+export function createAsync<T>(
   promise: Promise<T>,
   initial?: T,
   options?: SignalOptions<T>,
-): Computation<T> {
+): Accessor<T> {
   const signal = new Computation(initial, null, options);
   signal.write(UNCHANGED, LOADING_BIT);
   promise.then(
@@ -44,38 +44,7 @@ export function _createPromise<T>(
       signal.write(error as T, ERROR_BIT);
     },
   );
-  return signal;
-}
-
-export function createPromise<T>(
-  promise: Promise<T>,
-  initial?: T,
-  options?: SignalOptions<T>,
-): Accessor<T> {
-  const signal = _createPromise(promise, initial, options);
   return () => signal.read();
-}
-
-export function _createAsync<T>(
-  fn: () => Promise<T>,
-  initial?: T,
-  options?: SignalOptions<T>,
-): Computation<T> {
-  const lhs = new Computation(undefined, () => {
-    const promise = Promise.resolve(fn());
-    return _createPromise(promise, initial);
-  });
-  const rhs = new Computation(undefined, () => lhs.read().read(), options);
-  return rhs;
-}
-
-export function createAsync<T>(
-  fn: () => Promise<T>,
-  initial?: T,
-  options?: SignalOptions<T>,
-): Accessor<T> {
-  const rhs = _createAsync(fn, initial, options);
-  return () => rhs.read();
 }
 
 /**
