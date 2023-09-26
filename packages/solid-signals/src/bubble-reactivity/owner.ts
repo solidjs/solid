@@ -34,7 +34,7 @@ import type { Computation } from "./core";
 export type ContextRecord = Record<string | symbol, unknown>;
 export type Disposable = () => void;
 
-export const HANDLER = Symbol("ERROR_HANDLER");
+export const HANDLER = Symbol(__DEV__ ? "ERROR_HANDLER" : 0);
 
 let currentOwner: Owner | null = null;
 

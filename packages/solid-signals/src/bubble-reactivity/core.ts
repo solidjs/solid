@@ -68,7 +68,7 @@ let newSources: SourceType[] | null = null;
 let newSourcesIndex = 0;
 let newFlags = 0;
 
-export const UNCHANGED: unique symbol = Symbol("unchanged");
+export const UNCHANGED: unique symbol = Symbol(__DEV__ ? "unchanged" : 0);
 export type UNCHANGED = typeof UNCHANGED;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
