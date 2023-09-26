@@ -2,8 +2,7 @@ import { getObserver } from "./bubble-reactivity/core";
 import { Computation } from "./bubble-reactivity/core";
 
 export type Store<T> = Readonly<T>;
-// TODO: should this be `StoreSetter`?
-export type SetStoreFunction<T> = (fn: (state: T) => void) => void;
+export type StoreSetter<T> = (fn: (state: T) => void) => void;
 
 type DataNode = Computation<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
@@ -11,7 +10,8 @@ type DataNodes = Record<PropertyKey, DataNode>;
 const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
   $TRACK = Symbol(__DEV__ ? "TRACK" : 0),
   $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0),
-  $NODE = Symbol(__DEV__ ? "STORE_NODE" : 0);
+  $NODE = Symbol(__DEV__ ? "STORE_NODE" : 0),
+  $HAS = Symbol(__DEV__ ? "STORE_HAS" : 0);
 
 export type StoreNode = Record<PropertyKey, any>;
 
@@ -42,10 +42,9 @@ function wrap<T extends StoreNode>(value: T): T {
       for (let i = 0, l = keys.length; i < l; i++) {
         const prop = keys[i];
         if (desc[prop].get) {
-          const get = desc[prop].get!.bind(p);
           Object.defineProperty(value, prop, {
             enumerable: desc[prop].enumerable,
-            get,
+            get: desc[prop].get!.bind(p),
           });
         }
       }
@@ -106,14 +105,23 @@ export function unwrap<T>(item: any, set = new Set()): T {
   return item;
 }
 
-function getDataNodes(target: StoreNode): DataNodes {
-  let nodes = target[$NODE];
-  if (!nodes) Object.defineProperty(target, $NODE, { value: (nodes = {}) });
+function getNodes(
+  target: StoreNode,
+  symbol: typeof $NODE | typeof $HAS
+): DataNodes {
+  let nodes = target[symbol];
+  if (!nodes)
+    Object.defineProperty(target, symbol, {
+      value: (nodes = Object.create(null) as DataNodes),
+    });
   return nodes;
 }
 
-function getDataNode(nodes: DataNodes, property: PropertyKey, value: any) {
-  return nodes[property] || (nodes[property] = createDataNode(value));
+function getNode(nodes: DataNodes, property: PropertyKey, value?: any) {
+  if (nodes[property]) return nodes[property]!;
+  return (nodes[property] = new Computation<any>(value, null, {
+    equals: false,
+  }));
 }
 
 function proxyDescriptor(target: StoreNode, property: PropertyKey) {
@@ -133,20 +141,12 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
 }
 
 function trackSelf(target: StoreNode) {
-  if (getObserver()) {
-    const nodes = getDataNodes(target);
-    nodes._ || (nodes._ = createDataNode()).read();
-  }
+  getObserver() && getNode(getNodes(target, $NODE), $TRACK).read();
 }
 
 function ownKeys(target: StoreNode) {
   trackSelf(target);
   return Reflect.ownKeys(target);
-}
-
-function createDataNode(value?: any) {
-  const s = new Computation<any>(value, null, { equals: false });
-  return s;
 }
 
 let Writing = false;
@@ -158,10 +158,11 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       trackSelf(target);
       return receiver;
     }
-    const nodes = getDataNodes(target);
-    const tracked = nodes.hasOwnProperty(property);
+    const nodes = getNodes(target, $NODE);
+    const tracked = nodes[property];
     let value = tracked ? nodes[property].read() : target[property];
-    if (property === $NODE || property === "__proto__") return value;
+    if (property === $NODE || property === $HAS || property === "__proto__")
+      return value;
     const desc = Object.getOwnPropertyDescriptor(target, property);
 
     if (!tracked) {
@@ -170,7 +171,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
         (typeof value !== "function" || target.hasOwnProperty(property)) &&
         !(desc && desc.get)
       )
-        value = getDataNode(nodes, property, value).read();
+        value = getNode(nodes, property, value).read();
     }
     return isWrappable(value) && !(desc && desc.get) ? wrap(value) : value;
   },
@@ -184,7 +185,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       property === "__proto__"
     )
       return true;
-    this.get!(target, property, target);
+    getObserver() && getNode(getNodes(target, $HAS), property).read();
     return property in target;
   },
 
@@ -207,7 +208,7 @@ function setProperty(
   state: StoreNode,
   property: PropertyKey,
   value: any,
-  deleting: boolean = false,
+  deleting: boolean = false
 ): void {
   if (!deleting && state[property] === value) return;
   const prev = state[property];
@@ -215,18 +216,18 @@ function setProperty(
 
   if (deleting) delete state[property];
   else state[property] = value;
-  const nodes = getDataNodes(state);
+  const nodes = getNodes(state, $NODE);
   let node: DataNode;
-  if ((node = getDataNode(nodes, property, prev))) node.write(value);
+  if ((node = getNode(nodes, property, prev))) node.write(value);
 
   if (Array.isArray(state) && state.length !== len)
-    (node = getDataNode(nodes, "length", len)) && node.write(state.length);
-  (node = nodes._) && node.write(undefined);
+    (node = getNode(nodes, "length", len)) && node.write(state.length);
+  (node = nodes[$TRACK]) && node.write(undefined);
 }
 
 export function createStore<T extends object = {}>(
-  store: T | Store<T>,
-): [get: Store<T>, set: SetStoreFunction<T>] {
+  store: T | Store<T>
+): [get: Store<T>, set: StoreSetter<T>] {
   const unwrappedStore = unwrap(store);
 
   const wrappedStore = wrap(unwrappedStore);
