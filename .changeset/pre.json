@@ -8,5 +8,8 @@
     "solid-ssr": "1.7.2",
     "test-integration": "1.7.12"
   },
-  "changesets": []
+  "changesets": [
+    "healthy-spoons-watch",
+    "hungry-gifts-film"
+  ]
 }
