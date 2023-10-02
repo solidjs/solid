@@ -6,6 +6,7 @@ type SharedConfig = {
   context?: HydrationContext;
   resources?: { [key: string]: any };
   load?: (id: string) => Promise<any> | any | undefined;
+  has?: (id: string) => boolean;
   gather?: (key: string) => void;
   registry?: Map<string, Element>;
   done?: boolean;
