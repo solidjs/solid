@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.8.0-beta.1
+
+### Patch Changes
+
+- f6d511db: remove attribute quotes in template, batch serialization
+- af625dd3: fix: missing `has` property in `SharedConfig`
+
 ## 1.8.0-beta.0
 
 ### Minor Changes

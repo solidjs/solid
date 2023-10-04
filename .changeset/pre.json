@@ -9,7 +9,9 @@
     "test-integration": "1.7.12"
   },
   "changesets": [
+    "dull-rings-approve",
     "healthy-spoons-watch",
-    "hungry-gifts-film"
+    "hungry-gifts-film",
+    "strong-years-smile"
   ]
 }
