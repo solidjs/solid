@@ -48,8 +48,8 @@ importers:
         specifier: ^0.29.7
         version: 0.29.7(vitest@0.29.3)
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.37.0-beta.0
-        version: 0.37.0-beta.0(@babel/core@7.21.3)
+        specifier: ^0.37.0-beta.2
+        version: 0.37.0-beta.2(@babel/core@7.21.3)
       coveralls:
         specifier: ^3.1.1
         version: 3.1.1
@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       dom-expressions:
-        specifier: 0.37.0-beta.1
-        version: 0.37.0-beta.1(csstype@3.1.0)(seroval@0.10.4)
+        specifier: 0.37.0-beta.2
+        version: 0.37.0-beta.2(csstype@3.1.0)(seroval@0.10.4)
       hyper-dom-expressions:
-        specifier: 0.37.0-beta.1
-        version: 0.37.0-beta.1
+        specifier: 0.37.0-beta.2
+        version: 0.37.0-beta.2
       jsdom:
         specifier: ^21.1.1
         version: 21.1.1
       lit-dom-expressions:
-        specifier: 0.37.0-beta.1
-        version: 0.37.0-beta.1
+        specifier: 0.37.0-beta.2
+        version: 0.37.0-beta.2
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -109,7 +109,7 @@ importers:
         version: 4.9.5
       vite-plugin-solid:
         specifier: ^2.6.1
-        version: 2.6.1(solid-js@packages+solid)(vite@4.4.8)
+        version: 2.6.1(solid-js@1.7.12)(vite@4.4.8)
       vitest:
         specifier: ^0.29.3
         version: 0.29.3(jsdom@21.1.1)
@@ -120,8 +120,8 @@ importers:
         specifier: ^7.0.0
         version: 7.21.3
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.37.0-beta.0
-        version: 0.37.0-beta.0(@babel/core@7.21.3)
+        specifier: ^0.37.0-beta.2
+        version: 0.37.0-beta.2(@babel/core@7.21.3)
 
   packages/solid:
     dependencies:
@@ -2284,8 +2284,8 @@ packages:
       - debug
     dev: true
 
-  /babel-plugin-jsx-dom-expressions@0.37.0-beta.0(@babel/core@7.21.3):
-    resolution: {integrity: sha512-Y19T89yAHQv1CzRpGzf4cE83+1Zhq2jcg4thodObX7fSNZ0U6lf47D4MM10qxpcx1b78Pxah9l9waY1xXZNULA==}
+  /babel-plugin-jsx-dom-expressions@0.37.0-beta.2(@babel/core@7.21.3):
+    resolution: {integrity: sha512-IVLt6C1W2H+vWydOD/tmwcKgket9ywhRQpOSGuppulr2VXIuUrOmXT370GwTRmbEsOhOzmnNleydmavKj96+BQ==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
@@ -2850,11 +2850,11 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions@0.37.0-beta.1(csstype@3.1.0)(seroval@0.10.4):
-    resolution: {integrity: sha512-wcKP+wfdpCdiBR8Tc863oVv4BMuREugWWOXA8VTowJZg1trkCeVGXX4HrrGU788/82fZQXS0uf3znTarBDs2SA==}
+  /dom-expressions@0.37.0-beta.2(csstype@3.1.0)(seroval@0.10.4):
+    resolution: {integrity: sha512-/llo/gc+rrLuLt1MOPfiPMggcfadycNYI2JBG224nTg91OnVwChBFDKPlQJ2PEtqaizNbaKe4IYW80eHv/O4YQ==}
     peerDependencies:
       csstype: ^3.0
-      seroval: ^0.10.1
+      seroval: ^0.10.4
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.0
@@ -3598,8 +3598,8 @@ packages:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
     dev: true
 
-  /hyper-dom-expressions@0.37.0-beta.1:
-    resolution: {integrity: sha512-7cbmjTH5DGws6wJXNK+cFE5rNZ0rogZ6WzVdqB79+A+PdBLwBRkl0T4bFui1hoax2O2lWtZwwWC1DjoMrjuz5g==}
+  /hyper-dom-expressions@0.37.0-beta.2:
+    resolution: {integrity: sha512-MOjWt6/ADyB2Z3yEkuYOcwG0IMARO9jxV4fMznL/KEUsxvxyTnGF+cwzklnb7ezl4ad1xm5JbhFAfY5GZXG4vg==}
     dev: true
 
   /iconv-lite@0.4.24:
@@ -4040,8 +4040,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions@0.37.0-beta.1:
-    resolution: {integrity: sha512-3iCVCMJfMuRYZvqzPfTSu4UjvzgEILZ2WiulWsipUy3O0JTkhFjYX/AEQUqjVruNRV3boid1s3ZBq3A5g/8EEg==}
+  /lit-dom-expressions@0.37.0-beta.2:
+    resolution: {integrity: sha512-h7clkJivZ84DPekZ8o5q0zQ8QLdhl1Kg9LzZnpW4KWX1gldnE08cEgioawztFfOG1b3SWrR/DjFrxVbbHGO3Fw==}
     dev: true
 
   /load-json-file@4.0.0:
@@ -5001,6 +5001,11 @@ packages:
     resolution: {integrity: sha512-TdaE9JkoATjKu+vjwllieX8zWyBTUVxbgWDnOsDJFfmKbM7vLSukuCXuD3pO3kkCtX4daywOW8ps2VCdPhS8/w==}
     engines: {node: '>=10'}
 
+  /seroval@0.5.1:
+    resolution: {integrity: sha512-ZfhQVB59hmIauJG5Ydynupy8KHyr5imGNtdDhbZG68Ufh1Ynkv9KOYOAABf71oVbQxJ8VkWnMHAjEHE7fWkH5g==}
+    engines: {node: '>=10'}
+    dev: true
+
   /serve-static@1.14.1:
     resolution: {integrity: sha512-JMrvUwE54emCYWlTI+hGrGv5I8dEwmco/00EvkzIIsR7MqrHonbD9pO2MOfFnpFntl7ecpZs+3mW+XbQZu9QCg==}
     engines: {node: '>= 0.8.0'}
@@ -5117,7 +5122,14 @@ packages:
       yargs: 15.4.1
     dev: true
 
-  /solid-refresh@0.5.2(solid-js@packages+solid):
+  /solid-js@1.7.12:
+    resolution: {integrity: sha512-QoyoOUKu14iLoGxjxWFIU8+/1kLT4edQ7mZESFPonsEXZ//VJtPKD8Ud1aTKzotj+MNWmSs9YzK6TdY+fO9Eww==}
+    dependencies:
+      csstype: 3.1.0
+      seroval: 0.5.1
+    dev: true
+
+  /solid-refresh@0.5.2(solid-js@1.7.12):
     resolution: {integrity: sha512-I69HmFj0LsGRJ3n8CEMVjyQFgVtuM2bSjznu2hCnsY+i5oOxh8ioWj00nnHBv0UYD3WpE/Sq4Q3TNw2IKmKN7A==}
     peerDependencies:
       solid-js: ^1.3
@@ -5125,7 +5137,7 @@ packages:
       '@babel/generator': 7.21.5
       '@babel/helper-module-imports': 7.21.4
       '@babel/types': 7.21.5
-      solid-js: link:packages/solid
+      solid-js: 1.7.12
     dev: true
 
   /source-map-js@1.0.2:
@@ -5779,7 +5791,7 @@ packages:
       - terser
     dev: true
 
-  /vite-plugin-solid@2.6.1(solid-js@packages+solid)(vite@4.4.8):
+  /vite-plugin-solid@2.6.1(solid-js@1.7.12)(vite@4.4.8):
     resolution: {integrity: sha512-/khM/ha3B5/pTWQWVJd/0n6ODPIrOcajwhbrD8Gnv37XmJJssu+KA8ssN73raMIicf2eiQKiTAV39w7dSl4Irg==}
     peerDependencies:
       solid-js: ^1.3.17 || ^1.4.0 || ^1.5.0 || ^1.6.0
@@ -5790,8 +5802,8 @@ packages:
       '@types/babel__core': 7.20.0
       babel-preset-solid: link:packages/babel-preset-solid
       merge-anything: 5.1.6
-      solid-js: link:packages/solid
-      solid-refresh: 0.5.2(solid-js@packages+solid)
+      solid-js: 1.7.12
+      solid-refresh: 0.5.2(solid-js@1.7.12)
       vite: 4.4.8(@types/node@18.11.19)
       vitefu: 0.2.4(vite@4.4.8)
     transitivePeerDependencies:
