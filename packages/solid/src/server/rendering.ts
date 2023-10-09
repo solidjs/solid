@@ -265,7 +265,7 @@ export function ErrorBoundary(props: {
   const id = ctx.id + ctx.count;
   function displayFallback() {
     cleanNode(clean);
-    ctx.writeResource(id, error, true);
+    ctx.serialize(id, error);
     setHydrateContext({ ...ctx, count: 0 });
     const f = props.fallback;
     return typeof f === "function" && f.length ? f(error, () => {}) : f;
@@ -424,7 +424,7 @@ export function createResource<T, S>(
     if (p != undefined && typeof p === "object" && "then" in p) {
       read.loading = true;
       read.state = "pending";
-      if (ctx.writeResource) ctx.writeResource(id, p, undefined, options.deferStream);
+      if (ctx.serialize) ctx.serialize(id, p, options.deferStream);
       return p
         .then(res => {
           read.loading = false;
@@ -443,7 +443,7 @@ export function createResource<T, S>(
         });
     }
     ctx.resources[id].data = p;
-    if (ctx.writeResource) ctx.writeResource(id, p);
+    if (ctx.serialize) ctx.serialize(id, p);
     p = null;
     return ctx.resources[id].data;
   }
@@ -532,12 +532,7 @@ export function useTransition(): [() => boolean, (fn: () => any) => void] {
 type HydrationContext = {
   id: string;
   count: number;
-  writeResource: (
-    id: string,
-    v: Promise<any> | any,
-    error?: boolean,
-    deferStream?: boolean
-  ) => void;
+  serialize: (id: string, v: Promise<any> | any, deferStream?: boolean) => void;
   replace: (id: string, replacement: () => any) => void;
   block: (p: Promise<any>) => void;
   resources: Record<string, any>;
@@ -610,7 +605,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
       return res;
     }
     setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0-f" });
-    ctx.writeResource(id, "$$f");
+    ctx.serialize(id, "$$f");
     return props.fallback;
   }, suspenseError);
 }

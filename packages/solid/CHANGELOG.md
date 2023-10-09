@@ -1,5 +1,32 @@
 # solid-js
 
+## 1.8.0-beta.2
+
+### Minor Changes
+
+- e3a97d28: hydration perf improvement, fix #1849
+
+### Patch Changes
+
+- d797a143: fix #1905, fix #1908 JSX type ommissions
+
+## 1.8.0-beta.1
+
+### Patch Changes
+
+- f6d511db: remove attribute quotes in template, batch serialization
+- af625dd3: fix: missing `has` property in `SharedConfig`
+
+## 1.8.0-beta.0
+
+### Minor Changes
+
+- d8e0e8e8: update to seroval streaming serializer, change ssr markers
+
+### Patch Changes
+
+- bf09b838: improved serialization/guards, fix #1413, fix #1796 hydration with lazy
+
 ## 1.7.12
 
 ### Patch Changes

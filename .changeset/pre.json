@@ -1,0 +1,19 @@
+{
+  "mode": "pre",
+  "tag": "beta",
+  "initialVersions": {
+    "babel-preset-solid": "1.7.12",
+    "solid-js": "1.7.12",
+    "solid-element": "1.7.1",
+    "solid-ssr": "1.7.2",
+    "test-integration": "1.7.12"
+  },
+  "changesets": [
+    "dull-rings-approve",
+    "healthy-spoons-watch",
+    "hungry-gifts-film",
+    "lazy-humans-mate",
+    "strong-years-smile",
+    "two-mayflies-flow"
+  ]
+}

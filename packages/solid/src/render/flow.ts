@@ -257,13 +257,8 @@ export function ErrorBoundary(props: {
   children: JSX.Element;
 }): JSX.Element {
   let err;
-  let v;
-  if (
-    sharedConfig!.context &&
-    sharedConfig!.load &&
-    (v = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count))
-  )
-    err = v[0];
+  if (sharedConfig!.context && sharedConfig!.load)
+    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count);
   const [errored, setErrored] = createSignal<any>(
     err,
     "_SOLID_DEV_" ? { name: "errored" } : undefined

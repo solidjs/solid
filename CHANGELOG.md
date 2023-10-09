@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.8.0 - 2023-10-09
+
+I admit this is not the most exciting release from a feature standpoint. We are in that holding pattern between the end of 1.x and the start of 2.0. We recently made our new reactive experiments public and continue to build those out in public with [@solidjs/signals](https://github.com/solidjs/signals).
+
+This version is more about addressing some of the fundamentals that will help us in other projects like SolidStart while we do the transition. A big part of this is applying what we have learned when doing performance benchmarks for the work that has been funded by [Google Chrome Aurora](https://www.solidjs.com/blog/chrome-supports-solidjs).
+
+Async and Resources need work and are too all in. It is great to have a solution but now that we have a better understanding we need to start breaking things apart into their fundamental pieces.
+
+### De-duping Streaming Serialization
+
+This is the marquee feature of this release and is largely the work of @lxsmnsyc. Solid has been able to serialize promises and do streaming for a couple of years now, but it was very special-cased. Now it is a generic mechanism.
+
+This matters because it means that we have decoupled the promise serialization from Resources, and in so decoupled the whole when the stream is done from them. This opens up things like nested promises.
+
+More so we have a mechanism now that deeply de-dupes data serialized across flushes. This is important for features like Islands where you might pass the same props to multiple Islands across different Suspense boundaries and don't want to send the data more than once. And even examples where that data can be accessed at varying depths (recursive comments in say a Hackernews site).
+
+### Hydration Improvements
+
+Fragments for Hydration have been a bit of a pain and we keep seeming to have different issues reported around element duplication. Most commonly this has been around where there are `lazy` component siblings or where the fragment is top-level. After looking into and fixing an [issue for Astro](https://github.com/withastro/astro/pull/8365) I decided to look at some of the oldest bugs in Solid and found it was a similar bug.
+
+In many cases, the DOM can change throughout Hydration while doing things like streaming but we need to pause and resume hydration because code isn't available yet. While we don't create elements during hydration, getting an accurate snapshot of the DOM for the current state for future list reconciliation is a process we've had a few tries at but in 1.8 we update this in a way that makes sure it doesn't get out of date.
+
+Also in 1.8, we have added some performance improvements to hydration in the form of not redundantly setting attributes or props as the page hydrates similar to how we don't update text. This is all migration towards a future where we don't need to do as much hydration, but it is important to note that values will be kept as they were on the server rather than how they may compute at runtime during hydration.
+
+### Smaller Templates
+
+In 1.7 we removed unnecessary closing tags from template strings. It was a bit painful because we were a bit overzealous at first. While I believe in the end we got to a good place, ultimately all but the simplest reductions have been hidden behind a compiler flag(`omitNestedClosingTags`). Thanks to work from @intrnl we are implementing another template size reduction technique of removing unnecessary quotes. Quotes are actually not required by HTML in some cases and it can add up.
+
+### Other
+
+#### Fix NGINX Server Side Includes
+
+Comments led with `#` are treated as special directives for a few different servers so we've needed to change our open hydration markers to `$`. As usual, your version of Solid and the Babel Plugin should be the same to ensure this matches up.
+
+#### Better Guards on Global Scripts
+
+Solid uses an inline HydrationScript as a way to do processing before the framework and code have loaded. To handle things like event capture and streaming. However, we didn't do a good job of guarding the right thing when multiple were added to the same page, a situation that can happen in Micro-frontends or 3rd party Islands solutions. Now the script guards against duplicate inclusion.
+
 ## 1.7.0 - 2023-03-30
 
 Solid has experienced incredible growth in usage the last 6 months. Companies are using it to power production applications and SolidStart Beta has been a big part of that. As a natural part of this growth and increased use at scale we are continuing to learn what works well and what the rough edges in Solid are today.
