@@ -1,5 +1,13 @@
 # solid-element
 
+## 1.8.0-beta.1
+
+### Patch Changes
+
+- Updated dependencies [e3a97d28]
+- Updated dependencies [d797a143]
+  - solid-js@1.8.0-beta.2
+
 ## 1.8.0-beta.0
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # solid-js
 
+## 1.8.0-beta.2
+
+### Minor Changes
+
+- e3a97d28: hydration perf improvement, fix #1849
+
+### Patch Changes
+
+- d797a143: fix #1905, fix #1908 JSX type ommissions
+
 ## 1.8.0-beta.1
 
 ### Patch Changes

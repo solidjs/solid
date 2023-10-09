@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.0-beta.2
+
+### Minor Changes
+
+- e3a97d28: hydration perf improvement, fix #1849
+
 ## 1.8.0-beta.1
 
 ### Patch Changes
