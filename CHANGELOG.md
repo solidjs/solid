@@ -22,6 +22,8 @@ Fragments for Hydration have been a bit of a pain and we keep seeming to have di
 
 In many cases the DOM can change over the course of Hydration while doing things like streaming but we need to pause and resume hydration because code isn't available yet. While we don't create elements during hydration, getting an accurate snapshot of the DOM for the current state for future list reconcilliation is a process we've had a few tries at but in 1.8 we update this in a way that makes sure it doesn't get out of date.
 
+Also in 1.8 we have added some performance improvements to hydration in the form of not redundantly setting attributes or props as the page hydrates similar to how we don't update text. This is all migration towards a future where we don't need to do as much hydration, but it is important to note that values will be kept as they were on the server rather than how they may compute at runtime during hydration.
+
 ### Smaller Templates
 
 In 1.7 we removed unnecessary closing tags from template strings. It was a bit painful because we were a bit over zealous at first. While I believe in the end we got to a good place, ultimately all but the simplest reductions have been hidden behind a compiler flag(`omitNestedClosingTags`). Thanks to work from @intrnl we are implementing another template size reduction technique of removing unnecessary quotes. Quotes are actually not required by HTML in some cases and it can add up.
