@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.8.1
+
+### Patch Changes
+
+- 0b9b71aa: better errors for hydration
+
 ## 1.8.0
 
 ### Minor Changes
