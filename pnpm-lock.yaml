@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       dom-expressions:
-        specifier: 0.37.0
-        version: 0.37.0(csstype@3.1.0)(seroval@0.10.4)
+        specifier: 0.37.1
+        version: 0.37.1(csstype@3.1.0)(seroval@0.10.4)
       hyper-dom-expressions:
-        specifier: 0.37.0
-        version: 0.37.0
+        specifier: 0.37.1
+        version: 0.37.1
       jsdom:
         specifier: ^21.1.1
         version: 21.1.1
       lit-dom-expressions:
-        specifier: 0.37.0
-        version: 0.37.0
+        specifier: 0.37.1
+        version: 0.37.1
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -109,7 +109,7 @@ importers:
         version: 4.9.5
       vite-plugin-solid:
         specifier: ^2.6.1
-        version: 2.6.1(solid-js@1.7.12)(vite@4.4.8)
+        version: 2.6.1(solid-js@packages+solid)(vite@4.4.8)
       vitest:
         specifier: ^0.29.3
         version: 0.29.3(jsdom@21.1.1)
@@ -2850,8 +2850,8 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions@0.37.0(csstype@3.1.0)(seroval@0.10.4):
-    resolution: {integrity: sha512-NULG60Azkn2NCANw+brxRkZN15NfEGQX+vaNvr9igo2L3gNkeVqe50Er0s7jjzG4STwgZNZKjQqfl3XCtFJBnw==}
+  /dom-expressions@0.37.1(csstype@3.1.0)(seroval@0.10.4):
+    resolution: {integrity: sha512-+15+8QsinZDuplnmaC4WebLOQER0sU6+ArpjDuxwUUX91cTfeV8/8B6dBD5b49O9gCylNyAn0vXKZSlsAJyRaQ==}
     peerDependencies:
       csstype: ^3.0
       seroval: ^0.10.4
@@ -3598,8 +3598,8 @@ packages:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
     dev: true
 
-  /hyper-dom-expressions@0.37.0:
-    resolution: {integrity: sha512-mGLh0jGh8M/CdiMDpFdPCAenoLeERx59YFWD++mTatEecSKwDlsWF/eEYoZlQFFxLb1blbdRw7//uS8z7fnrag==}
+  /hyper-dom-expressions@0.37.1:
+    resolution: {integrity: sha512-vtU5FUQblxWcKThYqFLrQgHmmbvqWseXM4HKVP7x5c7CA1gLO7WUsi417L5XGv/S0uTUnAMmU7iCiadiZN8X/A==}
     dev: true
 
   /iconv-lite@0.4.24:
@@ -4040,8 +4040,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions@0.37.0:
-    resolution: {integrity: sha512-VksdRfwVvblDsHKdij3Q8O0kFPVcdfYZfHxMVbv7XBPFl2HAura7fEx8s7fC3cXMJm+0JdF+AhnBQZMMvBFLWg==}
+  /lit-dom-expressions@0.37.1:
+    resolution: {integrity: sha512-KmzsEl/0xv5x6lEXnW1Ahs97Ns8kxL1b7IIIxB05ejSsCHBJE8KVdIvseC02lla4C7owktU2YMofsW40ZYYwBA==}
     dev: true
 
   /load-json-file@4.0.0:
@@ -5001,11 +5001,6 @@ packages:
     resolution: {integrity: sha512-TdaE9JkoATjKu+vjwllieX8zWyBTUVxbgWDnOsDJFfmKbM7vLSukuCXuD3pO3kkCtX4daywOW8ps2VCdPhS8/w==}
     engines: {node: '>=10'}
 
-  /seroval@0.5.1:
-    resolution: {integrity: sha512-ZfhQVB59hmIauJG5Ydynupy8KHyr5imGNtdDhbZG68Ufh1Ynkv9KOYOAABf71oVbQxJ8VkWnMHAjEHE7fWkH5g==}
-    engines: {node: '>=10'}
-    dev: true
-
   /serve-static@1.14.1:
     resolution: {integrity: sha512-JMrvUwE54emCYWlTI+hGrGv5I8dEwmco/00EvkzIIsR7MqrHonbD9pO2MOfFnpFntl7ecpZs+3mW+XbQZu9QCg==}
     engines: {node: '>= 0.8.0'}
@@ -5122,14 +5117,7 @@ packages:
       yargs: 15.4.1
     dev: true
 
-  /solid-js@1.7.12:
-    resolution: {integrity: sha512-QoyoOUKu14iLoGxjxWFIU8+/1kLT4edQ7mZESFPonsEXZ//VJtPKD8Ud1aTKzotj+MNWmSs9YzK6TdY+fO9Eww==}
-    dependencies:
-      csstype: 3.1.0
-      seroval: 0.5.1
-    dev: true
-
-  /solid-refresh@0.5.2(solid-js@1.7.12):
+  /solid-refresh@0.5.2(solid-js@packages+solid):
     resolution: {integrity: sha512-I69HmFj0LsGRJ3n8CEMVjyQFgVtuM2bSjznu2hCnsY+i5oOxh8ioWj00nnHBv0UYD3WpE/Sq4Q3TNw2IKmKN7A==}
     peerDependencies:
       solid-js: ^1.3
@@ -5137,7 +5125,7 @@ packages:
       '@babel/generator': 7.21.5
       '@babel/helper-module-imports': 7.21.4
       '@babel/types': 7.21.5
-      solid-js: 1.7.12
+      solid-js: link:packages/solid
     dev: true
 
   /source-map-js@1.0.2:
@@ -5791,7 +5779,7 @@ packages:
       - terser
     dev: true
 
-  /vite-plugin-solid@2.6.1(solid-js@1.7.12)(vite@4.4.8):
+  /vite-plugin-solid@2.6.1(solid-js@packages+solid)(vite@4.4.8):
     resolution: {integrity: sha512-/khM/ha3B5/pTWQWVJd/0n6ODPIrOcajwhbrD8Gnv37XmJJssu+KA8ssN73raMIicf2eiQKiTAV39w7dSl4Irg==}
     peerDependencies:
       solid-js: ^1.3.17 || ^1.4.0 || ^1.5.0 || ^1.6.0
@@ -5802,8 +5790,8 @@ packages:
       '@types/babel__core': 7.20.0
       babel-preset-solid: link:packages/babel-preset-solid
       merge-anything: 5.1.6
-      solid-js: 1.7.12
-      solid-refresh: 0.5.2(solid-js@1.7.12)
+      solid-js: link:packages/solid
+      solid-refresh: 0.5.2(solid-js@packages+solid)
       vite: 4.4.8(@types/node@18.11.19)
       vitefu: 0.2.4(vite@4.4.8)
     transitivePeerDependencies:
