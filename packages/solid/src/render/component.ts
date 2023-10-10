@@ -388,3 +388,14 @@ export function createUniqueId(): string {
   const ctx = sharedConfig.context;
   return ctx ? `${ctx.id}${ctx.count++}` : `cl-${counter++}`;
 }
+
+export function createServerValue<T>(cb: () => T): T {
+  const ctx = sharedConfig.context;
+  if (ctx && sharedConfig.load) {
+    const id = `${ctx.id}${ctx.count++}`;
+    if (sharedConfig.has(id)) {
+      return sharedConfig.load(id);
+    }
+  }
+  return cb();
+}
