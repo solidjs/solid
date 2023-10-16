@@ -24,6 +24,7 @@ export {
   equalFn,
   requestCallback,
   mapArray,
+  indexArray,
   observable,
   from,
   $PROXY,
