@@ -271,9 +271,9 @@ export function mapArray<T, U>(
   mapFn: (v: T, i: Accessor<number>) => U,
   options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
-  const items = list() || [];
+  const items = list();
   let s: U[] = [];
-  if (items.length) {
+  if (items && items.length) {
     for (let i = 0, len = items.length; i < len; i++) s.push(mapFn(items[i], () => i));
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
@@ -284,9 +284,9 @@ export function indexArray<T, U>(
   mapFn: (v: Accessor<T>, i: number) => U,
   options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
-  const items = list() || [];
+  const items = list();
   let s: U[] = [];
-  if (items.length) {
+  if (items && items.length) {
     for (let i = 0, len = items.length; i < len; i++) s.push(mapFn(() => items[i], i));
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
