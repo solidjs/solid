@@ -267,21 +267,29 @@ export function requestCallback(fn: () => void, options?: { timeout: number }): 
 export function cancelCallback(task: Task) {}
 
 export function mapArray<T, U>(
-  list: () => T[],
-  mapFn: (v: T, i: () => number) => U,
-  options: { fallback?: () => any } = {}
+  list: Accessor<readonly T[] | undefined | null | false>,
+  mapFn: (v: T, i: Accessor<number>) => U,
+  options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
   const items = list();
   let s: U[] = [];
-  if (items.length) {
+  if (items && items.length) {
     for (let i = 0, len = items.length; i < len; i++) s.push(mapFn(items[i], () => i));
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
 }
 
-function getSymbol() {
-  const SymbolCopy = Symbol as any;
-  return SymbolCopy.observable || "@@observable";
+export function indexArray<T, U>(
+  list: Accessor<readonly T[] | undefined | null | false>,
+  mapFn: (v: Accessor<T>, i: number) => U,
+  options: { fallback?: Accessor<any> } = {}
+): () => U[] {
+  const items = list();
+  let s: U[] = [];
+  if (items && items.length) {
+    for (let i = 0, len = items.length; i < len; i++) s.push(mapFn(() => items[i], i));
+  } else if (options.fallback) s = [options.fallback()];
+  return () => s;
 }
 
 export type ObservableObserver<T> =
