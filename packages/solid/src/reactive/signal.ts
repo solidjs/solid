@@ -620,8 +620,7 @@ export function createResource<T, S, R>(
     id = `${sharedConfig.context.id}${sharedConfig.context.count++}`;
     let v;
     if (options.ssrLoadFrom === "initial") initP = options.initialValue as T;
-    else if (sharedConfig.load && (v = sharedConfig.load(id)))
-      initP = isPromise(v) && "value" in v ? v.value : v;
+    else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v;
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, error?: any, key?: S) {
     if (pr === p) {
@@ -691,6 +690,11 @@ export function createResource<T, S, R>(
           );
     if (!isPromise(p)) {
       loadEnd(pr, p, undefined, lookup);
+      return p;
+    }
+    if ("value" in p) {
+      if ((p as any).status === "success") loadEnd(pr, p.value as T, undefined, lookup);
+      else loadEnd(pr, undefined, undefined, lookup);
       return p;
     }
     pr = p;

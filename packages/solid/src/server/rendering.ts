@@ -424,8 +424,7 @@ export function createResource<T, S>(
     if (p != undefined && typeof p === "object" && "then" in p) {
       read.loading = true;
       read.state = "pending";
-      if (ctx.serialize) ctx.serialize(id, p, options.deferStream);
-      return p
+      p = p
         .then(res => {
           read.loading = false;
           read.state = "ready";
@@ -440,7 +439,10 @@ export function createResource<T, S>(
           read.error = error = castError(err);
           p = null;
           notifySuspense(contexts);
+          throw error;
         });
+      if (ctx.serialize) ctx.serialize(id, p, options.deferStream);
+      return p;
     }
     ctx.resources[id].data = p;
     if (ctx.serialize) ctx.serialize(id, p);
@@ -592,7 +594,10 @@ export function Suspense(props: { fallback?: string; children: string }) {
   const res = runSuspense();
 
   // never suspended
-  if (suspenseComplete(value)) return res;
+  if (suspenseComplete(value)) {
+    delete ctx.suspense[id];
+    return res;
+  }
 
   done = ctx.async ? ctx.registerFragment(id) : undefined;
   return catchError(() => {
