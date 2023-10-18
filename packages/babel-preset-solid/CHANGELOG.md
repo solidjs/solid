@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.2
+
+### Patch Changes
+
+- dd492c5e: fix #1917, fix #1918 error handling with serialization
+
 ## 1.8.0
 
 ### Minor Changes

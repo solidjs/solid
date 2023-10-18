@@ -1,5 +1,13 @@
 # solid-js
 
+## 1.8.2
+
+### Patch Changes
+
+- b632dfd5: Add missing `indexArray` to server-side runtime.
+- dd492c5e: fix #1917, fix #1918 error handling with serialization
+- 4968fe26: Add `.js` extension to import
+
 ## 1.8.1
 
 ### Patch Changes
