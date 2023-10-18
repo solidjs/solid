@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.8.3
+
+### Patch Changes
+
+- 1f0226e1: fix #1917 for real this time
+
 ## 1.8.2
 
 ### Patch Changes
