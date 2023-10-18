@@ -144,7 +144,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
   if (sharedConfig.context && sharedConfig.load) {
     const key = sharedConfig.context.id + sharedConfig.context.count;
     let ref = sharedConfig.load(key);
-    if (ref && (typeof ref !== "object" || !("value" in ref))) p = ref;
+    if (ref && (typeof ref !== "object" || ref.status !== "success")) p = ref;
     if (p && p !== "$$f") {
       const [s, set] = createSignal(undefined, { equals: false });
       flicker = s;
