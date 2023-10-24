@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       dom-expressions:
-        specifier: 0.37.3
-        version: 0.37.3(csstype@3.1.0)(seroval@0.11.6)
+        specifier: 0.37.6
+        version: 0.37.6(csstype@3.1.0)(seroval@0.11.6)
       hyper-dom-expressions:
-        specifier: 0.37.3
-        version: 0.37.3
+        specifier: 0.37.6
+        version: 0.37.6
       jsdom:
         specifier: ^21.1.1
         version: 21.1.1
       lit-dom-expressions:
-        specifier: 0.37.3
-        version: 0.37.3
+        specifier: 0.37.6
+        version: 0.37.6
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -2889,11 +2889,11 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions@0.37.3(csstype@3.1.0)(seroval@0.11.6):
-    resolution: {integrity: sha512-XUIuHLYdEibGVVXN09fd2krN07xHi1XKvJ/eozJH3TycKsMPjJOOcS9rCkglHvMnrOaw73ODjJEsvhzFnl7Rkw==}
+  /dom-expressions@0.37.6(csstype@3.1.0)(seroval@0.11.6):
+    resolution: {integrity: sha512-O9X5kXoHgt/bjCSAIHlwB1DWzXKgPyKFKDTgzJIUVenEXuTsb27h4SW5CagAzE2OidmNJc+TbHRwUmqKBbM6SQ==}
     peerDependencies:
       csstype: ^3.0
-      seroval: ^0.11.4
+      seroval: ^0.12.0
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.0
@@ -3637,8 +3637,8 @@ packages:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
     dev: true
 
-  /hyper-dom-expressions@0.37.3:
-    resolution: {integrity: sha512-YXvTiNCcdCAu51gT/h3a2AS5X1PUo4fR1srXiu6y7qWSU4J+f5mL9bjwjit8h/EiBAVG+Vhg8ZX123c5Aid5lg==}
+  /hyper-dom-expressions@0.37.6:
+    resolution: {integrity: sha512-hbUzGeHVuCIH942BtzpaQ/qPwPqUsE+xMY0rt54x6RSKPSo53U0R88czAHTfCK++TvZxuGdw7GT9dw9fI9Ng5w==}
     dev: true
 
   /iconv-lite@0.4.24:
@@ -4079,8 +4079,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions@0.37.3:
-    resolution: {integrity: sha512-ubFMz5SGFlteSI2Gixr1eE+9feyH1zTePIFDLhqy9QJGmTZEhRY0wIHDDSK3CknE7UdsvHiLKihpJlyqeO9pSw==}
+  /lit-dom-expressions@0.37.6:
+    resolution: {integrity: sha512-j5K1L2Zq5QGra+fNqSm7wtIavUpMVgqWHPL2j0lyMhuf+U60sl2wzDu7MsMGC2KJDOPWnm/8hbBTHQfQQTgl8A==}
     dev: true
 
   /load-json-file@4.0.0:

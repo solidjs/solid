@@ -159,6 +159,10 @@
       "import": "./web/dist/web.js",
       "require": "./web/dist/web.cjs"
     },
+    "./web/storage": {
+      "import": "./web/dist/storage.js",
+      "require": "./web/dist/storage.cjs"
+    },
     "./web/dist/*": "./web/dist/*",
     "./universal": {
       "development": {
@@ -204,7 +208,7 @@
     "types:copy": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./h/jsx-runtime/src/jsx.d.ts",
     "types:src": "tsc --project ./tsconfig.build.json && ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./types/jsx.d.ts",
     "types:web": "tsc --project ./web/tsconfig.build.json",
-    "types:copy-web": "ncp ../../node_modules/dom-expressions/src/client.d.ts ./web/types/client.d.ts && ncp ../../node_modules/dom-expressions/src/server.d.ts ./web/types/server.d.ts",
+    "types:copy-web": "ncp ../../node_modules/dom-expressions/src/client.d.ts ./web/types/client.d.ts && ncp ../../node_modules/dom-expressions/src/server.d.ts ./web/types/server.d.ts && ncp ./web/storage/storage.d.ts ./web/types/storage.d.ts",
     "types:store": "tsc --project ./store/tsconfig.build.json",
     "types:html": "tsc --project ./html/tsconfig.json && ncp ../../node_modules/lit-dom-expressions/types/index.d.ts ./html/types/lit.d.ts",
     "types:h": "tsc --project ./h/tsconfig.json && ncp ../../node_modules/hyper-dom-expressions/types/index.d.ts ./h/types/hyperscript.d.ts",
