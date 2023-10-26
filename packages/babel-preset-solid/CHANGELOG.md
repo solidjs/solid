@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.4
+
+### Patch Changes
+
+- cf0542a4: fix #1927, fix #1929, fix #1931, update storage API
+
 ## 1.8.2
 
 ### Patch Changes

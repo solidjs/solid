@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.8.4
+
+### Patch Changes
+
+- cf0542a4: fix #1927, fix #1929, fix #1931, update storage API
+- 3f3a3396: serialization error handling, experimental async storage
+
 ## 1.8.3
 
 ### Patch Changes
