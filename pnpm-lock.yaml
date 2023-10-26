@@ -48,8 +48,8 @@ importers:
         specifier: ^0.29.7
         version: 0.29.7(vitest@0.29.3)
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.37.2
-        version: 0.37.2(@babel/core@7.21.3)
+        specifier: ^0.37.8
+        version: 0.37.8(@babel/core@7.21.3)
       coveralls:
         specifier: ^3.1.1
         version: 3.1.1
@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       dom-expressions:
-        specifier: 0.37.6
-        version: 0.37.6(csstype@3.1.0)(seroval@0.11.6)
+        specifier: 0.37.8
+        version: 0.37.8(csstype@3.1.0)(seroval@0.12.0)
       hyper-dom-expressions:
-        specifier: 0.37.6
-        version: 0.37.6
+        specifier: 0.37.8
+        version: 0.37.8
       jsdom:
         specifier: ^21.1.1
         version: 21.1.1
       lit-dom-expressions:
-        specifier: 0.37.6
-        version: 0.37.6
+        specifier: 0.37.8
+        version: 0.37.8
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -90,8 +90,8 @@ importers:
         specifier: ^3.4.0
         version: 3.4.0
       seroval:
-        specifier: ^0.11.6
-        version: 0.11.6
+        specifier: ^0.12.0
+        version: 0.12.0
       simple-git-hooks:
         specifier: ^2.8.1
         version: 2.8.1
@@ -120,8 +120,8 @@ importers:
         specifier: ^7.0.0
         version: 7.21.3
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.37.2
-        version: 0.37.2(@babel/core@7.21.3)
+        specifier: ^0.37.8
+        version: 0.37.8(@babel/core@7.21.3)
 
   packages/solid:
     dependencies:
@@ -129,8 +129,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       seroval:
-        specifier: ^0.11.6
-        version: 0.11.6
+        specifier: ^0.12.0
+        version: 0.12.0
 
   packages/solid-element:
     dependencies:
@@ -2323,15 +2323,15 @@ packages:
       - debug
     dev: true
 
-  /babel-plugin-jsx-dom-expressions@0.37.2(@babel/core@7.21.3):
-    resolution: {integrity: sha512-u3VKB+On86cYSLAbw9j0m0X8ZejL4MR7oG7TRlrMQ/y1mauR/ZpM2xkiOPZEUlzHLo1GYGlTdP9s5D3XuA6iSQ==}
+  /babel-plugin-jsx-dom-expressions@0.37.8(@babel/core@7.21.3):
+    resolution: {integrity: sha512-nVHH6g7541aaAQJAsyWHvjH7GCXZ+8tuF3Qu4y9W9aKwonRbcJL+yyMatDJLvjC54iIuGowiiZM6Rm3AVJczGg==}
     peerDependencies:
       '@babel/core': ^7.20.12
     dependencies:
       '@babel/core': 7.21.3
       '@babel/helper-module-imports': 7.18.6
       '@babel/plugin-syntax-jsx': 7.21.4(@babel/core@7.21.3)
-      '@babel/types': 7.21.5
+      '@babel/types': 7.23.0
       html-entities: 2.3.3
       validate-html-nesting: 1.2.2
 
@@ -2889,15 +2889,15 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions@0.37.6(csstype@3.1.0)(seroval@0.11.6):
-    resolution: {integrity: sha512-O9X5kXoHgt/bjCSAIHlwB1DWzXKgPyKFKDTgzJIUVenEXuTsb27h4SW5CagAzE2OidmNJc+TbHRwUmqKBbM6SQ==}
+  /dom-expressions@0.37.8(csstype@3.1.0)(seroval@0.12.0):
+    resolution: {integrity: sha512-wov4K/w1QwrlwlIImnU1d9RyW9FCnCBn1PA6WE97c/nyUmEIpXNRxRCCSdYVSzXbIxSQ1OUalYOG8vejs234vQ==}
     peerDependencies:
       csstype: ^3.0
       seroval: ^0.12.0
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.0
-      seroval: 0.11.6
+      seroval: 0.12.0
     dev: true
 
   /domexception@4.0.0:
@@ -3637,8 +3637,8 @@ packages:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
     dev: true
 
-  /hyper-dom-expressions@0.37.6:
-    resolution: {integrity: sha512-hbUzGeHVuCIH942BtzpaQ/qPwPqUsE+xMY0rt54x6RSKPSo53U0R88czAHTfCK++TvZxuGdw7GT9dw9fI9Ng5w==}
+  /hyper-dom-expressions@0.37.8:
+    resolution: {integrity: sha512-SnX31qmlJDrGTWHmlpp8VbaLK1mWck+/Pr+n1rOLuVAlCtGMLE15+F11WFY/keSKtxwgYSZQ8Lwc5XCUtGa2IA==}
     dev: true
 
   /iconv-lite@0.4.24:
@@ -4079,8 +4079,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions@0.37.6:
-    resolution: {integrity: sha512-j5K1L2Zq5QGra+fNqSm7wtIavUpMVgqWHPL2j0lyMhuf+U60sl2wzDu7MsMGC2KJDOPWnm/8hbBTHQfQQTgl8A==}
+  /lit-dom-expressions@0.37.8:
+    resolution: {integrity: sha512-0haLTzvrUqTTHl+f3X3cRr+EiqGjX561ly1cuT56vTm/1l9ra670xhJQZcHpfdAdMI7T3YR75cFGNu+jDjRPOg==}
     dev: true
 
   /load-json-file@4.0.0:
@@ -5036,8 +5036,8 @@ packages:
       - supports-color
     dev: true
 
-  /seroval@0.11.6:
-    resolution: {integrity: sha512-Lhy+94CNcNza6d0vM4sQKLsaLaX39q0ELqIBc7DkdiFljI8Q387Yb+xKgLxRWXs7uuHRu/ZcJ64xfVJ0Bj4LPg==}
+  /seroval@0.12.0:
+    resolution: {integrity: sha512-5qvk9WRORhvOdHVtDv6KEKrTDbG8O9nODDdETfQcJ0u9iaZJ6mAASg/nQgPzqtuV9cqln9msE7WNmD+sJomrIw==}
     engines: {node: '>=10'}
 
   /serve-static@1.14.1:
