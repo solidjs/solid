@@ -692,12 +692,12 @@ export function createResource<T, S, R>(
       loadEnd(pr, p, undefined, lookup);
       return p;
     }
+    pr = p;
     if ("value" in p) {
       if ((p as any).status === "success") loadEnd(pr, p.value as T, undefined, lookup);
       else loadEnd(pr, undefined, undefined, lookup);
       return p;
     }
-    pr = p;
     scheduled = true;
     queueMicrotask(() => (scheduled = false));
     runUpdates(() => {
