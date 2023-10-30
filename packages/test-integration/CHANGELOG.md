@@ -1,5 +1,12 @@
 # test-integration
 
+## 1.8.5
+
+### Patch Changes
+
+- Updated dependencies [80ca972f]
+  - solid-js@1.8.5
+
 ## 1.8.4
 
 ### Patch Changes

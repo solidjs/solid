@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.8.5
+
+### Patch Changes
+
+- 80ca972f: fix `onHydrate` call being skipped
+
 ## 1.8.4
 
 ### Patch Changes
