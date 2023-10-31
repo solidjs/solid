@@ -234,10 +234,7 @@ export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
 }
 
 function resolveChildren(children: any): unknown {
-  // `!children.length` avoids reading signals to not triggger a refresh on the parent memo.
-  // The issue manifest when `children` is an array containing more than 1 signal, because
-  // an invalidation on any, will cause invalidation on siblings, as the parent memo needs to be refreshed.
-  // The _most_ likely signals avoided here are memos returned by the resolved components.
+  // `!children.length` avoids running functions that arent signals
   if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
