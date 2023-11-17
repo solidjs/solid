@@ -20,13 +20,14 @@ describe("Testing Context", () => {
       </Show>
     );
   };
-  const div = document.createElement("div");
+
   it("should create context properly", () => {
     expect(ThemeContext.id).toBeDefined();
     expect(ThemeContext.defaultValue).toBe("light");
   });
 
   it("should work with single provider child", () => {
+    const div = document.createElement("div");
     render(
       () => (
         <ThemeContext.Provider value="dark">
@@ -35,11 +36,11 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect((div.firstChild as HTMLDivElement).innerHTML).toBe("dark");
-    div.innerHTML = "";
+    expect(div.children[0].innerHTML).toBe("dark");
   });
 
   it("should work with single conditional provider child", () => {
+    const div = document.createElement("div");
     render(
       () => (
         <ThemeContext.Provider value="dark">
@@ -48,11 +49,11 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect((div.firstChild as HTMLDivElement).innerHTML).toBe("dark");
-    div.innerHTML = "";
+    expect(div.children[0].innerHTML).toBe("dark");
   });
 
   it("should work with multi provider child", () => {
+    const div = document.createElement("div");
     render(
       () => (
         <ThemeContext.Provider value="dark">
@@ -62,11 +63,11 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
-    div.innerHTML = "";
+    expect(div.children[1].innerHTML).toBe("dark");
   });
 
   it("should work with multi conditional provider child", () => {
+    const div = document.createElement("div");
     render(
       () => (
         <ThemeContext.Provider value="dark">
@@ -76,11 +77,11 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
-    div.innerHTML = "";
+    expect(div.children[1].innerHTML).toBe("dark");
   });
 
   it("should work with dynamic multi provider child", () => {
+    const div = document.createElement("div");
     const child = () => <Component />;
     render(
       () => (
@@ -91,11 +92,11 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
-    div.innerHTML = "";
+    expect(div.children[1].innerHTML).toBe("dark");
   });
 
   it("should work with dynamic multi conditional provider child", () => {
+    const div = document.createElement("div");
     const child = () => <CondComponent />;
     render(
       () => (
@@ -106,7 +107,29 @@ describe("Testing Context", () => {
       ),
       div
     );
-    expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
-    div.innerHTML = "";
+    expect(div.children[1].innerHTML).toBe("dark");
+  });
+
+  const ThemeContextWithoutDefault = createContext<string>();
+  const ComponentWithoutDefault = () => {
+    const theme = useContext(ThemeContextWithoutDefault);
+    return <div>{theme ?? "no-default"}</div>;
+  };
+
+  it("should work with no default provided", () => {
+    const div = document.createElement("div");
+    render(
+      () => (
+        <>
+          <ComponentWithoutDefault />
+          <ThemeContextWithoutDefault.Provider value="dark">
+            <ComponentWithoutDefault />
+          </ThemeContextWithoutDefault.Provider>
+        </>
+      ),
+      div
+    );
+    expect(div.children[0].innerHTML!).toBe("no-default");
+    expect(div.children[1].innerHTML!).toBe("dark");
   });
 });

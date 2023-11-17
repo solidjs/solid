@@ -1130,10 +1130,10 @@ export function registerGraph(value: SourceMapValue): void {
 export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
 
 // Context API
-export interface Context<T> {
+export interface Context<T, D = T> {
   id: symbol;
   Provider: ContextProviderComponent<T>;
-  defaultValue: T;
+  defaultValue: D;
 }
 
 /**
@@ -1158,7 +1158,7 @@ export interface Context<T> {
 export function createContext<T>(
   defaultValue?: undefined,
   options?: EffectOptions
-): Context<T | undefined>;
+): Context<T, undefined>;
 export function createContext<T>(defaultValue: T, options?: EffectOptions): Context<T>;
 export function createContext<T>(
   defaultValue?: T,
@@ -1176,7 +1176,7 @@ export function createContext<T>(
  *
  * @description https://www.solidjs.com/docs/latest/api#usecontext
  */
-export function useContext<T>(context: Context<T>): T {
+export function useContext<T, D>(context: Context<T, D>): D extends undefined ? T | undefined : T {
   return Owner && Owner.context && Owner.context[context.id] !== undefined
     ? Owner.context[context.id]
     : context.defaultValue;
@@ -1215,7 +1215,7 @@ export type SuspenseContextType = {
   resolved?: boolean;
 };
 
-type SuspenseContext = Context<SuspenseContextType | undefined> & {
+type SuspenseContext = Context<SuspenseContextType, undefined> & {
   active?(): boolean;
   increment?(): void;
   decrement?(): void;
@@ -1224,7 +1224,7 @@ type SuspenseContext = Context<SuspenseContextType | undefined> & {
 let SuspenseContext: SuspenseContext;
 
 export function getSuspenseContext() {
-  return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType | undefined>());
+  return SuspenseContext || (SuspenseContext = createContext<SuspenseContextType>());
 }
 
 // Interop
