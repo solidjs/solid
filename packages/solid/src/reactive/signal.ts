@@ -57,9 +57,11 @@ let ExecCount = 0;
 export const DevHooks: {
   afterUpdate: (() => void) | null;
   afterCreateOwner: ((owner: Owner) => void) | null;
+  afterCreateSignal: ((signal: SignalState<any>) => void) | null;
 } = {
   afterUpdate: null,
-  afterCreateOwner: null
+  afterCreateOwner: null,
+  afterCreateSignal: null
 };
 
 // keep immediately evaluated module code, below its indirect declared let dependencies like Listener
@@ -228,9 +230,10 @@ export function createSignal<T>(
     comparator: options.equals || undefined
   };
 
-  if ("_SOLID_DEV_" && !options.internal) {
+  if ("_SOLID_DEV_") {
     if (options.name) s.name = options.name;
-    registerGraph(s);
+    if (DevHooks.afterCreateSignal) DevHooks.afterCreateSignal(s);
+    if (!options.internal) registerGraph(s);
   }
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
