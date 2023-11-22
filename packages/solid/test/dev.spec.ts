@@ -129,6 +129,26 @@ describe("Dev features", () => {
     });
   });
 
+  test("afterCreateSignal Hook", () => {
+    createRoot(() => {
+      const owner = getOwner()!;
+      const cb = vi.fn();
+      DEV!.hooks.afterCreateSignal = cb;
+
+      createSignal(3, { name: "test" });
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).toHaveBeenLastCalledWith(owner.sourceMap![0]);
+
+      createSignal(5);
+      expect(cb).toHaveBeenCalledTimes(2);
+      expect(cb).toHaveBeenLastCalledWith(owner.sourceMap![1]);
+
+      createSignal(6, { name: "explicit" });
+      expect(cb).toHaveBeenCalledTimes(3);
+      expect(cb).toHaveBeenLastCalledWith(owner.sourceMap![2]);
+    });
+  });
+
   test("OnStoreNodeUpdate Hook", () => {
     const cb = vi.fn();
     STORE_DEV!.hooks.onStoreNodeUpdate = cb;
