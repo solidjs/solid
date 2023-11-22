@@ -80,6 +80,7 @@
       "require": "./dist/solid.cjs"
     },
     "./dist/*": "./dist/*",
+    "./types/*": "./types/*",
     "./jsx-runtime": {
       "types": "./types/jsx.d.ts",
       "default": "./dist/solid.js"
@@ -124,6 +125,7 @@
       "require": "./store/dist/store.cjs"
     },
     "./store/dist/*": "./store/dist/*",
+    "./store/types/*": "./store/types/*",
     "./web": {
       "worker": {
         "types": "./web/types/index.d.ts",
@@ -164,6 +166,7 @@
       "require": "./web/dist/storage.cjs"
     },
     "./web/dist/*": "./web/dist/*",
+    "./web/types/*": "./web/types/*",
     "./universal": {
       "development": {
         "types": "./universal/types/index.d.ts",
@@ -175,6 +178,7 @@
       "require": "./universal/dist/universal.cjs"
     },
     "./universal/dist/*": "./universal/dist/*",
+    "./universal/types/*": "./universal/types/*",
     "./h": {
       "types": "./h/types/index.d.ts",
       "import": "./h/dist/h.js",
@@ -191,6 +195,7 @@
       "require": "./h/jsx-runtime/dist/jsx.cjs"
     },
     "./h/dist/*": "./h/dist/*",
+    "./h/types/*": "./h/types/*",
     "./html": {
       "types": "./html/types/index.d.ts",
       "import": "./html/dist/html.js",
