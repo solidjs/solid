@@ -110,7 +110,39 @@ describe("Testing Context", () => {
     expect(div.children[1].innerHTML).toBe("dark");
   });
 
-  const ThemeContextWithoutDefault = createContext<string>();
+  const ThemeContextWithUndefined = createContext<string | undefined>("light");
+  const ComponentWithUndefined = () => {
+    const theme = useContext(ThemeContextWithUndefined);
+    // ?? 'undefined' will never get reached
+    return <div>{theme ?? "undefined"}</div>;
+  };
+
+  it("should override when nesting", () => {
+    const div = document.createElement("div");
+    render(
+      () => (
+        <>
+          <ComponentWithUndefined />
+          <ThemeContextWithUndefined.Provider value="dark">
+            <ComponentWithUndefined />
+            <ThemeContextWithUndefined.Provider value="darker">
+              <ComponentWithUndefined />
+              <ThemeContextWithUndefined.Provider value={undefined}>
+                <ComponentWithUndefined />
+              </ThemeContextWithUndefined.Provider>
+            </ThemeContextWithUndefined.Provider>
+          </ThemeContextWithUndefined.Provider>
+        </>
+      ),
+      div
+    );
+    expect(div.children[0].innerHTML!).toBe("light");
+    expect(div.children[1].innerHTML!).toBe("dark");
+    expect(div.children[2].innerHTML!).toBe("darker");
+    expect(div.children[3].innerHTML!).toBe("light");
+  });
+
+  const ThemeContextWithoutDefault = createContext<string | undefined>();
   const ComponentWithoutDefault = () => {
     const theme = useContext(ThemeContextWithoutDefault);
     return <div>{theme ?? "no-default"}</div>;
@@ -124,6 +156,9 @@ describe("Testing Context", () => {
           <ComponentWithoutDefault />
           <ThemeContextWithoutDefault.Provider value="dark">
             <ComponentWithoutDefault />
+            <ThemeContextWithoutDefault.Provider value={undefined}>
+              <ComponentWithoutDefault />
+            </ThemeContextWithoutDefault.Provider>
           </ThemeContextWithoutDefault.Provider>
         </>
       ),
@@ -131,5 +166,6 @@ describe("Testing Context", () => {
     );
     expect(div.children[0].innerHTML!).toBe("no-default");
     expect(div.children[1].innerHTML!).toBe("dark");
+    expect(div.children[2].innerHTML!).toBe("no-default");
   });
 });
