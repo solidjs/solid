@@ -234,6 +234,7 @@ export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
 }
 
 function resolveChildren(children: any): unknown {
+  // `!children.length` avoids running functions that arent signals
   if (typeof children === "function" && !children.length) return resolveChildren(children());
   if (Array.isArray(children)) {
     const results: any[] = [];
