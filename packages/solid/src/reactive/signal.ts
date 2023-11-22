@@ -1324,10 +1324,7 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
 function updateComputation(node: Computation<any>) {
   if (!node.fn) return;
   cleanNode(node);
-  const owner = Owner,
-    listener = Listener,
-    time = ExecCount;
-  Listener = Owner = node;
+  const time = ExecCount;
   runComputation(
     node,
     Transition && Transition.running && Transition.sources.has(node as Memo<any>)
@@ -1346,12 +1343,13 @@ function updateComputation(node: Computation<any>) {
       }, false);
     });
   }
-  Listener = listener;
-  Owner = owner;
 }
 
 function runComputation(node: Computation<any>, value: any, time: number) {
   let nextValue;
+  const owner = Owner,
+    listener = Listener;
+  Listener = Owner = node;
   try {
     nextValue = node.fn(value);
   } catch (err) {
@@ -1369,6 +1367,9 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     // won't be picked up until next update
     node.updatedAt = time + 1;
     return handleError(err);
+  } finally {
+    Listener = listener;
+    Owner = owner;
   }
   if (!node.updatedAt || node.updatedAt <= time) {
     if (node.updatedAt != null && "observers" in node) {
