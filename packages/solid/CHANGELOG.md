@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.8.6
+
+### Patch Changes
+
+- 2b320376: Add types directory export for each package
+- fb7f4bc1: fix #1950 leaking error tracking
+- b092368c: feat(DEV): Add afterCreateSignal hook to DevHooks
+- 54e1aecf: update seroval, fix this, optimize star imports, fix #1952 hydration race condition
+
 ## 1.8.5
 
 ### Patch Changes

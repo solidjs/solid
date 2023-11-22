@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.6
+
+### Patch Changes
+
+- 54e1aecf: update seroval, fix this, optimize star imports, fix #1952 hydration race condition
+
 ## 1.8.4
 
 ### Patch Changes
