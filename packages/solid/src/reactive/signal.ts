@@ -244,9 +244,6 @@ export function createSignal<T>(
   return [readSignal.bind(s), setter];
 }
 
-// keep immediately evaluated module code, below its dependencies like Listener & createSignal
-const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
-
 export interface BaseOptions {
   name?: string;
 }
@@ -1074,6 +1071,9 @@ export function startTransition(fn: () => unknown): Promise<void> {
     return t ? t.done : undefined;
   });
 }
+
+// keep immediately evaluated module code, below its dependencies like Listener & createSignal
+const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
 export type Transition = [Accessor<boolean>, (fn: () => void) => Promise<void>];
 
