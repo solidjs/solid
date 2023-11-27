@@ -535,7 +535,7 @@ type HydrationContext = {
   id: string;
   count: number;
   serialize: (id: string, v: Promise<any> | any, deferStream?: boolean) => void;
-  push: (v: any) => void;
+  push: (v: any) => string;
   replace: (id: string, replacement: () => any) => void;
   block: (p: Promise<any>) => void;
   resources: Record<string, any>;
