@@ -64,9 +64,6 @@ export const DevHooks: {
   afterCreateSignal: null
 };
 
-// keep immediately evaluated module code, below its indirect declared let dependencies like Listener
-const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
-
 export type ComputationState = 0 | 1 | 2;
 
 export interface SourceMapValue {
@@ -1074,6 +1071,9 @@ export function startTransition(fn: () => unknown): Promise<void> {
     return t ? t.done : undefined;
   });
 }
+
+// keep immediately evaluated module code, below its dependencies like Listener & createSignal
+const [transPending, setTransPending] = /*@__PURE__*/ createSignal(false);
 
 export type Transition = [Accessor<boolean>, (fn: () => void) => Promise<void>];
 
