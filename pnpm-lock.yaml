@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       dom-expressions:
-        specifier: 0.37.9
-        version: 0.37.9(csstype@3.1.0)(seroval@0.14.1)
+        specifier: 0.37.10
+        version: 0.37.10(csstype@3.1.0)(seroval@0.15.1)
       hyper-dom-expressions:
-        specifier: 0.37.9
-        version: 0.37.9
+        specifier: 0.37.10
+        version: 0.37.10
       jsdom:
         specifier: ^21.1.1
         version: 21.1.1
       lit-dom-expressions:
-        specifier: 0.37.9
-        version: 0.37.9
+        specifier: 0.37.10
+        version: 0.37.10
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -90,8 +90,8 @@ importers:
         specifier: ^3.4.0
         version: 3.4.0
       seroval:
-        specifier: ^0.14.1
-        version: 0.14.1
+        specifier: ^0.15.1
+        version: 0.15.1
       simple-git-hooks:
         specifier: ^2.8.1
         version: 2.8.1
@@ -129,8 +129,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       seroval:
-        specifier: ^0.14.1
-        version: 0.14.1
+        specifier: ^0.15.1
+        version: 0.15.1
 
   packages/solid-element:
     dependencies:
@@ -2889,15 +2889,15 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions@0.37.9(csstype@3.1.0)(seroval@0.14.1):
-    resolution: {integrity: sha512-UP6usdn/Iq9geJAvP65hMZf0b3/0NJ/8+PnqxgxtVzAzKuLGNbmU+4f+DbvwcLL6xQeg96Ff0wIzR52UZnaF4w==}
+  /dom-expressions@0.37.10(csstype@3.1.0)(seroval@0.15.1):
+    resolution: {integrity: sha512-ZVqlbD3ggzPnY2QK0Hxpzw/PjB5Pe2WrE8XrM4TqS6S7SEetePrQRQIiKQPRizClaR4HWXAyfjqrXzTFj98YeQ==}
     peerDependencies:
       csstype: ^3.0
-      seroval: ^0.14.1
+      seroval: ^0.15.1
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.0
-      seroval: 0.14.1
+      seroval: 0.15.1
     dev: true
 
   /domexception@4.0.0:
@@ -3637,8 +3637,8 @@ packages:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
     dev: true
 
-  /hyper-dom-expressions@0.37.9:
-    resolution: {integrity: sha512-4znv2TjnJcOTm8IhEcEH6AE1S/N8WW671lGFvhxi9qHvIfreqprIMVQm64hI2XIe7Pz9JgD7p753U6h7VNszpw==}
+  /hyper-dom-expressions@0.37.10:
+    resolution: {integrity: sha512-Z01K+6LZzlsIfN4F2SSLOj5g36nG01wKA8DJG8QuKFD2g6TEHcTbkKr0XCTvtPmc0qQxv3+wzlTTLODRtlwWvw==}
     dev: true
 
   /iconv-lite@0.4.24:
@@ -4079,8 +4079,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lit-dom-expressions@0.37.9:
-    resolution: {integrity: sha512-BL3z5qNx29zxekHEum4hHusADp7Kgn2qwbfgRxTIg3px7tHTLAkwnL3Lv8PTiZnbfwvjIp0UMXwf+ZQKC1KVDg==}
+  /lit-dom-expressions@0.37.10:
+    resolution: {integrity: sha512-1FsbZSqLkSfeUNj7bI3KRVfS/patZcOPkYmJi1ruPHIUD0xxCGDt0gH6fRqN6ZuGPMabYEtc/9A0+dbyaPatFQ==}
     dev: true
 
   /load-json-file@4.0.0:
@@ -5036,8 +5036,8 @@ packages:
       - supports-color
     dev: true
 
-  /seroval@0.14.1:
-    resolution: {integrity: sha512-ZlC9y1KVDhZFdEHLYZup1RjKDutyX1tt3ffOauqRbRURa2vRr2NU/bHuVEuNEqR3zE2uCU3WM6LqH6Oinc3tWg==}
+  /seroval@0.15.1:
+    resolution: {integrity: sha512-OPVtf0qmeC7RW+ScVX+7aOS+xoIM7pWcZ0jOWg2aTZigCydgRB04adfteBRbecZnnrO1WuGQ+C3tLeBBzX2zSQ==}
     engines: {node: '>=10'}
 
   /serve-static@1.14.1:
