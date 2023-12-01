@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.8.7
+
+### Patch Changes
+
+- 22667bbc: fix: createSignal not found when bundled
+- e09a3cc3: fix timing issue with deferStream
+
 ## 1.8.6
 
 ### Patch Changes
