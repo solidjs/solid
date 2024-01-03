@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.8
+
+### Patch Changes
+
+- 968e2cc9: update seroval, fix #1972, fix #1980, fix #2002, support partial ALS
+
 ## 1.8.6
 
 ### Patch Changes

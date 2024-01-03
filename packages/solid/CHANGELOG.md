@@ -1,5 +1,16 @@
 # solid-js
 
+## 1.8.8
+
+### Patch Changes
+
+- 40b5d78d: chore(types): return mapped type for splitProps excluded `other` value
+- 968e2cc9: update seroval, fix #1972, fix #1980, fix #2002, support partial ALS
+- 292aba41: fix #1982 ErrorBoundary with ExternalSource
+- 7e5667ab: fix #1998 Switch relying on order
+- 8d2de12f: fix #1850 untrack in external source
+- b887587a: fix #1973 array over object reconcile
+
 ## 1.8.7
 
 ### Patch Changes
