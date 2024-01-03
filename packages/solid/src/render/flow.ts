@@ -160,7 +160,7 @@ type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
   let keyed = false;
   const equals: MemoOptions<EvalConditions>["equals"] = (a, b) =>
-    a[0] === b[0] && (keyed ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2];
+    (keyed ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2];
   const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
     evalConditions = createMemo(
       (): EvalConditions => {
