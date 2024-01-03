@@ -271,7 +271,7 @@ export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
       ? Pick<T, Extract<K[P], readonly (keyof T)[]>[number]>
       : never;
   },
-  Omit<T, K[number][number]>
+  { [P in keyof T as Exclude<P, K[number][number]>]: T[P] }
 ];
 
 export function splitProps<
