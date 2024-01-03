@@ -1428,7 +1428,7 @@ function createComputation<Next, Init = unknown>(
 
   if ("_SOLID_DEV_" && options && options.name) c.name = options.name;
 
-  if (ExternalSourceFactory) {
+  if (ExternalSourceFactory && c.fn) {
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
     const ordinary = ExternalSourceFactory(c.fn, trigger);
     onCleanup(() => ordinary.dispose());
