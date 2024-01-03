@@ -47,7 +47,10 @@ const NO_INIT = {};
 export var Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
-let ExternalSourceFactory: ExternalSourceFactory | null = null;
+let ExternalSourceConfig: {
+  factory: ExternalSourceFactory;
+  untrack: <V>(fn: () => V) => V;
+} | null = null;
 let Listener: Computation<any> | null = null;
 let Updates: Computation<any>[] | null = null;
 let Effects: Computation<any>[] | null = null;
@@ -865,11 +868,12 @@ export function batch<T>(fn: Accessor<T>): T {
  * @description https://www.solidjs.com/docs/latest/api#untrack
  */
 export function untrack<T>(fn: Accessor<T>): T {
-  if (Listener === null) return fn();
+  if (!ExternalSourceConfig && Listener === null) return fn();
 
   const listener = Listener;
   Listener = null;
   try {
+    if (ExternalSourceConfig) return ExternalSourceConfig.untrack(fn);
     return fn();
   } finally {
     Listener = listener;
@@ -1231,22 +1235,28 @@ export function getSuspenseContext() {
 }
 
 // Interop
-export function enableExternalSource(factory: ExternalSourceFactory) {
-  if (ExternalSourceFactory) {
-    const oldFactory = ExternalSourceFactory;
-    ExternalSourceFactory = (fn, trigger) => {
-      const oldSource = oldFactory(fn, trigger);
-      const source = factory(x => oldSource.track(x), trigger);
-      return {
-        track: x => source.track(x),
-        dispose() {
-          source.dispose();
-          oldSource.dispose();
-        }
-      };
+export function enableExternalSource(
+  factory: ExternalSourceFactory,
+  untrack: <V>(fn: () => V) => V = fn => fn()
+) {
+  if (ExternalSourceConfig) {
+    const { factory: oldFactory, untrack: oldUntrack } = ExternalSourceConfig;
+    ExternalSourceConfig = {
+      factory: (fn, trigger) => {
+        const oldSource = oldFactory(fn, trigger);
+        const source = factory(x => oldSource.track(x), trigger);
+        return {
+          track: x => source.track(x),
+          dispose() {
+            source.dispose();
+            oldSource.dispose();
+          }
+        };
+      },
+      untrack: fn => oldUntrack(() => untrack(fn))
     };
   } else {
-    ExternalSourceFactory = factory;
+    ExternalSourceConfig = { factory, untrack };
   }
 }
 
@@ -1428,13 +1438,13 @@ function createComputation<Next, Init = unknown>(
 
   if ("_SOLID_DEV_" && options && options.name) c.name = options.name;
 
-  if (ExternalSourceFactory && c.fn) {
+  if (ExternalSourceConfig && c.fn) {
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
-    const ordinary = ExternalSourceFactory(c.fn, trigger);
+    const ordinary = ExternalSourceConfig.factory(c.fn, trigger);
     onCleanup(() => ordinary.dispose());
     const triggerInTransition: () => void = () =>
       startTransition(trigger).then(() => inTransition.dispose());
-    const inTransition = ExternalSourceFactory(c.fn, triggerInTransition);
+    const inTransition = ExternalSourceConfig.factory(c.fn, triggerInTransition);
     c.fn = x => {
       track();
       return Transition && Transition.running ? inTransition.track(x) : ordinary.track(x);
