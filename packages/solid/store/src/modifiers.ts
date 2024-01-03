@@ -16,15 +16,19 @@ function applyState(
 ) {
   const previous = parent[property];
   if (target === previous) return;
+  const isArray = Array.isArray(target);
   if (
     property !== $ROOT &&
-    (!isWrappable(target) || !isWrappable(previous) || (key && target[key] !== previous[key]))
+    (!isWrappable(target) ||
+      !isWrappable(previous) ||
+      (isArray && !Array.isArray(previous)) ||
+      (key && target[key] !== previous[key]))
   ) {
     setProperty(parent, property, target);
     return;
   }
 
-  if (Array.isArray(target)) {
+  if (isArray) {
     if (
       target.length &&
       previous.length &&
