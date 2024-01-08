@@ -48,7 +48,7 @@
     "rollup": "^3.7.5",
     "rollup-plugin-cleanup": "^3.2.1",
     "rollup-plugin-copy": "^3.4.0",
-    "seroval": "^1.0.2",
+    "seroval": "^1.0.3",
     "simple-git-hooks": "^2.8.1",
     "symlink-dir": "^5.0.1",
     "tsconfig-replace-paths": "^0.0.11",

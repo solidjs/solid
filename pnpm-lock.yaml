@@ -58,7 +58,7 @@ importers:
         version: 3.1.0
       dom-expressions:
         specifier: 0.37.12
-        version: 0.37.12(csstype@3.1.0)(seroval-plugins@1.0.2)(seroval@1.0.2)
+        version: 0.37.12(csstype@3.1.0)(seroval-plugins@1.0.2)(seroval@1.0.3)
       hyper-dom-expressions:
         specifier: 0.37.12
         version: 0.37.12
@@ -90,8 +90,8 @@ importers:
         specifier: ^3.4.0
         version: 3.4.0
       seroval:
-        specifier: ^1.0.2
-        version: 1.0.2
+        specifier: ^1.0.3
+        version: 1.0.3
       simple-git-hooks:
         specifier: ^2.8.1
         version: 2.8.1
@@ -129,8 +129,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       seroval:
-        specifier: ^1.0.2
-        version: 1.0.2
+        specifier: ^1.0.3
+        version: 1.0.3
 
   packages/solid-element:
     dependencies:
@@ -2889,7 +2889,7 @@ packages:
       path-type: 4.0.0
     dev: true
 
-  /dom-expressions@0.37.12(csstype@3.1.0)(seroval-plugins@1.0.2)(seroval@1.0.2):
+  /dom-expressions@0.37.12(csstype@3.1.0)(seroval-plugins@1.0.2)(seroval@1.0.3):
     resolution: {integrity: sha512-3AOcsv2xoF03wW5XwhhmsX7t6o/Hclfuw4n2C0rvrLCi3iqhqA8Gb3YpM8mgvWT91Xgs5828BRBFqT4Ugn6STQ==}
     peerDependencies:
       csstype: ^3.0
@@ -2898,8 +2898,8 @@ packages:
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.0
-      seroval: 1.0.2
-      seroval-plugins: 1.0.2(seroval@1.0.2)
+      seroval: 1.0.3
+      seroval-plugins: 1.0.2(seroval@1.0.3)
     dev: true
 
   /domexception@4.0.0:
@@ -5038,17 +5038,17 @@ packages:
       - supports-color
     dev: true
 
-  /seroval-plugins@1.0.2(seroval@1.0.2):
+  /seroval-plugins@1.0.2(seroval@1.0.3):
     resolution: {integrity: sha512-4G/G9dFOBfFhw3AO+sn5Y6jyxkpoBwqnN2wxWjl8cGffaW+2lsMJ4baIoJ+E8JHx8iPZd82lvaaBG5QN8JuKhA==}
     engines: {node: '>=10'}
     peerDependencies:
       seroval: '>=0.15'
     dependencies:
-      seroval: 1.0.2
+      seroval: 1.0.3
     dev: true
 
-  /seroval@1.0.2:
-    resolution: {integrity: sha512-buswWxRzf65ZGUk8MAf3qVtBJHbe5gq6hZyPeqlJCKEIl/tEhUZze0YJg7vB7tFRGgPeneRaP083OB/vDiYLvA==}
+  /seroval@1.0.3:
+    resolution: {integrity: sha512-v5Psun3O2OdehTS/BpTC9EezHxyQRM4lqtvOdbngEq8qOZUECqG5XaoFNZgBQrJKXZFgcyZtMH6Dv7G96pKSSQ==}
     engines: {node: '>=10'}
 
   /serve-static@1.14.1:

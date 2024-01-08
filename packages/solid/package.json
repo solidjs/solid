@@ -236,6 +236,6 @@
   ],
   "dependencies": {
     "csstype": "^3.1.0",
-    "seroval": "^1.0.2"
+    "seroval": "^1.0.3"
   }
 }

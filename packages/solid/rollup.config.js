@@ -154,7 +154,7 @@ export default [
         format: "es"
       }
     ],
-    external: ["solid-js", "stream", "seroval"],
+    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
     plugins
   },
   {
