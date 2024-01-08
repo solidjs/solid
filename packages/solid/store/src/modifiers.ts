@@ -21,7 +21,7 @@ function applyState(
     property !== $ROOT &&
     (!isWrappable(target) ||
       !isWrappable(previous) ||
-      (isArray && !Array.isArray(previous)) ||
+      isArray !== Array.isArray(previous) ||
       (key && target[key] !== previous[key]))
   ) {
     setProperty(parent, property, target);
