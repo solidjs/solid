@@ -14,14 +14,14 @@ function applyState(
   merge: boolean | undefined,
   key: string | null
 ) {
-  const  previous = parent[property];
+  const previous = parent[property];
   if (target === previous) return;
   const isArray = Array.isArray(target);
   if (
     property !== $ROOT &&
     (!isWrappable(target) ||
       !isWrappable(previous) ||
-      (isArray !== Array.isArray(previous)) ||
+      isArray !== Array.isArray(previous) ||
       (key && target[key] !== previous[key]))
   ) {
     setProperty(parent, property, target);
