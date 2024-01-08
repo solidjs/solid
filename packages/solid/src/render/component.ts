@@ -222,9 +222,8 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
       propTraps
     ) as unknown as MergeProps<T>;
   }
-  const target: Record<string, any> = {};
   const sourcesMap: Record<string, any[]> = {};
-  const defined = new Set<string>();
+  const defined: Record<string, PropertyDescriptor | undefined> = Object.create(null);
   //let someNonTargetKey = false;
 
   for (let i = sources.length - 1; i >= 0; i--) {
@@ -232,33 +231,36 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
     if (!source) continue;
     const sourceKeys = Object.getOwnPropertyNames(source);
     //someNonTargetKey = someNonTargetKey || (i !== 0 && !!sourceKeys.length);
-    for (let i = 0, length = sourceKeys.length; i < length; i++) {
+    for (let i = sourceKeys.length - 1; i >= 0; i--) {
       const key = sourceKeys[i];
       if (key === "__proto__" || key === "constructor") continue;
       const desc = Object.getOwnPropertyDescriptor(source, key)!;
-      if (!defined.has(key)) {
-        if (desc.get) {
-          defined.add(key);
-          Object.defineProperty(target, key, {
-            enumerable: true,
-            configurable: true,
-            get: resolveSources.bind((sourcesMap[key] = [desc.get.bind(source)]))
-          });
-        } else {
-          if (desc.value !== undefined) defined.add(key);
-          target[key] = desc.value;
-        }
+      if (!defined[key]) {
+        defined[key] = desc.get
+          ? {
+              enumerable: true,
+              configurable: true,
+              get: resolveSources.bind((sourcesMap[key] = [desc.get.bind(source)]))
+            }
+          : desc.value !== undefined
+          ? desc
+          : undefined;
       } else {
         const sources = sourcesMap[key];
         if (sources) {
-          if (desc.get) {
-            sources.push(desc.get.bind(source));
-          } else if (desc.value !== undefined) {
-            sources.push(() => desc.value);
-          }
-        } else if (target[key] === undefined) target[key] = desc.value;
+          if (desc.get) sources.push(desc.get.bind(source));
+          else if (desc.value !== undefined) sources.push(() => desc.value);
+        }
       }
     }
+  }
+  const target: Record<string, any> = {};
+  const definedKeys = Object.keys(defined);
+  for (let i = definedKeys.length - 1; i >= 0; i--) {
+    const key = definedKeys[i],
+      desc = defined[key];
+    if (desc && desc.get) Object.defineProperty(target, key, desc);
+    else target[key] = desc ? desc.value : undefined;
   }
   // [breaking && performance]
   //return (someNonTargetKey ? target : sources[0]) as any;
