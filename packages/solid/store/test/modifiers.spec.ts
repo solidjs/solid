@@ -135,7 +135,7 @@ describe("setState with reconcile", () => {
     expect(store.value).toBe(undefined);
   });
 
-  test("Reconcile overwirte an object with an array", () => {
+  test("Reconcile overwrite an object with an array", () => {
     const [store, setStore] = createStore<{ value: {} | [] }>({
       value: { a: { b: 1 } }
     });
@@ -144,7 +144,7 @@ describe("setState with reconcile", () => {
     expect(store.value).toEqual({ c: [1, 2, 3] });
   });
 
-  test("Reconcile overwirte an array with an object", () => {
+  test("Reconcile overwrite an array with an object", () => {
     const [store, setStore] = createStore<{ value: {} | [] }>({
       value: [1, 2, 3]
     });
