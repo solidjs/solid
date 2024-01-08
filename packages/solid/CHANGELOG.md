@@ -1,5 +1,15 @@
 # solid-js
 
+## 1.8.9
+
+### Patch Changes
+
+- 80d4830f: fix #2016 value spread, smaller build output
+- 918586fb: fix #2017 object replacing array in `reconcile`
+- 71bea784: fix #1971 order of merged properties
+- b0862d39: fix #2014 html not replaced when resource resolves next `tick`
+- cbc8d3ee: remove seroval plugins from build output
+
 ## 1.8.8
 
 ### Patch Changes

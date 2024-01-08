@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.9
+
+### Patch Changes
+
+- 80d4830f: fix #2016 value spread, smaller build output
+
 ## 1.8.8
 
 ### Patch Changes
