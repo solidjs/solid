@@ -8,7 +8,6 @@ import {
   Accessor,
   Setter,
   Signal,
-  castError,
   cleanNode,
   createOwner
 } from "./reactive.js";
@@ -370,7 +369,8 @@ export function createResource<T, S>(
   let resource: { ref?: any; data?: T } = {};
   let value = options.storage ? options.storage(options.initialValue)[0]() : options.initialValue;
   let p: Promise<T> | T | null;
-  let error: any;
+  let error: any,
+    hasError = false;
   if (sharedConfig.context!.async && options.ssrLoadFrom !== "initial") {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
@@ -380,7 +380,7 @@ export function createResource<T, S>(
     }
   }
   const read = () => {
-    if (error) throw error;
+    if (hasError) throw error;
     if (resourceContext && p) resourceContext.push(p!);
     const resolved =
       options.ssrLoadFrom !== "initial" &&
@@ -438,7 +438,8 @@ export function createResource<T, S>(
         .catch(err => {
           read.loading = false;
           read.state = "errored";
-          read.error = error = castError(err);
+          read.error = error = err;
+          hasError = true;
           p = null;
           notifySuspense(contexts);
           throw error;
