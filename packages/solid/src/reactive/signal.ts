@@ -642,7 +642,9 @@ export function createResource<T, S, R>(
         }, false);
       } else completeLoad(isSuccess, v);
     }
-    return v;
+    if (isSuccess) return v;
+    // TODO why aren't we rethrowing
+    return undefined;
   }
   function completeLoad(isSuccess: boolean, v: any) {
     runUpdates(() => {
@@ -650,7 +652,7 @@ export function createResource<T, S, R>(
       setPState(isSuccess ? 1 : 2);
       if (isSuccess) {
         setValue(() => v);
-      } else setError(v);
+      } else setError(() => v);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     }, false);
@@ -677,7 +679,6 @@ export function createResource<T, S, R>(
   }
   function load(refetching: R | boolean = true) {
     if (refetching !== false && scheduled) return;
-    setPState(0);
     scheduled = false;
     const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = Transition && Transition.running;
@@ -701,13 +702,13 @@ export function createResource<T, S, R>(
     }
     pr = p;
     if ("value" in p) {
-      if ((p as any).status === "success") loadEnd(pr, true, p.value, lookup);
-      else loadEnd(pr, false, p.value, lookup);
+      loadEnd(pr, (p as any).status === "success", p.value, lookup);
       return p;
     }
     scheduled = true;
     queueMicrotask(() => (scheduled = false));
     runUpdates(() => {
+      setPState(0);
       setState(resolved ? "refreshing" : "pending");
       trigger();
     }, false);
