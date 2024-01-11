@@ -258,6 +258,7 @@ export function ErrorBoundary(props: {
   children: string;
 }) {
   let error: any,
+    hasError = false,
     res: any,
     clean: any,
     sync = true;
@@ -275,13 +276,14 @@ export function ErrorBoundary(props: {
     return catchError(
       () => (res = props.children),
       err => {
+        hasError = true;
         error = err;
         !sync && ctx.replace("e" + id, displayFallback);
         sync = true;
       }
     );
   });
-  if (error) return displayFallback();
+  if (hasError) return displayFallback();
   sync = false;
   return { t: `<!--!$e${id}-->${resolveSSRNode(res)}<!--!$/e${id}-->` };
 }
