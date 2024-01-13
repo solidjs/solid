@@ -1,6 +1,6 @@
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
 import { Computation, type MemoOptions } from './core';
-import { handleError, type Owner } from './owner';
+import { type Owner } from './owner';
 
 let scheduledEffects = false,
   runningEffects = false,
@@ -106,7 +106,7 @@ export class Effect<T = any> extends Computation<T> {
   }
 
   override _setError(error: unknown): void {
-    handleError(this, error);
+    this.handleError(error);
   }
 }
 
@@ -143,6 +143,6 @@ export class RenderEffect<T = any> extends Computation<T> {
   }
 
   override _setError(error: unknown): void {
-    handleError(this, error);
+    this.handleError(error);
   }
 }

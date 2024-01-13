@@ -30,14 +30,13 @@
 
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
 import type { Computation } from './core';
+import { type ErrorHandler } from './error';
 
 export type ContextRecord = Record<string | symbol, unknown>;
 
 export interface Disposable {
   (): void;
 }
-
-export const HANDLER = Symbol(__DEV__ ? 'ERROR_HANDLER' : 0);
 
 let currentOwner: Owner | null = null;
 
@@ -66,17 +65,25 @@ export class Owner {
 
   _disposal: Disposable | Disposable[] | null = null;
   _context: null | ContextRecord = null;
+  _handlers: ErrorHandler[] | null = null;
 
   constructor(signal = false) {
     if (currentOwner && !signal) currentOwner.append(this);
   }
 
-  append(owner: Owner): void {
-    owner._parent = this;
-    owner._prevSibling = this;
-    if (this._nextSibling) this._nextSibling._prevSibling = owner;
-    owner._nextSibling = this._nextSibling;
-    this._nextSibling = owner;
+  append(child: Owner): void {
+    child._parent = this;
+    child._prevSibling = this;
+
+    if (this._nextSibling) this._nextSibling._prevSibling = child;
+    child._nextSibling = this._nextSibling;
+    this._nextSibling = child;
+
+    if (this._handlers) {
+      child._handlers = !child._handlers
+        ? this._handlers
+        : [...child._handlers, ...this._handlers];
+    }
   }
 
   dispose(this: Owner, self = true): void {
@@ -101,6 +108,7 @@ export class Owner {
     this._parent = null;
     this._prevSibling = null;
     this._context = null;
+    this._handlers = null;
     this._state = STATE_DISPOSED;
     this.emptyDisposal();
   }
@@ -119,6 +127,25 @@ export class Owner {
 
     this._disposal = null;
   }
+
+  handleError(error: unknown): void {
+    if (!this._handlers) throw error;
+
+    let i = 0,
+      len = this._handlers.length;
+
+    for (i = 0; i < len; i++) {
+      try {
+        this._handlers[i](error);
+        break; // error was handled.
+      } catch (e) {
+        error = e;
+      }
+    }
+
+    // Error was not handled as we exhausted all handlers.
+    if (i === len) throw error;
+  }
 }
 
 /**
@@ -135,34 +162,5 @@ export function onCleanup(disposable: Disposable): void {
     node._disposal.push(disposable);
   } else {
     node._disposal = [node._disposal, disposable];
-  }
-}
-
-export function lookup(owner: Owner | null, key: string | symbol): unknown {
-  if (!owner) return;
-
-  let current: Owner | null = owner;
-  let value;
-
-  while (current) {
-    value = current._context?.[key];
-    if (value !== undefined) return value;
-    current = current._parent;
-  }
-}
-
-export function handleError(owner: Owner | null, error: unknown): void {
-  const handler = lookup(owner, HANDLER) as
-    | undefined
-    | ((error: Error) => void);
-
-  if (!handler) throw error;
-
-  try {
-    const coercedError =
-      error instanceof Error ? error : Error(JSON.stringify(error));
-    handler(coercedError);
-  } catch (error) {
-    handleError(owner!._parent, error);
   }
 }

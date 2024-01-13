@@ -109,3 +109,21 @@ it('should not trigger wrong handler', () => {
   expect(rootHandler).toHaveBeenCalledWith(error);
   expect(handler).not.toHaveBeenCalledWith(error);
 });
+
+it('should throw error if there are no handlers left', () => {
+  const error = new Error(),
+    handler = vi.fn((e) => {
+      throw e;
+    });
+
+  expect(() => {
+    catchError(() => {
+      catchError(() => {
+        throw error;
+      }, handler);
+    }, handler);
+  }).toThrow(error);
+
+  expect(handler).toHaveBeenCalledTimes(3);
+  expect(handler).toHaveBeenCalledWith(error);
+});

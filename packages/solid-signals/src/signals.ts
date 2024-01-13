@@ -2,7 +2,7 @@ import type { MemoOptions, SignalOptions } from './core';
 import { Computation, compute, UNCHANGED } from './core';
 import { Effect } from './effect';
 import { ERROR_BIT, LOADING_BIT } from './flags';
-import { handleError, HANDLER, Owner } from './owner';
+import { getOwner, Owner } from './owner';
 
 export interface Accessor<T> {
   (): T;
@@ -137,7 +137,7 @@ export function runWithOwner<T>(
   try {
     return compute(owner, run, null);
   } catch (error) {
-    handleError(owner, error);
+    owner?.handleError(error);
     return undefined;
   }
 }
@@ -146,15 +146,17 @@ export function runWithOwner<T>(
  * Runs the given function when an error is thrown in a child owner. If the error is thrown again
  * inside the error handler, it will trigger the next available parent owner handler.
  */
-export function catchError<T, U = Error>(
+export function catchError<T>(
   fn: () => T,
-  handler: (error: U) => void,
+  handler: (error: unknown) => void,
 ): void {
   const owner = new Owner();
-  owner._context = { [HANDLER]: handler };
+
+  owner._handlers = owner._handlers ? [handler, ...owner._handlers] : [handler];
+
   try {
     compute(owner, fn, null);
   } catch (error) {
-    handleError(owner, error);
+    owner.handleError(error);
   }
 }

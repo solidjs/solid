@@ -1,4 +1,4 @@
-export { NotReadyError } from './error';
+export { NotReadyError, type ErrorHandler } from './error';
 export {
   Owner,
   type ContextRecord,
