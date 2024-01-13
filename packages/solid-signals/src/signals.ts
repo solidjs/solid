@@ -2,14 +2,18 @@ import type { MemoOptions, SignalOptions } from './core';
 import { Computation, compute, UNCHANGED } from './core';
 import { Effect } from './effect';
 import { ERROR_BIT, LOADING_BIT } from './flags';
-import { getOwner, Owner } from './owner';
+import { Owner } from './owner';
 
 export interface Accessor<T> {
   (): T;
 }
 
 export interface Setter<T> {
-  (value: T): T;
+  (value: T | SetValue<T>): T;
+}
+
+export interface SetValue<T> {
+  (currentValue: T): T;
 }
 
 export type Signal<T> = [read: Accessor<T>, write: Setter<T>];

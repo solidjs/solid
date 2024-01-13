@@ -300,7 +300,7 @@ it('should apply changes in effect in same flush', async () => {
 
   setY(1);
 
-  await Promise.resolve();
+  flushSync();
 
   expect($x()).toBe(2);
   expect($b()).toBe(5);
@@ -308,7 +308,7 @@ it('should apply changes in effect in same flush', async () => {
 
   setY(2);
 
-  await Promise.resolve();
+  flushSync();
 
   expect($x()).toBe(3);
   expect($b()).toBe(6);

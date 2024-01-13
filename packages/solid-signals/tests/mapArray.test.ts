@@ -8,6 +8,7 @@ it('should compute keyed map', () => {
   ]);
 
   const computed = vi.fn();
+
   const map = mapArray($source, (value, index) => {
     computed();
     return {

@@ -191,14 +191,24 @@ export class Computation<T = any>
   }
 
   /** Update the computation with a new value. */
-  write(value: T | UNCHANGED, flags = 0): T {
+  write(
+    value: T | ((currentValue: T) => T) | UNCHANGED,
+    flags = 0,
+    // Tracks whether a function was returned from a compute result so we don't unwrap it.
+    raw = false,
+  ): T {
+    const newValue =
+      !raw && typeof value === 'function'
+        ? (value as (currentValue: T) => T)(this._value!)
+        : (value as T);
+
     const valueChanged =
-      value !== UNCHANGED &&
+      newValue !== UNCHANGED &&
       (!!(flags & ERROR_BIT) ||
         this._equals === false ||
-        !this._equals(this._value!, value));
+        !this._equals(this._value!, newValue));
 
-    if (valueChanged) this._value = value;
+    if (valueChanged) this._value = newValue;
 
     const changedFlagsMask = this._stateFlags ^ flags,
       changedFlags = changedFlagsMask & flags;
@@ -470,7 +480,7 @@ export function update<T>(node: Computation<T>): void {
     const result = compute(node, node._compute!, node);
 
     // Update the node's value
-    node.write(result, newFlags);
+    node.write(result, newFlags, true);
   } catch (error) {
     node._setError(error);
   } finally {
