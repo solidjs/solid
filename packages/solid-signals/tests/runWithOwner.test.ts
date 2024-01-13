@@ -1,7 +1,6 @@
-import { catchError, createRoot, getOwner, runWithOwner } from "../src";
-import { Owner } from "../src/types";
+import { catchError, createRoot, getOwner, Owner, runWithOwner } from '../src';
 
-it("should scope function to current scope", () => {
+it('should scope function to current scope', () => {
   let owner!: Owner | null;
 
   createRoot(() => {
@@ -14,11 +13,11 @@ it("should scope function to current scope", () => {
   });
 });
 
-it("should return value", () => {
+it('should return value', () => {
   expect(runWithOwner(null, () => 100)).toBe(100);
 });
 
-it("should handle errors", () => {
+it('should handle errors', () => {
   const error = new Error(),
     handler = vi.fn();
 

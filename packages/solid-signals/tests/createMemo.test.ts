@@ -5,11 +5,11 @@ import {
   createRoot,
   createSignal,
   flushSync,
-} from "../src";
+} from '../src';
 
 afterEach(() => flushSync());
 
-it("should store and return value on read", () => {
+it('should store and return value on read', () => {
   const [$x] = createSignal(1);
   const [$y] = createSignal(1);
 
@@ -22,7 +22,7 @@ it("should store and return value on read", () => {
   expect($a()).toBe(2);
 });
 
-it("should update when dependency is updated", () => {
+it('should update when dependency is updated', () => {
   const [$x, setX] = createSignal(1);
   const [$y, setY] = createSignal(1);
 
@@ -35,7 +35,7 @@ it("should update when dependency is updated", () => {
   expect($a()).toBe(4);
 });
 
-it("should update when deep dependency is updated", () => {
+it('should update when deep dependency is updated', () => {
   const [$x, setX] = createSignal(1);
   const [$y] = createSignal(1);
 
@@ -46,7 +46,7 @@ it("should update when deep dependency is updated", () => {
   expect($b()).toBe(3);
 });
 
-it("should update when deep computed dependency is updated", () => {
+it('should update when deep computed dependency is updated', () => {
   const [$x, setX] = createSignal(10);
   const [$y] = createSignal(10);
 
@@ -58,7 +58,7 @@ it("should update when deep computed dependency is updated", () => {
   expect($c()).toBe(30);
 });
 
-it("should only re-compute when needed", () => {
+it('should only re-compute when needed', () => {
   const computed = vi.fn();
 
   const [$x, setX] = createSignal(10);
@@ -87,7 +87,7 @@ it("should only re-compute when needed", () => {
   expect(computed).toHaveBeenCalledTimes(3);
 });
 
-it("should only re-compute whats needed", () => {
+it('should only re-compute whats needed', () => {
   const memoA = vi.fn((n) => n);
   const memoB = vi.fn((n) => n);
 
@@ -123,7 +123,7 @@ it("should only re-compute whats needed", () => {
   expect($c()).toBe(40);
 });
 
-it("should discover new dependencies", () => {
+it('should discover new dependencies', () => {
   const [$x, setX] = createSignal(1);
   const [$y, setY] = createSignal(0);
 
@@ -146,7 +146,7 @@ it("should discover new dependencies", () => {
   expect($c()).toBe(10);
 });
 
-it("should accept equals option", () => {
+it('should accept equals option', () => {
   const [$x, setX] = createSignal(0);
 
   const $a = createMemo(() => $x(), 0, {
@@ -172,16 +172,16 @@ it("should accept equals option", () => {
   expect(effectA).toHaveBeenCalledTimes(2);
 });
 
-it("should use fallback if error is thrown during init", () => {
+it('should use fallback if error is thrown during init', () => {
   createRoot(() => {
     catchError(
       () => {
         const $a = createMemo(() => {
           if (1) throw Error();
-          return "";
-        }, "foo");
+          return '';
+        }, 'foo');
 
-        expect($a()).toBe("foo");
+        expect($a()).toBe('foo');
       },
       () => {},
     );

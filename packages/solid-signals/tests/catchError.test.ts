@@ -4,9 +4,9 @@ import {
   createRoot,
   createSignal,
   flushSync,
-} from "../src";
+} from '../src';
 
-it("should let errors bubble up when not handled", () => {
+it('should let errors bubble up when not handled', () => {
   const error = new Error();
   expect(() => {
     createRoot(() => {
@@ -17,7 +17,7 @@ it("should let errors bubble up when not handled", () => {
   }).toThrowError(error);
 });
 
-it("should handle error", () => {
+it('should handle error', () => {
   const error = new Error(),
     handler = vi.fn();
 
@@ -28,7 +28,7 @@ it("should handle error", () => {
   expect(handler).toHaveBeenCalledWith(error);
 });
 
-it("should forward error to another handler", () => {
+it('should forward error to another handler', () => {
   const error = new Error(),
     rootHandler = vi.fn();
 
@@ -56,7 +56,7 @@ it("should forward error to another handler", () => {
   expect(rootHandler).toHaveBeenCalledTimes(2);
 });
 
-it("should not duplicate error handler", () => {
+it('should not duplicate error handler', () => {
   const error = new Error(),
     handler = vi.fn();
 
@@ -79,7 +79,7 @@ it("should not duplicate error handler", () => {
   expect(handler).toHaveBeenCalledTimes(1);
 });
 
-it("should not trigger wrong handler", () => {
+it('should not trigger wrong handler', () => {
   const error = new Error(),
     rootHandler = vi.fn(),
     handler = vi.fn();

@@ -1,15 +1,15 @@
 import {
   createEffect,
   createMemo,
+  createRoot,
   createSignal,
   flushSync,
   onCleanup,
-  createRoot,
-} from "../src";
+} from '../src';
 
 afterEach(() => flushSync());
 
-it("should run effect", () => {
+it('should run effect', () => {
   const [$x, setX] = createSignal(0),
     effect = vi.fn(() => void $x());
 
@@ -21,7 +21,7 @@ it("should run effect", () => {
   expect(effect).toHaveBeenCalledTimes(2);
 });
 
-it("should run effect on change", () => {
+it('should run effect on change', () => {
   const effect = vi.fn();
 
   const [$x, setX] = createSignal(10);
@@ -48,7 +48,7 @@ it("should run effect on change", () => {
   expect(effect).to.toHaveBeenCalledTimes(3);
 });
 
-it("should handle nested effect", () => {
+it('should handle nested effect', () => {
   const [$x, setX] = createSignal(0);
   const [$y, setY] = createSignal(0);
 
@@ -109,7 +109,7 @@ it("should handle nested effect", () => {
   expect(innerDispose).toHaveBeenCalledTimes(3);
 });
 
-it("should stop effect", () => {
+it('should stop effect', () => {
   const effect = vi.fn();
 
   const [$x, setX] = createSignal(10);
@@ -126,7 +126,7 @@ it("should stop effect", () => {
   expect(effect).toHaveBeenCalledTimes(1);
 });
 
-it("should run all disposals before each new run", () => {
+it('should run all disposals before each new run', () => {
   const effect = vi.fn();
   const disposeA = vi.fn();
   const disposeB = vi.fn();
@@ -159,7 +159,7 @@ it("should run all disposals before each new run", () => {
   }
 });
 
-it("should dispose of nested effect", () => {
+it('should dispose of nested effect', () => {
   const [$x, setX] = createSignal(0);
   const innerEffect = vi.fn();
 
@@ -181,7 +181,7 @@ it("should dispose of nested effect", () => {
   expect(innerEffect).not.toHaveBeenCalledWith(10);
 });
 
-it("should conditionally observe", () => {
+it('should conditionally observe', () => {
   const [$x, setX] = createSignal(0);
   const [$y, setY] = createSignal(0);
   const [$condition, setCondition] = createSignal(true);
@@ -214,7 +214,7 @@ it("should conditionally observe", () => {
   expect(effect).toHaveBeenCalledTimes(3);
 });
 
-it("should dispose of nested conditional effect", () => {
+it('should dispose of nested conditional effect', () => {
   const [$condition, setCondition] = createSignal(true);
 
   const disposeA = vi.fn();
@@ -240,7 +240,7 @@ it("should dispose of nested conditional effect", () => {
 });
 
 // https://github.com/preactjs/signals/issues/152
-it("should handle looped effects", () => {
+it('should handle looped effects', () => {
   let values: number[] = [],
     loop = 2;
 
@@ -260,7 +260,7 @@ it("should handle looped effects", () => {
   flushSync();
 
   expect(values).toHaveLength(3);
-  expect(values.join(",")).toBe("0,0,1");
+  expect(values.join(',')).toBe('0,0,1');
 
   loop = 1;
   values = [];
@@ -268,17 +268,17 @@ it("should handle looped effects", () => {
   flushSync();
 
   expect(values).toHaveLength(2);
-  expect(values.join(",")).toBe("1,1");
+  expect(values.join(',')).toBe('1,1');
 
   values = [];
   setValue(2);
   flushSync();
 
   expect(values).toHaveLength(2);
-  expect(values.join(",")).toBe("2,2");
+  expect(values.join(',')).toBe('2,2');
 });
 
-it("should apply changes in effect in same flush", async () => {
+it('should apply changes in effect in same flush', async () => {
   const [$x, setX] = createSignal(0),
     [$y, setY] = createSignal(0);
 
@@ -316,7 +316,7 @@ it("should apply changes in effect in same flush", async () => {
 });
 
 // This is essentially run top - we need to solve it.
-it.skip("should run parent effect before child effect", () => {
+it.skip('should run parent effect before child effect', () => {
   const [$x, setX] = createSignal(0);
   const $condition = createMemo(() => $x());
 

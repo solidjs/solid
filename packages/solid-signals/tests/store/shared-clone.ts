@@ -48,7 +48,7 @@ export function sharedClone<T>(prev: any, next: T, touchAll?: boolean): T {
       things.set(next, copy);
       for (let i = 0; i < bSize; i++) {
         const key = isArray ? i : bItems[i];
-        if (typeof bItems[i] === "function") {
+        if (typeof bItems[i] === 'function') {
           copy[key] = prev[key];
         } else {
           copy[key] = recurse(prev[key], next[key]);
@@ -95,7 +95,7 @@ function isPlainObject(o: any) {
 
   // If has modified constructor
   const ctor = o.constructor;
-  if (typeof ctor === "undefined") {
+  if (typeof ctor === 'undefined') {
     return true;
   }
 
@@ -106,7 +106,7 @@ function isPlainObject(o: any) {
   }
 
   // If constructor does not have an Object-specific method
-  if (!prot.hasOwnProperty("isPrototypeOf")) {
+  if (!prot.hasOwnProperty('isPrototypeOf')) {
     return false;
   }
 
@@ -115,5 +115,5 @@ function isPlainObject(o: any) {
 }
 
 function hasObjectPrototype(o: any) {
-  return Object.prototype.toString.call(o) === "[object Object]";
+  return Object.prototype.toString.call(o) === '[object Object]';
 }

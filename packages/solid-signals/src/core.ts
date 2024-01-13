@@ -1,30 +1,30 @@
 /**
  * Nodes for constructing a graph of reactive values and reactive computations.
- * The graph is acyclic.
- * The user inputs new values into the graph by calling .write() on one more computation nodes.
- * The user retrieves computed results from the graph by calling .read() on one or more computation nodes.
- * The library is responsible for running any necessary computations so that .read() is
- * up to date with all prior .write() calls anywhere in the graph.
  *
- * We call the input nodes 'roots' and the output nodes 'leaves' of the graph here.
- * Changes flow from roots to leaves. It would be effective but inefficient to immediately propagate
- * all changes from a root through the graph to descendant leaves. Instead, we defer change
- * most change propagation computation until a leaf is accessed. This allows us to coalesce
- * computations and skip altogether recalculating unused sections of the graph.
+ * - The graph is acyclic.
+ * - The user inputs new values into the graph by calling .write() on one more computation nodes.
+ * - The user retrieves computed results from the graph by calling .read() on one or more computation nodes.
+ * - The library is responsible for running any necessary computations so that .read() is up to date
+ *   with all prior .write() calls anywhere in the graph.
+ * - We call the input nodes 'roots' and the output nodes 'leaves' of the graph here.
+ * - Changes flow from roots to leaves. It would be effective but inefficient to immediately
+ *   propagate all changes from a root through the graph to descendant leaves. Instead, we defer
+ *   change most change propagation computation until a leaf is accessed. This allows us to
+ *   coalesce computations and skip altogether recalculating unused sections of the graph.
+ * - Each computation node tracks its sources and its observers (observers are other
+ *   elements that have this node as a source). Source and observer links are updated automatically
+ *   as observer computations re-evaluate and call get() on their sources.
+ * - Each node stores a cache state (clean/check/dirty) to support the change propagation algorithm:
  *
- * Each computation node tracks its sources and its observers (observers are other
- * elements that have this node as a source). Source and observer links are updated automatically
- * as observer computations re-evaluate and call get() on their sources.
- *
- * Each node stores a cache state (clean/check/dirty) to support the change propagation algorithm:
  * In general, execution proceeds in three passes:
+ *
  *  1. write() propagates changes down the graph to the leaves
  *     direct children are marked as dirty and their deeper descendants marked as check
  *     (no computations are evaluated)
  *  2. read() requests that parent nodes updateIfNecessary(), which proceeds recursively up the tree
  *     to decide whether the node is clean (parents unchanged) or dirty (parents changed)
- *  3. updateIfNecessary() evaluates the computation if the node is dirty
- *     (the computations are executed in root to leaf order)
+ *  3. updateIfNecessary() evaluates the computation if the node is dirty (the computations are
+ *     executed in root to leaf order)
  */
 
 import {
@@ -32,10 +32,10 @@ import {
   STATE_CLEAN,
   STATE_DIRTY,
   STATE_DISPOSED,
-} from "./constants";
-import { NotReadyError } from "./error";
-import { DEFAULT_FLAGS, ERROR_BIT, Flags, LOADING_BIT } from "./flags";
-import { getOwner, Owner, setCurrentOwner } from "./owner";
+} from './constants';
+import { NotReadyError } from './error';
+import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from './flags';
+import { getOwner, Owner, setOwner } from './owner';
 
 export interface SignalOptions<T> {
   name?: string;
@@ -61,17 +61,22 @@ interface ObserverType {
   _notifyFlags: (mask: Flags, newFlags: Flags) => void;
 }
 
-let currentObserver: ObserverType | null = null;
-let currentMask: Flags = DEFAULT_FLAGS;
+let currentObserver: ObserverType | null = null,
+  currentMask: Flags = DEFAULT_FLAGS,
+  newSources: SourceType[] | null = null,
+  newSourcesIndex = 0,
+  newFlags = 0;
 
-let newSources: SourceType[] | null = null;
-let newSourcesIndex = 0;
-let newFlags = 0;
+/**
+ * Returns the current observer.
+ */
+export function getObserver(): ObserverType | null {
+  return currentObserver;
+}
 
-export const UNCHANGED: unique symbol = Symbol(__DEV__ ? "unchanged" : 0);
+export const UNCHANGED: unique symbol = Symbol(__DEV__ ? 'unchanged' : 0);
 export type UNCHANGED = typeof UNCHANGED;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class Computation<T = any>
   extends Owner
   implements SourceType, ObserverType
@@ -114,7 +119,7 @@ export class Computation<T = any>
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
     if (__DEV__)
-      this._name = options?.name ?? (this._compute ? "computed" : "signal");
+      this._name = options?.name ?? (this._compute ? 'computed' : 'signal');
 
     if (options?.equals !== undefined) this._equals = options.equals;
   }
@@ -155,6 +160,7 @@ export class Computation<T = any>
     if (this.loading()) {
       throw new NotReadyError();
     }
+
     return this._read();
   }
 
@@ -169,6 +175,7 @@ export class Computation<T = any>
     if (this._loading === null) {
       this._loading = loadingState(this);
     }
+
     return this._loading.read();
   }
 
@@ -193,8 +200,9 @@ export class Computation<T = any>
 
     if (valueChanged) this._value = value;
 
-    const changedFlagsMask = this._stateFlags ^ flags;
-    const changedFlags = changedFlagsMask & flags;
+    const changedFlagsMask = this._stateFlags ^ flags,
+      changedFlags = changedFlagsMask & flags;
+
     this._stateFlags = flags;
 
     // Our value has changed, so we need to notify all of our observers that the value has
@@ -225,6 +233,7 @@ export class Computation<T = any>
     if (this._state >= state) return;
 
     this._state = state;
+
     if (this._observers) {
       for (let i = 0; i < this._observers.length; i++) {
         this._observers[i]._notify(STATE_CHECK);
@@ -290,7 +299,7 @@ export class Computation<T = any>
     // they probably kept a reference to it as the parent reran, so there is likely a new computation
     // with the same _compute function that they should be reading instead.
     if (this._state === STATE_DISPOSED) {
-      throw new Error("Tried to read a disposed computation");
+      throw new Error('Tried to read a disposed computation');
     }
 
     // If the computation is already clean, none of our sources have changed, so we know that
@@ -360,12 +369,13 @@ export class Computation<T = any>
 }
 
 function loadingState(node: Computation): Computation<boolean> {
-  const prevOwner = setCurrentOwner(node._parent);
+  const prevOwner = setOwner(node._parent);
+
   const options = __DEV__
-    ? { name: node._name ? `loading ${node._name}` : "loading" }
+    ? { name: node._name ? `loading ${node._name}` : 'loading' }
     : undefined;
 
-  const s = new Computation(
+  const computation = new Computation(
     undefined,
     () => {
       track(node);
@@ -374,18 +384,21 @@ function loadingState(node: Computation): Computation<boolean> {
     },
     options,
   );
-  s._handlerMask = ERROR_BIT | LOADING_BIT;
-  setCurrentOwner(prevOwner);
-  return s;
+
+  computation._handlerMask = ERROR_BIT | LOADING_BIT;
+  setOwner(prevOwner);
+
+  return computation;
 }
 
 function errorState(node: Computation): Computation<boolean> {
-  const prevOwner = setCurrentOwner(node._parent);
+  const prevOwner = setOwner(node._parent);
+
   const options = __DEV__
-    ? { name: node._name ? `error ${node._name}` : "error" }
+    ? { name: node._name ? `error ${node._name}` : 'error' }
     : undefined;
 
-  const s = new Computation(
+  const computation = new Computation(
     undefined,
     () => {
       track(node);
@@ -394,9 +407,11 @@ function errorState(node: Computation): Computation<boolean> {
     },
     options,
   );
-  s._handlerMask = ERROR_BIT;
-  setCurrentOwner(prevOwner);
-  return s;
+
+  computation._handlerMask = ERROR_BIT;
+  setOwner(prevOwner);
+
+  return computation;
 }
 
 /**
@@ -437,9 +452,9 @@ function track(computation: SourceType): void {
  * if it reads any parents that are currently loading.
  */
 export function update<T>(node: Computation<T>): void {
-  const prevSources = newSources;
-  const prevSourcesIndex = newSourcesIndex;
-  const prevFlags = newFlags;
+  const prevSources = newSources,
+    prevSourcesIndex = newSourcesIndex,
+    prevFlags = newFlags;
 
   newSources = null as Computation[] | null;
   newSourcesIndex = 0;
@@ -554,9 +569,10 @@ export function compute<T>(
   compute: (val?: T) => T,
   observer: Computation<T> | null,
 ): T {
-  const prevOwner = setCurrentOwner(owner);
-  const prevObserver = currentObserver;
-  const prevMask = currentMask;
+  const prevOwner = setOwner(owner),
+    prevObserver = currentObserver,
+    prevMask = currentMask;
+
   currentObserver = observer;
   currentMask = observer?._handlerMask ?? DEFAULT_FLAGS;
 
@@ -570,12 +586,8 @@ export function compute<T>(
       return observer!._value!;
     }
   } finally {
-    setCurrentOwner(prevOwner);
+    setOwner(prevOwner);
     currentObserver = prevObserver;
     currentMask = prevMask;
   }
-}
-
-export function getObserver(): ObserverType | null {
-  return currentObserver;
 }

@@ -1,6 +1,6 @@
-import { createSignal, indexArray } from "../src";
+import { createSignal, indexArray } from '../src';
 
-it("should compute map", () => {
+it('should compute map', () => {
   const [$source, setSource] = createSignal([1, 2, 3]);
 
   const computed = vi.fn();

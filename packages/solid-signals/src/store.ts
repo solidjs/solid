@@ -1,5 +1,4 @@
-import { getObserver } from "./bubble-reactivity/core";
-import { Computation } from "./bubble-reactivity/core";
+import { Computation, getObserver } from './core';
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => void) => void;
@@ -7,9 +6,9 @@ export type StoreSetter<T> = (fn: (state: T) => void) => void;
 type DataNode = Computation<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
 
-const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
-  $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
-  $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0);
+const $RAW = Symbol(__DEV__ ? 'STORE_RAW' : 0),
+  $TRACK = Symbol(__DEV__ ? 'STORE_TRACK' : 0),
+  $PROXY = Symbol(__DEV__ ? 'STORE_PROXY' : 0);
 
 const PROXIES = new WeakMap<any, any>();
 // 0: DATA, 1: HAS
@@ -43,7 +42,7 @@ export function isWrappable(obj: any) {
   let proto;
   return (
     obj != null &&
-    typeof obj === "object" &&
+    typeof obj === 'object' &&
     (PROXIES.has(obj) ||
       !(proto = Object.getPrototypeOf(obj)) ||
       proto === Object.prototype ||
@@ -140,7 +139,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (
       !tracked &&
       getObserver() &&
-      (typeof value !== "function" || target.hasOwnProperty(property))
+      (typeof value !== 'function' || target.hasOwnProperty(property))
     )
       value = getNode(nodes, property, value).read();
     return isWrappable(value) ? wrap(value) : value;
@@ -151,7 +150,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       property === $RAW ||
       property === $PROXY ||
       property === $TRACK ||
-      property === "__proto__"
+      property === '__proto__'
     )
       return true;
     getObserver() && getNode(getNodes(target, 1), property).read();
@@ -177,7 +176,7 @@ function setProperty(
   state: StoreNode,
   property: PropertyKey,
   value: any,
-  deleting: boolean = false
+  deleting: boolean = false,
 ): void {
   if (!deleting && state[property] === value) return;
   const prev = state[property];
@@ -190,12 +189,12 @@ function setProperty(
   if ((node = getNode(nodes, property, prev))) node.write(value);
 
   if (Array.isArray(state) && state.length !== len)
-    (node = getNode(nodes, "length", len)) && node.write(state.length);
+    (node = getNode(nodes, 'length', len)) && node.write(state.length);
   (node = nodes[$TRACK]) && node.write(undefined);
 }
 
 export function createStore<T extends object = {}>(
-  store: T | Store<T>
+  store: T | Store<T>,
 ): [get: Store<T>, set: StoreSetter<T>] {
   const unwrappedStore = unwrap(store);
 

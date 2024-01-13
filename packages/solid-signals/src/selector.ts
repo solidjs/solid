@@ -1,8 +1,8 @@
-import { Effect } from "./effect";
-import { isEqual, getObserver } from "./bubble-reactivity/core";
-import { Accessor, onCleanup } from "./reactivity";
-import { Computation } from "./reactivity";
-import { STATE_DIRTY } from "./bubble-reactivity/constants";
+import { STATE_DIRTY } from './constants';
+import { Computation, getObserver, isEqual } from './core';
+import { Effect } from './effect';
+import { onCleanup } from './owner';
+import type { Accessor } from './signals';
 
 export interface SelectorSignal<T> {
   (key: T): Boolean;
@@ -21,7 +21,7 @@ export interface SelectorOptions<Key, Value> {
  */
 export function createSelector<Source, Key = Source>(
   source: Accessor<Source>,
-  options?: SelectorOptions<Key, Source>
+  options?: SelectorOptions<Key, Source>,
 ): SelectorSignal<Key> {
   let prevSource: Source | undefined,
     subs = new Map<Key, Set<Computation<any>>>(),
@@ -44,7 +44,7 @@ export function createSelector<Source, Key = Source>(
 
       return (prevSource = newSource);
     },
-    __DEV__ ? { name: options?.name } : undefined
+    __DEV__ ? { name: options?.name } : undefined,
   );
 
   return function observeSelector(key: Key) {

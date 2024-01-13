@@ -9,7 +9,8 @@
     "strict": true,
     "outDir": "dist/types",
     "module": "esnext",
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals"],
+    "verbatimModuleSyntax": true
   },
   "include": ["src", "tests"],
   "exclude": ["dist", "node_modules"]

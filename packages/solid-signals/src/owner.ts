@@ -28,27 +28,30 @@
  * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
  */
 
-import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
-import type { Computation } from "./core";
+import { STATE_CLEAN, STATE_DISPOSED } from './constants';
+import type { Computation } from './core';
 
 export type ContextRecord = Record<string | symbol, unknown>;
-export type Disposable = () => void;
 
-export const HANDLER = Symbol(__DEV__ ? "ERROR_HANDLER" : 0);
+export interface Disposable {
+  (): void;
+}
+
+export const HANDLER = Symbol(__DEV__ ? 'ERROR_HANDLER' : 0);
 
 let currentOwner: Owner | null = null;
-
-export function setCurrentOwner(owner: Owner | null): Owner | null {
-  const out = currentOwner;
-  currentOwner = owner;
-  return out;
-}
 
 /**
  * Returns the currently executing parent owner.
  */
 export function getOwner(): Owner | null {
   return currentOwner;
+}
+
+export function setOwner(owner: Owner | null): Owner | null {
+  const out = currentOwner;
+  currentOwner = owner;
+  return out;
 }
 
 export class Owner {

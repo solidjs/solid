@@ -1,6 +1,6 @@
-import { createEffect, createRoot, getOwner, untrack } from "../src";
+import { createEffect, createRoot, getOwner, untrack } from '../src';
 
-it("should return current owner", () => {
+it('should return current owner', () => {
   createRoot(() => {
     const owner = getOwner();
     expect(owner).toBeDefined();
@@ -11,7 +11,7 @@ it("should return current owner", () => {
   });
 });
 
-it("should return parent scope from inside untrack", () => {
+it('should return parent scope from inside untrack', () => {
   createRoot(() => {
     untrack(() => {
       expect(getOwner()).toBeDefined();

@@ -1,11 +1,17 @@
-import type { MemoOptions, SignalOptions } from "./core";
-import { Computation, compute, UNCHANGED } from "./core";
-import { Effect } from "../effect";
-import { ERROR_BIT, LOADING_BIT } from "./flags";
-import { handleError, HANDLER, Owner } from "./owner";
+import type { MemoOptions, SignalOptions } from './core';
+import { Computation, compute, UNCHANGED } from './core';
+import { Effect } from './effect';
+import { ERROR_BIT, LOADING_BIT } from './flags';
+import { handleError, HANDLER, Owner } from './owner';
 
-export type Accessor<T> = () => T;
-export type Setter<T> = (value: T) => T;
+export interface Accessor<T> {
+  (): T;
+}
+
+export interface Setter<T> {
+  (value: T): T;
+}
+
 export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
 
 /**
@@ -21,13 +27,14 @@ export function createSignal<T>(
   return [() => node.read(), (v) => node.write(v)];
 }
 
-export function _createPromise<T>(
+function _createPromise<T>(
   promise: Promise<T>,
   initial?: T,
   options?: SignalOptions<T>,
 ): Computation<T> {
   const signal = new Computation(initial, null, options);
   signal.write(UNCHANGED, LOADING_BIT);
+
   promise.then(
     (value) => {
       signal.write(value, 0);
@@ -36,6 +43,7 @@ export function _createPromise<T>(
       signal.write(error as T, ERROR_BIT);
     },
   );
+
   return signal;
 }
 
@@ -48,7 +56,7 @@ export function createPromise<T>(
   return () => signal.read();
 }
 
-export function _createAsync<T>(
+function _createAsync<T>(
   fn: () => Promise<T>,
   initial?: T,
   options?: SignalOptions<T>,
@@ -57,7 +65,9 @@ export function _createAsync<T>(
     const promise = Promise.resolve(fn());
     return _createPromise(promise, initial);
   });
+
   const rhs = new Computation(undefined, () => lhs.read().read(), options);
+
   return rhs;
 }
 
@@ -96,7 +106,7 @@ export function createEffect<T>(
   void new Effect(
     initialValue,
     effect,
-    __DEV__ ? { name: options?.name ?? "effect" } : undefined,
+    __DEV__ ? { name: options?.name ?? 'effect' } : undefined,
   );
 }
 
@@ -148,7 +158,3 @@ export function catchError<T, U = Error>(
     handleError(owner, error);
   }
 }
-
-export { untrack } from "./core";
-export { flushSync } from "../effect";
-export { getOwner, onCleanup } from "./owner";

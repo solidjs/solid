@@ -1,6 +1,6 @@
-import { createSignal, createRenderEffect } from "../src";
+import { createRenderEffect, createSignal } from '../src';
 
-it("should work with baisc renderEffects", () => {
+it('should work with baisc renderEffects', () => {
   const [a, setA] = createSignal(0);
   createRenderEffect(
     () => a(),
