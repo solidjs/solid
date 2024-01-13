@@ -1,27 +1,32 @@
 export { NotReadyError, type ErrorHandler } from './error';
 export {
   Owner,
-  type ContextRecord,
-  type Disposable,
+  createContext,
+  getContext,
+  setContext,
+  hasContext,
   getOwner,
   setOwner,
   onCleanup,
+  type Context,
+  type ContextRecord,
+  type Disposable,
 } from './owner';
 export {
   Computation,
   compute,
   getObserver,
   isEqual,
+  untrack,
   type MemoOptions,
   type SignalOptions,
-  untrack,
 } from './core';
 export { flushSync, Effect, RenderEffect } from './effect';
 export { indexArray, mapArray, type Maybe } from './map';
 export {
+  createSelector,
   type SelectorOptions,
   type SelectorSignal,
-  createSelector,
 } from './selector';
 
 export * from './signals';

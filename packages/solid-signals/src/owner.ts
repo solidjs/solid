@@ -38,7 +38,8 @@ export interface Disposable {
   (): void;
 }
 
-let currentOwner: Owner | null = null;
+let currentOwner: Owner | null = null,
+  defaultContext = {};
 
 /**
  * Returns the currently executing parent owner.
@@ -64,7 +65,7 @@ export class Owner {
   _state: number = STATE_CLEAN;
 
   _disposal: Disposable | Disposable[] | null = null;
-  _context: null | ContextRecord = null;
+  _context: ContextRecord = defaultContext;
   _handlers: ErrorHandler[] | null = null;
 
   constructor(signal = false) {
@@ -78,6 +79,10 @@ export class Owner {
     if (this._nextSibling) this._nextSibling._prevSibling = child;
     child._nextSibling = this._nextSibling;
     this._nextSibling = child;
+
+    if (child._context !== this._context) {
+      child._context = { ...this._context, ...child._context };
+    }
 
     if (this._handlers) {
       child._handlers = !child._handlers
@@ -110,7 +115,7 @@ export class Owner {
     if (this._prevSibling) this._prevSibling._nextSibling = null;
     this._parent = null;
     this._prevSibling = null;
-    this._context = null;
+    this._context = defaultContext;
     this._handlers = null;
     this._state = STATE_DISPOSED;
     this.emptyDisposal();
@@ -149,6 +154,93 @@ export class Owner {
     // Error was not handled as we exhausted all handlers.
     if (i === len) throw error;
   }
+}
+
+export interface Context<T> {
+  readonly id: symbol;
+  readonly defaultValue: T | undefined;
+}
+
+/**
+ * Context provides a form of dependency injection. It is used to save from needing to pass
+ * data as props through intermediate components. This function creates a new context object
+ * that can be used with `getContext` and `setContext`.
+ *
+ * A default value can be provided here which will be used when a specific value is not provided
+ * via a `setContext` call.
+ */
+export function createContext<T>(
+  defaultValue?: T,
+  description?: string,
+): Context<T> {
+  return { id: Symbol(description), defaultValue };
+}
+
+/**
+ * Attempts to get a context value for the given key. This function will throw if there's no
+ * owner at the time of call (e.g, inside a root owner created with `createRoot`) or a context
+ * value has not been set yet.
+ */
+export function getContext<T>(
+  context: Context<T>,
+  owner: Owner | null = currentOwner,
+): T {
+  if (!owner) {
+    throw Error(
+      __DEV__
+        ? 'No root owner was found. Make sure `getContext` is called within an owner or create one first via `createRoot`.'
+        : 'No owner.',
+    );
+  }
+
+  const value = hasContext(context, owner)
+    ? owner._context[context.id]
+    : context.defaultValue;
+
+  if (typeof value === 'undefined') {
+    throw Error(
+      __DEV__
+        ? 'Must provide either a default context value or set one via `setContext` before getting.'
+        : 'No context value.',
+    );
+  }
+
+  return value as T;
+}
+
+/**
+ * Attempts to set a context value on the parent scope with the given key.  This function will throw
+ * if there's no owner at the time of call (e.g, inside a root owner created with `createRoot`).
+ */
+export function setContext<T>(
+  context: Context<T>,
+  value?: T,
+  owner: Owner | null = currentOwner,
+) {
+  if (!owner) {
+    throw Error(
+      __DEV__
+        ? 'No root owner was found. Make sure `setContext` is called within an owner or create one first via `createRoot`.'
+        : 'No owner.',
+    );
+  }
+
+  // We're creating a new object to avoid child context values being exposed to parent owners. If
+  // we don't do this, everything will be a singleton and all hell will break lose.
+  owner._context = {
+    ...owner._context,
+    [context.id]: value,
+  };
+}
+
+/**
+ * Whether the given context is defined at time of call.
+ */
+export function hasContext(
+  context: Context<any>,
+  owner: Owner | null = currentOwner,
+) {
+  return typeof owner?._context[context.id] !== 'undefined';
 }
 
 /**
