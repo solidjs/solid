@@ -1,8 +1,10 @@
 import {
+  ContextNotFoundError,
   createContext,
   createRoot,
   getContext,
   hasContext,
+  NoOwnerError,
   setContext,
 } from '../src';
 
@@ -59,17 +61,17 @@ it('should return false if context has not been provided', () => {
 
 it('should throw error when trying to get context outside owner', () => {
   const context = createContext();
-  expect(() => getContext(context)).toThrowError(/No root owner/);
+  expect(() => getContext(context)).toThrowError(NoOwnerError);
+});
+
+it('should throw error when trying to set context outside owner', () => {
+  const context = createContext();
+  expect(() => setContext(context)).toThrowError(NoOwnerError);
 });
 
 it('should throw error when trying to get context without setting it first', () => {
   const context = createContext();
   expect(() => createRoot(() => getContext(context))).toThrowError(
-    /Must provide/,
+    ContextNotFoundError,
   );
-});
-
-it('should throw error when trying to set context outside owner', () => {
-  const context = createContext();
-  expect(() => setContext(context)).toThrowError(/No root owner/);
 });

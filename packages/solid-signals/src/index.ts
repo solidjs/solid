@@ -1,4 +1,9 @@
-export { NotReadyError, type ErrorHandler } from './error';
+export {
+  ContextNotFoundError,
+  NoOwnerError,
+  NotReadyError,
+  type ErrorHandler,
+} from './error';
 export {
   Owner,
   createContext,
