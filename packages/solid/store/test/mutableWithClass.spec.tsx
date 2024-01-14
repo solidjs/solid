@@ -2,8 +2,8 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
-import { createMutable, unwrap, $RAW } from "../src";
-import { render, Show } from "../../web";
+import { createMutable } from "../src";
+import { render } from "../../web";
 
 describe("Class Operator test", () => {
   test("read and set class", () => {
