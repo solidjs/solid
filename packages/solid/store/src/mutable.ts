@@ -109,7 +109,7 @@ function wrap<T extends StoreNode>(value: T): T {
 
     for (let i = 0, l = keys.length; i < l; i++) {
       const prop = keys[i];
-      if (prop === "constructor") continue;
+      if (isClass && prop === "constructor") continue;
       if (desc[prop].get) {
         const get = desc[prop].get!.bind(p);
         Object.defineProperty(value, prop, {
