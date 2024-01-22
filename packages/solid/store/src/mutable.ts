@@ -94,19 +94,35 @@ function wrap<T extends StoreNode>(value: T): T {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
     const keys = Object.keys(value),
       desc = Object.getOwnPropertyDescriptors(value);
+
+    const proto = Object.getPrototypeOf(value);
+    const isClass =
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      proto !== Object.prototype;
+    if (isClass) {
+      const descriptors = Object.getOwnPropertyDescriptors(proto);
+      keys.push(...Object.keys(descriptors));
+      Object.assign(desc, descriptors);
+    }
+
     for (let i = 0, l = keys.length; i < l; i++) {
       const prop = keys[i];
+      if (isClass && prop === "constructor") continue;
       if (desc[prop].get) {
         const get = desc[prop].get!.bind(p);
         Object.defineProperty(value, prop, {
-          get
+          get,
+          configurable: true
         });
       }
       if (desc[prop].set) {
         const og = desc[prop].set!,
           set = (v: T[keyof T]) => batch(() => og.call(p, v));
         Object.defineProperty(value, prop, {
-          set
+          set,
+          configurable: true
         });
       }
     }
