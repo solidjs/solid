@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.8.12
+
+### Patch Changes
+
+- aba5de08: fix #1746 class properties not working getters in createMutable
+- 85b26c36: fix #2041, fix #2043 - async renderer timing, numeric prop literals
+
 ## 1.8.11
 
 ### Patch Changes
