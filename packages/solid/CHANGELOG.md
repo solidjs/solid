@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.8.13
+
+### Patch Changes
+
+- 3ac8210c: fix storage export
+
 ## 1.8.12
 
 ### Patch Changes
