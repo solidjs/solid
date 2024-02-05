@@ -166,8 +166,8 @@
     },
     "./web/storage": {
       "types": "./web/storage/types/index.d.ts",
-      "import": "./web/storage/dist/index.js",
-      "require": "./web/storage/dist/index.cjs"
+      "import": "./web/storage/dist/storage.js",
+      "require": "./web/storage/dist/storage.cjs"
     },
     "./web/dist/*": "./web/dist/*",
     "./web/types/*": "./web/types/*",
