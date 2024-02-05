@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.8.14
+
+### Patch Changes
+
+- 4b76be80: fix storage export in top-level package.json
+
 ## 1.8.13
 
 ### Patch Changes
