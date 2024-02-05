@@ -173,15 +173,15 @@ export default [
     plugins: [replaceDev(true)].concat(plugins)
   },
   {
-    input: "web/storage/storage.ts",
+    input: "web/storage/src/index.ts",
     output: [
       {
-        file: "web/dist/storage.cjs",
+        file: "web/storage/dist/storage.cjs",
         format: "cjs",
         exports: "auto"
       },
       {
-        file: "web/dist/storage.js",
+        file: "web/storage/dist/storage.js",
         format: "es"
       }
     ],
