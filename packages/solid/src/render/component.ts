@@ -139,7 +139,7 @@ const propTraps: ProxyHandler<{
   }
 };
 
-type DistributeOverride<T, F> = T extends undefined ? F : T;
+type DistributeOverride<T, F> = [T, F] extends [undefined, undefined] ? F & T : (F & T extends undefined ? never : F & T);
 type Override<T, U> = T extends any
   ? U extends any
     ? {
