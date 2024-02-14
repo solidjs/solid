@@ -144,21 +144,26 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
   if (sharedConfig.context && sharedConfig.load) {
     const key = sharedConfig.context.id + sharedConfig.context.count;
     let ref = sharedConfig.load(key);
-    if (ref && (typeof ref !== "object" || ref.status !== "success")) p = ref;
+    if (ref) {
+      if (typeof ref !== "object" || ref.status !== "success") p = ref;
+      else sharedConfig.gather!(key);
+    }
     if (p && p !== "$$f") {
       const [s, set] = createSignal(undefined, { equals: false });
       flicker = s;
-      p.then(() => {
-        sharedConfig.gather!(key);
-        setHydrateContext(ctx);
-        set();
-        setHydrateContext();
-      }).catch((err: any) => {
-        if (err || sharedConfig.done) {
-          err && (error = err);
-          return set();
+      p.then(
+        () => {
+          if (sharedConfig.done) return set();
+          sharedConfig.gather!(key);
+          setHydrateContext(ctx);
+          set();
+          setHydrateContext();
+        },
+        (err: any) => {
+          error = err;
+          set();
         }
-      });
+      );
     }
   }
 
