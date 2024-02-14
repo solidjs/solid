@@ -953,7 +953,7 @@ export function on<S, Next extends Prev, Prev = Next>(
     } else input = deps();
     if (defer) {
       defer = false;
-      return undefined;
+      return prevValue;
     }
     const result = untrack(() => fn(input, prevInput, prevValue));
     prevInput = input;

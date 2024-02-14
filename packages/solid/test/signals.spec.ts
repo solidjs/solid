@@ -81,6 +81,17 @@ describe("Create signals", () => {
     set("minds");
     expect(temp!).toBe("impure minds");
   });
+  test("Create a Effect with explicit deps, lazy evaluation, and initial value", () => {
+    let temp: string;
+    const [sign, set] = createSignal("thoughts");
+    createRoot(() => {
+      const fn = on(sign, (v, _, p) => (temp = `impure ${p} ${v}`), { defer: true });
+      createEffect(fn, "numbers");
+    });
+    expect(temp!).toBeUndefined();
+    set("minds");
+    expect(temp!).toBe("impure numbers minds");
+  });
 });
 
 describe("Update signals", () => {
