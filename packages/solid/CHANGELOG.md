@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.8.15
+
+### Patch Changes
+
+- 829af663: fix #2047 early interaction/multiple resources
+- 4ee461dc: improve template escaping, fragment hydration, SVG use types
+
 ## 1.8.14
 
 ### Patch Changes

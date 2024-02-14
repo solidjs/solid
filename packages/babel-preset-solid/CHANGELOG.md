@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.15
+
+### Patch Changes
+
+- 4ee461dc: improve template escaping, fragment hydration, SVG use types
+
 ## 1.8.12
 
 ### Patch Changes
