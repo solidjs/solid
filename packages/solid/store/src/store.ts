@@ -491,7 +491,7 @@ export interface SetStoreFunction<T> {
 }
 
 /**
- * creates a reactive store that can be read through a proxy object and written with a setter function
+ * Creates a reactive store that can be read through a proxy object and written with a setter function
  *
  * @description https://www.solidjs.com/docs/latest/api#createstore
  */

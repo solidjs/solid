@@ -902,7 +902,7 @@ export interface OnOptions {
 }
 
 /**
- * on - make dependencies of a computation explicit
+ * Makes dependencies of a computation explicit
  * ```typescript
  * export function on<S, U>(
  *   deps: Accessor<S> | AccessorArray<S>,
@@ -962,7 +962,7 @@ export function on<S, Next extends Prev, Prev = Next>(
 }
 
 /**
- * onMount - run an effect only after initial render on mount
+ * Runs an effect only after initial render on mount
  * @param fn an effect that should run only once on mount
  *
  * @description https://www.solidjs.com/docs/latest/api#onmount
@@ -972,7 +972,7 @@ export function onMount(fn: () => void) {
 }
 
 /**
- * onCleanup - run an effect once before the reactive scope is disposed
+ * Runs an effect once before the reactive scope is disposed
  * @param fn an effect that should run only once on cleanup
  *
  * @returns the same {@link fn} function that was passed in
@@ -989,7 +989,7 @@ export function onCleanup<T extends () => any>(fn: T): T {
 }
 
 /**
- * catchError - run an effect whenever an error is thrown within the context of the child scopes
+ * Runs an effect whenever an error is thrown within the context of the child scopes
  * @param fn boundary for the error
  * @param handler an error handler that receives the error
  *
@@ -1176,7 +1176,7 @@ export function createContext<T>(
 }
 
 /**
- * use a context to receive a scoped state from a parent's Context.Provider
+ * Uses a context to receive a scoped state from a parent's Context.Provider
  *
  * @param context Context object made by `createContext`
  * @returns the current or `defaultValue`, if present

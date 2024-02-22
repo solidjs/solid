@@ -47,7 +47,7 @@ export const hydrate: typeof hydrateCore = (...args) => {
 };
 
 /**
- * renders components somewhere else in the DOM
+ * Renders components somewhere else in the DOM
  *
  * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
  *
@@ -113,8 +113,9 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
 } & {
   component: T | undefined;
 };
+
 /**
- * renders an arbitrary custom or native component and passes the other props
+ * Renders an arbitrary custom or native component and passes the other props
  * ```typescript
  * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
  * ```

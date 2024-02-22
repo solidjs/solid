@@ -37,8 +37,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+
 /**
- * reactively transforms an array with a callback function - underlying helper for the `<For>` control flow
+ * Reactively transforms an array with a callback function - underlying helper for the `<For>` control flow
  *
  * similar to `Array.prototype.map`, but gets the index as accessor, transforms only values that changed and returns an accessor and reactively tracks changes to the list.
  *
@@ -175,7 +176,7 @@ export function mapArray<T, U>(
 }
 
 /**
- * reactively maps arrays by index instead of value - underlying helper for the `<Index>` control flow
+ * Reactively maps arrays by index instead of value - underlying helper for the `<Index>` control flow
  *
  * similar to `Array.prototype.map`, but gets the value as an accessor, transforms only changed items of the original arrays anew and returns an accessor.
  *

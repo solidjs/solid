@@ -34,7 +34,7 @@ export type ObservableObserver<T> =
       complete?: (v: boolean) => void;
     };
 /**
- * creates a simple observable from a signal's accessor to be used with the `from` operator of observable libraries like e.g. rxjs
+ * Creates a simple observable from a signal's accessor to be used with the `from` operator of observable libraries like e.g. rxjs
  * ```typescript
  * import { from } from "rxjs";
  * const [s, set] = createSignal(0);
