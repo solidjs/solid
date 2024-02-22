@@ -19,7 +19,7 @@ const narrowedError = (name: string) =>
     : `Stale read from <${name}>.`;
 
 /**
- * creates a list elements from a list
+ * Creates a list elements from a list
  *
  * it receives a map function as its child that receives a list element and an accessor with the index and returns a JSX-Element; if the list is empty, an optional fallback is returned:
  * ```typescript
@@ -144,7 +144,7 @@ export function Show<T>(props: {
 type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
 
 /**
- * switches between content based on mutually exclusive conditions
+ * Switches between content based on mutually exclusive conditions
  * ```typescript
  * <Switch fallback={<FourOhFour />}>
  *   <Match when={state.route === 'home'}>
@@ -208,7 +208,7 @@ export type MatchProps<T> = {
   children: JSX.Element | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => JSX.Element);
 };
 /**
- * selects a content based on condition when inside a `<Switch>` control flow
+ * Selects a content based on condition when inside a `<Switch>` control flow
  * ```typescript
  * <Match when={condition()}>
  *   <Content/>
@@ -238,7 +238,7 @@ export function resetErrorBoundaries() {
   Errors && [...Errors].forEach(fn => fn());
 }
 /**
- * catches uncaught errors inside components and renders a fallback content
+ * Catches uncaught errors inside components and renders a fallback content
  *
  * Also supports a callback form that passes the error and a reset function:
  * ```typescript

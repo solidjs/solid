@@ -28,7 +28,7 @@ const suspenseListEquals = (a: SuspenseListRegisteredState, b: SuspenseListRegis
 const SuspenseListContext = createContext<SuspenseListContextType>();
 
 /**
- * **[experimental]** controls the order in which suspended content is rendered
+ * **[experimental]** Controls the order in which suspended content is rendered
  *
  * @description https://www.solidjs.com/docs/latest/api#suspenselist-experimental
  */
@@ -110,7 +110,7 @@ export function SuspenseList(props: {
 }
 
 /**
- * tracks all resources inside a component and renders a fallback until they are all resolved
+ * Tracks all resources inside a component and renders a fallback until they are all resolved
  * ```typescript
  * const AsyncComponent = lazy(() => import('./component'));
  *
