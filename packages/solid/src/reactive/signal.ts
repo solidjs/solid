@@ -1042,6 +1042,7 @@ export function enableScheduling(scheduler = requestCallback) {
 /**
  * ```typescript
  * export function startTransition(fn: () => void) => Promise<void>
+ * ```
  *
  * @description https://www.solidjs.com/docs/latest/api#usetransition
  */
