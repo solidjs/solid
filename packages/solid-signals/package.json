@@ -16,7 +16,7 @@
   "scripts": {
     "build": "rimraf dist && tsup && pnpm types",
     "types": "tsc -p tsconfig.build.json",
-    "format": "prettier src --write --loglevel warn",
+    "format": "prettier src tests --write --log-level warn",
     "sandbox": "node ./.sandbox/launch.js",
     "test": "vitest run",
     "test:watch": "vitest watch tests",
@@ -25,6 +25,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.1.1",
     "@types/node": "^20.5.1",
     "rimraf": "^5.0.1",
     "tsup": "^7.2.0",

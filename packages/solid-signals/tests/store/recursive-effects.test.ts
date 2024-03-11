@@ -1,18 +1,18 @@
 import {
   createEffect,
-  createRoot,
-  untrack,
-  createStore,
-  unwrap,
-  flushSync,
-  createSignal,
   createMemo,
-} from "../../src";
-import { sharedClone } from "./shared-clone";
+  createRoot,
+  createSignal,
+  createStore,
+  flushSync,
+  untrack,
+  unwrap,
+} from '../../src';
+import { sharedClone } from './shared-clone';
 
-describe("recursive effects", () => {
-  it("can track deeply with cloning", () => {
-    const [store, setStore] = createStore({ foo: "foo", bar: { baz: "baz" } });
+describe('recursive effects', () => {
+  it('can track deeply with cloning', () => {
+    const [store, setStore] = createStore({ foo: 'foo', bar: { baz: 'baz' } });
 
     let called = 0;
     let next: any;
@@ -25,19 +25,19 @@ describe("recursive effects", () => {
     });
 
     setStore((s) => {
-      s.foo = "1";
+      s.foo = '1';
     });
 
     setStore((s) => {
-      s.bar.baz = "2";
+      s.bar.baz = '2';
     });
 
     flushSync();
     expect(called).toBe(2);
   });
 
-  it("respects untracked", () => {
-    const [store, setStore] = createStore({ foo: "foo", bar: { baz: "baz" } });
+  it('respects untracked', () => {
+    const [store, setStore] = createStore({ foo: 'foo', bar: { baz: 'baz' } });
 
     let called = 0;
     let next: any;
@@ -50,16 +50,16 @@ describe("recursive effects", () => {
     });
 
     setStore((s) => {
-      s.foo = "1";
+      s.foo = '1';
     });
 
     setStore((s) => {
-      s.bar.baz = "2";
+      s.bar.baz = '2';
     });
 
     setStore((s) => {
       s.bar = {
-        baz: "3",
+        baz: '3',
       };
     });
 
@@ -67,8 +67,8 @@ describe("recursive effects", () => {
     expect(called).toBe(2);
   });
 
-  it("supports unwrapped values", () => {
-    const [store, setStore] = createStore({ foo: "foo", bar: { baz: "baz" } });
+  it('supports unwrapped values', () => {
+    const [store, setStore] = createStore({ foo: 'foo', bar: { baz: 'baz' } });
 
     let called = 0;
     let prev: any;
@@ -83,11 +83,11 @@ describe("recursive effects", () => {
     });
 
     setStore((s) => {
-      s.foo = "1";
+      s.foo = '1';
     });
 
     setStore((s) => {
-      s.bar.baz = "2";
+      s.bar.baz = '2';
     });
 
     flushSync();
@@ -95,7 +95,7 @@ describe("recursive effects", () => {
     expect(called).toBe(2);
   });
 
-  it("runs parent effects before child effects", () => {
+  it('runs parent effects before child effects', () => {
     const [x, setX] = createSignal(0);
     const simpleM = createMemo(() => x());
     let calls = 0;

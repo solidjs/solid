@@ -5,7 +5,7 @@ import {
   createSignal,
   flushSync,
   getOwner,
-} from "../src";
+} from '../src';
 
 function gc() {
   return new Promise((resolve) =>
@@ -18,7 +18,7 @@ function gc() {
 }
 
 if (global.gc) {
-  it("should gc computed if there are no observers", async () => {
+  it('should gc computed if there are no observers', async () => {
     const [$x] = createSignal(0),
       ref = new WeakRef(createMemo(() => $x()));
 
@@ -26,7 +26,7 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 
-  it("should _not_ gc computed if there are observers", async () => {
+  it('should _not_ gc computed if there are observers', async () => {
     let [$x] = createSignal(0),
       pointer;
 
@@ -42,7 +42,7 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 
-  it("should gc root if disposed", async () => {
+  it('should gc root if disposed', async () => {
     let [$x] = createSignal(0),
       ref!: WeakRef<any>,
       pointer;
@@ -69,7 +69,7 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 
-  it("should gc effect lazily", async () => {
+  it('should gc effect lazily', async () => {
     let [$x, setX] = createSignal(0),
       ref!: WeakRef<any>;
 
@@ -92,5 +92,5 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 } else {
-  it("", () => {});
+  it('', () => {});
 }

@@ -1,10 +1,10 @@
-import { createStore } from "../../src";
+import { createStore } from '../../src';
 
-describe("getters", () => {
-  it("supports getters that return frozen objects", () => {
+describe('getters', () => {
+  it('supports getters that return frozen objects', () => {
     const [store, setStore] = createStore({
       get foo() {
-        return Object.freeze({ foo: "foo" });
+        return Object.freeze({ foo: 'foo' });
       },
     });
 

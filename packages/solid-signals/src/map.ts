@@ -1,7 +1,7 @@
-import { compute } from "./bubble-reactivity/core";
-import { Owner } from "./bubble-reactivity/owner";
-import { runWithOwner } from "./reactivity";
-import { Accessor, Computation } from "./reactivity";
+import { Computation, compute } from './core';
+import { Owner } from './owner';
+import { runWithOwner } from './signals';
+import type { Accessor } from './signals';
 
 export type Maybe<T> = T | void | null | undefined | false;
 

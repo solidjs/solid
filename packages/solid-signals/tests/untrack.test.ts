@@ -6,11 +6,11 @@ import {
   flushSync,
   onCleanup,
   untrack,
-} from "../src";
+} from '../src';
 
 afterEach(() => flushSync());
 
-it("should not create dependency", () => {
+it('should not create dependency', () => {
   const effect = vi.fn();
   const memo = vi.fn();
 
@@ -38,7 +38,7 @@ it("should not create dependency", () => {
   expect(memo).toHaveBeenCalledTimes(1);
 });
 
-it("should not affect deep dependency being created", () => {
+it('should not affect deep dependency being created', () => {
   const effect = vi.fn();
   const memo = vi.fn();
 
@@ -80,7 +80,7 @@ it("should not affect deep dependency being created", () => {
   expect(memo).toHaveBeenCalledTimes(2);
 });
 
-it("should track owner across peeks", () => {
+it('should track owner across peeks', () => {
   const [$x, setX] = createSignal(0);
 
   const childCompute = vi.fn();

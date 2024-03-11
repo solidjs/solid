@@ -1,26 +1,26 @@
-import { createSignal, flushSync } from "../src";
+import { createSignal, flushSync } from '../src';
 
 afterEach(() => flushSync());
 
-it("should store and return value on read", () => {
+it('should store and return value on read', () => {
   const [$x] = createSignal(1);
   expect($x).toBeInstanceOf(Function);
   expect($x()).toBe(1);
 });
 
-it("should update signal via setter", () => {
+it('should update signal via setter', () => {
   const [$x, setX] = createSignal(1);
   setX(2);
   expect($x()).toBe(2);
 });
 
-it("should update signal via update function", () => {
+it('should update signal via update function', () => {
   const [$x, setX] = createSignal(1);
   setX((n) => n + 1);
   expect($x()).toBe(2);
 });
 
-it("should accept equals option", () => {
+it('should accept equals option', () => {
   const [$x, setX] = createSignal(1, {
     // Skip even numbers.
     equals: (prev, next) => prev + 1 === next,
@@ -39,7 +39,7 @@ it("should accept equals option", () => {
   expect($x()).toBe(13);
 });
 
-it("should update signal with functional value", () => {
+it('should update signal with functional value', () => {
   const [$x, setX] = createSignal<() => number>(() => 10);
   expect($x()()).toBe(10);
   setX(() => () => 20);

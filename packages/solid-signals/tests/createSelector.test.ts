@@ -4,9 +4,9 @@ import {
   createSelector,
   createSignal,
   flushSync,
-} from "../src";
+} from '../src';
 
-it("should observe key changes", () => {
+it('should observe key changes', () => {
   createRoot((dispose) => {
     const [$source, setSource] = createSignal(0),
       isSelected = createSelector($source),
