@@ -241,7 +241,7 @@
   ],
   "dependencies": {
     "csstype": "^3.1.0",
-    "seroval": "^1.0.3",
+    "seroval": "^1.0.4",
     "seroval-plugins": "^1.0.3"
   }
 }
