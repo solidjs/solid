@@ -1,5 +1,13 @@
 # solid-js
 
+## 1.8.16
+
+### Patch Changes
+
+- 8de75a47: fix #2065 forward initial value to `on`
+- 071cd42f: fix #2100, fix #2102 - hydration errors due to over optimization
+- 3212f74d: Adjust some JSDocs
+
 ## 1.8.15
 
 ### Patch Changes

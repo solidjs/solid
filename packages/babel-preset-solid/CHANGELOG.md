@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.16
+
+### Patch Changes
+
+- 071cd42f: fix #2100, fix #2102 - hydration errors due to over optimization
+
 ## 1.8.15
 
 ### Patch Changes
