@@ -256,25 +256,37 @@ export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }): JSX.Element {
-  let err;
-  if (sharedConfig!.context && sharedConfig!.load)
-    err = sharedConfig.load(sharedConfig.context.id + sharedConfig.context.count);
+  let err,
+    hasError = false;
+  if (sharedConfig.context && sharedConfig.load && sharedConfig.has) {
+    const key = sharedConfig.context.id + sharedConfig.context.count;
+    hasError = sharedConfig.has(key);
+    err = sharedConfig.load(key);
+  }
   const [errored, setErrored] = createSignal<any>(
     err,
-    "_SOLID_DEV_" ? { name: "errored" } : undefined
+    "_SOLID_DEV_" ? { name: "errored", equals: false } : { equals: false }
   );
+  const pushError = (action: any) => {
+    hasError = true;
+    setErrored(() => action);
+  };
+  const clearError = () => {
+    hasError = false;
+    setErrored();
+  };
   Errors || (Errors = new Set());
-  Errors.add(setErrored);
-  onCleanup(() => Errors.delete(setErrored));
+  Errors.add(clearError as Setter<any>);
+  onCleanup(() => Errors.delete(clearError as Setter<any>));
   return createMemo(
     () => {
-      let e: any;
-      if ((e = errored())) {
+      const e = errored();
+      if (hasError) {
         const f = props.fallback;
         if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
-        return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
+        return typeof f === "function" && f.length ? untrack(() => f(e, clearError)) : f;
       }
-      return catchError(() => props.children, setErrored);
+      return catchError(() => props.children, pushError);
     },
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined

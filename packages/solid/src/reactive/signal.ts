@@ -613,11 +613,12 @@ export function createResource<T, S, R>(
     [value, setValue] = (options.storage || createSignal)(options.initialValue) as Signal<
       T | undefined
     >,
-    [error, setError] = createSignal<unknown>(undefined),
+    [error, setError] = createSignal<unknown>(undefined, { equals: false }),
     [track, trigger] = createSignal(undefined, { equals: false }),
     [state, setState] = createSignal<"unresolved" | "pending" | "ready" | "refreshing" | "errored">(
       resolved ? "ready" : "unresolved"
-    );
+    ),
+    [pState, setPState] = createSignal<0 | 1 | 2>(0);
 
   if (sharedConfig.context) {
     id = `${sharedConfig.context.id}${sharedConfig.context.count++}`;
@@ -625,11 +626,11 @@ export function createResource<T, S, R>(
     if (options.ssrLoadFrom === "initial") initP = options.initialValue as T;
     else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v;
   }
-  function loadEnd(p: Promise<T> | null, v: T | undefined, error?: any, key?: S) {
+  function loadEnd(p: Promise<T> | null, isSuccess: boolean, v: any, key?: S) {
     if (pr === p) {
       pr = null;
       key !== undefined && (resolved = true);
-      if ((p === initP || v === initP) && options.onHydrated)
+      if ((p === initP || (isSuccess && v === initP)) && options.onHydrated)
         queueMicrotask(() => options.onHydrated!(key, { value: v }));
       initP = NO_INIT;
       if (Transition && p && loadedUnderTransition) {
@@ -637,17 +638,21 @@ export function createResource<T, S, R>(
         loadedUnderTransition = false;
         runUpdates(() => {
           Transition!.running = true;
-          completeLoad(v, error);
+          completeLoad(isSuccess, v);
         }, false);
-      } else completeLoad(v, error);
+      } else completeLoad(isSuccess, v);
     }
-    return v;
+    if (isSuccess) return v;
+    // TODO why aren't we rethrowing
+    return undefined;
   }
-  function completeLoad(v: T | undefined, err: any) {
+  function completeLoad(isSuccess: boolean, v: any) {
     runUpdates(() => {
-      if (err === undefined) setValue(() => v);
-      setState(err !== undefined ? "errored" : resolved ? "ready" : "unresolved");
-      setError(err);
+      setState(!isSuccess ? "errored" : resolved ? "ready" : "unresolved");
+      setPState(isSuccess ? 1 : 2);
+      if (isSuccess) {
+        setValue(() => v);
+      } else setError(() => v);
       for (const c of contexts.keys()) c.decrement!();
       contexts.clear();
     }, false);
@@ -657,7 +662,7 @@ export function createResource<T, S, R>(
     const c = SuspenseContext && useContext(SuspenseContext),
       v = value(),
       err = error();
-    if (err !== undefined && !pr) throw err;
+    if (pState() === 2 && !pr) throw err;
     if (Listener && !Listener.user && c) {
       createComputed(() => {
         track();
@@ -678,7 +683,7 @@ export function createResource<T, S, R>(
     const lookup = dynamic ? dynamic() : (source as S);
     loadedUnderTransition = Transition && Transition.running;
     if (lookup == null || lookup === false) {
-      loadEnd(pr, untrack(value));
+      loadEnd(pr, true, untrack(value));
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
@@ -692,24 +697,24 @@ export function createResource<T, S, R>(
             })
           );
     if (!isPromise(p)) {
-      loadEnd(pr, p, undefined, lookup);
+      loadEnd(pr, true, p, lookup);
       return p;
     }
     pr = p;
     if ("value" in p) {
-      if ((p as any).status === "success") loadEnd(pr, p.value as T, undefined, lookup);
-      else loadEnd(pr, undefined, undefined, lookup);
+      loadEnd(pr, (p as any).status === "success", p.value, lookup);
       return p;
     }
     scheduled = true;
     queueMicrotask(() => (scheduled = false));
     runUpdates(() => {
+      setPState(0);
       setState(resolved ? "refreshing" : "pending");
       trigger();
     }, false);
     return p.then(
-      v => loadEnd(p, v, undefined, lookup),
-      e => loadEnd(p, undefined, castError(e), lookup)
+      v => loadEnd(p, true, v, lookup),
+      e => loadEnd(p, false, e, lookup)
     ) as Promise<T>;
   }
   Object.defineProperties(read, {
@@ -725,7 +730,7 @@ export function createResource<T, S, R>(
       get() {
         if (!resolved) return read();
         const err = error();
-        if (err && !pr) throw err;
+        if (pState() === 2 && !pr) throw err;
         return value();
       }
     }
@@ -1684,11 +1689,6 @@ function reset(node: Computation<any>, top?: boolean) {
   }
 }
 
-function castError(err: unknown): Error {
-  if (err instanceof Error) return err;
-  return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
-}
-
 function runErrors(err: unknown, fns: ((err: any) => void)[], owner: Owner | null) {
   try {
     for (const f of fns) f(err);
@@ -1699,17 +1699,16 @@ function runErrors(err: unknown, fns: ((err: any) => void)[], owner: Owner | nul
 
 function handleError(err: unknown, owner = Owner) {
   const fns = ERROR && owner && owner.context && owner.context[ERROR];
-  const error = castError(err);
-  if (!fns) throw error;
+  if (!fns) throw err;
 
   if (Effects)
     Effects!.push({
       fn() {
-        runErrors(error, fns, owner);
+        runErrors(err, fns, owner);
       },
       state: STALE
     } as unknown as Computation<any>);
-  else runErrors(error, fns, owner);
+  else runErrors(err, fns, owner);
 }
 
 function resolveChildren(children: JSX.Element | Accessor<any>): ResolvedChildren {
