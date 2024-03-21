@@ -72,6 +72,7 @@ function runEffects() {
     }
   } finally {
     effects = [];
+    renderEffects = [];
     scheduledEffects = false;
     runningEffects = false;
   }
@@ -85,7 +86,8 @@ function runEffects() {
 export class Effect<T = any> extends Computation<T> {
   constructor(initialValue: T, compute: () => T, options?: MemoOptions<T>) {
     super(initialValue, compute, options);
-    this._updateIfNecessary();
+    effects.push(this);
+    flushEffects();
   }
 
   override _notify(state: number): void {
@@ -114,14 +116,15 @@ export class RenderEffect<T = any> extends Computation<T> {
   effect: (val: T) => void;
   modified: boolean = false;
   constructor(
+    initialValue: T,
     compute: () => T,
     effect: (val: T) => void,
     options?: MemoOptions<T>,
   ) {
-    super(undefined, compute, options);
+    super(initialValue, compute, options);
 
     this.effect = effect;
-    renderEffects.push(this);
+    this._updateIfNecessary();
   }
 
   override _notify(state: number): void {

@@ -1,6 +1,6 @@
 import type { MemoOptions, SignalOptions } from './core';
 import { Computation, compute, UNCHANGED } from './core';
-import { Effect } from './effect';
+import { Effect, RenderEffect } from './effect';
 import { ERROR_BIT, LOADING_BIT } from './flags';
 import { Owner } from './owner';
 
@@ -28,51 +28,7 @@ export function createSignal<T>(
   options?: SignalOptions<T>,
 ): Signal<T> {
   const node = new Computation(initialValue, null, options);
-  return [() => node.read(), (v) => node.write(v)];
-}
-
-function _createPromise<T>(
-  promise: Promise<T>,
-  initial?: T,
-  options?: SignalOptions<T>,
-): Computation<T> {
-  const signal = new Computation(initial, null, options);
-  signal.write(UNCHANGED, LOADING_BIT);
-
-  promise.then(
-    (value) => {
-      signal.write(value, 0);
-    },
-    (error) => {
-      signal.write(error as T, ERROR_BIT);
-    },
-  );
-
-  return signal;
-}
-
-export function createPromise<T>(
-  promise: Promise<T>,
-  initial?: T,
-  options?: SignalOptions<T>,
-): Accessor<T> {
-  const signal = _createPromise(promise, initial, options);
-  return () => signal.read();
-}
-
-function _createAsync<T>(
-  fn: () => Promise<T>,
-  initial?: T,
-  options?: SignalOptions<T>,
-): Computation<T> {
-  const lhs = new Computation(undefined, () => {
-    const promise = Promise.resolve(fn());
-    return _createPromise(promise, initial);
-  });
-
-  const rhs = new Computation(undefined, () => lhs.read().read(), options);
-
-  return rhs;
+  return [node.read.bind(node), node.write.bind(node)];
 }
 
 export function createAsync<T>(
@@ -80,8 +36,25 @@ export function createAsync<T>(
   initial?: T,
   options?: SignalOptions<T>,
 ): Accessor<T> {
-  const rhs = _createAsync(fn, initial, options);
-  return () => rhs.read();
+  const lhs = new Computation(undefined, () => {
+    const promise = Promise.resolve(fn());
+    const signal = new Computation(initial, null, options);
+    signal.write(UNCHANGED, LOADING_BIT);
+
+    promise.then(
+      (value) => {
+        signal.write(value, 0);
+      },
+      (error) => {
+        signal.write(error as T, ERROR_BIT);
+      },
+    );
+
+    return signal;
+  });
+
+  const rhs = new Computation(undefined, () => lhs.read().read(), options);
+  return rhs.read.bind(rhs);
 }
 
 /**
@@ -95,7 +68,7 @@ export function createMemo<T>(
   options?: MemoOptions<T>,
 ): Accessor<T> {
   const node = new Computation(initialValue, compute, options);
-  return () => node.read();
+  return node.read.bind(node);
 }
 
 /**
@@ -109,6 +82,24 @@ export function createEffect<T>(
 ): void {
   void new Effect(
     initialValue,
+    effect,
+    __DEV__ ? { name: options?.name ?? 'effect' } : undefined,
+  );
+}
+
+/**
+ * Invokes the given function each time any of the signals that are read inside are updated
+ * (i.e., their value changes). The effect is immediately invoked on initialization.
+ */
+export function createRenderEffect<T>(
+  compute: () => T,
+  effect: (v: T) => T,
+  initialValue?: T,
+  options?: { name?: string },
+): void {
+  void new RenderEffect(
+    initialValue as any,
+    compute,
     effect,
     __DEV__ ? { name: options?.name ?? 'effect' } : undefined,
   );

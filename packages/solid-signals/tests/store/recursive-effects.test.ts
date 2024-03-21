@@ -23,6 +23,7 @@ describe('recursive effects', () => {
         called++;
       });
     });
+    flushSync();
 
     setStore((s) => {
       s.foo = '1';
@@ -48,6 +49,7 @@ describe('recursive effects', () => {
         called++;
       });
     });
+    flushSync();
 
     setStore((s) => {
       s.foo = '1';
@@ -81,6 +83,7 @@ describe('recursive effects', () => {
         called++;
       });
     });
+    flushSync();
 
     setStore((s) => {
       s.foo = '1';
@@ -106,6 +109,7 @@ describe('recursive effects', () => {
       });
       void simpleM();
     });
+    flushSync();
     setX(1);
     flushSync();
     expect(calls).toBe(2);

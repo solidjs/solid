@@ -14,11 +14,11 @@ it('should run effect', () => {
     effect = vi.fn(() => void $x());
 
   createEffect(effect);
-  expect(effect).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledTimes(0);
 
   setX(1);
   flushSync();
-  expect(effect).toHaveBeenCalledTimes(2);
+  expect(effect).toHaveBeenCalledTimes(1);
 });
 
 it('should run effect on change', () => {
@@ -32,20 +32,20 @@ it('should run effect on change', () => {
 
   createEffect(() => effect($b()));
 
-  expect(effect).to.toHaveBeenCalledTimes(1);
+  expect(effect).to.toHaveBeenCalledTimes(0);
 
   setX(20);
+  flushSync();
+  expect(effect).to.toHaveBeenCalledTimes(1);
+
+  setY(20);
   flushSync();
   expect(effect).to.toHaveBeenCalledTimes(2);
 
-  setY(20);
-  flushSync();
-  expect(effect).to.toHaveBeenCalledTimes(3);
-
   setX(20);
   setY(20);
   flushSync();
-  expect(effect).to.toHaveBeenCalledTimes(3);
+  expect(effect).to.toHaveBeenCalledTimes(2);
 });
 
 it('should handle nested effect', () => {
@@ -70,6 +70,7 @@ it('should handle nested effect', () => {
     return dispose;
   });
 
+  flushSync();
   expect(outerEffect).toHaveBeenCalledTimes(1);
   expect(innerEffect).toHaveBeenCalledTimes(1);
   expect(innerDispose).toHaveBeenCalledTimes(0);
@@ -123,7 +124,7 @@ it('should stop effect', () => {
 
   setX(20);
   flushSync();
-  expect(effect).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledTimes(0);
 });
 
 it('should run all disposals before each new run', () => {
@@ -145,6 +146,7 @@ it('should run all disposals before each new run', () => {
     effect();
     fnA(), fnB(), $x();
   });
+  flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
   expect(disposeA).toHaveBeenCalledTimes(0);
@@ -177,7 +179,7 @@ it('should dispose of nested effect', () => {
 
   setX(10);
   flushSync();
-  expect(innerEffect).toHaveBeenCalledTimes(1);
+  expect(innerEffect).toHaveBeenCalledTimes(0);
   expect(innerEffect).not.toHaveBeenCalledWith(10);
 });
 
@@ -190,6 +192,7 @@ it('should conditionally observe', () => {
   const effect = vi.fn();
 
   createEffect(() => effect($a()));
+  flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
 
@@ -233,7 +236,7 @@ it('should dispose of nested conditional effect', () => {
   }
 
   createEffect(() => ($condition() ? fnA() : fnB()));
-
+  flushSync();
   setCondition(false);
   flushSync();
   expect(disposeA).toHaveBeenCalledTimes(1);
@@ -293,6 +296,7 @@ it('should apply changes in effect in same flush', async () => {
     setX((n) => n + 1);
     $y();
   });
+  flushSync();
 
   expect($x()).toBe(1);
   expect($b()).toBe(4);

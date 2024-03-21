@@ -7,6 +7,7 @@ it('should batch updates', () => {
   const effect = vi.fn($x);
 
   createEffect(effect);
+  flushSync();
 
   setX(20);
   setX(30);
@@ -22,6 +23,7 @@ it('should wait for queue to flush', () => {
   const $effect = vi.fn($x);
 
   createEffect($effect);
+  flushSync();
 
   expect($effect).to.toHaveBeenCalledTimes(1);
 
@@ -43,6 +45,7 @@ it('should not fail if called while flushing', () => {
   });
 
   createEffect(effect);
+  flushSync();
 
   expect(effect).to.toHaveBeenCalledTimes(1);
 

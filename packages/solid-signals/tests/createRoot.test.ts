@@ -59,6 +59,7 @@ it('should create new tracking scope', () => {
 
     return dispose;
   });
+  flushSync();
 
   expect(effect).toHaveBeenCalledWith(0);
   expect(effect).toHaveBeenCalledTimes(1);

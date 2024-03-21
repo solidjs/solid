@@ -14,6 +14,7 @@ it('should let errors bubble up when not handled', () => {
         throw error;
       });
     });
+    flushSync();
   }).toThrowError(error);
 });
 
@@ -48,6 +49,7 @@ it('should forward error to another handler', () => {
       );
     });
   }, rootHandler);
+  flushSync();
 
   expect(rootHandler).toHaveBeenCalledWith(error);
 

@@ -28,6 +28,7 @@ it('should not create dependency', () => {
     expect(untrack($a)).toBe(20);
     expect(untrack($b)).toBe(30);
   });
+  flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
   expect(memo).toHaveBeenCalledTimes(1);
@@ -56,6 +57,7 @@ it('should not affect deep dependency being created', () => {
     expect(untrack($x)).toBe(10);
     expect(untrack($a)).toBe(40);
   });
+  flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
   expect($a()).toBe(40);
@@ -98,6 +100,7 @@ it('should track owner across peeks', () => {
     untrack(() => createChild());
     return dispose;
   });
+  flushSync();
 
   setX(1);
   flushSync();
