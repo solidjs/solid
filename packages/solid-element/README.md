@@ -41,6 +41,17 @@ Props get assigned as element properties and hyphenated attributes. This exposes
 
 This is all you need to get started with Solid Element.
 
+A shadow DOM is used by default for style isolation. If you want to disable the shadow DOM, you can do it with `noShadowDOM()` like this:
+
+```jsx
+import { customElement, noShadowDOM } from 'solid-element';
+
+customElement('my-component', {someProp: 'one', otherProp: 'two'}, (props, { element }) => {
+  noShadowDOM();
+  // ... Solid code
+})
+```
+
 ## Examples
 
 [Web Component Todos](https://wc-todo.firebaseapp.com/) Simple Todos Comparison
