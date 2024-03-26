@@ -286,6 +286,10 @@ export function ErrorBoundary(props: {
   return { t: `<!--!$e${id}-->${resolveSSRNode(res)}<!--!$/e${id}-->` };
 }
 
+export function ClientOnly(props: { children?: JSX.Element }): JSX.Element {
+  return undefined;
+}
+
 // Suspense Context
 export interface Resource<T> {
   (): T | undefined;
@@ -614,4 +618,10 @@ export function Suspense(props: { fallback?: string; children: string }) {
     ctx.serialize(id, "$$f");
     return props.fallback;
   }, suspenseError);
+}
+
+export function clientOnly<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>
+): T {
+  return (() => undefined) as unknown as T;
 }
