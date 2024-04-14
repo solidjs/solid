@@ -80,6 +80,22 @@ export function isWrappable(obj: any) {
 }
 
 /**
+ * Forces an object/class to get wrapped
+ * @param obj object
+ * @example
+ * ```js
+ * class Example {
+ *  constructor() {
+ *    makeWrappable(this) // make every instance of a class wrap
+ *  }
+ * }
+ * ```
+ */
+export function makeWrappable<T>(obj: T) {
+  Object.defineProperty(obj, $WRAP, { value: true });
+}
+
+/**
  * Returns the underlying data in the store without a proxy.
  * @param item store proxy object
  * @example
