@@ -53,8 +53,8 @@ export function createAsync<T>(
     return signal;
   });
 
-  const rhs = new Computation(undefined, () => lhs.read().read(), options);
-  return rhs.read.bind(rhs);
+  const rhs = new Computation(undefined, () => lhs.read().wait(), options);
+  return () => rhs.wait();
 }
 
 /**

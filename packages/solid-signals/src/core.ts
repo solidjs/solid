@@ -482,7 +482,11 @@ export function update<T>(node: Computation<T>): void {
     // Update the node's value
     node.write(result, newFlags, true);
   } catch (error) {
-    node._setError(error);
+    if (error instanceof NotReadyError) {
+      node.write(UNCHANGED, newFlags | LOADING_BIT);
+    } else {
+      node._setError(error);
+    }
   } finally {
     if (newSources) {
       // If there are new sources, that means the end of the sources array has changed
@@ -588,13 +592,6 @@ export function compute<T>(
 
   try {
     return compute(observer ? observer._value : undefined);
-  } catch (e) {
-    if (!(e instanceof NotReadyError)) {
-      throw e;
-    } else {
-      // TODO: figure out what should go here
-      return observer!._value!;
-    }
   } finally {
     setOwner(prevOwner);
     currentObserver = prevObserver;
