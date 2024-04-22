@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.17
+
+### Patch Changes
+
+- 72c5381d: fix #2134, merge dom expressions fix #2136, fix #2137, fix #2110
+
 ## 1.8.16
 
 ### Patch Changes
