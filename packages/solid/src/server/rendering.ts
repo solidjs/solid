@@ -34,8 +34,12 @@ function resolveSSRNode(node: any): string {
   if (t === "string") return node;
   if (node == null || t === "boolean") return "";
   if (Array.isArray(node)) {
+    let prev = {};
     let mapped = "";
-    for (let i = 0, len = node.length; i < len; i++) mapped += resolveSSRNode(node[i]);
+    for (let i = 0, len = node.length; i < len; i++) {
+      if (typeof prev !== "object" && typeof node[i] !== "object") mapped += `<!--!$-->`;
+      mapped += resolveSSRNode((prev = node[i]));
+    }
     return mapped;
   }
   if (t === "object") return node.t;
