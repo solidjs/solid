@@ -493,7 +493,7 @@ export interface SetStoreFunction<T> {
 /**
  * Creates a reactive store that can be read through a proxy object and written with a setter function
  *
- * @description https://www.solidjs.com/docs/latest/api#createstore
+ * @description https://docs.solidjs.com/reference/store-utilities/create-store
  */
 export function createStore<T extends object = {}>(
   ...[store, options]: {} extends T

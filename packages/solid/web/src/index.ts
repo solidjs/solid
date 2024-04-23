@@ -51,7 +51,7 @@ export const hydrate: typeof hydrateCore = (...args) => {
  *
  * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
  *
- * @description https://www.solidjs.com/docs/latest/api#portal
+ * @description https://docs.solidjs.com/reference/components/portal
  */
 export function Portal<T extends boolean = false, S extends boolean = false>(props: {
   mount?: Node;
@@ -119,7 +119,7 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * ```typescript
  * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
  * ```
- * @description https://www.solidjs.com/docs/latest/api#dynamic
+ * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const [p, others] = splitProps(props, ["component"]);

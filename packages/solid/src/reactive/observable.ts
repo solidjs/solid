@@ -41,7 +41,7 @@ export type ObservableObserver<T> =
  * const obsv$ = from(observable(s));
  * obsv$.subscribe((v) => console.log(v));
  * ```
- * description https://www.solidjs.com/docs/latest/api#observable
+ * description https://docs.solidjs.com/reference/reactive-utilities/observable
  */
 export function observable<T>(input: Accessor<T>): Observable<T> {
   return {

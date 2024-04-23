@@ -214,7 +214,7 @@ export function Index<T>(props: {
 type RequiredParameter<T> = T extends () => unknown ? never : T;
 /**
  * Conditionally render its children or an optional fallback component
- * @description https://www.solidjs.com/docs/latest/api#show
+ * @description https://docs.solidjs.com/reference/components/show
  */
 export function Show<T>(props: {
   when: T | undefined | null | false;
