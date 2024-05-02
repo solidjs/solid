@@ -1,5 +1,5 @@
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import { Computation, type MemoOptions } from './core';
+import { compute, Computation, type MemoOptions } from './core';
 import { type Owner } from './owner';
 
 let scheduledEffects = false,
@@ -56,12 +56,12 @@ function runEffects() {
   try {
     for (let i = 0; i < renderEffects.length; i++) {
       if (renderEffects[i]._state !== STATE_CLEAN) {
-        renderEffects[i]._updateIfNecessary();
+        runTop(renderEffects[i]);
       }
     }
     for (let i = 0; i < renderEffects.length; i++) {
       if (renderEffects[i].modified) {
-        renderEffects[i].effect(renderEffects[i]._value);
+        compute(renderEffects[i], renderEffects[i].effect, renderEffects[i]);
         renderEffects[i].modified = false;
       }
     }
