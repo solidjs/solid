@@ -1,5 +1,5 @@
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import { compute, Computation, type MemoOptions } from './core';
+import { Computation, compute, type MemoOptions } from './core';
 import { type Owner } from './owner';
 
 let scheduledEffects = false,
@@ -46,7 +46,7 @@ function runTop(node: Computation): void {
 }
 
 function runEffects() {
-  if (!effects.length) {
+  if (!effects.length && !renderEffects.length) {
     scheduledEffects = false;
     return;
   }
@@ -60,7 +60,10 @@ function runEffects() {
       }
     }
     for (let i = 0; i < renderEffects.length; i++) {
-      if (renderEffects[i].modified) {
+      if (
+        renderEffects[i].modified &&
+        renderEffects[i]._state !== STATE_DISPOSED
+      ) {
         compute(renderEffects[i], renderEffects[i].effect, renderEffects[i]);
         renderEffects[i].modified = false;
       }
@@ -125,6 +128,7 @@ export class RenderEffect<T = any> extends Computation<T> {
 
     this.effect = effect;
     this._updateIfNecessary();
+    renderEffects.push(this);
   }
 
   override _notify(state: number): void {
