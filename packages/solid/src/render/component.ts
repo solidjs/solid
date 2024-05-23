@@ -372,9 +372,11 @@ export function lazy<T extends Component<any>>(
         (Comp = comp()) &&
         untrack(() => {
           if ("_SOLID_DEV_") Object.assign(Comp!, { [$DEVCOMP]: true });
+          // @ts-ignore
           if (!ctx) return Comp!(...args);
           const c = sharedConfig.context;
           setHydrateContext(ctx);
+          // @ts-ignore
           const r = Comp!(...args);
           setHydrateContext(c);
           return r;
