@@ -349,7 +349,7 @@ export function lazy<T extends Component<any>>(
 ): T & { preload: () => Promise<{ default: T }> } {
   let comp: () => T | undefined;
   let p: Promise<{ default: T }> | undefined;
-  const wrap: T & { preload?: () => void } = ((props: any) => {
+  const wrap: T & { preload?: () => void } = ((...args: any[]) => {
     const ctx = sharedConfig.context;
     if (ctx) {
       const [s, set] = createSignal<T>();
@@ -372,10 +372,10 @@ export function lazy<T extends Component<any>>(
         (Comp = comp()) &&
         untrack(() => {
           if ("_SOLID_DEV_") Object.assign(Comp!, { [$DEVCOMP]: true });
-          if (!ctx) return Comp!(props);
+          if (!ctx) return Comp!(...args);
           const c = sharedConfig.context;
           setHydrateContext(ctx);
-          const r = Comp!(props);
+          const r = Comp!(...args);
           setHydrateContext(c);
           return r;
         })
