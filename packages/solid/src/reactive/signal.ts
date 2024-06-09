@@ -696,8 +696,9 @@ export function createResource<T, S, R>(
       return p;
     }
     pr = p;
-    if ("value" in p) {
-      if ((p as any).status === "success") loadEnd(pr, p.value as T, undefined, lookup);
+    if (isSerializedPromise(p)) {
+      if (p.status === "success") loadEnd(pr, p.value, undefined, lookup);
+      else if (p.status === "failure") loadEnd(pr, undefined, castError(p.value), lookup);
       else loadEnd(pr, undefined, undefined, lookup);
       return p;
     }
@@ -733,6 +734,13 @@ export function createResource<T, S, R>(
   if (dynamic) createComputed(() => load(false));
   else load(false);
   return [read as Resource<T>, { refetch: load, mutate: setValue }];
+}
+
+// Promises from seroval have 'value' and 'status'
+function isSerializedPromise<T>(
+  p: Promise<T>
+): p is Promise<T> & ({ status: "success"; value: T } | { status: "failure"; value: unknown }) {
+  return "value" in p;
 }
 
 export interface DeferredOptions<T> {
