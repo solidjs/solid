@@ -184,7 +184,7 @@ Do more with less: use simple, composable primitives without hidden rules and go
 
 ### Productive
 
-Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://hope-ui.com/), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
+Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://kobalte.dev), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
 
 ## More
 
