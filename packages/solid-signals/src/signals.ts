@@ -93,7 +93,7 @@ export function createEffect<T>(
  */
 export function createRenderEffect<T>(
   compute: () => T,
-  effect: (v: T) => T,
+  effect: (v: T) => void,
   initialValue?: T,
   options?: { name?: string },
 ): void {

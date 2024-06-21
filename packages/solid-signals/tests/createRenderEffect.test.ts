@@ -135,215 +135,212 @@ it('should stop effect', () => {
   expect(effect).toHaveBeenCalledTimes(0);
 });
 
-// it('should run all disposals before each new run', () => {
-//   const effect = vi.fn();
-//   const disposeA = vi.fn();
-//   const disposeB = vi.fn();
+it('should run all disposals before each new run', () => {
+  const effect = vi.fn();
+  const disposeA = vi.fn();
+  const disposeB = vi.fn();
 
-//   function fnA() {
-//     onCleanup(disposeA);
-//   }
+  function fnA() {
+    onCleanup(disposeA);
+  }
 
-//   function fnB() {
-//     onCleanup(disposeB);
-//   }
+  function fnB() {
+    onCleanup(disposeB);
+  }
 
-//   const [$x, setX] = createSignal(0);
+  const [$x, setX] = createSignal(0);
 
-//   createRenderEffect(() => {
-//     effect();
-//     fnA(), fnB(), $x();
-//   });
-//   flushSync();
+  createRenderEffect($x, (x) => {
+    effect();
+    fnA(), fnB();
+  });
+  flushSync();
 
-//   expect(effect).toHaveBeenCalledTimes(1);
-//   expect(disposeA).toHaveBeenCalledTimes(0);
-//   expect(disposeB).toHaveBeenCalledTimes(0);
+  expect(effect).toHaveBeenCalledTimes(1);
+  expect(disposeA).toHaveBeenCalledTimes(0);
+  expect(disposeB).toHaveBeenCalledTimes(0);
 
-//   for (let i = 1; i <= 3; i += 1) {
-//     setX(i);
-//     flushSync();
-//     expect(effect).toHaveBeenCalledTimes(i + 1);
-//     expect(disposeA).toHaveBeenCalledTimes(i);
-//     expect(disposeB).toHaveBeenCalledTimes(i);
-//   }
-// });
+  for (let i = 1; i <= 3; i += 1) {
+    setX(i);
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(i + 1);
+    expect(disposeA).toHaveBeenCalledTimes(i);
+    expect(disposeB).toHaveBeenCalledTimes(i);
+  }
+});
 
-// it('should dispose of nested effect', () => {
-//   const [$x, setX] = createSignal(0);
-//   const innerEffect = vi.fn();
+it('should dispose of nested effect', () => {
+  const [$x, setX] = createSignal(0);
+  const innerEffect = vi.fn();
 
-//   const stopEffect = createRoot((dispose) => {
-//     createRenderEffect(() => {
-//       createRenderEffect(() => {
-//         innerEffect($x());
-//       });
-//     });
+  const stopEffect = createRoot((dispose) => {
+    createRenderEffect(() => {}, () => {
+      createRenderEffect($x, innerEffect);
+    });
 
-//     return dispose;
-//   });
+    return dispose;
+  });
 
-//   stopEffect();
+  stopEffect();
 
-//   setX(10);
-//   flushSync();
-//   expect(innerEffect).toHaveBeenCalledTimes(0);
-//   expect(innerEffect).not.toHaveBeenCalledWith(10);
-// });
+  setX(10);
+  flushSync();
+  expect(innerEffect).toHaveBeenCalledTimes(0);
+  expect(innerEffect).not.toHaveBeenCalledWith(10);
+});
 
-// it('should conditionally observe', () => {
-//   const [$x, setX] = createSignal(0);
-//   const [$y, setY] = createSignal(0);
-//   const [$condition, setCondition] = createSignal(true);
+it('should conditionally observe', () => {
+  const [$x, setX] = createSignal(0);
+  const [$y, setY] = createSignal(0);
+  const [$condition, setCondition] = createSignal(true);
 
-//   const $a = createMemo(() => ($condition() ? $x() : $y()));
-//   const effect = vi.fn();
+  const $a = createMemo(() => ($condition() ? $x() : $y()));
+  const effect = vi.fn();
 
-//   createRenderEffect(() => effect($a()));
-//   flushSync();
+  createRenderEffect($a, effect);
+  flushSync();
 
-//   expect(effect).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledTimes(1);
 
-//   setY(1);
-//   flushSync();
-//   expect(effect).toHaveBeenCalledTimes(1);
+  setY(1);
+  flushSync();
+  expect(effect).toHaveBeenCalledTimes(1);
 
-//   setX(1);
-//   flushSync();
-//   expect(effect).toHaveBeenCalledTimes(2);
+  setX(1);
+  flushSync();
+  expect(effect).toHaveBeenCalledTimes(2);
 
-//   setCondition(false);
-//   flushSync();
-//   expect(effect).toHaveBeenCalledTimes(2);
+  setCondition(false);
+  flushSync();
+  expect(effect).toHaveBeenCalledTimes(2);
 
-//   setY(2);
-//   flushSync();
-//   expect(effect).toHaveBeenCalledTimes(3);
+  setY(2);
+  flushSync();
+  expect(effect).toHaveBeenCalledTimes(3);
 
-//   setX(3);
-//   flushSync();
-//   expect(effect).toHaveBeenCalledTimes(3);
-// });
+  setX(3);
+  flushSync();
+  expect(effect).toHaveBeenCalledTimes(3);
+});
 
-// it('should dispose of nested conditional effect', () => {
-//   const [$condition, setCondition] = createSignal(true);
+it('should dispose of nested conditional effect', () => {
+  const [$condition, setCondition] = createSignal(true);
 
-//   const disposeA = vi.fn();
-//   const disposeB = vi.fn();
+  const disposeA = vi.fn();
+  const disposeB = vi.fn();
 
-//   function fnA() {
-//     createRenderEffect(() => {
-//       onCleanup(disposeA);
-//     });
-//   }
+  function fnA() {
+    createRenderEffect(() => {}, () => {
+      onCleanup(disposeA);
+    });
+  }
 
-//   function fnB() {
-//     createRenderEffect(() => {
-//       onCleanup(disposeB);
-//     });
-//   }
+  function fnB() {
+    createRenderEffect(() => {}, () => {
+      onCleanup(disposeB);
+    });
+  }
 
-//   createRenderEffect(() => ($condition() ? fnA() : fnB()));
-//   flushSync();
-//   setCondition(false);
-//   flushSync();
-//   expect(disposeA).toHaveBeenCalledTimes(1);
-// });
+  createRenderEffect(() => ($condition() ? fnA() : fnB()), () => {});
+  flushSync();
+  setCondition(false);
+  flushSync();
+  expect(disposeA).toHaveBeenCalledTimes(1);
+});
 
-// // https://github.com/preactjs/signals/issues/152
-// it('should handle looped effects', () => {
-//   let values: number[] = [],
-//     loop = 2;
+// https://github.com/preactjs/signals/issues/152
+it('should handle looped effects', () => {
+  let values: number[] = [],
+    loop = 2;
 
-//   const [$value, setValue] = createSignal(0);
+  const [$value, setValue] = createSignal(0);
 
-//   let x = 0;
-//   createRenderEffect(() => {
-//     x++;
-//     values.push($value());
-//     for (let i = 0; i < loop; i++) {
-//       createRenderEffect(() => {
-//         values.push($value() + i);
-//       });
-//     }
-//   });
+  let x = 0;
+  createRenderEffect($value, (v) => {
+    x++;
+    values.push(v);
+    for (let i = 0; i < loop; i++) {
+      createRenderEffect($value, (v) => {
+        values.push(v + i);
+      });
+    }
+  });
 
-//   flushSync();
+  flushSync();
 
-//   expect(values).toHaveLength(3);
-//   expect(values.join(',')).toBe('0,0,1');
+  expect(values).toHaveLength(3);
+  expect(values.join(',')).toBe('0,0,1');
 
-//   loop = 1;
-//   values = [];
-//   setValue(1);
-//   flushSync();
+  loop = 1;
+  values = [];
+  setValue(1);
+  flushSync();
 
-//   expect(values).toHaveLength(2);
-//   expect(values.join(',')).toBe('1,1');
+  expect(values).toHaveLength(2);
+  expect(values.join(',')).toBe('1,1');
 
-//   values = [];
-//   setValue(2);
-//   flushSync();
+  values = [];
+  setValue(2);
+  flushSync();
 
-//   expect(values).toHaveLength(2);
-//   expect(values.join(',')).toBe('2,2');
-// });
+  expect(values).toHaveLength(2);
+  expect(values.join(',')).toBe('2,2');
+});
 
-// it('should apply changes in effect in same flush', async () => {
-//   const [$x, setX] = createSignal(0),
-//     [$y, setY] = createSignal(0);
+it('should apply changes in effect in same flush', async () => {
+  const [$x, setX] = createSignal(0),
+    [$y, setY] = createSignal(0);
 
-//   const $a = createMemo(() => {
-//       return $x() + 1;
-//     }),
-//     $b = createMemo(() => {
-//       return $a() + 2;
-//     });
+  const $a = createMemo(() => {
+      return $x() + 1;
+    }),
+    $b = createMemo(() => {
+      return $a() + 2;
+    });
 
-//   createRenderEffect(() => {
-//     setX((n) => n + 1);
-//     $y();
-//   });
-//   flushSync();
+  createRenderEffect($y, () => {
+    setX((n) => n + 1);
+  });
+  flushSync();
 
-//   expect($x()).toBe(1);
-//   expect($b()).toBe(4);
-//   expect($a()).toBe(2);
+  expect($x()).toBe(1);
+  expect($b()).toBe(4);
+  expect($a()).toBe(2);
 
-//   setY(1);
+  setY(1);
 
-//   flushSync();
+  flushSync();
 
-//   expect($x()).toBe(2);
-//   expect($b()).toBe(5);
-//   expect($a()).toBe(3);
+  expect($x()).toBe(2);
+  expect($b()).toBe(5);
+  expect($a()).toBe(3);
 
-//   setY(2);
+  setY(2);
 
-//   flushSync();
+  flushSync();
 
-//   expect($x()).toBe(3);
-//   expect($b()).toBe(6);
-//   expect($a()).toBe(4);
-// });
+  expect($x()).toBe(3);
+  expect($b()).toBe(6);
+  expect($a()).toBe(4);
+});
 
-// // This is essentially run top - we need to solve it.
-// it.skip('should run parent effect before child effect', () => {
-//   const [$x, setX] = createSignal(0);
-//   const $condition = createMemo(() => $x());
+// This is essentially run top - we need to solve it.
+it.skip('should run parent effect before child effect', () => {
+  const [$x, setX] = createSignal(0);
+  const $condition = createMemo(() => $x());
 
-//   let calls = 0;
+  let calls = 0;
 
-//   createRenderEffect(() => {
-//     createRenderEffect(() => {
-//       $x();
-//       calls++;
-//     });
+  createRenderEffect(() => {}, () => {
+    createRenderEffect($x, (x) => {
+      x
+      calls++;
+    });
 
-//     $condition();
-//   });
+    $condition();
+  });
 
-//   setX(1);
-//   flushSync();
-//   expect(calls).toBe(2);
-// });
+  setX(1);
+  flushSync();
+  expect(calls).toBe(2);
+});
