@@ -82,8 +82,8 @@ it('should notify observer', () => {
     return { id: value.id };
   });
 
-  const effect = vi.fn(() => map());
-  createEffect(effect);
+  const effect = vi.fn();
+  createEffect(map, effect);
   flushSync();
 
   setSource((prev) => prev.slice(1));

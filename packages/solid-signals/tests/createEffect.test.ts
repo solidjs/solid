@@ -11,14 +11,22 @@ afterEach(() => flushSync());
 
 it('should run effect', () => {
   const [$x, setX] = createSignal(0),
-    effect = vi.fn(() => void $x());
+    compute = vi.fn($x),
+    effect = vi.fn();
 
-  createEffect(effect);
+  createEffect(compute, effect);
+  expect(compute).toHaveBeenCalledTimes(0);
   expect(effect).toHaveBeenCalledTimes(0);
+  flushSync();
+  expect(compute).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledWith(0);
 
   setX(1);
   flushSync();
-  expect(effect).toHaveBeenCalledTimes(1);
+  expect(compute).toHaveBeenCalledTimes(2);
+  expect(effect).toHaveBeenCalledTimes(2);
+  expect(effect).toHaveBeenCalledWith(1);
 });
 
 it('should run effect on change', () => {
@@ -30,7 +38,7 @@ it('should run effect on change', () => {
   const $a = createMemo(() => $x() + $y());
   const $b = createMemo(() => $a());
 
-  createEffect(() => effect($b()));
+  createEffect($b, effect);
 
   expect(effect).to.toHaveBeenCalledTimes(0);
 
@@ -59,13 +67,11 @@ it('should handle nested effect', () => {
   const stopEffect = createRoot((dispose) => {
     createEffect(() => {
       $x();
-      outerEffect();
       createEffect(() => {
         $y();
-        innerEffect();
         onCleanup(innerDispose);
-      });
-    });
+      }, innerEffect);
+    }, outerEffect);
 
     return dispose;
   });
@@ -116,7 +122,7 @@ it('should stop effect', () => {
   const [$x, setX] = createSignal(10);
 
   const stopEffect = createRoot((dispose) => {
-    createEffect(() => effect($x()));
+    createEffect($x, effect);
     return dispose;
   });
 
@@ -142,9 +148,9 @@ it('should run all disposals before each new run', () => {
 
   const [$x, setX] = createSignal(0);
 
-  createEffect(() => {
+  createEffect($x, () => {
     effect();
-    fnA(), fnB(), $x();
+    fnA(), fnB();
   });
   flushSync();
 
@@ -166,10 +172,8 @@ it('should dispose of nested effect', () => {
   const innerEffect = vi.fn();
 
   const stopEffect = createRoot((dispose) => {
-    createEffect(() => {
-      createEffect(() => {
-        innerEffect($x());
-      });
+    createEffect(() => {}, () => {
+      createEffect($x, innerEffect);
     });
 
     return dispose;
@@ -191,7 +195,7 @@ it('should conditionally observe', () => {
   const $a = createMemo(() => ($condition() ? $x() : $y()));
   const effect = vi.fn();
 
-  createEffect(() => effect($a()));
+  createEffect($a, effect);
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -224,18 +228,18 @@ it('should dispose of nested conditional effect', () => {
   const disposeB = vi.fn();
 
   function fnA() {
-    createEffect(() => {
+    createEffect(() => {}, () => {
       onCleanup(disposeA);
     });
   }
 
   function fnB() {
-    createEffect(() => {
+    createEffect(() => {}, () => {
       onCleanup(disposeB);
     });
   }
 
-  createEffect(() => ($condition() ? fnA() : fnB()));
+  createEffect(() => ($condition() ? fnA() : fnB()), () => {});
   flushSync();
   setCondition(false);
   flushSync();
@@ -256,9 +260,9 @@ it('should handle looped effects', () => {
     for (let i = 0; i < loop; i++) {
       createEffect(() => {
         values.push($value() + i);
-      });
+      }, () => {});
     }
-  });
+  }, () => {});
 
   flushSync();
 
@@ -292,9 +296,8 @@ it('should apply changes in effect in same flush', async () => {
       return $a() + 2;
     });
 
-  createEffect(() => {
+  createEffect($y, () => {
     setX((n) => n + 1);
-    $y();
   });
   flushSync();
 
@@ -326,9 +329,8 @@ it.skip('should run parent effect before child effect', () => {
 
   let calls = 0;
 
-  createEffect(() => {
-    createEffect(() => {
-      $x();
+  createEffect(() => {}, () => {
+    createEffect($x, () => {
       calls++;
     });
 

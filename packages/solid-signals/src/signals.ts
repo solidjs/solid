@@ -76,12 +76,14 @@ export function createMemo<T>(
  * (i.e., their value changes). The effect is immediately invoked on initialization.
  */
 export function createEffect<T>(
-  effect: () => T,
+  compute: () => T,
+  effect: (v: T) => (() => void) | void,
   initialValue?: T,
   options?: { name?: string },
 ): void {
   void new Effect(
-    initialValue,
+    initialValue as any,
+    compute,
     effect,
     __DEV__ ? { name: options?.name ?? 'effect' } : undefined,
   );
@@ -93,7 +95,7 @@ export function createEffect<T>(
  */
 export function createRenderEffect<T>(
   compute: () => T,
-  effect: (v: T) => void,
+  effect: (v: T) => (() => void) | void,
   initialValue?: T,
   options?: { name?: string },
 ): void {

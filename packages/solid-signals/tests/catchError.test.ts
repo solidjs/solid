@@ -12,7 +12,7 @@ it('should let errors bubble up when not handled', () => {
     createRoot(() => {
       createEffect(() => {
         throw error;
-      });
+      }, () => {});
     });
     flushSync();
   }).toThrowError(error);
@@ -47,7 +47,7 @@ it('should forward error to another handler', () => {
           throw e;
         },
       );
-    });
+    }, () => {});
   }, rootHandler);
   flushSync();
 
@@ -70,7 +70,7 @@ it('should not duplicate error handler', () => {
     catchError(() => {
       if (shouldThrow) throw error;
     }, handler);
-  });
+  }, () => {});
 
   setX(1);
   flushSync();
@@ -94,13 +94,13 @@ it('should not trigger wrong handler', () => {
       createEffect(() => {
         $x();
         if (shouldThrow) throw error;
-      });
+      }, () => {});
 
       createEffect(() => {
         catchError(() => {
           // no-op
         }, handler);
-      });
+      }, () => {});
     }, rootHandler);
   });
 

@@ -21,7 +21,7 @@ describe('recursive effects', () => {
       createEffect(() => {
         next = sharedClone(next, store);
         called++;
-      });
+      }, () => {});
     });
     flushSync();
 
@@ -47,7 +47,7 @@ describe('recursive effects', () => {
       createEffect(() => {
         next = sharedClone(next, untrack(() => store).bar);
         called++;
-      });
+      }, () => {});
     });
     flushSync();
 
@@ -81,7 +81,7 @@ describe('recursive effects', () => {
         prev = next;
         next = unwrap(sharedClone(next, store));
         called++;
-      });
+      }, () => {});
     });
     flushSync();
 
@@ -106,9 +106,9 @@ describe('recursive effects', () => {
       createEffect(() => {
         void x();
         calls++;
-      });
+      }, () => {});
       void simpleM();
-    });
+    }, () => {});
     flushSync();
     setX(1);
     flushSync();

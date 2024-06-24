@@ -12,7 +12,7 @@ it('should be invoked when computation is disposed', () => {
       onCleanup(disposeA);
       onCleanup(disposeB);
       onCleanup(disposeC);
-    });
+    }, () => {});
 
     return dispose;
   });
@@ -31,12 +31,12 @@ it('should not trigger wrong onCleanup', () => {
   createRoot(() => {
     createEffect(() => {
       onCleanup(dispose);
-    });
+    }, () => {});
 
     const stopEffect = createRoot((dispose) => {
-      createEffect(() => {});
+      createEffect(() => {}, () => {});
       return dispose;
-    });
+    }, );
 
     stopEffect();
     flushSync();
@@ -58,12 +58,12 @@ it('should clean up in reverse order', () => {
 
       createEffect(() => {
         onCleanup(() => disposeA(++calls));
-      });
+      }, () => {});
 
       createEffect(() => {
         onCleanup(() => disposeB(++calls));
-      });
-    });
+      }, () => {});
+    }, () => {});
 
     return dispose;
   });
@@ -86,16 +86,16 @@ it('should dispose all roots', () => {
   const dispose = createRoot((dispose) => {
     createRoot(() => {
       onCleanup(() => disposals.push('SUBTREE 1'));
-      createEffect(() => onCleanup(() => disposals.push('+A1')));
-      createEffect(() => onCleanup(() => disposals.push('+B1')));
-      createEffect(() => onCleanup(() => disposals.push('+C1')));
+      createEffect(() => onCleanup(() => disposals.push('+A1')), () => {});
+      createEffect(() => onCleanup(() => disposals.push('+B1')), () => {});
+      createEffect(() => onCleanup(() => disposals.push('+C1')), () => {});
     });
 
     createRoot(() => {
       onCleanup(() => disposals.push('SUBTREE 2'));
-      createEffect(() => onCleanup(() => disposals.push('+A2')));
-      createEffect(() => onCleanup(() => disposals.push('+B2')));
-      createEffect(() => onCleanup(() => disposals.push('+C2')));
+      createEffect(() => onCleanup(() => disposals.push('+A2')), () => {});
+      createEffect(() => onCleanup(() => disposals.push('+B2')), () => {});
+      createEffect(() => onCleanup(() => disposals.push('+C2')), () => {});
     });
 
     onCleanup(() => disposals.push('ROOT'));

@@ -54,8 +54,8 @@ it('should create new tracking scope', () => {
   const stopEffect = createRoot((dispose) => {
     createEffect(() => {
       $x();
-      createRoot(() => void createEffect(() => effect($x())));
-    });
+      createRoot(() => void createEffect($x, effect));
+    }, () => {});
 
     return dispose;
   });

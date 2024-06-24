@@ -155,7 +155,7 @@ it('should accept equals option', () => {
   });
 
   const effectA = vi.fn();
-  createEffect(() => effectA($a()));
+  createEffect($a, effectA);
   flushSync();
 
   expect($a()).toBe(0);

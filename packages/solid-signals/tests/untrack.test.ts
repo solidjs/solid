@@ -27,7 +27,7 @@ it('should not create dependency', () => {
     expect(untrack($x)).toBe(10);
     expect(untrack($a)).toBe(20);
     expect(untrack($b)).toBe(30);
-  });
+  }, () => {});
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -56,7 +56,7 @@ it('should not affect deep dependency being created', () => {
     effect();
     expect(untrack($x)).toBe(10);
     expect(untrack($a)).toBe(40);
-  });
+  }, () => {});
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -93,7 +93,7 @@ it('should track owner across peeks', () => {
     createEffect(() => {
       childCompute($a());
       onCleanup(childDispose);
-    });
+    }, () => {});
   }
 
   const dispose = createRoot((dispose) => {

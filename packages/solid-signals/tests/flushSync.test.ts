@@ -4,9 +4,9 @@ afterEach(() => flushSync());
 
 it('should batch updates', () => {
   const [$x, setX] = createSignal(10);
-  const effect = vi.fn($x);
+  const effect = vi.fn();
 
-  createEffect(effect);
+  createEffect($x, effect);
   flushSync();
 
   setX(20);
@@ -20,9 +20,9 @@ it('should batch updates', () => {
 
 it('should wait for queue to flush', () => {
   const [$x, setX] = createSignal(10);
-  const $effect = vi.fn($x);
+  const $effect = vi.fn();
 
-  createEffect($effect);
+  createEffect($x, $effect);
   flushSync();
 
   expect($effect).to.toHaveBeenCalledTimes(1);
@@ -40,11 +40,10 @@ it('should not fail if called while flushing', () => {
   const [$a, setA] = createSignal(10);
 
   const effect = vi.fn(() => {
-    $a();
     flushSync();
   });
 
-  createEffect(effect);
+  createEffect($a, effect);
   flushSync();
 
   expect(effect).to.toHaveBeenCalledTimes(1);

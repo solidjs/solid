@@ -11,8 +11,8 @@ afterEach(() => flushSync());
 
 it('should run effect', () => {
   const [$x, setX] = createSignal(0),
-    compute = vi.fn(() => $x() + 1),
-    effect = vi.fn((v) => v);
+    compute = vi.fn($x),
+    effect = vi.fn();
 
   createRenderEffect(compute, effect);
   expect(compute).toHaveBeenCalledTimes(1);
@@ -20,13 +20,13 @@ it('should run effect', () => {
   flushSync();
   expect(compute).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(1);
-  expect(effect).toHaveBeenCalledWith(1);
+  expect(effect).toHaveBeenCalledWith(0);
 
   setX(1);
   flushSync();
   expect(compute).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(2);
-  expect(effect).toHaveBeenCalledWith(2);
+  expect(effect).toHaveBeenCalledWith(1);
 });
 
 it('should run effect on change', () => {
@@ -41,21 +41,19 @@ it('should run effect on change', () => {
   createRenderEffect($b, effect);
 
   expect(effect).to.toHaveBeenCalledTimes(0);
+
+  setX(20);
   flushSync();
   expect(effect).to.toHaveBeenCalledTimes(1);
 
-  setX(20);
+  setY(20);
   flushSync();
   expect(effect).to.toHaveBeenCalledTimes(2);
 
-  setY(20);
-  flushSync();
-  expect(effect).to.toHaveBeenCalledTimes(3);
-
   setX(20);
   setY(20);
   flushSync();
-  expect(effect).to.toHaveBeenCalledTimes(3);
+  expect(effect).to.toHaveBeenCalledTimes(2);
 });
 
 it('should handle nested effect', () => {
@@ -67,13 +65,13 @@ it('should handle nested effect', () => {
   const innerDispose = vi.fn();
 
   const stopEffect = createRoot((dispose) => {
-    createRenderEffect($x, () => {
-      outerEffect();
-      createRenderEffect($y, () => {
-        innerEffect();
+    createRenderEffect(() => {
+      $x();
+      createRenderEffect(() => {
+        $y();
         onCleanup(innerDispose);
-      });
-    });
+      }, innerEffect);
+    }, outerEffect);
 
     return dispose;
   });
@@ -150,7 +148,7 @@ it('should run all disposals before each new run', () => {
 
   const [$x, setX] = createSignal(0);
 
-  createRenderEffect($x, (x) => {
+  createRenderEffect($x, () => {
     effect();
     fnA(), fnB();
   });
@@ -256,15 +254,15 @@ it('should handle looped effects', () => {
   const [$value, setValue] = createSignal(0);
 
   let x = 0;
-  createRenderEffect($value, (v) => {
+  createRenderEffect(() => {
     x++;
-    values.push(v);
+    values.push($value());
     for (let i = 0; i < loop; i++) {
-      createRenderEffect($value, (v) => {
-        values.push(v + i);
-      });
+      createRenderEffect(() => {
+        values.push($value() + i);
+      }, () => {});
     }
-  });
+  }, () => {});
 
   flushSync();
 
@@ -332,8 +330,7 @@ it.skip('should run parent effect before child effect', () => {
   let calls = 0;
 
   createRenderEffect(() => {}, () => {
-    createRenderEffect($x, (x) => {
-      x
+    createRenderEffect($x, () => {
       calls++;
     });
 

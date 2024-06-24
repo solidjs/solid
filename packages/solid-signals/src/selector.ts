@@ -44,6 +44,7 @@ export function createSelector<Source, Key = Source>(
 
       return (prevSource = newSource);
     },
+    () => {}, //TODO: make sure this makes sense
     __DEV__ ? { name: options?.name } : undefined,
   );
 

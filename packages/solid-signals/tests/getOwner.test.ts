@@ -7,7 +7,7 @@ it('should return current owner', () => {
     createEffect(() => {
       expect(getOwner()).toBeDefined();
       expect(getOwner()).not.toBe(owner);
-    });
+    }, () => {});
   });
 });
 

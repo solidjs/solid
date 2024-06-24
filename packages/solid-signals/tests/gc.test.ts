@@ -74,8 +74,7 @@ if (global.gc) {
       ref!: WeakRef<any>;
 
     const dispose = createRoot((dispose) => {
-      createEffect(() => {
-        $x();
+      createEffect($x, () => {
         ref = new WeakRef(getOwner()!);
       });
 
