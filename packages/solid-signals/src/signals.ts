@@ -68,7 +68,7 @@ export function createMemo<T>(
   options?: MemoOptions<T>,
 ): Accessor<T> {
   const node = new Computation(initialValue, compute, options);
-  return node.read.bind(node);
+  return node.wait.bind(node);
 }
 
 /**
