@@ -30,7 +30,7 @@ const SuspenseListContext = createContext<SuspenseListContextType>();
 /**
  * **[experimental]** Controls the order in which suspended content is rendered
  *
- * @description https://www.solidjs.com/docs/latest/api#suspenselist-experimental
+ * @description https://docs.solidjs.com/reference/components/suspense-list
  */
 export function SuspenseList(props: {
   children: JSX.Element;
@@ -118,7 +118,7 @@ export function SuspenseList(props: {
  *   <AsyncComponent />
  * </Suspense>
  * ```
- * @description https://www.solidjs.com/docs/latest/api#suspense
+ * @description https://docs.solidjs.com/reference/components/suspense
  */
 export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }) {
   let counter = 0,

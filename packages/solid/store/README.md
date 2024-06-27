@@ -4,7 +4,7 @@ This submodules contains the means for handling deeps nested reactivity. It prov
 
 This also contains helper methods `produce` and `reconcile` which augment the behavior of the store setter method to allow for localized mutation and data diffing.
 
-For full documentation, check out the [website](https://www.solidjs.com/docs/latest/api).
+For full documentation, check out the [website](https://docs.solidjs.com).
 
 ## Example
 

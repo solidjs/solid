@@ -43,7 +43,7 @@ SOFTWARE.
  *
  * similar to `Array.prototype.map`, but gets the index as accessor, transforms only values that changed and returns an accessor and reactively tracks changes to the list.
  *
- * @description https://www.solidjs.com/docs/latest/api#maparray
+ * @description https://docs.solidjs.com/reference/reactive-utilities/map-array
  */
 export function mapArray<T, U>(
   list: Accessor<readonly T[] | undefined | null | false>,
@@ -180,7 +180,7 @@ export function mapArray<T, U>(
  *
  * similar to `Array.prototype.map`, but gets the value as an accessor, transforms only changed items of the original arrays anew and returns an accessor.
  *
- * @description https://www.solidjs.com/docs/latest/api#indexarray
+ * @description https://docs.solidjs.com/reference/reactive-utilities/index-array
  */
 export function indexArray<T, U>(
   list: Accessor<readonly T[] | undefined | null | false>,

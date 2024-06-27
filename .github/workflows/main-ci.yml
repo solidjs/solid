@@ -31,7 +31,7 @@ jobs:
       pnpm run coverage
 
   - name: Coveralls
-    uses: coverallsapp/github-action@master
+    uses: coverallsapp/github-action@v2
     with:
       base-path: packages/solid
       path-to-lcov: "./packages/solid/coverage/lcov.info"

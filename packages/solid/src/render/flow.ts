@@ -29,7 +29,7 @@ const narrowedError = (name: string) =>
  * ```
  * If you have a list with fixed indices and changing values, consider using `<Index>` instead.
  *
- * @description https://www.solidjs.com/docs/latest/api#for
+ * @description https://docs.solidjs.com/reference/components/for
  */
 export function For<T extends readonly any[], U extends JSX.Element>(props: {
   each: T | undefined | null | false;
@@ -59,7 +59,7 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
  * ```
  * If you have a list with changing indices, better use `<For>`.
  *
- * @description https://www.solidjs.com/docs/latest/api#index
+ * @description https://docs.solidjs.com/reference/components/index
  */
 export function Index<T extends readonly any[], U extends JSX.Element>(props: {
   each: T | undefined | null | false;
@@ -81,7 +81,7 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
 type RequiredParameter<T> = T extends () => unknown ? never : T;
 /**
  * Conditionally render its children or an optional fallback component
- * @description https://www.solidjs.com/docs/latest/api#show
+ * @description https://docs.solidjs.com/reference/components/show
  */
 export function Show<
   T,
@@ -155,7 +155,7 @@ type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
  *   </Match>
  * </Switch>
  * ```
- * @description https://www.solidjs.com/docs/latest/api#switchmatch
+ * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
   let keyed = false;
@@ -214,7 +214,7 @@ export type MatchProps<T> = {
  *   <Content/>
  * </Match>
  * ```
- * @description https://www.solidjs.com/docs/latest/api#switchmatch
+ * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
 export function Match<
   T,
@@ -250,7 +250,7 @@ export function resetErrorBoundaries() {
  * ```
  * Errors thrown from the fallback can be caught by a parent ErrorBoundary
  *
- * @description https://www.solidjs.com/docs/latest/api#errorboundary
+ * @description https://docs.solidjs.com/reference/components/error-boundary
  */
 export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
