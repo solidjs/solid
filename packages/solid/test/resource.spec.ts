@@ -66,10 +66,14 @@ describe("Simulate a dynamic fetch", () => {
     expect(value.error).toBeUndefined();
     reject("Because I said so");
     await Promise.resolve();
-    expect(error).toBeInstanceOf(Error);
-    expect(error.message).toBe("Because I said so");
-    expect(value.error).toBeInstanceOf(Error);
-    expect(value.error.message).toBe("Because I said so");
+    // expect(error).toBeInstanceOf(Error);
+    // expect(error.message).toBe("Because I said so");
+    // expect(value.error).toBeInstanceOf(Error);
+    // expect(value.error.message).toBe("Because I said so");
+    expect(error).toBeTypeOf("string");
+    expect(error).toBe("Because I said so");
+    expect(value.error).toBeTypeOf("string");
+    expect(value.error).toBe("Because I said so");
     expect(value.loading).toBe(false);
   });
 });
@@ -204,7 +208,7 @@ describe("using Resource with errors", () => {
     reject(null);
     await Promise.resolve();
     expect(value.state === "errored").toBe(true);
-    expect(value.error.message).toBe("Unknown error");
+    expect(value.error).toBeNull();
   });
 });
 

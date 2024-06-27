@@ -13,18 +13,13 @@ export type Setter<T> = undefined extends T
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 const ERROR = Symbol("error");
-export function castError(err: unknown): Error {
-  if (err instanceof Error) return err;
-  return new Error(typeof err === "string" ? err : "Unknown error", { cause: err });
-}
 
 function handleError(err: unknown, owner = Owner): void {
   const fns = owner && owner.context && owner.context[ERROR];
-  const error = castError(err);
-  if (!fns) throw error;
+  if (!fns) throw err;
 
   try {
-    for (const f of fns) f(error);
+    for (const f of fns) f(err);
   } catch (e) {
     handleError(e, (owner && owner.owner) || null);
   }
