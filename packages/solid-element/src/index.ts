@@ -63,17 +63,17 @@ function withSolid<T extends object>(ComponentType: ComponentType<T>): Component
 function customElement<T extends object>(
   tag: string,
   ComponentType: ComponentType<T>
-): (ComponentType: ComponentType<T>) => any;
+): CustomElementConstructor;
 function customElement<T extends object>(
   tag: string,
   props: PropsDefinitionInput<T>,
   ComponentType: ComponentType<T>
-): (ComponentType: ComponentType<T>) => any;
+): CustomElementConstructor;
 function customElement<T extends object>(
   tag: string,
   props: PropsDefinitionInput<T> | ComponentType<T>,
   ComponentType?: ComponentType<T>
-): (ComponentType: ComponentType<T>) => any {
+): CustomElementConstructor {
   if (arguments.length === 2) {
     ComponentType = props as ComponentType<T>;
     props = {} as PropsDefinitionInput<T>;

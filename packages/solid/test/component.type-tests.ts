@@ -114,15 +114,12 @@ function M4<T extends keyof M4Type = "a">(
   test2.test = "";
 
   const test3 = mergeProps(defaultProperties, ...[props]);
-  // @ts-expect-error prop could be string if props is empty
   const prop3: "a" | "b" = test3.prop;
   const propstr3: string = test3.prop;
   const as3: T = test3.as!;
   const str3: string = test3.test!;
   test3.prop = "a";
-  // @ts-expect-error it doesn't need to be assignable, regardless this shouldn't error
   test3.as = "" as T;
-  // @ts-expect-error it doesn't need to be assignable, regardless this shouldn't error
   test3.test = "";
 
   const test4 = mergeProps(...[defaultProperties], props);
@@ -140,9 +137,7 @@ function M4<T extends keyof M4Type = "a">(
   const as5: T = test5.as;
   const str5: string = test5.test;
   test5.prop = "a";
-  // @ts-expect-error it doesn't need to be assignable, regardless this shouldn't error
   test5.as = "" as T;
-  // @ts-expect-error it doesn't need to be assignable, regardless this shouldn't error
   test5.test = "";
 
   const test6 = mergeProps(props, props);
@@ -163,23 +158,23 @@ function M4<T extends keyof M4Type = "a">(
   // m5-m7: mergeProps spreading arrays is valid
   const m5 = mergeProps(a, ...[b], c);
   type M5 = typeof m5;
-  type TestM5 = Assert<IsExact<M5, { a: number; b?: number; c: number }>>;
+  type TestM5 = Assert<IsExact<M5, { a: number; b: number; c: number }>>;
 
   const m6 = mergeProps(...[b], c);
   type M6 = typeof m6;
-  type TestM6 = Assert<IsExact<M6, { b?: number; c: number }>>;
+  type TestM6 = Assert<IsExact<M6, { b: number; c: number }>>;
 
   const m7 = mergeProps(a, ...[b]);
   type M7 = typeof m7;
-  type TestM7 = Assert<IsExact<M7, { a: number; b?: number }>>;
+  type TestM7 = Assert<IsExact<M7, { a: number; b: number }>>;
 
   const m8 = mergeProps(...[b]);
   type M8 = typeof m8;
-  type TestM8 = Assert<IsExact<M8, { b?: number }>>;
+  type TestM8 = Assert<IsExact<M8, { b: number }>>;
 
   const m9 = mergeProps(...[a], ...[b], ...[c]);
   type M9 = typeof m9;
-  type TestM9 = Assert<IsExact<M9, { a?: number; b?: number; c?: number }>>;
+  type TestM9 = Assert<IsExact<M9, { a: number; b: number; c: number }>>;
 }
 
 // s1-s3: splitProps return type is correct regardless of usage
