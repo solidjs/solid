@@ -1,5 +1,12 @@
 # babel-preset-solid
 
+## 1.8.18
+
+### Patch Changes
+
+- 6693b56f: update TS, custom elements, and a lot compiler fixes
+  fixes #2144, #2145, #2178, #2192
+
 ## 1.8.17
 
 ### Patch Changes

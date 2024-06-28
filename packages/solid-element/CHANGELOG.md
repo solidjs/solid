@@ -1,5 +1,15 @@
 # solid-element
 
+## 1.8.1
+
+### Patch Changes
+
+- 6693b56f: update TS, custom elements, and a lot compiler fixes
+  fixes #2144, #2145, #2178, #2192
+- Updated dependencies [6693b56f]
+- Updated dependencies [a8c2a8f3]
+  - solid-js@1.8.18
+
 ## 1.8.0
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # solid-js
 
+## 1.8.18
+
+### Patch Changes
+
+- 6693b56f: update TS, custom elements, and a lot compiler fixes
+  fixes #2144, #2145, #2178, #2192
+- a8c2a8f3: remove weird server resource hack, fix hydrated resource state
+
 ## 1.8.17
 
 ### Patch Changes

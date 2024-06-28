@@ -1,5 +1,14 @@
 # test-integration
 
+## 1.8.18
+
+### Patch Changes
+
+- Updated dependencies [6693b56f]
+- Updated dependencies [a8c2a8f3]
+  - babel-preset-solid@1.8.18
+  - solid-js@1.8.18
+
 ## 1.8.17
 
 ### Patch Changes
