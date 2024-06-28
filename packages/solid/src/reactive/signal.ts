@@ -698,7 +698,7 @@ export function createResource<T, S, R>(
     pr = p;
     if ("value" in p) {
       if ((p as any).status === "success") loadEnd(pr, p.value as T, undefined, lookup);
-      else loadEnd(pr, undefined, undefined, lookup);
+      else loadEnd(pr, undefined, castError(p.value), lookup);
       return p;
     }
     scheduled = true;

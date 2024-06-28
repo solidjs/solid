@@ -333,7 +333,6 @@ export type ResourceOptions<T> = undefined extends T
     };
 
 const SuspenseContext = createContext<SuspenseContextType>();
-let resourceContext: any[] | null = null;
 export function createResource<T, S = true>(
   fetcher: ResourceFetcher<S, T>,
   options?: ResourceOptions<undefined>
@@ -383,7 +382,6 @@ export function createResource<T, S>(
   }
   const read = () => {
     if (error) throw error;
-    if (resourceContext && p) resourceContext.push(p!);
     const resolved =
       options.ssrLoadFrom !== "initial" &&
       sharedConfig.context!.async &&
@@ -413,14 +411,7 @@ export function createResource<T, S>(
       value = ctx.resources[id].data;
       return;
     }
-    resourceContext = [];
     const lookup = typeof source === "function" ? (source as () => S)() : source;
-    if (resourceContext.length) {
-      p = Promise.all(resourceContext).then(() =>
-        (fetcher as ResourceFetcher<S, T>)((source as Accessor<S>)(), { value })
-      );
-    }
-    resourceContext = null;
     if (!p) {
       if (lookup == null || lookup === false) return;
       p = (fetcher as ResourceFetcher<S, T>)(lookup, { value });
