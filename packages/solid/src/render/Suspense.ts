@@ -25,7 +25,7 @@ interface SuspenseListState extends Array<SuspenseListRegisteredState> {
 
 const suspenseListEquals = (a: SuspenseListRegisteredState, b: SuspenseListRegisteredState) =>
   a.showContent === b.showContent && a.showFallback === b.showFallback;
-const SuspenseListContext = createContext<SuspenseListContextType>();
+const SuspenseListContext = /* #__PURE__ */ createContext<SuspenseListContextType>();
 
 /**
  * **[experimental]** Controls the order in which suspended content is rendered
