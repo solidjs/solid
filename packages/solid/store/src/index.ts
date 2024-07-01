@@ -1,4 +1,4 @@
-export { $RAW, createStore, unwrap } from "./store.js";
+export { $RAW, $WRAP, createStore, unwrap } from "./store.js";
 export type {
   ArrayFilterFn,
   DeepMutable,
