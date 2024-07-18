@@ -621,6 +621,29 @@ describe("catchError", () => {
     ).not.toThrow("fail");
     expect(errored).toBe(true);
   });
+
+  test("Correct propagation", () => {
+    let afterError = false;
+    let afterCaught = false;
+    let error;
+    expect(() => {
+      createRoot(() => {
+        catchError(
+          () => {
+            createMemo(() => {
+              throw "error";
+            });
+            afterError = true;
+          },
+          e => (error = true)
+        );
+        afterCaught = true;
+      });
+    }).not.toThrow();
+    expect(afterError).toBe(false);
+    expect(error).toBe(true);
+    expect(afterCaught).toBe(true);
+  });
 });
 
 describe("createDeferred", () => {

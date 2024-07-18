@@ -1380,7 +1380,8 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     }
     // won't be picked up until next update
     node.updatedAt = time + 1;
-    return handleError(err);
+    handleError(err);
+    throw ERROR;
   } finally {
     Listener = listener;
     Owner = owner;
@@ -1503,9 +1504,10 @@ function runUpdates<T>(fn: () => T, init: boolean) {
     completeUpdates(wait);
     return res;
   } catch (err) {
+    handleError(err);
+  } finally {
     if (!wait) Effects = null;
     Updates = null;
-    handleError(err);
   }
 }
 
@@ -1698,6 +1700,12 @@ function runErrors(err: unknown, fns: ((err: any) => void)[], owner: Owner | nul
 }
 
 function handleError(err: unknown, owner = Owner) {
+  const e = Effects;
+  if (e && e.length && err === ERROR) {
+    runUpdates(() => runEffects(e), false);
+    return;
+  }
+
   const fns = ERROR && owner && owner.context && owner.context[ERROR];
   const error = castError(err);
   if (!fns) throw error;
