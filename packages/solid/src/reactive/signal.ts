@@ -1185,8 +1185,9 @@ export function createContext<T>(
  * @description https://docs.solidjs.com/reference/component-apis/use-context
  */
 export function useContext<T>(context: Context<T>): T {
-  return Owner && Owner.context && Owner.context[context.id] !== undefined
-    ? Owner.context[context.id]
+  let value: undefined | T;
+  return Owner && Owner.context && (value = Owner.context[context.id]) !== undefined
+    ? value
     : context.defaultValue;
 }
 
