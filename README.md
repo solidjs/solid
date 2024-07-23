@@ -57,7 +57,7 @@ function Counter() {
   console.log("The body of the function runs once...");
 
   // JSX allows you to write HTML within your JavaScript function and include dynamic expressions using the { } syntax
-  // The only part of this that will ever rerender is the count() text.
+  // The only part of this that will ever rerender is the doubleCount() text.
   return (
     <>
       <button onClick={() => setCount(c => c + 1)}>
