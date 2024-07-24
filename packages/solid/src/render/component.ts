@@ -388,5 +388,5 @@ export function lazy<T extends Component<any>>(
 let counter = 0;
 export function createUniqueId(): string {
   const ctx = sharedConfig.context;
-  return ctx ? `${ctx.id}${ctx.count++}` : `cl-${counter++}`;
+  return ctx ? sharedConfig.getNextContextId() : `cl-${counter++}`;
 }

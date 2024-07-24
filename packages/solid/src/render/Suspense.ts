@@ -142,7 +142,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     },
     owner = getOwner();
   if (sharedConfig.context && sharedConfig.load) {
-    const key = sharedConfig.context.id + sharedConfig.context.count;
+    const key = sharedConfig.getContextId();
     let ref = sharedConfig.load(key);
     if (ref) {
       if (typeof ref !== "object" || ref.status !== "success") p = ref;
@@ -200,7 +200,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
           return createRoot(disposer => {
             dispose = disposer;
             if (ctx) {
-              setHydrateContext({ id: ctx.id + "f", count: 0 });
+              setHydrateContext({ id: ctx.id + "F", count: 0 });
               ctx = undefined;
             }
             return props.fallback;

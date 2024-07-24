@@ -12,9 +12,26 @@ type SharedConfig = {
   done?: boolean;
   count?: number;
   effects?: Computation<any, any>[];
+  getContextId(): string;
+  getNextContextId(): string;
 };
 
-export const sharedConfig: SharedConfig = { context: undefined, registry: undefined };
+export const sharedConfig: SharedConfig = {
+  context: undefined,
+  registry: undefined,
+  getContextId() {
+    return getContextId(this.context!.count);
+  },
+  getNextContextId() {
+    return getContextId(this.context!.count++);
+  }
+};
+
+function getContextId(count: number) {
+  const num = String(count),
+    len = num.length - 1;
+  return sharedConfig.context!.id + (len ? String.fromCharCode(96 + len) : "") + num;
+}
 
 export function setHydrateContext(context?: HydrationContext): void {
   sharedConfig.context = context;
@@ -23,7 +40,7 @@ export function setHydrateContext(context?: HydrationContext): void {
 export function nextHydrateContext(): HydrationContext | undefined {
   return {
     ...sharedConfig.context,
-    id: `${sharedConfig.context!.id}${sharedConfig.context!.count++}-`,
+    id: sharedConfig.getNextContextId(),
     count: 0
   };
 }
