@@ -59,12 +59,12 @@ export function mapArray<T, U>(
   onCleanup(() => dispose(disposers));
   return () => {
     let newItems = list() || [],
+      newLen = newItems.length,
       i: number,
       j: number;
     (newItems as any)[$TRACK]; // top level tracking
     return untrack(() => {
-      let newLen = newItems.length,
-        newIndices: Map<T | typeof FALLBACK, number>,
+      let newIndices: Map<T | typeof FALLBACK, number>,
         newIndicesNext: number[],
         temp: U[],
         tempdisposers: (() => void)[],
@@ -196,10 +196,11 @@ export function indexArray<T, U>(
 
   onCleanup(() => dispose(disposers));
   return () => {
-    const newItems = list() || [];
+    const newItems = list() || [],
+      newLen = newItems.length;
     (newItems as any)[$TRACK]; // top level tracking
     return untrack(() => {
-      if (newItems.length === 0) {
+      if (newLen === 0) {
         if (len !== 0) {
           dispose(disposers);
           disposers = [];
@@ -226,7 +227,7 @@ export function indexArray<T, U>(
         len = 0;
       }
 
-      for (i = 0; i < newItems.length; i++) {
+      for (i = 0; i < newLen; i++) {
         if (i < items.length && items[i] !== newItems[i]) {
           signals[i](() => newItems[i]);
         } else if (i >= items.length) {
@@ -236,7 +237,7 @@ export function indexArray<T, U>(
       for (; i < items.length; i++) {
         disposers[i]();
       }
-      len = signals.length = disposers.length = newItems.length;
+      len = signals.length = disposers.length = newLen;
       items = newItems.slice(0);
       return (mapped = mapped.slice(0, len));
     });
