@@ -1,5 +1,12 @@
 # babel-preset-solid
 
+## 1.8.19
+
+### Patch Changes
+
+- 816a5c61: fix #2209 processing parent before child value binding in select
+- 424a31a3: optimize hydration keys
+
 ## 1.8.18
 
 ### Patch Changes

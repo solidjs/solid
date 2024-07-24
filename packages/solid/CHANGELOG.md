@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.8.19
+
+### Patch Changes
+
+- 3fc015c2: track length in array helpers, fix mobx external source
+- f909c1c1: fix #2228 - chained resources with initial values
+- 816a5c61: fix #2209 processing parent before child value binding in select
+- 424a31a3: optimize hydration keys
+
 ## 1.8.18
 
 ### Patch Changes
