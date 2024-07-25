@@ -6,6 +6,7 @@
     "newLine": "LF",
     "moduleResolution": "node",
     "strict": true,
+    "importsNotUsedAsValues": "error",
     "jsx": "preserve"
   },
   "exclude": ["node_modules"]
