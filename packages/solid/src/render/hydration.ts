@@ -19,6 +19,7 @@ type SharedConfig = {
 export const sharedConfig: SharedConfig = {
   context: undefined,
   registry: undefined,
+  done: false,
   getContextId() {
     return getContextId(this.context!.count);
   },

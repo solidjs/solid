@@ -356,7 +356,7 @@ export function lazy<T extends Component<any>>(
       sharedConfig.count || (sharedConfig.count = 0);
       sharedConfig.count++;
       (p || (p = fn())).then(mod => {
-        setHydrateContext(ctx);
+        !sharedConfig.done && setHydrateContext(ctx);
         sharedConfig.count!--;
         set(() => mod.default);
         setHydrateContext();
@@ -367,18 +367,18 @@ export function lazy<T extends Component<any>>(
       comp = s;
     }
     let Comp: T | undefined;
-    return createMemo(
-      () =>
-        (Comp = comp()) &&
-        untrack(() => {
-          if ("_SOLID_DEV_") Object.assign(Comp!, { [$DEVCOMP]: true });
-          if (!ctx) return Comp!(props);
-          const c = sharedConfig.context;
-          setHydrateContext(ctx);
-          const r = Comp!(props);
-          setHydrateContext(c);
-          return r;
-        })
+    return createMemo(() =>
+      (Comp = comp())
+        ? untrack(() => {
+            if ("_SOLID_DEV_") Object.assign(Comp!, { [$DEVCOMP]: true });
+            if (!ctx || sharedConfig.done) return Comp!(props);
+            const c = sharedConfig.context;
+            setHydrateContext(ctx);
+            const r = Comp!(props);
+            setHydrateContext(c);
+            return r;
+          })
+        : ""
     ) as unknown as JSX.Element;
   }) as T;
   wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
