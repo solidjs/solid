@@ -7,7 +7,8 @@ import {
   Accessor,
   Setter,
   onCleanup,
-  MemoOptions
+  MemoOptions,
+  onMount
 } from "../reactive/signal.js";
 import { mapArray, indexArray } from "../reactive/array.js";
 import { sharedConfig } from "./hydration.js";
@@ -279,4 +280,24 @@ export function ErrorBoundary(props: {
     undefined,
     "_SOLID_DEV_" ? { name: "value" } : undefined
   ) as unknown as JSX.Element;
+}
+
+export function ClientOnly(props: {
+  children?: JSX.Element,
+}): JSX.Element {
+  if (sharedConfig.context) {
+    const [flag, setFlag] = createSignal(false);
+
+    onMount(() => {
+      setFlag(true);
+    });
+
+    return createMemo(() => {
+      if (flag()) {
+        return createMemo(() => props.children);
+      }
+      return undefined;
+    });
+  }
+  return createMemo(() => props.children);
 }
