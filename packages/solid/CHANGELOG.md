@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.8.20
+
+### Patch Changes
+
+- c8fe58e9: fix #2250 hydration error, fix lazy component loading, better hydration cancelation
+- 80dd2769: fix #2236 improper shortcircuit in resource hydration
+
 ## 1.8.19
 
 ### Patch Changes
