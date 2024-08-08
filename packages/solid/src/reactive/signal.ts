@@ -623,7 +623,7 @@ export function createResource<T, S, R>(
     id = sharedConfig.getNextContextId();
     let v;
     if (options.ssrLoadFrom === "initial") initP = options.initialValue as T;
-    else if (sharedConfig.load && (v = sharedConfig.load(id))) initP = v;
+    else if (sharedConfig.load && sharedConfig.has!(id)) initP = sharedConfig.load(id);
   }
   function loadEnd(p: Promise<T> | null, v: T | undefined, error?: any, key?: S) {
     if (pr === p) {
