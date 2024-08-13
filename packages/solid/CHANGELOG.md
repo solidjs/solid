@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.8.21
+
+### Patch Changes
+
+- a036a63a: shortcut hydrate call when hydration is done
+
 ## 1.8.20
 
 ### Patch Changes
