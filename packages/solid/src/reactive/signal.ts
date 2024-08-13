@@ -621,7 +621,6 @@ export function createResource<T, S, R>(
 
   if (sharedConfig.context) {
     id = sharedConfig.getNextContextId();
-    let v;
     if (options.ssrLoadFrom === "initial") initP = options.initialValue as T;
     else if (sharedConfig.load && sharedConfig.has!(id)) initP = sharedConfig.load(id);
   }
