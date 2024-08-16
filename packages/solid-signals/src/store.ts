@@ -10,6 +10,8 @@ const $RAW = Symbol(__DEV__ ? 'STORE_RAW' : 0),
   $TRACK = Symbol(__DEV__ ? 'STORE_TRACK' : 0),
   $PROXY = Symbol(__DEV__ ? 'STORE_PROXY' : 0);
 
+export { $PROXY, $TRACK };
+
 const PROXIES = new WeakMap<any, any>();
 // 0: DATA, 1: HAS
 const NODES = [new WeakMap<any, DataNodes>(), new WeakMap<any, DataNodes>()];
