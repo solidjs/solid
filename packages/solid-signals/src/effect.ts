@@ -66,20 +66,20 @@ function runEffects() {
     }
     for (let i = 0; i < renderEffects.length; i++) {
       if (
-        renderEffects[i].modified &&
+        renderEffects[i]._modified &&
         renderEffects[i]._state !== STATE_DISPOSED
       ) {
-        renderEffects[i].effect(renderEffects[i]._value, renderEffects[i]._prevValue);
-        renderEffects[i].modified = false;
+        renderEffects[i]._effect(renderEffects[i]._value, renderEffects[i]._prevValue);
+        renderEffects[i]._modified = false;
       }
     }
     for (let i = 0; i < effects.length; i++) {
       if (
-        effects[i].modified &&
+        effects[i]._modified &&
         effects[i]._state !== STATE_DISPOSED
       ) {
-        effects[i].effect(effects[i]._value, effects[i]._prevValue);
-        effects[i].modified = false;
+        effects[i]._effect(effects[i]._value, effects[i]._prevValue);
+        effects[i]._modified = false;
       }
     }
   } finally {
@@ -96,8 +96,8 @@ function runEffects() {
  * sources and recompute
  */
 class BaseEffect<T = any> extends Computation<T> {
-  effect: (val: T, prev: T | undefined) => void;
-  modified: boolean = false;
+  _effect: (val: T, prev: T | undefined) => void;
+  _modified: boolean = false;
   _prevValue: T | undefined;
   constructor(
     initialValue: T,
@@ -106,20 +106,26 @@ class BaseEffect<T = any> extends Computation<T> {
     options?: MemoOptions<T>,
   ) {
     super(initialValue, compute, options);
-    this.effect = effect;
+    this._effect = effect;
   }
 
   override write(value: T): T {
     if (value === UNCHANGED) return this._value as T;
     this._prevValue = this._value;
     this._value = value;
-    this.modified = true;
+    this._modified = true;
 
     return value;
   }
 
   override _setError(error: unknown): void {
     this.handleError(error);
+  }
+
+  override _disposeNode(): void {
+    this._effect = undefined as any;
+    this._prevValue = undefined;
+    super._disposeNode();
   }
 }
 
