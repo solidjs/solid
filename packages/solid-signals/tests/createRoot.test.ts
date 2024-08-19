@@ -61,7 +61,7 @@ it('should create new tracking scope', () => {
   });
   flushSync();
 
-  expect(effect).toHaveBeenCalledWith(0);
+  expect(effect).toHaveBeenCalledWith(0, undefined);
   expect(effect).toHaveBeenCalledTimes(1);
 
   stopEffect();

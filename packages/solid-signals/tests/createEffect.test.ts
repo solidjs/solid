@@ -20,13 +20,13 @@ it('should run effect', () => {
   flushSync();
   expect(compute).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(1);
-  expect(effect).toHaveBeenCalledWith(0);
+  expect(effect).toHaveBeenCalledWith(0, undefined);
 
   setX(1);
   flushSync();
   expect(compute).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(2);
-  expect(effect).toHaveBeenCalledWith(1);
+  expect(effect).toHaveBeenCalledWith(1, 0);
 });
 
 it('should run effect on change', () => {
@@ -148,10 +148,10 @@ it('should run all disposals before each new run', () => {
 
   const [$x, setX] = createSignal(0);
 
-  createEffect($x, () => {
-    effect();
+  createEffect(() => {
     fnA(), fnB();
-  });
+    return $x();
+  }, effect);
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -172,9 +172,9 @@ it('should dispose of nested effect', () => {
   const innerEffect = vi.fn();
 
   const stopEffect = createRoot((dispose) => {
-    createEffect(() => {}, () => {
-      createEffect($x, innerEffect);
-    });
+    createEffect(() => {
+      createEffect($x, innerEffect)
+    }, () => {});
 
     return dispose;
   });
@@ -228,15 +228,15 @@ it('should dispose of nested conditional effect', () => {
   const disposeB = vi.fn();
 
   function fnA() {
-    createEffect(() => {}, () => {
+    createEffect(() => {
       onCleanup(disposeA);
-    });
+    }, () => {});
   }
 
   function fnB() {
-    createEffect(() => {}, () => {
+    createEffect(() => {
       onCleanup(disposeB);
-    });
+    }, () => {});
   }
 
   createEffect(() => ($condition() ? fnA() : fnB()), () => {});

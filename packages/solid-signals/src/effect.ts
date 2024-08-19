@@ -69,7 +69,7 @@ function runEffects() {
         renderEffects[i].modified &&
         renderEffects[i]._state !== STATE_DISPOSED
       ) {
-        compute(renderEffects[i], renderEffects[i].effect, renderEffects[i]);
+        renderEffects[i].effect(renderEffects[i]._value, renderEffects[i]._prevValue);
         renderEffects[i].modified = false;
       }
     }
@@ -78,7 +78,7 @@ function runEffects() {
         effects[i].modified &&
         effects[i]._state !== STATE_DISPOSED
       ) {
-        compute(effects[i], effects[i].effect, effects[i]);
+        effects[i].effect(effects[i]._value, effects[i]._prevValue);
         effects[i].modified = false;
       }
     }
@@ -96,12 +96,13 @@ function runEffects() {
  * sources and recompute
  */
 class BaseEffect<T = any> extends Computation<T> {
-  effect: (val: T) => void;
+  effect: (val: T, prev: T | undefined) => void;
   modified: boolean = false;
+  _prevValue: T | undefined;
   constructor(
     initialValue: T,
     compute: () => T,
-    effect: (val: T) => void,
+    effect: (val: T, prev: T | undefined) => void,
     options?: MemoOptions<T>,
   ) {
     super(initialValue, compute, options);
@@ -110,6 +111,7 @@ class BaseEffect<T = any> extends Computation<T> {
 
   override write(value: T): T {
     if (value === UNCHANGED) return this._value as T;
+    this._prevValue = this._value;
     this._value = value;
     this.modified = true;
 
@@ -125,7 +127,7 @@ export class Effect<T = any> extends BaseEffect<T> {
   constructor(
     initialValue: T,
     compute: () => T,
-    effect: (val: T) => void,
+    effect: (val: T, prev: T | undefined) => void,
     options?: MemoOptions<T>,
   ) {
     super(initialValue, compute, effect, options);
@@ -149,7 +151,7 @@ export class RenderEffect<T = any> extends BaseEffect<T> {
   constructor(
     initialValue: T,
     compute: () => T,
-    effect: (val: T) => void,
+    effect: (val: T, prev: T | undefined) => void,
     options?: MemoOptions<T>,
   ) {
     super(initialValue, compute, effect, options);
