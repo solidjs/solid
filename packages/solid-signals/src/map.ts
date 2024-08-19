@@ -104,6 +104,7 @@ export function mapArray<Item, MappedItem>(
         _map: map,
         _mappings: [],
         _nodes: [],
+        _indexes: map.length > 1 ? [] : undefined
       }),
       options,
     ),
@@ -114,7 +115,6 @@ function updateKeyedMap<Item, MappedItem>(
   this: MapData<Item, MappedItem>,
 ): any[] {
   const newItems = this._list() || [];
-  this._indexes = this._map.length > 1 ? [] : undefined;
 
   runWithOwner(this._owner, () => {
     let newLen = newItems.length,
