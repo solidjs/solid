@@ -113,20 +113,21 @@ export function mapArray<Item, MappedItem>(
 function updateKeyedMap<Item, MappedItem>(
   this: MapData<Item, MappedItem>,
 ): any[] {
-  const newItems = this._list() || [],
-    indexed = this._map.length > 1;
+  const newItems = this._list() || [];
+  this._indexes = this._map.length > 1 ? [] : undefined;
 
   runWithOwner(this._owner, () => {
     let newLen = newItems.length,
       i: number,
       j: number,
-      mapper = indexed
-        ? () =>
-            this._map(
+      mapper = this._indexes
+        ? () => {
+            this._indexes![j] = new Computation(j, null);
+            return this._map(
               newItems[j],
-              Computation.prototype.read.bind(this._nodes[j]),
+              Computation.prototype.read.bind(this._indexes![j]),
             )
-        : () => (this._map as (value: Item) => MappedItem)(newItems[j]);
+          }: () => (this._map as (value: Item) => MappedItem)(newItems[j]);
 
     // fast path for empty arrays
     if (newLen === 0) {
@@ -136,6 +137,7 @@ function updateKeyedMap<Item, MappedItem>(
         this._items = [];
         this._mappings = [];
         this._len = 0;
+        this._indexes && (this._indexes = []);
       }
     }
     // fast path for new create
@@ -145,7 +147,7 @@ function updateKeyedMap<Item, MappedItem>(
       for (j = 0; j < newLen; j++) {
         this._items[j] = newItems[j];
         this._mappings[j] = compute<MappedItem>(
-          (this._nodes[j] = new Computation(j, null)),
+          (this._nodes[j] = new Owner()),
           mapper,
           null,
         );
@@ -160,7 +162,8 @@ function updateKeyedMap<Item, MappedItem>(
         newIndices: Map<Item, number>,
         newIndicesNext: number[],
         temp: MappedItem[] = new Array(newLen),
-        tempNodes: Computation[] = new Array(newLen);
+        tempNodes: Owner[] = new Array(newLen),
+        tempIndexes: Computation<number>[]| undefined = this._indexes ? new Array(newLen) : undefined;
 
       // skip common prefix
       for (
@@ -179,6 +182,7 @@ function updateKeyedMap<Item, MappedItem>(
       ) {
         temp[newEnd] = this._mappings[end];
         tempNodes[newEnd] = this._nodes[end];
+        this._indexes && (tempIndexes![newEnd] = this._indexes[end]);
       }
 
       // 0) prepare a map of all indices in newItems, scanning backwards so we encounter them in natural order
@@ -198,6 +202,7 @@ function updateKeyedMap<Item, MappedItem>(
         if (j !== undefined && j !== -1) {
           temp[j] = this._mappings[i];
           tempNodes[j] = this._nodes[i];
+          tempIndexes && (tempIndexes[j] = this._indexes![i]);
           j = newIndicesNext[j];
           newIndices.set(item, j);
         } else this._nodes[i].dispose();
@@ -208,10 +213,13 @@ function updateKeyedMap<Item, MappedItem>(
         if (j in temp) {
           this._mappings[j] = temp[j];
           this._nodes[j] = tempNodes[j];
-          this._nodes[j].write(j);
+          if (tempIndexes) {
+            this._indexes![j] = tempIndexes[j];
+            this._indexes![j].write(j);
+          }
         } else {
           this._mappings[j] = compute<MappedItem>(
-            (this._nodes[j] = new Computation(j, null)),
+            (this._nodes[j] = new Owner()),
             mapper,
             null,
           );
@@ -245,6 +253,7 @@ interface MapData<Item = any, MappedItem = any> {
   _list: Accessor<Maybe<readonly Item[]>>;
   _items: Item[];
   _mappings: MappedItem[];
-  _nodes: Computation<number>[];
+  _nodes: Owner[];
   _map: (value: any, index: Accessor<number>) => any;
+  _indexes?: Computation<number>[];
 }
