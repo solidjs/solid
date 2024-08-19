@@ -182,7 +182,7 @@ function updateKeyedMap<Item, MappedItem>(
       ) {
         temp[newEnd] = this._mappings[end];
         tempNodes[newEnd] = this._nodes[end];
-        this._indexes && (tempIndexes![newEnd] = this._indexes[end]);
+        tempIndexes && (tempIndexes[newEnd] = this._indexes![end]);
       }
 
       // 0) prepare a map of all indices in newItems, scanning backwards so we encounter them in natural order
