@@ -1,5 +1,5 @@
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import { Computation, UNCHANGED, compute, type MemoOptions } from './core';
+import { Computation, UNCHANGED, type SignalOptions } from './core';
 import { type Owner } from './owner';
 
 let scheduledEffects = false,
@@ -96,7 +96,7 @@ class BaseEffect<T = any> extends Computation<T> {
     initialValue: T,
     compute: () => T,
     effect: (val: T, prev: T | undefined) => void,
-    options?: MemoOptions<T>,
+    options?: SignalOptions<T>,
   ) {
     super(initialValue, compute, options);
     this._effect = effect;
@@ -127,7 +127,7 @@ export class Effect<T = any> extends BaseEffect<T> {
     initialValue: T,
     compute: () => T,
     effect: (val: T, prev: T | undefined) => void,
-    options?: MemoOptions<T>,
+    options?: SignalOptions<T>,
   ) {
     super(initialValue, compute, effect, options);
     effects.push(this);
@@ -151,7 +151,7 @@ export class RenderEffect<T = any> extends BaseEffect<T> {
     initialValue: T,
     compute: () => T,
     effect: (val: T, prev: T | undefined) => void,
-    options?: MemoOptions<T>,
+    options?: SignalOptions<T>,
   ) {
     super(initialValue, compute, effect, options);
     this._updateIfNecessary();

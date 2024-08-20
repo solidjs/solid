@@ -1,4 +1,4 @@
-import type { MemoOptions, SignalOptions } from './core';
+import type { SignalOptions } from './core';
 import { Computation, compute, UNCHANGED } from './core';
 import { Effect, RenderEffect } from './effect';
 import { ERROR_BIT, LOADING_BIT } from './flags';
@@ -65,7 +65,7 @@ export function createAsync<T>(
 export function createMemo<T>(
   compute: () => T,
   initialValue?: T,
-  options?: MemoOptions<T>,
+  options?: SignalOptions<T>,
 ): Accessor<T> {
   const node = new Computation(initialValue, compute, options);
   return node.wait.bind(node);

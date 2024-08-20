@@ -42,10 +42,6 @@ export interface SignalOptions<T> {
   equals?: ((prev: T, next: T) => boolean) | false;
 }
 
-export interface MemoOptions<T> extends SignalOptions<T> {
-  initial?: T;
-}
-
 interface SourceType {
   _observers: ObserverType[] | null;
   _updateIfNecessary: () => void;
@@ -105,7 +101,7 @@ export class Computation<T = any>
   constructor(
     initialValue: T | undefined,
     compute: null | (() => T),
-    options?: MemoOptions<T>,
+    options?: SignalOptions<T>,
   ) {
     // Initialize self as a node in the Owner tree, for tracking cleanups.
     // If we aren't passed a compute function, we don't need to track nested computations

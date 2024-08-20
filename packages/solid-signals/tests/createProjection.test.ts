@@ -1,18 +1,24 @@
 import {
   createMemo,
+  createProjection,
   createRoot,
-  createSelector,
   createSignal,
   flushSync,
 } from '../src';
 
 it('should observe key changes', () => {
   createRoot((dispose) => {
+    let previous;
     const [$source, setSource] = createSignal(0),
-      isSelected = createSelector($source),
-      effect0 = vi.fn(() => isSelected(0)),
-      effect1 = vi.fn(() => isSelected(1)),
-      effect2 = vi.fn(() => isSelected(2));
+      selected = createProjection(draft => {
+        const s = $source();
+        if (s !== previous) draft[previous] = false;
+        draft[s] = true;
+        previous = s;
+      }, [false, false, false]),
+      effect0 = vi.fn(() => selected[0]),
+      effect1 = vi.fn(() => selected[1]),
+      effect2 = vi.fn(() => selected[2]);
 
     let $effect0 = createMemo(effect0),
       $effect1 = createMemo(effect1),

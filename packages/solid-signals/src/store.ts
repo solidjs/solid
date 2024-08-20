@@ -201,7 +201,7 @@ export function createStore<T extends object = {}>(
   const unwrappedStore = unwrap(store);
 
   const wrappedStore = wrap(unwrappedStore);
-  const setStore = (fn: (state: T) => void): void => {
+  const setStore = (fn: (draft: T) => void): void => {
     try {
       Writing = true;
       fn(wrappedStore);
