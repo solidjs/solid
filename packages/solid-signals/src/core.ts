@@ -40,10 +40,12 @@ import { getOwner, Owner, setOwner } from './owner';
 export interface SignalOptions<T> {
   name?: string;
   equals?: ((prev: T, next: T) => boolean) | false;
+  unobserved?: () => void;
 }
 
 interface SourceType {
   _observers: ObserverType[] | null;
+  _unobserved?: () => void;
   _updateIfNecessary: () => void;
 
   _stateFlags: Flags;
@@ -88,6 +90,7 @@ export class Computation<T = any>
   // Using false is an optimization as an alternative to _equals: () => false
   // which could enable more efficient DIRTY notification
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
+  _unobserved: (() => void) | undefined;
 
   /** Whether the computation is an error or has ancestors that are unresolved */
   _stateFlags = 0;
@@ -118,6 +121,8 @@ export class Computation<T = any>
       this._name = options?.name ?? (this._compute ? 'computed' : 'signal');
 
     if (options?.equals !== undefined) this._equals = options.equals;
+
+    if (options?.unobserved) this._unobserved = options?.unobserved;
   }
 
   _read(): T {
@@ -543,6 +548,8 @@ function removeSourceObservers(node: ObserverType, index: number): void {
       swap = source._observers.indexOf(node);
       source._observers[swap] = source._observers[source._observers.length - 1];
       source._observers.pop();
+      // maybe could get overcalled?
+      if (!source._observers.length) source._unobserved?.();
     }
   }
 }

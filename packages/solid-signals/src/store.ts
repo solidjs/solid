@@ -102,6 +102,7 @@ function getNode(nodes: DataNodes, property: PropertyKey, value?: any) {
   if (nodes[property]) return nodes[property]!;
   return (nodes[property] = new Computation<any>(value, null, {
     equals: false,
+    unobserved() { delete nodes[property]; }
   }));
 }
 
