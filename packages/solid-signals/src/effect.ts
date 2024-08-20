@@ -50,43 +50,36 @@ function runEffects() {
     scheduledEffects = false;
     return;
   }
-
   runningEffects = true;
-
   try {
-    for (let i = 0; i < renderEffects.length; i++) {
-      if (renderEffects[i]._state !== STATE_CLEAN) {
-        runTop(renderEffects[i]);
-      }
-    }
-    for (let i = 0; i < effects.length; i++) {
-      if (effects[i]._state !== STATE_CLEAN) {
-        runTop(effects[i]);
-      }
-    }
-    for (let i = 0; i < renderEffects.length; i++) {
-      if (
-        renderEffects[i]._modified &&
-        renderEffects[i]._state !== STATE_DISPOSED
-      ) {
-        renderEffects[i]._effect(renderEffects[i]._value, renderEffects[i]._prevValue);
-        renderEffects[i]._modified = false;
-      }
-    }
-    for (let i = 0; i < effects.length; i++) {
-      if (
-        effects[i]._modified &&
-        effects[i]._state !== STATE_DISPOSED
-      ) {
-        effects[i]._effect(effects[i]._value, effects[i]._prevValue);
-        effects[i]._modified = false;
-      }
-    }
+    runPureQueue(renderEffects);
+    runPureQueue(effects);
+    runEffectQueue(renderEffects);
+    runEffectQueue(effects);
   } finally {
     effects = [];
     renderEffects = [];
     scheduledEffects = false;
     runningEffects = false;
+  }
+}
+
+function runPureQueue(queue: Computation[]) {
+  for (let i = 0; i < queue.length; i++) {
+    if (queue[i]._state !== STATE_CLEAN) runTop(queue[i]);
+  }
+}
+
+function runEffectQueue(queue: BaseEffect[]) {
+  for (let i = 0; i < queue.length; i++) {
+    if (
+      queue[i]._modified &&
+      queue[i]._state !== STATE_DISPOSED
+    ) {
+      queue[i]._effect(queue[i]._value, queue[i]._prevValue);
+      queue[i]._modified = false;
+      queue[i]._prevValue = queue[i]._value;
+    }
   }
 }
 
@@ -107,11 +100,11 @@ class BaseEffect<T = any> extends Computation<T> {
   ) {
     super(initialValue, compute, options);
     this._effect = effect;
+    this._prevValue = initialValue;
   }
 
   override write(value: T): T {
     if (value === UNCHANGED) return this._value as T;
-    this._prevValue = this._value;
     this._value = value;
     this._modified = true;
 
