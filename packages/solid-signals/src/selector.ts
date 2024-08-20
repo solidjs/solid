@@ -1,6 +1,6 @@
 import { STATE_DIRTY } from './constants';
 import { Computation, getObserver, isEqual } from './core';
-import { Effect } from './effect';
+import { RenderEffect } from './effect';
 import { onCleanup } from './owner';
 import type { Accessor } from './signals';
 
@@ -29,7 +29,7 @@ export function createSelector<Source, Key = Source>(
       options?.equals ??
       (isEqual as (key: Key, value: Source | undefined) => boolean);
 
-  const node = new Effect<Source | undefined>(
+  const node = new RenderEffect<Source | undefined>(
     undefined,
     () => {
       const newSource = source();
