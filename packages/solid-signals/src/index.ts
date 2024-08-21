@@ -26,7 +26,7 @@ export {
   type SignalOptions,
 } from './core';
 export { flushSync, Effect, RenderEffect } from './effect';
-export { indexArray, mapArray, type Maybe } from './map';
+export { mapArray, type Maybe } from './map';
 export { createProjection } from './projection';
 
 export * from './signals';
