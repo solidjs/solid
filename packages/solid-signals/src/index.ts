@@ -23,6 +23,7 @@ export {
   getObserver,
   isEqual,
   untrack,
+  hasUpdated,
   type SignalOptions,
 } from './core';
 export { flushSync, Effect, RenderEffect } from './effect';

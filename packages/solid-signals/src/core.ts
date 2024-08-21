@@ -49,6 +49,7 @@ interface SourceType {
   _updateIfNecessary: () => void;
 
   _stateFlags: Flags;
+  _time: number;
 }
 
 interface ObserverType {
@@ -57,19 +58,26 @@ interface ObserverType {
 
   _handlerMask: Flags;
   _notifyFlags: (mask: Flags, newFlags: Flags) => void;
+  _time: number;
 }
 
 let currentObserver: ObserverType | null = null,
   currentMask: Flags = DEFAULT_FLAGS,
   newSources: SourceType[] | null = null,
   newSourcesIndex = 0,
-  newFlags = 0;
+  newFlags = 0,
+  clock = 0,
+  updateCheck: null | { _value: boolean } = null;
 
 /**
  * Returns the current observer.
  */
 export function getObserver(): ObserverType | null {
   return currentObserver;
+}
+
+export function incrementClock(): void {
+  clock++;
 }
 
 export const UNCHANGED: unique symbol = Symbol(__DEV__ ? 'unchanged' : 0);
@@ -100,6 +108,7 @@ export class Computation<T = any>
 
   _error: Computation<boolean> | null = null;
   _loading: Computation<boolean> | null = null;
+  _time: number = -1;
 
   constructor(
     initialValue: T | undefined,
@@ -215,6 +224,7 @@ export class Computation<T = any>
       changedFlags = changedFlagsMask & flags;
 
     this._stateFlags = flags;
+    this._time = clock + 1;
 
     // Our value has changed, so we need to notify all of our observers that the value has
     // changed and so they must rerun
@@ -452,6 +462,9 @@ function track(computation: SourceType): void {
       // https://github.com/solidjs/solid/issues/46#issuecomment-515717924
       newSources.push(computation);
     }
+    if (updateCheck) {
+      updateCheck._value = computation._time > currentObserver._time;
+    }
   }
 }
 
@@ -565,6 +578,17 @@ export function isEqual<T>(a: T, b: T): boolean {
 export function untrack<T>(fn: () => T): T {
   if (currentObserver === null) return fn();
   return compute(getOwner(), fn, null);
+}
+
+export function hasUpdated(fn: () => any): Boolean {
+  const current = updateCheck;
+  updateCheck = { _value: false };
+  try {
+    fn();
+    return updateCheck._value;
+  } finally {
+    updateCheck = current;
+  }
 }
 
 /**

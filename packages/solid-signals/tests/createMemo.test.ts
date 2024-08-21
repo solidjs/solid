@@ -5,6 +5,7 @@ import {
   createRoot,
   createSignal,
   flushSync,
+  hasUpdated,
 } from '../src';
 
 afterEach(() => flushSync());
@@ -187,4 +188,36 @@ it('should use fallback if error is thrown during init', () => {
       () => {},
     );
   });
+});
+
+it('should detect which signal triggered it', () => {
+  const [$x, setX] = createSignal(0);
+  const [$y, setY] = createSignal(0);
+
+  const $a = createMemo(() => {
+    const uX = hasUpdated($x);
+    const uY = hasUpdated($y);
+    return uX && uY ? "both" : uX ? 'x' : uY ? 'y' : 'neither';
+  });
+  createEffect($a, () => {});
+  expect($a()).toBe('neither');
+  flushSync();
+  expect($a()).toBe('neither');
+
+  setY(1);
+  flushSync();
+  expect($a()).toBe('y');
+
+  setX(1);
+  flushSync();
+  expect($a()).toBe('x');
+
+  setY(2);
+  flushSync();
+  expect($a()).toBe('y');
+
+  setX(2);
+  setY(3);
+  flushSync();
+  expect($a()).toBe('both');
 });

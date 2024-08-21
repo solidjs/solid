@@ -1,5 +1,5 @@
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import { Computation, UNCHANGED, type SignalOptions } from './core';
+import { Computation, incrementClock, UNCHANGED, type SignalOptions } from './core';
 import { type Owner } from './owner';
 
 let scheduledEffects = false,
@@ -54,6 +54,7 @@ function runEffects() {
   try {
     runPureQueue(renderEffects);
     runPureQueue(effects);
+    incrementClock();
     runEffectQueue(renderEffects);
     runEffectQueue(effects);
   } finally {
