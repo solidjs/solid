@@ -40,8 +40,18 @@ it('should accept equals option', () => {
 });
 
 it('should update signal with functional value', () => {
-  const [$x, setX] = createSignal<() => number>(() => 10);
+  const [$x, setX] = createSignal<() => number>(() => () => 10);
   expect($x()()).toBe(10);
   setX(() => () => 20);
   expect($x()()).toBe(20);
+});
+
+it('should create signal derived from another signal', () => {
+  const [$x, setX] = createSignal(1);
+  const [$y, setY] = createSignal(() => $x() + 1);
+  expect($y()).toBe(2);
+  setY(1);
+  expect($y()).toBe(1);
+  setX(2);
+  expect($y()).toBe(3);
 });

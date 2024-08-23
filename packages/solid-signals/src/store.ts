@@ -1,4 +1,5 @@
 import { Computation, getObserver } from './core';
+import { RenderEffect } from './effect';
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => void) => void;
@@ -102,7 +103,9 @@ function getNode(nodes: DataNodes, property: PropertyKey, value?: any) {
   if (nodes[property]) return nodes[property]!;
   return (nodes[property] = new Computation<any>(value, null, {
     equals: false,
-    unobserved() { delete nodes[property]; }
+    unobserved() {
+      delete nodes[property];
+    },
   }));
 }
 
@@ -198,8 +201,18 @@ function setProperty(
 
 export function createStore<T extends object = {}>(
   store: T | Store<T>,
+): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  fn: (store: T) => void,
+  store: T | Store<T>,
+): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  first: T | ((store: T) => void),
+  second?: T | Store<T>,
 ): [get: Store<T>, set: StoreSetter<T>] {
-  const unwrappedStore = unwrap(store);
+  const derived = typeof first === 'function',
+    store = derived ? second : first,
+    unwrappedStore = unwrap(store!);
 
   const wrappedStore = wrap(unwrappedStore);
   const setStore = (fn: (draft: T) => void): void => {
@@ -210,6 +223,27 @@ export function createStore<T extends object = {}>(
       Writing = false;
     }
   };
+  if (derived) {
+    // unsafe implementation
+    new RenderEffect<T | undefined>(
+      undefined,
+      () => setStore(first) as any,
+      () => {}
+    );
+  }
 
   return [wrappedStore, setStore];
+}
+
+/**
+ * Creates a mutable derived value
+ *
+ * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
+ */
+export function createProjection<T extends Object>(
+  fn: (draft: T) => void,
+  initialValue: T
+) {
+  const [store] = createStore(fn, initialValue);
+  return store;
 }

@@ -1,5 +1,5 @@
 import type { SignalOptions } from './core';
-import { Computation, compute, UNCHANGED } from './core';
+import { Computation, compute, UNCHANGED, untrack } from './core';
 import { Effect, RenderEffect } from './effect';
 import { ERROR_BIT, LOADING_BIT } from './flags';
 import { Owner } from './owner';
@@ -24,20 +24,44 @@ export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
  * when used inside other computations created with `computed` and `effect`.
  */
 export function createSignal<T>(
-  initialValue: T,
+  initialValue: Exclude<T, Function>,
   options?: SignalOptions<T>,
+): Signal<T>;
+export function createSignal<T>(
+  fn: (prev?: T) => T,
+  initialValue?: T,
+  options?: SignalOptions<T>,
+): Signal<T>;
+export function createSignal<T>(
+  first: T | ((prev?: T) => T),
+  second?: T | SignalOptions<T>,
+  third?: SignalOptions<T>,
 ): Signal<T> {
-  const node = new Computation(initialValue, null, options);
+  if (typeof first === 'function') {
+    const memo = createMemo<Signal<T>>((p) => {
+      const node = new Computation<T>(
+        (first as ((prev?: T) => T))(p ? untrack(p[0]): second as T),
+        null,
+        third,
+      );
+      return [node.read.bind(node), node.write.bind(node)];
+    });
+    return [() => memo()[0](), (value) => memo()[1](value)];
+  }
+  const node = new Computation(first as T, null, second as SignalOptions<T>);
   return [node.read.bind(node), node.write.bind(node)];
 }
 
 export function createAsync<T>(
-  fn: () => Promise<T>,
+  fn: () => Promise<T> | T,
   initial?: T,
   options?: SignalOptions<T>,
 ): Accessor<T> {
-  const lhs = new Computation(undefined, () => {
-    const promise = Promise.resolve(fn());
+  const lhs = createMemo(() => {
+    const promise = fn();
+    if (!(promise instanceof Promise)) {
+      return { wait() { return promise; } };
+    }
     const signal = new Computation(initial, null, options);
     signal.write(UNCHANGED, LOADING_BIT);
 
@@ -53,8 +77,8 @@ export function createAsync<T>(
     return signal;
   });
 
-  const rhs = new Computation(undefined, () => lhs.read().wait(), options);
-  return () => rhs.wait();
+  const rhs = new Computation(undefined, () => lhs().wait(), options);
+  return rhs.wait.bind(rhs);
 }
 
 /**
@@ -63,12 +87,23 @@ export function createAsync<T>(
  * are all signals that are read during execution.
  */
 export function createMemo<T>(
-  compute: () => T,
+  compute: (prev?: T) => T,
   initialValue?: T,
   options?: SignalOptions<T>,
 ): Accessor<T> {
-  const node = new Computation(initialValue, compute, options);
-  return node.wait.bind(node);
+  let node: Computation<T> | undefined = new Computation(
+    initialValue,
+    compute,
+    options,
+  );
+  let value: T;
+  return () => {
+    if (node) {
+      value = node.wait();
+      if (!node._sources?.length) node = undefined;
+    }
+    return value;
+  };
 }
 
 /**

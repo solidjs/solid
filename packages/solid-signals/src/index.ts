@@ -28,7 +28,6 @@ export {
 } from './core';
 export { flushSync, Effect, RenderEffect } from './effect';
 export { mapArray, type Maybe } from './map';
-export { createProjection } from './projection';
 
 export * from './signals';
 export * from './store';
