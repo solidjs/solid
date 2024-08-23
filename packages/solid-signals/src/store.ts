@@ -128,7 +128,7 @@ function ownKeys(target: StoreNode) {
   return Reflect.ownKeys(target);
 }
 
-let Writing = false;
+const Writing = new Set<Object>();
 const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
@@ -141,6 +141,10 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (desc && desc.get) return desc.get.call(receiver);
     const nodes = getNodes(target, 0);
     const tracked = nodes[property];
+    if (Writing.has(target)) {
+      const value = tracked ? tracked._value : target[property];
+      return isWrappable(value) ? (Writing.add(value), wrap(value)) : value;
+    }
     let value = tracked ? nodes[property].read() : target[property];
     if (
       !tracked &&
@@ -164,12 +168,12 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   set(target, property, value) {
-    Writing && setProperty(target, property, unwrap(value));
+    Writing.has(target) && setProperty(target, property, unwrap(value));
     return true;
   },
 
   deleteProperty(target, property) {
-    Writing && setProperty(target, property, undefined, true);
+    Writing.has(target) && setProperty(target, property, undefined, true);
     return true;
   },
 
@@ -211,16 +215,16 @@ export function createStore<T extends object = {}>(
   second?: T | Store<T>,
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === 'function',
-    store = derived ? second : first,
+    store = derived ? second! : first,
     unwrappedStore = unwrap(store!);
 
   const wrappedStore = wrap(unwrappedStore);
   const setStore = (fn: (draft: T) => void): void => {
     try {
-      Writing = true;
+      Writing.add(store);
       fn(wrappedStore);
     } finally {
-      Writing = false;
+      Writing.clear();
     }
   };
   if (derived) {
@@ -228,7 +232,7 @@ export function createStore<T extends object = {}>(
     new RenderEffect<T | undefined>(
       undefined,
       () => setStore(first) as any,
-      () => {}
+      () => {},
     );
   }
 
@@ -242,7 +246,7 @@ export function createStore<T extends object = {}>(
  */
 export function createProjection<T extends Object>(
   fn: (draft: T) => void,
-  initialValue: T
+  initialValue: T,
 ) {
   const [store] = createStore(fn, initialValue);
   return store;

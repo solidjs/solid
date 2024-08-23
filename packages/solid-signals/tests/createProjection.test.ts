@@ -83,3 +83,21 @@ it('should observe key changes', () => {
     expect(effect2).toHaveBeenCalledTimes(3);
   });
 });
+
+it('should not self track', () => {
+  const spy = vi.fn();
+  const [bar, setBar] = createSignal("foo");
+  const projection = createProjection(draft => {
+    draft.foo = draft.bar;
+    draft.bar = bar();
+    spy();
+  }, { foo: "foo", bar: "bar" });
+  expect(projection.foo).toBe("bar");
+  expect(projection.bar).toBe("foo");
+  expect(spy).toHaveBeenCalledTimes(1);
+  setBar("baz");
+  flushSync();
+  expect(projection.foo).toBe("foo");
+  expect(projection.bar).toBe("baz");
+  expect(spy).toHaveBeenCalledTimes(2);
+});
