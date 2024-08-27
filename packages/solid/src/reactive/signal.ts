@@ -1594,12 +1594,13 @@ function runUserEffects(queue: Computation<any>[]) {
       sharedConfig.effects || (sharedConfig.effects = []);
       sharedConfig.effects.push(...queue.slice(0, userLength));
       return;
-    } else if (sharedConfig.effects) {
-      queue = [...sharedConfig.effects, ...queue];
-      userLength += sharedConfig.effects.length;
-      delete sharedConfig.effects;
     }
     setHydrateContext();
+  }
+  if (sharedConfig.effects && (sharedConfig.done || !sharedConfig.count)) {
+    queue = [...sharedConfig.effects, ...queue];
+    userLength += sharedConfig.effects.length;
+    delete sharedConfig.effects;
   }
   for (i = 0; i < userLength; i++) runTop(queue[i]);
 }
