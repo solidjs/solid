@@ -90,6 +90,7 @@ export interface Owner {
   context: any | null;
   sourceMap?: SourceMapValue[];
   name?: string;
+  isCleaning?: boolean;
 }
 
 export interface Computation<Init, Next extends Init = Init> extends Owner {
@@ -1636,43 +1637,51 @@ function markDownstream(node: Memo<any>) {
 }
 
 function cleanNode(node: Owner) {
-  let i;
-  if ((node as Computation<any>).sources) {
-    while ((node as Computation<any>).sources!.length) {
-      const source = (node as Computation<any>).sources!.pop()!,
-        index = (node as Computation<any>).sourceSlots!.pop()!,
-        obs = source.observers;
-      if (obs && obs.length) {
-        const n = obs.pop()!,
-          s = source.observerSlots!.pop()!;
-        if (index < obs.length) {
-          n.sourceSlots![s] = index;
-          obs[index] = n;
-          source.observerSlots![index] = s;
+  if (node.isCleaning === true) {
+    return;
+  }
+  node.isCleaning = true;
+  try {
+    let i;
+    if ((node as Computation<any>).sources) {
+      while ((node as Computation<any>).sources!.length) {
+        const source = (node as Computation<any>).sources!.pop()!,
+          index = (node as Computation<any>).sourceSlots!.pop()!,
+          obs = source.observers;
+        if (obs && obs.length) {
+          const n = obs.pop()!,
+            s = source.observerSlots!.pop()!;
+          if (index < obs.length) {
+            n.sourceSlots![s] = index;
+            obs[index] = n;
+            source.observerSlots![index] = s;
+          }
         }
       }
     }
-  }
 
-  if (Transition && Transition.running && (node as Memo<any>).pure) {
-    if ((node as Memo<any>).tOwned) {
-      for (i = (node as Memo<any>).tOwned!.length - 1; i >= 0; i--)
-        cleanNode((node as Memo<any>).tOwned![i]);
-      delete (node as Memo<any>).tOwned;
+    if (Transition && Transition.running && (node as Memo<any>).pure) {
+      if ((node as Memo<any>).tOwned) {
+        for (i = (node as Memo<any>).tOwned!.length - 1; i >= 0; i--)
+          cleanNode((node as Memo<any>).tOwned![i]);
+        delete (node as Memo<any>).tOwned;
+      }
+      reset(node as Computation<any>, true);
+    } else if (node.owned) {
+      for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
+      node.owned = null;
     }
-    reset(node as Computation<any>, true);
-  } else if (node.owned) {
-    for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
-    node.owned = null;
-  }
 
-  if (node.cleanups) {
-    for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
-    node.cleanups = null;
+    if (node.cleanups) {
+      for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
+      node.cleanups = null;
+    }
+    if (Transition && Transition.running) (node as Computation<any>).tState = 0;
+    else (node as Computation<any>).state = 0;
+    "_SOLID_DEV_" && delete node.sourceMap;
+  } finally {
+    node.isCleaning = false;
   }
-  if (Transition && Transition.running) (node as Computation<any>).tState = 0;
-  else (node as Computation<any>).state = 0;
-  "_SOLID_DEV_" && delete node.sourceMap;
 }
 
 function reset(node: Computation<any>, top?: boolean) {
