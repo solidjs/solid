@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.8.22
+
+### Patch Changes
+
+- 26128ec0: fix #2259 attr: in ssr, updates some types
+
 ## 1.8.19
 
 ### Patch Changes

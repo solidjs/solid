@@ -1,5 +1,13 @@
 # solid-js
 
+## 1.8.22
+
+### Patch Changes
+
+- f8ae663c: Fix broken links in Readme
+- 19d0295f: fix stranded effects during hydration cancelation
+- 26128ec0: fix #2259 attr: in ssr, updates some types
+
 ## 1.8.21
 
 ### Patch Changes
