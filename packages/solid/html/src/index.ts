@@ -23,7 +23,7 @@ import {
   SVGNamespace
 } from "solid-js/web";
 
-const html: HTMLTag = createHTML({
+export const html: HTMLTag = createHTML({
   effect,
   style,
   insert,
