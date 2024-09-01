@@ -12,12 +12,15 @@ export {
   Match,
   Index,
   ErrorBoundary,
+  // This overrides mergeProps from dom-expressions/src/server.js
   mergeProps
 } from "solid-js";
 
 export const isServer: boolean = true;
 export const isDev: boolean = false;
 
+// Types for these come from dom-expressions/src/server.d.ts
+// These override the functions from dom-expressions that throw on the serverside.
 export function render() {}
 export function hydrate() {}
 export function insert() {}
