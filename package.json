@@ -37,7 +37,7 @@
     "babel-plugin-jsx-dom-expressions": "^0.38.5",
     "coveralls": "^3.1.1",
     "csstype": "^3.1.0",
-    "dom-expressions": "0.38.5",
+    "dom-expressions": "https://gitpkg.vercel.app/trusktr/dom-expressions/packages/dom-expressions?update-exports",
     "hyper-dom-expressions": "0.38.5",
     "jsdom": "^21.1.1",
     "lit-dom-expressions": "0.38.5",
