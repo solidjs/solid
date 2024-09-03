@@ -1654,12 +1654,12 @@ function cleanNode(node: Owner) {
     }
   }
 
+  if ((node as Memo<any>).tOwned) {
+    for (i = (node as Memo<any>).tOwned!.length - 1; i >= 0; i--)
+      cleanNode((node as Memo<any>).tOwned![i]);
+    delete (node as Memo<any>).tOwned;
+  }
   if (Transition && Transition.running && (node as Memo<any>).pure) {
-    if ((node as Memo<any>).tOwned) {
-      for (i = (node as Memo<any>).tOwned!.length - 1; i >= 0; i--)
-        cleanNode((node as Memo<any>).tOwned![i]);
-      delete (node as Memo<any>).tOwned;
-    }
     reset(node as Computation<any>, true);
   } else if (node.owned) {
     for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
