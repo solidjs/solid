@@ -2,7 +2,7 @@ import type { SignalOptions } from './core';
 import { Computation, compute, UNCHANGED, untrack } from './core';
 import { Effect, RenderEffect } from './effect';
 import { ERROR_BIT, LOADING_BIT } from './flags';
-import { Owner } from './owner';
+import { onCleanup, Owner } from './owner';
 
 export interface Accessor<T> {
   (): T;
@@ -40,7 +40,7 @@ export function createSignal<T>(
   if (typeof first === 'function') {
     const memo = createMemo<Signal<T>>((p) => {
       const node = new Computation<T>(
-        (first as ((prev?: T) => T))(p ? untrack(p[0]): second as T),
+        (first as (prev?: T) => T)(p ? untrack(p[0]) : (second as T)),
         null,
         third,
       );
@@ -53,32 +53,50 @@ export function createSignal<T>(
 }
 
 export function createAsync<T>(
-  fn: () => Promise<T> | T,
+  fn: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
   initial?: T,
   options?: SignalOptions<T>,
 ): Accessor<T> {
   const lhs = createMemo(() => {
-    const promise = fn();
-    if (!(promise instanceof Promise)) {
-      return { wait() { return promise; } };
+    const source = fn(initial);
+    const isPromise = source instanceof Promise;
+    const iterator = source[Symbol.asyncIterator];
+    if (!isPromise && !iterator) {
+      return {
+        wait() {
+          return source as T;
+        },
+      };
     }
     const signal = new Computation(initial, null, options);
     signal.write(UNCHANGED, LOADING_BIT);
-
-    promise.then(
-      (value) => {
-        signal.write(value, 0);
-      },
-      (error) => {
-        signal.write(error as T, ERROR_BIT);
-      },
-    );
-
+    if (isPromise) {
+      source.then(
+        (value) => {
+          signal.write(value, 0);
+        },
+        (error) => {
+          signal.write(error, ERROR_BIT);
+        },
+      );
+    } else {
+      let abort = false;
+      onCleanup(() => abort = true);
+      (async () => {
+        try {
+          for await (let value of source as AsyncIterable<T>) {
+            if (abort) return;
+            signal.write(value, 0);
+          }
+        } catch (error: any) {
+          signal.write(error, ERROR_BIT);
+        }
+      })();
+    }
     return signal;
   });
-
-  const rhs = new Computation(undefined, () => lhs().wait(), options);
-  return rhs.wait.bind(rhs);
+  untrack(lhs);
+  return () => lhs().wait();
 }
 
 /**
