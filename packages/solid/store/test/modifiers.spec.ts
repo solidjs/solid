@@ -366,26 +366,83 @@ describe("modifyMutable with reconcile", () => {
 });
 
 describe("reconcileWithKeys", () => {
-  test("simple test", () => {
+  // this test should match next test
+  test("test 1 - expected regular behaviour", () => {
     createRoot(() => {
       const [target, setStore] = createStore({
-        c: [
-          { idx: 1, name: "1" },
-          { idx: 0, name: "0" }
-        ]
+        c: {
+          a: [
+            { ida: 1, name: "1" },
+            { ida: 0, name: "0" }
+          ],
+          b: [
+            { idb: 1, name: "1" },
+            { idb: 0, name: "0" }
+          ]
+        }
       });
 
-      const ref1 = target.c[1];
+      const ref = target.c.a[1];
 
       const source = {
-        c: [{ idx: 0, name: "0 modified" }]
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
       };
 
       setStore("c", reconcile(source.c));
+      expect(target.c.a[0]).not.toBe(ref);
 
-      expect(target.c[0]).toBe(ref1);
+      expect(target).toEqual({
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
+      });
+    });
+  });
+  test("test 1 - expected reconcileWithKeys behaviour", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        c: {
+          a: [
+            { ida: 1, name: "1" },
+            { ida: 0, name: "0" }
+          ],
+          b: [
+            { idb: 1, name: "1" },
+            { idb: 0, name: "0" }
+          ]
+        }
+      });
 
-      expect(target).toEqual({ c: [{ idx: 0, name: "0 modified" }] });
+      const ref = target.c.a[1];
+
+      const source = {
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
+      };
+
+      setStore(
+        "c",
+        reconcileWithKeys(source.c, {
+          keys: {
+            a: { _key: "ida" },
+            b: { _key: "idb" }
+          }
+        })
+      );
+      expect(target.c.a[0]).toBe(ref);
+
+      expect(target).toEqual({
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
+      });
     });
   });
 });
