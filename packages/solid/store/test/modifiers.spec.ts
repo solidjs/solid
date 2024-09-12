@@ -1,5 +1,13 @@
 import { createRoot, createSignal, createEffect } from "../../src";
-import { createStore, createMutable, reconcile, produce, unwrap, modifyMutable } from "../src";
+import {
+  createStore,
+  createMutable,
+  reconcile,
+  produce,
+  unwrap,
+  modifyMutable,
+  reconcileWithKeys
+} from "../src";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {
@@ -357,6 +365,30 @@ describe("modifyMutable with reconcile", () => {
   });
 });
 
+describe("reconcileWithKeys", () => {
+  test("simple test", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        c: [
+          { idx: 1, name: "1" },
+          { idx: 0, name: "0" }
+        ]
+      });
+
+      const ref1 = target.c[1];
+
+      const source = {
+        c: [{ idx: 0, name: "0 modified" }]
+      };
+
+      setStore("c", reconcile(source.c));
+
+      expect(target.c[0]).toBe(ref1);
+
+      expect(target).toEqual({ c: [{ idx: 0, name: "0 modified" }] });
+    });
+  });
+});
 // type tests
 
 // reconcile
