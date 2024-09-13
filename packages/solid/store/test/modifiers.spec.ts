@@ -156,6 +156,32 @@ describe("setState with reconcile", () => {
     setStore(reconcile({ value: { q: "aa" } }));
     expect(store.value).toEqual({ q: "aa" });
   });
+  test("reconciles an object with an array", () => {
+    const [store, setStore] = createStore<{ value: {} | [] }>({
+      value: { foo: "bar" }
+    });
+
+    const value = [0, 1, 2];
+    setStore("value", reconcile(value));
+
+    expect(Array.isArray(store.value)).toBe(true);
+    expect(store).toEqual({
+      value: [0, 1, 2]
+    });
+  });
+
+  test("reconciles an array with an object", () => {
+    const [store, setStore] = createStore<{ value: {} | [] }>({
+      value: [0, 1, 2]
+    });
+
+    const value = { foo: "bar" };
+    setStore("value", reconcile(value));
+    expect(Array.isArray(store.value)).toBe(false);
+    expect(store).toEqual({
+      value: { foo: "bar" }
+    });
+  });
 });
 
 describe("setState with produce", () => {
