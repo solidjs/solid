@@ -5,6 +5,7 @@ import {
   createMemo,
   devComponent,
   $PROXY,
+  SUPPORTS_PROXY,
   $DEVCOMP,
   EffectFunction
 } from "../reactive/signal.js";
@@ -197,7 +198,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
     sources[i] =
       typeof s === "function" ? ((proxy = true), createMemo(s as EffectFunction<unknown>)) : s;
   }
-  if (proxy) {
+  if (SUPPORTS_PROXY && proxy) {
     return new Proxy(
       {
         get(property: string | number | symbol) {
@@ -280,7 +281,7 @@ export function splitProps<
   T extends Record<any, any>,
   K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
 >(props: T, ...keys: K): SplitProps<T, K> {
-  if ($PROXY in props) {
+  if (SUPPORTS_PROXY && $PROXY in props) {
     const blocked = new Set<keyof T>(keys.length > 1 ? keys.flat() : keys[0]);
     const res = keys.map(k => {
       return new Proxy(
