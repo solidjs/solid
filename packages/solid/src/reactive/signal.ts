@@ -1087,6 +1087,7 @@ export type Transition = [Accessor<boolean>, (fn: () => void) => Promise<void>];
  *   () => boolean,
  *   (fn: () => void, cb?: () => void) => void
  * ];
+ * ```
  * @returns a tuple; first value is an accessor if the transition is pending and a callback to start the transition
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/use-transition
