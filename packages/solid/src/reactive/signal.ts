@@ -924,7 +924,7 @@ export interface OnOptions {
  * });
  * ```
  *
- * @description https://docs.solidjs.com/reference/jsx-attributes/on_
+ * @description https://docs.solidjs.com/reference/reactive-utilities/on
  */
 export function on<S, Next extends Prev, Prev = Next>(
   deps: AccessorArray<S> | Accessor<S>,
