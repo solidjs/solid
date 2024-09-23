@@ -97,6 +97,7 @@ function wrap<T extends StoreNode>(value: T): T {
 
     const proto = Object.getPrototypeOf(value);
     const isClass =
+      proto !== null &&
       value !== null &&
       typeof value === "object" &&
       !Array.isArray(value) &&

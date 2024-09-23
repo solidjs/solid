@@ -2,6 +2,11 @@ import { createRoot, createSignal, createMemo, batch, createEffect } from "../..
 import { Accessor, Setter } from "../../types";
 import { createMutable, unwrap, $RAW } from "../src";
 
+test("Object.create(null) is allowed", () => {
+  const user = createMutable(Object.assign(Object.create(null), { name: "John" }));
+  expect(user.name).toBe("John");
+});
+
 describe("State Mutability", () => {
   test("Setting a property", () => {
     const user = createMutable({ name: "John" });
