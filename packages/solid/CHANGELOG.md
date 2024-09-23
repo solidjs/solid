@@ -1,5 +1,17 @@
 # solid-js
 
+## 1.8.23
+
+### Patch Changes
+
+- bc20a4ce: update types, fix hydration cancel timing error, sync ssr script appending
+- 9697c94b: jsdoc: Fix incorrect links of reactive utility `on`
+- 9e192d7e: fix #2282: Add Check for Proxy support
+- 379293d9: use correct hydration id in server lazy
+- 73c00927: Fix missing code block end in `useTransition`'s jsdoc comment
+- e4b2c668: fix missing disposal of nested transition nodes
+- 94929afa: fix wrapping of object with `null` prototype
+
 ## 1.8.22
 
 ### Patch Changes
