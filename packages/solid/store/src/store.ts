@@ -14,7 +14,7 @@ type DataNode = {
   (): any;
   $(value?: any): void;
 };
-type DataNodes = Record<PropertyKey, DataNode | undefined>;
+export type DataNodes = Record<PropertyKey, DataNode | undefined>;
 
 export type OnStoreNodeUpdate = (
   state: StoreNode,

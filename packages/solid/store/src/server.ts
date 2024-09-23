@@ -1,5 +1,19 @@
 import type { SetStoreFunction, Store } from "./store.js";
 
+export type {
+  ArrayFilterFn,
+  DeepMutable,
+  DeepReadonly,
+  NotWrappable,
+  Part,
+  SetStoreFunction,
+  SolidStore,
+  Store,
+  StoreNode,
+  StorePathRange,
+  StoreSetter
+} from "./store.js";
+
 export const $RAW = Symbol("state-raw");
 
 export function isWrappable(obj: any) {
@@ -103,6 +117,10 @@ export function createMutable<T>(state: T | Store<T>): T {
   return state as T;
 }
 
+export function modifyMutable<T>(state: T, modifier: (state: T) => T) {
+  notSup();
+}
+
 type ReconcileOptions = {
   key?: string | null;
   merge?: boolean;
@@ -137,3 +155,7 @@ export function produce<T>(fn: (state: T) => void): (state: T) => T {
 }
 
 export const DEV = undefined;
+
+function notSup(): never {
+  throw new Error("not supported on server side");
+}
