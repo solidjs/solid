@@ -35,7 +35,7 @@
     "@rollup/plugin-commonjs": "24.0.1",
     "@rollup/plugin-node-resolve": "15.0.1",
     "babel-preset-solid": "workspace:*",
-    "express": "^4.19.2",
+    "express": "^4.20.0",
     "rollup": "^3.20.0",
     "rollup-plugin-copy": "^3.4.0",
     "solid-js": "workspace:*"
