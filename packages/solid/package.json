@@ -11,10 +11,6 @@
   },
   "main": "./dist/server.cjs",
   "module": "./dist/server.js",
-  "browser": {
-    "./dist/server.cjs": "./dist/solid.cjs",
-    "./dist/server.js": "./dist/solid.js"
-  },
   "unpkg": "./dist/solid.cjs",
   "types": "types/index.d.ts",
   "sideEffects": false,
