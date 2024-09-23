@@ -1,8 +1,8 @@
 ---
-"babel-preset-solid": patch
-"solid-js": patch
-"solid-element": patch
-"test-integration": patch
+"babel-preset-solid": minor
+"solid-js": minor
+"solid-element": minor
+"test-integration": minor
 ---
 
 update dom-expressions

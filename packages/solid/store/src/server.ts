@@ -118,7 +118,7 @@ export function createMutable<T>(state: T | Store<T>): T {
 }
 
 export function modifyMutable<T>(state: T, modifier: (state: T) => T) {
-  notSup();
+  modifier(state);
 }
 
 type ReconcileOptions = {
@@ -155,7 +155,3 @@ export function produce<T>(fn: (state: T) => void): (state: T) => T {
 }
 
 export const DEV = undefined;
-
-function notSup(): never {
-  throw new Error("not supported on server side");
-}

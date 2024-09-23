@@ -19,15 +19,6 @@ export {
 export const isServer: boolean = true;
 export const isDev: boolean = false;
 
-// Types for these come from dom-expressions/src/server.d.ts
-// These override the functions from dom-expressions that throw on the serverside.
-export function render() {}
-export function hydrate() {}
-export function insert() {}
-export function spread() {}
-export function addEventListener() {}
-export function delegateEvents(): void {}
-
 export function Dynamic<T>(
   props: T & { children?: any; component?: Component<T> | string | keyof JSX.IntrinsicElements }
 ) {
