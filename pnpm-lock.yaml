@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -109,7 +109,7 @@ importers:
         version: 5.5.2
       vite-plugin-solid:
         specifier: ^2.6.1
-        version: 2.6.1(solid-js@packages+solid)(vite@4.5.3)
+        version: 2.6.1(solid-js@packages+solid)(vite@4.5.5)
       vitest:
         specifier: ^0.29.3
         version: 0.29.3(jsdom@21.1.1)
@@ -5816,7 +5816,7 @@ packages:
       mlly: 1.2.1
       pathe: 1.1.0
       picocolors: 1.0.0
-      vite: 4.5.3(@types/node@18.11.19)
+      vite: 4.5.5(@types/node@18.11.19)
     transitivePeerDependencies:
       - '@types/node'
       - less
@@ -5828,7 +5828,7 @@ packages:
       - terser
     dev: true
 
-  /vite-plugin-solid@2.6.1(solid-js@packages+solid)(vite@4.5.3):
+  /vite-plugin-solid@2.6.1(solid-js@packages+solid)(vite@4.5.5):
     resolution: {integrity: sha512-/khM/ha3B5/pTWQWVJd/0n6ODPIrOcajwhbrD8Gnv37XmJJssu+KA8ssN73raMIicf2eiQKiTAV39w7dSl4Irg==}
     peerDependencies:
       solid-js: ^1.3.17 || ^1.4.0 || ^1.5.0 || ^1.6.0
@@ -5841,14 +5841,14 @@ packages:
       merge-anything: 5.1.6
       solid-js: link:packages/solid
       solid-refresh: 0.5.2(solid-js@packages+solid)
-      vite: 4.5.3(@types/node@18.11.19)
-      vitefu: 0.2.4(vite@4.5.3)
+      vite: 4.5.5(@types/node@18.11.19)
+      vitefu: 0.2.4(vite@4.5.5)
     transitivePeerDependencies:
       - supports-color
     dev: true
 
-  /vite@4.5.3(@types/node@18.11.19):
-    resolution: {integrity: sha512-kQL23kMeX92v3ph7IauVkXkikdDRsYMGTVl5KY2E9OY4ONLvkHf04MDTbnfo6NKxZiDLWzVpP5oTa8hQD8U3dg==}
+  /vite@4.5.5(@types/node@18.11.19):
+    resolution: {integrity: sha512-ifW3Lb2sMdX+WU91s3R0FyQlAyLxOzCSCP37ujw0+r5POeHPwe6udWVIElKQq8gk3t7b8rkmvqC6IHBpCff4GQ==}
     engines: {node: ^14.18.0 || >=16.0.0}
     hasBin: true
     peerDependencies:
@@ -5883,7 +5883,7 @@ packages:
       fsevents: 2.3.2
     dev: true
 
-  /vitefu@0.2.4(vite@4.5.3):
+  /vitefu@0.2.4(vite@4.5.5):
     resolution: {integrity: sha512-fanAXjSaf9xXtOOeno8wZXIhgia+CZury481LsDaV++lSvcU2R9Ch2bPh3PYFyoHW+w9LqAeYRISVQjUIew14g==}
     peerDependencies:
       vite: ^3.0.0 || ^4.0.0
@@ -5891,7 +5891,7 @@ packages:
       vite:
         optional: true
     dependencies:
-      vite: 4.5.3(@types/node@18.11.19)
+      vite: 4.5.5(@types/node@18.11.19)
     dev: true
 
   /vitest@0.29.3(jsdom@21.1.1):
@@ -5938,7 +5938,7 @@ packages:
       tinybench: 2.5.0
       tinypool: 0.3.1
       tinyspy: 1.1.1
-      vite: 4.5.3(@types/node@18.11.19)
+      vite: 4.5.5(@types/node@18.11.19)
       vite-node: 0.29.3(@types/node@18.11.19)
       why-is-node-running: 2.2.2
     transitivePeerDependencies:
