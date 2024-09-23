@@ -493,7 +493,7 @@ export function lazy<T extends Component<any>>(
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
   } = props => {
-    const id = sharedConfig.context!.id.slice(0, -1);
+    const id = sharedConfig.context!.id;
     let ref = sharedConfig.context!.lazy[id];
     if (ref) p = ref;
     else load(id);
