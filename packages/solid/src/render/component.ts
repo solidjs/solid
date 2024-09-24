@@ -268,6 +268,14 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   return target as any;
 }
 
+export type DefaultProps<T, K extends keyof T> = MergeProps<[Required<Pick<T, K>>, T]>;
+export function defaultProps<T, K extends keyof T>(
+  props: T,
+  defaults: Required<Pick<T, K>>
+): DefaultProps<T, K> {
+  return mergeProps(defaults, props);
+}
+
 export type SplitProps<T, K extends (readonly (keyof T)[])[]> = [
   ...{
     [P in keyof K]: P extends `${number}`
