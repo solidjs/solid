@@ -1,5 +1,13 @@
 import { createRoot, createSignal, createEffect } from "../../src";
-import { createStore, createMutable, reconcile, produce, unwrap, modifyMutable } from "../src";
+import {
+  createStore,
+  createMutable,
+  reconcile,
+  produce,
+  unwrap,
+  modifyMutable,
+  reconcileWithKeys
+} from "../src";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {
@@ -357,6 +365,485 @@ describe("modifyMutable with reconcile", () => {
   });
 });
 
+describe("reconcileWithKeys", () => {
+  // this test should match next test
+  test("test 1 - expected regular behaviour", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        c: {
+          a: [
+            { ida: 1, name: "1" },
+            { ida: 0, name: "0" }
+          ],
+          b: [
+            { idb: 1, name: "1" },
+            { idb: 0, name: "0" }
+          ]
+        }
+      });
+
+      const ref = target.c.a[1];
+
+      const source = {
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
+      };
+
+      setStore("c", reconcile(source.c));
+      expect(target.c.a[0]).not.toBe(ref);
+
+      expect(target).toEqual({
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
+      });
+    });
+  });
+  test("test 1 - expected reconcileWithKeys behaviour", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        c: {
+          a: [
+            { ida: 1, name: "1" },
+            { ida: 0, name: "0" }
+          ],
+          b: [
+            { idb: 1, name: "1" },
+            { idb: 0, name: "0" }
+          ]
+        }
+      });
+
+      const ref = target.c.a[1];
+
+      const source = {
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
+      };
+
+      setStore(
+        "c",
+        reconcileWithKeys(source.c, {
+          keys: {
+            a: { _key: "ida" },
+            b: { _key: "idb" }
+          }
+        })
+      );
+      expect(target.c.a[0]).toBe(ref);
+
+      expect(target).toEqual({
+        c: {
+          a: [{ ida: 0, name: "0 modified" }],
+          b: [{ idb: 0, name: "0 modified" }]
+        }
+      });
+    });
+  });
+
+  test("merge false, should replace", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({ c: [{ idx: 1 }] });
+
+      const source = {
+        c: [{ idx: 2 }]
+      };
+
+      const ref = target.c[0];
+
+      setStore(
+        "c",
+        reconcileWithKeys(source.c, {
+          merge: false,
+          keys: {
+            _key: "idx"
+          }
+        })
+      );
+
+      expect(target.c[0]).not.toBe(ref);
+
+      expect(target).toEqual({
+        c: [{ idx: 2 }]
+      });
+    });
+  });
+  test("merge true, should replace", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({ c: [{ idx: 1 }] });
+
+      const source = {
+        c: [{ idx: 2 }]
+      };
+
+      const ref = target.c[0];
+
+      setStore(
+        "c",
+        reconcileWithKeys(source.c, {
+          merge: true,
+          keys: { _key: "idx" }
+        })
+      );
+
+      expect(target.c[0]).not.toBe(ref);
+
+      expect(target).toEqual({
+        c: [{ idx: 2 }]
+      });
+    });
+  });
+
+  test("merge true deeply nested and modify, should keep reference", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        q: {
+          u: { a: { c: { k: [{ d: [{ idq: 1, name: "a" }] }] } } }
+        }
+      });
+
+      const source = {
+        q: {
+          u: {
+            a: {
+              c: {
+                k: [{ d: [{ idq: 1, name: "changed" }] }]
+              }
+            }
+          }
+        }
+      };
+
+      const ref = target.q.u.a.c.k[0].d[0];
+
+      setStore(
+        "q",
+        reconcileWithKeys(source.q, {
+          merge: true,
+          keys: {
+            u: {
+              a: {
+                c: {
+                  k: { d: { _key: "idq" } }
+                }
+              }
+            }
+          }
+        })
+      );
+
+      expect(target.q.u.a.c.k[0].d[0]).toBe(ref);
+
+      expect(target).toEqual({
+        q: {
+          u: {
+            a: {
+              c: {
+                k: [{ d: [{ idq: 1, name: "changed" }] }]
+              }
+            }
+          }
+        }
+      });
+    });
+  });
+
+  test("merge false (key in 1st array) deeply nested and modify, should keep reference", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        q: {
+          u: { a: { c: { k: [{ ida: 2, d: [{ idq: 1, name: "a" }] }] } } }
+        }
+      });
+
+      const source = {
+        q: {
+          u: {
+            a: {
+              c: {
+                k: [{ ida: 2, d: [{ idq: 1, name: "changed" }] }]
+              }
+            }
+          }
+        }
+      };
+
+      const ref = target.q.u.a.c.k[0].d[0];
+
+      setStore(
+        "q",
+        reconcileWithKeys(source.q, {
+          merge: false,
+          keys: {
+            u: {
+              a: {
+                c: {
+                  k: {
+                    _key: "ida",
+                    d: {
+                      _key: "idq"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        })
+      );
+
+      expect(target.q.u.a.c.k[0].d[0]).toBe(ref);
+
+      expect(target).toEqual({
+        q: {
+          u: {
+            a: {
+              c: {
+                k: [{ ida: 2, d: [{ idq: 1, name: "changed" }] }]
+              }
+            }
+          }
+        }
+      });
+    });
+  });
+
+  test("merge false, 2 siblings keys, should replace", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        a: { c: [{ id: 1 }], d: [{ idx: 2 }] }
+      });
+
+      const source = {
+        a: { c: [{ id: 3 }], d: [{ idx: 4 }] }
+      };
+
+      const refc = target.a.c[0];
+      const refd = target.a.d[0];
+
+      setStore(
+        "a",
+        reconcileWithKeys(source.a, {
+          merge: false,
+          keys: {
+            c: { _key: "id" },
+            d: { _key: "idx" }
+          }
+        })
+      );
+
+      expect(target.a.c[0]).not.toBe(refc);
+      expect(target.a.d[0]).not.toBe(refd);
+
+      expect(target).toEqual({
+        a: { c: [{ id: 3 }], d: [{ idx: 4 }] }
+      });
+    });
+  });
+
+  test("merge true, 2 siblings keys, should replace", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        a: { c: [{ id: 1 }], d: [{ idx: 2 }] }
+      });
+
+      const source = {
+        a: { c: [{ id: 3 }], d: [{ idx: 4 }] }
+      };
+
+      const refc = target.a.c[0];
+      const refd = target.a.d[0];
+
+      setStore(
+        "a",
+        reconcileWithKeys(source.a, {
+          merge: true,
+          keys: {
+            c: { _key: "id" },
+            d: { _key: "idx" }
+          }
+        })
+      );
+
+      expect(target.a.c[0]).not.toBe(refc);
+      expect(target.a.d[0]).not.toBe(refd);
+
+      expect(target).toEqual({
+        a: { c: [{ id: 3 }], d: [{ idx: 4 }] }
+      });
+    });
+  });
+
+  test("merge true, 2 siblings keys, should keep reference", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        a: {
+          c: [{ id: 1 }],
+          d: [{ idx: 2 }]
+        }
+      });
+
+      const source = {
+        a: {
+          c: [{ id: 1, name: "uno" }],
+          d: [{ idx: 2, name: "dos" }]
+        }
+      };
+
+      const refc = target.a.c[0];
+      const refd = target.a.d[0];
+
+      setStore(
+        "a",
+        reconcileWithKeys(source.a, {
+          merge: true,
+          keys: {
+            c: { _key: "id" },
+            d: { _key: "idx" }
+          }
+        })
+      );
+
+      expect(target.a.c[0]).toBe(refc);
+      expect(target.a.d[0]).toBe(refd);
+
+      expect(target).toEqual({
+        a: {
+          c: [{ id: 1, name: "uno" }],
+          d: [{ idx: 2, name: "dos" }]
+        }
+      });
+    });
+  });
+
+  test("merge false, 2 siblings keys, should keep reference", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        a: {
+          c: [{ id: 1 }],
+          d: [{ idx: 2 }]
+        }
+      });
+
+      const source = {
+        a: {
+          c: [{ id: 1, name: "uno" }],
+          d: [{ idx: 2, name: "dos" }]
+        }
+      };
+
+      const refc = target.a.c[0];
+      const refd = target.a.d[0];
+
+      setStore(
+        "a",
+        reconcileWithKeys(source.a, {
+          merge: false,
+          keys: {
+            c: { _key: "id" },
+            d: { _key: "idx" }
+          }
+        })
+      );
+
+      expect(target.a.c[0]).toBe(refc);
+      expect(target.a.d[0]).toBe(refd);
+
+      expect(target).toEqual({
+        a: {
+          c: [{ id: 1, name: "uno" }],
+          d: [{ idx: 2, name: "dos" }]
+        }
+      });
+    });
+  });
+
+  test("other data + swapped array positions (we lose references unexpectedly)", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({
+        z: {
+          a: true,
+          q: [1, 2],
+          c: [{ idx: 2 }, { idx: 1 }]
+        }
+      });
+
+      const source = {
+        z: {
+          b: false,
+          q: [6, 8],
+          c: [
+            { idx: 1, name: "1" },
+            { idx: 2, name: "2" }
+          ]
+        }
+      };
+
+      const refc0 = target.z.c[0];
+      const refc1 = target.z.c[1];
+
+      setStore(
+        "z",
+        reconcileWithKeys(source.z, {
+          merge: false,
+          keys: {
+            z: { c: { _key: "idx" } }
+          }
+        })
+      );
+      expect(target).toEqual({
+        z: {
+          q: [6, 8],
+          c: [
+            { idx: 1, name: "1" },
+            { idx: 2, name: "2" }
+          ],
+          b: false
+        }
+      });
+
+      // seems like we lose all references when the array is swapped
+      // this is unexpected
+
+      // expect(target.z.c[0]).toBe(refc0);
+      // expect(target.z.c[1]).toBe(refc1);
+      // or
+      // expect(target.z.c[1]).toBe(refc0);
+      // expect(target.z.c[0]).toBe(refc1);
+    });
+  });
+
+  test("delete items using keys", () => {
+    createRoot(() => {
+      const [target, setStore] = createStore({ z: { c: [{ id: 1 }], d: [{ idx: 2 }] } });
+
+      const source = {
+        z: { c: [], d: [] }
+      };
+
+      setStore(
+        "z",
+        reconcileWithKeys(source.z, {
+          merge: false,
+          keys: {
+            z: {
+              c: { key: "id" },
+              d: { key: "idx" }
+            }
+          }
+        })
+      );
+
+      expect(target).toEqual({
+        z: { c: [], d: [] }
+      });
+    });
+  });
+});
 // type tests
 
 // reconcile

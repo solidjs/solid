@@ -6,13 +6,20 @@ export type ReconcileOptions = {
   key?: string | null;
   merge?: boolean;
 };
+export type ReconcileWithKeysOptions = {
+  keys?: object | null;
+  merge?: boolean;
+};
+const emptyKeys = /* #__PURE__*/ Object.create(null);
 
 function applyState(
   target: any,
   parent: any,
   property: PropertyKey,
   merge: boolean | undefined,
-  key: string | null
+  key: string | null,
+  keys: object | null,
+  useKeys: boolean | null
 ) {
   const previous = parent[property];
   if (target === previous) return;
@@ -43,7 +50,7 @@ function applyState(
           (key && previous[start] && target[start] && previous[start][key] === target[start][key]));
         start++
       ) {
-        applyState(target[start], previous, start, merge, key);
+        applyState(target[start], previous, start, merge, key, keys, useKeys);
       }
 
       const temp = new Array(target.length),
@@ -65,7 +72,7 @@ function applyState(
         for (j = start; j <= newEnd; j++) setProperty(previous, j, target[j]);
         for (; j < target.length; j++) {
           setProperty(previous, j, temp[j]);
-          applyState(target[j], previous, j, merge, key);
+          applyState(target[j], previous, j, merge, key, keys, useKeys);
         }
         if (previous.length > target.length) setProperty(previous, "length", target.length);
         return;
@@ -95,12 +102,12 @@ function applyState(
       for (j = start; j < target.length; j++) {
         if (j in temp) {
           setProperty(previous, j, temp[j]);
-          applyState(target[j], previous, j, merge, key);
+          applyState(target[j], previous, j, merge, key, keys, useKeys);
         } else setProperty(previous, j, target[j]);
       }
     } else {
       for (let i = 0, len = target.length; i < len; i++) {
-        applyState(target[i], previous, i, merge, key);
+        applyState(target[i], previous, i, merge, key, keys, useKeys);
       }
     }
     if (previous.length > target.length) setProperty(previous, "length", target.length);
@@ -109,7 +116,15 @@ function applyState(
 
   const targetKeys = Object.keys(target);
   for (let i = 0, len = targetKeys.length; i < len; i++) {
-    applyState(target[targetKeys[i]], previous, targetKeys[i], merge, key);
+    applyState(
+      target[targetKeys[i]],
+      previous,
+      targetKeys[i],
+      merge,
+      !useKeys ? key : isArray ? (keys || emptyKeys)._key : keys[targetKeys[i]]?._key,
+      !useKeys ? null : isArray ? keys : keys[targetKeys[i]] || emptyKeys,
+      useKeys
+    );
   }
   const previousKeys = Object.keys(previous);
   for (let i = 0, len = previousKeys.length; i < len; i++) {
@@ -126,7 +141,20 @@ export function reconcile<T extends U, U>(
     v = unwrap(value);
   return state => {
     if (!isWrappable(state) || !isWrappable(v)) return v;
-    const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, key);
+    const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, key, null, null);
+    return res === undefined ? (state as T) : res;
+  };
+}
+
+export function reconcileWithKeys<T extends U, U>(
+  value: T,
+  options: ReconcileWithKeysOptions = {}
+): (state: U) => T {
+  const { merge, keys = emptyKeys } = options,
+    v = unwrap(value);
+  return state => {
+    if (!isWrappable(state) || !isWrappable(v)) return v;
+    const res = applyState(v, { [$ROOT]: state }, $ROOT, merge, keys._key, keys, true);
     return res === undefined ? (state as T) : res;
   };
 }
