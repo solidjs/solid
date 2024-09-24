@@ -1,5 +1,5 @@
-import { createHyperScript } from "./hyperscript";
-import type { HyperScript } from "./hyperscript";
+import { createHyperScript } from "./hyperscript.js";
+import type { HyperScript } from "./hyperscript.js";
 import {
   spread,
   assign,

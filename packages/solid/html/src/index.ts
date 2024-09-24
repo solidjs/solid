@@ -1,5 +1,5 @@
-import { createHTML } from "./lit";
-import type { HTMLTag } from "./lit";
+import { createHTML } from "./lit.js";
+import type { HTMLTag } from "./lit.js";
 import {
   effect,
   style,

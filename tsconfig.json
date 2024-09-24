@@ -2,9 +2,10 @@
   "compilerOptions": {
     "emitDeclarationOnly": true,
     "declaration": true,
-    "target": "esnext",
+    "target": "ESNext",
     "newLine": "LF",
-    "moduleResolution": "node",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "strict": true,
     "jsx": "preserve"
   },

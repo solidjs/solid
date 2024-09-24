@@ -1,1 +1,1 @@
-export * from "dom-expressions/src/universal";
+export * from "dom-expressions/src/universal.js";
