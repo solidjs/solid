@@ -1,3 +1,4 @@
+import { describe, expect, test } from "vitest";
 import {
   createRoot,
   createSignal,
@@ -7,8 +8,8 @@ import {
   on,
   untrack,
   mapArray
-} from "../../src";
-import { createStore, unwrap, $RAW, NotWrappable } from "../src";
+} from "../../src/index.js";
+import { createStore, unwrap, $RAW, NotWrappable } from "../src/index.js";
 
 describe("State immutability", () => {
   test("Setting a property", () => {

@@ -1,4 +1,5 @@
-import { createRoot, createMemo, untrack, enableExternalSource } from "../src";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRoot, createMemo, untrack, enableExternalSource } from "../src/index.js";
 
 import "./MessageChannel";
 

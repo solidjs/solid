@@ -2,8 +2,8 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
-
-import { createRoot, createSignal, createUniqueId, JSX, children } from "../../src";
+import { describe, expect, test } from "vitest";
+import { createRoot, createSignal, createUniqueId, JSX, children } from "../../src/index.js";
 
 declare module "solid-js/jsx-runtime" {
   namespace JSX {

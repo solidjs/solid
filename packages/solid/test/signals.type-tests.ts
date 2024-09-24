@@ -9,8 +9,7 @@ import {
   createSelector,
   Signal,
   Setter
-  // } from "../types/index";
-} from "../src";
+} from "../src/index.js";
 
 class Animal {
   #animal = null;

@@ -1,6 +1,7 @@
-import { createRoot, createSignal, createMemo, batch, createEffect } from "../../src";
-import { Accessor, Setter } from "../../types";
-import { createMutable, unwrap, $RAW } from "../src";
+import { describe, expect, test } from "vitest";
+import { createRoot, createSignal, createMemo, batch, createEffect } from "../../src/index.js";
+import { Accessor, Setter } from "../../types/index.js";
+import { createMutable, unwrap, $RAW } from "../src/index.js";
 
 test("Object.create(null) is allowed", () => {
   const user = createMutable(Object.assign(Object.create(null), { name: "John" }));

@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { describe, expect, test } from "vitest";
 import {
   createRoot,
   createSignal,
@@ -18,7 +19,7 @@ import {
   useContext,
   getOwner,
   runWithOwner
-} from "../src";
+} from "../src/index.js";
 
 import "./MessageChannel";
 

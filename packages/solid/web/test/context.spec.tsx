@@ -2,9 +2,10 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
+import { describe, expect, it } from "vitest";
 
-import { createContext, useContext } from "../../src";
-import { render, Show } from "../src";
+import { createContext, useContext } from "../../src/index.js";
+import { render, Show } from "../src/index.js";
 
 describe("Testing Context", () => {
   const ThemeContext = createContext("light");

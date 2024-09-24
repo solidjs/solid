@@ -1,4 +1,5 @@
-import { createRoot, createSignal, from, observable } from "../src";
+import { describe, expect, test, vi } from "vitest";
+import { createRoot, createSignal, from, observable } from "../src/index.js";
 
 describe("Observable operator", () => {
   test("to observable", () => {

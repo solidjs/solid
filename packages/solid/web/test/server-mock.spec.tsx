@@ -1,4 +1,5 @@
-import { renderToString, renderToStringAsync, renderToStream } from "../src/server-mock";
+import { expect, test, vi, beforeEach, afterAll } from "vitest";
+import { renderToString, renderToStringAsync, renderToStream } from "../src/server-mock.js";
 
 const origConsoleError = console.error;
 const mockConsoleError = vi.fn();

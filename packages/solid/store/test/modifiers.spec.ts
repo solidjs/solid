@@ -1,5 +1,14 @@
-import { createRoot, createSignal, createEffect } from "../../src";
-import { createStore, createMutable, reconcile, produce, unwrap, modifyMutable } from "../src";
+import { describe, expect, test } from "vitest";
+
+import { createRoot, createSignal, createEffect } from "../../src/index.js";
+import {
+  createStore,
+  createMutable,
+  reconcile,
+  produce,
+  unwrap,
+  modifyMutable
+} from "../src/index.js";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {

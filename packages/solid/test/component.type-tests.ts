@@ -1,4 +1,4 @@
-import { mergeProps, splitProps } from "../src";
+import { mergeProps, splitProps } from "../src/index.js";
 
 type Assert<T extends true> = never;
 // from: https://github.com/Microsoft/TypeScript/issues/27024#issuecomment-421529650

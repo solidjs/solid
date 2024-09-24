@@ -1,5 +1,5 @@
-import { mergeProps, splitProps } from "../src";
-import { bench } from "vitest";
+import { mergeProps, splitProps } from "../src/index.js";
+import { bench, describe } from "vitest";
 
 const staticDesc = {
   value: 1,

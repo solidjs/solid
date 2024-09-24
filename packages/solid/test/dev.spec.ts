@@ -1,3 +1,4 @@
+import { describe, expect, test, vi } from "vitest";
 import {
   createRoot,
   getOwner,
@@ -7,9 +8,9 @@ import {
   DEV,
   createContext,
   createComponent
-} from "../src";
-import type { DevComponent } from "../src/reactive/signal";
-import { createStore, unwrap, DEV as STORE_DEV } from "../store/src";
+} from "../src/index.js";
+import type { DevComponent } from "../src/reactive/signal.js";
+import { createStore, unwrap, DEV as STORE_DEV } from "../store/src/index.js";
 
 describe("Dev features", () => {
   test("Signals being added to sourceMap with user-provided names", () => {

@@ -21,33 +21,33 @@ export function enableHydration() {
  * A general `Component` has no implicit `children` prop.  If desired, you can
  * specify one as in `Component<{name: String, children: JSX.Element}>`.
  */
-export type Component<P = {}> = (props: P) => JSX.Element;
+export type Component<P extends Record<string, any> = {}> = (props: P) => JSX.Element;
 
 /**
  * Extend props to forbid the `children` prop.
  * Use this to prevent accidentally passing `children` to components that
  * would silently throw them away.
  */
-export type VoidProps<P = {}> = P & { children?: never };
+export type VoidProps<P extends Record<string, any> = {}> = P & { children?: never };
 /**
  * `VoidComponent` forbids the `children` prop.
  * Use this to prevent accidentally passing `children` to components that
  * would silently throw them away.
  */
-export type VoidComponent<P = {}> = Component<VoidProps<P>>;
+export type VoidComponent<P extends Record<string, any> = {}> = Component<VoidProps<P>>;
 
 /**
  * Extend props to allow an optional `children` prop with the usual
  * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
  * Use this for components that you want to accept children.
  */
-export type ParentProps<P = {}> = P & { children?: JSX.Element };
+export type ParentProps<P extends Record<string, any> = {}> = P & { children?: JSX.Element };
 /**
  * `ParentComponent` allows an optional `children` prop with the usual
  * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
  * Use this for components that you want to accept children.
  */
-export type ParentComponent<P = {}> = Component<ParentProps<P>>;
+export type ParentComponent<P extends Record<string, any> = {}> = Component<ParentProps<P>>;
 
 /**
  * Extend props to require a `children` prop with the specified type.
@@ -55,17 +55,19 @@ export type ParentComponent<P = {}> = Component<ParentProps<P>>;
  * typically a function that receives specific argument types.
  * Note that all JSX <Elements> are of the type `JSX.Element`.
  */
-export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
+export type FlowProps<P extends Record<string, any> = {}, C = JSX.Element> = P & { children: C };
 /**
  * `FlowComponent` requires a `children` prop with the specified type.
  * Use this for components where you need a specific child type,
  * typically a function that receives specific argument types.
  * Note that all JSX <Elements> are of the type `JSX.Element`.
  */
-export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
+export type FlowComponent<P extends Record<string, any> = {}, C = JSX.Element> = Component<
+  FlowProps<P, C>
+>;
 
 /** @deprecated: use `ParentProps` instead */
-export type PropsWithChildren<P = {}> = ParentProps<P>;
+export type PropsWithChildren<P extends Record<string, any> = {}> = ParentProps<P>;
 
 export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
 
@@ -89,7 +91,10 @@ export type ComponentProps<T extends ValidComponent> = T extends Component<infer
  */
 export type Ref<T> = T | ((val: T) => void);
 
-export function createComponent<T>(Comp: Component<T>, props: T): JSX.Element {
+export function createComponent<T extends Record<string, any>>(
+  Comp: Component<T>,
+  props: T
+): JSX.Element {
   if (hydrationEnabled) {
     if (sharedConfig.context) {
       const c = sharedConfig.context;

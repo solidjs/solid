@@ -2,9 +2,9 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
-
-import { createRoot, createSignal } from "../../src";
-import { insert, Index } from "../src";
+import { describe, expect, test } from "vitest";
+import { createRoot, createSignal } from "../../src/index.js";
+import { insert, Index } from "../src/index.js";
 
 describe("Testing an only child each control flow", () => {
   let div: HTMLDivElement, disposer: () => void;

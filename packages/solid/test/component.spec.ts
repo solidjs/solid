@@ -1,3 +1,4 @@
+import { describe, expect, it, test } from "vitest";
 import {
   createRoot,
   createComponent,
@@ -5,9 +6,10 @@ import {
   splitProps,
   createUniqueId,
   createSignal,
-  createEffect
-} from "../src";
-import { createStore } from "../store/src";
+  createEffect,
+  JSX
+} from "../src/index.js";
+import { createStore } from "../store/src/index.js";
 
 type SimplePropTypes = {
   a?: string | null;
@@ -41,7 +43,7 @@ describe("CreateComponent", () => {
     createRoot(() => {
       const nonObjects = [null, undefined, false];
       nonObjects.forEach(nonObject => {
-        const out = createComponent(p => p, nonObject);
+        const out = createComponent(p => p as JSX.Element, nonObject as any);
         expect(out).toEqual({});
       });
     });

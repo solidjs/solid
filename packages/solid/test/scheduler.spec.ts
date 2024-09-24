@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
-import { cancelCallback, requestCallback } from "../src";
+import { describe, expect, test } from "vitest";
+import { cancelCallback, requestCallback } from "../src/index.js";
 import "./MessageChannel";
 
 describe("requestCallback basics", () => {

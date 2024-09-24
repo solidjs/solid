@@ -2,9 +2,9 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
-
-import { createSignal } from "../../src";
-import { render, clearDelegatedEvents, Portal, Show } from "../src";
+import { describe, expect, test } from "vitest";
+import { createSignal } from "../../src/index.js";
+import { render, clearDelegatedEvents, Portal, Show } from "../src/index.js";
 
 describe("Testing a simple Portal", () => {
   let div = document.createElement("div"),

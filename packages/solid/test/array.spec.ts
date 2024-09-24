@@ -1,4 +1,5 @@
-import { mapArray, indexArray, createSignal, createMemo, createRoot } from "../src";
+import { describe, expect, test } from "vitest";
+import { mapArray, indexArray, createSignal, createMemo, createRoot } from "../src/index.js";
 
 describe("Map operator", () => {
   test("simple mapArray", () => {

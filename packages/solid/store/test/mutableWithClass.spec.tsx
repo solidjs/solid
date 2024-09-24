@@ -1,5 +1,6 @@
-import { createEffect, createRoot } from "../../src";
-import { createMutable } from "../src";
+import { describe, expect, test } from "vitest";
+import { createEffect, createRoot } from "../../src/index.js";
+import { createMutable } from "../src/index.js";
 
 describe("Class Operator test", () => {
   test("read and set class", () => {

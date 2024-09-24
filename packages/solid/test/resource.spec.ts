@@ -1,3 +1,4 @@
+import { describe, expect, test } from "vitest";
 import {
   createRoot,
   createSignal,
@@ -8,9 +9,9 @@ import {
   ResourceFetcherInfo,
   Signal,
   createMemo
-} from "../src";
+} from "../src/index.js";
 
-import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src";
+import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src/index.js";
 
 describe("Simulate a dynamic fetch", () => {
   let resolve: (v: string) => void,

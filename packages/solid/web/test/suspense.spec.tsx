@@ -3,10 +3,17 @@
  * @vitest-environment jsdom
  */
 
+import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import "../../test/MessageChannel";
-import { lazy, createSignal, createResource, useTransition, enableScheduling } from "../../src";
-import { render, Suspense, SuspenseList } from "../src";
-import { createStore } from "../../store/src";
+import {
+  lazy,
+  createSignal,
+  createResource,
+  useTransition,
+  enableScheduling
+} from "../../src/index.js";
+import { render, Suspense, SuspenseList } from "../src/index.js";
+import { createStore } from "../../store/src/index.js";
 
 enableScheduling();
 

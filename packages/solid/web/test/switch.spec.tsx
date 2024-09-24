@@ -2,10 +2,10 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
-
-import { render, Switch, Match, For } from "../src";
-import { createRoot, createSignal } from "../../src";
-import { createStore } from "../../store/src";
+import { describe, expect, test } from "vitest";
+import { render, Switch, Match, For } from "../src/index.js";
+import { createRoot, createSignal } from "../../src/index.js";
+import { createStore } from "../../store/src/index.js";
 
 describe("Testing a single match switch control flow", () => {
   let div: HTMLDivElement, disposer: () => void;
