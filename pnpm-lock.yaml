@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
       dom-expressions:
-        specifier: 0.39.0
-        version: 0.39.0(csstype@3.1.0)(seroval-plugins@1.1.0(seroval@1.1.0))(seroval@1.1.0)
+        specifier: 0.39.1
+        version: 0.39.1(csstype@3.1.0)(seroval-plugins@1.1.0(seroval@1.1.0))(seroval@1.1.0)
       hyper-dom-expressions:
-        specifier: 0.39.0
-        version: 0.39.0
+        specifier: 0.39.1
+        version: 0.39.1
       jsdom:
         specifier: ^21.1.1
         version: 21.1.1
       lit-dom-expressions:
-        specifier: 0.39.0
-        version: 0.39.0
+        specifier: 0.39.1
+        version: 0.39.1
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -109,7 +109,7 @@ importers:
         version: 5.5.2
       vite-plugin-solid:
         specifier: ^2.6.1
-        version: 2.6.1(solid-js@1.8.23)(vite@4.5.5(@types/node@18.11.19))
+        version: 2.6.1(solid-js@1.9.0)(vite@4.5.5(@types/node@18.11.19))
       vitest:
         specifier: ^0.29.3
         version: 0.29.3(jsdom@21.1.1)
@@ -1607,8 +1607,8 @@ packages:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
 
-  dom-expressions@0.39.0:
-    resolution: {integrity: sha512-sUhS9LjZunQm6ofn2lDO6n+2gsEIa537Wq3YMNj3Q8epeZPvUyxqgNxKpPdM6PDEESUI1C6eKJGkRMi2aQYaVQ==}
+  dom-expressions@0.39.1:
+    resolution: {integrity: sha512-zqbx0PQl8O6/g4kdSfWVpeMCmWnoqCbp71WLV67R9KAMG9eRt7DsmRYbAwe7q6sJ2I1SwH7Ruts4CTL1oFIT1A==}
     peerDependencies:
       csstype: ^3.0
       seroval: ^1.1.0
@@ -2003,8 +2003,8 @@ packages:
   human-id@1.0.2:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
 
-  hyper-dom-expressions@0.39.0:
-    resolution: {integrity: sha512-dlyu9CfwpVRDJTHNjrqs0Yh7SnmT2j//wJPpv8Z/5rFuYjb2SI2ySlbby05ORJ3GZ+vjoiW0Y4PD9z9prXnEOw==}
+  hyper-dom-expressions@0.39.1:
+    resolution: {integrity: sha512-QhY+GbOmeFOEyAkrkxNuKmvJBH0K0RzNSILAdEBzBpqDz5hCrWZfjXux3dA9rZ1yBaUDfHDcu1ptNy+R4kveNA==}
 
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
@@ -2277,8 +2277,8 @@ packages:
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
 
-  lit-dom-expressions@0.39.0:
-    resolution: {integrity: sha512-Az5D8IJ0qPqmZ1zLMXDnZbzcRHlQhv9Vws0Mucn4PS2pRVfcwH51mUde2yybpNd7RTpMSy+kotV3HDB5DzXCKQ==}
+  lit-dom-expressions@0.39.1:
+    resolution: {integrity: sha512-BPySxFemLHQa5fJH2NvGUojAYlIKFBiUNm2f6kuFchbrOWe7wf0eBJtV4NujslmGGyWEXmFayJePVy+CejjBwQ==}
 
   load-json-file@4.0.0:
     resolution: {integrity: sha512-Kx8hMakjX03tiGTLAIdJ+lL0htKnXjEZN6hk/tozf/WOuYGdZBJrZ+rCJRbVCugsjB3jMLn9746NsQIf5VjBMw==}
@@ -2935,8 +2935,8 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  solid-js@1.8.23:
-    resolution: {integrity: sha512-0jKzMgxmU/b3k4iJmIZJW2BIArrHN+Mug0n7m7MeHvGHWiS57ZdyTmnqNMSbGRvE73QBnTiGFJc90cPPieawaA==}
+  solid-js@1.9.0:
+    resolution: {integrity: sha512-MDRx9+mtTBYfaY+Xy+F+GI57U04uYXj/I7jWQISzDUTvDXKOiPltOzoCSLXn0vk5mhs/OPZlG0UoWBaKPvlWBQ==}
 
   solid-refresh@0.5.2:
     resolution: {integrity: sha512-I69HmFj0LsGRJ3n8CEMVjyQFgVtuM2bSjznu2hCnsY+i5oOxh8ioWj00nnHBv0UYD3WpE/Sq4Q3TNw2IKmKN7A==}
@@ -5250,7 +5250,7 @@ snapshots:
     dependencies:
       path-type: 4.0.0
 
-  dom-expressions@0.39.0(csstype@3.1.0)(seroval-plugins@1.1.0(seroval@1.1.0))(seroval@1.1.0):
+  dom-expressions@0.39.1(csstype@3.1.0)(seroval-plugins@1.1.0(seroval@1.1.0))(seroval@1.1.0):
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.0
@@ -5757,7 +5757,7 @@ snapshots:
 
   human-id@1.0.2: {}
 
-  hyper-dom-expressions@0.39.0: {}
+  hyper-dom-expressions@0.39.1: {}
 
   iconv-lite@0.4.24:
     dependencies:
@@ -6047,7 +6047,7 @@ snapshots:
 
   lines-and-columns@1.2.4: {}
 
-  lit-dom-expressions@0.39.0: {}
+  lit-dom-expressions@0.39.1: {}
 
   load-json-file@4.0.0:
     dependencies:
@@ -6721,18 +6721,18 @@ snapshots:
       wcwidth: 1.0.1
       yargs: 15.4.1
 
-  solid-js@1.8.23:
+  solid-js@1.9.0:
     dependencies:
       csstype: 3.1.0
       seroval: 1.1.0
       seroval-plugins: 1.1.0(seroval@1.1.0)
 
-  solid-refresh@0.5.2(solid-js@1.8.23):
+  solid-refresh@0.5.2(solid-js@1.9.0):
     dependencies:
       '@babel/generator': 7.23.0
       '@babel/helper-module-imports': 7.21.4
       '@babel/types': 7.23.0
-      solid-js: 1.8.23
+      solid-js: 1.9.0
 
   source-map-js@1.0.2: {}
 
@@ -7113,15 +7113,15 @@ snapshots:
       - supports-color
       - terser
 
-  vite-plugin-solid@2.6.1(solid-js@1.8.23)(vite@4.5.5(@types/node@18.11.19)):
+  vite-plugin-solid@2.6.1(solid-js@1.9.0)(vite@4.5.5(@types/node@18.11.19)):
     dependencies:
       '@babel/core': 7.21.3
       '@babel/preset-typescript': 7.18.6(@babel/core@7.21.3)
       '@types/babel__core': 7.20.0
       babel-preset-solid: link:packages/babel-preset-solid
       merge-anything: 5.1.6
-      solid-js: 1.8.23
-      solid-refresh: 0.5.2(solid-js@1.8.23)
+      solid-js: 1.9.0
+      solid-refresh: 0.5.2(solid-js@1.9.0)
       vite: 4.5.5(@types/node@18.11.19)
       vitefu: 0.2.4(vite@4.5.5(@types/node@18.11.19))
     transitivePeerDependencies:
