@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.9.1
+
+### Patch Changes
+
+- fb67b687: fix anchor host interfering with event delegation
+- 7ecf92d3: fix #2304 component props can be string, explicit imports in tests
+
 ## 1.9.0
 
 ### Minor Changes
