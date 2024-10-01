@@ -884,8 +884,8 @@ export function untrack<T>(fn: Accessor<T>): T {
 export type ReturnTypes<T> = T extends readonly Accessor<unknown>[]
   ? { [K in keyof T]: T[K] extends Accessor<infer I> ? I : never }
   : T extends Accessor<infer I>
-    ? I
-    : never;
+  ? I
+  : never;
 
 // transforms a tuple to a tuple of accessors in a way that allows generics to be inferred
 export type AccessorArray<T> = [...Extract<{ [K in keyof T]: Accessor<T[K]> }, readonly unknown[]>];
