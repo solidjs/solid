@@ -888,10 +888,12 @@ interface KobaltSingleSelectProps<T> {
   value?: T | null;
   onChange?: (value: T) => void;
 }
+
 interface KobaltMultiSelectProps<T> {
   value?: T[];
   onChange?: (value: T[]) => void;
 }
+
 type KobaltSelectProps<Option, OptGroup = never> = (
   | KobaltSingleSelectProps<Option>
   | KobaltMultiSelectProps<Option>
@@ -900,9 +902,9 @@ type KobaltSelectProps<Option, OptGroup = never> = (
 
 type fruits = "apple" | "banana" | "orange";
 const fruits: fruits[] = ["apple", "banana", "orange"];
-const [tks, setTks] = createSignal<fruits>("apple");
+const [fruit, setFruit] = createSignal<fruits>("apple");
 function kobalteSelect<T>(props: KobaltSelectProps<T>) {}
-kobalteSelect({ value: tks(), onChange: setTks, options: fruits });
+kobalteSelect({ value: fruit(), onChange: setFruit, options: fruits });
 
 //////////////////////////////////////////////////////////////////////////
 // test explicit generic args ////////////////////////////////////////////
