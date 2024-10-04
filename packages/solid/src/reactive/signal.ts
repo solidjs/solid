@@ -969,8 +969,8 @@ export function on<S, Next extends Prev, Prev = Next>(
  */
 export function onMount(fn: () => (void | (() => void))) {
   createEffect(() => untrack(() => {
-    const toRunOnCleanup = fn()
-    if (toRunOnCleanup) onCleanup(toRunOnCleanup)
+    const toRunOnCleanup = fn();
+    if (toRunOnCleanup) onCleanup(toRunOnCleanup);
   }));
 }
 
