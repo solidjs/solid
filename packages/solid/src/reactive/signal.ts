@@ -963,12 +963,15 @@ export function on<S, Next extends Prev, Prev = Next>(
 
 /**
  * Runs an effect only after initial render on mount
- * @param fn an effect that should run only once on mount
+ * @param fn an effect that should run only once on mount. It can return a function to be run on cleanup.
  *
  * @description https://docs.solidjs.com/reference/lifecycle/on-mount
  */
-export function onMount(fn: () => void) {
-  createEffect(() => untrack(fn));
+export function onMount(fn: () => (void | (() => void))) {
+  createEffect(() => untrack(() => {
+    const toRunOnCleanup = fn()
+    if (toRunOnCleanup) onCleanup(toRunOnCleanup)
+  }));
 }
 
 /**
