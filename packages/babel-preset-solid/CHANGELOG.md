@@ -1,5 +1,12 @@
 # babel-preset-solid
 
+## 1.9.2
+
+### Patch Changes
+
+- 22aff14: update validation: smaller lib, opt out, better table handling
+  add `on:` event types for native events
+
 ## 1.9.0
 
 ### Minor Changes

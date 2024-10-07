@@ -1,5 +1,13 @@
 # solid-js
 
+## 1.9.2
+
+### Patch Changes
+
+- 22aff14: update validation: smaller lib, opt out, better table handling
+  add `on:` event types for native events
+- e2e2a03: Fix setter type compatibility with kobalte select and add tests
+
 ## 1.9.1
 
 ### Patch Changes
