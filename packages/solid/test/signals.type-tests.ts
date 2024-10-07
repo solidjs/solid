@@ -880,6 +880,41 @@ function createInitializedSignal<T>(init: T): Signal<T> {
   return [generic, (v?) => setGeneric(v!)];
 }
 
+interface KobalteBaseSelectProps<Option, OptGroup = never> {
+  options: Array<Option | OptGroup>;
+}
+
+interface KobaltSingleSelectProps<T> {
+  value?: T | null;
+  onChange?: (value: T) => void;
+  multiple?: false;
+}
+
+interface KobaltMultiSelectProps<T> {
+  value?: T[];
+  onChange?: (value: T[]) => void;
+  multiple?: true;
+}
+
+type KobaltSelectProps<Option, OptGroup = never> = (
+  | KobaltSingleSelectProps<Option>
+  | KobaltMultiSelectProps<Option>
+) &
+  KobalteBaseSelectProps<Option, OptGroup>;
+
+type fruits = "apple" | "banana" | "orange";
+const fruits: fruits[] = ["apple", "banana", "orange"];
+const [fruit, setFruit] = createSignal<fruits>("apple");
+const [fruitArr, setFruitArr] = createSignal<fruits[]>(["apple"]);
+function kobalteSelect<T>(props: KobaltSelectProps<T>) {}
+kobalteSelect({ value: fruit(), onChange: setFruit, options: fruits });
+kobalteSelect<fruits>({
+  value: fruitArr(),
+  onChange: setFruitArr,
+  options: fruits,
+  multiple: true
+});
+
 //////////////////////////////////////////////////////////////////////////
 // test explicit generic args ////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
