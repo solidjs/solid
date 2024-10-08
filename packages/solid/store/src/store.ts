@@ -1,9 +1,10 @@
-import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js";
+import { $PROXY, $TRACK, DEV, batch, createSignal, getListener } from "solid-js";
 
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $HAS = Symbol("store-has"),
-  $SELF = Symbol("store-self");
+  $SELF = Symbol("store-self"),
+  $WRAP = Symbol("store-wrap");
 
 // debug hooks for devtools
 export const DevHooks: { onStoreNodeUpdate: OnStoreNodeUpdate | null } = {
@@ -71,10 +72,27 @@ export function isWrappable(obj: any) {
     obj != null &&
     typeof obj === "object" &&
     (obj[$PROXY] ||
+      obj[$WRAP] ||
       !(proto = Object.getPrototypeOf(obj)) ||
       proto === Object.prototype ||
       Array.isArray(obj))
   );
+}
+
+/**
+ * Forces an object/class to get wrapped
+ * @param obj object
+ * @example
+ * ```js
+ * class Example {
+ *  constructor() {
+ *    makeWrappable(this) // make every instance of a class wrap
+ *  }
+ * }
+ * ```
+ */
+export function makeWrappable<T>(obj: T) {
+  Object.defineProperty(obj, $WRAP, { value: true });
 }
 
 /**
