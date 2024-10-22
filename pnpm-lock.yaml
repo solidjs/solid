@@ -138,8 +138,8 @@ importers:
   packages/solid-element:
     dependencies:
       component-register:
-        specifier: ~0.8.5
-        version: 0.8.6
+        specifier: ^0.8.7
+        version: 0.8.7
     devDependencies:
       solid-js:
         specifier: workspace:*
@@ -1481,8 +1481,8 @@ packages:
   commondir@1.0.1:
     resolution: {integrity: sha512-W9pAhw0ja1Edb5GVdIF1mjZw/ASI0AlShXM83UUGe2DVr5TdAPEA1OA8m/g8zWp9x6On7gqufY+FatDbC3MDQg==}
 
-  component-register@0.8.6:
-    resolution: {integrity: sha512-ULwqqIglogJSqm6YpPisl6W38jORlplZDg7yNpGmjj+emczvQZ+AVUnSTD5WH3JNnwl7ZwIJw5w2tyfD0V+Ejg==}
+  component-register@0.8.7:
+    resolution: {integrity: sha512-clPS/o1RNfJw7L1/w4q+nkj6l7JV32kFHCx6vW5nSPOEly4B9olMeADNilEgpLV/DdeS7y8JXhHKx9YvSj8vqQ==}
 
   concat-map@0.0.1:
     resolution: {integrity: sha1-2Klr13/Wjfd5OnMDajug1UBdR3s=}
@@ -4821,7 +4821,7 @@ snapshots:
 
   commondir@1.0.1: {}
 
-  component-register@0.8.6: {}
+  component-register@0.8.7: {}
 
   concat-map@0.0.1: {}
 

@@ -18,7 +18,7 @@
     "build": "pnpm run clean && tsc"
   },
   "dependencies": {
-    "component-register": "~0.8.5"
+    "component-register": "^0.8.7"
   },
   "peerDependencies": {
     "solid-js": "^1.9.2"
