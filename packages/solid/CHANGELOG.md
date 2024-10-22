@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.9.3
+
+### Patch Changes
+
+- bb6ce8b: Reordering setter overloads
+- 9b70a15: validation fixes, type updates, ssr attribute fix
+
 ## 1.9.2
 
 ### Patch Changes

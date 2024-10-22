@@ -1,5 +1,14 @@
 # solid-element
 
+## 1.9.1
+
+### Patch Changes
+
+- 5a14ab8: fix #2337 empty attributes in solid-element
+- Updated dependencies [bb6ce8b]
+- Updated dependencies [9b70a15]
+  - solid-js@1.9.3
+
 ## 1.9.0
 
 ### Minor Changes

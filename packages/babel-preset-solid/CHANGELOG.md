@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.9.3
+
+### Patch Changes
+
+- 9b70a15: validation fixes, type updates, ssr attribute fix
+
 ## 1.9.2
 
 ### Patch Changes
