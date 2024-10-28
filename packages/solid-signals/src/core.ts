@@ -36,6 +36,7 @@ import {
 import { NotReadyError } from './error';
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from './flags';
 import { getOwner, Owner, setOwner } from './owner';
+import { Computations, flushQueue } from './scheduler';
 
 export interface SignalOptions<T> {
   name?: string;
@@ -623,5 +624,28 @@ export function compute<T>(
     setOwner(prevOwner);
     currentObserver = prevObserver;
     currentMask = prevMask;
+  }
+}
+
+export class EagerComputation<T = any> extends Computation<T> {
+  constructor(
+    initialValue: T,
+    compute: () => T,
+    options?: SignalOptions<T>,
+  ) {
+    super(initialValue, compute, options);
+    this._updateIfNecessary();
+    Computations.push(this);
+  }
+
+  override _notify(state: number): void {
+    if (this._state >= state) return;
+
+    if (this._state === STATE_CLEAN) {
+      Computations.push(this);
+      flushQueue();
+    }
+
+    this._state = state;
   }
 }

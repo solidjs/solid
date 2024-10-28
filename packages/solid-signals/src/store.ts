@@ -1,5 +1,4 @@
-import { Computation, getObserver } from './core';
-import { RenderEffect } from './effect';
+import { Computation, EagerComputation, getObserver } from './core';
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => void) => void;
@@ -229,10 +228,9 @@ export function createStore<T extends object = {}>(
   };
   if (derived) {
     // unsafe implementation
-    new RenderEffect<T | undefined>(
+    new EagerComputation<T | undefined>(
       undefined,
-      () => setStore(first) as any,
-      () => {},
+      () => setStore(first) as any
     );
   }
 

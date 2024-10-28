@@ -1,5 +1,5 @@
 import type { SignalOptions } from './core';
-import { Computation, compute, UNCHANGED, untrack } from './core';
+import { Computation, compute, EagerComputation, UNCHANGED, untrack } from './core';
 import { Effect, RenderEffect } from './effect';
 import { ERROR_BIT, LOADING_BIT } from './flags';
 import { onCleanup, Owner } from './owner';
@@ -57,7 +57,7 @@ export function createAsync<T>(
   initial?: T,
   options?: SignalOptions<T>,
 ): Accessor<T> {
-  const lhs = createMemo(() => {
+  const lhs = new EagerComputation(undefined, () => {
     const source = fn(initial);
     const isPromise = source instanceof Promise;
     const iterator = source[Symbol.asyncIterator];
@@ -95,8 +95,7 @@ export function createAsync<T>(
     }
     return signal;
   });
-  untrack(lhs);
-  return () => lhs().wait();
+  return () => lhs.wait()!.wait();
 }
 
 /**

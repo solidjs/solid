@@ -26,7 +26,8 @@ export {
   hasUpdated,
   type SignalOptions,
 } from './core';
-export { flushSync, Effect, RenderEffect } from './effect';
+export { Effect, RenderEffect } from './effect';
+export { flushSync } from './scheduler';
 export { mapArray, type Maybe } from './map';
 
 export * from './signals';
