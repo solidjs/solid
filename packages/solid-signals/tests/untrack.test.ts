@@ -5,12 +5,12 @@ import {
   createSignal,
   flushSync,
   onCleanup,
-  untrack,
-} from '../src';
+  untrack
+} from "../src";
 
 afterEach(() => flushSync());
 
-it('should not create dependency', () => {
+it("should not create dependency", () => {
   const effect = vi.fn();
   const memo = vi.fn();
 
@@ -22,12 +22,15 @@ it('should not create dependency', () => {
     return untrack($a) + 10;
   });
 
-  createEffect(() => {
-    effect();
-    expect(untrack($x)).toBe(10);
-    expect(untrack($a)).toBe(20);
-    expect(untrack($b)).toBe(30);
-  }, () => {});
+  createEffect(
+    () => {
+      effect();
+      expect(untrack($x)).toBe(10);
+      expect(untrack($a)).toBe(20);
+      expect(untrack($b)).toBe(30);
+    },
+    () => {}
+  );
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -39,7 +42,7 @@ it('should not create dependency', () => {
   expect(memo).toHaveBeenCalledTimes(1);
 });
 
-it('should not affect deep dependency being created', () => {
+it("should not affect deep dependency being created", () => {
   const effect = vi.fn();
   const memo = vi.fn();
 
@@ -52,11 +55,14 @@ it('should not affect deep dependency being created', () => {
     return $x() + untrack($y) + untrack($z) + 10;
   });
 
-  createEffect(() => {
-    effect();
-    expect(untrack($x)).toBe(10);
-    expect(untrack($a)).toBe(40);
-  }, () => {});
+  createEffect(
+    () => {
+      effect();
+      expect(untrack($x)).toBe(10);
+      expect(untrack($a)).toBe(40);
+    },
+    () => {}
+  );
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -82,7 +88,7 @@ it('should not affect deep dependency being created', () => {
   expect(memo).toHaveBeenCalledTimes(2);
 });
 
-it('should track owner across peeks', () => {
+it("should track owner across peeks", () => {
   const [$x, setX] = createSignal(0);
 
   const childCompute = vi.fn();
@@ -90,13 +96,16 @@ it('should track owner across peeks', () => {
 
   function createChild() {
     const $a = createMemo(() => $x() * 2);
-    createEffect(() => {
-      childCompute($a());
-      onCleanup(childDispose);
-    }, () => {});
+    createEffect(
+      () => {
+        childCompute($a());
+        onCleanup(childDispose);
+      },
+      () => {}
+    );
   }
 
-  const dispose = createRoot((dispose) => {
+  const dispose = createRoot(dispose => {
     untrack(() => createChild());
     return dispose;
   });

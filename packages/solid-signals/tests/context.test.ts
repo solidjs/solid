@@ -5,10 +5,10 @@ import {
   getContext,
   hasContext,
   NoOwnerError,
-  setContext,
-} from '../src';
+  setContext
+} from "../src";
 
-it('should create context', () => {
+it("should create context", () => {
   const context = createContext(1);
 
   expect(context.id).toBeDefined();
@@ -20,7 +20,7 @@ it('should create context', () => {
   });
 });
 
-it('should forward context across roots', () => {
+it("should forward context across roots", () => {
   const context = createContext(1);
   createRoot(() => {
     setContext(context, 2);
@@ -33,7 +33,7 @@ it('should forward context across roots', () => {
   });
 });
 
-it('should not expose context on parent when set in child', () => {
+it("should not expose context on parent when set in child", () => {
   const context = createContext(1);
   createRoot(() => {
     createRoot(() => {
@@ -44,7 +44,7 @@ it('should not expose context on parent when set in child', () => {
   });
 });
 
-it('should return true if context has been provided', () => {
+it("should return true if context has been provided", () => {
   const context = createContext();
   createRoot(() => {
     setContext(context, 1);
@@ -52,26 +52,24 @@ it('should return true if context has been provided', () => {
   });
 });
 
-it('should return false if context has not been provided', () => {
+it("should return false if context has not been provided", () => {
   const context = createContext();
   createRoot(() => {
     expect(hasContext(context)).toBeFalsy();
   });
 });
 
-it('should throw error when trying to get context outside owner', () => {
+it("should throw error when trying to get context outside owner", () => {
   const context = createContext();
   expect(() => getContext(context)).toThrowError(NoOwnerError);
 });
 
-it('should throw error when trying to set context outside owner', () => {
+it("should throw error when trying to set context outside owner", () => {
   const context = createContext();
   expect(() => setContext(context)).toThrowError(NoOwnerError);
 });
 
-it('should throw error when trying to get context without setting it first', () => {
+it("should throw error when trying to get context without setting it first", () => {
   const context = createContext();
-  expect(() => createRoot(() => getContext(context))).toThrowError(
-    ContextNotFoundError,
-  );
+  expect(() => createRoot(() => getContext(context))).toThrowError(ContextNotFoundError);
 });

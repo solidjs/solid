@@ -5,12 +5,12 @@ import {
   createRoot,
   createSignal,
   flushSync,
-  hasUpdated,
-} from '../src';
+  hasUpdated
+} from "../src";
 
 afterEach(() => flushSync());
 
-it('should store and return value on read', () => {
+it("should store and return value on read", () => {
   const [$x] = createSignal(1);
   const [$y] = createSignal(1);
 
@@ -23,7 +23,7 @@ it('should store and return value on read', () => {
   expect($a()).toBe(2);
 });
 
-it('should update when dependency is updated', () => {
+it("should update when dependency is updated", () => {
   const [$x, setX] = createSignal(1);
   const [$y, setY] = createSignal(1);
 
@@ -36,7 +36,7 @@ it('should update when dependency is updated', () => {
   expect($a()).toBe(4);
 });
 
-it('should update when deep dependency is updated', () => {
+it("should update when deep dependency is updated", () => {
   const [$x, setX] = createSignal(1);
   const [$y] = createSignal(1);
 
@@ -47,7 +47,7 @@ it('should update when deep dependency is updated', () => {
   expect($b()).toBe(3);
 });
 
-it('should update when deep computed dependency is updated', () => {
+it("should update when deep computed dependency is updated", () => {
   const [$x, setX] = createSignal(10);
   const [$y] = createSignal(10);
 
@@ -59,7 +59,7 @@ it('should update when deep computed dependency is updated', () => {
   expect($c()).toBe(30);
 });
 
-it('should only re-compute when needed', () => {
+it("should only re-compute when needed", () => {
   const computed = vi.fn();
 
   const [$x, setX] = createSignal(10);
@@ -88,9 +88,9 @@ it('should only re-compute when needed', () => {
   expect(computed).toHaveBeenCalledTimes(3);
 });
 
-it('should only re-compute whats needed', () => {
-  const memoA = vi.fn((n) => n);
-  const memoB = vi.fn((n) => n);
+it("should only re-compute whats needed", () => {
+  const memoA = vi.fn(n => n);
+  const memoB = vi.fn(n => n);
 
   const [$x, setX] = createSignal(10);
   const [$y, setY] = createSignal(10);
@@ -124,7 +124,7 @@ it('should only re-compute whats needed', () => {
   expect($c()).toBe(40);
 });
 
-it('should discover new dependencies', () => {
+it("should discover new dependencies", () => {
   const [$x, setX] = createSignal(1);
   const [$y, setY] = createSignal(0);
 
@@ -147,12 +147,12 @@ it('should discover new dependencies', () => {
   expect($c()).toBe(10);
 });
 
-it('should accept equals option', () => {
+it("should accept equals option", () => {
   const [$x, setX] = createSignal(0);
 
   const $a = createMemo(() => $x(), 0, {
     // Skip even numbers.
-    equals: (prev, next) => prev + 1 === next,
+    equals: (prev, next) => prev + 1 === next
   });
 
   const effectA = vi.fn();
@@ -174,50 +174,50 @@ it('should accept equals option', () => {
   expect(effectA).toHaveBeenCalledTimes(2);
 });
 
-it('should use fallback if error is thrown during init', () => {
+it("should use fallback if error is thrown during init", () => {
   createRoot(() => {
     catchError(
       () => {
         const $a = createMemo(() => {
           if (1) throw Error();
-          return '';
-        }, 'foo');
+          return "";
+        }, "foo");
 
-        expect($a()).toBe('foo');
+        expect($a()).toBe("foo");
       },
-      () => {},
+      () => {}
     );
   });
 });
 
-it('should detect which signal triggered it', () => {
+it("should detect which signal triggered it", () => {
   const [$x, setX] = createSignal(0);
   const [$y, setY] = createSignal(0);
 
   const $a = createMemo(() => {
     const uX = hasUpdated($x);
     const uY = hasUpdated($y);
-    return uX && uY ? "both" : uX ? 'x' : uY ? 'y' : 'neither';
+    return uX && uY ? "both" : uX ? "x" : uY ? "y" : "neither";
   });
   createEffect($a, () => {});
-  expect($a()).toBe('neither');
+  expect($a()).toBe("neither");
   flushSync();
-  expect($a()).toBe('neither');
+  expect($a()).toBe("neither");
 
   setY(1);
   flushSync();
-  expect($a()).toBe('y');
+  expect($a()).toBe("y");
 
   setX(1);
   flushSync();
-  expect($a()).toBe('x');
+  expect($a()).toBe("x");
 
   setY(2);
   flushSync();
-  expect($a()).toBe('y');
+  expect($a()).toBe("y");
 
   setX(2);
   setY(3);
   flushSync();
-  expect($a()).toBe('both');
+  expect($a()).toBe("both");
 });

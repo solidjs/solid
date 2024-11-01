@@ -1,7 +1,7 @@
-import { Computation, compute } from './core';
-import { Owner } from './owner';
-import { runWithOwner } from './signals';
-import type { Accessor } from './signals';
+import { Computation, compute } from "./core";
+import { Owner } from "./owner";
+import { runWithOwner } from "./signals";
+import type { Accessor } from "./signals";
 
 export type Maybe<T> = T | void | null | undefined | false;
 
@@ -14,10 +14,9 @@ export type Maybe<T> = T | void | null | undefined | false;
 export function mapArray<Item, MappedItem>(
   list: Accessor<Maybe<readonly Item[]>>,
   map: (value: Accessor<Item>, index: Accessor<number>) => MappedItem,
-  options?: { keyed?: boolean | ((item: Item) => any); name?: string },
+  options?: { keyed?: boolean | ((item: Item) => any); name?: string }
 ): Accessor<MappedItem[]> {
-  const keyFn =
-    typeof options?.keyed === 'function' ? options.keyed : undefined;
+  const keyFn = typeof options?.keyed === "function" ? options.keyed : undefined;
   return Computation.prototype.read.bind(
     new Computation<MappedItem[]>(
       [],
@@ -31,16 +30,14 @@ export function mapArray<Item, MappedItem>(
         _nodes: [],
         _key: keyFn,
         _rows: keyFn || options?.keyed === false ? [] : undefined,
-        _indexes: map.length > 1 ? [] : undefined,
+        _indexes: map.length > 1 ? [] : undefined
       }),
-      options,
-    ),
+      options
+    )
   );
 }
 
-function updateKeyedMap<Item, MappedItem>(
-  this: MapData<Item, MappedItem>,
-): any[] {
+function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   const newItems = this._list() || [];
 
   runWithOwner(this._owner, () => {
@@ -53,24 +50,19 @@ function updateKeyedMap<Item, MappedItem>(
             this._indexes![j] = new Computation(j, null);
             return this._map(
               Computation.prototype.read.bind(this._rows![j]),
-              Computation.prototype.read.bind(this._indexes![j]),
+              Computation.prototype.read.bind(this._indexes![j])
             );
           }
         : this._indexes
           ? () => {
               const item = newItems[j];
               this._indexes![j] = new Computation(j, null);
-              return this._map(
-                () => item,
-                Computation.prototype.read.bind(this._indexes![j]),
-              );
+              return this._map(() => item, Computation.prototype.read.bind(this._indexes![j]));
             }
           : () => {
               const item = newItems[j];
-              return (this._map as (value: () => Item) => MappedItem)(
-                () => item,
-              );
-          }
+              return (this._map as (value: () => Item) => MappedItem)(() => item);
+            };
 
     // fast path for empty arrays
     if (newLen === 0) {
@@ -90,11 +82,7 @@ function updateKeyedMap<Item, MappedItem>(
 
       for (j = 0; j < newLen; j++) {
         this._items[j] = newItems[j];
-        this._mappings[j] = compute<MappedItem>(
-          (this._nodes[j] = new Owner()),
-          mapper,
-          null,
-        );
+        this._mappings[j] = compute<MappedItem>((this._nodes[j] = new Owner()), mapper, null);
       }
 
       this._len = newLen;
@@ -108,9 +96,7 @@ function updateKeyedMap<Item, MappedItem>(
         newIndicesNext: number[],
         temp: MappedItem[] = new Array(newLen),
         tempNodes: Owner[] = new Array(newLen),
-        tempRows: Computation<Item>[] | undefined = this._rows
-          ? new Array(newLen)
-          : undefined,
+        tempRows: Computation<Item>[] | undefined = this._rows ? new Array(newLen) : undefined,
         tempIndexes: Computation<number>[] | undefined = this._indexes
           ? new Array(newLen)
           : undefined;
@@ -120,8 +106,7 @@ function updateKeyedMap<Item, MappedItem>(
         start = 0, end = Math.min(this._len, newLen);
         start < end &&
         (this._items[start] === newItems[start] ||
-          (this._rows &&
-            compare(this._key, this._items[start], newItems[start])));
+          (this._rows && compare(this._key, this._items[start], newItems[start])));
         start++
       ) {
         if (this._rows) this._rows[start].write(newItems[start]);
@@ -132,7 +117,8 @@ function updateKeyedMap<Item, MappedItem>(
         end = this._len - 1, newEnd = newLen - 1;
         end >= start &&
         newEnd >= start &&
-        (this._items[end] === newItems[newEnd] || (this._rows && compare(this._key, this._items[end], newItems[newEnd])));
+        (this._items[end] === newItems[newEnd] ||
+          (this._rows && compare(this._key, this._items[end], newItems[newEnd])));
         end--, newEnd--
       ) {
         temp[newEnd] = this._mappings[end];
@@ -181,11 +167,7 @@ function updateKeyedMap<Item, MappedItem>(
             this._indexes![j].write(j);
           }
         } else {
-          this._mappings[j] = compute<MappedItem>(
-            (this._nodes[j] = new Owner()),
-            mapper,
-            null,
-          );
+          this._mappings[j] = compute<MappedItem>((this._nodes[j] = new Owner()), mapper, null);
         }
       }
 
@@ -200,11 +182,7 @@ function updateKeyedMap<Item, MappedItem>(
   return this._mappings;
 }
 
-function compare<Item>(
-  key: ((i: any) => any) | undefined,
-  a: Item,
-  b: Item,
-): boolean {
+function compare<Item>(key: ((i: any) => any) | undefined, a: Item, b: Item): boolean {
   return key ? key(a) === key(b) : true;
 }
 

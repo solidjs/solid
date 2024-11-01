@@ -28,10 +28,10 @@
  * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
  */
 
-import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import type { Computation } from './core';
-import { ContextNotFoundError, NoOwnerError, type ErrorHandler } from './error';
-import { isUndefined } from './utils';
+import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
+import type { Computation } from "./core";
+import { ContextNotFoundError, NoOwnerError, type ErrorHandler } from "./error";
+import { isUndefined } from "./utils";
 
 export type ContextRecord = Record<string | symbol, unknown>;
 
@@ -86,9 +86,7 @@ export class Owner {
     }
 
     if (this._handlers) {
-      child._handlers = !child._handlers
-        ? this._handlers
-        : [...child._handlers, ...this._handlers];
+      child._handlers = !child._handlers ? this._handlers : [...child._handlers, ...this._handlers];
     }
   }
 
@@ -170,10 +168,7 @@ export interface Context<T> {
  * A default value can be provided here which will be used when a specific value is not provided
  * via a `setContext` call.
  */
-export function createContext<T>(
-  defaultValue?: T,
-  description?: string,
-): Context<T> {
+export function createContext<T>(defaultValue?: T, description?: string): Context<T> {
   return { id: Symbol(description), defaultValue };
 }
 
@@ -183,10 +178,7 @@ export function createContext<T>(
  * @throws `NoOwnerError` if there's no owner at the time of call.
  * @throws `ContextNotFoundError` if a context value has not been set yet.
  */
-export function getContext<T>(
-  context: Context<T>,
-  owner: Owner | null = currentOwner,
-): T {
+export function getContext<T>(context: Context<T>, owner: Owner | null = currentOwner): T {
   if (!owner) {
     throw new NoOwnerError();
   }
@@ -207,11 +199,7 @@ export function getContext<T>(
  *
  * @throws `NoOwnerError` if there's no owner at the time of call.
  */
-export function setContext<T>(
-  context: Context<T>,
-  value?: T,
-  owner: Owner | null = currentOwner,
-) {
+export function setContext<T>(context: Context<T>, value?: T, owner: Owner | null = currentOwner) {
   if (!owner) {
     throw new NoOwnerError();
   }
@@ -220,17 +208,14 @@ export function setContext<T>(
   // we don't do this, everything will be a singleton and all hell will break lose.
   owner._context = {
     ...owner._context,
-    [context.id]: isUndefined(value) ? context.defaultValue : value,
+    [context.id]: isUndefined(value) ? context.defaultValue : value
   };
 }
 
 /**
  * Whether the given context is currently defined.
  */
-export function hasContext(
-  context: Context<any>,
-  owner: Owner | null = currentOwner,
-): boolean {
+export function hasContext(context: Context<any>, owner: Owner | null = currentOwner): boolean {
   return !isUndefined(owner?._context[context.id]);
 }
 

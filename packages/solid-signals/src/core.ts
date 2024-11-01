@@ -27,16 +27,11 @@
  *     executed in root to leaf order)
  */
 
-import {
-  STATE_CHECK,
-  STATE_CLEAN,
-  STATE_DIRTY,
-  STATE_DISPOSED,
-} from './constants';
-import { NotReadyError } from './error';
-import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from './flags';
-import { getOwner, Owner, setOwner } from './owner';
-import { Computations, flushQueue } from './scheduler';
+import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants";
+import { NotReadyError } from "./error";
+import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from "./flags";
+import { getOwner, Owner, setOwner } from "./owner";
+import { Computations, flushQueue } from "./scheduler";
 
 export interface SignalOptions<T> {
   name?: string;
@@ -82,17 +77,14 @@ export function incrementClock(): void {
   clock++;
 }
 
-export const UNCHANGED: unique symbol = Symbol(__DEV__ ? 'unchanged' : 0);
+export const UNCHANGED: unique symbol = Symbol(__DEV__ ? "unchanged" : 0);
 export type UNCHANGED = typeof UNCHANGED;
 
-export class Computation<T = any>
-  extends Owner
-  implements SourceType, ObserverType
-{
+export class Computation<T = any> extends Owner implements SourceType, ObserverType {
   _sources: SourceType[] | null = null;
   _observers: ObserverType[] | null = null;
   _value: T | undefined;
-  _compute: null | (() => T);
+  _compute: null | ((p?: T) => T);
 
   // Used in __DEV__ mode, hopefully removed in production
   _name: string | undefined;
@@ -114,8 +106,8 @@ export class Computation<T = any>
 
   constructor(
     initialValue: T | undefined,
-    compute: null | (() => T),
-    options?: SignalOptions<T>,
+    compute: null | ((p?: T) => T),
+    options?: SignalOptions<T>
   ) {
     // Initialize self as a node in the Owner tree, for tracking cleanups.
     // If we aren't passed a compute function, we don't need to track nested computations
@@ -128,8 +120,7 @@ export class Computation<T = any>
     this._value = initialValue;
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
-    if (__DEV__)
-      this._name = options?.name ?? (this._compute ? 'computed' : 'signal');
+    if (__DEV__) this._name = options?.name ?? (this._compute ? "computed" : "signal");
 
     if (options?.equals !== undefined) this._equals = options.equals;
 
@@ -207,18 +198,16 @@ export class Computation<T = any>
     value: T | ((currentValue: T) => T) | UNCHANGED,
     flags = 0,
     // Tracks whether a function was returned from a compute result so we don't unwrap it.
-    raw = false,
+    raw = false
   ): T {
     const newValue =
-      !raw && typeof value === 'function'
+      !raw && typeof value === "function"
         ? (value as (currentValue: T) => T)(this._value!)
         : (value as T);
 
     const valueChanged =
       newValue !== UNCHANGED &&
-      (!!(flags & ERROR_BIT) ||
-        this._equals === false ||
-        !this._equals(this._value!, newValue));
+      (!!(flags & ERROR_BIT) || this._equals === false || !this._equals(this._value!, newValue));
 
     if (valueChanged) this._value = newValue;
 
@@ -322,7 +311,7 @@ export class Computation<T = any>
     // they probably kept a reference to it as the parent reran, so there is likely a new computation
     // with the same _compute function that they should be reading instead.
     if (this._state === STATE_DISPOSED) {
-      throw new Error('Tried to read a disposed computation');
+      throw new Error("Tried to read a disposed computation");
     }
 
     // If the computation is already clean, none of our sources have changed, so we know that
@@ -394,9 +383,7 @@ export class Computation<T = any>
 function loadingState(node: Computation): Computation<boolean> {
   const prevOwner = setOwner(node._parent);
 
-  const options = __DEV__
-    ? { name: node._name ? `loading ${node._name}` : 'loading' }
-    : undefined;
+  const options = __DEV__ ? { name: node._name ? `loading ${node._name}` : "loading" } : undefined;
 
   const computation = new Computation(
     undefined,
@@ -405,7 +392,7 @@ function loadingState(node: Computation): Computation<boolean> {
       node._updateIfNecessary();
       return !!(node._stateFlags & LOADING_BIT);
     },
-    options,
+    options
   );
 
   computation._handlerMask = ERROR_BIT | LOADING_BIT;
@@ -417,9 +404,7 @@ function loadingState(node: Computation): Computation<boolean> {
 function errorState(node: Computation): Computation<boolean> {
   const prevOwner = setOwner(node._parent);
 
-  const options = __DEV__
-    ? { name: node._name ? `error ${node._name}` : 'error' }
-    : undefined;
+  const options = __DEV__ ? { name: node._name ? `error ${node._name}` : "error" } : undefined;
 
   const computation = new Computation(
     undefined,
@@ -428,7 +413,7 @@ function errorState(node: Computation): Computation<boolean> {
       node._updateIfNecessary();
       return !!(node._stateFlags & ERROR_BIT);
     },
-    options,
+    options
   );
 
   computation._handlerMask = ERROR_BIT;
@@ -628,17 +613,13 @@ export function latest<T>(fn: () => T): T | undefined {
 export function compute<T>(
   owner: Owner | null,
   compute: (val: T) => T,
-  observer: Computation<T>,
+  observer: Computation<T>
 ): T;
-export function compute<T>(
-  owner: Owner | null,
-  compute: (val: undefined) => T,
-  observer: null,
-): T;
+export function compute<T>(owner: Owner | null, compute: (val: undefined) => T, observer: null): T;
 export function compute<T>(
   owner: Owner | null,
   compute: (val?: T) => T,
-  observer: Computation<T> | null,
+  observer: Computation<T> | null
 ): T {
   const prevOwner = setOwner(owner),
     prevObserver = currentObserver,
@@ -671,6 +652,6 @@ export class EagerComputation<T = any> extends Computation<T> {
       flushQueue();
     }
 
-    this._state = state;
+    super._notify(state);
   }
 }

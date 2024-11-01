@@ -1,24 +1,21 @@
-import {
-  catchError,
-  createEffect,
-  createRoot,
-  createSignal,
-  flushSync,
-} from '../src';
+import { catchError, createEffect, createRoot, createSignal, flushSync } from "../src";
 
-it('should let errors bubble up when not handled', () => {
+it("should let errors bubble up when not handled", () => {
   const error = new Error();
   expect(() => {
     createRoot(() => {
-      createEffect(() => {
-        throw error;
-      }, () => {});
+      createEffect(
+        () => {
+          throw error;
+        },
+        () => {}
+      );
     });
     flushSync();
   }).toThrowError(error);
 });
 
-it('should handle error', () => {
+it("should handle error", () => {
   const error = new Error(),
     handler = vi.fn();
 
@@ -29,25 +26,28 @@ it('should handle error', () => {
   expect(handler).toHaveBeenCalledWith(error);
 });
 
-it('should forward error to another handler', () => {
+it("should forward error to another handler", () => {
   const error = new Error(),
     rootHandler = vi.fn();
 
   let [$x, setX] = createSignal(0);
 
   catchError(() => {
-    createEffect(() => {
-      $x();
-      catchError(
-        () => {
-          throw error;
-        },
-        (e) => {
-          expect(e).toBe(error);
-          throw e;
-        },
-      );
-    }, () => {});
+    createEffect(
+      () => {
+        $x();
+        catchError(
+          () => {
+            throw error;
+          },
+          e => {
+            expect(e).toBe(error);
+            throw e;
+          }
+        );
+      },
+      () => {}
+    );
   }, rootHandler);
   flushSync();
 
@@ -58,19 +58,22 @@ it('should forward error to another handler', () => {
   expect(rootHandler).toHaveBeenCalledTimes(2);
 });
 
-it('should not duplicate error handler', () => {
+it("should not duplicate error handler", () => {
   const error = new Error(),
     handler = vi.fn();
 
   let [$x, setX] = createSignal(0),
     shouldThrow = false;
 
-  createEffect(() => {
-    $x();
-    catchError(() => {
-      if (shouldThrow) throw error;
-    }, handler);
-  }, () => {});
+  createEffect(
+    () => {
+      $x();
+      catchError(() => {
+        if (shouldThrow) throw error;
+      }, handler);
+    },
+    () => {}
+  );
 
   setX(1);
   flushSync();
@@ -81,7 +84,7 @@ it('should not duplicate error handler', () => {
   expect(handler).toHaveBeenCalledTimes(1);
 });
 
-it('should not trigger wrong handler', () => {
+it("should not trigger wrong handler", () => {
   const error = new Error(),
     rootHandler = vi.fn(),
     handler = vi.fn();
@@ -91,16 +94,22 @@ it('should not trigger wrong handler', () => {
 
   createRoot(() => {
     catchError(() => {
-      createEffect(() => {
-        $x();
-        if (shouldThrow) throw error;
-      }, () => {});
+      createEffect(
+        () => {
+          $x();
+          if (shouldThrow) throw error;
+        },
+        () => {}
+      );
 
-      createEffect(() => {
-        catchError(() => {
-          // no-op
-        }, handler);
-      }, () => {});
+      createEffect(
+        () => {
+          catchError(() => {
+            // no-op
+          }, handler);
+        },
+        () => {}
+      );
     }, rootHandler);
   });
 
@@ -112,9 +121,9 @@ it('should not trigger wrong handler', () => {
   expect(handler).not.toHaveBeenCalledWith(error);
 });
 
-it('should throw error if there are no handlers left', () => {
+it("should throw error if there are no handlers left", () => {
   const error = new Error(),
-    handler = vi.fn((e) => {
+    handler = vi.fn(e => {
       throw e;
     });
 

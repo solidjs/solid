@@ -1,6 +1,14 @@
-import { createAsync, createEffect, createMemo, createSignal, flushSync, isPending, latest } from '../src';
+import {
+  createAsync,
+  createEffect,
+  createMemo,
+  createSignal,
+  flushSync,
+  isPending,
+  latest
+} from "../src";
 
-it('diamond should not cause waterfalls on read', async () => {
+it("diamond should not cause waterfalls on read", async () => {
   //
   //     s
   //    / \
@@ -20,13 +28,13 @@ it('diamond should not cause waterfalls on read', async () => {
 
   createEffect(
     () => [b(), c()],
-    (v) => effect(...v),
+    v => effect(...v)
   );
 
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(0);
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(1);
@@ -39,14 +47,14 @@ it('diamond should not cause waterfalls on read', async () => {
   expect(async1).toHaveBeenCalledTimes(2);
   expect(async2).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(1);
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   expect(async1).toHaveBeenCalledTimes(2);
   expect(async2).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledWith(2, 2);
 });
 
-it('should waterfall when dependent on another async with shared source', async () => {
+it("should waterfall when dependent on another async with shared source", async () => {
   //
   //    s
   //   /|
@@ -64,12 +72,15 @@ it('should waterfall when dependent on another async with shared source', async 
   const a = createAsync(async1);
   const b = createAsync(async2);
 
-  createEffect(() => b(), v => effect(v));
+  createEffect(
+    () => b(),
+    v => effect(v)
+  );
 
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(0);
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(1);
@@ -82,41 +93,41 @@ it('should waterfall when dependent on another async with shared source', async 
   expect(async1).toHaveBeenCalledTimes(2);
   expect(async2).toHaveBeenCalledTimes(3);
   expect(effect).toHaveBeenCalledTimes(1);
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   expect(async1).toHaveBeenCalledTimes(2);
   expect(async2).toHaveBeenCalledTimes(4);
   expect(effect).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledWith(4);
 });
 
-it('should not throw with isPending guard', async () => {
+it("should not throw with isPending guard", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
   const a = createAsync(async1);
-  const b = createMemo(() => isPending(a) ? "pending" : a());
+  const b = createMemo(() => (isPending(a) ? "pending" : a()));
   expect(b()).toBe("pending");
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(1);
   set(2);
-  // expect(b()).toBe("pending");
+  expect(b()).toBe("pending");
   flushSync();
   expect(b()).toBe("pending");
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(2);
-})
+});
 
-it('should not throw with latest guard', async () => {
+it("should not throw with latest guard", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
   const a = createAsync(async1);
   const b = createMemo(() => latest(a));
   expect(b()).toBe(undefined);
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(1);
   set(2);
   expect(b()).toBe(1);
   flushSync();
-  // expect(b()).toBe(1);
-  await new Promise((r) => setTimeout(r, 0));
+  expect(b()).toBe(1);
+  await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(2);
 });

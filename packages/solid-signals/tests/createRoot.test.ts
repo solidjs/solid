@@ -8,18 +8,18 @@ import {
   getOwner,
   onCleanup,
   type Accessor,
-  type Signal,
-} from '../src';
+  type Signal
+} from "../src";
 
 afterEach(() => flushSync());
 
-it('should dispose of inner computations', () => {
+it("should dispose of inner computations", () => {
   let $x: Signal<number>;
   let $y: Accessor<number>;
 
   const memo = vi.fn(() => $x[0]() + 10);
 
-  createRoot((dispose) => {
+  createRoot(dispose => {
     $x = createSignal(10);
     $y = createMemo(memo);
     $y();
@@ -38,8 +38,8 @@ it('should dispose of inner computations', () => {
   expect(memo).toHaveBeenCalledTimes(1);
 });
 
-it('should return result', () => {
-  const result = createRoot((dispose) => {
+it("should return result", () => {
+  const result = createRoot(dispose => {
     dispose();
     return 10;
   });
@@ -47,15 +47,18 @@ it('should return result', () => {
   expect(result).toBe(10);
 });
 
-it('should create new tracking scope', () => {
+it("should create new tracking scope", () => {
   const [$x, setX] = createSignal(0);
   const effect = vi.fn();
 
-  const stopEffect = createRoot((dispose) => {
-    createEffect(() => {
-      $x();
-      createRoot(() => void createEffect($x, effect));
-    }, () => {});
+  const stopEffect = createRoot(dispose => {
+    createEffect(
+      () => {
+        $x();
+        createRoot(() => void createEffect($x, effect));
+      },
+      () => {}
+    );
 
     return dispose;
   });
@@ -72,7 +75,7 @@ it('should create new tracking scope', () => {
   expect(effect).toHaveBeenCalledTimes(1);
 });
 
-it('should not be reactive', () => {
+it("should not be reactive", () => {
   let $x: Signal<number>;
 
   const root = vi.fn();
@@ -90,7 +93,7 @@ it('should not be reactive', () => {
   expect(root).toHaveBeenCalledTimes(1);
 });
 
-it('should hold parent tracking', () => {
+it("should hold parent tracking", () => {
   createRoot(() => {
     const parent = getOwner();
     createRoot(() => {
@@ -99,7 +102,7 @@ it('should hold parent tracking', () => {
   });
 });
 
-it('should not observe', () => {
+it("should not observe", () => {
   const [$x] = createSignal(0);
   createRoot(() => {
     $x();
@@ -109,8 +112,8 @@ it('should not observe', () => {
   });
 });
 
-it('should not throw if dispose called during active disposal process', () => {
-  createRoot((dispose) => {
+it("should not throw if dispose called during active disposal process", () => {
+  createRoot(dispose => {
     onCleanup(() => dispose());
     dispose();
   });

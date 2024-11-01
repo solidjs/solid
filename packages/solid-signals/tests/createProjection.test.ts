@@ -1,21 +1,18 @@
-import {
-  createMemo,
-  createProjection,
-  createRoot,
-  createSignal,
-  flushSync,
-} from '../src';
+import { createMemo, createProjection, createRoot, createSignal, flushSync } from "../src";
 
-it('should observe key changes', () => {
-  createRoot((dispose) => {
+it("should observe key changes", () => {
+  createRoot(dispose => {
     let previous;
     const [$source, setSource] = createSignal(0),
-      selected = createProjection(draft => {
-        const s = $source();
-        if (s !== previous) draft[previous] = false;
-        draft[s] = true;
-        previous = s;
-      }, [false, false, false]),
+      selected = createProjection(
+        draft => {
+          const s = $source();
+          if (s !== previous) draft[previous] = false;
+          draft[s] = true;
+          previous = s;
+        },
+        [false, false, false]
+      ),
       effect0 = vi.fn(() => selected[0]),
       effect1 = vi.fn(() => selected[1]),
       effect2 = vi.fn(() => selected[2]);
@@ -84,14 +81,17 @@ it('should observe key changes', () => {
   });
 });
 
-it('should not self track', () => {
+it("should not self track", () => {
   const spy = vi.fn();
   const [bar, setBar] = createSignal("foo");
-  const projection = createProjection(draft => {
-    draft.foo = draft.bar;
-    draft.bar = bar();
-    spy();
-  }, { foo: "foo", bar: "bar" });
+  const projection = createProjection(
+    draft => {
+      draft.foo = draft.bar;
+      draft.bar = bar();
+      spy();
+    },
+    { foo: "foo", bar: "bar" }
+  );
   expect(projection.foo).toBe("bar");
   expect(projection.bar).toBe("foo");
   expect(spy).toHaveBeenCalledTimes(1);

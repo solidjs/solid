@@ -1,8 +1,7 @@
-import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import { Computation, incrementClock } from './core';
-
-import type { Effect, RenderEffect, BaseEffect } from './effect';
-import type { Owner } from './owner';
+import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
+import { Computation, incrementClock } from "./core";
+import type { BaseEffect, Effect, RenderEffect } from "./effect";
+import type { Owner } from "./owner";
 
 let scheduled = false,
   runningScheduled = false;
@@ -34,19 +33,14 @@ export function flushQueue() {
 function runTop(node: Computation): void {
   const ancestors: Computation[] = [];
 
-  for (
-    let current: Owner | null = node;
-    current !== null;
-    current = current._parent
-  ) {
+  for (let current: Owner | null = node; current !== null; current = current._parent) {
     if (current._state !== STATE_CLEAN) {
       ancestors.push(current as Computation);
     }
   }
 
   for (let i = ancestors.length - 1; i >= 0; i--) {
-    if (ancestors[i]._state !== STATE_DISPOSED)
-      ancestors[i]._updateIfNecessary();
+    if (ancestors[i]._state !== STATE_DISPOSED) ancestors[i]._updateIfNecessary();
   }
 }
 
@@ -82,10 +76,7 @@ function runPureQueue(queue: Computation[]) {
 
 function runEffectQueue(queue: BaseEffect[]) {
   for (let i = 0; i < queue.length; i++) {
-    if (
-      queue[i]._modified &&
-      queue[i]._state !== STATE_DISPOSED
-    ) {
+    if (queue[i]._modified && queue[i]._state !== STATE_DISPOSED) {
       queue[i]._effect(queue[i]._value, queue[i]._prevValue);
       queue[i]._modified = false;
       queue[i]._prevValue = queue[i]._value;

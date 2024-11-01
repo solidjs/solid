@@ -1,6 +1,6 @@
-import { STATE_CLEAN } from './constants';
-import { Computation, UNCHANGED, type SignalOptions } from './core';
-import { Effects, flushQueue, RenderEffects } from './scheduler';
+import { STATE_CLEAN } from "./constants";
+import { Computation, UNCHANGED, type SignalOptions } from "./core";
+import { Effects, flushQueue, RenderEffects } from "./scheduler";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -15,7 +15,7 @@ export class BaseEffect<T = any> extends Computation<T> {
     initialValue: T,
     compute: () => T,
     effect: (val: T, prev: T | undefined) => void,
-    options?: SignalOptions<T>,
+    options?: SignalOptions<T>
   ) {
     super(initialValue, compute, options);
     this._effect = effect;
@@ -46,7 +46,7 @@ export class Effect<T = any> extends BaseEffect<T> {
     initialValue: T,
     compute: () => T,
     effect: (val: T, prev: T | undefined) => void,
-    options?: SignalOptions<T>,
+    options?: SignalOptions<T>
   ) {
     super(initialValue, compute, effect, options);
     Effects.push(this);
@@ -70,7 +70,7 @@ export class RenderEffect<T = any> extends BaseEffect<T> {
     initialValue: T,
     compute: () => T,
     effect: (val: T, prev: T | undefined) => void,
-    options?: SignalOptions<T>,
+    options?: SignalOptions<T>
   ) {
     super(initialValue, compute, effect, options);
     this._updateIfNecessary();

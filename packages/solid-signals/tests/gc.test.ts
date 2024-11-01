@@ -1,24 +1,17 @@
-import {
-  createEffect,
-  createMemo,
-  createRoot,
-  createSignal,
-  flushSync,
-  getOwner,
-} from '../src';
+import { createEffect, createMemo, createRoot, createSignal, flushSync, getOwner } from "../src";
 
 function gc() {
-  return new Promise((resolve) =>
+  return new Promise(resolve =>
     setTimeout(async () => {
       flushSync(); // flush call stack (holds a reference)
       global.gc!();
       resolve(void 0);
-    }, 0),
+    }, 0)
   );
 }
 
 if (global.gc) {
-  it('should gc computed if there are no observers', async () => {
+  it("should gc computed if there are no observers", async () => {
     const [$x] = createSignal(0),
       ref = new WeakRef(createMemo(() => $x()));
 
@@ -26,7 +19,7 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 
-  it('should _not_ gc computed if there are observers', async () => {
+  it("should _not_ gc computed if there are observers", async () => {
     let [$x] = createSignal(0),
       pointer;
 
@@ -42,16 +35,16 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 
-  it('should gc root if disposed', async () => {
+  it("should gc root if disposed", async () => {
     let [$x] = createSignal(0),
       ref!: WeakRef<any>,
       pointer;
 
-    const dispose = createRoot((dispose) => {
+    const dispose = createRoot(dispose => {
       ref = new WeakRef(
         (pointer = createMemo(() => {
           $x();
-        })),
+        }))
       );
 
       return dispose;
@@ -69,11 +62,11 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 
-  it('should gc effect lazily', async () => {
+  it("should gc effect lazily", async () => {
     let [$x, setX] = createSignal(0),
       ref!: WeakRef<any>;
 
-    const dispose = createRoot((dispose) => {
+    const dispose = createRoot(dispose => {
       createEffect($x, () => {
         ref = new WeakRef(getOwner()!);
       });
@@ -91,5 +84,5 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 } else {
-  it('', () => {});
+  it("", () => {});
 }
