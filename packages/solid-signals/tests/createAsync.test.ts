@@ -1,4 +1,4 @@
-import { createAsync, createEffect, createSignal, flushSync } from '../src';
+import { createAsync, createEffect, createMemo, createSignal, flushSync, isPending, latest } from '../src';
 
 it('diamond should not cause waterfalls on read', async () => {
   //
@@ -87,4 +87,36 @@ it('should waterfall when dependent on another async with shared source', async 
   expect(async2).toHaveBeenCalledTimes(4);
   expect(effect).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledWith(4);
+});
+
+it('should not throw with isPending guard', async () => {
+  const [s, set] = createSignal(1);
+  const async1 = vi.fn(() => Promise.resolve(s()));
+  const a = createAsync(async1);
+  const b = createMemo(() => isPending(a) ? "pending" : a());
+  expect(b()).toBe("pending");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(b()).toBe(1);
+  set(2);
+  // expect(b()).toBe("pending");
+  flushSync();
+  expect(b()).toBe("pending");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(b()).toBe(2);
+})
+
+it('should not throw with latest guard', async () => {
+  const [s, set] = createSignal(1);
+  const async1 = vi.fn(() => Promise.resolve(s()));
+  const a = createAsync(async1);
+  const b = createMemo(() => latest(a));
+  expect(b()).toBe(undefined);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(b()).toBe(1);
+  set(2);
+  expect(b()).toBe(1);
+  flushSync();
+  // expect(b()).toBe(1);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(b()).toBe(2);
 });

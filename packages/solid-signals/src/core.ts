@@ -68,6 +68,7 @@ let currentObserver: ObserverType | null = null,
   newSourcesIndex = 0,
   newFlags = 0,
   clock = 0,
+  syncResolve = false,
   updateCheck: null | { _value: boolean } = null;
 
 /**
@@ -168,7 +169,7 @@ export class Computation<T = any>
    * before continuing
    */
   wait(): T {
-    if (this.loading()) {
+    if (!syncResolve && this.loading()) {
       throw new NotReadyError();
     }
 
@@ -581,7 +582,11 @@ export function untrack<T>(fn: () => T): T {
   return compute(getOwner(), fn, null);
 }
 
-export function hasUpdated(fn: () => any): Boolean {
+/**
+ * Returns true if the given functinon contains signals that have been updated since the last time
+ * the parent computation was run.
+ */
+export function hasUpdated(fn: () => any): boolean {
   const current = updateCheck;
   updateCheck = { _value: false };
   try {
@@ -589,6 +594,30 @@ export function hasUpdated(fn: () => any): Boolean {
     return updateCheck._value;
   } finally {
     updateCheck = current;
+  }
+}
+
+/**
+ * Returns true if the given function contains async signals that are not ready yet.
+ */
+export function isPending(fn: () => any): boolean {
+  try {
+    fn();
+    return false;
+  } catch (e) {
+    return e instanceof NotReadyError;
+  }
+}
+
+export function latest<T>(fn: () => T): T | undefined {
+  const prevFlags = newFlags;
+  syncResolve = true;
+  try {
+    return fn();
+  } catch {
+  } finally {
+    newFlags = prevFlags;
+    syncResolve = false;
   }
 }
 
@@ -628,11 +657,7 @@ export function compute<T>(
 }
 
 export class EagerComputation<T = any> extends Computation<T> {
-  constructor(
-    initialValue: T,
-    compute: () => T,
-    options?: SignalOptions<T>,
-  ) {
+  constructor(initialValue: T, compute: () => T, options?: SignalOptions<T>) {
     super(initialValue, compute, options);
     this._updateIfNecessary();
     Computations.push(this);

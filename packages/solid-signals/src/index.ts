@@ -11,7 +11,6 @@ export {
   setContext,
   hasContext,
   getOwner,
-  setOwner,
   onCleanup,
   type Context,
   type ContextRecord,
@@ -24,6 +23,8 @@ export {
   isEqual,
   untrack,
   hasUpdated,
+  isPending,
+  latest,
   type SignalOptions,
 } from './core';
 export { Effect, RenderEffect } from './effect';
