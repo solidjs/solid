@@ -1,7 +1,7 @@
-import { STATE_CLEAN, STATE_DISPOSED } from "./constants";
-import { Computation, incrementClock } from "./core";
-import type { BaseEffect, Effect, RenderEffect } from "./effect";
-import type { Owner } from "./owner";
+import type { BaseEffect, Effect, RenderEffect } from "./effect.js";
+import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
+import { Computation, incrementClock } from "./core.js";
+import type { Owner } from "./owner.js";
 
 let scheduled = false,
   runningScheduled = false;

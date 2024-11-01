@@ -1,4 +1,4 @@
-import { createEffect, createRoot, getOwner, untrack } from "../src";
+import { createEffect, createRoot, getOwner, untrack } from "../src/index.js";
 
 it("should return current owner", () => {
   createRoot(() => {

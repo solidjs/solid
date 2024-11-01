@@ -1,4 +1,11 @@
-import { createEffect, createMemo, createRoot, createSignal, flushSync, onCleanup } from "../src";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flushSync,
+  onCleanup
+} from "../src/index.js";
 
 afterEach(() => flushSync());
 

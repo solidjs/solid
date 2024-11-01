@@ -6,7 +6,7 @@ import {
   flushSync,
   onCleanup,
   untrack
-} from "../src";
+} from "../src/index.js";
 
 afterEach(() => flushSync());
 

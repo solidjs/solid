@@ -1,4 +1,4 @@
-import { createMemo, createProjection, createRoot, createSignal, flushSync } from "../src";
+import { createMemo, createProjection, createRoot, createSignal, flushSync } from "../src/index.js";
 
 it("should observe key changes", () => {
   createRoot(dispose => {

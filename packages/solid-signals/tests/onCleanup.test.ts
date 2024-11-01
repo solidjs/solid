@@ -1,4 +1,4 @@
-import { createEffect, createRoot, flushSync, onCleanup } from "../src";
+import { createEffect, createRoot, flushSync, onCleanup } from "../src/index.js";
 
 afterEach(() => flushSync());
 

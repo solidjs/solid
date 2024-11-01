@@ -1,4 +1,4 @@
-import { createEffect, createSignal, flushSync, mapArray } from "../src";
+import { createEffect, createSignal, flushSync, mapArray } from "../src/index.js";
 
 it("should compute keyed map", () => {
   const [$source, setSource] = createSignal([{ id: "a" }, { id: "b" }, { id: "c" }]);

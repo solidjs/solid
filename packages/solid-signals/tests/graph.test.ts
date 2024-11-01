@@ -1,6 +1,6 @@
 // https://github.com/preactjs/signals/blob/main/packages/core/test/signal.test.tsx#L1249
 
-import { createMemo, createSignal } from "../src";
+import { createMemo, createSignal } from "../src/index.js";
 
 it("should drop X->B->X updates", () => {
   //     X

@@ -1,4 +1,4 @@
-import { catchError, createRoot, getOwner, Owner, runWithOwner } from "../src";
+import { catchError, createRoot, getOwner, Owner, runWithOwner } from "../src/index.js";
 
 it("should scope function to current scope", () => {
   let owner!: Owner | null;

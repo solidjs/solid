@@ -1,4 +1,4 @@
-import { createEffect, createSignal, flushSync } from "../src";
+import { createEffect, createSignal, flushSync } from "../src/index.js";
 
 afterEach(() => flushSync());
 

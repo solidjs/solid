@@ -27,11 +27,11 @@
  *     executed in root to leaf order)
  */
 
-import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants";
-import { NotReadyError } from "./error";
-import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from "./flags";
-import { getOwner, Owner, setOwner } from "./owner";
-import { Computations, flushQueue } from "./scheduler";
+import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
+import { NotReadyError } from "./error.js";
+import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from "./flags.js";
+import { getOwner, Owner, setOwner } from "./owner.js";
+import { Computations, flushQueue } from "./scheduler.js";
 
 export interface SignalOptions<T> {
   name?: string;

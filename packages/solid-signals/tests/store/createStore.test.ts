@@ -1,4 +1,4 @@
-import { createEffect, createStore, flushSync } from "../../src";
+import { createEffect, createStore, flushSync } from "../../src/index.js";
 
 describe("getters", () => {
   it("supports getters that return frozen objects", () => {

@@ -6,7 +6,7 @@ import {
   flushSync,
   isPending,
   latest
-} from "../src";
+} from "../src/index.js";
 
 it("diamond should not cause waterfalls on read", async () => {
   //

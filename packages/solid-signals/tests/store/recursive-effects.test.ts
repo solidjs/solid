@@ -7,8 +7,8 @@ import {
   flushSync,
   untrack,
   unwrap
-} from "../../src";
-import { sharedClone } from "./shared-clone";
+} from "../../src/index.js";
+import { sharedClone } from "./shared-clone.js";
 
 describe("recursive effects", () => {
   it("can track deeply with cloning", () => {

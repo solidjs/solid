@@ -5,7 +5,7 @@ import {
   createSignal,
   flushSync,
   onCleanup
-} from "../src";
+} from "../src/index.js";
 
 afterEach(() => flushSync());
 

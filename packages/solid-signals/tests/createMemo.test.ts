@@ -6,7 +6,7 @@ import {
   createSignal,
   flushSync,
   hasUpdated
-} from "../src";
+} from "../src/index.js";
 
 afterEach(() => flushSync());
 

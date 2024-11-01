@@ -1,4 +1,4 @@
-import { catchError, createEffect, createRoot, createSignal, flushSync } from "../src";
+import { catchError, createEffect, createRoot, createSignal, flushSync } from "../src/index.js";
 
 it("should let errors bubble up when not handled", () => {
   const error = new Error();

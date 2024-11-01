@@ -1,4 +1,11 @@
-import { createEffect, createMemo, createRoot, createSignal, flushSync, getOwner } from "../src";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flushSync,
+  getOwner
+} from "../src/index.js";
 
 function gc() {
   return new Promise(resolve =>

@@ -1,4 +1,4 @@
-import { createSignal, flushSync } from "../src";
+import { createSignal, flushSync } from "../src/index.js";
 
 afterEach(() => flushSync());
 

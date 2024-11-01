@@ -6,7 +6,7 @@ import {
   hasContext,
   NoOwnerError,
   setContext
-} from "../src";
+} from "../src/index.js";
 
 it("should create context", () => {
   const context = createContext(1);

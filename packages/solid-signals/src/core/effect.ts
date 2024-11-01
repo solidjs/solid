@@ -1,6 +1,6 @@
-import { STATE_CLEAN } from "./constants";
-import { Computation, UNCHANGED, type SignalOptions } from "./core";
-import { Effects, flushQueue, RenderEffects } from "./scheduler";
+import { STATE_CLEAN } from "./constants.js";
+import { Computation, UNCHANGED, type SignalOptions } from "./core.js";
+import { Effects, flushQueue, RenderEffects } from "./scheduler.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are

@@ -9,7 +9,7 @@ import {
   onCleanup,
   type Accessor,
   type Signal
-} from "../src";
+} from "../src/index.js";
 
 afterEach(() => flushSync());
 

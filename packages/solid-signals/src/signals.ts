@@ -1,8 +1,17 @@
-import type { SignalOptions } from "./core";
-import { Computation, compute, EagerComputation, UNCHANGED, untrack } from "./core";
-import { Effect, RenderEffect } from "./effect";
-import { ERROR_BIT, LOADING_BIT } from "./flags";
-import { onCleanup, Owner } from "./owner";
+import type { SignalOptions } from "./core/index.js";
+import {
+  Computation,
+  compute,
+  EagerComputation,
+  Effect,
+  ERROR_BIT,
+  LOADING_BIT,
+  onCleanup,
+  Owner,
+  RenderEffect,
+  UNCHANGED,
+  untrack
+} from "./core/index.js";
 
 export interface Accessor<T> {
   (): T;

@@ -1,7 +1,6 @@
-import { Computation, compute } from "./core";
-import { Owner } from "./owner";
-import { runWithOwner } from "./signals";
-import type { Accessor } from "./signals";
+import { Computation, compute, Owner } from "./core/index.js";
+import { runWithOwner } from "./signals.js";
+import type { Accessor } from "./signals.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
 

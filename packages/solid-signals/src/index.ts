@@ -1,5 +1,8 @@
-export { ContextNotFoundError, NoOwnerError, NotReadyError, type ErrorHandler } from "./error";
 export {
+  Computation,
+  ContextNotFoundError,
+  NoOwnerError,
+  NotReadyError,
   Owner,
   createContext,
   getContext,
@@ -7,23 +10,21 @@ export {
   hasContext,
   getOwner,
   onCleanup,
-  type Context,
-  type ContextRecord,
-  type Disposable
-} from "./owner";
-export {
-  Computation,
   getObserver,
   isEqual,
   untrack,
   hasUpdated,
   isPending,
-  latest,
-  type SignalOptions
-} from "./core";
-export { Effect, RenderEffect } from "./effect";
-export { flushSync } from "./scheduler";
-export { mapArray, type Maybe } from "./map";
-
-export * from "./signals";
-export * from "./store";
+  latest
+} from "./core/index.js";
+export type {
+  ErrorHandler,
+  SignalOptions,
+  Context,
+  ContextRecord,
+  Disposable
+} from "./core/index.js";
+export { flushSync } from "./core/scheduler.js";
+export { mapArray, type Maybe } from "./map.js";
+export * from "./signals.js";
+export * from "./store/index.js";
