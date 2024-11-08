@@ -1,4 +1,4 @@
-import type { SignalOptions } from "./core/index.js";
+import type { SignalOptions } from './core/index.js';
 import {
   Computation,
   compute,
@@ -8,10 +8,9 @@ import {
   LOADING_BIT,
   onCleanup,
   Owner,
-  RenderEffect,
   UNCHANGED,
-  untrack
-} from "./core/index.js";
+  untrack,
+} from './core/index.js';
 
 export interface Accessor<T> {
   (): T;
@@ -34,28 +33,28 @@ export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
  */
 export function createSignal<T>(
   initialValue: Exclude<T, Function>,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Signal<T>;
 export function createSignal<T>(
   fn: (prev?: T) => T,
   initialValue?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Signal<T>;
 export function createSignal<T>(
   first: T | ((prev?: T) => T),
   second?: T | SignalOptions<T>,
-  third?: SignalOptions<T>
+  third?: SignalOptions<T>,
 ): Signal<T> {
-  if (typeof first === "function") {
-    const memo = createMemo<Signal<T>>(p => {
+  if (typeof first === 'function') {
+    const memo = createMemo<Signal<T>>((p) => {
       const node = new Computation<T>(
         (first as (prev?: T) => T)(p ? untrack(p[0]) : (second as T)),
         null,
-        third
+        third,
       );
       return [node.read.bind(node), node.write.bind(node)];
     });
-    return [() => memo()[0](), value => memo()[1](value)];
+    return [() => memo()[0](), (value) => memo()[1](value)];
   }
   const node = new Computation(first as T, null, second as SignalOptions<T>);
   return [node.read.bind(node), node.write.bind(node)];
@@ -64,11 +63,11 @@ export function createSignal<T>(
 export function createAsync<T>(
   fn: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
   initial?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Accessor<T> {
   const lhs = new EagerComputation(
     {
-      _value: initial
+      _value: initial,
     } as any,
     (p?: Computation<T>) => {
       const value = p?._value;
@@ -80,19 +79,19 @@ export function createAsync<T>(
           wait() {
             return source as T;
           },
-          _value: source as T
+          _value: source as T,
         };
       }
       const signal = new Computation(value, null, options);
       signal.write(UNCHANGED, LOADING_BIT);
       if (isPromise) {
         source.then(
-          value => {
+          (value) => {
             signal.write(value, 0);
           },
-          error => {
+          (error) => {
             signal.write(error, ERROR_BIT);
-          }
+          },
         );
       } else {
         let abort = false;
@@ -109,7 +108,7 @@ export function createAsync<T>(
         })();
       }
       return signal;
-    }
+    },
   );
   return () => lhs.wait().wait();
 }
@@ -122,9 +121,13 @@ export function createAsync<T>(
 export function createMemo<T>(
   compute: (prev?: T) => T,
   initialValue?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Accessor<T> {
-  let node: Computation<T> | undefined = new Computation(initialValue, compute, options);
+  let node: Computation<T> | undefined = new Computation(
+    initialValue,
+    compute,
+    options,
+  );
   let value: T;
   return () => {
     if (node) {
@@ -143,13 +146,13 @@ export function createEffect<T>(
   compute: () => T,
   effect: (v: T) => (() => void) | void,
   initialValue?: T,
-  options?: { name?: string }
+  options?: { name?: string },
 ): void {
   void new Effect(
     initialValue as any,
     compute,
     effect,
-    __DEV__ ? { name: options?.name ?? "effect" } : undefined
+    __DEV__ ? { name: options?.name ?? 'effect' } : undefined,
   );
 }
 
@@ -161,23 +164,27 @@ export function createRenderEffect<T>(
   compute: () => T,
   effect: (v: T) => (() => void) | void,
   initialValue?: T,
-  options?: { name?: string }
+  options?: { name?: string },
 ): void {
-  void new RenderEffect(
-    initialValue as any,
-    compute,
-    effect,
-    __DEV__ ? { name: options?.name ?? "effect" } : undefined
-  );
+  void new Effect(initialValue as any, compute, effect, {
+    render: true,
+    ...(__DEV__ ? { name: options?.name ?? 'effect' } : undefined),
+  });
 }
 
 /**
  * Creates a computation root which is given a `dispose()` function to dispose of all inner
  * computations.
  */
-export function createRoot<T>(init: ((dispose: () => void) => T) | (() => T)): T {
+export function createRoot<T>(
+  init: ((dispose: () => void) => T) | (() => T),
+): T {
   const owner = new Owner();
-  return compute(owner, !init.length ? (init as () => T) : () => init(() => owner.dispose()), null);
+  return compute(
+    owner,
+    !init.length ? (init as () => T) : () => init(() => owner.dispose()),
+    null,
+  );
 }
 
 /**
@@ -185,7 +192,10 @@ export function createRoot<T>(init: ((dispose: () => void) => T) | (() => T)): T
  *
  * Warning: Usually there are simpler ways of modeling a problem that avoid using this function
  */
-export function runWithOwner<T>(owner: Owner | null, run: () => T): T | undefined {
+export function runWithOwner<T>(
+  owner: Owner | null,
+  run: () => T,
+): T | undefined {
   try {
     return compute(owner, run, null);
   } catch (error) {
@@ -198,7 +208,10 @@ export function runWithOwner<T>(owner: Owner | null, run: () => T): T | undefine
  * Runs the given function when an error is thrown in a child owner. If the error is thrown again
  * inside the error handler, it will trigger the next available parent owner handler.
  */
-export function catchError<T>(fn: () => T, handler: (error: unknown) => void): void {
+export function catchError<T>(
+  fn: () => T,
+  handler: (error: unknown) => void,
+): void {
   const owner = new Owner();
 
   owner._handlers = owner._handlers ? [handler, ...owner._handlers] : [handler];

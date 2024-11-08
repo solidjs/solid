@@ -1,21 +1,22 @@
 import {
   createEffect,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   flushSync,
-  onCleanup
-} from "../src/index.js";
+  onCleanup,
+} from '../src/index.js';
 
 afterEach(() => flushSync());
 
-it("should run effect", () => {
+it('should run effect', () => {
   const [$x, setX] = createSignal(0),
     compute = vi.fn($x),
     effect = vi.fn();
 
   createEffect(compute, effect);
-  expect(compute).toHaveBeenCalledTimes(0);
+  expect(compute).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(0);
   flushSync();
   expect(compute).toHaveBeenCalledTimes(1);
@@ -29,7 +30,7 @@ it("should run effect", () => {
   expect(effect).toHaveBeenCalledWith(1, 0);
 });
 
-it("should run effect on change", () => {
+it('should run effect on change', () => {
   const effect = vi.fn();
 
   const [$x, setX] = createSignal(10);
@@ -56,7 +57,7 @@ it("should run effect on change", () => {
   expect(effect).to.toHaveBeenCalledTimes(2);
 });
 
-it("should handle nested effect", () => {
+it('should handle nested effect', () => {
   const [$x, setX] = createSignal(0);
   const [$y, setY] = createSignal(0);
 
@@ -64,7 +65,7 @@ it("should handle nested effect", () => {
   const innerEffect = vi.fn();
   const innerDispose = vi.fn();
 
-  const stopEffect = createRoot(dispose => {
+  const stopEffect = createRoot((dispose) => {
     createEffect(() => {
       $x();
       createEffect(() => {
@@ -116,12 +117,12 @@ it("should handle nested effect", () => {
   expect(innerDispose).toHaveBeenCalledTimes(3);
 });
 
-it("should stop effect", () => {
+it('should stop effect', () => {
   const effect = vi.fn();
 
   const [$x, setX] = createSignal(10);
 
-  const stopEffect = createRoot(dispose => {
+  const stopEffect = createRoot((dispose) => {
     createEffect($x, effect);
     return dispose;
   });
@@ -133,7 +134,7 @@ it("should stop effect", () => {
   expect(effect).toHaveBeenCalledTimes(0);
 });
 
-it("should run all disposals before each new run", () => {
+it('should run all disposals before each new run', () => {
   const effect = vi.fn();
   const disposeA = vi.fn();
   const disposeB = vi.fn();
@@ -167,16 +168,16 @@ it("should run all disposals before each new run", () => {
   }
 });
 
-it("should dispose of nested effect", () => {
+it('should dispose of nested effect', () => {
   const [$x, setX] = createSignal(0);
   const innerEffect = vi.fn();
 
-  const stopEffect = createRoot(dispose => {
+  const stopEffect = createRoot((dispose) => {
     createEffect(
       () => {
         createEffect($x, innerEffect);
       },
-      () => {}
+      () => {},
     );
 
     return dispose;
@@ -190,7 +191,7 @@ it("should dispose of nested effect", () => {
   expect(innerEffect).not.toHaveBeenCalledWith(10);
 });
 
-it("should conditionally observe", () => {
+it('should conditionally observe', () => {
   const [$x, setX] = createSignal(0);
   const [$y, setY] = createSignal(0);
   const [$condition, setCondition] = createSignal(true);
@@ -224,7 +225,7 @@ it("should conditionally observe", () => {
   expect(effect).toHaveBeenCalledTimes(3);
 });
 
-it("should dispose of nested conditional effect", () => {
+it('should dispose of nested conditional effect', () => {
   const [$condition, setCondition] = createSignal(true);
 
   const disposeA = vi.fn();
@@ -235,7 +236,7 @@ it("should dispose of nested conditional effect", () => {
       () => {
         onCleanup(disposeA);
       },
-      () => {}
+      () => {},
     );
   }
 
@@ -244,13 +245,13 @@ it("should dispose of nested conditional effect", () => {
       () => {
         onCleanup(disposeB);
       },
-      () => {}
+      () => {},
     );
   }
 
   createEffect(
     () => ($condition() ? fnA() : fnB()),
-    () => {}
+    () => {},
   );
   flushSync();
   setCondition(false);
@@ -259,7 +260,7 @@ it("should dispose of nested conditional effect", () => {
 });
 
 // https://github.com/preactjs/signals/issues/152
-it("should handle looped effects", () => {
+it('should handle looped effects', () => {
   let values: number[] = [],
     loop = 2;
 
@@ -275,17 +276,17 @@ it("should handle looped effects", () => {
           () => {
             values.push($value() + i);
           },
-          () => {}
+          () => {},
         );
       }
     },
-    () => {}
+    () => {},
   );
 
   flushSync();
 
   expect(values).toHaveLength(3);
-  expect(values.join(",")).toBe("0,0,1");
+  expect(values.join(',')).toBe('0,0,1');
 
   loop = 1;
   values = [];
@@ -293,17 +294,17 @@ it("should handle looped effects", () => {
   flushSync();
 
   expect(values).toHaveLength(2);
-  expect(values.join(",")).toBe("1,1");
+  expect(values.join(',')).toBe('1,1');
 
   values = [];
   setValue(2);
   flushSync();
 
   expect(values).toHaveLength(2);
-  expect(values.join(",")).toBe("2,2");
+  expect(values.join(',')).toBe('2,2');
 });
 
-it("should apply changes in effect in same flush", async () => {
+it('should apply changes in effect in same flush', async () => {
   const [$x, setX] = createSignal(0),
     [$y, setY] = createSignal(0);
 
@@ -315,7 +316,7 @@ it("should apply changes in effect in same flush", async () => {
     });
 
   createEffect($y, () => {
-    setX(n => n + 1);
+    setX((n) => n + 1);
   });
   flushSync();
 
@@ -340,25 +341,46 @@ it("should apply changes in effect in same flush", async () => {
   expect($a()).toBe(4);
 });
 
-// This is essentially run top - we need to solve it.
-it.skip("should run parent effect before child effect", () => {
+it('should run parent effect before child effect', () => {
   const [$x, setX] = createSignal(0);
   const $condition = createMemo(() => $x());
 
   let calls = 0;
 
   createEffect(
-    () => {},
     () => {
-      createEffect($x, () => {
-        calls++;
-      });
+      createEffect(
+        () => {
+          $x();
+          calls++;
+        },
+        () => {},
+      );
 
       $condition();
-    }
+    },
+    () => {},
   );
 
   setX(1);
   flushSync();
   expect(calls).toBe(2);
+});
+
+it('should run render effect before user effects', () => {
+  const [$x, setX] = createSignal(0);
+
+  let mark = '';
+  createEffect($x, () => {
+    mark += 'b';
+  });
+  createRenderEffect($x, () => {
+    mark += 'a';
+  });
+
+  flushSync();
+  expect(mark).toBe('ab');
+  setX(1);
+  flushSync();
+  expect(mark).toBe('abab');
 });

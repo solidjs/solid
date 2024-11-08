@@ -1,4 +1,4 @@
-import type { BaseEffect, Effect, RenderEffect } from "./effect.js";
+import type { Effect } from "./effect.js";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
 import { Computation, incrementClock } from "./core.js";
 import type { Owner } from "./owner.js";
@@ -7,7 +7,7 @@ let scheduled = false,
   runningScheduled = false;
 
 export let Computations: Computation[] = [],
-  RenderEffects: RenderEffect[] = [],
+  RenderEffects: Effect[] = [],
   Effects: Effect[] = [];
 
 /**
@@ -74,7 +74,7 @@ function runPureQueue(queue: Computation[]) {
   }
 }
 
-function runEffectQueue(queue: BaseEffect[]) {
+function runEffectQueue(queue: Effect[]) {
   for (let i = 0; i < queue.length; i++) {
     if (queue[i]._modified && queue[i]._state !== STATE_DISPOSED) {
       queue[i]._effect(queue[i]._value, queue[i]._prevValue);

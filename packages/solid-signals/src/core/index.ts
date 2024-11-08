@@ -24,6 +24,6 @@ export {
   compute,
   type SignalOptions
 } from "./core.js";
-export { Effect, RenderEffect } from "./effect.js";
+export { Effect } from "./effect.js";
 export { flushSync } from "./scheduler.js";
 export * from "./flags.js";
