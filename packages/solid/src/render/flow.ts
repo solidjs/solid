@@ -12,6 +12,7 @@ import {
 import { mapArray, indexArray } from "../reactive/array.js";
 import { sharedConfig } from "./hydration.js";
 import type { JSX } from "../jsx.js";
+import { createStore, reconcile } from "../../store/src/index.js";
 
 const narrowedError = (name: string) =>
   "_SOLID_DEV_"
@@ -78,14 +79,15 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
       )) as unknown as JSX.Element;
 }
 
-// Helper to prettify types in errors
+// Helper to prettify types
 type Prettify<T> = {
   [K in keyof T]: T[K];
 } & {};
 
+type NonNullable<T> = T extends null | undefined | false | 0 ? never : T;
 // Helper to make all values non-nullable
 type NonNullableValues<T> = {
-  [K in keyof T]: NonNullable<T[K]>;
+  [K in keyof T]: NonNullable<T[K]>; // extends null | undefined | false ? never : T[K];
 };
 
 // Strict object type to exclude arrays, maps, sets, and functions
@@ -93,89 +95,99 @@ type StrictKeyValueObject = {
   [key: string]: string | number | boolean | object | null | undefined;
 };
 
-// ConditionalRecord ensures that when `checkObjectValues` is true, `T` must be a StrictKeyValueObject (not an array or other types)
-type NarrowedRecord<
-  T,
-  CheckObjectValues extends boolean | undefined
-> = CheckObjectValues extends true
-  ? T extends StrictKeyValueObject
-    ? NonNullableValues<T> // Ensure all values are NonNullable
-    : never // Throw an error if not a strict object
-  : T;
+type SwitchEval<T> = MemoOptions<false | T | StrictKeyValueObject | null | undefined>["equals"];
 
-// Enforce when to be a StrictKeyValueObject if checkObjectValues is true
-type EnforceStrictKeyValueObject<
-  T,
-  CheckObjectValues extends boolean | undefined
-> = CheckObjectValues extends true
-  ? T extends StrictKeyValueObject
-    ? T
-    : never // Enforce strict key-value object when checkObjectValues is true
-  : T;
-
-// RequiredParameter helper
 type RequiredParameter<T> = T extends () => unknown ? never : T;
-
+/**
+ * Conditionally render its children or an optional fallback component
+ * @description https://docs.solidjs.com/reference/components/show
+ */
 export function Show<
   T,
-  CheckObjectValues extends boolean | undefined,
-  TRenderFunction extends (
-    item: Accessor<Prettify<NonNullable<NarrowedRecord<T, CheckObjectValues>>>>
-  ) => JSX.Element
+  TRenderFunction extends (item: Accessor<NonNullable<T>>) => JSX.Element
 >(props: {
-  when: EnforceStrictKeyValueObject<T, CheckObjectValues>;
+  when: T | undefined | null | false;
   keyed?: false;
-  checkObjectValues?: CheckObjectValues;
+  checkObjectValues?: false;
   fallback?: JSX.Element;
   children: JSX.Element | RequiredParameter<TRenderFunction>;
 }): JSX.Element;
-
 export function Show<
-  T,
-  CheckObjectValues extends boolean | undefined,
-  TRenderFunction extends (
-    item: Prettify<NonNullable<NarrowedRecord<T, CheckObjectValues>>>
-  ) => JSX.Element
+  T extends StrictKeyValueObject,
+  TRenderFunction extends (item: Accessor<Prettify<NonNullableValues<T>>>) => JSX.Element
 >(props: {
-  when: EnforceStrictKeyValueObject<T, CheckObjectValues>;
-  keyed: true;
-  checkObjectValues?: CheckObjectValues;
+  when: T;
+  keyed?: false;
+  checkObjectValues: true;
   fallback?: JSX.Element;
   children: JSX.Element | RequiredParameter<TRenderFunction>;
 }): JSX.Element;
-
-export function Show<T, CheckObjectValues extends boolean | undefined>(props: {
-  when: EnforceStrictKeyValueObject<T, CheckObjectValues>;
+export function Show<T, TRenderFunction extends (item: NonNullable<T>) => JSX.Element>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  checkObjectValues?: false;
+  fallback?: JSX.Element;
+  children: JSX.Element | RequiredParameter<TRenderFunction>;
+}): JSX.Element;
+export function Show<
+  T extends StrictKeyValueObject,
+  TRenderFunction extends (item: Prettify<NonNullableValues<T>>) => JSX.Element
+>(props: {
+  when: T;
   keyed?: boolean;
-  checkObjectValues?: CheckObjectValues;
+  checkObjectValues: true;
+  fallback?: JSX.Element;
+  children: JSX.Element | RequiredParameter<TRenderFunction>;
+}): JSX.Element;
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: boolean;
+  checkObjectValues?: boolean;
   fallback?: JSX.Element;
   children:
     | JSX.Element
     | ((
         item:
-          | NonNullable<NarrowedRecord<T, CheckObjectValues>>
-          | Accessor<NonNullable<NarrowedRecord<T, CheckObjectValues>>>
+          | NonNullable<T>
+          | Accessor<NonNullable<T>>
+          | Accessor<Prettify<NonNullableValues<T>>>
+          | Prettify<NonNullableValues<T>>
       ) => JSX.Element);
 }): JSX.Element {
-  const keyed = props.keyed;
+  const equals: SwitchEval<T> = (a, b) => {
+    if (!obj) return keyed ? a === b : !a === !b;
 
-  // Memoize the condition based on whether checkObjectValues is true or not
+    const obj1 = a as StrictKeyValueObject;
+    const obj2 = b as StrictKeyValueObject;
+    const o1 = Object.entries(obj1);
+    const o2 = Object.entries(obj2);
+    if (o1.length !== o2.length) return false;
+    return o1.every(([key, value]) => obj2.hasOwnProperty(key) && obj2[key] === value);
+  };
+
+  const keyed = props.keyed;
+  const obj = props.checkObjectValues;
+  const s = obj ? createStore(props.when as StrictKeyValueObject) : null;
   const condition = createMemo(
     () => {
       const when = props.when;
-      if (!props.checkObjectValues) return when;
-      // Check if all values in `when` are truthy
-      return Object.values(when as Record<string, any>).every(value => !!value) ? when : false;
+      if (!obj) return when;
+      if (!Object.values(when as StrictKeyValueObject).every(v => !!v)) return false;
+      if (!s) throw new Error("Show");
+      const [v, setV] = s;
+      setV(reconcile(when as StrictKeyValueObject));
+      return v;
     },
     undefined,
     "_SOLID_DEV_"
       ? {
-          equals: (a, b) => (keyed ? a === b : !a === !b),
+          equals,
           name: "condition"
         }
-      : { equals: (a, b) => (keyed ? a === b : !a === !b) }
+      : {
+          equals
+        }
   );
-
   return createMemo(
     () => {
       const c = condition();
