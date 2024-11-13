@@ -501,7 +501,7 @@ export function createStore<T extends object = {}>(
   ...[store, options]: {} extends T
     ? [store?: T | Store<T>, options?: { name?: string }]
     : [store: T | Store<T>, options?: { name?: string }]
-): [get: Store<T>, set: SetStoreFunction<T>] {
+): StoreBundle<T> {
   const unwrappedStore = unwrap((store || {}) as T);
   const isArray = Array.isArray(unwrappedStore);
   if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
