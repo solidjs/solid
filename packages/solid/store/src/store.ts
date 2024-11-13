@@ -490,6 +490,8 @@ export interface SetStoreFunction<T> {
   ): void;
 }
 
+export type StoreBundle<T> = [get: Store<T>, set: SetStoreFunction<T>];
+
 /**
  * Creates a reactive store that can be read through a proxy object and written with a setter function
  *
