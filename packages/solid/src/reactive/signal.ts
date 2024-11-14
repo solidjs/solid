@@ -591,14 +591,15 @@ export function createResource<T, S, R>(
   let source: ResourceSource<S>;
   let fetcher: ResourceFetcher<S, T, R>;
   let options: ResourceOptions<T, S>;
-  if ((arguments.length === 2 && typeof pFetcher === "object") || arguments.length === 1) {
-    source = true as ResourceSource<S>;
-    fetcher = pSource as ResourceFetcher<S, T, R>;
-    options = (pFetcher || {}) as ResourceOptions<T, S>;
-  } else {
+  
+  if (typeof pFetcher === "function") {
     source = pSource as ResourceSource<S>;
     fetcher = pFetcher as ResourceFetcher<S, T, R>;
     options = pOptions || ({} as ResourceOptions<T, S>);
+  } else {
+    source = true as ResourceSource<S>;
+    fetcher = pSource as ResourceFetcher<S, T, R>;
+    options = (pFetcher || {}) as ResourceOptions<T, S>;
   }
 
   let pr: Promise<T> | null = null,

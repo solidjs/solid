@@ -374,16 +374,13 @@ export function createResource<T, S>(
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options: ResourceOptions<T> | ResourceOptions<undefined> = {}
 ): ResourceReturn<T> | ResourceReturn<T | undefined> {
-  if (arguments.length === 2) {
-    if (typeof fetcher === "object") {
-      options = fetcher as ResourceOptions<T> | ResourceOptions<undefined>;
-      fetcher = source as ResourceFetcher<S, T>;
-      source = true as ResourceSource<S>;
-    }
-  } else if (arguments.length === 1) {
-    fetcher = source as ResourceFetcher<S, T>;
+  
+  if (typeof fetcher !== "function") {
     source = true as ResourceSource<S>;
+    fetcher = source as ResourceFetcher<S, T>;
+    options = (fetcher || {}) as ResourceOptions<T> | ResourceOptions<undefined>;
   }
+
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.getNextContextId();
   let resource: { ref?: any; data?: T } = {};
