@@ -54,7 +54,7 @@ function applyState(
         end >= start &&
         newEnd >= start &&
         (previous[end] === target[newEnd] ||
-          (key && previous[start] && target[start] && previous[end][key] === target[newEnd][key]));
+          (key && previous[end] && target[newEnd] && previous[end][key] === target[newEnd][key]));
         end--, newEnd--
       ) {
         temp[newEnd] = previous[end];
