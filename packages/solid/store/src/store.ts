@@ -490,6 +490,8 @@ export interface SetStoreFunction<T> {
   ): void;
 }
 
+export type StoreBundle<T> = [get: Store<T>, set: SetStoreFunction<T>];
+
 /**
  * Creates a reactive store that can be read through a proxy object and written with a setter function
  *
@@ -499,7 +501,7 @@ export function createStore<T extends object = {}>(
   ...[store, options]: {} extends T
     ? [store?: T | Store<T>, options?: { name?: string }]
     : [store: T | Store<T>, options?: { name?: string }]
-): [get: Store<T>, set: SetStoreFunction<T>] {
+): StoreBundle<T> {
   const unwrappedStore = unwrap((store || {}) as T);
   const isArray = Array.isArray(unwrappedStore);
   if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
