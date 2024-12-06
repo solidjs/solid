@@ -68,6 +68,39 @@ describe("objects", () => {
     expect(effect).toHaveBeenCalledTimes(1);
     expect(store.foo).toBe("foo");
   });
+
+  it("has properties", () => {
+    const [store, setStore] = createStore<{foo?: string}>({ });
+    const effect = vi.fn();
+    createEffect(
+      () => "foo" in store,
+      v => effect(v)
+    );
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(1);
+    expect(effect).toHaveBeenCalledWith(false);
+
+    setStore(s => {
+      s.foo = "bar";
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(2);
+    expect(effect).toHaveBeenCalledWith(true);
+
+    setStore(s => {
+      s.foo = undefined;
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(2);
+    expect(effect).toHaveBeenCalledWith(true);
+
+    setStore(s => {
+      delete s.foo;
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(3);
+    expect(effect).toHaveBeenCalledWith(false);
+  })
 });
 
 describe("arrays", () => {

@@ -641,7 +641,6 @@ export class EagerComputation<T = any> extends Computation<T> {
   constructor(initialValue: T, compute: () => T, options?: SignalOptions<T>) {
     super(initialValue, compute, options);
     this._updateIfNecessary();
-    Computations.push(this);
   }
 
   override _notify(state: number): void {

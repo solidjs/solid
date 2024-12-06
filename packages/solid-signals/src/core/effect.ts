@@ -26,7 +26,8 @@ export class Effect<T = any> extends Computation<T> {
     this._prevValue = initialValue;
     this._updateIfNecessary();
     this._type = options?.render ? RENDER_EFFECT : USER_EFFECT;
-    (this._type ? RenderEffects : Effects) .push(this);
+    (this._type ? RenderEffects : Effects).push(this);
+    flushQueue();
   }
 
   override write(value: T): T {
