@@ -1,6 +1,6 @@
-import type { Effect } from "./effect.js";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
 import { Computation, incrementClock } from "./core.js";
+import type { Effect } from "./effect.js";
 import type { Owner } from "./owner.js";
 
 let scheduled = false,

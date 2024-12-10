@@ -22,7 +22,8 @@
     "test:watch": "vitest watch tests",
     "test:gc": "node --expose-gc ./vitest.js",
     "test:gc:watch": "node --expose-gc ./vitest.js --watch",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "bench": "vitest bench --run"
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.1.1",
@@ -31,7 +32,7 @@
     "tsup": "^7.2.0",
     "typescript": "5.1.6",
     "vite": "^5.4.10",
-    "vitest": "^0.34.2"
+    "vitest": "^2.0.0"
   },
   "exports": {
     ".": {

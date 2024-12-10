@@ -70,7 +70,7 @@ describe("objects", () => {
   });
 
   it("has properties", () => {
-    const [store, setStore] = createStore<{foo?: string}>({ });
+    const [store, setStore] = createStore<{ foo?: string }>({});
     const effect = vi.fn();
     createEffect(
       () => "foo" in store,
@@ -100,7 +100,7 @@ describe("objects", () => {
     flushSync();
     expect(effect).toHaveBeenCalledTimes(3);
     expect(effect).toHaveBeenCalledWith(false);
-  })
+  });
 });
 
 describe("arrays", () => {

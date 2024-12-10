@@ -1,4 +1,5 @@
-export type { Store, StoreSetter, StoreNode, NotWrappable } from './store.js';
+export type { Store, StoreSetter, StoreNode, NotWrappable } from "./store.js";
+export type { Merge, Omit } from "./utilities.js";
 
 export {
   unwrap,
@@ -8,7 +9,9 @@ export {
   $RAW,
   $TRACK,
   $PROXY,
-  $TARGET,
-} from './store.js';
+  $TARGET
+} from "./store.js";
 
-export { reconcile } from './reconcile.js';
+export { reconcile } from "./reconcile.js";
+
+export { merge, omit } from "./utilities.js";
