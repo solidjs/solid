@@ -9,4 +9,8 @@ export const STATE_CHECK = 1;
 export const STATE_DIRTY = 2;
 export const STATE_DISPOSED = 3;
 
+export const EFFECT_PURE = 0;
+export const EFFECT_RENDER = 1;
+export const EFFECT_USER = 2;
+
 export const SUPPORTS_PROXY = typeof Proxy === "function";

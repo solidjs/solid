@@ -1,9 +1,6 @@
-import { STATE_CLEAN } from "./constants.js";
+import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_CLEAN } from "./constants.js";
 import { Computation, UNCHANGED, type SignalOptions } from "./core.js";
-import { Effects, flushQueue, RenderEffects } from "./scheduler.js";
-
-const USER_EFFECT = 0;
-const RENDER_EFFECT = 1;
+import { globalQueue } from "./scheduler.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -14,7 +11,7 @@ export class Effect<T = any> extends Computation<T> {
   _effect: (val: T, prev: T | undefined) => void;
   _modified: boolean = false;
   _prevValue: T | undefined;
-  _type: 0 | 1;
+  _type: typeof EFFECT_RENDER | typeof EFFECT_USER;
   constructor(
     initialValue: T,
     compute: () => T,
@@ -25,9 +22,8 @@ export class Effect<T = any> extends Computation<T> {
     this._effect = effect;
     this._prevValue = initialValue;
     this._updateIfNecessary();
-    this._type = options?.render ? RENDER_EFFECT : USER_EFFECT;
-    (this._type ? RenderEffects : Effects).push(this);
-    flushQueue();
+    this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
+    globalQueue.enqueue(this._type, this);
   }
 
   override write(value: T): T {
@@ -41,10 +37,7 @@ export class Effect<T = any> extends Computation<T> {
   override _notify(state: number): void {
     if (this._state >= state) return;
 
-    if (this._state === STATE_CLEAN) {
-      (this._type ? RenderEffects : Effects).push(this);
-      flushQueue();
-    }
+    if (this._state === STATE_CLEAN) globalQueue.enqueue(this._type, this);
 
     this._state = state;
   }
@@ -57,5 +50,20 @@ export class Effect<T = any> extends Computation<T> {
     this._effect = undefined as any;
     this._prevValue = undefined;
     super._disposeNode();
+  }
+}
+
+export class EagerComputation<T = any> extends Computation<T> {
+  constructor(initialValue: T, compute: () => T, options?: SignalOptions<T>) {
+    super(initialValue, compute, options);
+    this._updateIfNecessary();
+  }
+
+  override _notify(state: number): void {
+    if (this._state >= state) return;
+
+    if (this._state === STATE_CLEAN) globalQueue.enqueue(EFFECT_PURE, this);
+
+    super._notify(state);
   }
 }

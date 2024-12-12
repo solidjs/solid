@@ -1,27 +1,78 @@
-import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
+import {
+  EFFECT_PURE,
+  EFFECT_RENDER,
+  EFFECT_USER,
+  STATE_CLEAN,
+  STATE_DISPOSED
+} from "./constants.js";
 import { Computation, incrementClock } from "./core.js";
 import type { Effect } from "./effect.js";
 import type { Owner } from "./owner.js";
 
-let scheduled = false,
-  runningScheduled = false;
+let scheduled = false;
+let running = false;
+function schedule() {
+  if (scheduled) return;
+  scheduled = true;
+  queueMicrotask(flushSync);
+}
 
-export let Computations: Computation[] = [],
-  RenderEffects: Effect[] = [],
-  Effects: Effect[] = [];
+interface IQueue {
+  enqueue<T extends Computation | Effect>(type: number, node: T): void;
+  run(type: number): void;
+  addChild(child: IQueue): void;
+  removeChild(child: IQueue): void;
+}
+
+class Queue implements IQueue {
+  _queues: [Computation[], Effect[], Effect[]] = [[], [], []];
+  _children: IQueue[] = [];
+  enqueue<T extends Computation | Effect>(type: number, node: T): void {
+    this._queues[0].push(node as any);
+    if (type) this._queues[type].push(node as any);
+    schedule();
+  }
+  run(type: number) {
+    if (!this._queues[type].length) return;
+    if (type === EFFECT_PURE) {
+      runPureQueue(this._queues[type]);
+      this._queues[type] = [];
+    } else {
+      const effects = this._queues[type] as Effect[];
+      this._queues[type] = [];
+      runEffectQueue(effects);
+    }
+    for (let i = 0; i < this._children.length; i++) {
+      this._children[i].run(type);
+    }
+  }
+  addChild(child: IQueue) {
+    this._children.push(child);
+  }
+  removeChild(child: IQueue) {
+    const index = this._children.indexOf(child);
+    if (index >= 0) this._children.splice(index, 1);
+  }
+}
+
+export const globalQueue = new Queue();
 
 /**
  * By default, changes are batched on the microtask queue which is an async process. You can flush
  * the queue synchronously to get the latest updates by calling `flushSync()`.
  */
 export function flushSync(): void {
-  if (!runningScheduled) runScheduled();
-}
-
-export function flushQueue() {
-  if (scheduled) return;
-  scheduled = true;
-  queueMicrotask(runScheduled);
+  if (running) return;
+  running = true;
+  try {
+    globalQueue.run(EFFECT_PURE);
+    incrementClock();
+    globalQueue.run(EFFECT_RENDER);
+    globalQueue.run(EFFECT_USER);
+  } finally {
+    scheduled = false;
+    running = false;
+  }
 }
 
 /**
@@ -41,30 +92,6 @@ function runTop(node: Computation): void {
 
   for (let i = ancestors.length - 1; i >= 0; i--) {
     if (ancestors[i]._state !== STATE_DISPOSED) ancestors[i]._updateIfNecessary();
-  }
-}
-
-function runScheduled() {
-  if (!Effects.length && !RenderEffects.length && !Computations.length) {
-    scheduled = false;
-    return;
-  }
-  runningScheduled = true;
-  try {
-    runPureQueue(Computations);
-    runPureQueue(RenderEffects);
-    runPureQueue(Effects);
-  } finally {
-    const renderEffects = RenderEffects;
-    const effects = Effects;
-    Computations = [];
-    Effects = [];
-    RenderEffects = [];
-    scheduled = false;
-    runningScheduled = false;
-    incrementClock();
-    runEffectQueue(renderEffects);
-    runEffectQueue(effects);
   }
 }
 

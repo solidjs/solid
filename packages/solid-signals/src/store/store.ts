@@ -1,4 +1,4 @@
-import { Computation, EagerComputation, getObserver, isEqual } from "../core/core.js";
+import { Computation, EagerComputation, getObserver, isEqual } from "../core/index.js";
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => void) => void;

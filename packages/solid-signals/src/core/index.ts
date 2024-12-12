@@ -13,7 +13,6 @@ export {
 } from "./owner.js";
 export {
   Computation,
-  EagerComputation,
   getObserver,
   isEqual,
   untrack,
@@ -24,6 +23,6 @@ export {
   compute,
   type SignalOptions
 } from "./core.js";
-export { Effect } from "./effect.js";
+export { Effect, EagerComputation } from "./effect.js";
 export { flushSync } from "./scheduler.js";
 export * from "./flags.js";
