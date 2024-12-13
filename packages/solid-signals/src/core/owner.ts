@@ -32,6 +32,7 @@ import { isUndefined } from "../utils.js";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
 import type { Computation } from "./core.js";
 import { ContextNotFoundError, NoOwnerError, type ErrorHandler } from "./error.js";
+import type { IQueue } from "./scheduler.js";
 
 export type ContextRecord = Record<string | symbol, unknown>;
 
@@ -68,6 +69,7 @@ export class Owner {
   _disposal: Disposable | Disposable[] | null = null;
   _context: ContextRecord = defaultContext;
   _handlers: ErrorHandler[] | null = null;
+  _queue: IQueue | null = null;
 
   constructor(signal = false) {
     if (currentOwner && !signal) currentOwner.append(this);
@@ -88,6 +90,8 @@ export class Owner {
     if (this._handlers) {
       child._handlers = !child._handlers ? this._handlers : [...child._handlers, ...this._handlers];
     }
+
+    if (this._queue) child._queue = this._queue;
   }
 
   dispose(this: Owner, self = true): void {

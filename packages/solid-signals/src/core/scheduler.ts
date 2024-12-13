@@ -10,21 +10,22 @@ import type { Effect } from "./effect.js";
 import type { Owner } from "./owner.js";
 
 let scheduled = false;
-let running = false;
 function schedule() {
   if (scheduled) return;
   scheduled = true;
   queueMicrotask(flushSync);
 }
 
-interface IQueue {
+export interface IQueue {
   enqueue<T extends Computation | Effect>(type: number, node: T): void;
   run(type: number): void;
+  flush(): void;
   addChild(child: IQueue): void;
   removeChild(child: IQueue): void;
 }
 
 class Queue implements IQueue {
+  _running: boolean = false;
   _queues: [Computation[], Effect[], Effect[]] = [[], [], []];
   _children: IQueue[] = [];
   enqueue<T extends Computation | Effect>(type: number, node: T): void {
@@ -33,17 +34,30 @@ class Queue implements IQueue {
     schedule();
   }
   run(type: number) {
-    if (!this._queues[type].length) return;
-    if (type === EFFECT_PURE) {
-      runPureQueue(this._queues[type]);
-      this._queues[type] = [];
-    } else {
-      const effects = this._queues[type] as Effect[];
-      this._queues[type] = [];
-      runEffectQueue(effects);
+    if (this._queues[type].length) {
+      if (type === EFFECT_PURE) {
+        runPureQueue(this._queues[type]);
+        this._queues[type] = [];
+      } else {
+        const effects = this._queues[type] as Effect[];
+        this._queues[type] = [];
+        runEffectQueue(effects);
+      }
     }
     for (let i = 0; i < this._children.length; i++) {
       this._children[i].run(type);
+    }
+  }
+  flush() {
+    if (this._running) return;
+    this._running = true;
+    try {
+      this.run(EFFECT_PURE);
+      incrementClock();
+      this.run(EFFECT_RENDER);
+      this.run(EFFECT_USER);
+    } finally {
+      this._running = false;
     }
   }
   addChild(child: IQueue) {
@@ -62,17 +76,8 @@ export const globalQueue = new Queue();
  * the queue synchronously to get the latest updates by calling `flushSync()`.
  */
 export function flushSync(): void {
-  if (running) return;
-  running = true;
-  try {
-    globalQueue.run(EFFECT_PURE);
-    incrementClock();
-    globalQueue.run(EFFECT_RENDER);
-    globalQueue.run(EFFECT_USER);
-  } finally {
-    scheduled = false;
-    running = false;
-  }
+  globalQueue.flush();
+  scheduled = false;
 }
 
 /**
