@@ -374,7 +374,6 @@ export function createResource<T, S>(
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options: ResourceOptions<T> | ResourceOptions<undefined> = {}
 ): ResourceReturn<T> | ResourceReturn<T | undefined> {
-  
   if (typeof fetcher !== "function") {
     source = true as ResourceSource<S>;
     fetcher = source as ResourceFetcher<S, T>;
