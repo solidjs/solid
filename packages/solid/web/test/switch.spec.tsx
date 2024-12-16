@@ -8,7 +8,7 @@ import { createRoot, createSignal } from "../../src/index.js";
 import { createStore } from "../../store/src/index.js";
 
 describe("Testing a single match switch control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>
@@ -38,7 +38,7 @@ describe("Testing a single match switch control flow", () => {
 });
 
 describe("Testing an only child Switch control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>
@@ -83,7 +83,7 @@ describe("Testing an only child Switch control flow", () => {
 });
 
 describe("Testing keyed Switch control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [a, setA] = createSignal(0),
     [b, setB] = createSignal(0),
     [c, setC] = createSignal(0);
@@ -127,7 +127,7 @@ describe("Testing keyed Switch control flow", () => {
 });
 
 describe("Testing keyed function handler Switch control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [a, setA] = createSignal(0),
     [b, setB] = createSignal(0),
     [c, setC] = createSignal(0);
@@ -171,7 +171,7 @@ describe("Testing keyed function handler Switch control flow", () => {
 });
 
 describe("Testing non-keyed function handler Switch control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [a, setA] = createSignal(0),
     [b, setB] = createSignal(0),
     [c, setC] = createSignal(0);
@@ -209,7 +209,7 @@ describe("Testing non-keyed function handler Switch control flow", () => {
 });
 
 describe("Testing non-keyed function handler Switch control flow with dangling callback", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [a, setA] = createSignal(0),
     [b] = createSignal(2);
   let callback: () => void;
@@ -251,7 +251,7 @@ describe("Testing non-keyed function handler Switch control flow with dangling c
 });
 
 describe("Testing a For in a Switch control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [state, setState] = createStore({
     users: [
       { firstName: "Jerry", certified: false },

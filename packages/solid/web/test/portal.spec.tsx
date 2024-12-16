@@ -86,8 +86,8 @@ describe("Testing a Portal to the head", () => {
 describe("Testing a Portal with Synthetic Events", () => {
   let div = document.createElement("div"),
     disposer: () => void,
-    checkElem: HTMLDivElement,
-    testElem: HTMLDivElement,
+    checkElem!: HTMLDivElement,
+    testElem!: HTMLDivElement,
     clicked = false;
   const Component = () => (
     <Portal ref={checkElem}>
@@ -119,7 +119,7 @@ describe("Testing a Portal with direct reactive children", () => {
   let div = document.createElement("div"),
     disposer: () => void,
     [count, setCount] = createSignal(0),
-    portalElem: HTMLDivElement;
+    portalElem!: HTMLDivElement;
   const Component = () => <Portal ref={portalElem}>{count()}</Portal>;
 
   test("Create portal control flow", () => {

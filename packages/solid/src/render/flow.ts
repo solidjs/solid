@@ -7,14 +7,15 @@ import {
   Accessor,
   Setter,
   onCleanup,
-  MemoOptions
+  MemoOptions,
+  IS_DEV
 } from "../reactive/signal.js";
 import { mapArray, indexArray } from "../reactive/array.js";
 import { sharedConfig } from "./hydration.js";
 import type { JSX } from "../jsx.js";
 
 const narrowedError = (name: string) =>
-  "_SOLID_DEV_"
+  IS_DEV
     ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
     : `Stale read from <${name}>.`;
 
@@ -37,7 +38,7 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
   children: (item: T[number], index: Accessor<number>) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return ("_SOLID_DEV_"
+  return (IS_DEV
     ? createMemo(
         mapArray(() => props.each, props.children, fallback || undefined),
         undefined,
@@ -67,7 +68,7 @@ export function Index<T extends readonly any[], U extends JSX.Element>(props: {
   children: (item: Accessor<T[number]>, index: number) => U;
 }) {
   const fallback = "fallback" in props && { fallback: () => props.fallback };
-  return ("_SOLID_DEV_"
+  return (IS_DEV
     ? createMemo(
         indexArray(() => props.each, props.children, fallback || undefined),
         undefined,
@@ -108,7 +109,7 @@ export function Show<T>(props: {
   const condition = createMemo<T | undefined | null | boolean>(
     () => props.when,
     undefined,
-    "_SOLID_DEV_"
+    IS_DEV
       ? {
           equals: (a, b) => (keyed ? a === b : !a === !b),
           name: "condition"
@@ -137,7 +138,7 @@ export function Show<T>(props: {
       return props.fallback;
     },
     undefined,
-    "_SOLID_DEV_" ? { name: "value" } : undefined
+    IS_DEV ? { name: "value" } : undefined
   ) as unknown as JSX.Element;
 }
 
@@ -176,7 +177,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
         return [-1];
       },
       undefined,
-      "_SOLID_DEV_" ? { equals, name: "eval conditions" } : { equals }
+      IS_DEV ? { equals, name: "eval conditions" } : { equals }
     );
   return createMemo(
     () => {
@@ -198,7 +199,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
         : c;
     },
     undefined,
-    "_SOLID_DEV_" ? { name: "value" } : undefined
+    IS_DEV ? { name: "value" } : undefined
   ) as unknown as JSX.Element;
 }
 
@@ -259,10 +260,7 @@ export function ErrorBoundary(props: {
   let err;
   if (sharedConfig!.context && sharedConfig!.load)
     err = sharedConfig.load(sharedConfig.getContextId());
-  const [errored, setErrored] = createSignal<any>(
-    err,
-    "_SOLID_DEV_" ? { name: "errored" } : undefined
-  );
+  const [errored, setErrored] = createSignal<any>(err, IS_DEV ? { name: "errored" } : undefined);
   Errors || (Errors = new Set());
   Errors.add(setErrored);
   onCleanup(() => Errors.delete(setErrored));
@@ -271,12 +269,12 @@ export function ErrorBoundary(props: {
       let e: any;
       if ((e = errored())) {
         const f = props.fallback;
-        if ("_SOLID_DEV_" && (typeof f !== "function" || f.length == 0)) console.error(e);
+        if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(e);
         return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
       }
       return catchError(() => props.children, setErrored);
     },
     undefined,
-    "_SOLID_DEV_" ? { name: "value" } : undefined
+    IS_DEV ? { name: "value" } : undefined
   ) as unknown as JSX.Element;
 }

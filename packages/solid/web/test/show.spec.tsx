@@ -7,7 +7,7 @@ import { createRoot, createSignal } from "../../src/index.js";
 import { Show } from "../src/index.js";
 
 describe("Testing an only child show control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>
@@ -37,7 +37,7 @@ describe("Testing an only child show control flow", () => {
 });
 
 describe("Testing an only child show control flow with DOM children", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>
@@ -70,7 +70,7 @@ describe("Testing an only child show control flow with DOM children", () => {
 });
 
 describe("Testing nonkeyed show control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   let executed = 0;
   const Component = () => (
@@ -108,7 +108,7 @@ describe("Testing nonkeyed show control flow", () => {
 });
 
 describe("Testing keyed show control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   let executed = 0;
   const Component = () => (
@@ -146,7 +146,7 @@ describe("Testing keyed show control flow", () => {
 });
 
 describe("Testing nonkeyed function show control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   let executed = 0;
   const Component = () => (
@@ -188,7 +188,7 @@ describe("Testing nonkeyed function show control flow", () => {
 });
 
 describe("Testing keyed function show control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   let executed = 0;
   const Component = () => (
@@ -230,7 +230,7 @@ describe("Testing keyed function show control flow", () => {
 });
 
 describe("Testing an only child show control flow with keyed function", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [data, setData] = createSignal<{ count: number }>();
   const Component = () => (
     <div ref={div}>
@@ -267,7 +267,7 @@ describe("Testing an only child show control flow with keyed function", () => {
 });
 
 describe("Testing an only child show control flow with non-keyed function", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [data, setData] = createSignal<{ count: number }>();
   const Component = () => (
     <div ref={div}>
@@ -304,7 +304,7 @@ describe("Testing an only child show control flow with non-keyed function", () =
 });
 
 describe("Testing an only child show control flow with DOM children and fallback", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
   const Component = () => (
     <div ref={div}>

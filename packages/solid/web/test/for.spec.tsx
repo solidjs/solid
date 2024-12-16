@@ -7,7 +7,7 @@ import { createRoot, createSignal } from "../../src/index.js";
 import { insert, For } from "../src/index.js";
 
 describe("Testing an only child each control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -173,7 +173,7 @@ describe("Testing an multi child each control flow", () => {
 });
 
 describe("Testing an only child each control flow with fragment children", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -264,7 +264,7 @@ describe("Testing an only child each control flow with fragment children", () =>
 });
 
 describe("Testing an only child each control flow with array children", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -348,7 +348,7 @@ describe("Testing an only child each control flow with array children", () => {
 });
 
 describe("Testing each control flow with fallback", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -378,7 +378,7 @@ describe("Testing each control flow with fallback", () => {
 });
 
 describe("Testing each that maps to undefined", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",
@@ -406,7 +406,7 @@ describe("Testing each that maps to undefined", () => {
 });
 
 describe("Testing each with indexes", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
   const n1 = "a",
     n2 = "b",
     n3 = "c",

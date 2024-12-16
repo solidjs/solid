@@ -16,5 +16,5 @@ export * from "./mutable.js";
 export * from "./modifiers.js";
 
 // dev
-import { $NODE, isWrappable, DevHooks } from "./store.js";
-export const DEV = "_SOLID_DEV_" ? ({ $NODE, isWrappable, hooks: DevHooks } as const) : undefined;
+import { $NODE, isWrappable, DevHooks, IS_DEV } from "./store.js";
+export const DEV = IS_DEV ? ({ $NODE, isWrappable, hooks: DevHooks } as const) : undefined;

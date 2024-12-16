@@ -5,7 +5,8 @@ import {
   createSignal,
   Accessor,
   Setter,
-  $TRACK
+  $TRACK,
+  IS_DEV
 } from "./signal.js";
 
 const FALLBACK = Symbol("fallback");
@@ -166,7 +167,7 @@ export function mapArray<T, U>(
     function mapper(disposer: () => void) {
       disposers[j] = disposer;
       if (indexes) {
-        const [s, set] = "_SOLID_DEV_" ? createSignal(j, { name: "index" }) : createSignal(j);
+        const [s, set] = IS_DEV ? createSignal(j, { name: "index" }) : createSignal(j);
         indexes[j] = set;
         return mapFn(newItems[j], s);
       }
@@ -243,7 +244,7 @@ export function indexArray<T, U>(
     });
     function mapper(disposer: () => void) {
       disposers[i] = disposer;
-      const [s, set] = "_SOLID_DEV_"
+      const [s, set] = IS_DEV
         ? createSignal(newItems[i], { name: "value" })
         : createSignal(newItems[i]);
       signals[i] = set;

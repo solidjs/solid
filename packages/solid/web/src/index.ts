@@ -128,7 +128,7 @@ export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.E
     const component = cached();
     switch (typeof component) {
       case "function":
-        if ("_DX_DEV_") Object.assign(component, { [$DEVCOMP]: true });
+        if (isDev) Object.assign(component, { [$DEVCOMP]: true });
         return untrack(() => component(others));
 
       case "string":

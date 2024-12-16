@@ -1,5 +1,8 @@
 import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js";
 
+// replaced during build
+export const IS_DEV = "_SOLID_DEV_" as string | boolean;
+
 export const $RAW = Symbol("store-raw"),
   $NODE = Symbol("store-node"),
   $HAS = Symbol("store-has"),
@@ -192,12 +195,12 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   set() {
-    if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
+    if (IS_DEV) console.warn("Cannot mutate a Store directly");
     return true;
   },
 
   deleteProperty() {
-    if ("_SOLID_DEV_") console.warn("Cannot mutate a Store directly");
+    if (IS_DEV) console.warn("Cannot mutate a Store directly");
     return true;
   },
 
@@ -216,7 +219,7 @@ export function setProperty(
   const prev = state[property],
     len = state.length;
 
-  if ("_SOLID_DEV_")
+  if (IS_DEV)
     DevHooks.onStoreNodeUpdate && DevHooks.onStoreNodeUpdate(state, property, value, prev);
 
   if (value === undefined) {
@@ -502,12 +505,12 @@ export function createStore<T extends object = {}>(
 ): [get: Store<T>, set: SetStoreFunction<T>] {
   const unwrappedStore = unwrap((store || {}) as T);
   const isArray = Array.isArray(unwrappedStore);
-  if ("_SOLID_DEV_" && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
+  if (IS_DEV && typeof unwrappedStore !== "object" && typeof unwrappedStore !== "function")
     throw new Error(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
     );
   const wrappedStore = wrap(unwrappedStore);
-  if ("_SOLID_DEV_") DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
+  if (IS_DEV) DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
   function setStore(...args: any[]): void {
     batch(() => {
       isArray && args.length === 1

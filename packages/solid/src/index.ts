@@ -72,17 +72,15 @@ type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { registerGraph, writeSignal, DevHooks } from "./reactive/signal.js";
-export const DEV = "_SOLID_DEV_"
-  ? ({ hooks: DevHooks, writeSignal, registerGraph } as const)
-  : undefined;
+import { registerGraph, writeSignal, DevHooks, IS_DEV } from "./reactive/signal.js";
+export const DEV = IS_DEV ? ({ hooks: DevHooks, writeSignal, registerGraph } as const) : undefined;
 
 // handle multiple instance check
 declare global {
   var Solid$$: boolean;
 }
 
-if ("_SOLID_DEV_" && globalThis) {
+if (IS_DEV && globalThis) {
   if (!globalThis.Solid$$) globalThis.Solid$$ = true;
   else
     console.warn(
