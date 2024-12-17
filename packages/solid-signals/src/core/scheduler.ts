@@ -5,9 +5,9 @@ import {
   STATE_CLEAN,
   STATE_DISPOSED
 } from "./constants.js";
-import { Computation, incrementClock } from "./core.js";
+import { Computation, compute, incrementClock } from "./core.js";
 import type { Effect } from "./effect.js";
-import type { Owner } from "./owner.js";
+import { onCleanup, Owner } from "./owner.js";
 
 let scheduled = false;
 function schedule() {
@@ -24,7 +24,7 @@ export interface IQueue {
   removeChild(child: IQueue): void;
 }
 
-class Queue implements IQueue {
+export class Queue implements IQueue {
   _running: boolean = false;
   _queues: [Computation[], Effect[], Effect[]] = [[], [], []];
   _children: IQueue[] = [];
@@ -78,6 +78,14 @@ export const globalQueue = new Queue();
 export function flushSync(): void {
   globalQueue.flush();
   scheduled = false;
+}
+
+export function createBoundary<T>(fn: () => T, queue: IQueue): T {
+  const owner = new Owner();
+  const parentQueue = owner._queue || globalQueue;
+  parentQueue.addChild((owner._queue = queue));
+  onCleanup(() => parentQueue.removeChild(owner._queue!));
+  return compute(owner, fn, null);
 }
 
 /**

@@ -11,7 +11,6 @@ import {
   UNCHANGED,
   untrack
 } from "./core/index.js";
-import { globalQueue, type IQueue } from "./core/scheduler.js";
 
 export interface Accessor<T> {
   (): T;
@@ -206,12 +205,4 @@ export function catchError<T>(fn: () => T, handler: (error: unknown) => void): v
   } catch (error) {
     owner.handleError(error);
   }
-}
-
-export function createBoundary<T>(fn: () => T, queue: IQueue): T {
-  const owner = new Owner();
-  const parentQueue = owner._queue || globalQueue;
-  parentQueue.addChild(owner._queue = queue);
-  onCleanup(() => parentQueue.removeChild(owner._queue!));
-  return compute(owner, fn, null);
 }

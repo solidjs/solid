@@ -4,7 +4,10 @@ export {
   NoOwnerError,
   NotReadyError,
   Owner,
+  Queue,
   createContext,
+  flushSync,
+  createBoundary,
   getContext,
   setContext,
   hasContext,
@@ -15,16 +18,17 @@ export {
   untrack,
   hasUpdated,
   isPending,
-  latest
+  latest,
+  createSuspense
 } from "./core/index.js";
 export type {
   ErrorHandler,
   SignalOptions,
   Context,
   ContextRecord,
-  Disposable
+  Disposable,
+  IQueue
 } from "./core/index.js";
-export { flushSync } from "./core/scheduler.js";
 export { mapArray, type Maybe } from "./map.js";
 export * from "./signals.js";
 export * from "./store/index.js";

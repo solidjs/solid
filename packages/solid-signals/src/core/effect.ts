@@ -1,7 +1,9 @@
 import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_CLEAN } from "./constants.js";
 import { Computation, UNCHANGED, type SignalOptions } from "./core.js";
+import { LOADING_BIT } from "./flags.js";
 import { getOwner } from "./owner.js";
 import { globalQueue, type IQueue } from "./scheduler.js";
+import type { SuspenseQueue } from "./suspense.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -23,13 +25,18 @@ export class Effect<T = any> extends Computation<T> {
     super(initialValue, compute, options);
     this._effect = effect;
     this._prevValue = initialValue;
-    this._updateIfNecessary();
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     this._queue = getOwner()?._queue || globalQueue;
     this._queue.enqueue(this._type, this);
+    this._updateIfNecessary();
   }
 
-  override write(value: T): T {
+  override write(value: T, flags = 0): T {
+    const currentFlags = this._stateFlags;
+    this._stateFlags = flags;
+    if ((flags & LOADING_BIT) !== (currentFlags & LOADING_BIT)) {
+      (this._queue as SuspenseQueue)._update?.(this);
+    }
     if (value === UNCHANGED) return this._value as T;
     this._value = value;
     this._modified = true;
