@@ -80,6 +80,7 @@ function resolveSource(s: any) {
 
 const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
 export function merge<T extends unknown[]>(...sources: T): Merge<T> {
+  if (sources.length === 1) return sources[0] as any;
   let proxy = false;
   const flattened: T[] = [];
   for (let i = 0; i < sources.length; i++) {
@@ -120,14 +121,20 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
   }
 
   const defined: Record<string, PropertyDescriptor> = Object.create(null);
-  for (let i = flattened.length - 1; i >= 0; i--) {
+  let nonTargetKey = false;
+  let lastIndex = flattened.length - 1;
+  for (let i = lastIndex; i >= 0; i--) {
     const source = flattened[i] as Record<string, any>;
-    if (!source) continue;
+    if (!source) {
+      i === lastIndex && lastIndex--;
+      continue;
+    }
     const sourceKeys = Object.getOwnPropertyNames(source);
-    for (let i = sourceKeys.length - 1; i >= 0; i--) {
-      const key = sourceKeys[i];
+    for (let j = sourceKeys.length - 1; j >= 0; j--) {
+      const key = sourceKeys[j];
       if (key === "__proto__" || key === "constructor") continue;
       if (!defined[key]) {
+        nonTargetKey = nonTargetKey || i !== lastIndex;
         const desc = Object.getOwnPropertyDescriptor(source, key)!;
         defined[key] = desc.get
           ? {
@@ -139,6 +146,7 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
       }
     }
   }
+  if (!nonTargetKey) return flattened[lastIndex] as any;
   const target: Record<string, any> = {};
   const definedKeys = Object.keys(defined);
   for (let i = definedKeys.length - 1; i >= 0; i--) {

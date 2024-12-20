@@ -97,7 +97,7 @@ describe("merge", () => {
         }
       }
     );
-    const props = merge({}, a);
+    const props = merge(a, {});
     expect((props as any).value1).toBe(2);
     expect(Object.getOwnPropertyDescriptor(props, "value1")?.enumerable).toBeTruthy();
     expect(Object.keys(props).join()).toBe("value1");
@@ -112,11 +112,26 @@ describe("merge", () => {
     });
     expect(Object.keys(props).join("")).toBe("value1");
   });
-  it("always returns a new reference", () => {
+  it("returns same reference when only one argument", () => {
     const props = {};
     const newProps = merge(props);
-    expect(props === newProps).toBeFalsy();
+    expect(props === newProps).toBeTruthy();
   });
+  it("returns same reference with trailing falsy arguements", () => {
+    const props = {};
+    const newProps = merge(props, null, undefined);
+    expect(props === newProps).toBeTruthy();
+  });
+  it("returns same reference when all keys are covered", () => {
+    const props = { a: 1, b: 2 };
+    const newProps = merge({ a: 2 }, { b: 2 }, props);
+    expect(props === newProps).toBeTruthy();
+  })
+  it("returns new reference when all keys are not covered", () => {
+    const props = { a: 1 };
+    const newProps = merge({ a: 2 }, { b: 2 }, props);
+    expect(props === newProps).toBeFalsy();
+  })
   it("uses the source instances", () => {
     const source1 = {
       get a() {
@@ -229,7 +244,7 @@ describe("Clone Props", () => {
       b: null,
       c: "j"
     };
-    const newProps = merge({}, props);
+    const newProps = merge(props, {});
     expect(reactive).toBe(false);
     expect(newProps.a).toBe("ji");
     expect(reactive).toBe(true);
@@ -245,7 +260,8 @@ describe("Clone Store", () => {
       a: "Hi",
       b: "Jo"
     });
-    const clone = merge(state);
+    const clone = merge(state, {});
+    expect(state === clone).toBeFalsy();
     expect(clone.a).toBe("Hi");
     expect(clone.b).toBe("Jo");
     setState(v => {
@@ -255,6 +271,14 @@ describe("Clone Store", () => {
     expect(clone.a).toBe("Greetings");
     expect(clone.b).toBe("Jo");
     expect(clone.c).toBe("John");
+  });
+  it("returns same reference when only one argument", () => {
+    const [state, setState] = createStore<{ a: string; b: string; c?: string }>({
+      a: "Hi",
+      b: "Jo"
+    });
+    const clone = merge(state);
+    expect(state === clone).toBeTruthy();
   });
 });
 
