@@ -130,23 +130,31 @@ describe("Dev features", () => {
     });
   });
 
-  test("afterCreateSignal Hook", () => {
+  test("afterRegisterGraph Hook", () => {
     createRoot(() => {
       const owner = getOwner()!;
       const cb = vi.fn();
-      DEV!.hooks.afterCreateSignal = cb;
+      DEV!.hooks.afterRegisterGraph = cb;
 
-      createSignal(3, { name: "test" });
+      createSignal(1);
       expect(cb).toHaveBeenCalledTimes(1);
       expect(cb).toHaveBeenLastCalledWith(owner.sourceMap![0]);
+      expect(owner.sourceMap).toHaveLength(1);
 
-      createSignal(5);
+      createSignal(2, { internal: true });
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(owner.sourceMap).toHaveLength(1);
+
+      createStore({});
       expect(cb).toHaveBeenCalledTimes(2);
       expect(cb).toHaveBeenLastCalledWith(owner.sourceMap![1]);
+      expect(owner.sourceMap).toHaveLength(2);
 
-      createSignal(6, { name: "explicit" });
+      const customValue = {value: 3};
+      DEV!.registerGraph(customValue);
       expect(cb).toHaveBeenCalledTimes(3);
-      expect(cb).toHaveBeenLastCalledWith(owner.sourceMap![2]);
+      expect(cb).toHaveBeenLastCalledWith(customValue);
+      expect(owner.sourceMap).toHaveLength(3);
     });
   });
 

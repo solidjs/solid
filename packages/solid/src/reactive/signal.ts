@@ -61,11 +61,14 @@ let ExecCount = 0;
 export const DevHooks: {
   afterUpdate: (() => void) | null;
   afterCreateOwner: ((owner: Owner) => void) | null;
+  /** @deprecated use `afterRegisterGraph` */
   afterCreateSignal: ((signal: SignalState<any>) => void) | null;
+  afterRegisterGraph: ((sourceMapValue: SourceMapValue) => void) | null;
 } = {
   afterUpdate: null,
   afterCreateOwner: null,
-  afterCreateSignal: null
+  afterCreateSignal: null,
+  afterRegisterGraph: null,
 };
 
 export type ComputationState = 0 | 1 | 2;
@@ -1131,10 +1134,12 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
 }
 
 export function registerGraph(value: SourceMapValue): void {
-  if (!Owner) return;
-  if (Owner.sourceMap) Owner.sourceMap.push(value);
-  else Owner.sourceMap = [value];
-  value.graph = Owner;
+  if (Owner) {
+    if (Owner.sourceMap) Owner.sourceMap.push(value);
+    else Owner.sourceMap = [value];
+    value.graph = Owner;
+  }
+  if (DevHooks.afterRegisterGraph) DevHooks.afterRegisterGraph(value)
 }
 
 export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
