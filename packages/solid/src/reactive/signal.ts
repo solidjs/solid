@@ -591,7 +591,7 @@ export function createResource<T, S, R>(
   let source: ResourceSource<S>;
   let fetcher: ResourceFetcher<S, T, R>;
   let options: ResourceOptions<T, S>;
-  
+
   if (typeof pFetcher === "function") {
     source = pSource as ResourceSource<S>;
     fetcher = pFetcher as ResourceFetcher<S, T, R>;

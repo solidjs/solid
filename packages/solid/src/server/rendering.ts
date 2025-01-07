@@ -429,7 +429,6 @@ export function createResource<T, S>(
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options: ResourceOptions<T> | ResourceOptions<undefined> = {}
 ): ResourceReturn<T> | ResourceReturn<T | undefined> {
-  
   if (typeof fetcher !== "function") {
     options = (fetcher || {}) as ResourceOptions<T> | ResourceOptions<undefined>;
     fetcher = source as ResourceFetcher<S, T>;
@@ -678,7 +677,9 @@ export function Suspense(props: { fallback?: string; children: string }) {
     if (ctx.async) {
       setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0F", noHydrate: true });
       const res = {
-        t: `<template id="pl-${id}"></template>${resolveSSRNode(escape(props.fallback))}<!--pl-${id}-->`
+        t: `<template id="pl-${id}"></template>${resolveSSRNode(
+          escape(props.fallback)
+        )}<!--pl-${id}-->`
       };
       setHydrateContext(ctx);
       return res;
