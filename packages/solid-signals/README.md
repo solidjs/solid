@@ -1,5 +1,5 @@
 # @solidjs/signals
 
-The start of something good.
+Standalone Reactive implementation to serve as the basis of future (post 1.x) versions of SolidJS. This package aims to be core for Signals library made with rendering in mind so it may have more features and opinions than common Signals libraries, but are still necessary core to accomplish the type of capabilities we intend.
 
-This is very much still under construction. It needs to be optimized for size and performance. APIs are not in any way final and many are missing. This is acting as our playground as we explore reactivity for future version of Solid. It is not compatible with current Solid but instead will serve as basis for the next versions.
+This is not ready for production and should be considered pre-alpha. This package is completely experimental and every release may be breaking. It is also not tuned for performance as of yet as we are still focusing on capability.
