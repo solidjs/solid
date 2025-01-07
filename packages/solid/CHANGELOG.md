@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.9.4
+
+### Patch Changes
+
+- b93956f: fix escaping in resolution done outside of DOM Expressions
+- 199dd69: fix reconcile null guard
+- 7f9cd3d: lazy image, tagged template detection, security fixes
+- 32aa744: Improve resolving arguments in createResource
+
 ## 1.9.3
 
 ### Patch Changes
