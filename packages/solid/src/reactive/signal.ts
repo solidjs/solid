@@ -28,6 +28,9 @@ import { setHydrateContext, sharedConfig } from "../render/hydration.js";
 import type { JSX } from "../jsx.js";
 import type { FlowComponent, FlowProps } from "../render/index.js";
 
+// replaced during build
+export const IS_DEV = "_SOLID_DEV_" as string | boolean;
+
 export const equalFn = <T>(a: T, b: T) => a === b;
 export const $PROXY = Symbol("solid-proxy");
 export const SUPPORTS_PROXY = typeof Proxy === "function";
@@ -145,7 +148,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
     unowned = fn.length === 0,
     current = detachedOwner === undefined ? owner : detachedOwner,
     root: Owner = unowned
-      ? "_SOLID_DEV_"
+      ? IS_DEV
         ? { owned: null, cleanups: null, context: null, owner: null }
         : UNOWNED
       : {
@@ -155,7 +158,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
           owner: current
         },
     updateFn = unowned
-      ? "_SOLID_DEV_"
+      ? IS_DEV
         ? () =>
             fn(() => {
               throw new Error("Dispose method must be an explicit argument to createRoot function");
@@ -163,7 +166,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
         : fn
       : () => fn(() => untrack(() => cleanNode(root)));
 
-  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
+  if (IS_DEV) DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
 
   Owner = root;
   Listener = null;
@@ -231,7 +234,7 @@ export function createSignal<T>(
     comparator: options.equals || undefined
   };
 
-  if ("_SOLID_DEV_") {
+  if (IS_DEV) {
     if (options.name) s.name = options.name;
     if (DevHooks.afterCreateSignal) DevHooks.afterCreateSignal(s);
     if (!options.internal) registerGraph(s);
@@ -288,7 +291,7 @@ export function createComputed<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  const c = createComputation(fn, value!, true, STALE, "_SOLID_DEV_" ? options : undefined);
+  const c = createComputation(fn, value!, true, STALE, IS_DEV ? options : undefined);
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -319,7 +322,7 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined);
+  const c = createComputation(fn, value!, false, STALE, IS_DEV ? options : undefined);
   if (Scheduler && Transition && Transition.running) Updates!.push(c);
   else updateComputation(c);
 }
@@ -351,7 +354,7 @@ export function createEffect<Next, Init>(
   options?: EffectOptions & { render?: boolean }
 ): void {
   runEffects = runUserEffects;
-  const c = createComputation(fn, value!, false, STALE, "_SOLID_DEV_" ? options : undefined),
+  const c = createComputation(fn, value!, false, STALE, IS_DEV ? options : undefined),
     s = SuspenseContext && useContext(SuspenseContext);
   if (s) c.suspense = s;
   if (!options || !options.render) c.user = true;
@@ -381,7 +384,7 @@ export function createReaction(onInvalidate: () => void, options?: EffectOptions
       undefined,
       false,
       0,
-      "_SOLID_DEV_" ? options : undefined
+      IS_DEV ? options : undefined
     ),
     s = SuspenseContext && useContext(SuspenseContext);
   if (s) c.suspense = s;
@@ -439,7 +442,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
     value!,
     true,
     0,
-    "_SOLID_DEV_" ? options : undefined
+    IS_DEV ? options : undefined
   ) as Partial<Memo<Init, Next>>;
 
   c.observers = null;
@@ -829,7 +832,7 @@ export function createSelector<T, U = T>(
     undefined,
     true,
     STALE,
-    "_SOLID_DEV_" ? options : undefined
+    IS_DEV ? options : undefined
   ) as Memo<any>;
   updateComputation(node);
   return (key: U) => {
@@ -839,8 +842,8 @@ export function createSelector<T, U = T>(
       if ((l = subs.get(key))) l.add(listener);
       else subs.set(key, (l = new Set([listener])));
       onCleanup(() => {
-        l!.delete(listener!);
-        !l!.size && subs.delete(key);
+        l.delete(listener);
+        !l.size && subs.delete(key);
       });
     }
     return fn(
@@ -982,8 +985,7 @@ export function onMount(fn: () => void) {
  */
 export function onCleanup<T extends () => any>(fn: T): T {
   if (Owner === null)
-    "_SOLID_DEV_" &&
-      console.warn("cleanups created outside a `createRoot` or `render` will never be run");
+    IS_DEV && console.warn("cleanups created outside a `createRoot` or `render` will never be run");
   else if (Owner.cleanups === null) Owner.cleanups = [fn];
   else Owner.cleanups.push(fn);
   return fn;
@@ -1207,7 +1209,7 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  */
 export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
   const children = createMemo(fn);
-  const memo = "_SOLID_DEV_"
+  const memo = IS_DEV
     ? createMemo(() => resolveChildren(children()), undefined, { name: "children" })
     : createMemo(() => resolveChildren(children()));
   (memo as ChildrenReturn).toArray = () => {
@@ -1329,7 +1331,7 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
         }
         if (Updates!.length > 10e5) {
           Updates = [];
-          if ("_SOLID_DEV_") throw new Error("Potential Infinite Loop Detected.");
+          if (IS_DEV) throw new Error("Potential Infinite Loop Detected.");
           throw new Error();
         }
       }, false);
@@ -1426,7 +1428,7 @@ function createComputation<Next, Init = unknown>(
   }
 
   if (Owner === null)
-    "_SOLID_DEV_" &&
+    IS_DEV &&
       console.warn(
         "computations created outside a `createRoot` or `render` will never be disposed"
       );
@@ -1440,7 +1442,7 @@ function createComputation<Next, Init = unknown>(
     }
   }
 
-  if ("_SOLID_DEV_" && options && options.name) c.name = options.name;
+  if (IS_DEV && options && options.name) c.name = options.name;
 
   if (ExternalSourceConfig && c.fn) {
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
@@ -1455,7 +1457,7 @@ function createComputation<Next, Init = unknown>(
     };
   }
 
-  if ("_SOLID_DEV_") DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(c);
+  if (IS_DEV) DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(c);
 
   return c;
 }
@@ -1464,8 +1466,7 @@ function runTop(node: Computation<any>) {
   const runningTransition = Transition && Transition.running;
   if ((runningTransition ? node.tState : node.state) === 0) return;
   if ((runningTransition ? node.tState : node.state) === PENDING) return lookUpstream(node);
-  if (node.suspense && untrack(node.suspense.inFallback!))
-    return node!.suspense.effects!.push(node!);
+  if (node.suspense && untrack(node.suspense.inFallback!)) return node.suspense.effects!.push(node);
   const ancestors = [node];
   while (
     (node = node.owner as Computation<any>) &&
@@ -1557,8 +1558,8 @@ function completeUpdates(wait: boolean) {
   }
   const e = Effects!;
   Effects = null;
-  if (e!.length) runUpdates(() => runEffects(e), false);
-  else if ("_SOLID_DEV_") DevHooks.afterUpdate && DevHooks.afterUpdate();
+  if (e.length) runUpdates(() => runEffects(e), false);
+  else if (IS_DEV) DevHooks.afterUpdate && DevHooks.afterUpdate();
   if (res) res();
 }
 
@@ -1675,7 +1676,7 @@ function cleanNode(node: Owner) {
   }
   if (Transition && Transition.running) (node as Computation<any>).tState = 0;
   else (node as Computation<any>).state = 0;
-  "_SOLID_DEV_" && delete node.sourceMap;
+  IS_DEV && delete node.sourceMap;
 }
 
 function reset(node: Computation<any>, top?: boolean) {
@@ -1707,7 +1708,7 @@ function handleError(err: unknown, owner = Owner) {
   if (!fns) throw error;
 
   if (Effects)
-    Effects!.push({
+    Effects.push({
       fn() {
         runErrors(error, fns, owner);
       },
@@ -1759,7 +1760,7 @@ type TODO = any;
 export function onError(fn: (err: Error) => void): void {
   ERROR || (ERROR = Symbol("error"));
   if (Owner === null)
-    "_SOLID_DEV_" &&
+    IS_DEV &&
       console.warn("error handlers created outside a `createRoot` or `render` will never be run");
   else if (Owner.context === null || !Owner.context[ERROR]) {
     // terrible de-opt
