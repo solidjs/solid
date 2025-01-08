@@ -58,11 +58,11 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   useShadow?: T;
   isSVG?: S;
   ref?:
-    | (S extends true ? SVGGElement : HTMLDivElement)
-    | ((
-        el: (T extends true ? { readonly shadowRoot: ShadowRoot } : {}) &
-          (S extends true ? SVGGElement : HTMLDivElement)
-      ) => void);
+  | (S extends true ? SVGGElement : HTMLDivElement)
+  | ((
+    el: (T extends true ? { readonly shadowRoot: ShadowRoot } : {}) &
+      (S extends true ? SVGGElement : HTMLDivElement)
+  ) => void);
   children: JSX.Element;
 }) {
   const { useShadow } = props,
@@ -112,6 +112,10 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   [K in keyof P]: P[K];
 } & {
   component: T | undefined;
+};
+
+export type ClassList = {
+  [k: string]: boolean | undefined;
 };
 
 /**
