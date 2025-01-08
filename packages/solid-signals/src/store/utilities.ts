@@ -80,7 +80,7 @@ function resolveSource(s: any) {
 
 const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
 export function merge<T extends unknown[]>(...sources: T): Merge<T> {
-  if (sources.length === 1) return sources[0] as any;
+  if (sources.length === 1 && typeof sources[0] !== "function") return sources[0] as any;
   let proxy = false;
   const flattened: T[] = [];
   for (let i = 0; i < sources.length; i++) {
