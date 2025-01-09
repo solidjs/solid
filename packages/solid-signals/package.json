@@ -2,7 +2,12 @@
   "name": "@solidjs/signals",
   "version": "0.0.2",
   "description": "",
-  "license": "ISC",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solidjs/signals"
+  },
   "type": "module",
   "main": "dist/node.cjs",
   "module": "dist/prod.js",
