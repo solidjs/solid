@@ -7,7 +7,8 @@ import {
   $PROXY,
   SUPPORTS_PROXY,
   $DEVCOMP,
-  EffectFunction
+  EffectFunction,
+  IS_DEV
 } from "../reactive/signal.js";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
 import type { JSX } from "../jsx.js";
@@ -99,14 +100,14 @@ export function createComponent<T extends Record<string, any>>(
     if (sharedConfig.context) {
       const c = sharedConfig.context;
       setHydrateContext(nextHydrateContext());
-      const r = "_SOLID_DEV_"
+      const r = IS_DEV
         ? devComponent(Comp, props || ({} as T))
         : untrack(() => Comp(props || ({} as T)));
       setHydrateContext(c);
       return r;
     }
   }
-  if ("_SOLID_DEV_") return devComponent(Comp, props || ({} as T));
+  if (IS_DEV) return devComponent(Comp, props || ({} as T));
   return untrack(() => Comp(props || ({} as T)));
 }
 
@@ -377,10 +378,10 @@ export function lazy<T extends Component<any>>(
       (Comp = comp())
         ? untrack(() => {
             if (!ctx || sharedConfig.done)
-              return "_SOLID_DEV_" ? devComponent(Comp!, props) : Comp!(props);
+              return IS_DEV ? devComponent(Comp!, props) : Comp!(props);
             const c = sharedConfig.context;
             setHydrateContext(ctx);
-            const r = "_SOLID_DEV_" ? devComponent(Comp!, props) : Comp!(props);
+            const r = IS_DEV ? devComponent(Comp!, props) : Comp!(props);
             setHydrateContext(c);
             return r;
           })

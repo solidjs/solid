@@ -29,6 +29,61 @@ export type ComponentProps<T extends ValidComponent> = T extends Component<infer
   ? JSX.IntrinsicElements[T]
   : Record<string, unknown>;
 
+// these methods are duplicates from solid-js/web
+// we need a better solution for this in the future
+function escape(s: any, attr?: boolean) {
+  const t = typeof s;
+  if (t !== "string") {
+    if (!attr && t === "function") return escape(s());
+    if (!attr && Array.isArray(s)) {
+      for (let i = 0; i < s.length; i++) s[i] = escape(s[i]);
+      return s;
+    }
+    if (attr && t === "boolean") return String(s);
+    return s;
+  }
+  const delim = attr ? '"' : "<";
+  const escDelim = attr ? "&quot;" : "&lt;";
+  let iDelim = s.indexOf(delim);
+  let iAmp = s.indexOf("&");
+
+  if (iDelim < 0 && iAmp < 0) return s;
+
+  let left = 0,
+    out = "";
+
+  while (iDelim >= 0 && iAmp >= 0) {
+    if (iDelim < iAmp) {
+      if (left < iDelim) out += s.substring(left, iDelim);
+      out += escDelim;
+      left = iDelim + 1;
+      iDelim = s.indexOf(delim, left);
+    } else {
+      if (left < iAmp) out += s.substring(left, iAmp);
+      out += "&amp;";
+      left = iAmp + 1;
+      iAmp = s.indexOf("&", left);
+    }
+  }
+
+  if (iDelim >= 0) {
+    do {
+      if (left < iDelim) out += s.substring(left, iDelim);
+      out += escDelim;
+      left = iDelim + 1;
+      iDelim = s.indexOf(delim, left);
+    } while (iDelim >= 0);
+  } else
+    while (iAmp >= 0) {
+      if (left < iAmp) out += s.substring(left, iAmp);
+      out += "&amp;";
+      left = iAmp + 1;
+      iAmp = s.indexOf("&", left);
+    }
+
+  return left < s.length ? out + s.substring(left) : out;
+}
+
 function resolveSSRNode(node: any): string {
   const t = typeof node;
   if (t === "string") return node;
@@ -304,7 +359,7 @@ export function ErrorBoundary(props: {
   });
   if (error) return displayFallback();
   sync = false;
-  return { t: `<!--!$e${id}-->${resolveSSRNode(res)}<!--!$/e${id}-->` };
+  return { t: `<!--!$e${id}-->${resolveSSRNode(escape(res))}<!--!$/e${id}-->` };
 }
 
 // Suspense Context
@@ -374,11 +429,10 @@ export function createResource<T, S>(
   fetcher?: ResourceFetcher<S, T> | ResourceOptions<T> | ResourceOptions<undefined>,
   options: ResourceOptions<T> | ResourceOptions<undefined> = {}
 ): ResourceReturn<T> | ResourceReturn<T | undefined> {
-  
   if (typeof fetcher !== "function") {
-    source = true as ResourceSource<S>;
-    fetcher = source as ResourceFetcher<S, T>;
     options = (fetcher || {}) as ResourceOptions<T> | ResourceOptions<undefined>;
+    fetcher = source as ResourceFetcher<S, T>;
+    source = true as ResourceSource<S>;
   }
 
   const contexts = new Set<SuspenseContextType>();
@@ -585,7 +639,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
       completed: () => {
         const res = runSuspense();
         if (suspenseComplete(value)) {
-          done!(resolveSSRNode(res));
+          done!(resolveSSRNode(escape(res)));
         }
       }
     });
@@ -623,7 +677,9 @@ export function Suspense(props: { fallback?: string; children: string }) {
     if (ctx.async) {
       setHydrateContext({ ...ctx, count: 0, id: ctx.id + "0F", noHydrate: true });
       const res = {
-        t: `<template id="pl-${id}"></template>${resolveSSRNode(props.fallback)}<!--pl-${id}-->`
+        t: `<template id="pl-${id}"></template>${resolveSSRNode(
+          escape(props.fallback)
+        )}<!--pl-${id}-->`
       };
       setHydrateContext(ctx);
       return res;

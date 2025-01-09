@@ -8,7 +8,7 @@ import { createStore } from "../../store/src/index.js";
 import { Dynamic } from "../src/index.js";
 
 describe("Testing Dynamic control flow", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
 
   interface ExampleProps {
     id: string;
@@ -56,7 +56,7 @@ describe("Testing Dynamic control flow", () => {
 });
 
 describe("Testing Dynamic with state spread", () => {
-  let div: HTMLDivElement, disposer: () => void;
+  let div!: HTMLDivElement, disposer: () => void;
 
   interface ExampleProps {
     id: string;

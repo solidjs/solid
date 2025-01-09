@@ -2,4 +2,4 @@
 "solid-js": patch
 ---
 
-fix reconcile null guard
+Update typescript to 5.7
