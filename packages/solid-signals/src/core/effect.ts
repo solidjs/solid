@@ -1,4 +1,10 @@
-import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_CLEAN } from "./constants.js";
+import {
+  EFFECT_PURE,
+  EFFECT_RENDER,
+  EFFECT_USER,
+  STATE_CLEAN,
+  STATE_DISPOSED
+} from "./constants.js";
 import { Computation, UNCHANGED, type SignalOptions } from "./core.js";
 import { LOADING_BIT } from "./flags.js";
 import { getOwner } from "./owner.js";
@@ -27,8 +33,8 @@ export class Effect<T = any> extends Computation<T> {
     this._prevValue = initialValue;
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     this._queue = getOwner()?._queue || globalQueue;
-    this._queue.enqueue(this._type, this);
     this._updateIfNecessary();
+    this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect();
   }
 
   override write(value: T, flags = 0): T {
@@ -60,6 +66,14 @@ export class Effect<T = any> extends Computation<T> {
     this._effect = undefined as any;
     this._prevValue = undefined;
     super._disposeNode();
+  }
+
+  _runEffect() {
+    if (this._modified && this._state !== STATE_DISPOSED) {
+      this._effect(this._value!, this._prevValue);
+      this._prevValue = this._value;
+      this._modified = false;
+    }
   }
 }
 

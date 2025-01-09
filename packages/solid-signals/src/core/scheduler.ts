@@ -115,11 +115,5 @@ function runPureQueue(queue: Computation[]) {
 }
 
 function runEffectQueue(queue: Effect[]) {
-  for (let i = 0; i < queue.length; i++) {
-    if (queue[i]._modified && queue[i]._state !== STATE_DISPOSED) {
-      queue[i]._effect(queue[i]._value, queue[i]._prevValue);
-      queue[i]._modified = false;
-      queue[i]._prevValue = queue[i]._value;
-    }
-  }
+  for (let i = 0; i < queue.length; i++) queue[i]._runEffect();
 }

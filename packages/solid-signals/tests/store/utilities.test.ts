@@ -126,12 +126,12 @@ describe("merge", () => {
     const props = { a: 1, b: 2 };
     const newProps = merge({ a: 2 }, { b: 2 }, props);
     expect(props === newProps).toBeTruthy();
-  })
+  });
   it("returns new reference when all keys are not covered", () => {
     const props = { a: 1 };
     const newProps = merge({ a: 2 }, { b: 2 }, props);
     expect(props === newProps).toBeFalsy();
-  })
+  });
   it("uses the source instances", () => {
     const source1 = {
       get a() {
