@@ -6,7 +6,7 @@ module.exports = function (context, options = {}) {
       jsxTransform,
       Object.assign(
         {
-          moduleName: "solid-js/web",
+          moduleName: "@solidjs/web",
           builtIns: [
             "For",
             "Show",

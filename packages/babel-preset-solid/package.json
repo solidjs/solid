@@ -14,7 +14,7 @@
     "test": "node test.js"
   },
   "dependencies": {
-    "babel-plugin-jsx-dom-expressions": "^0.39.5"
+    "babel-plugin-jsx-dom-expressions": "^0.40.0-next.0"
   },
   "peerDependencies": {
     "@babel/core": "^7.0.0"

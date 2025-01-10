@@ -1,79 +1,72 @@
 export {
-  $DEVCOMP,
   $PROXY,
   $TRACK,
-  batch,
+  $RAW,
+  flushSync,
   catchError,
-  children,
-  createComputed,
-  createContext,
-  createDeferred,
+  createAsync,
   createEffect,
   createMemo,
-  createReaction,
+  createProjection,
   createRenderEffect,
-  createResource,
   createRoot,
-  createSelector,
   createSignal,
-  enableExternalSource,
-  enableScheduling,
-  equalFn,
-  getListener,
+  createStore,
+  isEqual,
+  isWrappable,
+  getObserver,
   getOwner,
-  on,
+  mapArray,
+  merge,
+  omit,
   onCleanup,
-  onError,
-  onMount,
+  reconcile,
   runWithOwner,
-  startTransition,
   untrack,
-  useContext,
-  useTransition
-} from "./reactive/signal.js";
+  unwrap
+} from "@solidjs/signals";
+
 export type {
   Accessor,
-  AccessorArray,
+  Merge,
+  NotWrappable,
+  Omit,
+  Owner,
+  Signal,
+  SignalOptions,
+  Setter,
+  Store,
+  SolidStore,
+  StoreNode,
+  StoreSetter
+} from "@solidjs/signals";
+
+// needs wrappers
+export { $DEVCOMP, children, createContext, onMount, useContext } from "./client/core.js";
+
+export type {
   ChildrenReturn,
   Context,
   ContextProviderComponent,
-  EffectFunction,
   EffectOptions,
-  InitializedResource,
-  InitializedResourceOptions,
-  InitializedResourceReturn,
-  MemoOptions,
   NoInfer,
-  OnEffectFunction,
-  OnOptions,
-  Owner,
   ResolvedChildren,
-  ResolvedJSXElement,
-  Resource,
-  ResourceActions,
-  ResourceFetcher,
-  ResourceFetcherInfo,
-  ResourceOptions,
-  ResourceReturn,
-  ResourceSource,
-  ReturnTypes,
-  Setter,
-  Signal,
-  SignalOptions
-} from "./reactive/signal.js";
+  ResolvedJSXElement
+} from "./client/core.js";
 
-export * from "./reactive/observable.js";
-export * from "./reactive/scheduler.js";
-export * from "./reactive/array.js";
-export * from "./render/index.js";
+export * from "./client/observable.js";
+export * from "./client/component.js";
+export * from "./client/flow.js";
+export { sharedConfig } from "./client/hydration.js";
 
 import type { JSX } from "./jsx.js";
 type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { registerGraph, writeSignal, DevHooks, IS_DEV } from "./reactive/signal.js";
-export const DEV = IS_DEV ? ({ hooks: DevHooks, writeSignal, registerGraph } as const) : undefined;
+import { registerGraph, IS_DEV } from "./client/core.js";
+const DevHooks = {}; // until implemented
+export const DEV = IS_DEV ? ({ hooks: DevHooks, registerGraph } as const) : undefined;
 
 // handle multiple instance check
 declare global {
@@ -87,3 +80,58 @@ if (IS_DEV && globalThis) {
       "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
     );
 }
+
+/* Not Implemented
+export {
+  batch,
+  createComputed,
+  createDeferred,
+  createResource, // createAsync
+  createReaction,
+  createSelector, // createProjection
+  DevHooks,
+  enableExternalSource,
+  enableScheduling,
+  equalFn, // renamed `isEqual`
+  getListener, // renamed `getObserver`
+  indexArray, // handled in `mapArray`
+  Index, // handled by For
+  on, // with split effects this doesn't need to be core
+  onError,
+  startTransition,
+  SuspenseList
+  useTransition,
+  writeSignal, // handled by underlying Node class
+
+  // Store related to legacy syntax
+  createMutable,
+  modifyMutable,
+  produce, // now default
+}
+
+type {
+  AccessorArray, //use by On only
+  EffectFunction,
+  InitializedResource,
+  InitializedResourceOptions,
+  InitializedResourceReturn,
+  MemoOptions, //SignalOptions
+  OnEffectFunction,
+  OnOptions,
+  Resource,
+  ResourceActions,
+  ResourceFetcher,
+  ResourceFetcherInfo,
+  ResourceOptions,
+  ResourceReturn,
+  ResourceSource,
+  // Store related to legacy syntax
+  ArrayFilterFn,
+  DeepMutable,
+  DeepReadonly,
+  Part,
+  ReconcileOptions,
+  SetStoreFunction,
+  StorePathRange,
+}
+*/

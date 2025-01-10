@@ -1,0 +1,36 @@
+{
+  "name": "@solidjs/h",
+  "main": "./dist/h.cjs",
+  "module": "./dist/h.js",
+  "types": "./types/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "types",
+    "package.json",
+    "jsx-runtime/dist",
+    "jsx-runtime/types",
+    "jsx-runtime/package.json",
+    "jsx-dev-runtime/package.json"
+  ],
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./dist/h.js",
+      "require": "./dist/h.cjs"
+    },
+    "./jsx-runtime": {
+      "types": "./jsx-runtime/types/index.d.ts",
+      "import": "./jsx-runtime/dist/jsx.js",
+      "require": "./jsx-runtime/dist/jsx.cjs"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./jsx-runtime/types/index.d.ts",
+      "import": "./jsx-runtime/dist/jsx.js",
+      "require": "./jsx-runtime/dist/jsx.cjs"
+    },
+    "./dist/*": "./dist/*",
+    "./types/*": "./types/*"
+  }
+}

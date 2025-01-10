@@ -1,0 +1,28 @@
+{
+  "name": "@solidjs/universal",
+  "description": "Solid's universal runtime for creating custom renderers",
+  "main": "./dist/universal.cjs",
+  "module": "./dist/universal.js",
+  "types": "./types/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "types",
+    "package.json"
+  ],
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./types/index.d.ts",
+        "import": "./dist/dev.js",
+        "require": "./dist/dev.cjs"
+      },
+      "types": "./types/index.d.ts",
+      "import": "./dist/universal.js",
+      "require": "./dist/universal.cjs"
+    },
+    "./dist/*": "./dist/*",
+    "./types/*": "./types/*"
+  }
+}

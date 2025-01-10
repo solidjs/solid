@@ -1,5 +1,5 @@
 import { createResource, ResourceReturn, createSignal, Resource, Setter } from "../src/index.js";
-import { InitializedResource, InitializedResourceReturn } from "../src/reactive/signal.js";
+import { InitializedResource, InitializedResourceReturn } from "../src/client/signal.js";
 
 type Assert<T extends true> = T;
 // https://github.com/Microsoft/TypeScript/issues/27024#issuecomment-421529650

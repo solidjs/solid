@@ -1,5 +1,5 @@
 {
-  "name": "solid-element",
+  "name": "@solidjs/element",
   "description": "Webcomponents wrapper for Solid",
   "author": "Ryan Carniato",
   "license": "MIT",
