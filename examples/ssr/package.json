@@ -1,0 +1,30 @@
+{
+  "name": "ssr-example",
+  "description": "Example of different SSR modes",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build:async": "rollup -c examples/async/rollup.config.js",
+    "start:async": "node examples/async/lib/index.js",
+    "build:ssg": "rollup -c examples/ssg/rollup.config.js && node --trace-warnings examples/ssg/export.js",
+    "start:ssg": "npx serve examples/ssg/public -l 8080",
+    "build:ssr": "rollup -c examples/ssr/rollup.config.js",
+    "start:ssr": "node examples/ssr/lib/index.js",
+    "build:stream": "rollup -c examples/stream/rollup.config.js",
+    "start:stream": "node examples/stream/lib/index.js",
+    "clean": "rimraf examples/**/lib/ examples/**/public/"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.21.3",
+    "@rollup/plugin-babel": "6.0.3",
+    "@rollup/plugin-commonjs": "24.0.1",
+    "@rollup/plugin-node-resolve": "15.0.1",
+    "babel-preset-solid": "workspace:*",
+    "express": "^4.20.0",
+    "rollup": "^3.20.0",
+    "rollup-plugin-copy": "^3.4.0",
+    "solid-js": "workspace:*"
+  }
+}

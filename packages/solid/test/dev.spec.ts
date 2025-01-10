@@ -9,7 +9,7 @@ import {
   createContext,
   createComponent
 } from "../src/index.js";
-import type { DevComponent } from "../src/reactive/signal.js";
+import type { DevComponent } from "../src/client/signal.js";
 import { createStore, unwrap, DEV as STORE_DEV } from "../store/src/index.js";
 
 describe("Dev features", () => {

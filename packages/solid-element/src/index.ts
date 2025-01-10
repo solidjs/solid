@@ -9,7 +9,7 @@ import {
 export { hot, getCurrentElement, noShadowDOM } from "component-register";
 export type ComponentType<T> = mComponentType<T>;
 import { createRoot, createSignal } from "solid-js";
-import { insert } from "solid-js/web";
+import { insert } from "@solidjs/web";
 
 function createProps<T extends object>(raw: T) {
   const keys = Object.keys(raw) as (keyof T)[];
