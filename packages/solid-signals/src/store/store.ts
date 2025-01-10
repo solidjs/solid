@@ -39,17 +39,23 @@ export type NotWrappable =
 
 export function wrap<T extends Record<PropertyKey, any>>(value: T): T {
   let p = value[$PROXY];
-  if (!p)
+  if (!p) {
+    let target;
+    if (Array.isArray(value)) {
+      target = [];
+      target.v = value;
+    } else target = { v: value };
     Object.defineProperty(value, $PROXY, {
-      value: (p = new Proxy({ v: value }, proxyTraps)),
+      value: (p = new Proxy(target, proxyTraps)),
       writable: true
     });
+  }
   return p;
 }
 
 export function isWrappable<T>(obj: T | NotWrappable): obj is T;
 export function isWrappable(obj: any) {
-  return obj != null && typeof obj === "object";
+  return obj != null && typeof obj === "object" && !Object.isFrozen(obj);
 }
 
 /**
@@ -112,8 +118,9 @@ function getNode(
 }
 
 function proxyDescriptor(target: StoreNode, property: PropertyKey) {
+  if (property === $PROXY) return { value: target[$PROXY], writable: true, configurable: true };
   const desc = Reflect.getOwnPropertyDescriptor(target[STORE_VALUE], property);
-  if (!desc || desc.get || !desc.configurable || property === $PROXY) return desc;
+  if (!desc || desc.get || !desc.configurable) return desc;
   delete desc.value;
   delete desc.writable;
   desc.get = () => target[STORE_VALUE][$PROXY][property];
@@ -187,7 +194,11 @@ const proxyTraps: ProxyHandler<StoreNode> = {
 
   ownKeys: ownKeys,
 
-  getOwnPropertyDescriptor: proxyDescriptor
+  getOwnPropertyDescriptor: proxyDescriptor,
+
+  getPrototypeOf(target) {
+    return Object.getPrototypeOf(target[STORE_VALUE]);
+  },
 };
 
 function setProperty(

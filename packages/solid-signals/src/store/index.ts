@@ -1,4 +1,4 @@
-export type { Store, StoreSetter, StoreNode, NotWrappable } from "./store.js";
+export type { Store, StoreSetter, StoreNode, NotWrappable, SolidStore } from "./store.js";
 export type { Merge, Omit } from "./utilities.js";
 
 export {

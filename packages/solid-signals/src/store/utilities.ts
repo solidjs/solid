@@ -1,4 +1,4 @@
-import { SUPPORTS_PROXY } from "../core/constants.js";
+import { SUPPORTS_PROXY } from "../core/index.js";
 import { createMemo } from "../signals.js";
 import { $PROXY } from "./store.js";
 

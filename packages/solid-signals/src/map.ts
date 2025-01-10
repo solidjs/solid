@@ -6,35 +6,31 @@ import { $TRACK } from "./store/index.js";
 export type Maybe<T> = T | void | null | undefined | false;
 
 /**
- * Reactive map helper that caches each list item by reference to reduce unnecessary mapping on
- * updates.
+ * Reactively transforms an array with a callback function - underlying helper for the `<For>` control flow
  *
- * @see {@link https://github.com/solidjs/x-reactivity#maparray}
+ * similar to `Array.prototype.map`, but gets the value and index as accessos, transforms only values that changed and returns an accessor and reactively tracks changes to the list.
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/map-array
  */
 export function mapArray<Item, MappedItem>(
   list: Accessor<Maybe<readonly Item[]>>,
   map: (value: Accessor<Item>, index: Accessor<number>) => MappedItem,
-  options?: { keyed?: boolean | ((item: Item) => any); name?: string }
+  options?: { keyed?: boolean | ((item: Item) => any); fallback: Accessor<any> }
 ): Accessor<MappedItem[]> {
   const keyFn = typeof options?.keyed === "function" ? options.keyed : undefined;
-  return Computation.prototype.read.bind(
-    new Computation<MappedItem[]>(
-      [],
-      updateKeyedMap.bind({
-        _owner: new Owner(),
-        _len: 0,
-        _list: list,
-        _items: [],
-        _map: map,
-        _mappings: [],
-        _nodes: [],
-        _key: keyFn,
-        _rows: keyFn || options?.keyed === false ? [] : undefined,
-        _indexes: map.length > 1 ? [] : undefined
-      }),
-      options
-    )
-  );
+  return updateKeyedMap.bind({
+    _owner: new Owner(),
+    _len: 0,
+    _list: list,
+    _items: [],
+    _map: map,
+    _mappings: [],
+    _nodes: [],
+    _key: keyFn,
+    _rows: keyFn || options?.keyed === false ? [] : undefined,
+    _indexes: map.length > 1 ? [] : undefined,
+    _fallback: options?.fallback
+  })
 }
 
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
@@ -76,9 +72,15 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         this._rows && (this._rows = []);
         this._indexes && (this._indexes = []);
       }
+      if (this._fallback && !this._mappings[0]) {
+        // create fallback
+        this._mappings[0] = compute<MappedItem>((this._nodes[0] = new Owner()), this._fallback, null);
+      }
     }
     // fast path for new create
     else if (this._len === 0) {
+      // dispose previous fallback
+      if (this._nodes[0]) this._nodes[0].dispose();
       this._mappings = new Array(newLen);
 
       for (j = 0; j < newLen; j++) {
@@ -198,4 +200,5 @@ interface MapData<Item = any, MappedItem = any> {
   _key: ((i: any) => any) | undefined;
   _rows?: Computation<Item>[];
   _indexes?: Computation<number>[];
+  _fallback?: Accessor<any>;
 }

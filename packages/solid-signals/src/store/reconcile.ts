@@ -153,5 +153,6 @@ export function reconcile<T extends U, U>(
     if (keyFn(value) !== keyFn(state))
       throw new Error("Cannot reconcile states with different identity");
     applyState(value, state, keyFn);
+    return state as T;
   };
 }

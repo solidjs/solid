@@ -19,7 +19,8 @@ export {
   hasUpdated,
   isPending,
   latest,
-  createSuspense
+  createSuspense,
+  SUPPORTS_PROXY
 } from "./core/index.js";
 export type {
   ErrorHandler,

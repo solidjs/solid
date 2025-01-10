@@ -12,27 +12,45 @@ import {
   untrack
 } from "./core/index.js";
 
-export interface Accessor<T> {
-  (): T;
-}
+export type Accessor<T> = () => T;
 
-export interface Setter<T> {
-  (value: T | SetValue<T>): T;
-}
+export type Setter<in out T> = {
+  <U extends T>(
+    ...args: undefined extends T ? [] : [value: Exclude<U, Function> | ((prev: T) => U)]
+  ): undefined extends T ? undefined : U;
+  <U extends T>(value: (prev: T) => U): U;
+  <U extends T>(value: Exclude<U, Function>): U;
+  <U extends T>(value: Exclude<U, Function> | ((prev: T) => U)): U;
+};
 
-export interface SetValue<T> {
-  (currentValue: T): T;
-}
-
-export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
+export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 /**
- * Wraps the given value into a signal. The signal will return the current value when invoked
- * `fn()`, and provide a simple write API via `write()`. The value can now be observed
- * when used inside other computations created with `computed` and `effect`.
+ * Creates a simple reactive state with a getter and setter
+ * ```typescript
+ * const [state: Accessor<T>, setState: Setter<T>] = createSignal<T>(
+ *  value: T,
+ *  options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
+ * )
+ * ```
+ * @param value initial value of the state; if empty, the state's type will automatically extended with undefined; otherwise you need to extend the type manually if you want setting to undefined not be an error
+ * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
+ *
+ * @returns ```typescript
+ * [state: Accessor<T>, setState: Setter<T>]
+ * ```
+ * * the Accessor is a function that returns the current value and registers each call to the reactive root
+ * * the Setter is a function that allows directly setting or mutating the value:
+ * ```typescript
+ * const [count, setCount] = createSignal(0);
+ * setCount(count => count + 1);
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal
  */
+export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(
-  initialValue: Exclude<T, Function>,
+  value: Exclude<T, Function>,
   options?: SignalOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
@@ -41,10 +59,10 @@ export function createSignal<T>(
   options?: SignalOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
-  first: T | ((prev?: T) => T),
+  first?: T | ((prev?: T) => T),
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
-): Signal<T> {
+): Signal<T | undefined> {
   if (typeof first === "function") {
     const memo = createMemo<Signal<T>>(p => {
       const node = new Computation<T>(
@@ -52,12 +70,12 @@ export function createSignal<T>(
         null,
         third
       );
-      return [node.read.bind(node), node.write.bind(node)];
+      return [node.read.bind(node), node.write.bind(node)] as Signal<T>;
     });
-    return [() => memo()[0](), value => memo()[1](value)];
+    return [() => memo()[0](), (value => memo()[1](value)) as Setter<T | undefined>];
   }
-  const node = new Computation(first as T, null, second as SignalOptions<T>);
-  return [node.read.bind(node), node.write.bind(node)];
+  const node = new Computation(first, null, second as SignalOptions<T>);
+  return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
 }
 
 export function createAsync<T>(
