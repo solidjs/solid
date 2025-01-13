@@ -178,7 +178,14 @@ importers:
 
   packages/solid-universal: {}
 
-  packages/solid-web: {}
+  packages/solid-web:
+    dependencies:
+      seroval:
+        specifier: ^1.1.0
+        version: 1.1.1
+      seroval-plugins:
+        specifier: ^1.1.0
+        version: 1.1.1(seroval@1.1.1)
 
   packages/test-integration:
     dependencies:
