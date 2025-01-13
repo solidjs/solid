@@ -38,6 +38,11 @@ export interface MemoOptions<T> extends EffectOptions {
   equals?: false | ((prev: T, next: T) => boolean);
 }
 
+// Magic type that when used at sites where generic types are inferred from, will prevent those sites from being involved in the inference.
+// https://github.com/microsoft/TypeScript/issues/14829
+// TypeScript Discord conversation: https://discord.com/channels/508357248330760243/508357248330760249/911266491024949328
+export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
+
 /**
  * Creates a simple reactive state with a getter and setter
  * ```typescript
