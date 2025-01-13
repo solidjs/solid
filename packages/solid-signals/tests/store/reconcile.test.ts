@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  createStore,
-  reconcile,
-  unwrap,
-} from "../../src/index.js";
+import { createStore, reconcile, unwrap } from "../../src/index.js";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {
@@ -19,7 +15,7 @@ describe("setState with reconcile", () => {
   });
 
   test("Reconcile array with nulls", () => {
-    const [state, setState] = createStore<Array<string|null>>([null, "a"]);
+    const [state, setState] = createStore<Array<string | null>>([null, "a"]);
     expect(state[0]).toBe(null);
     expect(state[1]).toBe("a");
     setState(reconcile(["b", null], "id"));
@@ -54,26 +50,26 @@ describe("setState with reconcile", () => {
     expect(Object.is(unwrap(state.users[2]), BRANDON)).toBe(true);
     setState(s => {
       s.users = reconcile([NED, JOHN, BRANDON], "id")(s.users);
-    })
+    });
     expect(Object.is(unwrap(state.users[0]), NED)).toBe(true);
     expect(Object.is(unwrap(state.users[1]), JOHN)).toBe(true);
     expect(Object.is(unwrap(state.users[2]), BRANDON)).toBe(true);
     setState(s => {
       s.users = reconcile([NED, BRANDON, JOHN], "id")(s.users);
-    })
+    });
     expect(Object.is(unwrap(state.users[0]), NED)).toBe(true);
     expect(Object.is(unwrap(state.users[1]), BRANDON)).toBe(true);
     expect(Object.is(unwrap(state.users[2]), JOHN)).toBe(true);
     setState(s => {
       s.users = reconcile([NED, BRANDON, JOHN, ARYA], "id")(s.users);
-    })
+    });
     expect(Object.is(unwrap(state.users[0]), NED)).toBe(true);
     expect(Object.is(unwrap(state.users[1]), BRANDON)).toBe(true);
     expect(Object.is(unwrap(state.users[2]), JOHN)).toBe(true);
     expect(Object.is(unwrap(state.users[3]), ARYA)).toBe(true);
     setState(s => {
       s.users = reconcile([BRANDON, JOHN, ARYA], "id")(s.users);
-    })
+    });
     expect(Object.is(unwrap(state.users[0]), BRANDON)).toBe(true);
     expect(Object.is(unwrap(state.users[1]), JOHN)).toBe(true);
     expect(Object.is(unwrap(state.users[2]), ARYA)).toBe(true);
@@ -122,9 +118,11 @@ describe("setState with reconcile", () => {
     const [user, setUser] = createStore({ user: JOHN });
     expect(user.user.id).toBe(1);
     expect(user.user.firstName).toBe("John");
-    expect(() => setUser(s => {
-      s.user = reconcile(NED, "id")(s.user);
-    })).toThrow();
+    expect(() =>
+      setUser(s => {
+        s.user = reconcile(NED, "id")(s.user);
+      })
+    ).toThrow();
     // expect(user.user.id).toBe(2);
     // expect(user.user.firstName).toBe("Ned");
   });

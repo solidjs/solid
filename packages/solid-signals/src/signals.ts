@@ -25,6 +25,19 @@ export type Setter<in out T> = {
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
+export type ComputeFunction<Prev, Next extends Prev = Prev> = (v?: Prev) => Next;
+export type EffectFunction<Prev, Next extends Prev = Prev> = (
+  v: Next,
+  p?: Prev
+) => (() => void) | void;
+
+export interface EffectOptions {
+  name?: string;
+}
+export interface MemoOptions<T> extends EffectOptions {
+  equals?: false | ((prev: T, next: T) => boolean);
+}
+
 /**
  * Creates a simple reactive state with a getter and setter
  * ```typescript
@@ -49,17 +62,14 @@ export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal
  */
 export function createSignal<T>(): Signal<T | undefined>;
+export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 export function createSignal<T>(
-  value: Exclude<T, Function>,
-  options?: SignalOptions<T>
-): Signal<T>;
-export function createSignal<T>(
-  fn: (prev?: T) => T,
+  fn: ComputeFunction<T>,
   initialValue?: T,
   options?: SignalOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
-  first?: T | ((prev?: T) => T),
+  first?: T | ComputeFunction<T>,
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
@@ -78,18 +88,75 @@ export function createSignal<T>(
   return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
 }
 
+/**
+ * Creates a readonly derived reactive memoized signal
+ * ```typescript
+ * export function createMemo<T>(
+ *   compute: (v: T) => T,
+ *   value?: T,
+ *   options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
+ * ): () => T;
+ * ```
+ * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes and use a custom comparison function in equals
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
+ */
+// The extra Prev generic parameter separates inference of the compute input
+// parameter type from inference of the compute return type, so that the effect
+// return type is always used as the memo Accessor's return type.
+export function createMemo<Next extends Prev, Prev = Next>(
+  compute: ComputeFunction<undefined | NoInfer<Prev>, Next>
+): Accessor<Next>;
+export function createMemo<Next extends Prev, Init = Next, Prev = Next>(
+  compute: ComputeFunction<Init | Prev, Next>,
+  value: Init,
+  options?: MemoOptions<Next>
+): Accessor<Next>;
+export function createMemo<Next extends Prev, Init, Prev>(
+  compute: ComputeFunction<Init | Prev, Next>,
+  value?: Init,
+  options?: MemoOptions<Next>
+): Accessor<Next> {
+  let node: Computation<Next> | undefined = new Computation<Next>(value as any, compute, options);
+  let resolvedValue: Next;
+  return () => {
+    if (node) {
+      resolvedValue = node.wait();
+      if (!node._sources?.length) node = undefined;
+    }
+    return resolvedValue;
+  };
+}
+
+/**
+ * Creates a readonly derived async reactive memoized signal
+ * ```typescript
+ * export function createAsync<T>(
+ *   compute: (v: T) => Promise<T> | T,
+ *   value?: T,
+ *   options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
+ * ): () => T;
+ * ```
+ * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes and use a custom comparison function in equals
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-async
+ */
 export function createAsync<T>(
-  fn: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
-  initial?: T,
-  options?: SignalOptions<T>
+  compute: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
+  value?: T,
+  options?: MemoOptions<T>
 ): Accessor<T> {
   const lhs = new EagerComputation(
     {
-      _value: initial
+      _value: value
     } as any,
     (p?: Computation<T>) => {
       const value = p?._value;
-      const source = fn(value);
+      const source = compute(value);
       const isPromise = source instanceof Promise;
       const iterator = source[Symbol.asyncIterator];
       if (!isPromise && !iterator) {
@@ -132,38 +199,40 @@ export function createAsync<T>(
 }
 
 /**
- * Creates a new computation whose value is computed and returned by the given function. The given
- * compute function is _only_ re-run when one of it's dependencies are updated. Dependencies are
- * are all signals that are read during execution.
+ * Creates a reactive effect that runs after the render phase
+ * ```typescript
+ * export function createEffect<T>(
+ *   compute: (prev: T) => T,
+ *   effect: (v: T, prev: T) => (() => void) | void,
+ *   value?: T,
+ *   options?: { name?: string }
+ * ): void;
+ * ```
+ * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param effect a function that receives the new value and is used to perform side effects
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
-export function createMemo<T>(
-  compute: (prev?: T) => T,
-  initialValue?: T,
-  options?: SignalOptions<T>
-): Accessor<T> {
-  let node: Computation<T> | undefined = new Computation(initialValue, compute, options);
-  let value: T;
-  return () => {
-    if (node) {
-      value = node.wait();
-      if (!node._sources?.length) node = undefined;
-    }
-    return value;
-  };
-}
-
-/**
- * Invokes the given function each time any of the signals that are read inside are updated
- * (i.e., their value changes). The effect is immediately invoked on initialization.
- */
-export function createEffect<T>(
-  compute: () => T,
-  effect: (v: T) => (() => void) | void,
-  initialValue?: T,
-  options?: { name?: string }
+export function createEffect<Next>(
+  compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
+  effect: EffectFunction<NoInfer<Next>, Next>
+): void;
+export function createEffect<Next, Init = Next>(
+  compute: ComputeFunction<Init | Next, Next>,
+  effect: EffectFunction<Next, Next>,
+  value: Init,
+  options?: EffectOptions
+): void;
+export function createEffect<Next, Init>(
+  compute: ComputeFunction<Init | Next, Next>,
+  effect: EffectFunction<Next, Next>,
+  value?: Init,
+  options?: EffectOptions
 ): void {
   void new Effect(
-    initialValue as any,
+    value as any,
     compute,
     effect,
     __DEV__ ? { name: options?.name ?? "effect" } : undefined
@@ -171,24 +240,51 @@ export function createEffect<T>(
 }
 
 /**
- * Invokes the given function each time any of the signals that are read inside are updated
- * (i.e., their value changes). The effect is immediately invoked on initialization.
+ * Creates a reactive computation that runs during the render phase as DOM elements are created and updated but not necessarily connected
+ * ```typescript
+ * export function createRenderEffect<T>(
+ *   compute: (prev: T) => T,
+ *   effect: (v: T, prev: T) => (() => void) | void,
+ *   value?: T,
+ *   options?: { name?: string }
+ * ): void;
+ * ```
+ * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param effect a function that receives the new value and is used to perform side effects
+ * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param options allows to set a name in dev mode for debugging purposes
+ *
+ * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */
-export function createRenderEffect<T>(
-  compute: () => T,
-  effect: (v: T) => (() => void) | void,
-  initialValue?: T,
-  options?: { name?: string }
+export function createRenderEffect<Next>(
+  compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
+  effect: EffectFunction<NoInfer<Next>, Next>
+): void;
+export function createRenderEffect<Next, Init = Next>(
+  compute: ComputeFunction<Init | Next, Next>,
+  effect: EffectFunction<Next, Next>,
+  value: Init,
+  options?: EffectOptions
+): void;
+export function createRenderEffect<Next, Init>(
+  compute: ComputeFunction<Init | Next, Next>,
+  effect: EffectFunction<Next, Next>,
+  value?: Init,
+  options?: EffectOptions
 ): void {
-  void new Effect(initialValue as any, compute, effect, {
+  void new Effect(value as any, compute, effect, {
     render: true,
     ...(__DEV__ ? { name: options?.name ?? "effect" } : undefined)
   });
 }
 
 /**
- * Creates a computation root which is given a `dispose()` function to dispose of all inner
- * computations.
+ * Creates a new non-tracked reactive context with manual disposal
+ *
+ * @param fn a function in which the reactive state is scoped
+ * @returns the output of `fn`.
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
  */
 export function createRoot<T>(init: ((dispose: () => void) => T) | (() => T)): T {
   const owner = new Owner();

@@ -198,7 +198,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
 
   getPrototypeOf(target) {
     return Object.getPrototypeOf(target[STORE_VALUE]);
-  },
+  }
 };
 
 function setProperty(

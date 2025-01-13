@@ -680,7 +680,7 @@ describe("In Operator", () => {
     expect(c()).toBe(false);
     expect(access).toBe(0);
 
-    setStore(s => s.c = 3);
+    setStore(s => (s.c = 3));
 
     expect(a()).toBe(true);
     expect(b()).toBe(true);

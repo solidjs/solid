@@ -224,18 +224,24 @@ export function hasContext(context: Context<any>, owner: Owner | null = currentO
 }
 
 /**
- * Runs the given function when the parent owner computation is being disposed.
+ * Runs an effect once before the reactive scope is disposed
+ * @param fn an effect that should run only once on cleanup
+ *
+ * @returns the same {@link fn} function that was passed in
+ *
+ * @description https://docs.solidjs.com/reference/lifecycle/on-cleanup
  */
-export function onCleanup(disposable: Disposable): void {
-  if (!currentOwner) return;
+export function onCleanup(fn: Disposable): Disposable {
+  if (!currentOwner) return fn;
 
   const node = currentOwner;
 
   if (!node._disposal) {
-    node._disposal = disposable;
+    node._disposal = fn;
   } else if (Array.isArray(node._disposal)) {
-    node._disposal.push(disposable);
+    node._disposal.push(fn);
   } else {
-    node._disposal = [node._disposal, disposable];
+    node._disposal = [node._disposal, fn];
   }
+  return fn;
 }

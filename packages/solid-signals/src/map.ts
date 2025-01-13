@@ -30,7 +30,7 @@ export function mapArray<Item, MappedItem>(
     _rows: keyFn || options?.keyed === false ? [] : undefined,
     _indexes: map.length > 1 ? [] : undefined,
     _fallback: options?.fallback
-  })
+  });
 }
 
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
@@ -74,7 +74,11 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       }
       if (this._fallback && !this._mappings[0]) {
         // create fallback
-        this._mappings[0] = compute<MappedItem>((this._nodes[0] = new Owner()), this._fallback, null);
+        this._mappings[0] = compute<MappedItem>(
+          (this._nodes[0] = new Owner()),
+          this._fallback,
+          null
+        );
       }
     }
     // fast path for new create
