@@ -25,7 +25,7 @@ export type Setter<in out T> = {
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
-export type ComputeFunction<Prev, Next extends Prev = Prev> = (v?: Prev) => Next;
+export type ComputeFunction<Prev, Next extends Prev = Prev> = (v: Prev) => Next;
 export type EffectFunction<Prev, Next extends Prev = Prev> = (
   v: Next,
   p?: Prev
@@ -124,7 +124,11 @@ export function createMemo<Next extends Prev, Init, Prev>(
   value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
-  let node: Computation<Next> | undefined = new Computation<Next>(value as any, compute, options);
+  let node: Computation<Next> | undefined = new Computation<Next>(
+    value as any,
+    compute as any,
+    options
+  );
   let resolvedValue: Next;
   return () => {
     if (node) {
@@ -238,7 +242,7 @@ export function createEffect<Next, Init>(
 ): void {
   void new Effect(
     value as any,
-    compute,
+    compute as any,
     effect,
     __DEV__ ? { name: options?.name ?? "effect" } : undefined
   );
@@ -277,7 +281,7 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  void new Effect(value as any, compute, effect, {
+  void new Effect(value as any, compute as any, effect, {
     render: true,
     ...(__DEV__ ? { name: options?.name ?? "effect" } : undefined)
   });

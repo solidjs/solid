@@ -2,6 +2,8 @@ import {
   $RAW,
   createEffect,
   createMemo,
+  createProjection,
+  createRenderEffect,
   createRoot,
   createSignal,
   createStore,
@@ -850,5 +852,107 @@ describe("arrays", () => {
     expect(effectA).toHaveBeenCalledWith(11);
     expect(effectB).toHaveBeenCalledTimes(1);
     expect(effectC).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("selection with projections", () => {
+  test("simple selection", () => {
+    let prev: number | undefined;
+    const [s, set] = createSignal<number>(),
+      isSelected = createProjection<Record<number, boolean>>(state => {
+        const selected = s();
+        if (prev !== undefined && prev !== selected) delete state[prev];
+        if (selected) state[selected] = true;
+        prev = selected;
+      });
+    let count = 0;
+    const list: Array<string> = [];
+
+    createRoot(() =>
+      Array.from({ length: 100 }, (_, i) =>
+        createRenderEffect(
+          () => isSelected[i],
+          v => {
+            count++;
+            list[i] = v ? "selected" : "no";
+          }
+        )
+      )
+    );
+    expect(count).toBe(100);
+    expect(list[3]).toBe("no");
+
+    count = 0;
+    set(3);
+    flushSync();
+    expect(count).toBe(1);
+    expect(list[3]).toBe("selected");
+
+    count = 0;
+    set(6);
+    flushSync();
+    expect(count).toBe(2);
+    expect(list[3]).toBe("no");
+    expect(list[6]).toBe("selected");
+    set(undefined);
+    flushSync();
+    expect(count).toBe(3);
+    expect(list[6]).toBe("no");
+    set(5);
+    flushSync();
+    expect(count).toBe(4);
+    expect(list[5]).toBe("selected");
+  });
+
+  test("double selection", () => {
+    let prev: number | undefined;
+    const [s, set] = createSignal<number>(),
+      isSelected = createProjection<Record<number, boolean>>(state => {
+        const selected = s();
+        if (prev !== undefined && prev !== selected) delete state[prev];
+        if (selected) state[selected] = true;
+        prev = selected;
+      });
+    let count = 0;
+    const list: Array<string>[] = [];
+
+    createRoot(() =>
+      Array.from({ length: 100 }, (_, i) => {
+        list[i] = [];
+        createRenderEffect(
+          () => isSelected[i],
+          v => {
+            count++;
+            list[i][0] = v ? "selected" : "no";
+          }
+        );
+        createRenderEffect(
+          () => isSelected[i],
+          v => {
+            count++;
+            list[i][1] = v ? "oui" : "non";
+          }
+        );
+      })
+    );
+    expect(count).toBe(200);
+    expect(list[3][0]).toBe("no");
+    expect(list[3][1]).toBe("non");
+
+    count = 0;
+    set(3);
+    flushSync();
+    expect(count).toBe(2);
+    expect(list[3][0]).toBe("selected");
+    expect(list[3][1]).toBe("oui");
+
+    count = 0;
+    set(6);
+    flushSync();
+    expect(count).toBe(4);
+    expect(list[3][0]).toBe("no");
+    expect(list[6][0]).toBe("selected");
+    expect(list[3][1]).toBe("non");
+    expect(list[6][1]).toBe("oui");
   });
 });

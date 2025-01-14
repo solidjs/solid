@@ -206,7 +206,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     const valueChanged =
       newValue !== UNCHANGED &&
-      (!!(flags & ERROR_BIT) || this._equals === false || !this._equals(this._value!, newValue));
+      (!!(flags & ERROR_BIT) || this._time === -1 || this._equals === false || !this._equals(this._value!, newValue));
 
     if (valueChanged) this._value = newValue;
 

@@ -15,7 +15,7 @@ export type Maybe<T> = T | void | null | undefined | false;
 export function mapArray<Item, MappedItem>(
   list: Accessor<Maybe<readonly Item[]>>,
   map: (value: Accessor<Item>, index: Accessor<number>) => MappedItem,
-  options?: { keyed?: boolean | ((item: Item) => any); fallback: Accessor<any> }
+  options?: { keyed?: boolean | ((item: Item) => any); fallback?: Accessor<any> }
 ): Accessor<MappedItem[]> {
   const keyFn = typeof options?.keyed === "function" ? options.keyed : undefined;
   return updateKeyedMap.bind({
