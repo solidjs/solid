@@ -135,7 +135,8 @@ export function createMemo<Next extends Prev, Init, Prev>(
     if (node) {
       resolvedValue = node.wait();
       // no sources so will never update so can be disposed.
-      if (!node._sources?.length) {
+      // additionally didn't create nested reactivity so can be disposed.
+      if (!node._sources?.length && node._nextSibling?._parent !== node) {
         node.dispose();
         node = undefined;
       }
