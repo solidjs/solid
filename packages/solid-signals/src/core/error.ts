@@ -4,7 +4,7 @@ export class NoOwnerError extends Error {
   constructor() {
     super(
       __DEV__
-        ? "No root owner exists at time of call. Make sure `getContext` is called within an owner or create one first via `createRoot`."
+        ? "Context can only be accessed under a reactive root."
         : ""
     );
   }
@@ -14,7 +14,7 @@ export class ContextNotFoundError extends Error {
   constructor() {
     super(
       __DEV__
-        ? "Must provide either a default context value or set one via `setContext` before getting."
+        ? "Context must either be created with a default value or a value must be provided before accessing it."
         : ""
     );
   }

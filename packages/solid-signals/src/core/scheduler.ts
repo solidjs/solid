@@ -13,7 +13,7 @@ let scheduled = false;
 function schedule() {
   if (scheduled) return;
   scheduled = true;
-  queueMicrotask(flushSync);
+  if (!globalQueue._running) queueMicrotask(flushSync);
 }
 
 export interface IQueue {
@@ -54,6 +54,7 @@ export class Queue implements IQueue {
     try {
       this.run(EFFECT_PURE);
       incrementClock();
+      scheduled = false;
       this.run(EFFECT_RENDER);
       this.run(EFFECT_USER);
     } finally {
@@ -76,8 +77,11 @@ export const globalQueue = new Queue();
  * the queue synchronously to get the latest updates by calling `flushSync()`.
  */
 export function flushSync(): void {
-  globalQueue.flush();
-  scheduled = false;
+  let count = 0;
+  while (scheduled) {
+    if (__DEV__ && ++count === 1e5) throw new Error("Potential Infinite Loop Detected.");
+    globalQueue.flush();
+  }
 }
 
 export function createBoundary<T>(fn: () => T, queue: IQueue): T {
