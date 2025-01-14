@@ -32,23 +32,25 @@ it("should forward error to another handler", () => {
 
   let [$x, setX] = createSignal(0);
 
-  catchError(() => {
-    createEffect(
-      () => {
-        $x();
-        catchError(
-          () => {
-            throw error;
-          },
-          e => {
-            expect(e).toBe(error);
-            throw e;
-          }
-        );
-      },
-      () => {}
-    );
-  }, rootHandler);
+  createRoot(() =>
+    catchError(() => {
+      createEffect(
+        () => {
+          $x();
+          catchError(
+            () => {
+              throw error;
+            },
+            e => {
+              expect(e).toBe(error);
+              throw e;
+            }
+          );
+        },
+        () => {}
+      );
+    }, rootHandler)
+  );
   flushSync();
 
   expect(rootHandler).toHaveBeenCalledWith(error);
@@ -65,14 +67,16 @@ it("should not duplicate error handler", () => {
   let [$x, setX] = createSignal(0),
     shouldThrow = false;
 
-  createEffect(
-    () => {
-      $x();
-      catchError(() => {
-        if (shouldThrow) throw error;
-      }, handler);
-    },
-    () => {}
+  createRoot(() =>
+    createEffect(
+      () => {
+        $x();
+        catchError(() => {
+          if (shouldThrow) throw error;
+        }, handler);
+      },
+      () => {}
+    )
   );
 
   setX(1);

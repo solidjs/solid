@@ -111,19 +111,21 @@ describe("recursive effects", () => {
     const [x, setX] = createSignal(0);
     const simpleM = createMemo(() => x());
     let calls = 0;
-    createEffect(
-      () => {
-        createEffect(
-          () => {
-            void x();
-            calls++;
-          },
-          () => {}
-        );
-        void simpleM();
-      },
-      () => {}
-    );
+    createRoot(() => {
+      createEffect(
+        () => {
+          createEffect(
+            () => {
+              void x();
+              calls++;
+            },
+            () => {}
+          );
+          void simpleM();
+        },
+        () => {}
+      );
+    });
     flushSync();
     setX(1);
     flushSync();

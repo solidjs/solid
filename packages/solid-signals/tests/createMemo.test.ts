@@ -156,7 +156,7 @@ it("should accept equals option", () => {
   });
 
   const effectA = vi.fn();
-  createEffect($a, effectA);
+  createRoot(() => createEffect($a, effectA));
   flushSync();
 
   expect($a()).toBe(0);
@@ -199,7 +199,7 @@ it("should detect which signal triggered it", () => {
     const uY = hasUpdated($y);
     return uX && uY ? "both" : uX ? "x" : uY ? "y" : "neither";
   });
-  createEffect($a, () => {});
+  createRoot(() => createEffect($a, () => {}));
   expect($a()).toBe("neither");
   flushSync();
   expect($a()).toBe("neither");

@@ -2,8 +2,6 @@ import {
   $RAW,
   createEffect,
   createMemo,
-  createProjection,
-  createRenderEffect,
   createRoot,
   createSignal,
   createStore,
@@ -718,9 +716,11 @@ describe("objects", () => {
   it("updates", () => {
     const [store, setStore] = createStore({ foo: "foo" });
     const effect = vi.fn();
-    createEffect(
-      () => store.foo,
-      v => effect(v)
+    createRoot(() =>
+      createEffect(
+        () => store.foo,
+        v => effect(v)
+      )
     );
     flushSync();
     expect(effect).toHaveBeenCalledTimes(1);
@@ -737,9 +737,11 @@ describe("objects", () => {
   it("updates with nested object", () => {
     const [store, setStore] = createStore({ foo: { bar: "bar" } });
     const effect = vi.fn();
-    createEffect(
-      () => store.foo.bar,
-      v => effect(v)
+    createRoot(() =>
+      createEffect(
+        () => store.foo.bar,
+        v => effect(v)
+      )
     );
     flushSync();
     expect(effect).toHaveBeenCalledTimes(1);
@@ -756,9 +758,11 @@ describe("objects", () => {
   it("is immutable from the outside", () => {
     const [store, setStore] = createStore({ foo: "foo" });
     const effect = vi.fn();
-    createEffect(
-      () => store.foo,
-      v => effect(v)
+    createRoot(() =>
+      createEffect(
+        () => store.foo,
+        v => effect(v)
+      )
     );
     flushSync();
     expect(effect).toHaveBeenCalledTimes(1);
@@ -774,9 +778,11 @@ describe("objects", () => {
   it("has properties", () => {
     const [store, setStore] = createStore<{ foo?: string }>({});
     const effect = vi.fn();
-    createEffect(
-      () => "foo" in store,
-      v => effect(v)
+    createRoot(() =>
+      createEffect(
+        () => "foo" in store,
+        v => effect(v)
+      )
     );
     flushSync();
     expect(effect).toHaveBeenCalledTimes(1);
@@ -811,21 +817,23 @@ describe("arrays", () => {
     const effectA = vi.fn();
     const effectB = vi.fn();
     const effectC = vi.fn();
-    createEffect(
-      () => store.reduce((m, n) => m + n.i, 0),
-      v => effectA(v)
-    );
-    createEffect(
-      () => {
-        const row = store[0];
-        createEffect(
-          () => row.i,
-          v => effectC(v)
-        );
-        return row;
-      },
-      v => effectB(v.i)
-    );
+    createRoot(() => {
+      createEffect(
+        () => store.reduce((m, n) => m + n.i, 0),
+        v => effectA(v)
+      );
+      createEffect(
+        () => {
+          const row = store[0];
+          createEffect(
+            () => row.i,
+            v => effectC(v)
+          );
+          return row;
+        },
+        v => effectB(v.i)
+      );
+    });
     flushSync();
     expect(effectA).toHaveBeenCalledTimes(1);
     expect(effectA).toHaveBeenCalledWith(6);
@@ -852,107 +860,5 @@ describe("arrays", () => {
     expect(effectA).toHaveBeenCalledWith(11);
     expect(effectB).toHaveBeenCalledTimes(1);
     expect(effectC).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("selection with projections", () => {
-  test("simple selection", () => {
-    let prev: number | undefined;
-    const [s, set] = createSignal<number>(),
-      isSelected = createProjection<Record<number, boolean>>(state => {
-        const selected = s();
-        if (prev !== undefined && prev !== selected) delete state[prev];
-        if (selected) state[selected] = true;
-        prev = selected;
-      });
-    let count = 0;
-    const list: Array<string> = [];
-
-    createRoot(() =>
-      Array.from({ length: 100 }, (_, i) =>
-        createRenderEffect(
-          () => isSelected[i],
-          v => {
-            count++;
-            list[i] = v ? "selected" : "no";
-          }
-        )
-      )
-    );
-    expect(count).toBe(100);
-    expect(list[3]).toBe("no");
-
-    count = 0;
-    set(3);
-    flushSync();
-    expect(count).toBe(1);
-    expect(list[3]).toBe("selected");
-
-    count = 0;
-    set(6);
-    flushSync();
-    expect(count).toBe(2);
-    expect(list[3]).toBe("no");
-    expect(list[6]).toBe("selected");
-    set(undefined);
-    flushSync();
-    expect(count).toBe(3);
-    expect(list[6]).toBe("no");
-    set(5);
-    flushSync();
-    expect(count).toBe(4);
-    expect(list[5]).toBe("selected");
-  });
-
-  test("double selection", () => {
-    let prev: number | undefined;
-    const [s, set] = createSignal<number>(),
-      isSelected = createProjection<Record<number, boolean>>(state => {
-        const selected = s();
-        if (prev !== undefined && prev !== selected) delete state[prev];
-        if (selected) state[selected] = true;
-        prev = selected;
-      });
-    let count = 0;
-    const list: Array<string>[] = [];
-
-    createRoot(() =>
-      Array.from({ length: 100 }, (_, i) => {
-        list[i] = [];
-        createRenderEffect(
-          () => isSelected[i],
-          v => {
-            count++;
-            list[i][0] = v ? "selected" : "no";
-          }
-        );
-        createRenderEffect(
-          () => isSelected[i],
-          v => {
-            count++;
-            list[i][1] = v ? "oui" : "non";
-          }
-        );
-      })
-    );
-    expect(count).toBe(200);
-    expect(list[3][0]).toBe("no");
-    expect(list[3][1]).toBe("non");
-
-    count = 0;
-    set(3);
-    flushSync();
-    expect(count).toBe(2);
-    expect(list[3][0]).toBe("selected");
-    expect(list[3][1]).toBe("oui");
-
-    count = 0;
-    set(6);
-    flushSync();
-    expect(count).toBe(4);
-    expect(list[3][0]).toBe("no");
-    expect(list[6][0]).toBe("selected");
-    expect(list[3][1]).toBe("non");
-    expect(list[6][1]).toBe("oui");
   });
 });

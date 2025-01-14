@@ -1,4 +1,4 @@
-import { createEffect, createSignal, flushSync } from "../src/index.js";
+import { createEffect, createRoot, createSignal, flushSync } from "../src/index.js";
 
 afterEach(() => flushSync());
 
@@ -6,7 +6,7 @@ it("should batch updates", () => {
   const [$x, setX] = createSignal(10);
   const effect = vi.fn();
 
-  createEffect($x, effect);
+  createRoot(() => createEffect($x, effect));
   flushSync();
 
   setX(20);
@@ -22,7 +22,7 @@ it("should wait for queue to flush", () => {
   const [$x, setX] = createSignal(10);
   const $effect = vi.fn();
 
-  createEffect($x, $effect);
+  createRoot(() => createEffect($x, $effect));
   flushSync();
 
   expect($effect).to.toHaveBeenCalledTimes(1);
@@ -43,7 +43,7 @@ it("should not fail if called while flushing", () => {
     flushSync();
   });
 
-  createEffect($a, effect);
+  createRoot(() => createEffect($a, effect));
   flushSync();
 
   expect(effect).to.toHaveBeenCalledTimes(1);

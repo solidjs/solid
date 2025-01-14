@@ -22,14 +22,16 @@ it("should not create dependency", () => {
     return untrack($a) + 10;
   });
 
-  createEffect(
-    () => {
-      effect();
-      expect(untrack($x)).toBe(10);
-      expect(untrack($a)).toBe(20);
-      expect(untrack($b)).toBe(30);
-    },
-    () => {}
+  createRoot(() =>
+    createEffect(
+      () => {
+        effect();
+        expect(untrack($x)).toBe(10);
+        expect(untrack($a)).toBe(20);
+        expect(untrack($b)).toBe(30);
+      },
+      () => {}
+    )
   );
   flushSync();
 
@@ -55,13 +57,15 @@ it("should not affect deep dependency being created", () => {
     return $x() + untrack($y) + untrack($z) + 10;
   });
 
-  createEffect(
-    () => {
-      effect();
-      expect(untrack($x)).toBe(10);
-      expect(untrack($a)).toBe(40);
-    },
-    () => {}
+  createRoot(() =>
+    createEffect(
+      () => {
+        effect();
+        expect(untrack($x)).toBe(10);
+        expect(untrack($a)).toBe(40);
+      },
+      () => {}
+    )
   );
   flushSync();
 
@@ -96,12 +100,14 @@ it("should track owner across peeks", () => {
 
   function createChild() {
     const $a = createMemo(() => $x() * 2);
-    createEffect(
-      () => {
-        childCompute($a());
-        onCleanup(childDispose);
-      },
-      () => {}
+    createRoot(() =>
+      createEffect(
+        () => {
+          childCompute($a());
+          onCleanup(childDispose);
+        },
+        () => {}
+      )
     );
   }
 

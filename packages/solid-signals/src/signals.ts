@@ -1,3 +1,4 @@
+import { STATE_UNINITIALIZED } from "./core/constants.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   Computation,
@@ -133,7 +134,16 @@ export function createMemo<Next extends Prev, Init, Prev>(
   return () => {
     if (node) {
       resolvedValue = node.wait();
-      if (!node._sources?.length) node = undefined;
+      // no sources so will never update so can be disposed.
+      if (!node._sources?.length) {
+        node.dispose();
+        node = undefined;
+      }
+      // not owned and not listened to so can be garbage collected if reference lost.
+      else if (!node._parent && !node._observers?.length) {
+        node.dispose();
+        node._state = STATE_UNINITIALIZED;
+      }
     }
     return resolvedValue;
   };

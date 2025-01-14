@@ -27,7 +27,13 @@
  *     executed in root to leaf order)
  */
 
-import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
+import {
+  STATE_CHECK,
+  STATE_CLEAN,
+  STATE_DIRTY,
+  STATE_DISPOSED,
+  STATE_UNINITIALIZED
+} from "./constants.js";
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
@@ -115,7 +121,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     this._compute = compute;
 
-    this._state = compute ? STATE_DIRTY : STATE_CLEAN;
+    this._state = compute ? STATE_UNINITIALIZED : STATE_CLEAN;
     this._value = initialValue;
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
@@ -206,7 +212,10 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     const valueChanged =
       newValue !== UNCHANGED &&
-      (!!(flags & ERROR_BIT) || this._time === -1 || this._equals === false || !this._equals(this._value!, newValue));
+      (!!(flags & ERROR_BIT) ||
+        this._state === STATE_UNINITIALIZED ||
+        this._equals === false ||
+        !this._equals(this._value!, newValue));
 
     if (valueChanged) this._value = newValue;
 
@@ -352,7 +361,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
       }
     }
 
-    if (this._state === STATE_DIRTY) {
+    if (this._state === STATE_DIRTY || this._state === STATE_UNINITIALIZED) {
       update(this);
     } else {
       // isWaiting has now coallesced all of our parents' loading states

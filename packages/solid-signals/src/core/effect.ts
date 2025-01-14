@@ -35,6 +35,8 @@ export class Effect<T = any> extends Computation<T> {
     this._queue = getOwner()?._queue || globalQueue;
     this._updateIfNecessary();
     this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect();
+    if (__DEV__ && !this._parent)
+      console.warn("Effects created outside a reactive context will never be disposed");
   }
 
   override write(value: T, flags = 0): T {
@@ -83,6 +85,8 @@ export class EagerComputation<T = any> extends Computation<T> {
     super(initialValue, compute, options);
     this._queue = getOwner()?._queue || globalQueue;
     this._updateIfNecessary();
+    if (__DEV__ && !this._parent)
+      console.warn("Eager Computations created outside a reactive context will never be disposed");
   }
 
   override _notify(state: number): void {

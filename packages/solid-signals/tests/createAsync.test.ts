@@ -2,6 +2,7 @@ import {
   createAsync,
   createEffect,
   createMemo,
+  createRoot,
   createSignal,
   flushSync,
   isPending,
@@ -23,13 +24,14 @@ it("diamond should not cause waterfalls on read", async () => {
   const async1 = vi.fn(() => Promise.resolve(s()));
   const async2 = vi.fn(() => Promise.resolve(s()));
 
-  const b = createAsync(async1);
-  const c = createAsync(async2);
-
-  createEffect(
-    () => [b(), c()],
-    v => effect(...v)
-  );
+  createRoot(() => {
+    const b = createAsync(async1);
+    const c = createAsync(async2);
+    createEffect(
+      () => [b(), c()],
+      v => effect(...v)
+    );
+  });
 
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(1);
@@ -64,18 +66,21 @@ it("should waterfall when dependent on another async with shared source", async 
   //    |
   //    e
   //
+  let a;
   const [s, set] = createSignal(1);
   const effect = vi.fn();
   const async1 = vi.fn(() => Promise.resolve(s()));
   const async2 = vi.fn(() => Promise.resolve(s() + a()));
 
-  const a = createAsync(async1);
-  const b = createAsync(async2);
+  createRoot(() => {
+    a = createAsync(async1);
+    const b = createAsync(async2);
 
-  createEffect(
-    () => b(),
-    v => effect(v)
-  );
+    createEffect(
+      () => b(),
+      v => effect(v)
+    );
+  });
 
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(1);
@@ -103,7 +108,7 @@ it("should waterfall when dependent on another async with shared source", async 
 it("should not throw with isPending guard", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
-  const a = createAsync(async1);
+  const a = createRoot(() => createAsync(async1));
   const b = createMemo(() => (isPending(a) ? "pending" : a()));
   expect(b()).toBe("pending");
   await new Promise(r => setTimeout(r, 0));
@@ -119,7 +124,7 @@ it("should not throw with isPending guard", async () => {
 it("should not throw with latest guard", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
-  const a = createAsync(async1);
+  const a = createRoot(() => createAsync(async1));
   const b = createMemo(() => latest(a));
   expect(b()).toBe(undefined);
   await new Promise(r => setTimeout(r, 0));

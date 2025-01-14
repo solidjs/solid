@@ -15,7 +15,7 @@ it("should run effect", () => {
     compute = vi.fn($x),
     effect = vi.fn();
 
-  createEffect(compute, effect);
+  createRoot(() => createEffect(compute, effect));
   expect(compute).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(0);
   flushSync();
@@ -39,7 +39,7 @@ it("should run effect on change", () => {
   const $a = createMemo(() => $x() + $y());
   const $b = createMemo(() => $a());
 
-  createEffect($b, effect);
+  createRoot(() => createEffect($b, effect));
 
   expect(effect).to.toHaveBeenCalledTimes(0);
 
@@ -149,10 +149,12 @@ it("should run all disposals before each new run", () => {
 
   const [$x, setX] = createSignal(0);
 
-  createEffect(() => {
-    fnA(), fnB();
-    return $x();
-  }, effect);
+  createRoot(() =>
+    createEffect(() => {
+      fnA(), fnB();
+      return $x();
+    }, effect)
+  );
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -199,7 +201,7 @@ it("should conditionally observe", () => {
   const $a = createMemo(() => ($condition() ? $x() : $y()));
   const effect = vi.fn();
 
-  createEffect($a, effect);
+  createRoot(() => createEffect($a, effect));
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -249,9 +251,11 @@ it("should dispose of nested conditional effect", () => {
     );
   }
 
-  createEffect(
-    () => ($condition() ? fnA() : fnB()),
-    () => {}
+  createRoot(() =>
+    createEffect(
+      () => ($condition() ? fnA() : fnB()),
+      () => {}
+    )
   );
   flushSync();
   setCondition(false);
@@ -267,20 +271,22 @@ it("should handle looped effects", () => {
   const [$value, setValue] = createSignal(0);
 
   let x = 0;
-  createEffect(
-    () => {
-      x++;
-      values.push($value());
-      for (let i = 0; i < loop; i++) {
-        createEffect(
-          () => {
-            values.push($value() + i);
-          },
-          () => {}
-        );
-      }
-    },
-    () => {}
+  createRoot(() =>
+    createEffect(
+      () => {
+        x++;
+        values.push($value());
+        for (let i = 0; i < loop; i++) {
+          createEffect(
+            () => {
+              values.push($value() + i);
+            },
+            () => {}
+          );
+        }
+      },
+      () => {}
+    )
   );
 
   flushSync();
@@ -315,9 +321,11 @@ it("should apply changes in effect in same flush", async () => {
       return $a() + 2;
     });
 
-  createEffect($y, () => {
-    setX(n => n + 1);
-  });
+  createRoot(() =>
+    createEffect($y, () => {
+      setX(n => n + 1);
+    })
+  );
   flushSync();
 
   expect($x()).toBe(1);
@@ -347,19 +355,21 @@ it("should run parent effect before child effect", () => {
 
   let calls = 0;
 
-  createEffect(
-    () => {
-      createEffect(
-        () => {
-          $x();
-          calls++;
-        },
-        () => {}
-      );
+  createRoot(() =>
+    createEffect(
+      () => {
+        createEffect(
+          () => {
+            $x();
+            calls++;
+          },
+          () => {}
+        );
 
-      $condition();
-    },
-    () => {}
+        $condition();
+      },
+      () => {}
+    )
   );
 
   setX(1);
@@ -371,11 +381,13 @@ it("should run render effect before user effects", () => {
   const [$x, setX] = createSignal(0);
 
   let mark = "";
-  createEffect($x, () => {
-    mark += "b";
-  });
-  createRenderEffect($x, () => {
-    mark += "a";
+  createRoot(() => {
+    createEffect($x, () => {
+      mark += "b";
+    });
+    createRenderEffect($x, () => {
+      mark += "a";
+    });
   });
 
   flushSync();
