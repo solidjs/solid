@@ -104,9 +104,13 @@ function wrap<T extends StoreNode>(value: T): T {
       !Array.isArray(value) &&
       proto !== Object.prototype;
     if (isClass) {
-      const descriptors = Object.getOwnPropertyDescriptors(proto);
-      keys.push(...Object.keys(descriptors));
-      Object.assign(desc, descriptors);
+      let curProto = proto;
+      while (curProto != null) {
+        const descriptors = Object.getOwnPropertyDescriptors(curProto);
+        keys.push(...Object.keys(descriptors));
+        Object.assign(desc, descriptors);
+        curProto = Object.getPrototypeOf(curProto);
+      }
     }
 
     for (let i = 0, l = keys.length; i < l; i++) {
