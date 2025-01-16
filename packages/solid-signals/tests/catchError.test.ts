@@ -142,3 +142,35 @@ it("should throw error if there are no handlers left", () => {
   expect(handler).toHaveBeenCalledTimes(3);
   expect(handler).toHaveBeenCalledWith(error);
 });
+
+// TODO: Fix this test or figure out better way to do ErrorBoundaries
+// it("should handle errors when the effect is on the outside", async () => {
+//   const error = new Error(),
+//     rootHandler = vi.fn();
+
+//   let [$x, setX] = createSignal(0);
+
+//   createRoot(() =>
+//     createEffect(
+//       () => {
+//         catchError(() => {
+//           if ($x()) throw error;
+//           catchError(
+//             () => {
+//               throw error;
+//             },
+//             e => {
+//               expect(e).toBe(error);
+//               createEffect(() => {}, () => {setX(1)});
+//             }
+//           );
+//         }, rootHandler);
+//       },
+//       () => {}
+//     )
+//   );
+//   flushSync();
+//   expect(rootHandler).toHaveBeenCalledWith(error);
+//   expect(rootHandler).toHaveBeenCalledTimes(1);
+// });
+

@@ -42,7 +42,7 @@ export class Effect<T = any> extends Computation<T> {
   override write(value: T, flags = 0): T {
     const currentFlags = this._stateFlags;
     this._stateFlags = flags;
-    if ((flags & LOADING_BIT) !== (currentFlags & LOADING_BIT)) {
+    if (this._type === EFFECT_RENDER && (flags & LOADING_BIT) !== (currentFlags & LOADING_BIT)) {
       (this._queue as SuspenseQueue)._update?.(this);
     }
     if (value === UNCHANGED) return this._value as T;
