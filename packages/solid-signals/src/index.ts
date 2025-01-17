@@ -6,6 +6,7 @@ export {
   Owner,
   Queue,
   createContext,
+  flatten,
   flushSync,
   createBoundary,
   getContext,

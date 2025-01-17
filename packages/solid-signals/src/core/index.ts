@@ -28,3 +28,4 @@ export { flushSync, createBoundary, type IQueue, Queue } from "./scheduler.js";
 export { createSuspense } from "./suspense.js";
 export { SUPPORTS_PROXY } from "./constants.js";
 export * from "./flags.js";
+export { flatten } from "./utils.js";

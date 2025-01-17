@@ -137,7 +137,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     // When the currentObserver reads this._value, the want to add this computation as a source
     // so that when this._value changes, the currentObserver will be re-executed
-    if (!this._sources || this._sources.length) track(this);
+    if (!this._compute || this._sources?.length) track(this);
 
     // TODO do a handler lookup instead
     newFlags |= this._stateFlags & ~currentMask;

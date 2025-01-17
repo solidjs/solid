@@ -1,7 +1,8 @@
 import { Computation, untrack } from "./core.js";
-import type { Effect } from "./effect.js";
+import { EagerComputation, type Effect } from "./effect.js";
 import { LOADING_BIT } from "./flags.js";
 import { createBoundary, Queue } from "./scheduler.js";
+import { flatten } from "./utils.js";
 
 export class SuspenseQueue extends Queue {
   _nodes: Set<Effect> = new Set();
@@ -28,10 +29,29 @@ export class SuspenseQueue extends Queue {
   }
 }
 
+class LiveComputation<T> extends EagerComputation<T> {
+  override write(value: T, flags = 0): T {
+    const currentFlags = this._stateFlags;
+    super.write(value, flags);
+    if ((flags & LOADING_BIT) !== (currentFlags & LOADING_BIT)) {
+      (this._queue as SuspenseQueue)._update?.(this as any);
+    }
+    return this._value as T;
+  }
+}
+
 export function createSuspense(fn: () => any, fallbackFn: () => any) {
   const queue = new SuspenseQueue();
-  const tree = createBoundary(fn, queue);
+  const tree = createBoundary(() => {
+    const child = new Computation(null , fn);
+    return new LiveComputation(null, () => {
+      const flags: { error?: any } = {};
+      const flattenend = flatten(child.wait(), flags);
+      if (flags.error) throw flags.error;
+      return flattenend;
+    });
+  }, queue);
   const equality = new Computation(null, () => queue._signal.read() || queue._fallback);
-  const comp = new Computation(null, () => (equality.read() ? untrack(fallbackFn) : tree));
+  const comp = new Computation(null, () => (equality.read() ? untrack(fallbackFn) : tree.read()));
   return comp.read.bind(comp);
 }

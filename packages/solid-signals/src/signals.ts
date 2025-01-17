@@ -192,7 +192,7 @@ export function createAsync<T>(
       if (isPromise) {
         source.then(
           value => {
-            signal.write(value, 0);
+            signal.write(value, 0, true);
           },
           error => {
             signal.write(error, ERROR_BIT);
@@ -205,7 +205,7 @@ export function createAsync<T>(
           try {
             for await (let value of source as AsyncIterable<T>) {
               if (abort) return;
-              signal.write(value, 0);
+              signal.write(value, 0, true);
             }
           } catch (error: any) {
             signal.write(error, ERROR_BIT);

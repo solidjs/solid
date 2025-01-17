@@ -28,7 +28,7 @@
  * Note that the owner tree is largely orthogonal to the reactivity tree, and is much closer to the component tree.
  */
 
-import { isUndefined } from "../utils.js";
+import { isUndefined } from "./utils.js";
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
 import type { Computation } from "./core.js";
 import { ContextNotFoundError, NoOwnerError, type ErrorHandler } from "./error.js";
