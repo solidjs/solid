@@ -1,1 +1,1 @@
-export type { JSX } from "../../solid/types/jsx.js";
+export type { JSX } from "solid-js";

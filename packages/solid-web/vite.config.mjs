@@ -1,11 +1,13 @@
 /// <reference types="vitest" />
 
 import { defineConfig } from "vitest/config";
+import solidPlugin from "vite-plugin-solid";
 import { resolve } from "path";
 
 const rootDir = resolve(__dirname);
 
 export default defineConfig({
+  plugins: [solidPlugin()],
   server: {
     port: 3000
   },
@@ -17,6 +19,7 @@ export default defineConfig({
       exclude: ["**/*.d.ts", "src/server/*.ts"]
     },
     environment: "jsdom",
+    transformMode: { web: [/\.[jt]sx?$/] },
     // otherwise, solid would be loaded twice:
     deps: { registerNodeLoader: true },
     // if you have few tests, try commenting one
@@ -24,13 +27,12 @@ export default defineConfig({
     threads: false,
     isolate: false,
     globals: true,
-    exclude: ["**/node_modules/**", "archived_tests/**"]
+    exclude: ["**/node_modules/**", "wip_tests/**"]
   },
   resolve: {
     conditions: ["development", "browser"],
     alias: {
-      "solid-js/jsx-runtime": [resolve(rootDir, "../../packages/solid/src/jsx")],
-      "solid-js": [resolve(rootDir, "../../packages/solid/src")]
+      rxcore: [resolve(rootDir, "../../packages/solid-web/src/core")],
     }
   }
 });

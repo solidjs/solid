@@ -3,8 +3,8 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createSignal } from "../../solid/src/index.js";
-import { render, clearDelegatedEvents, Portal, Show } from "../src/index.js";
+import { createSignal, Show } from "solid-js";
+import { render, clearDelegatedEvents, Portal } from "../src/index.js";
 
 describe("Testing a simple Portal", () => {
   let div = document.createElement("div"),

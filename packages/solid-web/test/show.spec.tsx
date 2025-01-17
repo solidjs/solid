@@ -3,8 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal } from "../../solid/src/index.js";
-import { Show } from "../src/index.js";
+import { createRoot, createSignal, Show, flushSync } from "solid-js";
 
 describe("Testing an only child show control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -26,10 +25,13 @@ describe("Testing an only child show control flow", () => {
 
   test("Toggle show control flow", () => {
     setCount(7);
+    flushSync();
     expect(div.innerHTML).toBe("7");
     setCount(5);
+    flushSync();
     expect(div.innerHTML).toBe("5");
     setCount(2);
+    flushSync();
     expect(div.innerHTML).toBe("");
   });
 
@@ -59,10 +61,13 @@ describe("Testing an only child show control flow with DOM children", () => {
 
   test("Toggle show control flow", () => {
     setCount(7);
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     setCount(5);
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     setCount(2);
+    flushSync();
     expect(div.innerHTML).toBe("");
   });
 
@@ -100,16 +105,19 @@ describe("Testing nonkeyed show control flow", () => {
 
   test("Toggle show control flow", () => {
     setCount(7);
+    flushSync();
     expect(whenExecuted).toBe(2);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     expect(childrenExecuted).toBe(1);
     setCount(5);
+    flushSync();
     expect(whenExecuted).toBe(3);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     expect(childrenExecuted).toBe(1);
     setCount(5);
     expect(whenExecuted).toBe(3);
     setCount(0);
+    flushSync();
     expect(whenExecuted).toBe(4);
     expect(div.innerHTML).toBe("");
     expect(childrenExecuted).toBe(1);
@@ -151,16 +159,19 @@ describe("Testing keyed show control flow", () => {
 
   test("Toggle show control flow", () => {
     setCount(7);
+    flushSync();
     expect(whenExecuted).toBe(2);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     expect(childrenExecuted).toBe(1);
     setCount(5);
+    flushSync();
     expect(whenExecuted).toBe(3);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     expect(childrenExecuted).toBe(2);
     setCount(5);
     expect(whenExecuted).toBe(3);
     setCount(0);
+    flushSync();
     expect(whenExecuted).toBe(4);
     expect(div.innerHTML).toBe("");
     expect(childrenExecuted).toBe(2);
@@ -206,16 +217,19 @@ describe("Testing nonkeyed function show control flow", () => {
 
   test("Toggle show control flow", () => {
     setCount(7);
+    flushSync();
     expect(whenExecuted).toBe(2);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     expect(childrenExecuted).toBe(1);
     setCount(5);
+    flushSync();
     expect(whenExecuted).toBe(3);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     expect(childrenExecuted).toBe(1);
     setCount(5);
     expect(whenExecuted).toBe(3);
     setCount(0);
+    flushSync();
     expect(whenExecuted).toBe(4);
     expect(div.innerHTML).toBe("");
     expect(childrenExecuted).toBe(1);
@@ -235,7 +249,7 @@ describe("Testing keyed function show control flow", () => {
       <Show when={count()} keyed>
         {count => (
           <>
-            <span>{count}</span>
+            <span>{count()}</span>
             <span>{executed++}</span>
           </>
         )}
@@ -255,12 +269,15 @@ describe("Testing keyed function show control flow", () => {
 
   test("Toggle show control flow", () => {
     setCount(7);
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     expect(executed).toBe(1);
     setCount(5);
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     expect(executed).toBe(2);
     setCount(0);
+    flushSync();
     expect(div.innerHTML).toBe("");
     expect(executed).toBe(2);
   });
@@ -274,9 +291,9 @@ describe("Testing an only child show control flow with keyed function", () => {
   const Component = () => (
     <div ref={div}>
       <Show when={data()} keyed>
-        {({ count }) => (
+        {item => (
           <>
-            <span>{count}</span>
+            <span>{item().count}</span>
             <span>counted</span>
           </>
         )}
@@ -295,10 +312,13 @@ describe("Testing an only child show control flow with keyed function", () => {
 
   test("Toggle show control flow", () => {
     setData({ count: 7 });
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     setData({ count: 5 });
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     setData({ count: 2 });
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("2");
   });
 
@@ -332,10 +352,13 @@ describe("Testing an only child show control flow with non-keyed function", () =
 
   test("Toggle show control flow", () => {
     setData({ count: 7 });
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     setData({ count: 5 });
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     setData({ count: 2 });
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("2");
   });
 
@@ -364,10 +387,13 @@ describe("Testing an only child show control flow with DOM children and fallback
 
   test("Toggle show control flow", () => {
     setCount(7);
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
     setCount(5);
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
     setCount(2);
+    flushSync();
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("Too Low");
   });
 

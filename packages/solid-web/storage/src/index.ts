@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { RequestEvent } from "solid-js/web";
-import { isServer, RequestContext } from "solid-js/web";
+import type { RequestEvent } from "@solidjs/web";
+import { isServer, RequestContext } from "@solidjs/web";
 
 // using global on a symbol for locating it later and detaching for environments that don't support it.
 export function provideRequestEvent<T extends RequestEvent, U>(init: T, cb: () => U): U {

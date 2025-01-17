@@ -156,8 +156,8 @@ importers:
   packages/solid:
     dependencies:
       '@solidjs/signals':
-        specifier: ^0.0.2
-        version: 0.0.2
+        specifier: ^0.0.3
+        version: 0.0.3
       csstype:
         specifier: ^3.1.0
         version: 3.1.3
@@ -168,6 +168,9 @@ importers:
         specifier: ^0.8.7
         version: 0.8.7
     devDependencies:
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../solid-web
       solid-js:
         specifier: workspace:*
         version: link:../solid
@@ -186,6 +189,10 @@ importers:
       seroval-plugins:
         specifier: ^1.1.0
         version: 1.2.0(seroval@1.2.0)
+    devDependencies:
+      solid-js:
+        specifier: workspace:*
+        version: link:../solid
 
   packages/test-integration:
     dependencies:
@@ -1191,8 +1198,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@solidjs/signals@0.0.2':
-    resolution: {integrity: sha512-tXPGNAmstGKqDq4b9XUoSRNPWGIJoRYPbMgVazRgcwAkVBFyezXQ7yjaDN6tNEWClh8WQPRP7vNQwUD0CFuIgw==}
+  '@solidjs/signals@0.0.3':
+    resolution: {integrity: sha512-7S61EzTRwZzzYbu/WZMhxZXdD6zYzup8b3EG5lwUMi8OsWCebk9FhCOcULzSYzNmrWMOiilDWuSJ4DDNcmV6AQ==}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -4476,7 +4483,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.31.0':
     optional: true
 
-  '@solidjs/signals@0.0.2': {}
+  '@solidjs/signals@0.0.3': {}
 
   '@types/babel__core@7.20.5':
     dependencies:

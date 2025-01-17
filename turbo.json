@@ -8,13 +8,22 @@
     "solid-js#build": {
       "outputs": ["dist/**", "**/dist/**"]
     },
-    "solid-js#link": {
+    "@solidjs/web#link": {
+      "dependsOn": ["solid-js#build"],
       "outputs": []
     },
-    "solid-element#build": {
-      "dependsOn": ["solid-js#types", "solid-js#link"]
+    "@solidjs/web#build": {
+      "dependsOn": ["solid-js#types", "@solidjs/web#link"],
+      "outputs": ["dist/**", "**/dist/**"]
+    },
+    "@solidjs/element#build": {
+      "dependsOn": ["solid-js#types", "@solidjs/web#types"]
     },
     "solid-js#types": {
+      "dependsOn": ["^types"],
+      "outputs": ["types/**", "**/types/**"]
+    },
+    "@solidjs/web#types": {
       "dependsOn": ["^types"],
       "outputs": ["types/**", "**/types/**"]
     },
@@ -25,7 +34,7 @@
       "outputs": []
     },
     "test-integration#test": {
-      "dependsOn": ["solid-js#build", "solid-js#link"]
+      "dependsOn": ["solid-js#build"]
     },
     "solid-js#test-types": {
       "outputs": [],

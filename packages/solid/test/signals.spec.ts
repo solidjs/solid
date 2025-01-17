@@ -5,23 +5,19 @@ import {
   createSignal,
   createEffect,
   createRenderEffect,
-  createComputed,
-  createReaction,
-  createDeferred,
   createMemo,
-  createSelector,
   untrack,
-  on,
   onMount,
   onCleanup,
   catchError,
   createContext,
   useContext,
   getOwner,
-  runWithOwner
+  runWithOwner,
+  flushSync,
+  Setter,
+  Accessor
 } from "../src/index.js";
-
-import "./MessageChannel";
 
 describe("Create signals", () => {
   test("Create and read a Signal", () => {
@@ -49,16 +45,18 @@ describe("Create signals", () => {
     createRoot(() => {
       onMount(() => (temp = "impure"));
     });
+    flushSync();
     expect(temp!).toBe("impure");
   });
   test("Create a Effect with explicit deps", () => {
     let temp: string;
     createRoot(() => {
       const [sign] = createSignal("thoughts");
-      const fn = on(sign, v => (temp = `impure ${v}`));
-      createEffect(fn);
-      createEffect(on(sign, v => (temp = `impure ${v}`)));
+      createEffect(sign, v => {
+        temp = `impure ${v}`;
+      });
     });
+    flushSync();
     expect(temp!).toBe("impure thoughts");
   });
   test("Create a Effect with multiple explicit deps", () => {
@@ -66,32 +64,15 @@ describe("Create signals", () => {
     createRoot(() => {
       const [sign] = createSignal("thoughts");
       const [num] = createSignal(3);
-      const fn = on([sign, num], v => (temp = `impure ${v[1]}`));
-      createEffect(fn);
+      createEffect(
+        () => [sign(), num()],
+        v => {
+          temp = `impure ${v[1]}`;
+        }
+      );
     });
+    flushSync();
     expect(temp!).toBe("impure 3");
-  });
-  test("Create a Effect with explicit deps and lazy evaluation", () => {
-    let temp: string;
-    const [sign, set] = createSignal("thoughts");
-    createRoot(() => {
-      const fn = on(sign, v => (temp = `impure ${v}`), { defer: true });
-      createEffect(fn);
-    });
-    expect(temp!).toBeUndefined();
-    set("minds");
-    expect(temp!).toBe("impure minds");
-  });
-  test("Create a Effect with explicit deps, lazy evaluation, and initial value", () => {
-    let temp: string;
-    const [sign, set] = createSignal("thoughts");
-    createRoot(() => {
-      const fn = on(sign, (v, _, p) => (temp = `impure ${p} ${v}`), { defer: true });
-      createEffect(fn, "numbers");
-    });
-    expect(temp!).toBeUndefined();
-    set("minds");
-    expect(temp!).toBe("impure numbers minds");
   });
 });
 
@@ -117,7 +98,7 @@ describe("Update signals", () => {
     expect(value()).toBe(5);
   });
   test("Create and read a Signal with function value", () => {
-    const [value, setValue] = createSignal<() => string>(() => "Hi");
+    const [value, setValue] = createSignal<() => string>(() => () => "Hi");
     expect(value()()).toBe("Hi");
     setValue(() => () => "Hello");
     expect(value()()).toBe("Hello");
@@ -138,53 +119,58 @@ describe("Update signals", () => {
       expect(name()).toBe("John");
       expect(memo()).toBe("Hello John");
       setName("Jake");
+      flushSync();
       expect(name()).toBe("John");
       expect(memo()).toBe("Hello John");
     });
   });
-  test("Create and trigger a Memo in an effect", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let temp: string;
-        const [name, setName] = createSignal("John"),
-          memo = createMemo(() => `Hello ${name()}`);
-        createEffect(() => (temp = `${memo()}!!!`));
-        setTimeout(() => {
-          expect(temp).toBe("Hello John!!!");
-          setName("Jake");
-          expect(temp).toBe("Hello Jake!!!");
-          done(undefined);
-        });
+  test("Create and trigger a Memo in an effect", () => {
+    createRoot(() => {
+      let temp: string;
+      const [name, setName] = createSignal("John"),
+        memo = createMemo(() => `Hello ${name()}`);
+      createEffect(memo, v => {
+        temp = `${v}!!!`;
       });
-    }));
-  test("Create and trigger an Effect", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let temp: string;
-        const [sign, setSign] = createSignal("thoughts");
-        createEffect(() => (temp = `unpure ${sign()}`));
-        setTimeout(() => {
-          expect(temp).toBe("unpure thoughts");
-          setSign("mind");
-          expect(temp).toBe("unpure mind");
-          done(undefined);
-        });
+      flushSync();
+      expect(temp!).toBe("Hello John!!!");
+      setName("Jake");
+      flushSync();
+      expect(temp!).toBe("Hello Jake!!!");
+    });
+  });
+  test("Create and trigger an Effect", () => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, setSign] = createSignal("thoughts");
+      createEffect(sign, v => {
+        temp = `unpure ${v}`;
       });
-    }));
-  test("Create and trigger an Effect with function signals", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let temp: string;
-        const [sign, setSign] = createSignal<() => string>(() => "thoughts");
-        createEffect(() => (temp = `unpure ${sign()()}`));
-        setTimeout(() => {
-          expect(temp).toBe("unpure thoughts");
-          setSign(() => () => "mind");
-          expect(temp).toBe("unpure mind");
-          done(undefined);
-        });
-      });
-    }));
+      flushSync();
+      expect(temp!).toBe("unpure thoughts");
+      setSign("mind");
+      flushSync();
+      expect(temp!).toBe("unpure mind");
+    });
+  });
+  test("Create and trigger an Effect with function signals", () => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, setSign] = createSignal<() => string>(() => () => "thoughts");
+      createEffect(
+        () => sign()(),
+        v => {
+          temp = `unpure ${v}`;
+        }
+      );
+      flushSync();
+      expect(temp!).toBe("unpure thoughts");
+      setSign(() => () => "mind");
+      flushSync();
+      expect(temp!).toBe("unpure mind");
+    });
+  });
+
   test("Set signal returns argument", () => {
     const [_, setValue] = createSignal<number>();
     const res1: undefined = setValue(undefined);
@@ -199,139 +185,163 @@ describe("Update signals", () => {
 });
 
 describe("Untrack signals", () => {
-  test("Mute an effect", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let temp: string;
-        const [sign, setSign] = createSignal("thoughts");
-        createEffect(() => (temp = `unpure ${untrack(sign)}`));
-        setTimeout(() => {
-          expect(temp).toBe("unpure thoughts");
-          setSign("mind");
-          expect(temp).toBe("unpure thoughts");
-          done(undefined);
-        });
-      });
-    }));
+  test("Mute an effect", () => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, setSign] = createSignal("thoughts");
+      createEffect(
+        () => untrack(sign),
+        v => {
+          temp = `unpure ${v}`;
+        }
+      );
+      flushSync();
+      expect(temp!).toBe("unpure thoughts");
+      setSign("mind");
+      flushSync();
+      expect(temp!).toBe("unpure thoughts");
+    });
+  });
 });
 
 describe("Batching signals", () => {
-  test("Mute an effect", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let temp: string;
-        const [sign, setSign] = createSignal("thoughts");
-        createEffect(() => (temp = `unpure ${untrack(sign)}`));
-        setTimeout(() => {
-          expect(temp).toBe("unpure thoughts");
-          setSign("mind");
-          expect(temp).toBe("unpure thoughts");
-          done(undefined);
-        });
-      });
-    }));
+  test("Mute an effect", () => {
+    createRoot(() => {
+      let temp: string;
+      const [sign, setSign] = createSignal("thoughts");
+      createEffect(
+        () => untrack(sign),
+        v => {
+          temp = `unpure ${v}`;
+        }
+      );
+      flushSync();
+      expect(temp!).toBe("unpure thoughts");
+      setSign("mind");
+      flushSync();
+      expect(temp!).toBe("unpure thoughts");
+    });
+  });
 });
 
 describe("Effect grouping of signals", () => {
-  test("Groups updates", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let count = 0;
-        const [a, setA] = createSignal(0);
-        const [b, setB] = createSignal(0);
-        createEffect(() => {
+  test("Groups updates", () => {
+    let count = 0;
+    createRoot(() => {
+      const [a, setA] = createSignal(0);
+      const [b, setB] = createSignal(0);
+      createEffect(
+        () => {},
+        () => {
           setA(1);
           setB(1);
-        });
-        createMemo(() => (count += a() + b()));
-        setTimeout(() => {
-          expect(count).toBe(2);
-          done(undefined);
-        });
-      });
-    }));
-  test("Groups updates with repeated sets", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let count = 0;
-        const [a, setA] = createSignal(0);
-        createEffect(() => {
+        }
+      );
+      createEffect(
+        () => a() + b(),
+        v => {
+          count += v;
+        }
+      );
+    });
+    expect(count).toBe(0);
+    flushSync();
+    expect(count).toBe(2);
+  });
+  test("Groups updates with repeated sets", () => {
+    let count = 0;
+    createRoot(() => {
+      const [a, setA] = createSignal(0);
+      createEffect(
+        () => {},
+        () => {
           setA(1);
           setA(4);
-        });
-        createMemo(() => (count += a()));
-        setTimeout(() => {
-          expect(count).toBe(4);
-          done(undefined);
-        });
+        }
+      );
+      createEffect(a, v => {
+        count += v;
       });
-    }));
-  test("Groups updates with fn setSignal", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let count = 0;
-        const [a, setA] = createSignal(0);
-        const [b, setB] = createSignal(0);
-        createEffect(() => {
+    });
+    flushSync();
+    expect(count).toBe(4);
+  });
+  test("Groups updates with fn setSignal", () => {
+    let count = 0;
+    createRoot(() => {
+      const [a, setA] = createSignal(0);
+      const [b, setB] = createSignal(0);
+      createEffect(
+        () => {},
+        () => {
           setA(a => a + 1);
           setB(b => b + 1);
-        });
-        createMemo(() => (count += a() + b()));
-        setTimeout(() => {
-          expect(count).toBe(2);
-          done(undefined);
-        });
-      });
-    }));
-  test("Groups updates with fn setSignal with repeated sets", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let count = 0;
-        const [a, setA] = createSignal(0);
-        createEffect(() => {
+        }
+      );
+      createEffect(
+        () => a() + b(),
+        v => {
+          count += v;
+        }
+      );
+    });
+    flushSync();
+    expect(count).toBe(2);
+  });
+  test("Groups updates with fn setSignal with repeated sets", () => {
+    let count = 0;
+    createRoot(() => {
+      const [a, setA] = createSignal(0);
+      createEffect(
+        () => {},
+        () => {
           setA(a => a + 1);
           setA(a => a + 2);
-        });
-        createMemo(() => (count += a()));
-        setTimeout(() => {
-          expect(count).toBe(3);
-          done(undefined);
-        });
+        }
+      );
+      createEffect(a, v => {
+        count += v;
       });
-    }));
-  test("Test cross setting in a effect update", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let count = 0;
-        const [a, setA] = createSignal(1);
-        const [b, setB] = createSignal(0);
-        createEffect(() => {
-          setA(a => a + b());
-        });
-        createMemo(() => (count += a()));
-        setTimeout(() => {
-          setB(b => b + 1);
-          setTimeout(() => {
-            expect(count).toBe(3);
-            done(undefined);
-          });
-        });
+    });
+    flushSync();
+    expect(count).toBe(3);
+  });
+  test("Test cross setting in a effect update", () => {
+    let count = 0,
+      setter: Setter<number>;
+    createRoot(() => {
+      const [a, setA] = createSignal(1);
+      const [b, setB] = createSignal(0);
+      setter = setB;
+      createEffect(b, b => {
+        setA(a => a + b);
       });
-    }));
+      createEffect(a, v => {
+        count += v;
+      });
+    });
+    flushSync();
+    setter!(b => b + 1);
+    flushSync();
+    expect(count).toBe(3);
+  });
   test("Handles errors gracefully", () =>
     new Promise(done => {
       createRoot(() => {
         let error: Error;
         const [a, setA] = createSignal(0);
         const [b, setB] = createSignal(0);
-        createEffect(() => {
-          try {
-            setA(1);
-            throw new Error("test");
-          } catch (e) {
-            error = e as Error;
+        createEffect(
+          () => {},
+          () => {
+            try {
+              setA(1);
+              throw new Error("test");
+            } catch (e) {
+              error = e as Error;
+            }
           }
-        });
+        );
         createMemo(() => a() + b());
         setTimeout(() => {
           expect(a()).toBe(1);
@@ -341,7 +351,7 @@ describe("Effect grouping of signals", () => {
           expect(error).toBeInstanceOf(Error);
           expect(error.message).toBe("test");
           done(undefined);
-        });
+        }, 0);
       });
     }));
 
@@ -350,15 +360,18 @@ describe("Effect grouping of signals", () => {
       createRoot(() => {
         let count = 0;
         const [a, setA] = createSignal(0);
-        createEffect(() => {
-          setA(1);
-          setA(0);
-        });
+        createEffect(
+          () => {},
+          () => {
+            setA(1);
+            setA(0);
+          }
+        );
         createMemo(() => (count = a()));
         setTimeout(() => {
           expect(count).toBe(0);
           done(undefined);
-        });
+        }, 0);
       });
     }));
 });
@@ -374,14 +387,14 @@ describe("Typecheck computed and effects", () => {
         expect(arg).toBe(undefined);
         return arg;
       };
-      createComputed(fn);
-      createRenderEffect(fn);
-      createEffect(fn);
+      createRenderEffect(fn, () => {});
+      createEffect(fn, () => {});
       setTimeout(() => {
-        expect(count).toBe(3);
+        expect(count).toBe(2);
         setSign("update");
-        expect(count).toBe(6);
-      });
+        flushSync();
+        expect(count).toBe(4);
+      }, 0);
     });
   });
   test("Default value never receives undefined", () => {
@@ -394,36 +407,38 @@ describe("Typecheck computed and effects", () => {
         expect(arg).toBe(12);
         return arg;
       };
-      createComputed(fn, 12);
-      createRenderEffect(fn, 12);
-      createEffect(fn, 12);
+      createRenderEffect(fn, () => {}, 12);
+      createEffect(fn, () => {}, 12);
       setTimeout(() => {
-        expect(count).toBe(3);
+        expect(count).toBe(2);
         setSign("update");
-        expect(count).toBe(6);
-      });
+        flushSync();
+        expect(count).toBe(4);
+      }, 0);
     });
   });
 });
 
 describe("onCleanup", () => {
-  test("Clean an effect", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let temp: string;
-        const [sign, setSign] = createSignal("thoughts");
-        createEffect(() => {
+  test("Clean an effect", () => {
+    let temp: string, setter: Setter<string>;
+    createRoot(() => {
+      const [sign, setSign] = createSignal("thoughts");
+      setter = setSign;
+      createEffect(
+        () => {
           sign();
           onCleanup(() => (temp = "after"));
-        });
-        setTimeout(() => {
-          expect(temp).toBeUndefined();
-          setSign("mind");
-          expect(temp).toBe("after");
-          done(undefined);
-        });
-      });
-    }));
+        },
+        () => {}
+      );
+    });
+    flushSync();
+    expect(temp!).toBeUndefined();
+    setter!("mind");
+    flushSync();
+    expect(temp!).toBe("after");
+  });
   test("Explicit root disposal", () => {
     let temp: string | undefined, disposer: () => void;
     createRoot(dispose => {
@@ -433,15 +448,6 @@ describe("onCleanup", () => {
     expect(temp).toBeUndefined();
     disposer!();
     expect(temp).toBe("disposed");
-  });
-  test("Failed Root disposal from arguments", () => {
-    let temp: string | undefined, disposer: () => void;
-    createRoot((...args) => {
-      disposer = args[0];
-      onCleanup(() => (temp = "disposed"));
-    });
-    expect(temp).toBeUndefined();
-    expect(disposer!).toThrow();
   });
 });
 
@@ -494,81 +500,31 @@ describe("catchError", () => {
     let errored = false;
     expect(() =>
       createRoot(() => {
-        createEffect(() => {
-          catchError(
-            () => {
-              throw "fail";
-            },
-            () => (errored = true)
-          );
-        });
-      })
-    ).not.toThrow("fail");
-    expect(errored).toBe(true);
-  });
-
-  // test("With multiple error handlers", () => {
-  //   let errored = false;
-  //   let errored2 = false;
-  //   expect(() =>
-  //     createRoot(() => {
-  //       createEffect(() => {
-  //         onError(() => (errored = true));
-  //         onError(() => (errored2 = true));
-  //         throw "fail";
-  //       });
-  //     })
-  //   ).not.toThrow("fail");
-  //   expect(errored).toBe(true);
-  //   expect(errored2).toBe(true);
-  // });
-
-  test("In update effect", () => {
-    let errored = false;
-    expect(() =>
-      createRoot(() => {
-        const [s, set] = createSignal(0);
-        createEffect(() => {
-          const v = s();
-          catchError(
-            () => {
-              if (v) throw "fail";
-            },
-            () => (errored = true)
-          );
-        });
-        set(1);
-      })
-    ).not.toThrow("fail");
-    expect(errored).toBe(true);
-  });
-
-  test("In initial nested effect", () => {
-    let errored = false;
-    expect(() =>
-      createRoot(() => {
-        createEffect(() => {
-          createEffect(() => {
+        createEffect(
+          () => {
             catchError(
               () => {
                 throw "fail";
               },
               () => (errored = true)
             );
-          });
-        });
+          },
+          () => {}
+        );
       })
     ).not.toThrow("fail");
     expect(errored).toBe(true);
   });
 
-  test("In nested update effect", () => {
+  test("In update effect", () => {
     let errored = false;
+    let setter: Setter<number>;
     expect(() =>
       createRoot(() => {
         const [s, set] = createSignal(0);
-        createEffect(() => {
-          createEffect(() => {
+        setter = set;
+        createEffect(
+          () => {
             const v = s();
             catchError(
               () => {
@@ -576,43 +532,114 @@ describe("catchError", () => {
               },
               () => (errored = true)
             );
-          });
-        });
-        set(1);
+          },
+          () => {}
+        );
       })
     ).not.toThrow("fail");
+    setter!(1);
+    flushSync();
+    expect(errored).toBe(true);
+  });
+
+  test("In initial nested effect", () => {
+    let errored = false;
+    expect(() =>
+      createRoot(() => {
+        createEffect(
+          () => {
+            createEffect(
+              () => {
+                catchError(
+                  () => {
+                    throw "fail";
+                  },
+                  () => (errored = true)
+                );
+              },
+              () => {}
+            );
+          },
+          () => {}
+        );
+      })
+    ).not.toThrow("fail");
+    expect(errored).toBe(true);
+  });
+
+  test("In nested update effect", () => {
+    let errored = false;
+    let setter: Setter<number>;
+    expect(() =>
+      createRoot(() => {
+        const [s, set] = createSignal(0);
+        setter = set;
+        createEffect(
+          () => {
+            createEffect(
+              () => {
+                const v = s();
+                catchError(
+                  () => {
+                    if (v) throw "fail";
+                  },
+                  () => (errored = true)
+                );
+              },
+              () => {}
+            );
+          },
+          () => {}
+        );
+      })
+    ).not.toThrow("fail");
+    setter!(1);
+    flushSync();
     expect(errored).toBe(true);
   });
 
   test("In nested update effect different levels", () => {
     let errored = false;
+    let setter: Setter<number>;
     expect(() =>
       createRoot(() => {
         const [s, set] = createSignal(0);
-        createEffect(() => {
-          catchError(
-            () =>
-              createEffect(() => {
-                const v = s();
-                if (v) throw "fail";
-              }),
-            () => (errored = true)
-          );
-        });
-        set(1);
+        setter = set;
+        createEffect(
+          () => {
+            catchError(
+              () =>
+                createEffect(
+                  () => {
+                    const v = s();
+                    if (v) throw "fail";
+                  },
+                  () => {}
+                ),
+              () => (errored = true)
+            );
+          },
+          () => {}
+        );
       })
     ).not.toThrow("fail");
+    setter!(1);
+    flushSync();
     expect(errored).toBe(true);
   });
 
   test("In nested memo", () => {
     let errored = false;
+    let a: Accessor<void>;
     expect(() =>
       createRoot(() => {
-        createMemo(() => {
+        a = createMemo(() => {
           catchError(
             () => {
-              createEffect(() => {});
+              createEffect(
+                () => {},
+                () => {}
+              );
               throw new Error("fail");
             },
             () => (errored = true)
@@ -620,172 +647,16 @@ describe("catchError", () => {
         });
       })
     ).not.toThrow("fail");
+    expect(errored).toBe(false);
+    a!();
     expect(errored).toBe(true);
   });
 });
 
-describe("createDeferred", () => {
-  test("simple defer", () =>
-    new Promise(done => {
-      createRoot(() => {
-        const [s, set] = createSignal("init"),
-          r = createDeferred(s, { timeoutMs: 20 });
-        expect(r()).toBe("init");
-        set("Hi");
-        expect(r()).toBe("init");
-        setTimeout(() => {
-          expect(r()).toBe("Hi");
-          done(undefined);
-        }, 100);
-      });
-    }));
-});
-
-describe("createSelector", () => {
-  test("simple selection", () =>
-    new Promise(done => {
-      createRoot(() => {
-        const [s, set] = createSignal<number>(),
-          isSelected = createSelector(s);
-        let count = 0;
-        const list = Array.from({ length: 100 }, (_, i) =>
-          createMemo(() => {
-            count++;
-            return isSelected(i) ? "selected" : "no";
-          })
-        );
-        expect(count).toBe(100);
-        expect(list[3]()).toBe("no");
-        setTimeout(() => {
-          count = 0;
-          set(3);
-          expect(count).toBe(1);
-          expect(list[3]()).toBe("selected");
-          count = 0;
-          set(6);
-          expect(count).toBe(2);
-          expect(list[3]()).toBe("no");
-          expect(list[6]()).toBe("selected");
-          set(undefined);
-          expect(count).toBe(3);
-          expect(list[6]()).toBe("no");
-          set(5);
-          expect(count).toBe(4);
-          expect(list[5]()).toBe("selected");
-          done(undefined);
-        });
-      });
-    }));
-
-  test("double selection", () =>
-    new Promise(done => {
-      createRoot(() => {
-        const [s, set] = createSignal<number>(-1),
-          isSelected = createSelector<number, number>(s);
-        let count = 0;
-        const list = Array.from({ length: 100 }, (_, i) => [
-          createMemo(() => {
-            count++;
-            return isSelected(i) ? "selected" : "no";
-          }),
-          createMemo(() => {
-            count++;
-            return isSelected(i) ? "oui" : "non";
-          })
-        ]);
-        expect(count).toBe(200);
-        expect(list[3][0]()).toBe("no");
-        expect(list[3][1]()).toBe("non");
-        setTimeout(() => {
-          count = 0;
-          set(3);
-          expect(count).toBe(2);
-          expect(list[3][0]()).toBe("selected");
-          expect(list[3][1]()).toBe("oui");
-          count = 0;
-          set(6);
-          expect(count).toBe(4);
-          expect(list[3][0]()).toBe("no");
-          expect(list[6][0]()).toBe("selected");
-          expect(list[3][1]()).toBe("non");
-          expect(list[6][1]()).toBe("oui");
-          done(undefined);
-        });
-      });
-    }));
-
-  test("zero index", () =>
-    new Promise(done => {
-      createRoot(() => {
-        const [s, set] = createSignal<number>(-1),
-          isSelected = createSelector<number, number>(s);
-        let count = 0;
-        const list = [
-          createMemo(() => {
-            count++;
-            return isSelected(0) ? "selected" : "no";
-          })
-        ];
-        expect(count).toBe(1);
-        expect(list[0]()).toBe("no");
-        setTimeout(() => {
-          count = 0;
-          set(0);
-          expect(count).toBe(1);
-          expect(list[0]()).toBe("selected");
-          count = 0;
-          set(-1);
-          expect(count).toBe(1);
-          expect(list[0]()).toBe("no");
-          done(undefined);
-        });
-      });
-    }));
-});
-
 describe("create and use context", () => {
-  test("createContext without arguments defaults to undefined", () => {
+  test("createContext without arguments defaults to undefined and to throw if accessed without provider", () => {
     const context = createContext<number>();
-    const res = useContext(context);
-    expect(res).toBe<typeof res>(undefined);
-  });
-});
-
-describe("createRoot", () => {
-  test("roots with dispose function unused are unowned", () => {
-    createRoot(_ => {
-      const root1 = getOwner()!;
-      createRoot(_ => {
-        const root2 = getOwner()!;
-        createRoot(() => {
-          const root3 = getOwner()!;
-          expect(root2.owner).toBe(root1);
-          expect(root3.owner).toBe(null);
-        });
-      });
-    });
-  });
-
-  test("Allows to define detachedOwner", () => {
-    let owner1: any;
-    let owner2: any;
-    let owner3: any;
-    let owner4: any;
-    let owner5: any;
-
-    createRoot(_ => (owner1 = getOwner()!));
-    createRoot(_ => (owner2 = getOwner()!), owner1);
-    createRoot(_ => {
-      owner3 = getOwner()!;
-      createRoot(_ => (owner4 = getOwner()!));
-      createRoot(_ => (owner5 = getOwner()!), null);
-    });
-
-    expect(owner1.owner).toBe(null);
-    expect(owner2.owner).toBe(owner1);
-    expect(owner3.owner).toBe(null);
-    expect(owner4.owner).toBe(owner3);
-    expect(owner5.owner).toBe(null);
+    expect(() => createRoot(() => useContext(context))).toThrow();
   });
 });
 
@@ -798,39 +669,15 @@ describe("runWithOwner", () => {
     });
 
     runWithOwner(owner, () => {
-      createEffect(() => (effectRun = true));
+      onMount(() => (effectRun = true));
       onCleanup(() => (cleanupRun = true));
       expect(effectRun).toBe(false);
       expect(cleanupRun).toBe(false);
     });
+    flushSync();
     expect(effectRun).toBe(true);
     expect(cleanupRun).toBe(false);
     dispose();
     expect(cleanupRun).toBe(true);
   });
-});
-
-describe("createReaction", () => {
-  test("Create and trigger a Reaction", () =>
-    new Promise(done => {
-      createRoot(() => {
-        let count = 0;
-        const [sign, setSign] = createSignal("thoughts");
-        const track = createReaction(() => count++);
-        expect(count).toBe(0);
-        track(sign);
-        expect(count).toBe(0);
-        setTimeout(() => {
-          expect(count).toBe(0);
-          setSign("mind");
-          expect(count).toBe(1);
-          setSign("body");
-          expect(count).toBe(1);
-          track(sign);
-          setSign("everything");
-          expect(count).toBe(2);
-          done(undefined);
-        });
-      });
-    }));
 });

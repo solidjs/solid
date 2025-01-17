@@ -4,7 +4,7 @@ import {
   createMemo,
   onCleanup,
   untrack,
-  splitProps,
+  omit,
   JSX,
   createRoot,
   sharedConfig,
@@ -19,17 +19,7 @@ import {
 
 export * from "./client.js";
 
-export {
-  For,
-  Show,
-  Suspense,
-  SuspenseList,
-  Switch,
-  Match,
-  Index,
-  ErrorBoundary,
-  mergeProps
-} from "solid-js";
+export { For, Show, Suspense, Switch, Match, ErrorBoundary, merge as mergeProps } from "solid-js";
 
 export * from "./server-mock.js";
 
@@ -72,39 +62,40 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   let content: undefined | (() => JSX.Element);
   let hydrating = !!sharedConfig.context;
 
-  createEffect(
-    () => {
-      // basically we backdoor into a sort of renderEffect here
-      if (hydrating) (getOwner() as any).user = hydrating = false;
-      content || (content = runWithOwner(owner, () => createMemo(() => props.children)));
-      const el = mount();
-      if (el instanceof HTMLHeadElement) {
-        const [clean, setClean] = createSignal(false);
-        const cleanup = () => setClean(true);
-        createRoot(dispose => insert(el, () => (!clean() ? content!() : dispose()), null));
-        onCleanup(cleanup);
-      } else {
-        const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
-          renderRoot =
-            useShadow && container.attachShadow
-              ? container.attachShadow({ mode: "open" })
-              : container;
+  // TODO:
+  // createEffect(
+  //   () => {
+  //     // basically we backdoor into a sort of renderEffect here
+  //     if (hydrating) (getOwner() as any).user = hydrating = false;
+  //     content || (content = runWithOwner(owner, () => createMemo(() => props.children)));
+  //     const el = mount();
+  //     if (el instanceof HTMLHeadElement) {
+  //       const [clean, setClean] = createSignal(false);
+  //       const cleanup = () => setClean(true);
+  //       createRoot(dispose => insert(el, () => (!clean() ? content!() : dispose()), null));
+  //       onCleanup(cleanup);
+  //     } else {
+  //       const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
+  //         renderRoot =
+  //           useShadow && container.attachShadow
+  //             ? container.attachShadow({ mode: "open" })
+  //             : container;
 
-        Object.defineProperty(container, "_$host", {
-          get() {
-            return marker.parentNode;
-          },
-          configurable: true
-        });
-        insert(renderRoot, content);
-        el.appendChild(container);
-        props.ref && (props as any).ref(container);
-        onCleanup(() => el.removeChild(container));
-      }
-    },
-    undefined,
-    { render: !hydrating }
-  );
+  //       Object.defineProperty(container, "_$host", {
+  //         get() {
+  //           return marker.parentNode;
+  //         },
+  //         configurable: true
+  //       });
+  //       insert(renderRoot, content);
+  //       el.appendChild(container);
+  //       props.ref && (props as any).ref(container);
+  //       onCleanup(() => el.removeChild(container));
+  //     }
+  //   },
+  //   undefined,
+  //   { render: !hydrating }
+  // );
   return marker;
 }
 
@@ -158,6 +149,6 @@ export function createDynamic<T extends ValidComponent>(
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
-  const [, others] = splitProps(props, ["component"]);
+  const others = omit(props, ["component"]);
   return createDynamic(() => props.component, others as ComponentProps<T>);
 }

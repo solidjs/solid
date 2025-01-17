@@ -23,7 +23,6 @@ const plugins = [
 const replaceDev = isDev =>
   replace({
     '"_SOLID_DEV_"': isDev,
-    '"_DX_DEV_"': isDev,
     preventAssignment: true,
     delimiters: ["", ""]
   });
@@ -41,6 +40,7 @@ export default [
         format: "es"
       }
     ],
+    external: ["@solidjs/signals"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
@@ -55,7 +55,7 @@ export default [
         format: "es"
       }
     ],
-    external: ["stream"],
+    external: ["@solidjs/signals", "stream"],
     plugins
   },
   {
@@ -70,6 +70,7 @@ export default [
         format: "es"
       }
     ],
+    external: ["@solidjs/signals"],
     plugins: [replaceDev(true)].concat(plugins)
   }
 ];

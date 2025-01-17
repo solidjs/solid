@@ -28,7 +28,11 @@ export {
 
 export type {
   Accessor,
+  ComputeFunction,
+  EffectFunction,
+  EffectOptions,
   Merge,
+  NoInfer,
   NotWrappable,
   Omit,
   Owner,
@@ -48,13 +52,13 @@ export type {
   ChildrenReturn,
   Context,
   ContextProviderComponent,
-  EffectOptions,
-  NoInfer,
   ResolvedChildren,
   ResolvedJSXElement
 } from "./client/core.js";
 
+// under review.. might be unnecessary core with `createAsync`
 export * from "./client/observable.js";
+
 export * from "./client/component.js";
 export * from "./client/flow.js";
 export { sharedConfig } from "./client/hydration.js";

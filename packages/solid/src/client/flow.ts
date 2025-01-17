@@ -1,4 +1,4 @@
-import { children, IS_DEV } from "../client/core.js";
+import { children, IS_DEV, onMount } from "../client/core.js";
 import {
   createMemo,
   untrack,
@@ -34,10 +34,12 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
   each: T | undefined | null | false;
   fallback?: JSX.Element;
   keyed?: boolean | ((item: T) => any);
-  children: (item: T[number], index: Accessor<number>) => U;
+  children: (item: Accessor<T[number]>, index: Accessor<number>) => U;
 }) {
   const options =
-    "fallback" in props ? { keyed: props.keyed, fallback: () => props.fallback } : props;
+    "fallback" in props
+      ? { keyed: props.keyed, fallback: () => props.fallback }
+      : { keyed: props.keyed };
   return (IS_DEV
     ? createMemo(
         mapArray(() => props.each, props.children, options),
@@ -216,7 +218,7 @@ export function ErrorBoundary(props: {
 }): JSX.Element {
   let err;
   if (sharedConfig!.context && sharedConfig!.load)
-    err = sharedConfig.load(sharedConfig.getContextId());
+    err = { error: sharedConfig.load(sharedConfig.getContextId()) };
   const [errored, setErrored] = createSignal<any>(err, IS_DEV ? { name: "errored" } : undefined);
   Errors || (Errors = new Set());
   Errors.add(setErrored);
@@ -226,10 +228,17 @@ export function ErrorBoundary(props: {
       let e: any;
       if ((e = errored())) {
         const f = props.fallback;
-        if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(e);
-        return typeof f === "function" && f.length ? untrack(() => f(e, () => setErrored())) : f;
+        if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(e.error);
+        return typeof f === "function" && f.length
+          ? untrack(() => f(e.error, () => setErrored()))
+          : f;
       }
-      return catchError(() => props.children, setErrored);
+      return catchError(
+        () => props.children,
+        e => {
+          onMount(() => setErrored({ error: e }));
+        }
+      );
     },
     undefined,
     IS_DEV ? { name: "value" } : undefined
@@ -248,12 +257,8 @@ export function ErrorBoundary(props: {
  * @description https://docs.solidjs.com/reference/components/suspense
  */
 export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
-  return createMemo(
-    createSuspense(
-      children(() => props.children),
-      () => props.fallback
-    ),
-    undefined,
-    IS_DEV ? { name: "value" } : undefined
+  return createSuspense(
+    () => props.children,
+    () => props.fallback
   ) as unknown as JSX.Element;
 }

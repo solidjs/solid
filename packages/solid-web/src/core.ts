@@ -1,4 +1,3 @@
-//@ts-nocheck
 export {
   getOwner,
   createComponent,
@@ -7,5 +6,5 @@ export {
   createMemo as memo,
   sharedConfig,
   untrack,
-  mergeProps
+  merge as mergeProps
 } from "solid-js";

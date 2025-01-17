@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, expect, test } from "vitest";
 import { cancelCallback, requestCallback } from "../src/index.js";
-import "./MessageChannel";
+import "./MessageChannel.js";
 
 describe("requestCallback basics", () => {
   test("queue a task", () =>
