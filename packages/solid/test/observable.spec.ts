@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { createRoot, createSignal, from, observable } from "../src/index.js";
+import { createRoot, createSignal, flushSync, from, observable } from "../src/index.js";
 
 describe("Observable operator", () => {
   test("to observable", () => {
@@ -12,8 +12,10 @@ describe("Observable operator", () => {
       set = _set;
       obsv$.subscribe({ next: v => (out = v) });
     });
+    flushSync();
     expect(out!).toBe("Hi");
     set!("John");
+    flushSync();
     expect(out!).toBe("John");
   });
 
@@ -28,6 +30,7 @@ describe("Observable operator", () => {
 
       obsv$.subscribe(observer);
     });
+    flushSync();
     expect(observer.next).toHaveReturnedWith(observer);
   });
 
@@ -50,9 +53,11 @@ describe("Observable operator", () => {
       });
     });
     set("John");
+    flushSync();
     expect(out!).toBe("John");
     subscription.unsubscribe();
     set("Benjamin");
+    flushSync();
     expect(out!).toBe("John");
   });
 });
@@ -68,8 +73,10 @@ describe("from transform", () => {
       set = _set;
       out = from(obsv$);
     });
+    flushSync();
     expect(out!()).toBe("Hi");
     set!("John");
+    flushSync();
     expect(out!()).toBe("John");
   });
 
@@ -86,8 +93,10 @@ describe("from transform", () => {
         return () => sub.unsubscribe();
       });
     });
+    flushSync();
     expect(out!()).toBe("Hi");
     set!("John");
+    flushSync();
     expect(out!()).toBe("John");
   });
 });

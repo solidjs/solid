@@ -1,5 +1,5 @@
 {
-  "name": "solid-js/web/storage",
+  "name": "@solidjs/web/storage",
   "main": "./dist/storage.cjs",
   "module": "./dist/storage.js",
   "types": "./types/index.d.ts",

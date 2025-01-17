@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, createUniqueId, JSX, children } from "../../solid/src/index.js";
+import { createRoot, createSignal, createUniqueId, JSX, children, flushSync } from "solid-js";
 
 declare module "solid-js/jsx-runtime" {
   namespace JSX {
@@ -39,30 +39,27 @@ describe("Basic element attributes", () => {
     expect(d.className).toBe("first third fourth");
   });
 
-  test("ternary expression triggered", () =>
-    new Promise(done => {
-      let div: HTMLDivElement;
-      createRoot(() => {
-        const [s, setS] = createSignal(0);
-        div = (<div>{s() > 5 ? "Large" : "Small"}</div>) as HTMLDivElement;
-        expect(div.innerHTML).toBe("Small");
-        setTimeout(() => {
-          setS(7);
-          expect(div.innerHTML).toBe("Large");
-          done(undefined);
-        });
-      });
-    }));
+  test("ternary expression triggered", () => {
+    const [s, setS] = createSignal(0);
+    const div = createRoot(() => {
+      return (<div>{s() > 5 ? "Large" : "Small"}</div>) as HTMLDivElement;
+    });
+    expect(div.innerHTML).toBe("Small");
+    setS(7);
+    flushSync();
+    expect(div.innerHTML).toBe("Large");
+  });
 
   test("boolean expression triggered once", () => {
     let div1: HTMLDivElement, div2: HTMLDivElement;
+    const [s, setS] = createSignal(6);
     createRoot(() => {
-      const [s, setS] = createSignal(6);
       <div>{s() > 5 && (div1 = (<div />) as HTMLDivElement)}</div>;
       div2 = div1;
-      setS(7);
-      expect(div1).toBe(div2);
     });
+    setS(7);
+    flushSync();
+    expect(div1!).toBe(div2!);
   });
 
   test("directives work properly", () => {

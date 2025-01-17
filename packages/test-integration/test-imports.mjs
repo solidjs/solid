@@ -28,15 +28,15 @@ Promise.all([
   import("solid-js").catch(checkError),
   import("solid-js/dist/solid.js").catch(checkError),
 
-  import("solid-js/web").catch(checkError),
-  import("solid-js/web/dist/web.js").catch(checkError),
-  import("solid-js/web/dist/server.js").catch(checkError),
+  // import("solid-js/web").catch(checkError),
+  // import("solid-js/web/dist/web.js").catch(checkError),
+  // import("solid-js/web/dist/server.js").catch(checkError),
 
-  import("solid-js/h").catch(checkError),
-  import("solid-js/h/dist/h.js").catch(checkError),
+  // import("solid-js/h").catch(checkError),
+  // import("solid-js/h/dist/h.js").catch(checkError),
 
-  import("solid-js/html").catch(checkError),
-  import("solid-js/html/dist/html.js").catch(checkError)
+  // import("solid-js/html").catch(checkError),
+  // import("solid-js/html/dist/html.js").catch(checkError)
 ])
   .then(() => {
     console.log("ES Module import test passed.");

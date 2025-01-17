@@ -3,8 +3,8 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal } from "../../solid/src/index.js";
-import { insert, For } from "../src/index.js";
+import { createRoot, createSignal, flushSync, For } from "solid-js";
+import { insert } from "../src/index.js";
 
 describe("Testing an only child each control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -15,14 +15,16 @@ describe("Testing an only child each control flow", () => {
   const [list, setList] = createSignal([n1, n2, n3, n4]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()}>{item => item}</For>
+      <For each={list()}>{item => item()}</For>
     </div>
   );
 
   function apply(array: string[]) {
     setList(array);
+    flushSync();
     expect(div.innerHTML).toBe(array.join(""));
     setList([n1, n2, n3, n4]);
+    flushSync();
     expect(div.innerHTML).toBe("abcd");
   }
 
@@ -31,7 +33,6 @@ describe("Testing an only child each control flow", () => {
       disposer = dispose;
       <Component />;
     });
-
     expect(div.innerHTML).toBe("abcd");
   });
 
@@ -98,13 +99,15 @@ describe("Testing an multi child each control flow", () => {
     n3 = "c",
     n4 = "d";
   const [list, setList] = createSignal([n1, n2, n3, n4]);
-  const Component = () => <For each={list()}>{item => item}</For>;
+  const Component = () => <For each={list()}>{item => item()}</For>;
   let disposer: () => void;
 
   function apply(array: string[]) {
     setList(array);
+    flushSync();
     expect(div.innerHTML).toBe(`${array.join("")}z`);
     setList([n1, n2, n3, n4]);
+    flushSync();
     expect(div.innerHTML).toBe("abcdz");
   }
 
@@ -113,7 +116,6 @@ describe("Testing an multi child each control flow", () => {
       disposer = dispose;
       insert(div, <Component />, div.firstChild);
     });
-
     expect(div.innerHTML).toBe("abcdz");
   });
 
@@ -166,7 +168,9 @@ describe("Testing an multi child each control flow", () => {
 
   test("swap backward edge", () => {
     setList(["milk", "bread", "chips", "cookie", "honey"]);
+    flushSync();
     setList(["chips", "bread", "cookie", "milk", "honey"]);
+    flushSync();
   });
 
   test("dispose", () => disposer());
@@ -194,8 +198,10 @@ describe("Testing an only child each control flow with fragment children", () =>
 
   function apply(array: string[]) {
     setList(array);
+    flushSync();
     expect(div.innerHTML).toBe(array.map(p => `${p}${p}`).join(""));
     setList([n1, n2, n3, n4]);
+    flushSync();
     expect(div.innerHTML).toBe("aabbccdd");
   }
 
@@ -257,7 +263,9 @@ describe("Testing an only child each control flow with fragment children", () =>
 
   test("swap backward edge", () => {
     setList(["milk", "bread", "chips", "cookie", "honey"]);
+    flushSync();
     setList(["chips", "bread", "cookie", "milk", "honey"]);
+    flushSync();
   });
 
   test("dispose", () => disposer());
@@ -272,14 +280,16 @@ describe("Testing an only child each control flow with array children", () => {
   const [list, setList] = createSignal([n1, n2, n3, n4]);
   const Component = () => (
     <div ref={div}>
-      <For each={list()}>{item => [item, item]}</For>
+      <For each={list()}>{item => [item(), item()]}</For>
     </div>
   );
 
   function apply(array: string[]) {
     setList(array);
+    flushSync();
     expect(div.innerHTML).toBe(array.map(p => `${p}${p}`).join(""));
     setList([n1, n2, n3, n4]);
+    flushSync();
     expect(div.innerHTML).toBe("aabbccdd");
   }
 
@@ -341,7 +351,9 @@ describe("Testing an only child each control flow with array children", () => {
 
   test("swap backward edge", () => {
     setList(["milk", "bread", "chips", "cookie", "honey"]);
+    flushSync();
     setList(["chips", "bread", "cookie", "milk", "honey"]);
+    flushSync();
   });
 
   test("dispose", () => disposer());
@@ -357,7 +369,7 @@ describe("Testing each control flow with fallback", () => {
   const Component = () => (
     <div ref={div}>
       <For each={list()} fallback={"Empty"}>
-        {item => item}
+        {item => item()}
       </For>
     </div>
   );
@@ -367,10 +379,13 @@ describe("Testing each control flow with fallback", () => {
       disposer = dispose;
       <Component />;
     });
+
     expect(div.innerHTML).toBe("Empty");
     setList([n1, n2, n3, n4]);
+    flushSync();
     expect(div.innerHTML).toBe("abcd");
     setList([]);
+    flushSync();
     expect(div.innerHTML).toBe("Empty");
   });
 
@@ -395,6 +410,7 @@ describe("Testing each that maps to undefined", () => {
       disposer = dispose;
       <Component />;
     });
+
     expect(div.innerHTML).toBe("");
     setList([n1, n2, n3, n4]);
     expect(div.innerHTML).toBe("");
@@ -415,7 +431,7 @@ describe("Testing each with indexes", () => {
   const Component = () => (
     <div ref={div}>
       <For each={list()} fallback={"Hi"}>
-        {(item, i) => <span>{item + i()}</span>}
+        {(item, i) => <span>{item() + i()}</span>}
       </For>
     </div>
   );
@@ -427,16 +443,22 @@ describe("Testing each with indexes", () => {
     });
     expect(div.innerHTML).toBe("Hi");
     setList([n1, n2, n3, n4]);
+    flushSync();
     expect(div.innerHTML).toBe("<span>a0</span><span>b1</span><span>c2</span><span>d3</span>");
     setList([n2, n3, n4, n1]);
+    flushSync();
     expect(div.innerHTML).toBe("<span>b0</span><span>c1</span><span>d2</span><span>a3</span>");
     setList([n3, n4, n1]);
+    flushSync();
     expect(div.innerHTML).toBe("<span>c0</span><span>d1</span><span>a2</span>");
     setList([n3, n2, n4, n1]);
+    flushSync();
     expect(div.innerHTML).toBe("<span>c0</span><span>b1</span><span>d2</span><span>a3</span>");
     setList([]);
+    flushSync();
     expect(div.innerHTML).toBe("Hi");
     setList([n1]);
+    flushSync();
     expect(div.innerHTML).toBe("<span>a0</span>");
   });
 

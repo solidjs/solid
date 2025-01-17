@@ -5,9 +5,10 @@ import {
   untrack,
   setContext,
   getContext,
-  createEffect
+  createEffect,
+  flatten
 } from "@solidjs/signals";
-import type { Accessor, Owner } from "@solidjs/signals";
+import type { Accessor, Owner, EffectOptions } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
 import { FlowComponent, FlowProps } from "./component.js";
 
@@ -29,11 +30,6 @@ export function onMount(fn: () => void) {
 // https://github.com/microsoft/TypeScript/issues/14829
 // TypeScript Discord conversation: https://discord.com/channels/508357248330760243/508357248330760249/911266491024949328
 export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
-
-export interface BaseOptions {
-  name?: string;
-}
-export interface EffectOptions extends BaseOptions {}
 
 export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
 
@@ -113,8 +109,8 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
 export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
   const children = createMemo(fn);
   const memo = IS_DEV
-    ? createMemo(() => resolveChildren(children()), undefined, { name: "children" })
-    : createMemo(() => resolveChildren(children()));
+    ? createMemo(() => flatten(children()), undefined, { name: "children" })
+    : createMemo(() => flatten(children()));
   (memo as ChildrenReturn).toArray = () => {
     const c = memo();
     return Array.isArray(c) ? c : c != null ? [c] : [];
@@ -147,18 +143,4 @@ export function registerGraph(value: SourceMapValue): void {
   if (owner.sourceMap) owner.sourceMap.push(value);
   else owner.sourceMap = [value];
   value.graph = owner;
-}
-
-// internal
-function resolveChildren(children: JSX.Element | Accessor<any>): ResolvedChildren {
-  if (typeof children === "function" && !children.length) return resolveChildren(children());
-  if (Array.isArray(children)) {
-    const results: any[] = [];
-    for (let i = 0; i < children.length; i++) {
-      const result = resolveChildren(children[i]);
-      Array.isArray(result) ? results.push.apply(results, result) : results.push(result);
-    }
-    return results;
-  }
-  return children as ResolvedChildren;
 }

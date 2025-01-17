@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { createContext, useContext } from "../../solid/src/index.js";
-import { render, Show } from "../src/index.js";
+import { createContext, useContext, Show } from "solid-js";
+import { render } from "../src/index.js";
 
 describe("Testing Context", () => {
   const ThemeContext = createContext("light");
@@ -30,9 +30,9 @@ describe("Testing Context", () => {
   it("should work with single provider child", () => {
     render(
       () => (
-        <ThemeContext.Provider value="dark">
+        <ThemeContext value="dark">
           <Component />
-        </ThemeContext.Provider>
+        </ThemeContext>
       ),
       div
     );
@@ -43,9 +43,9 @@ describe("Testing Context", () => {
   it("should work with single conditional provider child", () => {
     render(
       () => (
-        <ThemeContext.Provider value="dark">
+        <ThemeContext value="dark">
           <CondComponent />
-        </ThemeContext.Provider>
+        </ThemeContext>
       ),
       div
     );
@@ -56,10 +56,10 @@ describe("Testing Context", () => {
   it("should work with multi provider child", () => {
     render(
       () => (
-        <ThemeContext.Provider value="dark">
+        <ThemeContext value="dark">
           <div>Hi</div>
           <Component />
-        </ThemeContext.Provider>
+        </ThemeContext>
       ),
       div
     );
@@ -70,10 +70,10 @@ describe("Testing Context", () => {
   it("should work with multi conditional provider child", () => {
     render(
       () => (
-        <ThemeContext.Provider value="dark">
+        <ThemeContext value="dark">
           <div>Hi</div>
           <CondComponent />
-        </ThemeContext.Provider>
+        </ThemeContext>
       ),
       div
     );
@@ -85,10 +85,10 @@ describe("Testing Context", () => {
     const child = () => <Component />;
     render(
       () => (
-        <ThemeContext.Provider value="dark">
+        <ThemeContext value="dark">
           <div>Hi</div>
           {child()}
-        </ThemeContext.Provider>
+        </ThemeContext>
       ),
       div
     );
@@ -100,10 +100,10 @@ describe("Testing Context", () => {
     const child = () => <CondComponent />;
     render(
       () => (
-        <ThemeContext.Provider value="dark">
+        <ThemeContext value="dark">
           <div>Hi</div>
           {child()}
-        </ThemeContext.Provider>
+        </ThemeContext>
       ),
       div
     );

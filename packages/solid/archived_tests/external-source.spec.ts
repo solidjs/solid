@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, createMemo, untrack, enableExternalSource } from "../src/index.js";
 
-import "./MessageChannel";
+import "./MessageChannel.js";
 
 class ExternalSource<T = any> {
   listeners: Set<() => void> = new Set();
