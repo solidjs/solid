@@ -48,6 +48,7 @@ function flattenArray(
         if (options?.doNotUnwrap) {
           results.push(child);
           needsUnwrap = true;
+          continue;
         }
         do {
           child = child();
