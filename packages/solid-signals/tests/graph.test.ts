@@ -29,7 +29,7 @@ it("should drop X->B->X updates", () => {
 });
 
 it("should only update every signal once (diamond graph)", () => {
-  // In this scenario "D" should only update once when "A" receive an update. This is sometimes
+  // In this scenario "C" should only update once when "X" receive an update. This is sometimes
   // referred to as the "diamond" scenario.
   //     X
   //   /   \
