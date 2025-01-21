@@ -2,11 +2,7 @@ export class NotReadyError extends Error {}
 
 export class NoOwnerError extends Error {
   constructor() {
-    super(
-      __DEV__
-        ? "Context can only be accessed under a reactive root."
-        : ""
-    );
+    super(__DEV__ ? "Context can only be accessed under a reactive root." : "");
   }
 }
 

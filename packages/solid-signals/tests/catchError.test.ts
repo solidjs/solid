@@ -173,4 +173,3 @@ it("should throw error if there are no handlers left", () => {
 //   expect(rootHandler).toHaveBeenCalledWith(error);
 //   expect(rootHandler).toHaveBeenCalledTimes(1);
 // });
-

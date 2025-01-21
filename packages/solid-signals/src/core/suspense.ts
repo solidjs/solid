@@ -43,13 +43,8 @@ class LiveComputation<T> extends EagerComputation<T> {
 export function createSuspense(fn: () => any, fallbackFn: () => any) {
   const queue = new SuspenseQueue();
   const tree = createBoundary(() => {
-    const child = new Computation(null , fn);
-    return new LiveComputation(null, () => {
-      const flags: { error?: any } = {};
-      const flattenend = flatten(child.wait(), flags);
-      if (flags.error) throw flags.error;
-      return flattenend;
-    });
+    const child = new Computation(null, fn);
+    return new LiveComputation(null, () => flatten(child.wait()));
   }, queue);
   const equality = new Computation(null, () => queue._signal.read() || queue._fallback);
   const comp = new Computation(null, () => (equality.read() ? untrack(fallbackFn) : tree.read()));
