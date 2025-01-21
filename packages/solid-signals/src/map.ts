@@ -44,10 +44,10 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       mapper = this._rows
         ? () => {
             this._rows![j] = new Computation(newItems[j], null);
-            this._indexes![j] = new Computation(j, null);
+            this._indexes && (this._indexes![j] = new Computation(j, null));
             return this._map(
               Computation.prototype.read.bind(this._rows![j]),
-              Computation.prototype.read.bind(this._indexes![j])
+              this._indexes ? Computation.prototype.read.bind(this._indexes![j]) : undefined as any
             );
           }
         : this._indexes
