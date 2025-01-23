@@ -448,7 +448,7 @@ describe("Testing each with indexes", () => {
   const Component = () => (
     <div ref={div}>
       <For each={list()} keyed={false}>
-        {(item, i) => <span>{item() + i}</span>}
+        {(item, i) => <span>{item() + i()}</span>}
       </For>
     </div>
   );

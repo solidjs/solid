@@ -7,7 +7,7 @@ import {
   createComponent,
   dynamicProperty,
   SVGElements
-} from "solid-js/web";
+} from "@solidjs/web";
 
 const h: HyperScript = createHyperScript({
   spread,

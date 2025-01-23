@@ -6,5 +6,6 @@ export {
   createMemo as memo,
   sharedConfig,
   untrack,
-  merge as mergeProps
+  merge as mergeProps,
+  flatten
 } from "solid-js";

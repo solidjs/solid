@@ -21,7 +21,7 @@ import {
   DelegatedEvents,
   SVGElements,
   SVGNamespace
-} from "solid-js/web";
+} from "@solidjs/web";
 
 const html: HTMLTag = createHTML({
   effect,

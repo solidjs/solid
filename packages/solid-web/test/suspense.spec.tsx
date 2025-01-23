@@ -48,9 +48,14 @@ describe("Testing Suspense", () => {
   const LazyComponent = lazy<typeof ChildComponent>(() => new Promise(r => resolvers.push(r))),
     ChildComponent = (props: { greeting: string }) => {
       const value = createAsync(
-        () => (triggered(), new Promise(r => setTimeout(() => {
-          r("Jo")
-        }, 300)))
+        () => (
+          triggered(),
+          new Promise(r =>
+            setTimeout(() => {
+              r("Jo");
+            }, 300)
+          )
+        )
       );
 
       return (
@@ -77,9 +82,6 @@ describe("Testing Suspense", () => {
     await Promise.resolve();
     flushSync();
     vi.runAllTimers();
-    await Promise.resolve();
-    flushSync();
-    // until we can do better queueing of tasks
     await Promise.resolve();
     flushSync();
 

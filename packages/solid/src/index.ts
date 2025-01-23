@@ -14,6 +14,7 @@ export {
   createStore,
   isEqual,
   isWrappable,
+  flatten,
   getObserver,
   getOwner,
   mapArray,
