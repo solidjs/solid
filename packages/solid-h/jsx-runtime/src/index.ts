@@ -1,4 +1,4 @@
-import h from "solid-js/h";
+import h from "@solidjs/h";
 export type { JSX } from "./jsx.d.ts";
 import type { JSX } from "./jsx.d.ts";
 

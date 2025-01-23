@@ -1,5 +1,17 @@
 {
   "name": "@solidjs/h",
+  "description": "A standard (less-optimal) JSX factory for Solid",
+  "version": "1.9.4",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "homepage": "https://solidjs.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solidjs/solid-h"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/h.cjs",
   "module": "./dist/h.js",
   "types": "./types/index.d.ts",
@@ -32,5 +44,23 @@
     },
     "./dist/*": "./dist/*",
     "./types/*": "./types/*"
+  },
+  "scripts": {
+    "build": "npm-run-all -nl build:*",
+    "build:clean": "rimraf dist/ coverage/ /jsx-runtime/dist",
+    "build:js": "rollup -c",
+    "types": "npm-run-all -nl types:*",
+    "types:clean": "rimraf types/",
+    "types:copy": "ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/src/jsx.d.ts",
+    "types:h": "tsc --project ./tsconfig.json && ncp ../../node_modules/hyper-dom-expressions/types/index.d.ts ./types/hyperscript.d.ts",
+    "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/types/jsx.d.ts",
+    "link": "symlink-dir . node_modules/@solidjs/h"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.9.4",
+     "@solidjs/web": "^1.9.4"
+  },
+  "devDependencies": {
+    "@solidjs/web": "workspace:*"
   }
 }

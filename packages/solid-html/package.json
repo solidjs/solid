@@ -1,5 +1,17 @@
 {
-  "name": "solid-js/html",
+  "name": "@solidjs/html",
+  "description": "Build-less Tagged-Template-Literal Templating for Solid",
+  "version": "1.9.4",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "homepage": "https://solidjs.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solidjs/solid-html"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/html.cjs",
   "module": "./dist/html.js",
   "types": "./types/index.d.ts",
@@ -17,5 +29,19 @@
       "require": "./dist/html.cjs"
     },
     "./dist/*": "./dist/*"
+  },
+  "scripts": {
+    "build": "npm-run-all -nl build:*",
+    "build:clean": "rimraf dist/ coverage/",
+    "build:js": "rollup -c",
+    "types": "npm-run-all -nl types:*",
+    "types:clean": "rimraf types/",
+    "types:html": "tsc --project ./tsconfig.json && ncp ../../node_modules/lit-dom-expressions/types/index.d.ts ./types/lit.d.ts"
+  },
+  "peerDependencies": {
+    "@solidjs/web": "^1.9.4"
+  },
+  "devDependencies": {
+    "@solidjs/web": "workspace:*"
   }
 }
