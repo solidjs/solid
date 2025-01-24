@@ -106,16 +106,23 @@ export function Show<T>(props: {
   children: JSX.Element | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => JSX.Element);
 }): JSX.Element {
   const keyed = props.keyed;
-  const condition = createMemo<T | undefined | null | boolean>(
+  const conditionValue = createMemo<T | undefined | null | boolean>(
     () => props.when,
     undefined,
-    IS_DEV
-      ? {
-          equals: (a, b) => (keyed ? a === b : !a === !b),
-          name: "condition"
-        }
-      : { equals: (a, b) => (keyed ? a === b : !a === !b) }
+    IS_DEV ? { name: "condition value" } : undefined
   );
+  const condition = keyed
+    ? conditionValue
+    : createMemo(
+        conditionValue,
+        undefined,
+        IS_DEV
+          ? {
+              equals: (a, b) => !a === !b,
+              name: "condition"
+            }
+          : { equals: (a, b) => !a === !b }
+      );
   return createMemo(
     () => {
       const c = condition();
@@ -129,7 +136,7 @@ export function Show<T>(props: {
                   ? (c as T)
                   : () => {
                       if (!untrack(condition)) throw narrowedError("Show");
-                      return props.when;
+                      return conditionValue();
                     }
               )
             )
