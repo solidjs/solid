@@ -72,12 +72,17 @@ describe("Testing an only child show control flow with DOM children", () => {
 describe("Testing nonkeyed show control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
-  let executed = 0;
+  let whenExecuted = 0;
+  let childrenExecuted = 0;
+  function when() {
+    whenExecuted++;
+    return count();
+  }
   const Component = () => (
     <div ref={div}>
-      <Show when={count()}>
+      <Show when={when()}>
         <span>{count()}</span>
-        <span>{executed++}</span>
+        <span>{childrenExecuted++}</span>
       </Show>
     </div>
   );
@@ -89,19 +94,27 @@ describe("Testing nonkeyed show control flow", () => {
     });
 
     expect(div.innerHTML).toBe("");
-    expect(executed).toBe(0);
+    expect(whenExecuted).toBe(1);
+    expect(childrenExecuted).toBe(0);
   });
 
   test("Toggle show control flow", () => {
     setCount(7);
+    expect(whenExecuted).toBe(2);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
-    expect(executed).toBe(1);
+    expect(childrenExecuted).toBe(1);
     setCount(5);
+    expect(whenExecuted).toBe(3);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
-    expect(executed).toBe(1);
+    expect(childrenExecuted).toBe(1);
+    setCount(5);
+    expect(whenExecuted).toBe(3);
     setCount(0);
+    expect(whenExecuted).toBe(4);
     expect(div.innerHTML).toBe("");
-    expect(executed).toBe(1);
+    expect(childrenExecuted).toBe(1);
+    setCount(5);
+    expect(whenExecuted).toBe(5);
   });
 
   test("dispose", () => disposer());
@@ -110,12 +123,17 @@ describe("Testing nonkeyed show control flow", () => {
 describe("Testing keyed show control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
-  let executed = 0;
+  let whenExecuted = 0;
+  let childrenExecuted = 0;
+  function when() {
+    whenExecuted++;
+    return count();
+  }
   const Component = () => (
     <div ref={div}>
-      <Show when={count()} keyed>
+      <Show when={when()} keyed>
         <span>{count()}</span>
-        <span>{executed++}</span>
+        <span>{childrenExecuted++}</span>
       </Show>
     </div>
   );
@@ -127,19 +145,27 @@ describe("Testing keyed show control flow", () => {
     });
 
     expect(div.innerHTML).toBe("");
-    expect(executed).toBe(0);
+    expect(whenExecuted).toBe(1);
+    expect(childrenExecuted).toBe(0);
   });
 
   test("Toggle show control flow", () => {
     setCount(7);
+    expect(whenExecuted).toBe(2);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
-    expect(executed).toBe(1);
+    expect(childrenExecuted).toBe(1);
     setCount(5);
+    expect(whenExecuted).toBe(3);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
-    expect(executed).toBe(2);
+    expect(childrenExecuted).toBe(2);
+    setCount(5);
+    expect(whenExecuted).toBe(3);
     setCount(0);
+    expect(whenExecuted).toBe(4);
     expect(div.innerHTML).toBe("");
-    expect(executed).toBe(2);
+    expect(childrenExecuted).toBe(2);
+    setCount(5);
+    expect(whenExecuted).toBe(5);
   });
 
   test("dispose", () => disposer());
@@ -148,14 +174,19 @@ describe("Testing keyed show control flow", () => {
 describe("Testing nonkeyed function show control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
   const [count, setCount] = createSignal(0);
-  let executed = 0;
+  let whenExecuted = 0;
+  let childrenExecuted = 0;
+  function when() {
+    whenExecuted++;
+    return count();
+  }
   const Component = () => (
     <div ref={div}>
-      <Show when={count()}>
+      <Show when={when()}>
         {count => (
           <>
             <span>{count()}</span>
-            <span>{executed++}</span>
+            <span>{childrenExecuted++}</span>
           </>
         )}
       </Show>
@@ -169,19 +200,27 @@ describe("Testing nonkeyed function show control flow", () => {
     });
 
     expect(div.innerHTML).toBe("");
-    expect(executed).toBe(0);
+    expect(whenExecuted).toBe(1);
+    expect(childrenExecuted).toBe(0);
   });
 
   test("Toggle show control flow", () => {
     setCount(7);
+    expect(whenExecuted).toBe(2);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("7");
-    expect(executed).toBe(1);
+    expect(childrenExecuted).toBe(1);
     setCount(5);
+    expect(whenExecuted).toBe(3);
     expect((div.firstChild as HTMLSpanElement).innerHTML).toBe("5");
-    expect(executed).toBe(1);
+    expect(childrenExecuted).toBe(1);
+    setCount(5);
+    expect(whenExecuted).toBe(3);
     setCount(0);
+    expect(whenExecuted).toBe(4);
     expect(div.innerHTML).toBe("");
-    expect(executed).toBe(1);
+    expect(childrenExecuted).toBe(1);
+    setCount(5);
+    expect(whenExecuted).toBe(5);
   });
 
   test("dispose", () => disposer());
