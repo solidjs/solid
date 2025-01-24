@@ -47,7 +47,9 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
             this._indexes && (this._indexes![j] = new Computation(j, null));
             return this._map(
               Computation.prototype.read.bind(this._rows![j]),
-              this._indexes ? Computation.prototype.read.bind(this._indexes![j]) : undefined as any
+              this._indexes
+                ? Computation.prototype.read.bind(this._indexes![j])
+                : (undefined as any)
             );
           }
         : this._indexes

@@ -1,6 +1,6 @@
 import {
-  catchError,
   createEffect,
+  createErrorBoundary,
   createMemo,
   createRoot,
   createSignal,
@@ -176,7 +176,7 @@ it("should accept equals option", () => {
 
 it("should use fallback if error is thrown during init", () => {
   createRoot(() => {
-    catchError(
+    createErrorBoundary(
       () => {
         const $a = createMemo(() => {
           if (1) throw Error();
@@ -186,7 +186,7 @@ it("should use fallback if error is thrown during init", () => {
         expect($a()).toBe("foo");
       },
       () => {}
-    );
+    )();
   });
 });
 

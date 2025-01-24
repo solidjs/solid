@@ -6,6 +6,7 @@ import {
   EagerComputation,
   Effect,
   ERROR_BIT,
+  flatten,
   LOADING_BIT,
   onCleanup,
   Owner,
@@ -326,22 +327,44 @@ export function runWithOwner<T>(owner: Owner | null, run: () => T): T | undefine
 }
 
 /**
- * Runs an effect whenever an error is thrown within the context of the child scopes
+ * Switches to fallback whenever an error is thrown within the context of the child scopes
  * @param fn boundary for the error
- * @param handler an error handler that receives the error
+ * @param fallback an error handler that receives the error
  *
  * * If the error is thrown again inside the error handler, it will trigger the next available parent handler
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/catch-error
  */
-export function catchError<T>(fn: () => T, handler: (error: unknown) => void): T | undefined {
+export function createErrorBoundary<T, U>(
+  fn: () => T,
+  fallback: (error: unknown, reset: () => void) => U
+): Accessor<T | U> {
   const owner = new Owner();
-
+  const error = new Computation<{ _error: any } | null>(null, null);
+  const reset = new Computation(null, null, { equals: false });
+  const handler = err => error.write({ _error: err });
   owner._handlers = owner._handlers ? [handler, ...owner._handlers] : [handler];
-
-  try {
-    return compute(owner, fn, null);
-  } catch (error) {
-    owner.handleError(error);
-  }
+  const guarded = compute(
+    owner,
+    () => {
+      const c = new Computation(null, () => (reset.read(), fn()));
+      const f = new Computation(null, () => flatten(c.read()));
+      f._setError = function (error) {
+        this.handleError(error);
+      };
+      return f;
+    },
+    null
+  );
+  const decision = new Computation(null, () => {
+    if (!error.read()) {
+      const resolved = guarded.read();
+      if (!error.read()) return resolved;
+    }
+    return fallback(error.read()!._error, () => {
+      error.write(null);
+      reset.write(null);
+    });
+  });
+  return decision.read.bind(decision);
 }

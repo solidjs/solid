@@ -1,4 +1,4 @@
-import { catchError, createRoot, getOwner, Owner, runWithOwner } from "../src/index.js";
+import { createErrorBoundary, createRoot, getOwner, Owner, runWithOwner } from "../src/index.js";
 
 it("should scope function to current scope", () => {
   let owner!: Owner | null;
@@ -22,13 +22,18 @@ it("should handle errors", () => {
     handler = vi.fn();
 
   let owner!: Owner | null;
-  catchError(() => {
-    owner = getOwner();
-  }, handler);
+  const b = createErrorBoundary(
+    () => {
+      owner = getOwner();
+    },
+    err => handler(err)
+  );
+  b();
 
   runWithOwner(owner, () => {
     throw error;
   });
 
+  b();
   expect(handler).toHaveBeenCalledWith(error);
 });
