@@ -1,4 +1,4 @@
-import { setProperty, unwrap, isWrappable, StoreNode, $RAW } from "./store.js";
+import { setProperty, unwrap, isWrappable, type StoreNode, $RAW } from "./store.js";
 
 const $ROOT = Symbol("store-root");
 

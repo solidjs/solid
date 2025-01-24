@@ -1,5 +1,5 @@
 import { ssrElement } from "./server.js";
-import { splitProps, Component, JSX } from "solid-js";
+import { splitProps, type Component, type JSX } from "solid-js";
 
 export * from "./server";
 
@@ -28,7 +28,7 @@ export function Dynamic<T>(
 
   if (comp) {
     if (t === "function") return (comp as Function)(others);
-    else if (t === "string") {
+    if (t === "string") {
       return ssrElement(comp as string, others, undefined, true);
     }
   }

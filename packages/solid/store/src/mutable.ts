@@ -8,7 +8,7 @@ import {
   $RAW,
   $NODE,
   $HAS,
-  StoreNode,
+  type StoreNode,
   setProperty,
   ownKeys,
   IS_DEV
@@ -50,7 +50,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (!tracked) {
       const desc = Object.getOwnPropertyDescriptor(target, property);
       const isFunction = typeof value === "function";
-      if (getListener() && (!isFunction || target.hasOwnProperty(property)) && !(desc && desc.get))
+      if (getListener() && (!isFunction || target.hasOwnProperty(property)) && !(desc?.get))
         value = getNode(nodes, property, value)();
       else if (value != null && isFunction && value === Array.prototype[property as any]) {
         return (...args: unknown[]) =>
@@ -140,7 +140,7 @@ export function createMutable<T extends StoreNode>(state: T, options?: { name?: 
     );
 
   const wrappedStore = wrap(unwrappedStore);
-  if (IS_DEV) DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
+  if (IS_DEV) DEV!.registerGraph({ value: unwrappedStore, name: options?.name });
   return wrappedStore;
 }
 

@@ -74,20 +74,20 @@ export function updatePath(current: any, path: any[], traversed: PropertyKey[] =
         updatePath(current, [part[i]].concat(path), traversed);
       }
       return;
-    } else if (isArray && partType === "function") {
+    } if (isArray && partType === "function") {
       // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
       for (let i = 0; i < current.length; i++) {
         if (part(current[i], i)) updatePath(current, [i].concat(path), traversed);
       }
       return;
-    } else if (isArray && partType === "object") {
+    } if (isArray && partType === "object") {
       // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
       const { from = 0, to = current.length - 1, by = 1 } = part;
       for (let i = from; i <= to; i += by) {
         updatePath(current, [i].concat(path), traversed);
       }
       return;
-    } else if (path.length > 1) {
+    } if (path.length > 1) {
       updatePath(current[part], path, [part].concat(traversed));
       return;
     }

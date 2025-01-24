@@ -94,7 +94,7 @@ export function isWrappable(obj: any) {
 export function unwrap<T>(item: T, set?: Set<unknown>): T;
 export function unwrap<T>(item: any, set = new Set()): T {
   let result, unwrapped, v, prop;
-  if ((result = item != null && item[$RAW])) return result;
+  if ((result = item?.[$RAW])) return result;
   if (!isWrappable(item) || set.has(item)) return item;
 
   if (Array.isArray(item)) {
@@ -173,7 +173,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       if (
         getListener() &&
         (typeof value !== "function" || target.hasOwnProperty(property)) &&
-        !(desc && desc.get)
+        !(desc?.get)
       )
         value = getNode(nodes, property, value)();
     }
@@ -220,14 +220,14 @@ export function setProperty(
     len = state.length;
 
   if (IS_DEV)
-    DevHooks.onStoreNodeUpdate && DevHooks.onStoreNodeUpdate(state, property, value, prev);
+    DevHooks.onStoreNodeUpdate?.(state, property, value, prev);
 
   if (value === undefined) {
     delete state[property];
-    if (state[$HAS] && state[$HAS][property] && prev !== undefined) state[$HAS][property].$();
+    if (state[$HAS]?.[property] && prev !== undefined) state[$HAS][property].$();
   } else {
     state[property] = value;
-    if (state[$HAS] && state[$HAS][property] && prev === undefined) state[$HAS][property].$();
+    if (state[$HAS]?.[property] && prev === undefined) state[$HAS][property].$();
   }
   let nodes = getNodes(state, $NODE),
     node: DataNode | undefined;
@@ -280,20 +280,20 @@ export function updatePath(current: StoreNode, path: any[], traversed: PropertyK
         updatePath(current, [part[i]].concat(path), traversed);
       }
       return;
-    } else if (isArray && partType === "function") {
+    } if (isArray && partType === "function") {
       // Ex. update('data', i => i.id === 42, 'label', l => l + ' !!!');
       for (let i = 0; i < current.length; i++) {
         if (part(current[i], i)) updatePath(current, [i].concat(path), traversed);
       }
       return;
-    } else if (isArray && partType === "object") {
+    } if (isArray && partType === "object") {
       // Ex. update('data', { from: 3, to: 12, by: 2 }, 'label', l => l + ' !!!');
       const { from = 0, to = current.length - 1, by = 1 } = part;
       for (let i = from; i <= to; i += by) {
         updatePath(current, [i].concat(path), traversed);
       }
       return;
-    } else if (path.length > 1) {
+    } if (path.length > 1) {
       updatePath(current[part], path, [part].concat(traversed));
       return;
     }
@@ -510,7 +510,7 @@ export function createStore<T extends object = {}>(
       `Unexpected type ${typeof unwrappedStore} received when initializing 'createStore'. Expected an object.`
     );
   const wrappedStore = wrap(unwrappedStore);
-  if (IS_DEV) DEV!.registerGraph({ value: unwrappedStore, name: options && options.name });
+  if (IS_DEV) DEV!.registerGraph({ value: unwrappedStore, name: options?.name });
   function setStore(...args: any[]): void {
     batch(() => {
       isArray && args.length === 1
