@@ -19,14 +19,14 @@ export function castError(err: unknown): Error {
 }
 
 function handleError(err: unknown, owner = Owner): void {
-  const fns = owner && owner.context && owner.context[ERROR];
+  const fns = owner?.context?.[ERROR];
   const error = castError(err);
   if (!fns) throw error;
 
   try {
     for (const f of fns) f(error);
   } catch (e) {
-    handleError(e, (owner && owner.owner) || null);
+    handleError(e, (owner?.owner) || null);
   }
 }
 
@@ -274,7 +274,7 @@ export function mapArray<T, U>(
 ): () => U[] {
   const items = list();
   let s: U[] = [];
-  if (items && items.length) {
+  if (items?.length) {
     for (let i = 0, len = items.length; i < len; i++) s.push(mapFn(items[i], () => i));
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
@@ -287,7 +287,7 @@ export function indexArray<T, U>(
 ): () => U[] {
   const items = list();
   let s: U[] = [];
-  if (items && items.length) {
+  if (items?.length) {
     for (let i = 0, len = items.length; i < len; i++) s.push(mapFn(() => items[i], i));
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
@@ -308,7 +308,7 @@ export function observable<T>(input: Accessor<T>) {
       }
 
       const handler =
-        typeof observer === "function" ? observer : observer.next && observer.next.bind(observer);
+        typeof observer === "function" ? observer : observer.next?.bind(observer);
 
       if (!handler) {
         return { unsubscribe() {} };

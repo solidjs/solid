@@ -7,7 +7,7 @@ import {
   $PROXY,
   SUPPORTS_PROXY,
   $DEVCOMP,
-  EffectFunction,
+  type EffectFunction,
   IS_DEV
 } from "../reactive/signal.js";
 import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
@@ -266,7 +266,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
   for (let i = definedKeys.length - 1; i >= 0; i--) {
     const key = definedKeys[i],
       desc = defined[key];
-    if (desc && desc.get) Object.defineProperty(target, key, desc);
+    if (desc?.get) Object.defineProperty(target, key, desc);
     else target[key] = desc ? desc.value : undefined;
   }
   // [breaking && performance]

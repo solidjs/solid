@@ -71,10 +71,9 @@ function setupScheduler() {
         // There's no pending input. Only yield if we've reached the max
         // yield interval.
         return currentTime >= maxYieldInterval;
-      } else {
+      }
         // There's still time left in the frame.
         return false;
-      }
     };
   } else {
     // `isInputPending` is not available. Since we have no way of knowing if
@@ -105,7 +104,7 @@ export function requestCallback(fn: () => void, options?: { timeout: number }): 
   let startTime = performance.now(),
     timeout = maxSigned31BitInt;
 
-  if (options && options.timeout) timeout = options.timeout;
+  if (options?.timeout) timeout = options.timeout;
 
   const newTask: Task = {
     id: taskIdCounter++,

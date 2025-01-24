@@ -5,9 +5,9 @@ import {
   useContext,
   runWithOwner,
   catchError,
-  Accessor,
-  Setter,
-  Signal,
+  type Accessor,
+  type Setter,
+  type Signal,
   castError,
   cleanNode,
   createOwner
@@ -92,7 +92,7 @@ function resolveSSRNode(node: any): string {
     let prev = {};
     let mapped = "";
     for (let i = 0, len = node.length; i < len; i++) {
-      if (typeof prev !== "object" && typeof node[i] !== "object") mapped += `<!--!$-->`;
+      if (typeof prev !== "object" && typeof node[i] !== "object") mapped += "<!--!$-->";
       mapped += resolveSSRNode((prev = node[i]));
     }
     return mapped;
@@ -110,12 +110,12 @@ type SharedConfig = {
 export const sharedConfig: SharedConfig = {
   context: undefined,
   getContextId() {
-    if (!this.context) throw new Error(`getContextId cannot be used under non-hydrating context`);
+    if (!this.context) throw new Error("getContextId cannot be used under non-hydrating context");
     return getContextId(this.context.count);
   },
   getNextContextId() {
     if (!this.context)
-      throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+      throw new Error("getNextContextId cannot be used under non-hydrating context");
     return getContextId(this.context.count++);
   }
 };
@@ -179,7 +179,7 @@ export function mergeProps(...sources: any): any {
               let v,
                 s = sources[i];
               if (typeof s === "function") s = s();
-              v = (s || {})[key];
+              v = s?.[key];
               if (v !== undefined) return v;
             }
           }
@@ -545,7 +545,7 @@ export function lazy<T extends Component<any>>(
     preload?: () => Promise<{ default: T }>;
   } = props => {
     const id = sharedConfig.context!.id;
-    let ref = sharedConfig.context!.lazy[id];
+    const ref = sharedConfig.context!.lazy[id];
     if (ref) p = ref;
     else load(id);
     if (p.resolved) return p.resolved(props);

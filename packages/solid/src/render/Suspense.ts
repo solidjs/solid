@@ -7,11 +7,11 @@ import {
   getSuspenseContext,
   resumeEffects,
   createMemo,
-  Accessor,
+  type Accessor,
   onCleanup,
   getOwner
 } from "../reactive/signal.js";
-import { HydrationContext, setHydrateContext, sharedConfig } from "./hydration.js";
+import { type HydrationContext, setHydrateContext, sharedConfig } from "./hydration.js";
 import type { JSX } from "../jsx.js";
 
 type SuspenseListContextType = {
@@ -171,7 +171,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
   const listContext = useContext(SuspenseListContext);
   if (listContext) show = listContext.register(store.inFallback);
   let dispose: undefined | (() => void);
-  onCleanup(() => dispose && dispose());
+  onCleanup(() => dispose?.());
 
   return createComponent(SuspenseContext.Provider, {
     value: store,
@@ -190,7 +190,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
             { showContent = true, showFallback = true } = show ? show() : {};
           if ((!inFallback || (p && p !== "$$f")) && showContent) {
             store.resolved = true;
-            dispose && dispose();
+            dispose?.();
             dispose = ctx = p = undefined;
             resumeEffects(store.effects);
             return rendered();

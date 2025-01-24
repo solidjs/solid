@@ -3,8 +3,8 @@ import {
   createRoot,
   untrack,
   createSignal,
-  Accessor,
-  Setter,
+  type Accessor,
+  type Setter,
   $TRACK,
   IS_DEV
 } from "./signal.js";

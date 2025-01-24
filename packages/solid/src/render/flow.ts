@@ -4,10 +4,10 @@ import {
   createSignal,
   catchError,
   children,
-  Accessor,
-  Setter,
+  type Accessor,
+  type Setter,
   onCleanup,
-  MemoOptions,
+  type MemoOptions,
   IS_DEV
 } from "../reactive/signal.js";
 import { mapArray, indexArray } from "../reactive/array.js";
@@ -236,7 +236,9 @@ export function Match<T>(props: MatchProps<T>) {
 
 let Errors: Set<Setter<any>>;
 export function resetErrorBoundaries() {
-  Errors && [...Errors].forEach(fn => fn());
+  for (const fn of Errors) {
+    fn();
+  }
 }
 /**
  * Catches uncaught errors inside components and renders a fallback content

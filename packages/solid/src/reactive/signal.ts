@@ -23,7 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { requestCallback, Task } from "./scheduler.js";
+import { requestCallback, type Task } from "./scheduler.js";
 import { setHydrateContext, sharedConfig } from "../render/hydration.js";
 import type { JSX } from "../jsx.js";
 import type { FlowComponent, FlowProps } from "../render/index.js";
@@ -48,7 +48,7 @@ const UNOWNED: Owner = {
   owner: null
 };
 const NO_INIT = {};
-export var Owner: Owner | null = null;
+export let Owner: Owner | null = null;
 export let Transition: TransitionState | null = null;
 let Scheduler: ((fn: () => void) => any) | null = null;
 let ExternalSourceConfig: {
@@ -166,7 +166,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
         : fn
       : () => fn(() => untrack(() => cleanNode(root)));
 
-  if (IS_DEV) DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
+  if (IS_DEV) DevHooks.afterCreateOwner?.(root);
 
   Owner = root;
   Listener = null;
@@ -242,7 +242,7 @@ export function createSignal<T>(
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
     if (typeof value === "function") {
-      if (Transition && Transition.running && Transition.sources.has(s)) value = value(s.tValue);
+      if (Transition?.running && Transition.sources.has(s)) value = value(s.tValue);
       else value = value(s.value);
     }
     return writeSignal(s, value);
@@ -608,7 +608,7 @@ export function createResource<T, S, R>(
   let pr: Promise<T> | null = null,
     initP: Promise<T> | T | typeof NO_INIT = NO_INIT,
     id: string | null = null,
-    loadedUnderTransition: boolean | null = false,
+    loadedUnderTransition: boolean | undefined = false,
     scheduled = false,
     resolved = "initialValue" in options,
     dynamic =
@@ -680,7 +680,7 @@ export function createResource<T, S, R>(
     if (refetching !== false && scheduled) return;
     scheduled = false;
     const lookup = dynamic ? dynamic() : (source as S);
-    loadedUnderTransition = Transition && Transition.running;
+    loadedUnderTransition = Transition?.running;
     if (lookup == null || lookup === false) {
       loadEnd(pr, untrack(value));
       return;
@@ -774,12 +774,12 @@ export function createDeferred<T>(source: Accessor<T>, options?: DeferredOptions
     true
   ) as Memo<any>;
   const [deferred, setDeferred] = createSignal(
-    Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value,
+    Transition?.running && Transition.sources.has(node) ? node.tValue : node.value,
     options
   );
   updateComputation(node);
   setDeferred(() =>
-    Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value
+    Transition?.running && Transition.sources.has(node) ? node.tValue : node.value
   );
   return deferred;
 }
@@ -848,7 +848,7 @@ export function createSelector<T, U = T>(
     }
     return fn(
       key,
-      Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value!
+      Transition?.running && Transition.sources.has(node) ? node.tValue : node.value!
     );
   };
 }
@@ -1004,7 +1004,7 @@ export function catchError<T>(fn: () => T, handler: (err: Error) => void) {
   ERROR || (ERROR = Symbol("error"));
   Owner = createComputation(undefined!, undefined, true);
   Owner.context = { ...Owner.context, [ERROR]: [handler] };
-  if (Transition && Transition.running) Transition.sources.add(Owner as Memo<any>);
+  if (Transition?.running) Transition.sources.add(Owner as Memo<any>);
   try {
     return fn();
   } catch (err) {
@@ -1050,7 +1050,7 @@ export function enableScheduling(scheduler = requestCallback) {
  * @description https://docs.solidjs.com/reference/reactive-utilities/start-transition
  */
 export function startTransition(fn: () => unknown): Promise<void> {
-  if (Transition && Transition.running) {
+  if (Transition?.running) {
     fn();
     return Transition.done!;
   }
@@ -1190,7 +1190,7 @@ export function createContext<T>(
  */
 export function useContext<T>(context: Context<T>): T {
   let value: undefined | T;
-  return Owner && Owner.context && (value = Owner.context[context.id]) !== undefined
+  return Owner?.context && (value = Owner.context[context.id]) !== undefined
     ? value
     : context.defaultValue;
 }
@@ -1268,7 +1268,7 @@ export function enableExternalSource(
 
 // Internal
 export function readSignal(this: SignalState<any> | Memo<any>) {
-  const runningTransition = Transition && Transition.running;
+  const runningTransition = Transition?.running;
   if (
     (this as Memo<any>).sources &&
     (runningTransition ? (this as Memo<any>).tState : (this as Memo<any>).state)
@@ -1305,7 +1305,7 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
 
 export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isComp?: boolean) {
   let current =
-    Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value;
+    Transition?.running && Transition.sources.has(node) ? node.tValue : node.value;
   if (!node.comparator || !node.comparator(current, value)) {
     if (Transition) {
       const TransitionRunning = Transition.running;
@@ -1315,11 +1315,11 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       }
       if (!TransitionRunning) node.value = value;
     } else node.value = value;
-    if (node.observers && node.observers.length) {
+    if (node.observers?.length) {
       runUpdates(() => {
         for (let i = 0; i < node.observers!.length; i += 1) {
           const o = node.observers![i];
-          const TransitionRunning = Transition && Transition.running;
+          const TransitionRunning = Transition?.running;
           if (TransitionRunning && Transition!.disposed.has(o)) continue;
           if (TransitionRunning ? !o.tState : !o.state) {
             if (o.pure) Updates!.push(o);
@@ -1346,7 +1346,7 @@ function updateComputation(node: Computation<any>) {
   const time = ExecCount;
   runComputation(
     node,
-    Transition && Transition.running && Transition.sources.has(node as Memo<any>)
+    Transition?.running && Transition.sources.has(node as Memo<any>)
       ? (node as Memo<any>).tValue
       : node.value,
     time
@@ -1373,13 +1373,13 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     nextValue = node.fn(value);
   } catch (err) {
     if (node.pure) {
-      if (Transition && Transition.running) {
+      if (Transition?.running) {
         node.tState = STALE;
         (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(cleanNode);
         (node as Memo<any>).tOwned = undefined;
       } else {
         node.state = STALE;
-        node.owned && node.owned.forEach(cleanNode);
+        node.owned?.forEach(cleanNode);
         node.owned = null;
       }
     }
@@ -1393,7 +1393,7 @@ function runComputation(node: Computation<any>, value: any, time: number) {
   if (!node.updatedAt || node.updatedAt <= time) {
     if (node.updatedAt != null && "observers" in node) {
       writeSignal(node as Memo<any>, nextValue, true);
-    } else if (Transition && Transition.running && node.pure) {
+    } else if (Transition?.running && node.pure) {
       Transition.sources.add(node as Memo<any>);
       (node as Memo<any>).tValue = nextValue;
     } else node.value = nextValue;
@@ -1422,7 +1422,7 @@ function createComputation<Next, Init = unknown>(
     pure
   };
 
-  if (Transition && Transition.running) {
+  if (Transition?.running) {
     c.state = 0;
     c.tState = state;
   }
@@ -1433,7 +1433,7 @@ function createComputation<Next, Init = unknown>(
         "computations created outside a `createRoot` or `render` will never be disposed"
       );
   else if (Owner !== UNOWNED) {
-    if (Transition && Transition.running && (Owner as Memo<Init, Next>).pure) {
+    if (Transition?.running && (Owner as Memo<Init, Next>).pure) {
       if (!(Owner as Memo<Init, Next>).tOwned) (Owner as Memo<Init, Next>).tOwned = [c];
       else (Owner as Memo<Init, Next>).tOwned!.push(c);
     } else {
@@ -1453,17 +1453,17 @@ function createComputation<Next, Init = unknown>(
     const inTransition = ExternalSourceConfig.factory(c.fn, triggerInTransition);
     c.fn = x => {
       track();
-      return Transition && Transition.running ? inTransition.track(x) : ordinary.track(x);
+      return Transition?.running ? inTransition.track(x) : ordinary.track(x);
     };
   }
 
-  if (IS_DEV) DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(c);
+  if (IS_DEV) DevHooks.afterCreateOwner?.(c);
 
   return c;
 }
 
 function runTop(node: Computation<any>) {
-  const runningTransition = Transition && Transition.running;
+  const runningTransition = Transition?.running;
   if ((runningTransition ? node.tState : node.state) === 0) return;
   if ((runningTransition ? node.tState : node.state) === PENDING) return lookUpstream(node);
   if (node.suspense && untrack(node.suspense.inFallback!)) return node.suspense.effects!.push(node);
@@ -1559,7 +1559,7 @@ function completeUpdates(wait: boolean) {
   const e = Effects!;
   Effects = null;
   if (e.length) runUpdates(() => runEffects(e), false);
-  else if (IS_DEV) DevHooks.afterUpdate && DevHooks.afterUpdate();
+  else if (IS_DEV) DevHooks.afterUpdate?.();
   if (res) res();
 }
 
@@ -1610,7 +1610,7 @@ function runUserEffects(queue: Computation<any>[]) {
 }
 
 function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
-  const runningTransition = Transition && Transition.running;
+  const runningTransition = Transition?.running;
   if (runningTransition) node.tState = 0;
   else node.state = 0;
   for (let i = 0; i < node.sources!.length; i += 1) {
@@ -1626,7 +1626,7 @@ function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
 }
 
 function markDownstream(node: Memo<any>) {
-  const runningTransition = Transition && Transition.running;
+  const runningTransition = Transition?.running;
   for (let i = 0; i < node.observers!.length; i += 1) {
     const o = node.observers![i];
     if (runningTransition ? !o.tState : !o.state) {
@@ -1646,7 +1646,7 @@ function cleanNode(node: Owner) {
       const source = (node as Computation<any>).sources!.pop()!,
         index = (node as Computation<any>).sourceSlots!.pop()!,
         obs = source.observers;
-      if (obs && obs.length) {
+      if (obs?.length) {
         const n = obs.pop()!,
           s = source.observerSlots!.pop()!;
         if (index < obs.length) {
@@ -1663,7 +1663,7 @@ function cleanNode(node: Owner) {
       cleanNode((node as Memo<any>).tOwned![i]);
     delete (node as Memo<any>).tOwned;
   }
-  if (Transition && Transition.running && (node as Memo<any>).pure) {
+  if (Transition?.running && (node as Memo<any>).pure) {
     reset(node as Computation<any>, true);
   } else if (node.owned) {
     for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
@@ -1674,7 +1674,7 @@ function cleanNode(node: Owner) {
     for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
     node.cleanups = null;
   }
-  if (Transition && Transition.running) (node as Computation<any>).tState = 0;
+  if (Transition?.running) (node as Computation<any>).tState = 0;
   else (node as Computation<any>).state = 0;
   IS_DEV && delete node.sourceMap;
 }
@@ -1698,7 +1698,7 @@ function runErrors(err: unknown, fns: ((err: any) => void)[], owner: Owner | nul
   try {
     for (const f of fns) f(err);
   } catch (e) {
-    handleError(e, (owner && owner.owner) || null);
+    handleError(e, (owner?.owner) || null);
   }
 }
 

@@ -1,4 +1,4 @@
-import { Computation } from "../reactive/signal.js";
+import type { Computation } from "../reactive/signal.js";
 
 export type HydrationContext = { id: string; count: number };
 

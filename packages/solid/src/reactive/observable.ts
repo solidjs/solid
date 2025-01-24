@@ -1,11 +1,11 @@
 import {
-  Accessor,
+  type Accessor,
   createEffect,
   createRoot,
   createSignal,
   getOwner,
   onCleanup,
-  Setter,
+  type Setter,
   untrack
 } from "./signal.js";
 
@@ -51,7 +51,7 @@ export function observable<T>(input: Accessor<T>): Observable<T> {
       }
 
       const handler =
-        typeof observer === "function" ? observer : observer.next && observer.next.bind(observer);
+        typeof observer === "function" ? observer : observer.next?.bind(observer);
 
       if (!handler) {
         return { unsubscribe() {} };
