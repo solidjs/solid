@@ -1,15 +1,13 @@
-import { children, IS_DEV, onMount } from "../client/core.js";
+import { children, IS_DEV } from "../client/core.js";
 import {
   createMemo,
   untrack,
-  createSignal,
-  catchError,
   mapArray,
   onCleanup,
-  createSuspense
+  createSuspense,
+  createErrorBoundary
 } from "@solidjs/signals";
-import type { Accessor, Setter } from "@solidjs/signals";
-import { sharedConfig } from "./hydration.js";
+import type { Accessor } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
 
 const narrowedError = (name: string) =>
@@ -193,7 +191,7 @@ export function Match<T>(props: MatchProps<T>) {
   return props as unknown as JSX.Element;
 }
 
-let Errors: Set<Setter<any>>;
+let Errors: Set<() => void>;
 export function resetErrorBoundaries() {
   Errors && [...Errors].forEach(fn => fn());
 }
@@ -216,32 +214,16 @@ export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }): JSX.Element {
-  let err;
-  if (sharedConfig!.context && sharedConfig!.load)
-    err = { error: sharedConfig.load(sharedConfig.getContextId()) };
-  const [errored, setErrored] = createSignal<any>(err, IS_DEV ? { name: "errored" } : undefined);
   Errors || (Errors = new Set());
-  Errors.add(setErrored);
-  onCleanup(() => Errors.delete(setErrored));
-  return createMemo(
-    () => {
-      let e: any;
-      if ((e = errored())) {
-        const f = props.fallback;
-        if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(e.error);
-        return typeof f === "function" && f.length
-          ? untrack(() => f(e.error, () => setErrored()))
-          : f;
-      }
-      return catchError(
-        () => props.children,
-        e => {
-          onMount(() => setErrored({ error: e }));
-        }
-      );
-    },
-    undefined,
-    IS_DEV ? { name: "value" } : undefined
+  return createErrorBoundary(
+    () => props.children,
+    (err, reset) => {
+      Errors.add(reset);
+      onCleanup(() => Errors.delete(reset));
+      const f = props.fallback;
+      if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err);
+      return typeof f === "function" && f.length ? f(err, reset) : f;
+    }
   ) as unknown as JSX.Element;
 }
 

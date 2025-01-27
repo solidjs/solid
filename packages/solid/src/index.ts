@@ -3,7 +3,6 @@ export {
   $TRACK,
   $RAW,
   flushSync,
-  catchError,
   createAsync,
   createEffect,
   createMemo,
@@ -89,6 +88,7 @@ if (IS_DEV && globalThis) {
 /* Not Implemented
 export {
   batch,
+  catchError, // handled by ErrorBoundary
   createComputed,
   createDeferred,
   createResource, // createAsync
@@ -102,7 +102,7 @@ export {
   indexArray, // handled in `mapArray`
   Index, // handled by For
   on, // with split effects this doesn't need to be core
-  onError,
+  onError, // handled by ErrorBoundary
   startTransition,
   SuspenseList
   useTransition,
