@@ -34,7 +34,6 @@ describe("Testing ErrorBoundary control flow", () => {
         </ErrorBoundary>
       </div>;
     });
-    flushSync();
     expect(div.innerHTML).toBe("Failed Miserably");
   });
 
@@ -47,7 +46,6 @@ describe("Testing ErrorBoundary control flow", () => {
         </ErrorBoundary>
       </div>;
     });
-    flushSync();
     expect(div.innerHTML).toBe("Failed Miserably");
   });
 
@@ -60,7 +58,6 @@ describe("Testing ErrorBoundary control flow", () => {
         </ErrorBoundary>
       </div>;
     });
-    flushSync();
     expect(div.innerHTML).toBe("Failure");
   });
 
@@ -79,7 +76,6 @@ describe("Testing ErrorBoundary control flow", () => {
         </ErrorBoundary>
       </div>;
     });
-    flushSync();
     expect(div.innerHTML).toBe("Failure");
     r!();
     flushSync();
@@ -97,7 +93,6 @@ describe("Testing ErrorBoundary control flow", () => {
         </ErrorBoundary>
       </div>;
     });
-    flushSync();
     expect(div.innerHTML).toBe("Failure");
     resetErrorBoundaries();
     flushSync();
@@ -105,21 +100,19 @@ describe("Testing ErrorBoundary control flow", () => {
     first = true;
   });
 
-  // TODO: Fix nested ErrorBoundary
-  // test("Create an Error in an Error Fallback", () => {
-  //   createRoot(dispose => {
-  //     disposer = dispose;
-  //     <div ref={div}>
-  //       <ErrorBoundary fallback="Failed Miserably">
-  //         <ErrorBoundary fallback={<Component />}>
-  //           <Component />
-  //         </ErrorBoundary>
-  //       </ErrorBoundary>
-  //     </div>;
-  //   });
-  //   flushSync();
-  //   expect(div.innerHTML).toBe("Failed Miserably");
-  // });
+  test("Create an Error in an Error Fallback", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <div ref={div}>
+        <ErrorBoundary fallback="Failed Miserably">
+          <ErrorBoundary fallback={<Component />}>
+            <Component />
+          </ErrorBoundary>
+        </ErrorBoundary>
+      </div>;
+    });
+    expect(div.innerHTML).toBe("Failed Miserably");
+  });
 
   test("dispose", () => disposer());
 });
