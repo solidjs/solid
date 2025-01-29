@@ -10,7 +10,7 @@ export class SuspenseQueue extends Queue {
   _signal = new Computation(false, null);
   run(type: number) {
     if (type && this._fallback) return;
-    super.run(type);
+    return super.run(type);
   }
   _update(node: Effect) {
     if (node._stateFlags & LOADING_BIT) {

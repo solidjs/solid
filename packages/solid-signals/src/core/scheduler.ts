@@ -18,7 +18,7 @@ function schedule() {
 
 export interface IQueue {
   enqueue<T extends Computation | Effect>(type: number, node: T): void;
-  run(type: number): void;
+  run(type: number): boolean | void;
   flush(): void;
   addChild(child: IQueue): void;
   removeChild(child: IQueue): void;
@@ -44,15 +44,17 @@ export class Queue implements IQueue {
         runEffectQueue(effects);
       }
     }
+    let rerun = false;
     for (let i = 0; i < this._children.length; i++) {
-      this._children[i].run(type);
+      rerun = this._children[i].run(type) || rerun;
     }
+    if (type === EFFECT_PURE && this._queues[type].length) return true;
   }
   flush() {
     if (this._running) return;
     this._running = true;
     try {
-      this.run(EFFECT_PURE);
+      while(this.run(EFFECT_PURE)) {};
       incrementClock();
       scheduled = false;
       this.run(EFFECT_RENDER);
