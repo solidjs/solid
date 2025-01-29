@@ -1,7 +1,7 @@
-import { Computation, untrack } from "./core.js";
+import { Computation } from "./core.js";
 import { EagerComputation, type Effect } from "./effect.js";
 import { LOADING_BIT } from "./flags.js";
-import { createBoundary, Queue, queueTask } from "./scheduler.js";
+import { createBoundary, Queue } from "./scheduler.js";
 import { flatten } from "./utils.js";
 
 export class SuspenseQueue extends Queue {
@@ -17,13 +17,13 @@ export class SuspenseQueue extends Queue {
       this._nodes.add(node);
       if (!this._fallback) {
         this._fallback = true;
-        queueTask(() => this._signal.write(true));
+        this._signal.write(true);
       }
     } else {
       this._nodes.delete(node);
       if (this._nodes.size === 0) {
         this._fallback = false;
-        queueTask(() => this._signal.write(false));
+        this._signal.write(false);
       }
     }
   }

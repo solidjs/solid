@@ -84,14 +84,7 @@ export function flushSync(): void {
   while (scheduled) {
     if (__DEV__ && ++count === 1e5) throw new Error("Potential Infinite Loop Detected.");
     globalQueue.flush();
-    for (let i = 0; i < globalTasks.length; i++) globalTasks[i]();
-    globalTasks.length = 0;
   }
-}
-
-export function queueTask(fn: () => void): void {
-  globalTasks.push(fn);
-  schedule();
 }
 
 export function createBoundary<T>(fn: () => T, queue: IQueue): T {
