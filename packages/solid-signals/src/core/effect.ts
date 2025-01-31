@@ -61,6 +61,10 @@ export class Effect<T = any> extends Computation<T> {
   }
 
   override _setError(error: unknown): void {
+    if (this._stateFlags & LOADING_BIT) {
+      this._stateFlags = 0; // Clear loading bit
+      (this._queue as SuspenseQueue)._update?.(this);
+    }
     this.handleError(error);
   }
 

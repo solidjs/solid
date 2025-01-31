@@ -1,4 +1,4 @@
-import { STATE_UNINITIALIZED } from "./core/constants.js";
+import { STATE_DIRTY, STATE_UNINITIALIZED } from "./core/constants.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   Computation,
@@ -7,7 +7,9 @@ import {
   Effect,
   ERROR_BIT,
   flatten,
+  getClock,
   LOADING_BIT,
+  NotReadyError,
   onCleanup,
   Owner,
   UNCHANGED,
@@ -189,6 +191,14 @@ export function createAsync<T>(
         };
       }
       const signal = new Computation(value, null, options);
+      const w = signal.wait;
+      signal.wait = function () {
+        if (signal._stateFlags & ERROR_BIT && signal._time <= getClock()) {
+          lhs._notify(STATE_DIRTY);
+          throw new NotReadyError();
+        }
+        return w.call(this);
+      };
       signal.write(UNCHANGED, LOADING_BIT);
       if (isPromise) {
         source.then(

@@ -54,7 +54,7 @@ export class Queue implements IQueue {
     if (this._running) return;
     this._running = true;
     try {
-      while(this.run(EFFECT_PURE)) {};
+      while (this.run(EFFECT_PURE)) {}
       incrementClock();
       scheduled = false;
       this.run(EFFECT_RENDER);

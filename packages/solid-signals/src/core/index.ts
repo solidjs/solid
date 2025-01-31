@@ -16,6 +16,7 @@ export {
   getObserver,
   isEqual,
   untrack,
+  getClock,
   hasUpdated,
   isPending,
   latest,

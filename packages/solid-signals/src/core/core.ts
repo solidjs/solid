@@ -78,6 +78,9 @@ export function getObserver(): ObserverType | null {
   return currentObserver;
 }
 
+export function getClock() {
+  return clock;
+}
 export function incrementClock(): void {
   clock++;
 }
@@ -105,7 +108,6 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   /** Which flags raised by sources are handled, vs. being passed through. */
   _handlerMask = DEFAULT_FLAGS;
 
-  _error: Computation<boolean> | null = null;
   _loading: Computation<boolean> | null = null;
   _time: number = -1;
 
@@ -165,6 +167,10 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * before continuing
    */
   wait(): T {
+    if (this._compute && this._stateFlags & ERROR_BIT && this._time <= clock) {
+      update(this);
+    }
+
     if (!syncResolve && this.loading()) {
       throw new NotReadyError();
     }
@@ -185,17 +191,6 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     }
 
     return this._loading.read();
-  }
-
-  /**
-   * Return true if the computation is the computation threw an error
-   * Triggers re-execution of the computation when the error state changes
-   */
-  error(): boolean {
-    if (this._error === null) {
-      this._error = errorState(this);
-    }
-    return this._error.read();
   }
 
   /** Update the computation with a new value. */
@@ -304,7 +299,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   }
 
   _setError(error: unknown): void {
-    this.write(error as T, this._stateFlags | ERROR_BIT);
+    this.write(error as T, (this._stateFlags & ~LOADING_BIT) | ERROR_BIT);
   }
 
   /**
@@ -404,27 +399,6 @@ function loadingState(node: Computation): Computation<boolean> {
   );
 
   computation._handlerMask = ERROR_BIT | LOADING_BIT;
-  setOwner(prevOwner);
-
-  return computation;
-}
-
-function errorState(node: Computation): Computation<boolean> {
-  const prevOwner = setOwner(node._parent);
-
-  const options = __DEV__ ? { name: node._name ? `error ${node._name}` : "error" } : undefined;
-
-  const computation = new Computation(
-    undefined,
-    () => {
-      track(node);
-      node._updateIfNecessary();
-      return !!(node._stateFlags & ERROR_BIT);
-    },
-    options
-  );
-
-  computation._handlerMask = ERROR_BIT;
   setOwner(prevOwner);
 
   return computation;
@@ -540,6 +514,8 @@ export function update<T>(node: Computation<T>): void {
     newSources = prevSources;
     newSourcesIndex = prevSourcesIndex;
     newFlags = prevFlags;
+
+    node._time = clock + 1;
 
     // By now, we have updated the node's value and sources array, so we can mark it as clean
     // TODO: This assumes that the computation didn't write to any signals, throw an error if it did
