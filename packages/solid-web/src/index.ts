@@ -1,20 +1,16 @@
 import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client.js";
 import {
-  createSignal,
   createMemo,
   onCleanup,
   untrack,
   omit,
   JSX,
-  createRoot,
   sharedConfig,
   enableHydration,
   $DEVCOMP,
   ComponentProps,
   ValidComponent,
-  createEffect,
-  getOwner,
-  runWithOwner
+  createRenderEffect
 } from "solid-js";
 
 export * from "./client.js";
@@ -44,59 +40,54 @@ export const hydrate: typeof hydrateCore = (...args) => {
  * @description https://docs.solidjs.com/reference/components/portal
  */
 export function Portal<T extends boolean = false, S extends boolean = false>(props: {
-  mount?: Node;
-  useShadow?: T;
-  isSVG?: S;
-  ref?:
-    | (S extends true ? SVGGElement : HTMLDivElement)
-    | ((
-        el: (T extends true ? { readonly shadowRoot: ShadowRoot } : {}) &
-          (S extends true ? SVGGElement : HTMLDivElement)
-      ) => void);
+  mount?: Element;
   children: JSX.Element;
 }) {
-  const { useShadow } = props,
-    marker = document.createTextNode(""),
-    mount = () => props.mount || document.body,
-    owner = getOwner();
-  let content: undefined | (() => JSX.Element);
-  let hydrating = !!sharedConfig.context;
+  const treeMarker = document.createTextNode(""),
+    startMarker = document.createTextNode(""),
+    endMarker = document.createTextNode(""),
+    mount = () => createElementProxy(props.mount || document.body, treeMarker);
+  let content = createMemo(() => [startMarker, props.children]);
 
-  // TODO:
-  // createEffect(
-  //   () => {
-  //     // basically we backdoor into a sort of renderEffect here
-  //     if (hydrating) (getOwner() as any).user = hydrating = false;
-  //     content || (content = runWithOwner(owner, () => createMemo(() => props.children)));
-  //     const el = mount();
-  //     if (el instanceof HTMLHeadElement) {
-  //       const [clean, setClean] = createSignal(false);
-  //       const cleanup = () => setClean(true);
-  //       createRoot(dispose => insert(el, () => (!clean() ? content!() : dispose()), null));
-  //       onCleanup(cleanup);
-  //     } else {
-  //       const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
-  //         renderRoot =
-  //           useShadow && container.attachShadow
-  //             ? container.attachShadow({ mode: "open" })
-  //             : container;
+  createRenderEffect(
+    () => {
+      const c = content();
+      const m = mount();
+      // TODO: Figure out cleanup location, should be backhalf
+      onCleanup(() => {
+        let c: Node | null = startMarker;
+        while (c && c !== endMarker) {
+          const n: Node | null = c.nextSibling;
+          m.removeChild(c);
+          c = n;
+        }
+      });
+      return [m, c] as readonly [Element, JSX.Element];
+    },
+    ([m, c]) => {
+      m.appendChild(endMarker);
+      insert(m, c, endMarker);
+    }
+  );
+  return treeMarker;
+}
 
-  //       Object.defineProperty(container, "_$host", {
-  //         get() {
-  //           return marker.parentNode;
-  //         },
-  //         configurable: true
-  //       });
-  //       insert(renderRoot, content);
-  //       el.appendChild(container);
-  //       props.ref && (props as any).ref(container);
-  //       onCleanup(() => el.removeChild(container));
-  //     }
-  //   },
-  //   undefined,
-  //   { render: !hydrating }
-  // );
-  return marker;
+function createElementProxy(el: Element, marker: Text) {
+  return new Proxy(el, {
+    get(target, prop) {
+      if (prop === "appendChild" || prop === "insertBefore") {
+        return (...args: [Node]) => {
+          Object.defineProperty(args[0], "_$host", {
+            get: () => marker.parentNode,
+            configurable: true
+          });
+          (target[prop] as any)(...args);
+        };
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
 }
 
 export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
