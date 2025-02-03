@@ -19,7 +19,8 @@ export {
   getClock,
   hasUpdated,
   isPending,
-  latest,
+  resolveSync,
+  catchError,
   UNCHANGED,
   compute,
   type SignalOptions

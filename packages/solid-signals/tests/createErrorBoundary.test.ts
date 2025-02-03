@@ -1,7 +1,7 @@
 import {
-  createEffect,
   createErrorBoundary,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   flushSync
@@ -11,7 +11,7 @@ it("should let errors bubble up when not handled", () => {
   const error = new Error();
   expect(() => {
     createRoot(() => {
-      createEffect(
+      createRenderEffect(
         () => {
           throw error;
         },
@@ -19,7 +19,7 @@ it("should let errors bubble up when not handled", () => {
       );
     });
     flushSync();
-  }).toThrowError(error);
+  }).toThrowError(error.cause as Error);
 });
 
 it("should handle error", () => {
@@ -41,7 +41,7 @@ it("should forward error to another handler", () => {
   const b = createRoot(() =>
     createErrorBoundary(
       () => {
-        createEffect(
+        createRenderEffect(
           () => {
             createErrorBoundary(
               () => {
@@ -71,7 +71,7 @@ it("should not duplicate error handler", () => {
     shouldThrow = false;
 
   createRoot(() =>
-    createEffect(
+    createRenderEffect(
       () => {
         $x();
         createErrorBoundary(() => {
@@ -100,10 +100,10 @@ it("should not trigger wrong handler", () => {
     shouldThrow = false;
 
   createRoot(() => {
-    createEffect(
+    createRenderEffect(
       () => {
         createErrorBoundary(() => {
-          createEffect(
+          createRenderEffect(
             () => {
               $x();
               if (shouldThrow) throw error;
@@ -111,7 +111,7 @@ it("should not trigger wrong handler", () => {
             () => {}
           );
 
-          createEffect(
+          createRenderEffect(
             () => {
               createErrorBoundary(() => {
                 // no-op
@@ -158,7 +158,7 @@ it("should handle errors when the effect is on the outside", async () => {
   const [$x, setX] = createSignal(0);
 
   createRoot(() =>
-    createEffect(
+    createRenderEffect(
       () => {
         createErrorBoundary(
           () => {
@@ -189,7 +189,7 @@ it("should handle errors when the effect is on the outside and memo in the middl
     rootHandler = vi.fn();
 
   createRoot(() =>
-    createEffect(
+    createRenderEffect(
       () => {
         createErrorBoundary(
           () =>

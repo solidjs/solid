@@ -6,6 +6,7 @@ import {
   STATE_DISPOSED
 } from "./constants.js";
 import { Computation, UNCHANGED, type SignalOptions } from "./core.js";
+import { EffectError } from "./error.js";
 import { LOADING_BIT } from "./flags.js";
 import { getOwner } from "./owner.js";
 import { globalQueue, type IQueue } from "./scheduler.js";
@@ -17,7 +18,9 @@ import type { SuspenseQueue } from "./suspense.js";
  * sources and recompute
  */
 export class Effect<T = any> extends Computation<T> {
-  _effect: (val: T, prev: T | undefined) => void;
+  _effect: (val: T, prev: T | undefined) => void | (() => void);
+  _error: ((err: unknown) => void | (() => void)) | undefined;
+  _cleanup: (() => void) | undefined;
   _modified: boolean = false;
   _prevValue: T | undefined;
   _type: typeof EFFECT_RENDER | typeof EFFECT_USER;
@@ -25,16 +28,20 @@ export class Effect<T = any> extends Computation<T> {
   constructor(
     initialValue: T,
     compute: () => T,
-    effect: (val: T, prev: T | undefined) => void,
-    options?: SignalOptions<T> & { render?: boolean }
+    effect: (val: T, prev: T | undefined) => void | (() => void),
+    error?: (err: unknown) => void | (() => void),
+    options?: SignalOptions<T> & { render?: boolean, defer?: boolean }
   ) {
     super(initialValue, compute, options);
     this._effect = effect;
+    this._error = error;
     this._prevValue = initialValue;
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     this._queue = getOwner()?._queue || globalQueue;
-    this._updateIfNecessary();
-    this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect();
+    if (!options?.defer) {
+      this._updateIfNecessary();
+      this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect();
+    }
     if (__DEV__ && !this._parent)
       console.warn("Effects created outside a reactive context will never be disposed");
   }
@@ -61,24 +68,44 @@ export class Effect<T = any> extends Computation<T> {
   }
 
   override _setError(error: unknown): void {
+    this._cleanup?.();
     if (this._stateFlags & LOADING_BIT) {
       this._stateFlags = 0; // Clear loading bit
       (this._queue as SuspenseQueue)._update?.(this);
+    }
+    if (this._type === EFFECT_USER) {
+      try {
+        return this._error
+          ? (this._cleanup = this._error(error) as any)
+          : console.error(new EffectError(this._effect, error));
+      } catch (e) {
+        error = e;
+      }
     }
     this.handleError(error);
   }
 
   override _disposeNode(): void {
+    if (this._state === STATE_DISPOSED) return;
     this._effect = undefined as any;
     this._prevValue = undefined;
+    this._error = undefined as any;
+    this._cleanup?.();
+    this._cleanup = undefined;
     super._disposeNode();
   }
 
   _runEffect() {
     if (this._modified && this._state !== STATE_DISPOSED) {
-      this._effect(this._value!, this._prevValue);
-      this._prevValue = this._value;
-      this._modified = false;
+      this._cleanup?.();
+      try {
+        this._cleanup = this._effect(this._value!, this._prevValue) as any;
+      } catch (e) {
+        this.handleError(e);
+      } finally {
+        this._prevValue = this._value;
+        this._modified = false;
+      }
     }
   }
 }

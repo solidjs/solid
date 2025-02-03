@@ -19,7 +19,8 @@ export {
   untrack,
   hasUpdated,
   isPending,
-  latest,
+  resolveSync,
+  catchError,
   createSuspense,
   SUPPORTS_PROXY
 } from "./core/index.js";

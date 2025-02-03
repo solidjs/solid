@@ -240,7 +240,8 @@ export function createAsync<T>(
  * ): void;
  * ```
  * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
- * @param effect a function that receives the new value and is used to perform side effects
+ * @param effect a function that receives the new value and is used to perform side effects, return a cleanup function to run on disposal
+ * @param error an optional function that receives an error if thrown during the computation
  * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
  * @param options allows to set a name in dev mode for debugging purposes
  *
@@ -248,17 +249,20 @@ export function createAsync<T>(
  */
 export function createEffect<Next>(
   compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effect: EffectFunction<NoInfer<Next>, Next>
+  effect: EffectFunction<NoInfer<Next>, Next>,
+  error?: (err: unknown) => void
 ): void;
 export function createEffect<Next, Init = Next>(
   compute: ComputeFunction<Init | Next, Next>,
   effect: EffectFunction<Next, Next>,
+  error: (err: unknown) => void | undefined,
   value: Init,
   options?: EffectOptions
 ): void;
 export function createEffect<Next, Init>(
   compute: ComputeFunction<Init | Next, Next>,
   effect: EffectFunction<Next, Next>,
+  error?: (err: unknown) => void,
   value?: Init,
   options?: EffectOptions
 ): void {
@@ -266,6 +270,7 @@ export function createEffect<Next, Init>(
     value as any,
     compute as any,
     effect,
+    error,
     __DEV__ ? { name: options?.name ?? "effect" } : undefined
   );
 }
@@ -303,7 +308,7 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  void new Effect(value as any, compute as any, effect, {
+  void new Effect(value as any, compute as any, effect, undefined, {
     render: true,
     ...(__DEV__ ? { name: options?.name ?? "effect" } : undefined)
   });
@@ -377,4 +382,50 @@ export function createErrorBoundary<T, U>(
     });
   });
   return decision.read.bind(decision);
+}
+
+/**
+ * Returns a promise of the resolved value of a reactive expression
+ * @param fn a reactive expression to resolve
+ */
+export function resolve<T>(fn: () => T): Promise<T> {
+  return new Promise((res, rej) => {
+    let node = new EagerComputation(undefined, () => {
+      try {
+        res(fn());
+      } catch (err) {
+        if (err instanceof NotReadyError) throw err;
+        rej(err);
+      }
+      node.dispose(true);
+    });
+  });
+}
+
+/**
+ * Creates a reactive computation that runs after the render phase with flexible tracking
+ * ```typescript
+ * export function createReaction(
+ *   effect: () => void,
+ *   options?: { name?: string }
+ * ): (fn: () => void) => void;
+ * ```
+ * @param effect a function that is called when tracked function is invalidated.
+ * @param error an optional function that receives an error if thrown during tracking
+ * @param options allows to set a name in dev mode for debugging purposes
+ *
+ * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
+ */
+export function createReaction(effect: () => (() => void) | void, error?: (err: unknown) => (() => void) | void, options?: EffectOptions) {
+  const node = new Effect(undefined, () => {}, effect, error, {
+    defer: true,
+    ...(__DEV__ ? { name: options?.name ?? "reaction" } : undefined)
+  })
+
+  return (tracking: () => void) => {
+    node._compute = tracking;
+    node._state = STATE_DIRTY;
+    node._updateIfNecessary();
+    node._compute = null;
+  };
 }

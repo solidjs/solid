@@ -63,15 +63,24 @@ it("should handle nested effect", () => {
 
   const outerEffect = vi.fn();
   const innerEffect = vi.fn();
-  const innerDispose = vi.fn();
+  const innerPureDispose = vi.fn();
+  const innerEffectDispose = vi.fn();
 
   const stopEffect = createRoot(dispose => {
     createEffect(() => {
       $x();
-      createEffect(() => {
-        $y();
-        onCleanup(innerDispose);
-      }, innerEffect);
+      createEffect(
+        () => {
+          $y();
+          onCleanup(innerPureDispose);
+        },
+        () => {
+          innerEffect();
+          return () => {
+            innerEffectDispose();
+          };
+        }
+      );
     }, outerEffect);
 
     return dispose;
@@ -80,41 +89,48 @@ it("should handle nested effect", () => {
   flushSync();
   expect(outerEffect).toHaveBeenCalledTimes(1);
   expect(innerEffect).toHaveBeenCalledTimes(1);
-  expect(innerDispose).toHaveBeenCalledTimes(0);
+  expect(innerPureDispose).toHaveBeenCalledTimes(0);
+  expect(innerEffectDispose).toHaveBeenCalledTimes(0);
 
   setY(1);
   flushSync();
   expect(outerEffect).toHaveBeenCalledTimes(1);
   expect(innerEffect).toHaveBeenCalledTimes(2);
-  expect(innerDispose).toHaveBeenCalledTimes(1);
+  expect(innerPureDispose).toHaveBeenCalledTimes(1);
+  expect(innerEffectDispose).toHaveBeenCalledTimes(1);
 
   setY(2);
   flushSync();
   expect(outerEffect).toHaveBeenCalledTimes(1);
   expect(innerEffect).toHaveBeenCalledTimes(3);
-  expect(innerDispose).toHaveBeenCalledTimes(2);
+  expect(innerPureDispose).toHaveBeenCalledTimes(2);
+  expect(innerEffectDispose).toHaveBeenCalledTimes(2);
 
   innerEffect.mockReset();
-  innerDispose.mockReset();
+  innerPureDispose.mockReset();
+  innerEffectDispose.mockReset();
 
   setX(1);
   flushSync();
   expect(outerEffect).toHaveBeenCalledTimes(2);
   expect(innerEffect).toHaveBeenCalledTimes(1); // new one is created
-  expect(innerDispose).toHaveBeenCalledTimes(1);
+  expect(innerPureDispose).toHaveBeenCalledTimes(1);
+  expect(innerEffectDispose).toHaveBeenCalledTimes(1);
 
   setY(3);
   flushSync();
   expect(outerEffect).toHaveBeenCalledTimes(2);
   expect(innerEffect).toHaveBeenCalledTimes(2);
-  expect(innerDispose).toHaveBeenCalledTimes(2);
+  expect(innerPureDispose).toHaveBeenCalledTimes(2);
+  expect(innerEffectDispose).toHaveBeenCalledTimes(2);
 
   stopEffect();
   setX(10);
   setY(10);
   expect(outerEffect).toHaveBeenCalledTimes(2);
   expect(innerEffect).toHaveBeenCalledTimes(2);
-  expect(innerDispose).toHaveBeenCalledTimes(3);
+  expect(innerPureDispose).toHaveBeenCalledTimes(3);
+  expect(innerEffectDispose).toHaveBeenCalledTimes(3);
 });
 
 it("should stop effect", () => {
@@ -138,6 +154,7 @@ it("should run all disposals before each new run", () => {
   const effect = vi.fn();
   const disposeA = vi.fn();
   const disposeB = vi.fn();
+  const disposeC = vi.fn();
 
   function fnA() {
     onCleanup(disposeA);
@@ -150,16 +167,23 @@ it("should run all disposals before each new run", () => {
   const [$x, setX] = createSignal(0);
 
   createRoot(() =>
-    createEffect(() => {
-      fnA(), fnB();
-      return $x();
-    }, effect)
+    createEffect(
+      () => {
+        fnA(), fnB();
+        return $x();
+      },
+      () => {
+        effect();
+        return disposeC;
+      }
+    )
   );
   flushSync();
 
   expect(effect).toHaveBeenCalledTimes(1);
   expect(disposeA).toHaveBeenCalledTimes(0);
   expect(disposeB).toHaveBeenCalledTimes(0);
+  expect(disposeC).toHaveBeenCalledTimes(0);
 
   for (let i = 1; i <= 3; i += 1) {
     setX(i);
@@ -167,6 +191,7 @@ it("should run all disposals before each new run", () => {
     expect(effect).toHaveBeenCalledTimes(i + 1);
     expect(disposeA).toHaveBeenCalledTimes(i);
     expect(disposeB).toHaveBeenCalledTimes(i);
+    expect(disposeC).toHaveBeenCalledTimes(i);
   }
 });
 

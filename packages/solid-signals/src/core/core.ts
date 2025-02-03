@@ -578,15 +578,31 @@ export function isPending(fn: () => any): boolean {
   }
 }
 
-export function latest<T>(fn: () => T): T | undefined {
+export type PossiblyResolved<T> = T extends Object ? RecursivePartial<T> : T;
+export type RecursivePartial<T> = {
+  [P in keyof T]?: PossiblyResolved<T[P]>;
+};
+/**
+ * Attempts to resolve value of expression synchronously returning the last resolved value for any async computation.
+ */
+export function resolveSync<T>(fn: () => T): PossiblyResolved<T> | undefined {
   const prevFlags = newFlags;
   syncResolve = true;
   try {
-    return fn();
+    return fn() as PossiblyResolved<T>;
   } catch {
   } finally {
     newFlags = prevFlags;
     syncResolve = false;
+  }
+}
+
+export function catchError(fn: () => void): unknown | undefined {
+  try {
+    fn();
+  } catch (e) {
+    if (e instanceof NotReadyError) throw e;
+    return e;
   }
 }
 

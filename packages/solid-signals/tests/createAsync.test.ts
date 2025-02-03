@@ -6,7 +6,8 @@ import {
   createSignal,
   flushSync,
   isPending,
-  latest
+  resolve,
+  resolveSync
 } from "../src/index.js";
 
 it("diamond should not cause waterfalls on read", async () => {
@@ -121,11 +122,11 @@ it("should not throw with isPending guard", async () => {
   expect(b()).toBe(2);
 });
 
-it("should not throw with latest guard", async () => {
+it("should not throw with resolveSync guard", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
   const a = createRoot(() => createAsync(async1));
-  const b = createMemo(() => latest(a));
+  const b = createMemo(() => resolveSync(a));
   expect(b()).toBe(undefined);
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(1);
@@ -135,4 +136,31 @@ it("should not throw with latest guard", async () => {
   expect(b()).toBe(1);
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(2);
+});
+
+it("should resolve to a value with resolveAsync", async () => {
+  const [s, set] = createSignal(1);
+  const async1 = vi.fn(() => Promise.resolve(s()));
+  let value: number | undefined;
+  createRoot(() => {
+    const a = createAsync(async1);
+    createEffect(
+      () => {},
+      () => {
+        (async () => {
+          value = await resolve(a);
+        })();
+      }
+    );
+  });
+  expect(value).toBe(undefined);
+  await new Promise(r => setTimeout(r, 0));
+  expect(value).toBe(1);
+  set(2);
+  expect(value).toBe(1);
+  flushSync();
+  expect(value).toBe(1);
+  await new Promise(r => setTimeout(r, 0));
+  // doesn't update because not tracked
+  expect(value).toBe(1);
 });
