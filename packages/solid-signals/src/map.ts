@@ -8,7 +8,7 @@ export type Maybe<T> = T | void | null | undefined | false;
 /**
  * Reactively transforms an array with a callback function - underlying helper for the `<For>` control flow
  *
- * similar to `Array.prototype.map`, but gets the value and index as accessos, transforms only values that changed and returns an accessor and reactively tracks changes to the list.
+ * similar to `Array.prototype.map`, but gets the value and index as accessors, transforms only values that changed and returns an accessor and reactively tracks changes to the list.
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/map-array
  */
@@ -191,8 +191,78 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
   return this._mappings;
 }
 
+/**
+ * Reactively repeats a callback function the count provided - underlying helper for the `<Repeat>` control flow
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/repeat
+ */
+export function repeat(
+  count: Accessor<number>,
+  map: (index: number) => any,
+  options?: {
+    fallback?: Accessor<any>;
+  }
+): Accessor<any[]> {
+  return updateRepeat.bind({
+    _owner: new Owner(),
+    _len: 0,
+    _count: count,
+    _map: map,
+    _nodes: [],
+    _mappings: [],
+    _fallback: options?.fallback
+  });
+}
+
+function updateRepeat<MappedItem>(this: RepeatData<MappedItem>): any[] {
+  const newLen = this._count();
+  runWithOwner(this._owner, () => {
+    if (newLen === 0) {
+      if (this._len !== 0) {
+        this._owner.dispose(false);
+        this._nodes = [];
+        this._mappings = [];
+        this._len = 0;
+      }
+      if (this._fallback && !this._mappings[0]) {
+        // create fallback
+        this._mappings[0] = compute<MappedItem>(
+          (this._nodes[0] = new Owner()),
+          this._fallback,
+          null
+        );
+      }
+    } else {
+      // remove fallback
+      if (this._len === 0 && this._nodes[0]) this._nodes[0].dispose();
+
+      for (let i = this._len; i < newLen; i++) {
+        this._mappings[i] = compute<MappedItem>(
+          (this._nodes[i] = new Owner()),
+          () => this._map(i),
+          null
+        );
+      }
+      for (let i = newLen; i < this._len; i++) this._nodes[i].dispose();
+      this._mappings = this._mappings.slice(0, newLen);
+      this._len = newLen;
+    }
+  });
+  return this._mappings;
+}
+
 function compare<Item>(key: ((i: any) => any) | undefined, a: Item, b: Item): boolean {
   return key ? key(a) === key(b) : true;
+}
+
+interface RepeatData<MappedItem = any> {
+  _owner: Owner;
+  _len: number;
+  _count: Accessor<number>;
+  _map: (index: number) => MappedItem;
+  _mappings: MappedItem[];
+  _nodes: Owner[];
+  _fallback?: Accessor<any>;
 }
 
 interface MapData<Item = any, MappedItem = any> {

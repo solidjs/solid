@@ -32,6 +32,6 @@ export type {
   Disposable,
   IQueue
 } from "./core/index.js";
-export { mapArray, type Maybe } from "./map.js";
+export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./signals.js";
 export * from "./store/index.js";
