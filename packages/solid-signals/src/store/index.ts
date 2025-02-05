@@ -5,12 +5,13 @@ export {
   unwrap,
   isWrappable,
   createStore,
-  createProjection,
   $RAW,
   $TRACK,
   $PROXY,
   $TARGET
 } from "./store.js";
+
+export { createProjection } from "./projection.js";
 
 export { reconcile } from "./reconcile.js";
 

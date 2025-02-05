@@ -1,4 +1,5 @@
-import { Computation, EagerComputation, getObserver, isEqual } from "../core/index.js";
+import { Computation, getObserver, isEqual } from "../core/index.js";
+import { createProjection } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => void) => void;
@@ -236,9 +237,11 @@ export function createStore<T extends object = {}>(
   second?: T | Store<T>
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function",
-    store = derived ? second! : first,
-    unwrappedStore = unwrap(store!, false);
+    store = derived ? second! : first;
 
+  if (derived) return createProjection(first as (store: T) => void, store as T);
+
+  const unwrappedStore = unwrap(store!, false);
   const wrappedStore = wrap(unwrappedStore);
   const setStore = (fn: (draft: T) => void): void => {
     try {
@@ -248,23 +251,6 @@ export function createStore<T extends object = {}>(
       Writing.clear();
     }
   };
-  if (derived) {
-    // unsafe implementation
-    new EagerComputation<T | undefined>(undefined, () => setStore(first) as any);
-  }
 
   return [wrappedStore, setStore];
-}
-
-/**
- * Creates a mutable derived value
- *
- * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
- */
-export function createProjection<T extends Object>(
-  fn: (draft: T) => void,
-  initialValue: T = {} as T
-) {
-  const [store] = createStore(fn, initialValue);
-  return store;
 }

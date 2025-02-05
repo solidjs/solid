@@ -59,8 +59,8 @@ export class Effect<T = any> extends Computation<T> {
     return value;
   }
 
-  override _notify(state: number): void {
-    if (this._state >= state) return;
+  override _notify(state: number, skipQueue?: boolean): void {
+    if (this._state >= state || skipQueue) return;
 
     if (this._state === STATE_CLEAN) this._queue.enqueue(this._type, this);
 
@@ -120,11 +120,11 @@ export class EagerComputation<T = any> extends Computation<T> {
       console.warn("Eager Computations created outside a reactive context will never be disposed");
   }
 
-  override _notify(state: number): void {
-    if (this._state >= state) return;
+  override _notify(state: number, skipQueue?: boolean): void {
+    if (this._state >= state && !this._forceNotify) return;
 
-    if (this._state === STATE_CLEAN) this._queue.enqueue(EFFECT_PURE, this);
+    if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, this);
 
-    super._notify(state);
+    super._notify(state, skipQueue);
   }
 }
