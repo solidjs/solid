@@ -49,24 +49,19 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
     mount = () => createElementProxy(props.mount || document.body, treeMarker);
   let content = createMemo(() => [startMarker, props.children]);
 
-  createRenderEffect(
-    () => {
-      const c = content();
-      const m = mount();
-      // TODO: Figure out cleanup location, should be backhalf
-      onCleanup(() => {
+  createRenderEffect<[Element, JSX.Element]>(
+    () => [mount(), content()],
+    ([m, c]) => {
+      m.appendChild(endMarker);
+      insert(m, c, endMarker);
+      return () => {
         let c: Node | null = startMarker;
         while (c && c !== endMarker) {
           const n: Node | null = c.nextSibling;
           m.removeChild(c);
           c = n;
         }
-      });
-      return [m, c] as readonly [Element, JSX.Element];
-    },
-    ([m, c]) => {
-      m.appendChild(endMarker);
-      insert(m, c, endMarker);
+      };
     }
   );
   return treeMarker;

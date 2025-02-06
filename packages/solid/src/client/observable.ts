@@ -60,7 +60,9 @@ export function observable<T>(input: Accessor<T>): Observable<T> {
       const dispose = createRoot(disposer => {
         createEffect(
           () => input(),
-          v => handler(v)
+          v => {
+            handler(v);
+          }
         );
         return disposer;
       });
