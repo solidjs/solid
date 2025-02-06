@@ -115,6 +115,42 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
 };
 
 /**
+ * Renders an arbitrary component or element with the given props
+ *
+ * This is a lower level version of the `Dynamic` component, useful for
+ * performance optimizations in libraries. Do not use this unless you know
+ * what you are doing.
+ * ```typescript
+ * const element = () => multiline() ? 'textarea' : 'input';
+ * createDynamic(element, { value: value() });
+ * ```
+ * @description https://docs.solidjs.com/reference/components/dynamic
+ */
+export function createDynamic<T extends ValidComponent>(
+  component: () => T,
+  props: ComponentProps<T>
+): JSX.Element {
+  const cached = createMemo<Function | string>(component);
+  return createMemo(() => {
+    const component = cached();
+    switch (typeof component) {
+      case "function":
+        if (isDev) Object.assign(component, { [$DEVCOMP]: true });
+        return untrack(() => component(props));
+
+      case "string":
+        const isSvg = SVGElements.has(component);
+        const el = sharedConfig.context ? getNextElement() : createElement(component, isSvg);
+        spread(el, props, isSvg);
+        return el;
+
+      default:
+        break;
+    }
+  }) as unknown as JSX.Element;
+}
+
+/**
  * Renders an arbitrary custom or native component and passes the other props
  * ```typescript
  * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
@@ -123,22 +159,5 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const [p, others] = splitProps(props, ["component"]);
-  const cached = createMemo<Function | string>(() => p.component);
-  return createMemo(() => {
-    const component = cached();
-    switch (typeof component) {
-      case "function":
-        if (isDev) Object.assign(component, { [$DEVCOMP]: true });
-        return untrack(() => component(others));
-
-      case "string":
-        const isSvg = SVGElements.has(component);
-        const el = sharedConfig.context ? getNextElement() : createElement(component, isSvg);
-        spread(el, others, isSvg);
-        return el;
-
-      default:
-        break;
-    }
-  }) as unknown as JSX.Element;
+  return createDynamic(() => p.component, others);
 }
