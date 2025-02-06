@@ -3,24 +3,30 @@ export {
   $TRACK,
   $RAW,
   flushSync,
+  catchError,
   createAsync,
   createEffect,
   createMemo,
   createProjection,
+  createReaction,
   createRenderEffect,
   createRoot,
   createSignal,
   createStore,
   isEqual,
+  isPending,
   isWrappable,
   flatten,
   getObserver,
   getOwner,
+  resolve,
+  resolveSync,
   mapArray,
   merge,
   omit,
   onCleanup,
   reconcile,
+  repeat,
   runWithOwner,
   untrack,
   unwrap
@@ -87,12 +93,11 @@ if (IS_DEV && globalThis) {
 
 /* Not Implemented
 export {
-  batch,
+  batch, // flushSync
   catchError, // handled by ErrorBoundary
-  createComputed,
-  createDeferred,
+  createComputed, // nope
+  createDeferred, // take it outside
   createResource, // createAsync
-  createReaction,
   createSelector, // createProjection
   DevHooks,
   enableExternalSource,
@@ -104,7 +109,7 @@ export {
   on, // with split effects this doesn't need to be core
   onError, // handled by ErrorBoundary
   startTransition,
-  SuspenseList
+  SuspenseList, // was experimental, do we keep it?
   useTransition,
   writeSignal, // handled by underlying Node class
 

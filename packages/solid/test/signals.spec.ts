@@ -407,7 +407,12 @@ describe("Typecheck computed and effects", () => {
         return arg;
       };
       createRenderEffect(fn, () => {}, 12);
-      createEffect(fn, () => {}, 12);
+      createEffect(
+        fn,
+        () => {},
+        () => {},
+        12
+      );
       setTimeout(() => {
         expect(count).toBe(2);
         setSign("update");
@@ -466,7 +471,9 @@ describe("runWithOwner", () => {
     });
 
     runWithOwner(owner, () => {
-      onMount(() => (effectRun = true));
+      onMount(() => {
+        effectRun = true;
+      });
       onCleanup(() => (cleanupRun = true));
       expect(effectRun).toBe(false);
       expect(cleanupRun).toBe(false);

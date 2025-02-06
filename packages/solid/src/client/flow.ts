@@ -5,7 +5,8 @@ import {
   mapArray,
   onCleanup,
   createSuspense,
-  createErrorBoundary
+  createErrorBoundary,
+  repeat
 } from "@solidjs/signals";
 import type { Accessor } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
@@ -16,15 +17,14 @@ const narrowedError = (name: string) =>
     : `Stale read from <${name}>.`;
 
 /**
- * Creates a list elements from a list
+ * Creates a list of elements from a list
  *
- * it receives a map function as its child that receives a list element and an accessor with the index and returns a JSX-Element; if the list is empty, an optional fallback is returned:
+ * it receives a map function as its child that receives list element and index accessors and returns a JSX-Element; if the list is empty, an optional fallback is returned:
  * ```typescript
  * <For each={items} fallback={<div>No items</div>}>
- *   {(item, index) => <div data-index={index()}>{item}</div>}
+ *   {(item, index) => <div data-index={index()}>{item()}</div>}
  * </For>
  * ```
- * If you have a list with fixed indices and changing values, consider using `<Index>` instead.
  *
  * @description https://docs.solidjs.com/reference/components/for
  */
@@ -45,6 +45,43 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
         { name: "value" }
       )
     : createMemo(mapArray(() => props.each, props.children, options))) as unknown as JSX.Element;
+}
+
+/**
+ * Creates a list elements from a count
+ *
+ * it receives a map function as its child that receives the index and returns a JSX-Element; if the list is empty, an optional fallback is returned:
+ * ```typescript
+ * <Repeat count={items.length} fallback={<div>No items</div>}>
+ *   {(index) => <div data-index={index}>{items[index]}</div>}
+ * </Repeat>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/repeat
+ */
+export function Repeat<T extends JSX.Element>(props: {
+  count: number;
+  fallback?: JSX.Element;
+  children: ((index: number) => T) | T;
+}) {
+  const options = "fallback" in props ? { fallback: () => props.fallback } : {};
+  return (IS_DEV
+    ? createMemo(
+        repeat(
+          () => props.count,
+          index => (typeof props.children === "function" ? props.children(index) : props.children),
+          options
+        ),
+        undefined,
+        { name: "value" }
+      )
+    : createMemo(
+        repeat(
+          () => props.count,
+          index => (typeof props.children === "function" ? props.children(index) : props.children),
+          options
+        )
+      )) as unknown as JSX.Element;
 }
 
 /**
