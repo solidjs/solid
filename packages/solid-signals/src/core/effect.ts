@@ -30,7 +30,7 @@ export class Effect<T = any> extends Computation<T> {
     compute: () => T,
     effect: (val: T, prev: T | undefined) => void | (() => void),
     error?: (err: unknown) => void | (() => void),
-    options?: SignalOptions<T> & { render?: boolean, defer?: boolean }
+    options?: SignalOptions<T> & { render?: boolean; defer?: boolean }
   ) {
     super(initialValue, compute, options);
     this._effect = effect;
@@ -126,5 +126,22 @@ export class EagerComputation<T = any> extends Computation<T> {
     if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, this);
 
     super._notify(state, skipQueue);
+  }
+}
+
+export class ProjectionComputation extends Computation {
+  _queue: IQueue;
+  constructor(compute: () => void) {
+    super(null, compute);
+    this._queue = getOwner()?._queue || globalQueue;
+    if (__DEV__ && !this._parent)
+      console.warn("Eager Computations created outside a reactive context will never be disposed");
+  }
+  _notify(state: number, skipQueue?: boolean): void {
+    if (this._state >= state && !this._forceNotify) return;
+
+    if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, this);
+
+    super._notify(state, true);
   }
 }
