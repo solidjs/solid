@@ -1,21 +1,35 @@
-import { createEffect, createRoot, createSignal, createStore, flushSync, repeat } from "../src/index.js";
+import {
+  createEffect,
+  createRoot,
+  createSignal,
+  createStore,
+  flushSync,
+  repeat
+} from "../src/index.js";
 
 it("should compute keyed map", () => {
-  const [source, setSource] = createStore<Array<{id: string}>>([{ id: "a" }, { id: "b" }, { id: "c" }]);
+  const [source, setSource] = createStore<Array<{ id: string }>>([
+    { id: "a" },
+    { id: "b" },
+    { id: "c" }
+  ]);
 
   const computed = vi.fn();
 
-  const map = repeat(() => source.length, (index) => {
-    computed();
-    return {
-      get id() {
-        return source[index].id;
-      },
-      get index() {
-        return index;
-      }
-    };
-  });
+  const map = repeat(
+    () => source.length,
+    index => {
+      computed();
+      return {
+        get id() {
+          return source[index].id;
+        },
+        get index() {
+          return index;
+        }
+      };
+    }
+  );
 
   const [a, b, c] = map();
   expect(a.id).toBe("a");
@@ -60,7 +74,7 @@ it("should compute keyed map", () => {
   expect(computed).toHaveBeenCalledTimes(4);
 
   // Empty
-  setSource(p => p.length = 0);
+  setSource(p => (p.length = 0));
 
   expect(map().length).toBe(0);
   expect(computed).toHaveBeenCalledTimes(4);
@@ -69,13 +83,16 @@ it("should compute keyed map", () => {
 it("should notify observer", () => {
   const [source, setSource] = createStore([{ id: "a" }, { id: "b" }, { id: "c" }]);
 
-  const map = repeat(() => source.length, index => {
-    return {
-      get id() {
-        return source[index].id;
-      }
-    };
-  });
+  const map = repeat(
+    () => source.length,
+    index => {
+      return {
+        get id() {
+          return source[index].id;
+        }
+      };
+    }
+  );
 
   const effect = vi.fn();
   createRoot(() => createEffect(map, effect));
@@ -92,7 +109,7 @@ it("should compute map when key by index", () => {
   const computed = vi.fn();
   const map = repeat(
     () => source().length,
-    (index) => {
+    index => {
       computed();
       return {
         get id() {
@@ -149,4 +166,3 @@ it("should compute map when key by index", () => {
   expect(map().length).toBe(0);
   expect(computed).toHaveBeenCalledTimes(4);
 });
-

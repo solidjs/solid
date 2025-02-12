@@ -1,4 +1,4 @@
-import { STATE_DIRTY, STATE_UNINITIALIZED } from "./core/constants.js";
+import { STATE_DIRTY } from "./core/constants.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   Computation,
@@ -13,6 +13,7 @@ import {
   onCleanup,
   Owner,
   UNCHANGED,
+  UNINITIALIZED_BIT,
   untrack
 } from "./core/index.js";
 
@@ -146,7 +147,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
       // not owned and not listened to so can be garbage collected if reference lost.
       else if (!node._parent && !node._observers?.length) {
         node.dispose();
-        node._state = STATE_UNINITIALIZED;
+        node._state = STATE_DIRTY;
       }
     }
     return resolvedValue;
@@ -173,6 +174,7 @@ export function createAsync<T>(
   value?: T,
   options?: MemoOptions<T>
 ): Accessor<T> {
+  let uninitialized = value === undefined;
   const lhs = new EagerComputation(
     {
       _value: value
@@ -199,14 +201,16 @@ export function createAsync<T>(
         }
         return w.call(this);
       };
-      signal.write(UNCHANGED, LOADING_BIT);
+      signal.write(UNCHANGED, LOADING_BIT | (uninitialized ? UNINITIALIZED_BIT : 0));
       if (isPromise) {
         source.then(
           value => {
+            uninitialized = false;
             signal.write(value, 0, true);
           },
           error => {
-            signal.write(error, ERROR_BIT);
+            uninitialized = true;
+            signal._setError(error);
           }
         );
       } else {
@@ -416,11 +420,15 @@ export function resolve<T>(fn: () => T): Promise<T> {
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
  */
-export function createReaction(effect: () => (() => void) | void, error?: (err: unknown) => (() => void) | void, options?: EffectOptions) {
+export function createReaction(
+  effect: () => (() => void) | void,
+  error?: (err: unknown) => (() => void) | void,
+  options?: EffectOptions
+) {
   const node = new Effect(undefined, () => {}, effect, error, {
     defer: true,
     ...(__DEV__ ? { name: options?.name ?? "reaction" } : undefined)
-  })
+  });
 
   return (tracking: () => void) => {
     node._compute = tracking;

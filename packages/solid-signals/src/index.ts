@@ -18,8 +18,8 @@ export {
   isEqual,
   untrack,
   hasUpdated,
-  isPending,
-  resolveSync,
+  isStale,
+  latest,
   catchError,
   createSuspense,
   SUPPORTS_PROXY

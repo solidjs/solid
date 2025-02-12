@@ -7,8 +7,7 @@
 export const STATE_CLEAN = 0;
 export const STATE_CHECK = 1;
 export const STATE_DIRTY = 2;
-export const STATE_UNINITIALIZED = 3;
-export const STATE_DISPOSED = 4;
+export const STATE_DISPOSED = 3;
 
 export const EFFECT_PURE = 0;
 export const EFFECT_RENDER = 1;

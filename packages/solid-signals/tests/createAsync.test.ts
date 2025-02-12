@@ -5,9 +5,9 @@ import {
   createRoot,
   createSignal,
   flushSync,
-  isPending,
-  resolve,
-  resolveSync
+  isStale,
+  latest,
+  resolve
 } from "../src/index.js";
 
 it("diamond should not cause waterfalls on read", async () => {
@@ -106,28 +106,28 @@ it("should waterfall when dependent on another async with shared source", async 
   expect(effect).toHaveBeenCalledWith(4);
 });
 
-it("should not throw with isPending guard", async () => {
+it("should should show stale state with `isStale`", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
   const a = createRoot(() => createAsync(async1));
-  const b = createMemo(() => (isPending(a) ? "pending" : a()));
-  expect(b()).toBe("pending");
+  const b = createMemo(() => (isStale(a) ? "stale" : "not stale"));
+  expect(b()).toBe("not stale");
   await new Promise(r => setTimeout(r, 0));
-  expect(b()).toBe(1);
+  expect(b()).toBe("not stale");
   set(2);
-  expect(b()).toBe("pending");
+  expect(b()).toBe("stale");
   flushSync();
-  expect(b()).toBe("pending");
+  expect(b()).toBe("stale");
   await new Promise(r => setTimeout(r, 0));
-  expect(b()).toBe(2);
+  expect(b()).toBe("not stale");
 });
 
-it("should not throw with resolveSync guard", async () => {
+it("should get latest value with `latest`", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
   const a = createRoot(() => createAsync(async1));
-  const b = createMemo(() => resolveSync(a));
-  expect(b()).toBe(undefined);
+  const b = createMemo(() => latest(a));
+  expect(b).toThrow();
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(1);
   set(2);

@@ -27,15 +27,9 @@
  *     executed in root to leaf order)
  */
 
-import {
-  STATE_CHECK,
-  STATE_CLEAN,
-  STATE_DIRTY,
-  STATE_DISPOSED,
-  STATE_UNINITIALIZED
-} from "./constants.js";
+import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, type Flags } from "./flags.js";
+import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
 
 export interface SignalOptions<T> {
@@ -68,8 +62,9 @@ let currentObserver: ObserverType | null = null,
   newSourcesIndex = 0,
   newFlags = 0,
   clock = 0,
-  syncResolve = false,
-  updateCheck: null | { _value: boolean } = null;
+  notStale = false,
+  updateCheck: null | { _value: boolean } = null,
+  staleCheck: null | { _value: boolean } = null;
 
 /**
  * Returns the current observer.
@@ -92,6 +87,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   _sources: SourceType[] | null = null;
   _observers: ObserverType[] | null = null;
   _value: T | undefined;
+  _error: unknown;
   _compute: null | ((p?: T) => T);
 
   // Used in __DEV__ mode, hopefully removed in production
@@ -124,7 +120,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     this._compute = compute;
 
-    this._state = compute ? STATE_UNINITIALIZED : STATE_CLEAN;
+    this._state = compute ? STATE_DIRTY : STATE_CLEAN;
+    this._stateFlags = compute && initialValue === undefined ? UNINITIALIZED_BIT : 0;
     this._value = initialValue;
 
     // Used when debugging the graph; it is often helpful to know the names of sources/observers
@@ -146,7 +143,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     newFlags |= this._stateFlags & ~currentMask;
 
     if (this._stateFlags & ERROR_BIT) {
-      throw this._value as Error;
+      throw this._error as Error;
     } else {
       return this._value!;
     }
@@ -172,9 +169,10 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
       update(this);
     }
 
-    if (!syncResolve && this.loading()) {
+    if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && this.loading()) {
       throw new NotReadyError();
     }
+    if (staleCheck && this._stateFlags & LOADING_BIT) staleCheck._value = true;
 
     return this._read();
   }
@@ -208,12 +206,14 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     const valueChanged =
       newValue !== UNCHANGED &&
-      (!!(flags & ERROR_BIT) ||
-        this._state === STATE_UNINITIALIZED ||
+      (!!(this._stateFlags & UNINITIALIZED_BIT) ||
         this._equals === false ||
         !this._equals(this._value!, newValue));
 
-    if (valueChanged) this._value = newValue;
+    if (valueChanged) {
+      this._value = newValue;
+      this._error = undefined;
+    }
 
     const changedFlagsMask = this._stateFlags ^ flags,
       changedFlags = changedFlagsMask & flags;
@@ -301,7 +301,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   }
 
   _setError(error: unknown): void {
-    this.write(error as T, (this._stateFlags & ~LOADING_BIT) | ERROR_BIT);
+    this._error = error;
+    this.write(UNCHANGED, (this._stateFlags & ~LOADING_BIT) | ERROR_BIT | UNINITIALIZED_BIT);
   }
 
   /**
@@ -358,7 +359,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
       }
     }
 
-    if (this._state === STATE_DIRTY || this._state === STATE_UNINITIALIZED) {
+    if (this._state === STATE_DIRTY) {
       update(this);
     } else {
       // isWaiting has now coallesced all of our parents' loading states
@@ -468,7 +469,7 @@ export function update<T>(node: Computation<T>): void {
     node.write(result, newFlags, true);
   } catch (error) {
     if (error instanceof NotReadyError) {
-      node.write(UNCHANGED, newFlags | LOADING_BIT);
+      node.write(UNCHANGED, newFlags | LOADING_BIT | (node._stateFlags & UNINITIALIZED_BIT));
     } else {
       node._setError(error);
     }
@@ -569,33 +570,33 @@ export function hasUpdated(fn: () => any): boolean {
 }
 
 /**
- * Returns true if the given function contains async signals that are not ready yet.
+ * Returns true if the given function contains async signals are out of date.
  */
-export function isPending(fn: () => any): boolean {
+export function isStale(fn: () => any): boolean {
+  const current = staleCheck;
+  staleCheck = { _value: false };
   try {
-    fn();
-    return false;
-  } catch (e) {
-    return e instanceof NotReadyError;
+    latest(fn);
+    return staleCheck._value;
+  } catch {
+  } finally {
+    staleCheck = current;
   }
+  return false;
 }
 
-export type PossiblyResolved<T> = T extends Object ? RecursivePartial<T> : T;
-export type RecursivePartial<T> = {
-  [P in keyof T]?: PossiblyResolved<T[P]>;
-};
 /**
  * Attempts to resolve value of expression synchronously returning the last resolved value for any async computation.
  */
-export function resolveSync<T>(fn: () => T): PossiblyResolved<T> | undefined {
+export function latest<T>(fn: () => T): T {
   const prevFlags = newFlags;
-  syncResolve = true;
+  const prevNotStale = notStale;
+  notStale = false;
   try {
-    return fn() as PossiblyResolved<T>;
-  } catch {
+    return fn();
   } finally {
     newFlags = prevFlags;
-    syncResolve = false;
+    notStale = prevNotStale;
   }
 }
 
@@ -612,29 +613,28 @@ export function catchError(fn: () => void): unknown | undefined {
  * A convenient wrapper that calls `compute` with the `owner` and `observer` and is guaranteed
  * to reset the global context after the computation is finished even if an error is thrown.
  */
+export function compute<T>(owner: Owner | null, fn: (val: T) => T, observer: Computation<T>): T;
+export function compute<T>(owner: Owner | null, fn: (val: undefined) => T, observer: null): T;
 export function compute<T>(
   owner: Owner | null,
-  compute: (val: T) => T,
-  observer: Computation<T>
-): T;
-export function compute<T>(owner: Owner | null, compute: (val: undefined) => T, observer: null): T;
-export function compute<T>(
-  owner: Owner | null,
-  compute: (val?: T) => T,
+  fn: (val?: T) => T,
   observer: Computation<T> | null
 ): T {
   const prevOwner = setOwner(owner),
     prevObserver = currentObserver,
-    prevMask = currentMask;
+    prevMask = currentMask,
+    prevNotStale = notStale;
 
   currentObserver = observer;
   currentMask = observer?._handlerMask ?? DEFAULT_FLAGS;
+  notStale = true;
 
   try {
-    return compute(observer ? observer._value : undefined);
+    return fn(observer ? observer._value : undefined);
   } finally {
     setOwner(prevOwner);
     currentObserver = prevObserver;
     currentMask = prevMask;
+    notStale = prevNotStale;
   }
 }
