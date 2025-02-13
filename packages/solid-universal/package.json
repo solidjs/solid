@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/universal",
   "description": "Solid's universal runtime for creating custom renderers",
-  "version": "1.9.4",
+  "version": "2.0.0-experimental.0",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -45,7 +45,7 @@
     "types:universal": "tsc --project ./tsconfig.json && ncp ../../node_modules/dom-expressions/src/universal.d.ts ./types/index.d.ts"
   },
   "peerDependencies": {
-    "solid-js": "^1.9.4"
+    "solid-js": "^2.0.0-experimental.0"
   },
   "devDependencies": {
     "solid-js": "workspace:*"
