@@ -33,9 +33,9 @@ describe("Basic element attributes", () => {
     expect(d.innerHTML).toBe("<p>Hi</p>");
   });
 
-  test("classList", () => {
+  test("class", () => {
     const classes = { first: true, second: false, "third fourth": true },
-      d = (<div classList={classes} />) as HTMLDivElement;
+      d = (<div class={classes} />) as HTMLDivElement;
     expect(d.className).toBe("first third fourth");
   });
 

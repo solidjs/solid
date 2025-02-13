@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, resetErrorBoundaries, ErrorBoundary, flushSync } from "solid-js";
+import { createRoot, ErrorBoundary, flushSync } from "solid-js";
 
 describe("Testing ErrorBoundary control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -77,24 +77,8 @@ describe("Testing ErrorBoundary control flow", () => {
       </div>;
     });
     expect(div.innerHTML).toBe("Failure");
-    r!();
-    flushSync();
-    expect(div.innerHTML).toBe("Success");
-    first = true;
-  });
 
-  test("Create an Error global reset", () => {
-    let r: () => void;
-    createRoot(dispose => {
-      disposer = dispose;
-      <div ref={div}>
-        <ErrorBoundary fallback={e => e.message}>
-          <Component2 />
-        </ErrorBoundary>
-      </div>;
-    });
-    expect(div.innerHTML).toBe("Failure");
-    resetErrorBoundaries();
+    r!();
     flushSync();
     expect(div.innerHTML).toBe("Success");
     first = true;

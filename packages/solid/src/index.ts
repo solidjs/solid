@@ -2,7 +2,6 @@ export {
   $PROXY,
   $TRACK,
   $RAW,
-  flushSync,
   catchError,
   createAsync,
   createEffect,
@@ -13,20 +12,21 @@ export {
   createRoot,
   createSignal,
   createStore,
-  isEqual,
-  isPending,
-  isWrappable,
   flatten,
+  flushSync,
   getObserver,
   getOwner,
-  resolve,
-  resolveSync,
+  isEqual,
+  isStale,
+  isWrappable,
+  latest,
   mapArray,
   merge,
   omit,
   onCleanup,
   reconcile,
   repeat,
+  resolve,
   runWithOwner,
   untrack,
   unwrap
@@ -94,7 +94,7 @@ if (IS_DEV && globalThis) {
 /* Not Implemented
 export {
   batch, // flushSync
-  catchError, // handled by ErrorBoundary
+  catchError, // old version handled by createErrorBoundary. new version is different helper.
   createComputed, // nope
   createDeferred, // take it outside
   createResource, // createAsync
@@ -108,6 +108,7 @@ export {
   Index, // handled by For
   on, // with split effects this doesn't need to be core
   onError, // handled by ErrorBoundary
+  resetErrorBoundaries, // no longer needed with healing
   startTransition,
   SuspenseList, // was experimental, do we keep it?
   useTransition,
