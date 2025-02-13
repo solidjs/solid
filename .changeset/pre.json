@@ -1,0 +1,15 @@
+{
+  "mode": "pre",
+  "tag": "experimental",
+  "initialVersions": {
+    "babel-preset-solid": "1.9.3",
+    "solid-js": "1.9.4",
+    "@solidjs/element": "1.9.1",
+    "@solidjs/h": "1.9.4",
+    "@solidjs/html": "1.9.4",
+    "@solidjs/universal": "1.9.4",
+    "@solidjs/web": "1.9.4",
+    "test-integration": "1.9.4"
+  },
+  "changesets": []
+}
