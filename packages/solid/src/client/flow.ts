@@ -203,10 +203,6 @@ export function Match<T>(props: MatchProps<T>) {
   return props as unknown as JSX.Element;
 }
 
-let Errors: Set<() => void>;
-export function resetErrorBoundaries() {
-  Errors && [...Errors].forEach(fn => fn());
-}
 /**
  * Catches uncaught errors inside components and renders a fallback content
  *
@@ -226,12 +222,9 @@ export function ErrorBoundary(props: {
   fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
   children: JSX.Element;
 }): JSX.Element {
-  Errors || (Errors = new Set());
   return createErrorBoundary(
     () => props.children,
     (err, reset) => {
-      Errors.add(reset);
-      onCleanup(() => Errors.delete(reset));
       const f = props.fallback;
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err);
       return typeof f === "function" && f.length ? f(err, reset) : f;

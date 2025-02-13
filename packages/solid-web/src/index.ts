@@ -1,7 +1,6 @@
 import { getNextElement, insert, spread, SVGElements, hydrate as hydrateCore } from "./client.js";
 import {
   createMemo,
-  onCleanup,
   untrack,
   omit,
   JSX,
