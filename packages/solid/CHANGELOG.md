@@ -1,5 +1,15 @@
 # solid-js
 
+## 2.0.0-experimental.0
+
+### Major Changes
+
+- 1da85a3: Update to new package layout, signals implementation, compiler
+
+### Patch Changes
+
+- fff8aed: Update typescript to 5.7
+
 ## 1.9.5
 
 ### Patch Changes

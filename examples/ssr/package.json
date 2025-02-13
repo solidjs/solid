@@ -1,6 +1,7 @@
 {
   "name": "ssr-example",
   "description": "Example of different SSR modes",
+  "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",

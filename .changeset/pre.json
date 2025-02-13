@@ -9,7 +9,11 @@
     "@solidjs/html": "1.9.4",
     "@solidjs/universal": "1.9.4",
     "@solidjs/web": "1.9.4",
-    "test-integration": "1.9.4"
+    "test-integration": "1.9.4",
+    "ssr-example": "0.0.0"
   },
-  "changesets": []
+  "changesets": [
+    "many-crabs-reply",
+    "tiny-lions-jam"
+  ]
 }
