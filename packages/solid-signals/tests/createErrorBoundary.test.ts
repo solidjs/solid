@@ -25,11 +25,13 @@ it("should let errors bubble up when not handled", () => {
 it("should handle error", () => {
   const error = new Error();
 
-  const b = createErrorBoundary(
-    () => {
-      throw error;
-    },
-    () => "errored"
+  const b = createRoot(() =>
+    createErrorBoundary(
+      () => {
+        throw error;
+      },
+      () => "errored"
+    )
   );
 
   expect(b()).toBe("errored");
@@ -41,20 +43,16 @@ it("should forward error to another handler", () => {
   const b = createRoot(() =>
     createErrorBoundary(
       () => {
-        createRenderEffect(
+        const inner = createErrorBoundary(
           () => {
-            createErrorBoundary(
-              () => {
-                throw error;
-              },
-              e => {
-                expect(e).toBe(error);
-                throw e;
-              }
-            )();
+            throw error;
           },
-          () => {}
+          e => {
+            expect(e).toBe(error);
+            throw e;
+          }
         );
+        createRenderEffect(inner, () => {});
       },
       () => "errored"
     )
@@ -70,17 +68,13 @@ it("should not duplicate error handler", () => {
   let [$x, setX] = createSignal(0),
     shouldThrow = false;
 
-  createRoot(() =>
-    createRenderEffect(
-      () => {
-        $x();
-        createErrorBoundary(() => {
-          if (shouldThrow) throw error;
-        }, handler)();
-      },
-      () => {}
-    )
-  );
+  createRoot(() => {
+    const b = createErrorBoundary(() => {
+      $x();
+      if (shouldThrow) throw error;
+    }, handler);
+    createRenderEffect(b, () => {});
+  });
 
   setX(1);
   flushSync();
@@ -100,29 +94,21 @@ it("should not trigger wrong handler", () => {
     shouldThrow = false;
 
   createRoot(() => {
-    createRenderEffect(
-      () => {
-        createErrorBoundary(() => {
-          createRenderEffect(
-            () => {
-              $x();
-              if (shouldThrow) throw error;
-            },
-            () => {}
-          );
+    const b = createErrorBoundary(() => {
+      createRenderEffect(
+        () => {
+          $x();
+          if (shouldThrow) throw error;
+        },
+        () => {}
+      );
 
-          createRenderEffect(
-            () => {
-              createErrorBoundary(() => {
-                // no-op
-              }, handler);
-            },
-            () => {}
-          );
-        }, rootHandler)();
-      },
-      () => {}
-    );
+      const b2 = createErrorBoundary(() => {
+        // no-op
+      }, handler);
+      createRenderEffect(b2, () => {});
+    }, rootHandler);
+    createRenderEffect(b, () => {});
   });
 
   expect(rootHandler).toHaveBeenCalledTimes(0);
@@ -157,27 +143,27 @@ it("should handle errors when the effect is on the outside", async () => {
 
   const [$x, setX] = createSignal(0);
 
-  createRoot(() =>
-    createRenderEffect(
+  createRoot(() => {
+    const b = createErrorBoundary(
       () => {
+        if ($x()) throw error;
         createErrorBoundary(
           () => {
-            if ($x()) throw error;
-            createErrorBoundary(
-              () => {
-                throw error;
-              },
-              e => {
-                expect(e).toBe(error);
-              }
-            )();
+            throw error;
           },
-          err => rootHandler(err)
-        )();
+          e => {
+            expect(e).toBe(error);
+          }
+        );
       },
+      err => rootHandler(err)
+    );
+    createRenderEffect(
+      () => b()?.(),
       () => {}
-    )
-  );
+    );
+  });
+  expect(rootHandler).toHaveBeenCalledTimes(0);
   setX(1);
   flushSync();
   expect(rootHandler).toHaveBeenCalledWith(error);
@@ -188,19 +174,15 @@ it("should handle errors when the effect is on the outside and memo in the middl
   const error = new Error(),
     rootHandler = vi.fn();
 
-  createRoot(() =>
-    createRenderEffect(
-      () => {
-        createErrorBoundary(
-          () =>
-            createMemo(() => {
-              throw error;
-            }),
-          rootHandler
-        )();
-      },
-      () => {}
-    )
-  );
+  createRoot(() => {
+    const b = createErrorBoundary(
+      () =>
+        createMemo(() => {
+          throw error;
+        }),
+      rootHandler
+    );
+    createRenderEffect(b, () => {});
+  });
   expect(rootHandler).toHaveBeenCalledTimes(1);
 });

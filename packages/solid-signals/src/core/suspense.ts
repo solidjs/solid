@@ -1,7 +1,8 @@
-import { Computation } from "./core.js";
+import { STATE_DIRTY } from "./constants.js";
+import { Computation, createBoundary } from "./core.js";
 import { EagerComputation, type Effect } from "./effect.js";
 import { LOADING_BIT } from "./flags.js";
-import { createBoundary, Queue } from "./scheduler.js";
+import { Queue } from "./scheduler.js";
 import { flatten } from "./utils.js";
 
 export class SuspenseQueue extends Queue {
@@ -32,8 +33,9 @@ export class SuspenseQueue extends Queue {
 class LiveComputation<T> extends EagerComputation<T> {
   override write(value: T, flags = 0): T {
     const currentFlags = this._stateFlags;
+    const dirty = this._state === STATE_DIRTY;
     super.write(value, flags);
-    if ((flags & LOADING_BIT) !== (currentFlags & LOADING_BIT)) {
+    if (dirty && (flags & LOADING_BIT) !== (currentFlags & LOADING_BIT)) {
       (this._queue as SuspenseQueue)._update?.(this as any);
     }
     return this._value as T;

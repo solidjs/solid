@@ -5,9 +5,17 @@ import {
   STATE_CLEAN,
   STATE_DISPOSED
 } from "./constants.js";
-import { Computation, compute, incrementClock } from "./core.js";
+import type { Computation } from "./core.js";
 import type { Effect } from "./effect.js";
-import { onCleanup, Owner } from "./owner.js";
+import type { Owner } from "./owner.js";
+
+let clock = 0;
+export function getClock() {
+  return clock;
+}
+export function incrementClock(): void {
+  clock++;
+}
 
 let scheduled = false;
 function schedule() {
@@ -73,7 +81,6 @@ export class Queue implements IQueue {
 }
 
 export const globalQueue = new Queue();
-const globalTasks: (() => void)[] = [];
 
 /**
  * By default, changes are batched on the microtask queue which is an async process. You can flush
@@ -85,14 +92,6 @@ export function flushSync(): void {
     if (__DEV__ && ++count === 1e5) throw new Error("Potential Infinite Loop Detected.");
     globalQueue.flush();
   }
-}
-
-export function createBoundary<T>(fn: () => T, queue: IQueue): T {
-  const owner = new Owner();
-  const parentQueue = owner._queue || globalQueue;
-  parentQueue.addChild((owner._queue = queue));
-  onCleanup(() => parentQueue.removeChild(owner._queue!));
-  return compute(owner, fn, null);
 }
 
 /**

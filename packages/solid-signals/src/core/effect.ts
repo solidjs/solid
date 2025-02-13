@@ -9,8 +9,6 @@ import {
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { EffectError } from "./error.js";
 import { LOADING_BIT } from "./flags.js";
-import { getOwner } from "./owner.js";
-import { globalQueue, type IQueue } from "./scheduler.js";
 import type { SuspenseQueue } from "./suspense.js";
 
 /**
@@ -25,7 +23,6 @@ export class Effect<T = any> extends Computation<T> {
   _modified: boolean = false;
   _prevValue: T | undefined;
   _type: typeof EFFECT_RENDER | typeof EFFECT_USER;
-  _queue: IQueue;
   constructor(
     initialValue: T,
     compute: (val?: T) => T,
@@ -41,7 +38,6 @@ export class Effect<T = any> extends Computation<T> {
     if (this._type === EFFECT_RENDER) {
       this._compute = p => latest(() => compute(p));
     }
-    this._queue = getOwner()?._queue || globalQueue;
     if (!options?.defer) {
       this._updateIfNecessary();
       this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect();
@@ -117,11 +113,9 @@ export class Effect<T = any> extends Computation<T> {
 }
 
 export class EagerComputation<T = any> extends Computation<T> {
-  _queue: IQueue;
-  constructor(initialValue: T, compute: () => T, options?: SignalOptions<T>) {
+  constructor(initialValue: T, compute: () => T, options?: SignalOptions<T> & { defer?: boolean }) {
     super(initialValue, compute, options);
-    this._queue = getOwner()?._queue || globalQueue;
-    this._updateIfNecessary();
+    !options?.defer && this._updateIfNecessary();
     if (__DEV__ && !this._parent)
       console.warn("Eager Computations created outside a reactive context will never be disposed");
   }
@@ -136,10 +130,8 @@ export class EagerComputation<T = any> extends Computation<T> {
 }
 
 export class ProjectionComputation extends Computation {
-  _queue: IQueue;
   constructor(compute: () => void) {
     super(null, compute);
-    this._queue = getOwner()?._queue || globalQueue;
     if (__DEV__ && !this._parent)
       console.warn("Eager Computations created outside a reactive context will never be disposed");
   }

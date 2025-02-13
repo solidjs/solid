@@ -13,10 +13,10 @@ export {
 } from "./owner.js";
 export {
   Computation,
+  createBoundary,
   getObserver,
   isEqual,
   untrack,
-  getClock,
   hasUpdated,
   isStale,
   latest,
@@ -26,7 +26,7 @@ export {
   type SignalOptions
 } from "./core.js";
 export { Effect, EagerComputation } from "./effect.js";
-export { flushSync, createBoundary, type IQueue, Queue } from "./scheduler.js";
+export { flushSync, getClock, incrementClock, type IQueue, Queue } from "./scheduler.js";
 export { createSuspense } from "./suspense.js";
 export { SUPPORTS_PROXY } from "./constants.js";
 export * from "./flags.js";

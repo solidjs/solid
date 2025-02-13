@@ -31,7 +31,7 @@
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
 import type { Computation } from "./core.js";
 import { ContextNotFoundError, NoOwnerError, type ErrorHandler } from "./error.js";
-import type { IQueue } from "./scheduler.js";
+import { globalQueue, type IQueue } from "./scheduler.js";
 import { isUndefined } from "./utils.js";
 
 export type ContextRecord = Record<string | symbol, unknown>;
@@ -69,7 +69,7 @@ export class Owner {
   _disposal: Disposable | Disposable[] | null = null;
   _context: ContextRecord = defaultContext;
   _handlers: ErrorHandler[] | null = null;
-  _queue: IQueue | null = null;
+  _queue: IQueue = globalQueue;
 
   constructor(signal = false) {
     if (currentOwner && !signal) currentOwner.append(this);
@@ -147,7 +147,7 @@ export class Owner {
 
     for (i = 0; i < len; i++) {
       try {
-        this._handlers[i](error);
+        this._handlers[i](error, this as any);
         break; // error was handled.
       } catch (e) {
         error = e;

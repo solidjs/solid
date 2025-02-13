@@ -30,7 +30,8 @@
 import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
-import { getOwner, Owner, setOwner } from "./owner.js";
+import { getOwner, onCleanup, Owner, setOwner } from "./owner.js";
+import { getClock, type IQueue } from "./scheduler.js";
 
 export interface SignalOptions<T> {
   name?: string;
@@ -61,7 +62,6 @@ let currentObserver: ObserverType | null = null,
   newSources: SourceType[] | null = null,
   newSourcesIndex = 0,
   newFlags = 0,
-  clock = 0,
   notStale = false,
   updateCheck: null | { _value: boolean } = null,
   staleCheck: null | { _value: boolean } = null;
@@ -71,13 +71,6 @@ let currentObserver: ObserverType | null = null,
  */
 export function getObserver(): ObserverType | null {
   return currentObserver;
-}
-
-export function getClock() {
-  return clock;
-}
-export function incrementClock(): void {
-  clock++;
 }
 
 export const UNCHANGED: unique symbol = Symbol(__DEV__ ? "unchanged" : 0);
@@ -133,7 +126,10 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   }
 
   _read(): T {
-    if (this._compute) this._updateIfNecessary();
+    if (this._compute) {
+      if (this._stateFlags & ERROR_BIT && this._time <= getClock()) update(this);
+      else this._updateIfNecessary();
+    }
 
     // When the currentObserver reads this._value, the want to add this computation as a source
     // so that when this._value changes, the currentObserver will be re-executed
@@ -165,7 +161,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * before continuing
    */
   wait(): T {
-    if (this._compute && this._stateFlags & ERROR_BIT && this._time <= clock) {
+    if (this._compute && this._stateFlags & ERROR_BIT && this._time <= getClock()) {
       update(this);
     }
 
@@ -219,7 +215,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
       changedFlags = changedFlagsMask & flags;
 
     this._stateFlags = flags;
-    this._time = clock + 1;
+    this._time = getClock() + 1;
 
     // Our value has changed, so we need to notify all of our observers that the value has
     // changed and so they must rerun
@@ -518,7 +514,7 @@ export function update<T>(node: Computation<T>): void {
     newSourcesIndex = prevSourcesIndex;
     newFlags = prevFlags;
 
-    node._time = clock + 1;
+    node._time = getClock() + 1;
 
     // By now, we have updated the node's value and sources array, so we can mark it as clean
     // TODO: This assumes that the computation didn't write to any signals, throw an error if it did
@@ -637,4 +633,12 @@ export function compute<T>(
     currentMask = prevMask;
     notStale = prevNotStale;
   }
+}
+
+export function createBoundary<T>(fn: () => T, queue: IQueue): T {
+  const owner = new Owner();
+  const parentQueue = owner._queue;
+  parentQueue.addChild((owner._queue = queue));
+  onCleanup(() => parentQueue.removeChild(owner._queue!));
+  return compute(owner, fn, null);
 }

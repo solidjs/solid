@@ -1,3 +1,5 @@
+import type { Owner } from "./owner.js";
+
 export class NotReadyError extends Error {}
 
 export class NoOwnerError extends Error {
@@ -23,5 +25,5 @@ export class EffectError extends Error {
   }
 }
 export interface ErrorHandler {
-  (error: unknown): void;
+  (error: unknown, node: Owner): void;
 }

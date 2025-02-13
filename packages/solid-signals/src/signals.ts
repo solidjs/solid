@@ -8,6 +8,7 @@ import {
   ERROR_BIT,
   flatten,
   getClock,
+  incrementClock,
   LOADING_BIT,
   NotReadyError,
   onCleanup,
@@ -359,15 +360,28 @@ export function createErrorBoundary<T, U>(
   fallback: (error: unknown, reset: () => void) => U
 ): Accessor<T | U> {
   const owner = new Owner();
-  const error = new Computation<{ _error: any } | null>(null, null);
-  const reset = new Computation(null, null, { equals: false });
-  const handler = err => error.write({ _error: err });
+  const error = new Computation<{ _error: any } | undefined>(undefined, null);
+  const nodes = new Set<Owner>();
+  function handler(err: unknown, node: Owner) {
+    if (nodes.has(node)) return;
+    compute(
+      node,
+      () =>
+        onCleanup(() => {
+          nodes.delete(node);
+          if (!nodes.size) error.write(undefined);
+        }),
+      null
+    );
+    nodes.add(node);
+    if (nodes.size === 1) error.write({ _error: err });
+  }
   owner._handlers = owner._handlers ? [handler, ...owner._handlers] : [handler];
   const guarded = compute(
     owner,
     () => {
-      const c = new Computation(null, () => (reset.read(), fn()));
-      const f = new Computation(null, () => flatten(c.read()));
+      const c = new Computation(undefined, fn);
+      const f = new EagerComputation(undefined, () => flatten(c.read()), { defer: true });
       f._setError = function (error) {
         this.handleError(error);
       };
@@ -381,8 +395,11 @@ export function createErrorBoundary<T, U>(
       if (!error.read()) return resolved;
     }
     return fallback(error.read()!._error, () => {
-      error.write(null);
-      reset.write(null);
+      incrementClock();
+      for (let node of nodes) {
+        (node as any)._state = STATE_DIRTY;
+        (node as any)._queue?.enqueue((node as any)._type, node);
+      }
     });
   });
   return decision.read.bind(decision);
@@ -394,14 +411,16 @@ export function createErrorBoundary<T, U>(
  */
 export function resolve<T>(fn: () => T): Promise<T> {
   return new Promise((res, rej) => {
-    let node = new EagerComputation(undefined, () => {
-      try {
-        res(fn());
-      } catch (err) {
-        if (err instanceof NotReadyError) throw err;
-        rej(err);
-      }
-      node.dispose(true);
+    createRoot(dispose => {
+      new EagerComputation(undefined, () => {
+        try {
+          res(fn());
+        } catch (err) {
+          if (err instanceof NotReadyError) throw err;
+          rej(err);
+        }
+        dispose();
+      });
     });
   });
 }
