@@ -9,6 +9,7 @@ import {
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { EffectError } from "./error.js";
 import { LOADING_BIT } from "./flags.js";
+import { getClock } from "./scheduler.js";
 import type { SuspenseQueue } from "./suspense.js";
 
 /**
@@ -36,7 +37,7 @@ export class Effect<T = any> extends Computation<T> {
     this._prevValue = initialValue;
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     if (this._type === EFFECT_RENDER) {
-      this._compute = p => latest(() => compute(p));
+      this._compute = p => (getClock() > this._queue.created) ? latest(() => compute(p)) : compute(p);
     }
     if (!options?.defer) {
       this._updateIfNecessary();

@@ -30,12 +30,14 @@ export interface IQueue {
   flush(): void;
   addChild(child: IQueue): void;
   removeChild(child: IQueue): void;
+  created: number;
 }
 
 export class Queue implements IQueue {
   _running: boolean = false;
   _queues: [Computation[], Effect[], Effect[]] = [[], [], []];
   _children: IQueue[] = [];
+  created = clock;
   enqueue<T extends Computation | Effect>(type: number, node: T): void {
     this._queues[0].push(node as any);
     if (type) this._queues[type].push(node as any);
