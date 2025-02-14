@@ -168,7 +168,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && this.loading()) {
       throw new NotReadyError();
     }
-    if (staleCheck && this._stateFlags & LOADING_BIT) staleCheck._value = true;
+    if (staleCheck && this.loading()) staleCheck._value = true;
 
     return this._read();
   }
