@@ -13,6 +13,7 @@
     "ssr-example": "0.0.0"
   },
   "changesets": [
+    "lemon-mails-lick",
     "many-crabs-reply",
     "tiny-lions-jam"
   ]

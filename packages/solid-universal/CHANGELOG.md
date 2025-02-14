@@ -1,5 +1,13 @@
 # @solidjs/universal
 
+## 2.0.0-experimental.1
+
+### Patch Changes
+
+- 5c94067: update signals
+- Updated dependencies [5c94067]
+  - solid-js@2.0.0-experimental.1
+
 ## 2.0.0-experimental.0
 
 ### Major Changes

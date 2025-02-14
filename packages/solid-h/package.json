@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/h",
   "description": "A standard (less-optimal) JSX factory for Solid",
-  "version": "2.0.0-experimental.0",
+  "version": "2.0.0-experimental.1",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -57,8 +57,8 @@
     "link": "symlink-dir . node_modules/@solidjs/h"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-experimental.0",
-    "@solidjs/web": "^2.0.0-experimental.0"
+    "solid-js": "^2.0.0-experimental.1",
+    "@solidjs/web": "^2.0.0-experimental.1"
   },
   "devDependencies": {
     "@solidjs/web": "workspace:*"
