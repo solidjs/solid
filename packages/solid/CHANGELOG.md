@@ -1,5 +1,17 @@
 # solid-js
 
+## 1.9.5
+
+### Patch Changes
+
+- 86ae8a9: add optional initalValue argument to `from` helper
+- 89e016d: dev: Add `internal` flag to signal
+- 9431b88: Mirror createDynamic for SSR
+- 35266c1: JSX type updates, preliminary MathML support, fix spread overescaping
+- 0eab77d: Removed unnecessary evaluations of <Show> and <Match> conditions.
+- fff8aed: Update typescript to 5.7
+- f9ef621: dev: Add afterRegisterGraph hook replacing afterCreateSignal
+
 ## 1.9.4
 
 ### Patch Changes

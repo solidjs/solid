@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.9.5
+
+### Patch Changes
+
+- 35266c1: JSX type updates, preliminary MathML support, fix spread overescaping
+
 ## 1.9.3
 
 ### Patch Changes
