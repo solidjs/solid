@@ -1,4 +1,12 @@
-import { createErrorBoundary, createRoot, getOwner, Owner, runWithOwner } from "../src/index.js";
+import {
+  createRenderEffect,
+  createErrorBoundary,
+  createRoot,
+  flushSync,
+  getOwner,
+  Owner,
+  runWithOwner
+} from "../src/index.js";
 
 it("should scope function to current scope", () => {
   let owner!: Owner | null;
@@ -31,9 +39,15 @@ it("should handle errors", () => {
   b();
 
   runWithOwner(owner, () => {
-    throw error;
+    createRenderEffect(
+      () => {
+        throw error;
+      },
+      () => {}
+    );
   });
 
   b();
+  flushSync();
   expect(handler).toHaveBeenCalledWith(error);
 });

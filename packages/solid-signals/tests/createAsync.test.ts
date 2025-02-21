@@ -111,7 +111,7 @@ it("should should show stale state with `isStale`", async () => {
   const async1 = vi.fn(() => Promise.resolve(s()));
   const a = createRoot(() => createAsync(async1));
   const b = createMemo(() => (isStale(a) ? "stale" : "not stale"));
-  expect(b()).toBe("not stale");
+  expect(b).toThrow();
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe("not stale");
   set(2);

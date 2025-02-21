@@ -421,3 +421,18 @@ it("should run render effect before user effects", () => {
   flushSync();
   expect(mark).toBe("abab");
 });
+
+it("should defer user effects with the defer option", () => {
+  let mark = "";
+  const [$x, setX] = createSignal(0);
+  createRoot(() => {
+    createEffect($x, () => {
+      mark += "b";
+    }, undefined, undefined, { defer: true });
+  });
+  flushSync();
+  expect(mark).toBe("");
+  setX(1);
+  flushSync();
+  expect(mark).toBe("b");
+})

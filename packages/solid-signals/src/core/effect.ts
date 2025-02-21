@@ -37,12 +37,12 @@ export class Effect<T = any> extends Computation<T> {
     this._prevValue = initialValue;
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     if (this._type === EFFECT_RENDER) {
-      this._compute = p => (getClock() > this._queue.created) ? latest(() => compute(p)) : compute(p);
+      this._compute = p =>
+        getClock() > this._queue.created ? latest(() => compute(p)) : compute(p);
     }
-    if (!options?.defer) {
-      this._updateIfNecessary();
-      this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect();
-    }
+    this._updateIfNecessary();
+    !options?.defer &&
+      (this._type === EFFECT_USER ? this._queue.enqueue(this._type, this) : this._runEffect());
     if (__DEV__ && !this._parent)
       console.warn("Effects created outside a reactive context will never be disposed");
   }

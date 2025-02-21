@@ -21,6 +21,7 @@ export {
   isStale,
   latest,
   catchError,
+  runWithObserver,
   createSuspense,
   SUPPORTS_PROXY
 } from "./core/index.js";

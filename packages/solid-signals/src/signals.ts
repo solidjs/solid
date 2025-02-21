@@ -39,8 +39,10 @@ export type EffectFunction<Prev, Next extends Prev = Prev> = (
 
 export interface EffectOptions {
   name?: string;
+  defer?: boolean;
 }
-export interface MemoOptions<T> extends EffectOptions {
+export interface MemoOptions<T> {
+  name?: string;
   equals?: false | ((prev: T, next: T) => boolean);
 }
 
@@ -260,7 +262,7 @@ export function createEffect<Next>(
 export function createEffect<Next, Init = Next>(
   compute: ComputeFunction<Init | Next, Next>,
   effect: EffectFunction<Next, Next>,
-  error: (err: unknown) => void | undefined,
+  error: ((err: unknown) => void) | undefined,
   value: Init,
   options?: EffectOptions
 ): void;
@@ -276,7 +278,7 @@ export function createEffect<Next, Init>(
     compute as any,
     effect,
     error,
-    __DEV__ ? { name: options?.name ?? "effect" } : undefined
+    __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
   );
 }
 
@@ -315,7 +317,7 @@ export function createRenderEffect<Next, Init>(
 ): void {
   void new Effect(value as any, compute as any, effect, undefined, {
     render: true,
-    ...(__DEV__ ? { name: options?.name ?? "effect" } : undefined)
+    ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
   });
 }
 
@@ -333,17 +335,13 @@ export function createRoot<T>(init: ((dispose: () => void) => T) | (() => T)): T
 }
 
 /**
- * Runs the given function in the given owner so that error handling and cleanups continue to work.
+ * Runs the given function in the given owner to move ownership of nested primitives and cleanups.
+ * This method untracks the current scope.
  *
  * Warning: Usually there are simpler ways of modeling a problem that avoid using this function
  */
-export function runWithOwner<T>(owner: Owner | null, run: () => T): T | undefined {
-  try {
-    return compute(owner, run, null);
-  } catch (error) {
-    owner?.handleError(error);
-    return undefined;
-  }
+export function runWithOwner<T>(owner: Owner | null, run: () => T): T {
+  return compute(owner, run, null);
 }
 
 /**
@@ -423,36 +421,4 @@ export function resolve<T>(fn: () => T): Promise<T> {
       });
     });
   });
-}
-
-/**
- * Creates a reactive computation that runs after the render phase with flexible tracking
- * ```typescript
- * export function createReaction(
- *   effect: () => void,
- *   options?: { name?: string }
- * ): (fn: () => void) => void;
- * ```
- * @param effect a function that is called when tracked function is invalidated.
- * @param error an optional function that receives an error if thrown during tracking
- * @param options allows to set a name in dev mode for debugging purposes
- *
- * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
- */
-export function createReaction(
-  effect: () => (() => void) | void,
-  error?: (err: unknown) => (() => void) | void,
-  options?: EffectOptions
-) {
-  const node = new Effect(undefined, () => {}, effect, error, {
-    defer: true,
-    ...(__DEV__ ? { name: options?.name ?? "reaction" } : undefined)
-  });
-
-  return (tracking: () => void) => {
-    node._compute = tracking;
-    node._state = STATE_DIRTY;
-    node._updateIfNecessary();
-    node._compute = null;
-  };
 }

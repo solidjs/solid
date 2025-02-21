@@ -69,8 +69,8 @@ let currentObserver: ObserverType | null = null,
 /**
  * Returns the current observer.
  */
-export function getObserver(): ObserverType | null {
-  return currentObserver;
+export function getObserver(): Computation | null {
+  return currentObserver as Computation | null;
 }
 
 export const UNCHANGED: unique symbol = Symbol(__DEV__ ? "unchanged" : 0);
@@ -574,11 +574,9 @@ export function isStale(fn: () => any): boolean {
   try {
     latest(fn);
     return staleCheck._value;
-  } catch {
   } finally {
     staleCheck = current;
   }
-  return false;
 }
 
 /**
@@ -602,6 +600,63 @@ export function catchError(fn: () => void): unknown | undefined {
   } catch (e) {
     if (e instanceof NotReadyError) throw e;
     return e;
+  }
+}
+
+/**
+ * Runs the given function in the given observer.
+ *
+ * Warning: Usually there are simpler ways of modeling a problem that avoid using this function
+ */
+export function runWithObserver<T>(observer: Computation, run: () => T): T | undefined {
+  const prevSources = newSources,
+    prevSourcesIndex = newSourcesIndex,
+    prevFlags = newFlags;
+
+  newSources = null as Computation[] | null;
+  newSourcesIndex = observer._sources ? observer._sources.length : 0;
+  newFlags = 0;
+
+  try {
+    return compute(observer, run, observer);
+  } catch (error) {
+    if (error instanceof NotReadyError) {
+      observer.write(UNCHANGED, newFlags | LOADING_BIT | (observer._stateFlags & UNINITIALIZED_BIT));
+    } else {
+      observer._setError(error);
+    }
+  } finally {
+    if (newSources) {
+      // First we update our own sources array (uplinks)
+      if (newSourcesIndex > 0) {
+        // If we shared some sources with the previous execution, we need to copy those over to the
+        // new sources array
+
+        // First we need to make sure the sources array is long enough to hold all the new sources
+        observer._sources!.length = newSourcesIndex + newSources.length;
+
+        // Then we copy the new sources over
+        for (let i = 0; i < newSources.length; i++) {
+          observer._sources![newSourcesIndex + i] = newSources[i];
+        }
+      } else {
+        // If we didn't share any sources with the previous execution, set the sources array to newSources
+        observer._sources = newSources;
+      }
+
+      // For each new source, we need to add this `node` to the source's observers array (downlinks)
+      let source: SourceType;
+      for (let i = newSourcesIndex; i < observer._sources!.length; i++) {
+        source = observer._sources![i];
+        if (!source._observers) source._observers = [observer];
+        else source._observers.push(observer);
+      }
+    }
+
+    // Reset global context after computation
+    newSources = prevSources;
+    newSourcesIndex = prevSourcesIndex;
+    newFlags = prevFlags;
   }
 }
 
