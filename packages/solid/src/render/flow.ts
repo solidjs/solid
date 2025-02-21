@@ -7,7 +7,6 @@ import {
   Accessor,
   Setter,
   onCleanup,
-  MemoOptions,
   IS_DEV
 } from "../reactive/signal.js";
 import { mapArray, indexArray } from "../reactive/array.js";
@@ -106,16 +105,23 @@ export function Show<T>(props: {
   children: JSX.Element | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => JSX.Element);
 }): JSX.Element {
   const keyed = props.keyed;
-  const condition = createMemo<T | undefined | null | boolean>(
+  const conditionValue = createMemo<T | undefined | null | boolean>(
     () => props.when,
     undefined,
-    IS_DEV
-      ? {
-          equals: (a, b) => (keyed ? a === b : !a === !b),
-          name: "condition"
-        }
-      : { equals: (a, b) => (keyed ? a === b : !a === !b) }
+    IS_DEV ? { name: "condition value" } : undefined
   );
+  const condition = keyed
+    ? conditionValue
+    : createMemo(
+        conditionValue,
+        undefined,
+        IS_DEV
+          ? {
+              equals: (a, b) => !a === !b,
+              name: "condition"
+            }
+          : { equals: (a, b) => !a === !b }
+      );
   return createMemo(
     () => {
       const c = condition();
@@ -129,7 +135,7 @@ export function Show<T>(props: {
                   ? (c as T)
                   : () => {
                       if (!untrack(condition)) throw narrowedError("Show");
-                      return props.when;
+                      return conditionValue();
                     }
               )
             )
@@ -142,7 +148,7 @@ export function Show<T>(props: {
   ) as unknown as JSX.Element;
 }
 
-type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
+type EvalConditions = readonly [number, Accessor<unknown>, MatchProps<unknown>];
 
 /**
  * Switches between content based on mutually exclusive conditions
@@ -159,47 +165,58 @@ type EvalConditions = readonly [number, unknown?, MatchProps<unknown>?];
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
-  let keyed = false;
-  const equals: MemoOptions<EvalConditions>["equals"] = (a, b) =>
-    (keyed ? a[1] === b[1] : !a[1] === !b[1]) && a[2] === b[2];
-  const conditions = children(() => props.children) as unknown as () => MatchProps<unknown>[],
-    evalConditions = createMemo(
-      (): EvalConditions => {
-        let conds = conditions();
-        if (!Array.isArray(conds)) conds = [conds];
-        for (let i = 0; i < conds.length; i++) {
-          const c = conds[i].when;
-          if (c) {
-            keyed = !!conds[i].keyed;
-            return [i, c, conds[i]];
-          }
-        }
-        return [-1];
-      },
-      undefined,
-      IS_DEV ? { equals, name: "eval conditions" } : { equals }
-    );
+  const chs = children(() => props.children);
+  const switchFunc = createMemo(() => {
+    const ch = chs() as unknown as MatchProps<unknown> | MatchProps<unknown>[];
+    const mps = Array.isArray(ch) ? ch : [ch];
+    let func: Accessor<EvalConditions | undefined> = () => undefined;
+    for (let i = 0; i < mps.length; i++) {
+      const index = i;
+      const mp = mps[i];
+      const prevFunc = func;
+      const conditionValue = createMemo(
+        () => (prevFunc() ? undefined : mp.when),
+        undefined,
+        IS_DEV ? { name: "condition value" } : undefined
+      );
+      const condition = mp.keyed
+        ? conditionValue
+        : createMemo(
+            conditionValue,
+            undefined,
+            IS_DEV
+              ? {
+                  equals: (a, b) => !a === !b,
+                  name: "condition"
+                }
+              : { equals: (a, b) => !a === !b }
+          );
+      func = () => prevFunc() || (condition() ? [index, conditionValue, mp] : undefined);
+    }
+    return func;
+  });
   return createMemo(
     () => {
-      const [index, when, cond] = evalConditions();
-      if (index < 0) return props.fallback;
-      const c = cond!.children;
-      const fn = typeof c === "function" && c.length > 0;
+      const sel = switchFunc()();
+      if (!sel) return props.fallback;
+      const [index, conditionValue, mp] = sel;
+      const child = mp.children;
+      const fn = typeof child === "function" && child.length > 0;
       return fn
         ? untrack(() =>
-            (c as any)(
-              keyed
-                ? when
+            (child as any)(
+              mp.keyed
+                ? (conditionValue() as any)
                 : () => {
-                    if (untrack(evalConditions)[0] !== index) throw narrowedError("Match");
-                    return cond!.when;
+                    if (untrack(switchFunc)()?.[0] !== index) throw narrowedError("Match");
+                    return conditionValue();
                   }
             )
           )
-        : c;
+        : child;
     },
     undefined,
-    IS_DEV ? { name: "value" } : undefined
+    IS_DEV ? { name: "eval conditions" } : undefined
   ) as unknown as JSX.Element;
 }
 

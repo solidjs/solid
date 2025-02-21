@@ -208,6 +208,114 @@ describe("Testing non-keyed function handler Switch control flow", () => {
   test("dispose", () => disposer());
 });
 
+describe("Testing Switch conditions evaluation counts", () => {
+  let div!: HTMLDivElement, disposer: () => void;
+  function makeCondition() {
+    const [get, set] = createSignal(0);
+    const result = {
+      get,
+      set,
+      evalCount: 0,
+      getAndCount: () => {
+        result.evalCount++;
+        return get();
+      }
+    };
+    return result;
+  }
+  const a = makeCondition(),
+    b = makeCondition(),
+    c = makeCondition();
+  const Component = () => (
+    <div ref={div}>
+      <Switch fallback={"fallback"}>
+        <Match when={a.getAndCount()}>a={a.get()}</Match>
+        <Match when={b.getAndCount()}>{b => <>b={b()}</>}</Match>
+        <Match when={c.getAndCount()} keyed>
+          {c => <>c={c}</>}
+        </Match>
+      </Switch>
+    </div>
+  );
+
+  test("Create Switch control flow", () => {
+    createRoot(dispose => {
+      disposer = dispose;
+      <Component />;
+    });
+
+    expect(div.innerHTML).toBe("fallback");
+    expect(a.evalCount).toBe(1);
+    expect(b.evalCount).toBe(1);
+    expect(c.evalCount).toBe(1);
+  });
+
+  test("Toggle conditions", () => {
+    c.set(5);
+    expect(div.innerHTML).toBe("c=5");
+    expect(a.evalCount).toBe(1);
+    expect(b.evalCount).toBe(1);
+    expect(c.evalCount).toBe(2);
+    a.set(1);
+    expect(div.innerHTML).toBe("a=1");
+    expect(a.evalCount).toBe(2);
+    expect(b.evalCount).toBe(1);
+    expect(c.evalCount).toBe(2);
+    b.set(3);
+    expect(div.innerHTML).toBe("a=1");
+    expect(a.evalCount).toBe(2);
+    expect(b.evalCount).toBe(1); // did not evaluate
+    expect(c.evalCount).toBe(2);
+    b.set(2);
+    expect(div.innerHTML).toBe("a=1");
+    expect(a.evalCount).toBe(2);
+    expect(b.evalCount).toBe(1); // did not evaluate
+    expect(c.evalCount).toBe(2);
+    a.set(0);
+    expect(div.innerHTML).toBe("b=2");
+    expect(a.evalCount).toBe(3);
+    expect(b.evalCount).toBe(2); // evaluated now
+    expect(c.evalCount).toBe(2);
+    b.set(3);
+    expect(div.innerHTML).toBe("b=3");
+    expect(a.evalCount).toBe(3);
+    expect(b.evalCount).toBe(3);
+    expect(c.evalCount).toBe(2);
+    c.set(3);
+    expect(div.innerHTML).toBe("b=3");
+    expect(a.evalCount).toBe(3);
+    expect(b.evalCount).toBe(3);
+    expect(c.evalCount).toBe(2); // did not evaluate
+    a.set(1);
+    expect(div.innerHTML).toBe("a=1");
+    expect(a.evalCount).toBe(4);
+    expect(b.evalCount).toBe(3);
+    expect(c.evalCount).toBe(2);
+    b.set(1);
+    expect(div.innerHTML).toBe("a=1");
+    expect(a.evalCount).toBe(4);
+    expect(b.evalCount).toBe(3); // did not evaluate
+    expect(c.evalCount).toBe(2);
+    b.set(0);
+    expect(div.innerHTML).toBe("a=1");
+    expect(a.evalCount).toBe(4);
+    expect(b.evalCount).toBe(3); // did not evaluate
+    expect(c.evalCount).toBe(2);
+    a.set(0);
+    expect(div.innerHTML).toBe("c=3");
+    expect(a.evalCount).toBe(5);
+    expect(b.evalCount).toBe(4); // evaluated now, as b changed since its last evaluation
+    expect(c.evalCount).toBe(3); // evaluated now
+    c.set(0);
+    expect(div.innerHTML).toBe("fallback");
+    expect(a.evalCount).toBe(5);
+    expect(b.evalCount).toBe(4);
+    expect(c.evalCount).toBe(4);
+  });
+
+  test("dispose", () => disposer());
+});
+
 describe("Testing non-keyed function handler Switch control flow with dangling callback", () => {
   let div!: HTMLDivElement, disposer: () => void;
   const [a, setA] = createSignal(0),
