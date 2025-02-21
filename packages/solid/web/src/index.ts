@@ -127,10 +127,10 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function createDynamic<T extends ValidComponent>(
-  component: () => T,
+  component: () => T | undefined,
   props: ComponentProps<T>
 ): JSX.Element {
-  const cached = createMemo<Function | string>(component);
+  const cached = createMemo<Function | string | undefined>(component);
   return createMemo(() => {
     const component = cached();
     switch (typeof component) {
@@ -158,6 +158,6 @@ export function createDynamic<T extends ValidComponent>(
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
-  const [p, others] = splitProps(props, ["component"]);
-  return createDynamic(() => p.component, others);
+  const [, others] = splitProps(props, ["component"]);
+  return createDynamic(() => props.component, others as ComponentProps<T>);
 }
