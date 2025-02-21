@@ -85,6 +85,8 @@ export interface SignalState<T> extends SourceMapValue {
   observerSlots: number[] | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
+  // development-only
+  internal?: true;
 }
 
 export interface Owner {
@@ -236,8 +238,12 @@ export function createSignal<T>(
 
   if (IS_DEV) {
     if (options.name) s.name = options.name;
-    if (DevHooks.afterCreateSignal) DevHooks.afterCreateSignal(s);
-    if (!options.internal) registerGraph(s);
+    if (options.internal) {
+      s.internal = true;
+    } else {
+      registerGraph(s);
+      if (DevHooks.afterCreateSignal) DevHooks.afterCreateSignal(s);
+    }
   }
 
   const setter: Setter<T | undefined> = (value?: unknown) => {
