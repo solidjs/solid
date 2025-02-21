@@ -150,7 +150,7 @@ describe("Dev features", () => {
       expect(cb).toHaveBeenLastCalledWith(owner.sourceMap![1]);
       expect(owner.sourceMap).toHaveLength(2);
 
-      const customValue = {value: 3};
+      const customValue = { value: 3 };
       DEV!.registerGraph(customValue);
       expect(cb).toHaveBeenCalledTimes(3);
       expect(cb).toHaveBeenLastCalledWith(customValue);

@@ -85,19 +85,22 @@ export function observable<T>(input: Accessor<T>): Observable<T> {
 }
 
 type Producer<T> =
-    | ((setter: Setter<T>) => () => void)
-    | { subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void } };
+  | ((setter: Setter<T>) => () => void)
+  | { subscribe: (fn: (v: T) => void) => (() => void) | { unsubscribe: () => void } };
 
 export function from<T>(producer: Producer<T>, initalValue: T): Accessor<T>;
-export function from<T>(producer: Producer<T|undefined>): Accessor<T|undefined>;
-export function from<T>(producer: Producer<T|undefined>, initalValue: T|undefined = undefined): Accessor<T | undefined> {
-    const [s, set] = createSignal<T | undefined>(initalValue, { equals: false });
-    if ("subscribe" in producer) {
-        const unsub = producer.subscribe(v => set(() => v));
-        onCleanup(() => ("unsubscribe" in unsub ? unsub.unsubscribe() : unsub()));
-    } else {
-        const clean = producer(set);
-        onCleanup(clean);
-    }
-    return s;
+export function from<T>(producer: Producer<T | undefined>): Accessor<T | undefined>;
+export function from<T>(
+  producer: Producer<T | undefined>,
+  initalValue: T | undefined = undefined
+): Accessor<T | undefined> {
+  const [s, set] = createSignal<T | undefined>(initalValue, { equals: false });
+  if ("subscribe" in producer) {
+    const unsub = producer.subscribe(v => set(() => v));
+    onCleanup(() => ("unsubscribe" in unsub ? unsub.unsubscribe() : unsub()));
+  } else {
+    const clean = producer(set);
+    onCleanup(clean);
+  }
+  return s;
 }

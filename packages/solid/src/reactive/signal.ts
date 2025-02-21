@@ -71,7 +71,7 @@ export const DevHooks: {
   afterUpdate: null,
   afterCreateOwner: null,
   afterCreateSignal: null,
-  afterRegisterGraph: null,
+  afterRegisterGraph: null
 };
 
 export type ComputationState = 0 | 1 | 2;
@@ -1147,7 +1147,7 @@ export function registerGraph(value: SourceMapValue): void {
     else Owner.sourceMap = [value];
     value.graph = Owner;
   }
-  if (DevHooks.afterRegisterGraph) DevHooks.afterRegisterGraph(value)
+  if (DevHooks.afterRegisterGraph) DevHooks.afterRegisterGraph(value);
 }
 
 export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
