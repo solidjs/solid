@@ -93,9 +93,9 @@ export function from<T>(producer: Producer<T>, initalValue: T): Accessor<T>;
 export function from<T>(producer: Producer<T | undefined>): Accessor<T | undefined>;
 export function from<T>(
   producer: Producer<T | undefined>,
-  initalValue: T | undefined = undefined
+  initialValue: T | undefined = undefined
 ): Accessor<T | undefined> {
-  const [s, set] = createSignal<T | undefined>(initalValue, { equals: false });
+  const [s, set] = createSignal<T | undefined>(() => initialValue, initialValue, { equals: false });
   if ("subscribe" in producer) {
     const unsub = producer.subscribe(v => set(() => v));
     onCleanup(() => ("unsubscribe" in unsub ? unsub.unsubscribe() : unsub()));

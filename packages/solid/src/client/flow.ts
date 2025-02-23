@@ -3,7 +3,6 @@ import {
   createMemo,
   untrack,
   mapArray,
-  onCleanup,
   createSuspense,
   createErrorBoundary,
   repeat
@@ -120,14 +119,10 @@ export function Show<T>(props: {
         const fn = typeof child === "function" && child.length > 0;
         return fn
           ? untrack(() =>
-              (child as any)(
-                keyed
-                  ? (c as T)
-                  : () => {
-                      if (!untrack(condition)) throw narrowedError("Show");
-                      return conditionValue();
-                    }
-              )
+              (child as any)(() => {
+                if (!untrack(condition)) throw narrowedError("Show");
+                return conditionValue();
+              })
             )
           : child;
       }
@@ -194,14 +189,10 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
       const fn = typeof child === "function" && child.length > 0;
       return fn
         ? untrack(() =>
-            (child as any)(
-              mp.keyed
-                ? (conditionValue() as any)
-                : () => {
-                    if (untrack(switchFunc)()?.[0] !== index) throw narrowedError("Match");
-                    return conditionValue();
-                  }
-            )
+            (child as any)(() => {
+              if (untrack(switchFunc)()?.[0] !== index) throw narrowedError("Match");
+              return conditionValue();
+            })
           )
         : child;
     },

@@ -134,6 +134,6 @@ export function createDynamic<T extends ValidComponent>(
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
-  const others = omit(props, ["component"]);
+  const others = omit(props, "component");
   return createDynamic(() => props.component, others as ComponentProps<T>);
 }

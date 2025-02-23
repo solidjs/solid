@@ -251,7 +251,7 @@ describe("Testing Switch conditions evaluation counts", () => {
         <Match when={a.getAndCount()}>a={a.get()}</Match>
         <Match when={b.getAndCount()}>{b => <>b={b()}</>}</Match>
         <Match when={c.getAndCount()} keyed>
-          {c => <>c={c}</>}
+          {c => <>c={c()}</>}
         </Match>
       </Switch>
     </div>
@@ -271,61 +271,73 @@ describe("Testing Switch conditions evaluation counts", () => {
 
   test("Toggle conditions", () => {
     c.set(5);
+    flushSync();
     expect(div.innerHTML).toBe("c=5");
     expect(a.evalCount).toBe(1);
     expect(b.evalCount).toBe(1);
     expect(c.evalCount).toBe(2);
     a.set(1);
+    flushSync();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(2);
     expect(b.evalCount).toBe(1);
     expect(c.evalCount).toBe(2);
     b.set(3);
+    flushSync();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(2);
     expect(b.evalCount).toBe(1); // did not evaluate
     expect(c.evalCount).toBe(2);
     b.set(2);
+    flushSync();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(2);
     expect(b.evalCount).toBe(1); // did not evaluate
     expect(c.evalCount).toBe(2);
     a.set(0);
+    flushSync();
     expect(div.innerHTML).toBe("b=2");
     expect(a.evalCount).toBe(3);
     expect(b.evalCount).toBe(2); // evaluated now
     expect(c.evalCount).toBe(2);
     b.set(3);
+    flushSync();
     expect(div.innerHTML).toBe("b=3");
     expect(a.evalCount).toBe(3);
     expect(b.evalCount).toBe(3);
     expect(c.evalCount).toBe(2);
     c.set(3);
+    flushSync();
     expect(div.innerHTML).toBe("b=3");
     expect(a.evalCount).toBe(3);
     expect(b.evalCount).toBe(3);
     expect(c.evalCount).toBe(2); // did not evaluate
     a.set(1);
+    flushSync();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(4);
     expect(b.evalCount).toBe(3);
     expect(c.evalCount).toBe(2);
     b.set(1);
+    flushSync();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(4);
     expect(b.evalCount).toBe(3); // did not evaluate
     expect(c.evalCount).toBe(2);
     b.set(0);
+    flushSync();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(4);
     expect(b.evalCount).toBe(3); // did not evaluate
     expect(c.evalCount).toBe(2);
     a.set(0);
+    flushSync();
     expect(div.innerHTML).toBe("c=3");
     expect(a.evalCount).toBe(5);
     expect(b.evalCount).toBe(4); // evaluated now, as b changed since its last evaluation
     expect(c.evalCount).toBe(3); // evaluated now
     c.set(0);
+    flushSync();
     expect(div.innerHTML).toBe("fallback");
     expect(a.evalCount).toBe(5);
     expect(b.evalCount).toBe(4);

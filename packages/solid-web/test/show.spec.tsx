@@ -122,6 +122,7 @@ describe("Testing nonkeyed show control flow", () => {
     expect(div.innerHTML).toBe("");
     expect(childrenExecuted).toBe(1);
     setCount(5);
+    flushSync();
     expect(whenExecuted).toBe(5);
   });
 
@@ -176,6 +177,7 @@ describe("Testing keyed show control flow", () => {
     expect(div.innerHTML).toBe("");
     expect(childrenExecuted).toBe(2);
     setCount(5);
+    flushSync();
     expect(whenExecuted).toBe(5);
   });
 
@@ -234,6 +236,7 @@ describe("Testing nonkeyed function show control flow", () => {
     expect(div.innerHTML).toBe("");
     expect(childrenExecuted).toBe(1);
     setCount(5);
+    flushSync();
     expect(whenExecuted).toBe(5);
   });
 
