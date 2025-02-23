@@ -18,7 +18,7 @@ export {
   isEqual,
   untrack,
   hasUpdated,
-  isStale,
+  isPending,
   latest,
   catchError,
   runWithObserver,

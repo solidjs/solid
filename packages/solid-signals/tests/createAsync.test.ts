@@ -5,7 +5,7 @@ import {
   createRoot,
   createSignal,
   flushSync,
-  isStale,
+  isPending,
   latest,
   resolve
 } from "../src/index.js";
@@ -106,11 +106,11 @@ it("should waterfall when dependent on another async with shared source", async 
   expect(effect).toHaveBeenCalledWith(4);
 });
 
-it("should should show stale state with `isStale`", async () => {
+it("should should show stale state with `isPending`", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
   const a = createRoot(() => createAsync(async1));
-  const b = createMemo(() => (isStale(a) ? "stale" : "not stale"));
+  const b = createMemo(() => (isPending(a) ? "stale" : "not stale"));
   expect(b).toThrow();
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe("not stale");

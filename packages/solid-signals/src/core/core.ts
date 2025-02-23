@@ -568,12 +568,18 @@ export function hasUpdated(fn: () => any): boolean {
 /**
  * Returns true if the given function contains async signals are out of date.
  */
-export function isStale(fn: () => any): boolean {
+export function isPending(fn: () => any): boolean;
+export function isPending(fn: () => any, loadingValue: boolean): boolean;
+export function isPending(fn: () => any, loadingValue?: boolean): boolean {
+  const argLength = arguments.length;
   const current = staleCheck;
   staleCheck = { _value: false };
   try {
     latest(fn);
     return staleCheck._value;
+  } catch (err) {
+    if (argLength > 1 && err instanceof NotReadyError) return !!loadingValue;
+    throw err;
   } finally {
     staleCheck = current;
   }
@@ -582,12 +588,18 @@ export function isStale(fn: () => any): boolean {
 /**
  * Attempts to resolve value of expression synchronously returning the last resolved value for any async computation.
  */
-export function latest<T>(fn: () => T): T {
+export function latest<T>(fn: () => T): T;
+export function latest<T, U>(fn: () => T, fallback: U): T | U;
+export function latest<T, U>(fn: () => T, fallback?: U): T | U {
+  const argLength = arguments.length;
   const prevFlags = newFlags;
   const prevNotStale = notStale;
   notStale = false;
   try {
     return fn();
+  } catch (err) {
+    if (argLength > 1 && err instanceof NotReadyError) return fallback as U;
+    throw err;
   } finally {
     newFlags = prevFlags;
     notStale = prevNotStale;
@@ -621,7 +633,10 @@ export function runWithObserver<T>(observer: Computation, run: () => T): T | und
     return compute(observer, run, observer);
   } catch (error) {
     if (error instanceof NotReadyError) {
-      observer.write(UNCHANGED, newFlags | LOADING_BIT | (observer._stateFlags & UNINITIALIZED_BIT));
+      observer.write(
+        UNCHANGED,
+        newFlags | LOADING_BIT | (observer._stateFlags & UNINITIALIZED_BIT)
+      );
     } else {
       observer._setError(error);
     }

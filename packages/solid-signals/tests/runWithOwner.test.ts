@@ -1,6 +1,6 @@
 import {
-  createRenderEffect,
   createErrorBoundary,
+  createRenderEffect,
   createRoot,
   flushSync,
   getOwner,
