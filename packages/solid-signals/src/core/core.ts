@@ -578,7 +578,8 @@ export function isPending(fn: () => any, loadingValue?: boolean): boolean {
     latest(fn);
     return staleCheck._value;
   } catch (err) {
-    if (argLength > 1 && err instanceof NotReadyError) return !!loadingValue;
+    if (!(err instanceof NotReadyError)) return false;
+    if (argLength > 1) return loadingValue!;
     throw err;
   } finally {
     staleCheck = current;
