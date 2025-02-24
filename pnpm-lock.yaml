@@ -48,7 +48,7 @@ importers:
         specifier: ^2.1.2
         version: 2.1.8(vitest@2.1.8(@types/node@22.10.7)(jsdom@25.0.1))
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.40.0-next.5
+        specifier: ^0.40.0-next.7
         version: 0.40.0-next.7(@babel/core@7.26.0)
       coveralls:
         specifier: ^3.1.1
@@ -57,17 +57,17 @@ importers:
         specifier: ^3.1.0
         version: 3.1.3
       dom-expressions:
-        specifier: 0.40.0-next.6
-        version: 0.40.0-next.6(csstype@3.1.3)(seroval-plugins@1.2.0(seroval@1.2.0))(seroval@1.2.0)
+        specifier: 0.40.0-next.7
+        version: 0.40.0-next.7(csstype@3.1.3)(seroval-plugins@1.2.0(seroval@1.2.0))(seroval@1.2.0)
       hyper-dom-expressions:
-        specifier: 0.40.0-next.6
-        version: 0.40.0-next.6
+        specifier: 0.40.0-next.7
+        version: 0.40.0-next.7
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
       lit-dom-expressions:
-        specifier: 0.40.0-next.6
-        version: 0.40.0-next.6
+        specifier: 0.40.0-next.7
+        version: 0.40.0-next.7
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -150,7 +150,7 @@ importers:
         specifier: ^7.0.0
         version: 7.26.0
       babel-plugin-jsx-dom-expressions:
-        specifier: ^0.40.0-next.5
+        specifier: ^0.40.0-next.7
         version: 0.40.0-next.7(@babel/core@7.26.0)
 
   packages/solid:
@@ -1645,8 +1645,8 @@ packages:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
 
-  dom-expressions@0.40.0-next.6:
-    resolution: {integrity: sha512-7DCA2mSIA+KXhZWXltE71kQ+VWU+nqnNw1I8e7XfvAgj/LRJV1SHyfWnldrTADI1CeAT1x0+IohrfPS5Fu0itw==}
+  dom-expressions@0.40.0-next.7:
+    resolution: {integrity: sha512-VK/wT8aEbo1LAiFd3xt75PDG0jNr3FTEk4c/gW/rKrBLywIQkWRA52gV+m9yXBfRNx3L0PcA0N0k42WFZXk4dw==}
     peerDependencies:
       csstype: ^3.0
       seroval: ^1.1.0
@@ -2016,8 +2016,8 @@ packages:
   human-id@1.0.2:
     resolution: {integrity: sha512-UNopramDEhHJD+VR+ehk8rOslwSfByxPIZyJRfV739NDhN5LF1fa1MqnzKm2lGTQRjNrjK19Q5fhkgIfjlVUKw==}
 
-  hyper-dom-expressions@0.40.0-next.6:
-    resolution: {integrity: sha512-nFCtzDaBhZuWpKCYz49FuTkuVfZVlPF4Zp97OKjPIc3z85df8MIkmump7Yb3fx7exfbHFmUKBC1FHa6dxrAx2g==}
+  hyper-dom-expressions@0.40.0-next.7:
+    resolution: {integrity: sha512-6R7YlFlT6XWz4fyh/0qkbPIdEB2c7GeFwMRPu6x0mKEZTt+A95YogA8j2zDhT8WbDbt7bf+sUN6CML1hq5Go0w==}
 
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
@@ -2281,8 +2281,8 @@ packages:
     resolution: {integrity: sha512-aprLII/vPzuQvYZnDRU78Fns9I2Ag3gi4Ipga/hxnVMCZC8DnR2nI7XBqrPoywGfxqIx/DgarGvDJZAD3YBTgQ==}
     hasBin: true
 
-  lit-dom-expressions@0.40.0-next.6:
-    resolution: {integrity: sha512-xgJFAmQn8Ke6biAVcmIkogO2cn9AwLJkI7+1tLaEfgMhPxlViI6fGGzbZnomX68gmZxqfWYtuDCk1Dy8vsZOgA==}
+  lit-dom-expressions@0.40.0-next.7:
+    resolution: {integrity: sha512-q6YGfyxypWMk+4yzL+GDjbMzNWiQ4qUXUShp0Qok4+mQTbFB+tLVY2aKIK9/aotnD4aQp95FbH+xmF9T1ggSDg==}
 
   load-json-file@4.0.0:
     resolution: {integrity: sha512-Kx8hMakjX03tiGTLAIdJ+lL0htKnXjEZN6hk/tozf/WOuYGdZBJrZ+rCJRbVCugsjB3jMLn9746NsQIf5VjBMw==}
@@ -4978,7 +4978,7 @@ snapshots:
     dependencies:
       path-type: 4.0.0
 
-  dom-expressions@0.40.0-next.6(csstype@3.1.3)(seroval-plugins@1.2.0(seroval@1.2.0))(seroval@1.2.0):
+  dom-expressions@0.40.0-next.7(csstype@3.1.3)(seroval-plugins@1.2.0(seroval@1.2.0))(seroval@1.2.0):
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.3
@@ -5484,7 +5484,7 @@ snapshots:
 
   human-id@1.0.2: {}
 
-  hyper-dom-expressions@0.40.0-next.6: {}
+  hyper-dom-expressions@0.40.0-next.7: {}
 
   iconv-lite@0.4.24:
     dependencies:
@@ -5759,7 +5759,7 @@ snapshots:
 
   lcov-parse@1.0.0: {}
 
-  lit-dom-expressions@0.40.0-next.6: {}
+  lit-dom-expressions@0.40.0-next.7: {}
 
   load-json-file@4.0.0:
     dependencies:
