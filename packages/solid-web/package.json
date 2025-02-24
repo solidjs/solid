@@ -89,7 +89,7 @@
     "seroval-plugins": "^1.1.0"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-experimental.1"
+    "solid-js": "^2.0.0-experimental.2"
   },
   "devDependencies": {
     "solid-js": "workspace:*"

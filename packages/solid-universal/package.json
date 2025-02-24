@@ -45,7 +45,7 @@
     "types:universal": "tsc --project ./tsconfig.json && ncp ../../node_modules/dom-expressions/src/universal.d.ts ./types/index.d.ts"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-experimental.1"
+    "solid-js": "^2.0.0-experimental.2"
   },
   "devDependencies": {
     "solid-js": "workspace:*"

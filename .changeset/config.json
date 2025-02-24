@@ -3,7 +3,7 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [],
-  "linked": [["@solidjs/web", "babel-preset-solid"]],
+  "linked": [["@solidjs/web", "babel-preset-solid", "@solidjs/html", "@solidjs/h"]],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",

@@ -13,8 +13,8 @@
     "ssr-example": "0.0.0"
   },
   "changesets": [
+    "curly-rats-dress",
     "lemon-mails-lick",
-    "many-crabs-reply",
     "tiny-lions-jam"
   ]
 }

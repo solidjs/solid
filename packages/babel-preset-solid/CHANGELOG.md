@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 2.0.0-experimental.2
+
+### Patch Changes
+
+- 874c256: fix input compilation, rebased dom-expressions
+
 ## 2.0.0-experimental.1
 
 ### Patch Changes

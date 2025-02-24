@@ -1,5 +1,13 @@
 # test-integration
 
+## 2.0.0-experimental.2
+
+### Patch Changes
+
+- Updated dependencies [874c256]
+  - babel-preset-solid@2.0.0-experimental.2
+  - solid-js@2.0.0-experimental.2
+
 ## 2.0.0-experimental.1
 
 ### Patch Changes
