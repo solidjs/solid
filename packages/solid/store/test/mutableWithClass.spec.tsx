@@ -53,4 +53,27 @@ describe("Class Operator test", () => {
     expect(count).toBe(3);
     expect(childCount).toBe(1);
   });
+
+  test("inherited properties", () => {
+    class A {
+      val = 0;
+      get getVal() {
+        return this.val;
+      }
+    }
+    class B extends A {}
+
+    const instance = createMutable(new B());
+    let lastVal: number | undefined;
+
+    createRoot(() => {
+      createEffect(() => {
+        lastVal = instance.getVal;
+      });
+    });
+
+    expect(lastVal).toBe(0);
+    instance.val = 1;
+    expect(lastVal).toBe(1);
+  });
 });
