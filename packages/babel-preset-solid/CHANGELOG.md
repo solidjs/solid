@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 2.0.0-experimental.3
+
+### Patch Changes
+
+- c74106f: fix multi insert/removal, ssr wip, async signal render
+
 ## 2.0.0-experimental.2
 
 ### Patch Changes

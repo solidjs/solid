@@ -1,5 +1,13 @@
 # @solidjs/web
 
+## 2.0.0-experimental.3
+
+### Patch Changes
+
+- c74106f: fix multi insert/removal, ssr wip, async signal render
+- Updated dependencies [c74106f]
+  - solid-js@2.0.0-experimental.3
+
 ## 2.0.0-experimental.1
 
 ### Patch Changes
