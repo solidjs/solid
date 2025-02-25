@@ -20,6 +20,7 @@ export {
   hasUpdated,
   isPending,
   latest,
+  flatten,
   catchError,
   UNCHANGED,
   compute,
@@ -31,4 +32,3 @@ export { flushSync, getClock, incrementClock, type IQueue, Queue } from "./sched
 export { createSuspense } from "./suspense.js";
 export { SUPPORTS_PROXY } from "./constants.js";
 export * from "./flags.js";
-export { flatten } from "./utils.js";

@@ -8,7 +8,7 @@ import {
 } from "./constants.js";
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { EffectError } from "./error.js";
-import { LOADING_BIT } from "./flags.js";
+import { ERROR_BIT, LOADING_BIT } from "./flags.js";
 import { getClock } from "./scheduler.js";
 import type { SuspenseQueue } from "./suspense.js";
 
@@ -38,7 +38,9 @@ export class Effect<T = any> extends Computation<T> {
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     if (this._type === EFFECT_RENDER) {
       this._compute = p =>
-        getClock() > this._queue.created ? latest(() => compute(p)) : compute(p);
+        getClock() > this._queue.created && !(this._stateFlags & ERROR_BIT)
+          ? latest(() => compute(p))
+          : compute(p);
     }
     this._updateIfNecessary();
     !options?.defer &&
@@ -73,9 +75,9 @@ export class Effect<T = any> extends Computation<T> {
   override _setError(error: unknown): void {
     this._cleanup?.();
     if (this._stateFlags & LOADING_BIT) {
-      this._stateFlags = 0; // Clear loading bit
       (this._queue as SuspenseQueue)._update?.(this);
     }
+    this._stateFlags = ERROR_BIT;
     if (this._type === EFFECT_USER) {
       try {
         return this._onerror

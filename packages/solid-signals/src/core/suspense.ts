@@ -1,9 +1,8 @@
 import { STATE_DIRTY } from "./constants.js";
-import { Computation, createBoundary } from "./core.js";
+import { Computation, createBoundary, flatten } from "./core.js";
 import { EagerComputation, type Effect } from "./effect.js";
 import { LOADING_BIT } from "./flags.js";
 import { Queue } from "./scheduler.js";
-import { flatten } from "./utils.js";
 
 export class SuspenseQueue extends Queue {
   _nodes: Set<Effect> = new Set();
