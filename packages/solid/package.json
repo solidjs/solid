@@ -91,7 +91,7 @@
     "performance"
   ],
   "dependencies": {
-    "@solidjs/signals": "^0.2.1",
+    "@solidjs/signals": "^0.2.3",
     "csstype": "^3.1.0"
   }
 }
