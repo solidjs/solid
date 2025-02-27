@@ -166,3 +166,76 @@ it("should compute map when key by index", () => {
   expect(map().length).toBe(0);
   expect(computed).toHaveBeenCalledTimes(4);
 });
+
+it("should retain instances when only `offset` changes", () => {
+  const [source] = createStore<Array<{ id: string }>>([
+    { id: "a" },
+    { id: "b" },
+    { id: "c" },
+    { id: "d" },
+    { id: "e" }
+  ]);
+  const [count, setCount] = createSignal(3);
+  const [from, setFrom] = createSignal(0);
+
+  const computed = vi.fn();
+
+  const map = repeat(
+    count,
+    index => {
+      computed();
+      return {
+        get id() {
+          return source[index].id;
+        },
+        get index() {
+          return index;
+        }
+      };
+    },
+    { from }
+  );
+
+  const [a, b, c, d] = map();
+  expect(a.id).toBe("a");
+  expect(a.index).toBe(0);
+  expect(b.id).toBe("b");
+  expect(b.index).toBe(1);
+  expect(c.id).toBe("c");
+  expect(c.index).toBe(2);
+  expect(d).toBeUndefined();
+  expect(computed).toHaveBeenCalledTimes(3);
+
+  setFrom(2);
+  const [c2, d2, e2] = map();
+  expect(c2.id).toBe("c");
+  expect(c2.index).toBe(2);
+  expect(d2.id).toBe("d");
+  expect(d2.index).toBe(3);
+  expect(e2.id).toBe("e");
+  expect(e2.index).toBe(4);
+  expect(computed).toHaveBeenCalledTimes(5);
+
+  setFrom(1);
+  const [b3, c3, d3, e3] = map();
+  expect(b3.id).toBe("b");
+  expect(b3.index).toBe(1);
+  expect(c3.id).toBe("c");
+  expect(c3.index).toBe(2);
+  expect(d3.id).toBe("d");
+  expect(d3.index).toBe(3);
+  expect(e3).toBeUndefined();
+  expect(computed).toHaveBeenCalledTimes(6);
+
+  setCount(4);
+  const [b4, c4, d4, e4] = map();
+  expect(b4.id).toBe("b");
+  expect(b4.index).toBe(1);
+  expect(c4.id).toBe("c");
+  expect(c4.index).toBe(2);
+  expect(d4.id).toBe("d");
+  expect(d4.index).toBe(3);
+  expect(e4.id).toBe("e");
+  expect(e4.index).toBe(4);
+  expect(computed).toHaveBeenCalledTimes(7);
+});

@@ -200,22 +200,26 @@ export function repeat(
   count: Accessor<number>,
   map: (index: number) => any,
   options?: {
+    from?: Accessor<number>;
     fallback?: Accessor<any>;
   }
 ): Accessor<any[]> {
   return updateRepeat.bind({
     _owner: new Owner(),
     _len: 0,
+    _offset: 0,
     _count: count,
     _map: map,
     _nodes: [],
     _mappings: [],
+    _from: options?.from,
     _fallback: options?.fallback
   });
 }
 
 function updateRepeat<MappedItem>(this: RepeatData<MappedItem>): any[] {
   const newLen = this._count();
+  const from = this._from?.() || 0;
   runWithOwner(this._owner, () => {
     if (newLen === 0) {
       if (this._len !== 0) {
@@ -232,21 +236,53 @@ function updateRepeat<MappedItem>(this: RepeatData<MappedItem>): any[] {
           null
         );
       }
-    } else {
-      // remove fallback
-      if (this._len === 0 && this._nodes[0]) this._nodes[0].dispose();
+      return;
+    }
+    const to = from + newLen;
+    const prevTo = this._offset + this._len;
 
-      for (let i = this._len; i < newLen; i++) {
+    // remove fallback
+    if (this._len === 0 && this._nodes[0]) this._nodes[0].dispose();
+
+    // clear the end
+    for (let i = to; i < prevTo; i++) this._nodes[i - this._offset].dispose();
+
+    if (this._offset < from) {
+      // clear beginning
+      let i = this._offset;
+      while (i < from && i < this._len) this._nodes[i++].dispose();
+      // shift indexes
+      this._nodes.splice(0, from - this._offset);
+      this._mappings.splice(0, from - this._offset);
+    } else if (this._offset > from) {
+      // shift indexes
+      let i = prevTo - this._offset - 1;
+      let difference = this._offset - from;
+      this._nodes.length = this._mappings.length = newLen;
+      while (i >= difference) {
+        this._nodes[i] = this._nodes[i - difference];
+        this._mappings[i] = this._mappings[i - difference];
+        i--;
+      }
+      for (let i = 0; i < difference; i++) {
         this._mappings[i] = compute<MappedItem>(
           (this._nodes[i] = new Owner()),
-          () => this._map(i),
+          () => this._map(i + from),
           null
         );
       }
-      for (let i = newLen; i < this._len; i++) this._nodes[i].dispose();
-      this._mappings = this._mappings.slice(0, newLen);
-      this._len = newLen;
     }
+
+    for (let i = prevTo; i < to; i++) {
+      this._mappings[i - from] = compute<MappedItem>(
+        (this._nodes[i - from] = new Owner()),
+        () => this._map(i),
+        null
+      );
+    }
+    this._mappings = this._mappings.slice(0, newLen);
+    this._offset = from;
+    this._len = newLen;
   });
   return this._mappings;
 }
@@ -262,6 +298,8 @@ interface RepeatData<MappedItem = any> {
   _map: (index: number) => MappedItem;
   _mappings: MappedItem[];
   _nodes: Owner[];
+  _offset: number;
+  _from?: Accessor<number>;
   _fallback?: Accessor<any>;
 }
 
