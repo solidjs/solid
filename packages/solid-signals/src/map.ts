@@ -200,7 +200,7 @@ export function repeat(
   count: Accessor<number>,
   map: (index: number) => any,
   options?: {
-    from?: Accessor<number>;
+    from?: Accessor<number | undefined>;
     fallback?: Accessor<any>;
   }
 ): Accessor<any[]> {
@@ -299,7 +299,7 @@ interface RepeatData<MappedItem = any> {
   _mappings: MappedItem[];
   _nodes: Owner[];
   _offset: number;
-  _from?: Accessor<number>;
+  _from?: Accessor<number| undefined>;
   _fallback?: Accessor<any>;
 }
 
