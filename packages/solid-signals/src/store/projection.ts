@@ -1,5 +1,5 @@
 import { ProjectionComputation } from "../core/effect.js";
-import { createStore, isWrappable } from "./store.js";
+import { createStore, isWrappable, type Store, type StoreSetter } from "./store.js";
 
 /**
  * Creates a mutable derived value
@@ -9,13 +9,21 @@ import { createStore, isWrappable } from "./store.js";
 export function createProjection<T extends Object>(
   fn: (draft: T) => void,
   initialValue: T = {} as T
-) {
-  const [store, setStore] = createStore(initialValue);
+): Store<T> {
+  const [store] = createStore(fn, initialValue);
+  return store;
+}
+
+export function wrapProjection<T>(
+  fn: (draft: T) => void,
+  store: Store<T>,
+  setStore: StoreSetter<T>
+): [Store<T>, StoreSetter<T>] {
   const node = new ProjectionComputation(() => {
     setStore(fn);
   });
   const wrapped = new WeakMap();
-  return wrap(store, node, wrapped);
+  return [wrap(store, node, wrapped), setStore];
 }
 
 function wrap(source, node, wrapped) {

@@ -1,5 +1,5 @@
 import { Computation, getObserver, isEqual } from "../core/index.js";
-import { createProjection } from "./projection.js";
+import { wrapProjection } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => void) => void;
@@ -239,10 +239,8 @@ export function createStore<T extends object = {}>(
   const derived = typeof first === "function",
     store = derived ? second! : first;
 
-  if (derived) return createProjection(first as (store: T) => void, store as T);
-
   const unwrappedStore = unwrap(store!, false);
-  const wrappedStore = wrap(unwrappedStore);
+  let wrappedStore = wrap(unwrappedStore);
   const setStore = (fn: (draft: T) => void): void => {
     try {
       Writing.add(unwrappedStore);
@@ -251,6 +249,8 @@ export function createStore<T extends object = {}>(
       Writing.clear();
     }
   };
+
+  if (derived) return wrapProjection(first as (store: T) => void, wrappedStore, setStore);
 
   return [wrappedStore, setStore];
 }
