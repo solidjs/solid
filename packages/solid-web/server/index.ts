@@ -1,5 +1,5 @@
 import { ssrElement } from "./server.js";
-import { splitProps, type JSX, type ValidComponent, type ComponentProps } from "solid-js";
+import { omit, type JSX, type ValidComponent, type ComponentProps } from "solid-js";
 
 export * from "./server.js";
 
@@ -7,13 +7,11 @@ export {
   For,
   Show,
   Suspense,
-  SuspenseList,
+  // SuspenseList,
   Switch,
   Match,
-  Index,
-  ErrorBoundary,
-  // This overrides mergeProps from dom-expressions/src/server.js
-  mergeProps
+  Repeat,
+  ErrorBoundary
 } from "solid-js";
 
 export const isServer: boolean = true;
@@ -29,7 +27,7 @@ export function createDynamic<T extends ValidComponent>(
   if (comp) {
     if (t === "function") return (comp as Function)(props);
     else if (t === "string") {
-      return ssrElement(comp as string, props, undefined, true);
+      return ssrElement(comp as string, props, undefined, true) as unknown as JSX.Element;
     }
   }
 }
@@ -41,10 +39,10 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
 };
 
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
-  const [, others] = splitProps(props, ["component"]);
+  const others = omit(props, "component");
   return createDynamic(() => props.component, others as ComponentProps<T>);
 }
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {
-  return "";
+  throw new Error("Portal is not supported on the server");
 }

@@ -60,10 +60,13 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
  */
 export function Repeat<T extends JSX.Element>(props: {
   count: number;
+  from?: number | undefined;
   fallback?: JSX.Element;
   children: ((index: number) => T) | T;
 }) {
-  const options = "fallback" in props ? { fallback: () => props.fallback } : {};
+  const options: { fallback?: Accessor<JSX.Element>; from?: Accessor<number | undefined> } =
+    "fallback" in props ? { fallback: () => props.fallback } : {};
+  options.from = () => props.from;
   return (IS_DEV
     ? createMemo(
         repeat(

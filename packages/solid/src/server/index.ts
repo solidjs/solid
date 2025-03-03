@@ -1,63 +1,51 @@
 // TODO: Implement server-side rendering
+export { $PROXY, $TRACK, $RAW, catchError, flatten, isEqual, isWrappable } from "@solidjs/signals";
 
 export {
-  catchError,
+  createAsync,
+  createEffect,
+  createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
-  createRenderEffect,
-  createEffect,
-  createReaction,
-  createDeferred,
-  createSelector,
-  createMemo,
-  getListener,
-  onMount,
-  onCleanup,
-  onError,
-  untrack,
-  batch,
-  on,
-  children,
-  createContext,
-  useContext,
+  flushSync,
+  getObserver,
   getOwner,
-  runWithOwner,
-  equalFn,
-  requestCallback,
+  isPending,
+  latest,
   mapArray,
-  indexArray,
-  observable,
-  from,
-  $PROXY,
-  $DEVCOMP,
-  $TRACK,
-  DEV,
-  enableExternalSource
-} from "./reactive.js";
+  onCleanup,
+  repeat,
+  resolve,
+  runWithObserver,
+  runWithOwner,
+  untrack
+  // enableExternalSource
+} from "./signals.js";
+
+export { observable, from, children, createContext, onMount, useContext } from "./reactive.js";
+
+export { createProjection, createStore, unwrap, reconcile, merge, omit } from "./store.js";
 
 export {
-  mergeProps,
-  splitProps,
   createComponent,
   For,
-  Index,
+  Repeat,
   Show,
   Switch,
   Match,
   ErrorBoundary,
   Suspense,
-  SuspenseList,
-  createResource,
-  resetErrorBoundaries,
-  enableScheduling,
+  // SuspenseList,
   enableHydration,
-  startTransition,
-  useTransition,
   createUniqueId,
   lazy,
   sharedConfig
 } from "./rendering.js";
 
-export type { Component, Resource } from "./rendering.js";
+export const $DEVCOMP = Symbol("solid-dev-component");
+export const DEV = undefined;
+
+export type { Component } from "../index.js";
 
 export * from "./store.js";
