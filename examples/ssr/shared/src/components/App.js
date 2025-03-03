@@ -1,14 +1,6 @@
-import { useContext, lazy, ErrorBoundary } from "solid-js";
-import { HydrationScript } from "solid-js/web";
-import { Link, RouteHOC, RouterContext } from "../router";
-// import stub as main package to allowing fetch as you load
-import Profile from "./Profile";
+import { HydrationScript } from "@solidjs/web";
 
-const Home = lazy(() => import("./Home"));
-const Settings = lazy(() => import("./Settings"));
-
-const App = RouteHOC(() => {
-  const [, pending, { matches }] = useContext(RouterContext);
+const App = () => {
   return (
     <html lang="en">
       <head>
@@ -20,54 +12,14 @@ const App = RouteHOC(() => {
       </head>
       <body>
         <div id="app">
-          <ul class="inline">
-            <li classList={{ selected: matches("index") }}>
-              <Link path="">Home</Link>
-            </li>
-            <li classList={{ selected: matches("profile") }}>
-              <Link path="profile">Profile</Link>
-            </li>
-            <li classList={{ selected: matches("settings") }}>
-              <Link path="settings">Settings</Link>
-            </li>
-          </ul>
-          <div class="tab" classList={{ pending: pending() }}>
-            <ErrorBoundary
-              fallback={(err, reset) => {
-                return (
-                  <>
-                    <h2>Error: {err.message}</h2>
-                    <button onClick={reset}>Reset</button>
-                  </>
-                );
-              }}
-            >
-              <Suspense
-                fallback={
-                  <span class="loader" style="opacity: 0">
-                    Loading...
-                  </span>
-                }
-              >
-                <Switch>
-                  <Match when={matches("index")}>
-                    <Home />
-                  </Match>
-                  <Match when={matches("profile")}>
-                    <Profile />
-                  </Match>
-                  <Match when={matches("settings")}>
-                    <Settings />
-                  </Match>
-                </Switch>
-              </Suspense>
-            </ErrorBoundary>
-          </div>
+          <h1>🔥 Solid SSR 🔥</h1>
+          <p>Server side rendered with SolidJS</p>
+          <p>Open the console to see the client side rendering</p>
         </div>
       </body>
       <script type="module" src="/js/index.js" async></script>
     </html>
   );
-});
+};
 
 export default App;

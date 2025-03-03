@@ -5,15 +5,15 @@ import copy from "rollup-plugin-copy";
 
 export default [
   {
-    input: "examples/stream/index.js",
+    input: "./stream/index.js",
     preserveEntrySignatures: false,
     output: [
       {
-        dir: "examples/stream/lib",
+        dir: "stream/lib",
         format: "esm"
       }
     ],
-    external: ["solid-js", "solid-js/web", "path", "express", "stream"],
+    external: ["solid-js", "@solidjs/web", "path", "express"],
     plugins: [
       nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"] }),
       babel({
@@ -24,10 +24,10 @@ export default [
     ]
   },
   {
-    input: "examples/shared/src/index.js",
+    input: "shared/src/index.js",
     output: [
       {
-        dir: "examples/stream/public/js",
+        dir: "stream/public/js",
         format: "esm"
       }
     ],
@@ -42,8 +42,8 @@ export default [
       copy({
         targets: [
           {
-            src: ["examples/shared/static/*"],
-            dest: "examples/stream/public"
+            src: ["shared/static/*"],
+            dest: "stream/public"
           }
         ]
       })

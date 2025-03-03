@@ -1,7 +1,7 @@
 import express from "express";
 import url from "url";
 
-import { renderToString } from "solid-js/web";
+import { renderToString } from "@solidjs/web";
 import App from "../shared/src/components/App";
 
 const app = express();

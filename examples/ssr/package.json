@@ -7,15 +7,13 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build:async": "rollup -c examples/async/rollup.config.js",
-    "start:async": "node examples/async/lib/index.js",
-    "build:ssg": "rollup -c examples/ssg/rollup.config.js && node --trace-warnings examples/ssg/export.js",
-    "start:ssg": "npx serve examples/ssg/public -l 8080",
-    "build:ssr": "rollup -c examples/ssr/rollup.config.js",
-    "start:ssr": "node examples/ssr/lib/index.js",
-    "build:stream": "rollup -c examples/stream/rollup.config.js",
-    "start:stream": "node examples/stream/lib/index.js",
-    "clean": "rimraf examples/**/lib/ examples/**/public/"
+    "async:build": "rollup -c async/rollup.config.js",
+    "async:start": "node async/lib/index.js",
+    "ssr:build": "rollup -c ssr/rollup.config.js",
+    "ssr:start": "node ssr/lib/index.js",
+    "stream:build": "rollup -c stream/rollup.config.js",
+    "stream:start": "node stream/lib/index.js",
+    "clean": "rimraf */lib/ */public/"
   },
   "devDependencies": {
     "@babel/core": "^7.21.3",
@@ -26,6 +24,7 @@
     "express": "^4.20.0",
     "rollup": "^3.20.0",
     "rollup-plugin-copy": "^3.4.0",
-    "solid-js": "workspace:*"
+    "solid-js": "workspace:*",
+    "@solidjs/web": "workspace:*"
   }
 }
