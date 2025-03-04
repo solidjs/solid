@@ -1,5 +1,11 @@
 # solid-js
 
+## 2.0.0-experimental.4
+
+### Patch Changes
+
+- 1a1a5d4: add `from` to repeat
+
 ## 2.0.0-experimental.3
 
 ### Patch Changes
