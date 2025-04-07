@@ -5,7 +5,10 @@ import {
   createStore,
   flushSync,
   merge,
-  omit
+  omit,
+  deep,
+  getOwner,
+  Computation
 } from "../../src/index.js";
 
 type SimplePropTypes = {
@@ -463,3 +466,53 @@ describe("omit Props", () => {
     expect(mergedProps.color).toBe("red");
   });
 });
+
+describe("deep", () => {
+  test("correct number of subscriptions", () => {
+    const [state, setState] = createStore({ list: [{ a: 1 }, { b: 2 }] });
+    let o: Computation;
+    createRoot(() => {
+      createEffect(
+        () => {
+          o = getOwner() as Computation;
+          return deep(state)
+        },
+        v => {}
+      );
+    });
+    flushSync();
+    expect(o!._sources!.length).toBe(4);
+  })
+  test("tests tracks deep updates", () => {
+    const effect = vi.fn();
+    const [state, setState] = createStore<{ list: Record<string, number>[] }>({ list: [{ a: 1 }, { b: 2 }] });
+    createRoot(() => {
+      createEffect(
+        () => deep(state),
+        v => effect(v)
+      );
+    });
+    expect(effect).toHaveBeenCalledTimes(0);
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(1);
+
+    setState(s => {
+      s.list[0].a = 2;
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(2);
+    expect(effect.mock.calls[1][0]).toEqual({ list: [{ a: 2 }, { b: 2 }] });
+    setState(s => {
+      s.list.push({ c: 3 });
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(3);
+    expect(effect.mock.calls[2][0]).toEqual({ list: [{ a: 2 }, { b: 2 }, { c: 3 }] });
+    setState(s => {
+      s.list = [{ d: 4 }];
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(4);
+    expect(effect.mock.calls[3][0]).toEqual({ list: [{ d: 4 }] });
+  })
+})

@@ -1,6 +1,6 @@
-import { SUPPORTS_PROXY } from "../core/index.js";
+import { SUPPORTS_PROXY, untrack } from "../core/index.js";
 import { createMemo } from "../signals.js";
-import { $PROXY } from "./store.js";
+import { $PROXY, trackSelf, $TARGET, type Store, isWrappable } from "./store.js";
 
 function trueFn() {
   return true;
@@ -195,4 +195,25 @@ export function omit<T extends Record<any, any>, K extends readonly (keyof T)[]>
     }
   }
   return result as any;
+}
+
+export function deep<T extends object>(store: Store<T>, depth: number = -1): Store<T> {
+  const target = store[$TARGET];
+  trackSelf(target);
+  if (depth) {
+    if (Array.isArray(store)) {
+      const length = untrack(() => store.length);
+      for (let i = 0; i < length; i++) {
+        const item = untrack(() => store[i]);
+        isWrappable(item) && deep(item, depth - 1);
+      }
+    } else {
+      const keys = untrack(() => Object.keys(store));
+      for (let i = 0; i < keys.length; i++) {
+        const item = untrack(() => store[keys[i]]);
+        isWrappable(item) && deep(item as object, depth - 1);
+      }
+    }
+  }
+  return store;
 }

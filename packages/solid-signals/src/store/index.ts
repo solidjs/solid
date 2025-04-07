@@ -7,4 +7,4 @@ export { createProjection } from "./projection.js";
 
 export { reconcile } from "./reconcile.js";
 
-export { merge, omit } from "./utils.js";
+export { merge, omit, deep } from "./utils.js";

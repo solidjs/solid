@@ -1,6 +1,7 @@
 import {
   createEffect,
   createSignal,
+  createRoot,
   flushSync,
   getObserver,
   runWithObserver,
@@ -10,12 +11,14 @@ import {
 it("should return value", () => {
   let observer!: Computation | null;
 
-  createEffect(
-    () => {
-      observer = getObserver()!;
-    },
-    () => {}
-  );
+  createRoot(() => {
+    createEffect(
+      () => {
+        observer = getObserver()!;
+      },
+      () => {}
+    );
+  });
   expect(runWithObserver(observer!, () => 100)).toBe(100);
 });
 
@@ -23,15 +26,17 @@ it("should add dependencies to no deps", () => {
   let count = 0;
 
   const [a, setA] = createSignal(0);
-  createEffect(
-    () => getObserver()!,
-    o => {
-      runWithObserver(o, () => {
-        a();
-        count++;
-      });
-    }
-  );
+  createRoot(() => {
+    createEffect(
+      () => getObserver()!,
+      o => {
+        runWithObserver(o, () => {
+          a();
+          count++;
+        });
+      }
+    );
+  });
   expect(count).toBe(0);
   flushSync();
   expect(count).toBe(1);
@@ -45,15 +50,17 @@ it("should add dependencies to existing deps", () => {
 
   const [a, setA] = createSignal(0);
   const [b, setB] = createSignal(0);
-  createEffect(
-    () => (a(), getObserver()!),
-    o => {
-      runWithObserver(o, () => {
-        b();
-        count++;
-      });
-    }
-  );
+  createRoot(() => {
+    createEffect(
+      () => (a(), getObserver()!),
+      o => {
+        runWithObserver(o, () => {
+          b();
+          count++;
+        });
+      }
+    );
+  });
   expect(count).toBe(0);
   flushSync();
   expect(count).toBe(1);

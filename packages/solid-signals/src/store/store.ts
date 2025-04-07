@@ -128,7 +128,7 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   return desc;
 }
 
-function trackSelf(target: StoreNode) {
+export function trackSelf(target: StoreNode) {
   getObserver() && getNode(getNodes(target, STORE_NODE), $TRACK, undefined, false).read();
 }
 
