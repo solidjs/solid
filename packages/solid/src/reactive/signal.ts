@@ -1201,9 +1201,11 @@ export function createContext<T>(
  */
 export function useContext<T>(context: Context<T>): T {
   let value: undefined | T;
-  return Owner && Owner.context && (value = Owner.context[context.id]) !== undefined
-    ? value
-    : context.defaultValue;
+	let ctx = Owner && Owner.context && (value = Owner.context[context.id]) !== undefined
+	? value
+	: context.defaultValue;
+	IS_DEV && !ctx && console.warn("`useContext` returns null. Is it being called inside a provider?")
+  return ctx;
 }
 
 export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement>;
