@@ -1204,7 +1204,7 @@ export function useContext<T>(context: Context<T>): T {
 	let ctx = Owner && Owner.context && (value = Owner.context[context.id]) !== undefined
 	? value
 	: context.defaultValue;
-	IS_DEV && !ctx && console.warn("`useContext` returns null. Is it being called inside a provider?")
+	IS_DEV && !ctx && console.warn("`useContext` is returning undefined. Is it being called inside a provider?")
   return ctx;
 }
 
