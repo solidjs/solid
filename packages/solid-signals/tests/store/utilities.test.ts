@@ -1,14 +1,14 @@
 import {
+  Computation,
   createEffect,
   createRoot,
   createSignal,
   createStore,
-  flushSync,
-  merge,
-  omit,
   deep,
+  flushSync,
   getOwner,
-  Computation
+  merge,
+  omit
 } from "../../src/index.js";
 
 type SimplePropTypes = {
@@ -475,17 +475,19 @@ describe("deep", () => {
       createEffect(
         () => {
           o = getOwner() as Computation;
-          return deep(state)
+          return deep(state);
         },
         v => {}
       );
     });
     flushSync();
-    expect(o!._sources!.length).toBe(4);
-  })
+    expect(o!._sources!.length).toBe(1);
+  });
   test("tests tracks deep updates", () => {
     const effect = vi.fn();
-    const [state, setState] = createStore<{ list: Record<string, number>[] }>({ list: [{ a: 1 }, { b: 2 }] });
+    const [state, setState] = createStore<{ list: Record<string, number>[] }>({
+      list: [{ a: 1 }, { b: 2 }]
+    });
     createRoot(() => {
       createEffect(
         () => deep(state),
@@ -514,5 +516,41 @@ describe("deep", () => {
     flushSync();
     expect(effect).toHaveBeenCalledTimes(4);
     expect(effect.mock.calls[3][0]).toEqual({ list: [{ d: 4 }] });
-  })
-})
+  });
+  test("handles shared references", () => {
+    const sharedReference = {
+      a: 1,
+      b: 2
+    };
+    const sharedReference2 = {
+      a: 1,
+      b: 2
+    };
+    const effect = vi.fn();
+    const [store, setStore] = createStore({
+      first: {
+        nested: { shared: sharedReference }
+      },
+      second: {
+        nested: { shared: sharedReference }
+      }
+    });
+    createRoot(() => {
+      createEffect(() => deep(store.first), effect);
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(1);
+    setStore(s => (s.second.nested.shared.b = 3));
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(2);
+    setStore(s => {
+      s.first.nested.shared = sharedReference2;
+      s.second.nested.shared = sharedReference2;
+    });
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(3);
+    setStore(s => (s.second.nested.shared.b = 4));
+    flushSync();
+    expect(effect).toHaveBeenCalledTimes(4);
+  });
+});

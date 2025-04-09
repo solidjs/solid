@@ -1,4 +1,4 @@
-import { Computation, getObserver, isEqual } from "../core/index.js";
+import { Computation, getObserver, isEqual, untrack } from "../core/index.js";
 import { wrapProjection } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
@@ -9,8 +9,11 @@ type DataNodes = Record<PropertyKey, DataNode>;
 
 const $RAW = Symbol(__DEV__ ? "STORE_RAW" : 0),
   $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
+  $DEEP = Symbol(__DEV__ ? "STORE_DEEP" : 0),
   $TARGET = Symbol(__DEV__ ? "STORE_TARGET" : 0),
   $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0);
+
+const PARENTS = new WeakMap<object, Set<object>>();
 
 export const STORE_VALUE = "v",
   STORE_NODE = "n",
@@ -128,8 +131,8 @@ function proxyDescriptor(target: StoreNode, property: PropertyKey) {
   return desc;
 }
 
-export function trackSelf(target: StoreNode) {
-  getObserver() && getNode(getNodes(target, STORE_NODE), $TRACK, undefined, false).read();
+function trackSelf(target: StoreNode, symbol: symbol = $TRACK) {
+  getObserver() && getNode(getNodes(target, STORE_NODE), symbol, undefined, false).read();
 }
 
 function ownKeys(target: StoreNode) {
@@ -143,8 +146,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (property === $TARGET) return target;
     if (property === $RAW) return target[STORE_VALUE];
     if (property === $PROXY) return receiver;
-    if (property === $TRACK) {
-      trackSelf(target);
+    if (property === $TRACK || property === $DEEP) {
+      trackSelf(target, property);
       return receiver;
     }
     const nodes = getNodes(target, STORE_NODE);
@@ -168,7 +171,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
           ? value.bind(storeValue)
           : value;
       } else if (getObserver()) {
-        value = getNode(nodes, property, isWrappable(value) ? wrap(value) : value).read();
+        return getNode(nodes, property, isWrappable(value) ? wrap(value) : value).read();
       }
     }
     return isWrappable(value) ? wrap(value) : value;
@@ -214,15 +217,62 @@ function setProperty(
 
   if (deleting) delete state[property];
   else state[property] = value;
+  const wrappable = isWrappable(value);
+  if (isWrappable(prev)) {
+    const parents = PARENTS.get(prev);
+    parents && (parents instanceof Set ? parents.delete(state) : PARENTS.delete(prev));
+  }
+  if (recursivelyNotify(state) && wrappable) recursivelyAddParent(value[$RAW] || value, state);
   const target = state[$PROXY]?.[$TARGET] as StoreNode | undefined;
   if (!target) return;
   if (deleting) target[STORE_HAS]?.[property]?.write(false);
   else target[STORE_HAS]?.[property]?.write(true);
   const nodes = getNodes(target, STORE_NODE);
-  let node: DataNode;
-  if ((node = nodes[property])) node.write(isWrappable(value) ? wrap(value) : value);
-  Array.isArray(state) && state.length !== len && (node = nodes.length) && node.write(state.length);
-  (node = nodes[$TRACK]) && node.write(undefined);
+  nodes[property]?.write(wrappable ? wrap(value) : value);
+  // notify length change
+  Array.isArray(state) && state.length !== len && nodes.length?.write(state.length);
+  // notify self
+  nodes[$TRACK]?.write(undefined);
+}
+
+function recursivelyNotify(state: object): boolean {
+  let target = state[$PROXY]?.[$TARGET] as StoreNode | undefined;
+  let notified = false;
+  target && (getNodes(target, STORE_NODE)[$DEEP]?.write(undefined), (notified = true));
+
+  // trace parents
+  const parents = PARENTS.get(state);
+  if (!parents) return notified;
+  if (parents instanceof Set) {
+    for (let parent of parents) notified = recursivelyNotify(parent) || notified;
+  } else notified = recursivelyNotify(parents) || notified;
+  return notified;
+}
+
+function recursivelyAddParent(state: any, parent?: any): void {
+  if (parent) {
+    let parents = PARENTS.get(state);
+    if (!parents) PARENTS.set(state, parent);
+    else if (parents !== parent) {
+      if (!(parents instanceof Set))
+        PARENTS.set(state, (parents = /* @__PURE__ */ new Set([parents])));
+      else if (parents.has(parent)) return;
+      parents.add(parent);
+    } else return;
+  }
+
+  if (Array.isArray(state)) {
+    for (let i = 0; i < state.length; i++) {
+      const item = state[i];
+      isWrappable(item) && recursivelyAddParent(item[$RAW] || item, state);
+    }
+  } else {
+    const keys = Object.keys(state);
+    for (let i = 0; i < keys.length; i++) {
+      const item = state[keys[i]];
+      isWrappable(item) && recursivelyAddParent(item[$RAW] || item, state);
+    }
+  }
 }
 
 export function createStore<T extends object = {}>(
@@ -239,7 +289,7 @@ export function createStore<T extends object = {}>(
   const derived = typeof first === "function",
     store = derived ? second! : first;
 
-  const unwrappedStore = unwrap(store!, false);
+  const unwrappedStore = unwrap(store!);
   let wrappedStore = wrap(unwrappedStore);
   const setStore = (fn: (draft: T) => void): void => {
     try {
@@ -253,4 +303,9 @@ export function createStore<T extends object = {}>(
   if (derived) return wrapProjection(first as (store: T) => void, wrappedStore, setStore);
 
   return [wrappedStore, setStore];
+}
+
+export function deep<T extends object>(store: Store<T>): Store<any> {
+  recursivelyAddParent(store[$RAW] || store);
+  return store[$DEEP];
 }
