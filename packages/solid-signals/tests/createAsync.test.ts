@@ -164,3 +164,33 @@ it("should resolve to a value with resolveAsync", async () => {
   // doesn't update because not tracked
   expect(value).toBe(1);
 });
+
+it("should handle streams", async () => {
+  const effect = vi.fn()
+  createRoot(() => {
+    const v = createAsync(async function*() {
+      yield await Promise.resolve(1);
+      yield await Promise.resolve(1);
+      yield await Promise.resolve(3);
+    })
+    createEffect(v, v => effect(v));
+  });
+  flushSync();
+  expect(effect).toHaveBeenCalledTimes(0);
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledWith(1);
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(2);
+  expect(effect).toHaveBeenCalledWith(1);
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(3);
+  expect(effect).toHaveBeenCalledWith(3);
+})

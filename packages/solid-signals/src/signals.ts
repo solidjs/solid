@@ -195,7 +195,7 @@ export function createAsync<T>(
           _value: source as T
         };
       }
-      const signal = new Computation(value, null, options);
+      const signal = new Computation(value, null, iterator ? { ...options, equals: false } : options);
       const w = signal.wait;
       signal.wait = function () {
         if (signal._stateFlags & ERROR_BIT && signal._time <= getClock()) {
