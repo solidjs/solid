@@ -89,9 +89,10 @@ export function Show<T>(props: {
   children: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
 }): string {
   let c: string | ((item: NonNullable<T> | Accessor<NonNullable<T>>) => string);
-  return props.when
+  const when = props.when;
+  return when
     ? typeof (c = props.children) === "function"
-      ? c(() => props.when as any)
+      ? c(() => when as any)
       : c
     : props.fallback || "";
 }

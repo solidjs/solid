@@ -1,6 +1,12 @@
+import { useContext, Switch, Match } from "solid-js";
 import { HydrationScript } from "@solidjs/web";
+import { Link, RouteHOC, RouterContext } from "../router";
+import Profile from "./Profile";
+import Home from "./Home";
+import Settings from "./Settings";
 
-const App = () => {
+const App = RouteHOC(() => {
+  const [, pending, { matches }] = useContext(RouterContext);
   return (
     <html lang="en">
       <head>
@@ -12,14 +18,35 @@ const App = () => {
       </head>
       <body>
         <div id="app">
-          <h1>🔥 Solid SSR 🔥</h1>
-          <p>Server side rendered with SolidJS</p>
-          <p>Open the console to see the client side rendering</p>
+          <ul class="inline">
+            <li class={{ selected: matches("index") }}>
+              <Link path="">Home</Link>
+            </li>
+            <li class={{ selected: matches("profile") }}>
+              <Link path="profile">Profile</Link>
+            </li>
+            <li class={{ selected: matches("settings") }}>
+              <Link path="settings">Settings</Link>
+            </li>
+          </ul>
+          <div class={["tab", { pending: pending() }]}>
+            <Switch>
+              <Match when={matches("index")}>
+                <Home />
+              </Match>
+              <Match when={matches("profile")}>
+                <Profile />
+              </Match>
+              <Match when={matches("settings")}>
+                <Settings />
+              </Match>
+            </Switch>
+          </div>
         </div>
       </body>
       <script type="module" src="/js/index.js" async></script>
     </html>
   );
-};
+});
 
 export default App;

@@ -1,25 +1,33 @@
-import { flatten, type Accessor, type Setter } from "@solidjs/signals";
+import { flatten, getContext, setContext, type Accessor, type Setter } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
-import type { ChildrenReturn, Context } from "../index.js";
-import { onCleanup, createSignal, createMemo, getOwner } from "./signals.js";
+import type { ChildrenReturn, Context, EffectOptions, FlowProps } from "../index.js";
+import { onCleanup, createSignal, createMemo, untrack } from "./signals.js";
 
 export function onMount(fn: () => void) {}
 
 // Context API
 
-export function createContext<T>(defaultValue?: T): Context<T | undefined> {
-  const id = Symbol("context");
-  const P: Context<T | undefined> = createProvider(id) as any;
-  P.id = id;
-  P.defaultValue = defaultValue;
-  return P as unknown as Context<T | undefined>;
+export function createContext<T>(
+  defaultValue?: T,
+  options?: EffectOptions
+): Context<T | undefined> {
+  const id = Symbol((options && options.name) || "");
+  function provider(props: FlowProps<{ value: unknown }>) {
+    return createMemo(() => {
+      setContext(
+        provider,
+        untrack(() => props.value)
+      );
+      return children(() => props.children);
+    });
+  }
+  provider.id = id;
+  provider.defaultValue = defaultValue;
+  return provider as unknown as Context<T | undefined>;
 }
 
 export function useContext<T>(context: Context<T>): T {
-  const owner = getOwner();
-  return owner && owner.context && owner.context[context.id] !== undefined
-    ? owner.context[context.id]
-    : context.defaultValue;
+  return getContext(context);
 }
 
 export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
@@ -30,16 +38,6 @@ export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
     return Array.isArray(c) ? c : c != null ? [c] : [];
   };
   return memo as ChildrenReturn;
-}
-
-function createProvider(id: symbol) {
-  return function provider(props: { value: unknown; children: any }) {
-    return createMemo<JSX.Element>(() => {
-      const owner = getOwner();
-      owner!.context = { ...owner!.context, [id]: props.value };
-      return children(() => props.children) as unknown as JSX.Element;
-    });
-  };
 }
 
 export type ObservableObserver<T> =

@@ -1,3 +1,7 @@
+import { NotReadyError, Owner, runWithOwner } from "@solidjs/signals";
+
+export { runWithOwner, onCleanup } from "@solidjs/signals";
+
 import type {
   Accessor,
   Computation,
@@ -9,30 +13,22 @@ import type {
   Signal,
   SignalOptions
 } from "@solidjs/signals";
-export let Owner: Owner | null = null;
+
 let Observer: Computation | null = null;
 
-interface Owner {
-  owner: Owner | null;
-  context: any | null;
-  owned: Owner[] | null;
-  cleanups: (() => void)[] | null;
+function run<T>(ownerObserver: Owner, fn: () => T) {
+  const prevObserver = Observer;
+  Observer = ownerObserver as any;
+  try {
+    return runWithOwner(ownerObserver, fn);
+  } finally {
+    Observer = prevObserver;
+  }
 }
 
 export function createRoot<T>(fn: ((dispose: () => void) => T) | (() => T)): T {
-  const owner = Owner,
-    root = {
-      context: owner ? owner.context : null,
-      owner: owner,
-      owned: null,
-      cleanups: null
-    };
-  Owner = root;
-  try {
-    return fn(fn.length === 0 ? () => {} : () => cleanNode(root));
-  } finally {
-    Owner = owner;
-  }
+  const owner = new Owner();
+  return runWithOwner(owner, !fn.length ? (fn as () => T) : () => fn(() => owner.dispose()));
 }
 
 export function createSignal<T>(): Signal<T | undefined>;
@@ -80,14 +76,12 @@ export function createMemo<Next extends Prev, Init, Prev>(
   value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
-  Owner = createOwner();
+  const owner = new Owner();
   let v: Next;
-  try {
-    v = compute(value as Init);
-  } finally {
-    Owner = Owner.owner;
-  }
-  return () => v;
+  return () => {
+    if (v !== undefined) return v;
+    return run(owner, () => (v = compute(value as any)));
+  };
 }
 
 export function createRenderEffect<Next>(
@@ -106,14 +100,15 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  Owner = createOwner();
+  const owner = new Owner();
   try {
-    effect(compute(value as any), value as any);
+    effect(
+      run(owner, () => compute(value as any)),
+      value as any
+    );
   } catch (err) {
-    // TODO: Implement error handling
-    // handleError(err);
-  } finally {
-    Owner = Owner.owner;
+    // TODO: Vet Error Handling
+    owner.handleError(err);
   }
 }
 
@@ -137,8 +132,26 @@ export function createEffect<Next, Init>(
   options?: EffectOptions
 ): void {}
 
-export function createAsync() {
-  // TODO: Implement createAsync
+export function createAsync<T>(
+  compute: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
+  value?: T,
+  options?: MemoOptions<T>
+): Accessor<T> {
+  let uninitialized = value === undefined;
+  const source = compute(value);
+  const isPromise = source instanceof Promise;
+  const iterator = (source as AsyncIterable<T>)[Symbol.asyncIterator];
+  if (isPromise) {
+    source.then(v => (value = v));
+  } else if (iterator) {
+    iterator()
+      .next()
+      .then(v => (value = v.value));
+  } else return () => source as T;
+  return () => {
+    if (value === undefined && uninitialized) throw new NotReadyError();
+    return value as T;
+  };
 }
 
 export function isPending() {
@@ -163,16 +176,6 @@ export function getOwner() {
   return Owner;
 }
 
-export function runWithOwner<T>(o: typeof Owner, fn: () => T): T | undefined {
-  const prev = Owner;
-  Owner = o;
-  try {
-    return fn();
-  } finally {
-    Owner = prev;
-  }
-}
-
 export function runWithObserver<T>(o: Computation, fn: () => T): T | undefined {
   const prev = Observer;
   Observer = o;
@@ -185,14 +188,6 @@ export function runWithObserver<T>(o: Computation, fn: () => T): T | undefined {
 
 export function untrack<T>(fn: () => T): T {
   return fn();
-}
-
-export function onCleanup(fn: () => void) {
-  if (Owner) {
-    if (!Owner.cleanups) Owner.cleanups = [fn];
-    else Owner.cleanups.push(fn);
-  }
-  return fn;
 }
 
 export function mapArray<T, U>(
@@ -226,25 +221,4 @@ export function repeat<T>(
     for (let i = 0; i < len; i++) s.push(mapFn(i + offset));
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
-}
-
-// TODO: Update Internals to reflect new Signals implementation Internals
-function createOwner(): Owner {
-  const o = { owner: Owner, context: Owner ? Owner.context : null, owned: null, cleanups: null };
-  if (Owner) {
-    if (!Owner.owned) Owner.owned = [o];
-    else Owner.owned.push(o);
-  }
-  return o;
-}
-
-function cleanNode(node: Owner) {
-  if (node.owned) {
-    for (let i = 0; i < node.owned.length; i++) cleanNode(node.owned[i]);
-    node.owned = null;
-  }
-  if (node.cleanups) {
-    for (let i = 0; i < node.cleanups.length; i++) node.cleanups[i]();
-    node.cleanups = null;
-  }
 }

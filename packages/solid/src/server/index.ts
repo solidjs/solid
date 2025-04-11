@@ -47,5 +47,3 @@ export const $DEVCOMP = Symbol("solid-dev-component");
 export const DEV = undefined;
 
 export type { Component } from "../index.js";
-
-export * from "./store.js";
