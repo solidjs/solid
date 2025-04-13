@@ -133,7 +133,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     // When the currentObserver reads this._value, the want to add this computation as a source
     // so that when this._value changes, the currentObserver will be re-executed
-    if (!this._compute || this._sources?.length) track(this);
+    track(this);
 
     // TODO do a handler lookup instead
     newFlags |= this._stateFlags & ~currentMask;
@@ -163,12 +163,19 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   wait(): T {
     if (this._compute && this._stateFlags & ERROR_BIT && this._time <= getClock()) {
       update(this);
+    } else {
+      this._updateIfNecessary();
     }
 
-    if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && this.loading()) {
+    track(this);
+    
+    if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && (this._stateFlags & LOADING_BIT)) {
       throw new NotReadyError();
     }
-    if (staleCheck && this.loading()) staleCheck._value = true;
+    
+    if (staleCheck && (this._stateFlags & LOADING_BIT)) {
+      staleCheck._value = true;
+    }
 
     return this._read();
   }
@@ -309,6 +316,10 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * This function will ensure that the value and states we read from the computation are up to date
    */
   _updateIfNecessary(): void {
+    if (!this._compute) {
+      return;
+    }
+
     // If the user tries to read a computation that has been disposed, we throw an error, because
     // they probably kept a reference to it as the parent reran, so there is likely a new computation
     // with the same _compute function that they should be reading instead.
