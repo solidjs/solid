@@ -97,7 +97,6 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   /** Which flags raised by sources are handled, vs. being passed through. */
   _handlerMask = DEFAULT_FLAGS;
 
-  _loading: Computation<boolean> | null = null;
   _time: number = -1;
   _forceNotify = false;
 
@@ -168,31 +167,16 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     }
 
     track(this);
-    
+
     if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && (this._stateFlags & LOADING_BIT)) {
       throw new NotReadyError();
     }
-    
+
     if (staleCheck && (this._stateFlags & LOADING_BIT)) {
       staleCheck._value = true;
     }
 
     return this._read();
-  }
-
-  /**
-   * Return true if the computation is the value is dependent on an unresolved promise
-   * Triggers re-execution of the computation when the loading state changes
-   *
-   * This is useful especially when effects want to re-execute when a computation's
-   * loading state changes
-   */
-  loading(): boolean {
-    if (this._loading === null) {
-      this._loading = loadingState(this);
-    }
-
-    return this._loading.read();
   }
 
   /** Update the computation with a new value. */
@@ -391,27 +375,6 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // Remove ourselves from the ownership tree as well
     super._disposeNode();
   }
-}
-
-function loadingState(node: Computation): Computation<boolean> {
-  const prevOwner = setOwner(node._parent);
-
-  const options = __DEV__ ? { name: node._name ? `loading ${node._name}` : "loading" } : undefined;
-
-  const computation = new Computation(
-    undefined,
-    () => {
-      track(node);
-      node._updateIfNecessary();
-      return !!(node._stateFlags & LOADING_BIT);
-    },
-    options
-  );
-
-  computation._handlerMask = ERROR_BIT | LOADING_BIT;
-  setOwner(prevOwner);
-
-  return computation;
 }
 
 /**
