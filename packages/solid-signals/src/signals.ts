@@ -132,12 +132,24 @@ export function createMemo<Next extends Prev, Init, Prev>(
   value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
-  let node: Computation<Next> = new Computation<Next>(
+  let node: Computation<Next> | undefined = new Computation<Next>(
     value as any,
     compute as any,
     options
   );
-  return node.wait.bind(node);
+  let resolvedValue: Next;
+  return () => {
+    if (node) {
+      resolvedValue = node.wait();
+      // no sources so will never update so can be disposed.
+      // additionally didn't create nested reactivity so can be disposed.
+      if (!node._sources?.length && node._nextSibling?._parent !== node) {
+        node.dispose();
+        node = undefined;
+      }
+    }
+    return resolvedValue;
+  };
 }
 
 /**
