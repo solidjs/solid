@@ -369,7 +369,7 @@ export function createErrorBoundary<T, U>(
     nodes.add(node);
     if (nodes.size === 1) error.write({ _error: err });
   }
-  owner._handlers = owner._handlers ? [handler, ...owner._handlers] : [handler];
+  owner.addErrorHandler(handler);
   const guarded = compute(
     owner,
     () => {

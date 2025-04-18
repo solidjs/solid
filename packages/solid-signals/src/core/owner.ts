@@ -139,6 +139,10 @@ export class Owner {
     this._disposal = null;
   }
 
+  addErrorHandler(handler: ErrorHandler): void {
+    this._handlers = this._handlers ? [handler, ...this._handlers] : [handler];
+  }
+
   handleError(error: unknown): void {
     if (!this._handlers) throw error;
 
