@@ -56,6 +56,12 @@ export function setOwner(owner: Owner | null): Owner | null {
   return out;
 }
 
+function formatId(prefix: string, id: number) {
+  const num = String(id),
+    len = num.length - 1;
+  return prefix + (len ? String.fromCharCode(96 + len) : "") + num;
+}
+
 export class Owner {
   // We flatten the owner tree into a linked list so that we don't need a pointer to .firstChild
   // However, the children are actually added in reverse creation order
@@ -70,14 +76,22 @@ export class Owner {
   _context: ContextRecord = defaultContext;
   _handlers: ErrorHandler[] | null = null;
   _queue: IQueue = globalQueue;
+  _count: number | null = null;
+  id: string | null = null;
 
-  constructor(signal = false) {
-    if (currentOwner && !signal) currentOwner.append(this);
+  constructor(id: string | null = null, skipAppend = false) {
+    this.id = id;
+    if (currentOwner && !skipAppend) currentOwner.append(this);
   }
 
   append(child: Owner): void {
     child._parent = this;
     child._prevSibling = this;
+
+    if (this.id) {
+      child._count = this._nextSibling ? this._nextSibling._count! + 1 : 0;
+      child.id = formatId(this.id, child._count);
+    }
 
     if (this._nextSibling) this._nextSibling._prevSibling = child;
     child._nextSibling = this._nextSibling;

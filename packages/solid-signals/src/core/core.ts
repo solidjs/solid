@@ -108,7 +108,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // Initialize self as a node in the Owner tree, for tracking cleanups.
     // If we aren't passed a compute function, we don't need to track nested computations
     // because there is no way to create a nested computation (a child to the owner tree)
-    super(compute === null);
+    super(null, compute === null);
 
     this._compute = compute;
 

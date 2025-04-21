@@ -324,8 +324,8 @@ export function createRenderEffect<Next, Init>(
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
  */
-export function createRoot<T>(init: ((dispose: () => void) => T) | (() => T)): T {
-  const owner = new Owner();
+export function createRoot<T>(init: ((dispose: () => void) => T) | (() => T), options?: { prefix: string }): T {
+  const owner = new Owner(options?.prefix);
   return compute(owner, !init.length ? (init as () => T) : () => init(() => owner.dispose()), null);
 }
 

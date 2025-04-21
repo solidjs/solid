@@ -58,7 +58,7 @@ export class Queue implements IQueue {
     for (let i = 0; i < this._children.length; i++) {
       rerun = this._children[i].run(type) || rerun;
     }
-    if (type === EFFECT_PURE && this._queues[type].length) return true;
+    if (type === EFFECT_PURE) return (rerun || !!this._queues[type].length);
   }
   flush() {
     if (this._running) return;

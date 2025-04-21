@@ -2,11 +2,13 @@ import {
   Computation,
   createEffect,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   flushSync,
   getOwner,
   onCleanup,
+  Owner,
   type Accessor,
   type Signal
 } from "../src/index.js";
@@ -117,4 +119,46 @@ it("should not throw if dispose called during active disposal process", () => {
     onCleanup(() => dispose());
     dispose();
   });
+});
+
+it("should not generate ids if no prefix is provided", () => {
+  let o: Owner | null;
+  let m: Owner | null;
+
+  createRoot(() => {
+    o = getOwner();
+    const c = createMemo(() => {
+      m = getOwner();
+    })
+    c();
+  });
+
+  expect(o!.id).toEqual(null);
+  expect(m!.id).toEqual(null);
+});
+
+it("should generate ids if prefix is provided", () => {
+  let o: Owner | null;
+  let m: Owner | null;
+  let m2: Owner | null;
+  let r: Owner | null;
+
+  createRoot(() => {
+    o = getOwner();
+    const c = createMemo(() => {
+      m = getOwner();
+      return createMemo(() => {
+        m2 = getOwner();
+      })
+    })
+    createRenderEffect(() => {
+      r = getOwner();
+      c()();
+    }, () => {});
+  }, { prefix: "s" });
+
+  expect(o!.id).toEqual("s");
+  expect(m!.id).toEqual("s0");
+  expect(m2!.id).toEqual("s00");
+  expect(r!.id).toEqual("s1");
 });
