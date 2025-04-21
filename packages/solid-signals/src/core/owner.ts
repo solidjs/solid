@@ -57,9 +57,9 @@ export function setOwner(owner: Owner | null): Owner | null {
 }
 
 function formatId(prefix: string, id: number) {
-  const num = String(id),
+  const num = id.toString(36),
     len = num.length - 1;
-  return prefix + (len ? String.fromCharCode(96 + len) : "") + num;
+  return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
 }
 
 export class Owner {
