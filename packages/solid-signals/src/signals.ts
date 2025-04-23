@@ -1,4 +1,4 @@
-import { STATE_DIRTY } from "./core/constants.js";
+import { STATE_DIRTY, STATE_DISPOSED } from "./core/constants.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   Computation,
@@ -7,14 +7,10 @@ import {
   Effect,
   ERROR_BIT,
   flatten,
-  getClock,
   incrementClock,
-  LOADING_BIT,
   NotReadyError,
   onCleanup,
   Owner,
-  UNCHANGED,
-  UNINITIALIZED_BIT,
   untrack
 } from "./core/index.js";
 
@@ -140,6 +136,10 @@ export function createMemo<Next extends Prev, Init, Prev>(
   let resolvedValue: Next;
   return () => {
     if (node) {
+      if (node._state === STATE_DISPOSED) {
+        node = undefined;
+        return resolvedValue;
+      }
       resolvedValue = node.wait();
       // no sources so will never update so can be disposed.
       // additionally didn't create nested reactivity so can be disposed.
@@ -172,63 +172,42 @@ export function createAsync<T>(
   value?: T,
   options?: MemoOptions<T>
 ): Accessor<T> {
-  let uninitialized = value === undefined;
-  const lhs = new EagerComputation(
-    {
-      _value: value
-    } as any,
-    (p?: Computation<T>) => {
-      const value = p?._value;
-      const source = compute(value);
-      const isPromise = source instanceof Promise;
-      const iterator = source[Symbol.asyncIterator];
-      if (!isPromise && !iterator) {
-        return {
-          wait() {
-            return source as T;
-          },
-          _value: source as T
-        };
-      }
-      const signal = new Computation(value, null, iterator ? { ...options, equals: false } : options);
-      const w = signal.wait;
-      signal.wait = function () {
-        if (signal._stateFlags & ERROR_BIT && signal._time <= getClock()) {
-          lhs._notify(STATE_DIRTY);
-          throw new NotReadyError();
-        }
-        return w.call(this);
-      };
-      signal.write(UNCHANGED, LOADING_BIT | (uninitialized ? UNINITIALIZED_BIT : 0));
-      if (isPromise) {
-        source.then(
-          value => {
-            uninitialized = false;
-            signal.write(value, 0, true);
-          },
-          error => {
-            uninitialized = true;
-            signal._setError(error);
-          }
-        );
-      } else {
-        let abort = false;
-        onCleanup(() => (abort = true));
-        (async () => {
-          try {
-            for await (let value of source as AsyncIterable<T>) {
-              if (abort) return;
-              signal.write(value, 0, true);
-            }
-          } catch (error: any) {
-            signal.write(error, ERROR_BIT);
-          }
-        })();
-      }
-      return signal;
+  const node = new EagerComputation(value as T, (p?: T) => {
+    const source = compute(p);
+    const isPromise = source instanceof Promise;
+    const iterator = source[Symbol.asyncIterator];
+    if (!isPromise && !iterator) {
+      return source as T;
     }
-  );
-  return () => lhs.wait().wait();
+    let abort = false;
+    onCleanup(() => (abort = true));
+    if (isPromise) {
+      source.then(
+        value3 => {
+          if (abort) return;
+          node.write(value3, 0, true);
+        },
+        error => {
+          if (abort) return;
+          node._setError(error);
+        }
+      );
+    } else {
+      (async () => {
+        try {
+          for await (let value3 of source as AsyncIterable<T>) {
+            if (abort) return;
+            node.write(value3, 0, true);
+          }
+        } catch (error: any) {
+          if (abort) return;
+          node.write(error, ERROR_BIT);
+        }
+      })();
+    }
+    throw new NotReadyError();
+  }, options);
+  return node.wait.bind(node) as Accessor<T>;
 }
 
 /**
@@ -324,8 +303,11 @@ export function createRenderEffect<Next, Init>(
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
  */
-export function createRoot<T>(init: ((dispose: () => void) => T) | (() => T), options?: { prefix: string }): T {
-  const owner = new Owner(options?.prefix);
+export function createRoot<T>(
+  init: ((dispose: () => void) => T) | (() => T),
+  options?: { id: string }
+): T {
+  const owner = new Owner(options?.id);
   return compute(owner, !init.length ? (init as () => T) : () => init(() => owner.dispose()), null);
 }
 

@@ -170,7 +170,7 @@ it("should handle streams", async () => {
   createRoot(() => {
     const v = createAsync(async function*() {
       yield await Promise.resolve(1);
-      yield await Promise.resolve(1);
+      yield await Promise.resolve(2);
       yield await Promise.resolve(3);
     })
     createEffect(v, v => effect(v));
@@ -187,7 +187,7 @@ it("should handle streams", async () => {
   await Promise.resolve();
   await Promise.resolve();
   expect(effect).toHaveBeenCalledTimes(2);
-  expect(effect).toHaveBeenCalledWith(1);
+  expect(effect).toHaveBeenCalledWith(2);
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();

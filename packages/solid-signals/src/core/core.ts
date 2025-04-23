@@ -168,11 +168,11 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     track(this);
 
-    if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && (this._stateFlags & LOADING_BIT)) {
+    if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && this._stateFlags & LOADING_BIT) {
       throw new NotReadyError();
     }
 
-    if (staleCheck && (this._stateFlags & LOADING_BIT)) {
+    if (staleCheck && this._stateFlags & LOADING_BIT) {
       staleCheck._value = true;
     }
 
@@ -194,6 +194,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     const valueChanged =
       newValue !== UNCHANGED &&
       (!!(this._stateFlags & UNINITIALIZED_BIT) ||
+        (this._stateFlags & LOADING_BIT & ~flags) ||
         this._equals === false ||
         !this._equals(this._value!, newValue));
 
@@ -308,7 +309,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // they probably kept a reference to it as the parent reran, so there is likely a new computation
     // with the same _compute function that they should be reading instead.
     if (this._state === STATE_DISPOSED) {
-      throw new Error("Tried to read a disposed computation");
+      return;
+      // throw new Error("Tried to read a disposed computation");
     }
 
     // If the computation is already clean, none of our sources have changed, so we know that
@@ -539,13 +541,7 @@ export function hasUpdated(fn: () => any): boolean {
   }
 }
 
-/**
- * Returns true if the given function contains async signals are out of date.
- */
-export function isPending(fn: () => any): boolean;
-export function isPending(fn: () => any, loadingValue: boolean): boolean;
-export function isPending(fn: () => any, loadingValue?: boolean): boolean {
-  const argLength = arguments.length;
+function pendingCheck(fn: () => any, loadingValue: boolean | undefined): boolean {
   const current = staleCheck;
   staleCheck = { _value: false };
   try {
@@ -553,11 +549,23 @@ export function isPending(fn: () => any, loadingValue?: boolean): boolean {
     return staleCheck._value;
   } catch (err) {
     if (!(err instanceof NotReadyError)) return false;
-    if (argLength > 1) return loadingValue!;
+    if (loadingValue !== undefined) return loadingValue!;
     throw err;
   } finally {
     staleCheck = current;
   }
+}
+
+/**
+ * Returns an accessor that is true if the given function contains async signals are out of date.
+ */
+export function isPending(fn: () => any):boolean;
+export function isPending(fn: () => any, loadingValue: boolean):boolean;
+export function isPending(fn: () => any, loadingValue?: boolean):boolean {
+  if (!currentObserver) return pendingCheck(fn, loadingValue);
+  const c = new Computation(undefined, () => pendingCheck(fn, loadingValue));
+  c._handlerMask |= LOADING_BIT;
+  return c.read();
 }
 
 /**
@@ -578,15 +586,6 @@ export function latest<T, U>(fn: () => T, fallback?: U): T | U {
   } finally {
     newFlags = prevFlags;
     notStale = prevNotStale;
-  }
-}
-
-export function catchError(fn: () => void): unknown | undefined {
-  try {
-    fn();
-  } catch (e) {
-    if (e instanceof NotReadyError) throw e;
-    return e;
   }
 }
 

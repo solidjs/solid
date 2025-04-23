@@ -20,7 +20,7 @@ export {
   hasUpdated,
   isPending,
   latest,
-  catchError,
+  tryCatch,
   runWithObserver,
   createSuspense,
   SUPPORTS_PROXY

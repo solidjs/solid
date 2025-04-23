@@ -21,7 +21,6 @@ export {
   isPending,
   latest,
   flatten,
-  catchError,
   UNCHANGED,
   compute,
   runWithObserver,
@@ -31,4 +30,5 @@ export { Effect, EagerComputation } from "./effect.js";
 export { flushSync, getClock, incrementClock, type IQueue, Queue } from "./scheduler.js";
 export { createSuspense } from "./suspense.js";
 export { SUPPORTS_PROXY } from "./constants.js";
+export { tryCatch, type TryCatchResult } from "./utils.js";
 export * from "./flags.js";

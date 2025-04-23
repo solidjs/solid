@@ -12,4 +12,4 @@ export const UNINITIALIZED_OFFSET = 2;
 export const UNINITIALIZED_BIT = 1 << UNINITIALIZED_OFFSET;
 export const UNINITIALIZED: unique symbol = Symbol(__DEV__ ? "UNINITIALIZED" : 0);
 
-export const DEFAULT_FLAGS = ERROR_BIT | LOADING_BIT;
+export const DEFAULT_FLAGS = ERROR_BIT;
