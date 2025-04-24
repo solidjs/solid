@@ -141,24 +141,33 @@ it("should generate ids if id is provided", () => {
   let o: Owner | null;
   let m: Owner | null;
   let m2: Owner | null;
+  let c: string;
+  let c2: string;
+  let c3: string;
   let r: Owner | null;
 
   createRoot(() => {
     o = getOwner();
-    const c = createMemo(() => {
-      m = getOwner();
+    const memo = createMemo(() => {
+      m = getOwner()!;
+      c = m.getNextChildId();
       return createMemo(() => {
-        m2 = getOwner();
+        m2 = getOwner()!;
+        c2 = m2.getNextChildId();
+        c3 = m2.getNextChildId();
       })
     })
     createRenderEffect(() => {
       r = getOwner();
-      c()();
+      memo()();
     }, () => {});
-  }, { id: "s" });
+  }, { id: "$" });
 
-  expect(o!.id).toEqual("s");
-  expect(m!.id).toEqual("s0");
-  expect(m2!.id).toEqual("s00");
-  expect(r!.id).toEqual("s1");
+  expect(o!.id).toEqual("$");
+  expect(m!.id).toEqual("$0");
+  expect(c!).toEqual("$0-0");
+  expect(m2!.id).toEqual("$00");
+  expect(r!.id).toEqual("$1");
+  expect(c2!).toEqual("$00-0");
+  expect(c3!).toEqual("$00-1");
 });

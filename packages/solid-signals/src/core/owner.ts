@@ -76,7 +76,8 @@ export class Owner {
   _context: ContextRecord = defaultContext;
   _handlers: ErrorHandler[] | null = null;
   _queue: IQueue = globalQueue;
-  _count: number | null = null;
+  _siblingCount: number | null = null;
+  _childCount: number = 0;
   id: string | null = null;
 
   constructor(id: string | null = null, skipAppend = false) {
@@ -89,8 +90,8 @@ export class Owner {
     child._prevSibling = this;
 
     if (this.id) {
-      child._count = this._nextSibling ? this._nextSibling._count! + 1 : 0;
-      child.id = formatId(this.id, child._count);
+      child._siblingCount = this._nextSibling ? this._nextSibling._siblingCount! + 1 : 0;
+      child.id = formatId(this.id, child._siblingCount);
     }
 
     if (this._nextSibling) this._nextSibling._prevSibling = child;
@@ -174,6 +175,11 @@ export class Owner {
 
     // Error was not handled as we exhausted all handlers.
     if (i === len) throw error;
+  }
+
+  getNextChildId(): string {
+    if (this.id) return formatId(this.id + "-", this._childCount++);
+    throw new Error("Cannot get child id from owner without an id");
   }
 }
 
