@@ -13,7 +13,6 @@ export {
 } from "./owner.js";
 export {
   Computation,
-  createBoundary,
   getObserver,
   isEqual,
   untrack,
@@ -27,8 +26,8 @@ export {
   type SignalOptions
 } from "./core.js";
 export { Effect, EagerComputation } from "./effect.js";
-export { flushSync, getClock, incrementClock, type IQueue, Queue } from "./scheduler.js";
-export { createSuspense } from "./suspense.js";
+export { flushSync, type IQueue, Queue } from "./scheduler.js";
+export { createSuspense, createErrorBoundary } from "./boundaries.js";
 export { SUPPORTS_PROXY } from "./constants.js";
 export { tryCatch, type TryCatchResult } from "./utils.js";
 export * from "./flags.js";

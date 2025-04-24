@@ -30,8 +30,8 @@
 import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
-import { getOwner, onCleanup, Owner, setOwner } from "./owner.js";
-import { getClock, type IQueue } from "./scheduler.js";
+import { getOwner, Owner, setOwner } from "./owner.js";
+import { getClock } from "./scheduler.js";
 
 export interface SignalOptions<T> {
   name?: string;
@@ -752,12 +752,4 @@ function flattenArray(
   }
   if (notReady) throw notReady;
   return needsUnwrap;
-}
-
-export function createBoundary<T>(fn: () => T, queue: IQueue): T {
-  const owner = new Owner();
-  const parentQueue = owner._queue;
-  parentQueue.addChild((owner._queue = queue));
-  onCleanup(() => parentQueue.removeChild(owner._queue!));
-  return compute(owner, fn, null);
 }

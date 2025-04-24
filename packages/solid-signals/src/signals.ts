@@ -1,4 +1,4 @@
-import { STATE_DIRTY, STATE_DISPOSED } from "./core/constants.js";
+import { STATE_DISPOSED } from "./core/constants.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   Computation,
@@ -6,8 +6,6 @@ import {
   EagerComputation,
   Effect,
   ERROR_BIT,
-  flatten,
-  incrementClock,
   NotReadyError,
   onCleanup,
   Owner,
@@ -172,41 +170,45 @@ export function createAsync<T>(
   value?: T,
   options?: MemoOptions<T>
 ): Accessor<T> {
-  const node = new EagerComputation(value as T, (p?: T) => {
-    const source = compute(p);
-    const isPromise = source instanceof Promise;
-    const iterator = source[Symbol.asyncIterator];
-    if (!isPromise && !iterator) {
-      return source as T;
-    }
-    let abort = false;
-    onCleanup(() => (abort = true));
-    if (isPromise) {
-      source.then(
-        value3 => {
-          if (abort) return;
-          node.write(value3, 0, true);
-        },
-        error => {
-          if (abort) return;
-          node._setError(error);
-        }
-      );
-    } else {
-      (async () => {
-        try {
-          for await (let value3 of source as AsyncIterable<T>) {
+  const node = new EagerComputation(
+    value as T,
+    (p?: T) => {
+      const source = compute(p);
+      const isPromise = source instanceof Promise;
+      const iterator = source[Symbol.asyncIterator];
+      if (!isPromise && !iterator) {
+        return source as T;
+      }
+      let abort = false;
+      onCleanup(() => (abort = true));
+      if (isPromise) {
+        source.then(
+          value3 => {
             if (abort) return;
             node.write(value3, 0, true);
+          },
+          error => {
+            if (abort) return;
+            node._setError(error);
           }
-        } catch (error: any) {
-          if (abort) return;
-          node.write(error, ERROR_BIT);
-        }
-      })();
-    }
-    throw new NotReadyError();
-  }, options);
+        );
+      } else {
+        (async () => {
+          try {
+            for await (let value3 of source as AsyncIterable<T>) {
+              if (abort) return;
+              node.write(value3, 0, true);
+            }
+          } catch (error: any) {
+            if (abort) return;
+            node.write(error, ERROR_BIT);
+          }
+        })();
+      }
+      throw new NotReadyError();
+    },
+    options
+  );
   return node.wait.bind(node) as Accessor<T>;
 }
 
@@ -319,65 +321,6 @@ export function createRoot<T>(
  */
 export function runWithOwner<T>(owner: Owner | null, run: () => T): T {
   return compute(owner, run, null);
-}
-
-/**
- * Switches to fallback whenever an error is thrown within the context of the child scopes
- * @param fn boundary for the error
- * @param fallback an error handler that receives the error
- *
- * * If the error is thrown again inside the error handler, it will trigger the next available parent handler
- *
- * @description https://docs.solidjs.com/reference/reactive-utilities/catch-error
- */
-export function createErrorBoundary<T, U>(
-  fn: () => T,
-  fallback: (error: unknown, reset: () => void) => U
-): Accessor<T | U> {
-  const owner = new Owner();
-  const error = new Computation<{ _error: any } | undefined>(undefined, null);
-  const nodes = new Set<Owner>();
-  function handler(err: unknown, node: Owner) {
-    if (nodes.has(node)) return;
-    compute(
-      node,
-      () =>
-        onCleanup(() => {
-          nodes.delete(node);
-          if (!nodes.size) error.write(undefined);
-        }),
-      null
-    );
-    nodes.add(node);
-    if (nodes.size === 1) error.write({ _error: err });
-  }
-  owner.addErrorHandler(handler);
-  const guarded = compute(
-    owner,
-    () => {
-      const c = new Computation(undefined, fn);
-      const f = new EagerComputation(undefined, () => flatten(c.read()), { defer: true });
-      f._setError = function (error) {
-        this.handleError(error);
-      };
-      return f;
-    },
-    null
-  );
-  const decision = new Computation(null, () => {
-    if (!error.read()) {
-      const resolved = guarded.read();
-      if (!error.read()) return resolved;
-    }
-    return fallback(error.read()!._error, () => {
-      incrementClock();
-      for (let node of nodes) {
-        (node as any)._state = STATE_DIRTY;
-        (node as any)._queue?.enqueue((node as any)._type, node);
-      }
-    });
-  });
-  return decision.read.bind(decision);
 }
 
 /**

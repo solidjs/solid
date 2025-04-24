@@ -10,7 +10,7 @@ import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { EffectError } from "./error.js";
 import { ERROR_BIT, LOADING_BIT } from "./flags.js";
 import { getClock } from "./scheduler.js";
-import type { SuspenseQueue } from "./suspense.js";
+import type { SuspenseQueue } from "./boundaries.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -134,7 +134,7 @@ export class EagerComputation<T = any> extends Computation<T> {
 
 export class ProjectionComputation extends Computation {
   constructor(compute: () => void) {
-    super(null, compute);
+    super(undefined, compute);
     if (__DEV__ && !this._parent)
       console.warn("Eager Computations created outside a reactive context will never be disposed");
   }

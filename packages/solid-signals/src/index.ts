@@ -8,7 +8,6 @@ export {
   createContext,
   flatten,
   flushSync,
-  createBoundary,
   getContext,
   setContext,
   hasContext,
@@ -22,6 +21,7 @@ export {
   latest,
   tryCatch,
   runWithObserver,
+  createErrorBoundary,
   createSuspense,
   SUPPORTS_PROXY
 } from "./core/index.js";
