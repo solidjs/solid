@@ -124,6 +124,7 @@ export class Owner {
       current = next;
     }
 
+    this._childCount = 0;
     if (self) this._disposeNode();
     if (current) current._prevSibling = !self ? this : this._prevSibling;
     if (head) head._nextSibling = current;
