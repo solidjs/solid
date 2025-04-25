@@ -31,6 +31,7 @@ export interface IQueue {
   addChild(child: IQueue): void;
   removeChild(child: IQueue): void;
   created: number;
+  notify(...args: any[]): boolean;
   _parent: IQueue | null;
 }
 
@@ -82,6 +83,10 @@ export class Queue implements IQueue {
   removeChild(child: IQueue) {
     const index = this._children.indexOf(child);
     if (index >= 0) this._children.splice(index, 1);
+  }
+  notify(...args: any[]) {
+    if (this._parent) return this._parent.notify(...args);
+    return false;
   }
 }
 

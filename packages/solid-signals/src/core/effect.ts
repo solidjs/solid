@@ -10,7 +10,6 @@ import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { EffectError } from "./error.js";
 import { ERROR_BIT, LOADING_BIT } from "./flags.js";
 import { getClock } from "./scheduler.js";
-import type { CollectionQueue } from "./boundaries.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -54,8 +53,7 @@ export class Effect<T = any> extends Computation<T> {
       const currentFlags = this._stateFlags;
       this._stateFlags = flags;
       if (this._type === EFFECT_RENDER) {
-        (this._queue as CollectionQueue)._update?.(this, LOADING_BIT, flags);
-        (this._queue as CollectionQueue)._update?.(this, ERROR_BIT, flags);
+        this._queue.notify(this, LOADING_BIT | ERROR_BIT, flags);
       }
     }
     if (value === UNCHANGED) return this._value as T;
@@ -76,7 +74,7 @@ export class Effect<T = any> extends Computation<T> {
   override _setError(error: unknown): void {
     this._error = error;
     this._cleanup?.();
-    (this._queue as CollectionQueue)._update?.(this, LOADING_BIT, 0);
+    this._queue.notify(this, LOADING_BIT, 0);
     this._stateFlags = ERROR_BIT;
     if (this._type === EFFECT_USER) {
       try {
@@ -87,7 +85,7 @@ export class Effect<T = any> extends Computation<T> {
         error = e;
       }
     }
-    if (!(this._queue as CollectionQueue)._update?.(this, ERROR_BIT, ERROR_BIT)) throw error;
+    if (!this._queue.notify(this, ERROR_BIT, ERROR_BIT)) throw error;
   }
 
   override _disposeNode(): void {
@@ -106,7 +104,7 @@ export class Effect<T = any> extends Computation<T> {
       try {
         this._cleanup = this._effect(this._value!, this._prevValue) as any;
       } catch (e) {
-        if (!(this._queue as CollectionQueue)._update?.(this, ERROR_BIT, ERROR_BIT)) throw e;
+        if (!this._queue.notify(this, ERROR_BIT, ERROR_BIT)) throw e;
       } finally {
         this._prevValue = this._value;
         this._modified = false;

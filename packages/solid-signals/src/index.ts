@@ -23,6 +23,7 @@ export {
   runWithObserver,
   createErrorBoundary,
   createSuspense,
+  createBoundary,
   SUPPORTS_PROXY
 } from "./core/index.js";
 export type {
