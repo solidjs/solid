@@ -31,9 +31,11 @@ export interface IQueue {
   addChild(child: IQueue): void;
   removeChild(child: IQueue): void;
   created: number;
+  _parent: IQueue | null;
 }
 
 export class Queue implements IQueue {
+  _parent: IQueue | null = null;
   _running: boolean = false;
   _queues: [Computation[], Effect[], Effect[]] = [[], [], []];
   _children: IQueue[] = [];
@@ -75,6 +77,7 @@ export class Queue implements IQueue {
   }
   addChild(child: IQueue) {
     this._children.push(child);
+    child._parent = this;
   }
   removeChild(child: IQueue) {
     const index = this._children.indexOf(child);

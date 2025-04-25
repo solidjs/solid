@@ -1,16 +1,14 @@
 import { STATE_DIRTY } from "./constants.js";
 import { Computation, compute, flatten } from "./core.js";
 import { EagerComputation, type Effect } from "./effect.js";
-import { LOADING_BIT } from "./flags.js";
+import { ERROR_BIT, LOADING_BIT } from "./flags.js";
 import { onCleanup, Owner } from "./owner.js";
 import { incrementClock, Queue, type IQueue } from "./scheduler.js";
 
-function createBoundary<T>(owner: Owner, fn: () => T, queue?: IQueue): Computation<T> {
-  if (queue) {
-    const parentQueue = owner._queue;
-    parentQueue.addChild((owner._queue = queue));
-    onCleanup(() => parentQueue.removeChild(owner._queue!));
-  }
+function createBoundary<T>(owner: Owner, fn: () => T, queue: IQueue): Computation<T> {
+  const parentQueue = owner._queue;
+  parentQueue.addChild((owner._queue = queue));
+  onCleanup(() => parentQueue.removeChild(owner._queue!));
   return compute(
     owner,
     () => {
@@ -21,80 +19,75 @@ function createBoundary<T>(owner: Owner, fn: () => T, queue?: IQueue): Computati
   );
 }
 
-function createDecision(main, condition, fallback) {
+function createCollectionBoundary<T>(
+  type: number,
+  fn: () => any,
+  fallback: (queue: CollectionQueue) => any
+) {
+  const owner = new Owner();
+  const queue = new CollectionQueue(type);
+  const tree = createBoundary(owner, fn, queue);
+  const ogWrite = tree.write;
+  tree.write = function <T>(value: T, flags = 0): T {
+    ogWrite.call(this, value, flags & ~type);
+    (this._queue as CollectionQueue)._update(this as any, type, flags);
+    return this._value;
+  };
   const decision = new Computation(undefined, () => {
-    if (!condition.read()) {
-      const resolved = main.read();
-      if (!condition.read()) return resolved;
+    if (!queue._fallback.read()) {
+      const resolved = tree.read();
+      if (!queue._fallback.read()) return resolved;
     }
-    return fallback();
+    return fallback(queue);
   });
   return decision.read.bind(decision);
 }
 
-export class SuspenseQueue extends Queue {
+export class CollectionQueue extends Queue {
+  _collectionType: number;
   _nodes: Set<Effect> = new Set();
   _fallback = new Computation(false, null);
+  constructor(type: number) {
+    super();
+    this._collectionType = type;
+  }
   run(type: number) {
     if (type && this._fallback.read()) return;
     return super.run(type);
   }
-  _update(node: Effect) {
-    if (node._stateFlags & LOADING_BIT) {
+  _update(node: Effect, type: number, flags: number) {
+    if (type !== this._collectionType) {
+      let parent: IQueue | null = this;
+      while ((parent = parent._parent)) {
+        if ((parent as CollectionQueue)._collectionType === type) {
+          return (parent as CollectionQueue)._update(node, type, flags);
+        }
+      }
+      return false;
+    }
+    if (flags & this._collectionType) {
       this._nodes.add(node);
       if (this._nodes.size === 1) this._fallback.write(true);
     } else {
       this._nodes.delete(node);
       if (this._nodes.size === 0) this._fallback.write(false);
     }
+    return true;
   }
 }
 
 export function createSuspense(fn: () => any, fallback: () => any) {
-  const owner = new Owner();
-  const queue = new SuspenseQueue();
-  const tree = createBoundary(owner, fn, queue);
-  const ogWrite = tree.write;
-  tree.write = function <T>(value: T, flags = 0): T {
-    const currentFlags = this._stateFlags;
-    const dirty = this._state === STATE_DIRTY;
-    ogWrite.call(this, value, flags);
-    if (dirty && (flags & LOADING_BIT) !== (currentFlags & LOADING_BIT)) {
-      (this._queue as SuspenseQueue)._update?.(this as any);
-    }
-    return this._value as T;
-  };
-  return createDecision(tree, queue._fallback, fallback);
+  return createCollectionBoundary(LOADING_BIT, fn, () => fallback());
 }
 
-export function createErrorBoundary<T, U>(
-  fn: () => T,
+export function createErrorBoundary<U>(
+  fn: () => any,
   fallback: (error: unknown, reset: () => void) => U
 ) {
-  const owner = new Owner();
-  const error = new Computation<{ _error: any } | undefined>(undefined, null);
-  const nodes = new Set<Owner>();
-  function handler(err: unknown, node: Owner) {
-    if (nodes.has(node)) return;
-    compute(
-      node,
-      () =>
-        onCleanup(() => {
-          nodes.delete(node);
-          if (!nodes.size) error.write(undefined);
-        }),
-      null
-    );
-    nodes.add(node);
-    if (nodes.size === 1) error.write({ _error: err });
-  }
-  owner.addErrorHandler(handler);
-  const tree = createBoundary(owner, fn);
-  tree._setError = tree.handleError;
-  return createDecision(tree, error, () =>
-    fallback(error.read()!._error, () => {
+  return createCollectionBoundary(ERROR_BIT, fn, queue =>
+    fallback(queue._nodes!.values().next().value!._error, () => {
       incrementClock();
-      for (let node of nodes) {
+      for (let node of queue._nodes) {
         (node as any)._state = STATE_DIRTY;
         (node as any)._queue?.enqueue((node as any)._type, node);
       }

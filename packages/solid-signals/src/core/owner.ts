@@ -74,8 +74,8 @@ export class Owner {
 
   _disposal: Disposable | Disposable[] | null = null;
   _context: ContextRecord = defaultContext;
-  _handlers: ErrorHandler[] | null = null;
   _queue: IQueue = globalQueue;
+
   _siblingCount: number | null = null;
   _childCount: number = 0;
   id: string | null = null;
@@ -100,10 +100,6 @@ export class Owner {
 
     if (child._context !== this._context) {
       child._context = { ...this._context, ...child._context };
-    }
-
-    if (this._handlers) {
-      child._handlers = !child._handlers ? this._handlers : [...child._handlers, ...this._handlers];
     }
 
     if (this._queue) child._queue = this._queue;
@@ -135,7 +131,6 @@ export class Owner {
     this._parent = null;
     this._prevSibling = null;
     this._context = defaultContext;
-    this._handlers = null;
     this._state = STATE_DISPOSED;
     this.emptyDisposal();
   }
@@ -153,29 +148,6 @@ export class Owner {
     }
 
     this._disposal = null;
-  }
-
-  addErrorHandler(handler: ErrorHandler): void {
-    this._handlers = this._handlers ? [handler, ...this._handlers] : [handler];
-  }
-
-  handleError(error: unknown): void {
-    if (!this._handlers) throw error;
-
-    let i = 0,
-      len = this._handlers.length;
-
-    for (i = 0; i < len; i++) {
-      try {
-        this._handlers[i](error, this as any);
-        break; // error was handled.
-      } catch (e) {
-        error = e;
-      }
-    }
-
-    // Error was not handled as we exhausted all handlers.
-    if (i === len) throw error;
   }
 
   getNextChildId(): string {
