@@ -29,6 +29,8 @@ export {
 export type {
   ErrorHandler,
   SignalOptions,
+  BoundaryMode,
+  TryCatchResult,
   Context,
   ContextRecord,
   Disposable,
