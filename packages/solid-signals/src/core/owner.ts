@@ -76,23 +76,20 @@ export class Owner {
   _context: ContextRecord = defaultContext;
   _queue: IQueue = globalQueue;
 
-  _siblingCount: number | null = null;
   _childCount: number = 0;
   id: string | null = null;
 
   constructor(id: string | null = null, skipAppend = false) {
     this.id = id;
-    if (currentOwner && !skipAppend) currentOwner.append(this);
+    if (currentOwner) {
+      if (!id && currentOwner.id) this.id = currentOwner.getNextChildId();
+      !skipAppend && currentOwner.append(this);
+    }
   }
 
   append(child: Owner): void {
     child._parent = this;
     child._prevSibling = this;
-
-    if (this.id) {
-      child._siblingCount = this._nextSibling ? this._nextSibling._siblingCount! + 1 : 0;
-      child.id = formatId(this.id, child._siblingCount);
-    }
 
     if (this._nextSibling) this._nextSibling._prevSibling = child;
     child._nextSibling = this._nextSibling;
@@ -151,7 +148,7 @@ export class Owner {
   }
 
   getNextChildId(): string {
-    if (this.id) return formatId(this.id + "-", this._childCount++);
+    if (this.id) return formatId(this.id, this._childCount++);
     throw new Error("Cannot get child id from owner without an id");
   }
 }

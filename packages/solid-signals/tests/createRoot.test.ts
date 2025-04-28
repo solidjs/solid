@@ -165,9 +165,9 @@ it("should generate ids if id is provided", () => {
 
   expect(o!.id).toEqual("$");
   expect(m!.id).toEqual("$0");
-  expect(c!).toEqual("$0-0");
-  expect(m2!.id).toEqual("$00");
+  expect(c!).toEqual("$00");
+  expect(m2!.id).toEqual("$01");
   expect(r!.id).toEqual("$1");
-  expect(c2!).toEqual("$00-0");
-  expect(c3!).toEqual("$00-1");
+  expect(c2!).toEqual("$010");
+  expect(c3!).toEqual("$011");
 });
