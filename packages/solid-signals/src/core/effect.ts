@@ -143,5 +143,6 @@ export class ProjectionComputation extends Computation {
     if (!skipQueue && (this._state === STATE_CLEAN || (this._state === STATE_CHECK && this._forceNotify))) this._queue.enqueue(EFFECT_PURE, this);
 
     super._notify(state, true);
+    this._forceNotify = !!skipQueue; // they don't need to be forced themselves unless from above
   }
 }
