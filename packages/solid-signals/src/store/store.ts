@@ -140,7 +140,7 @@ function ownKeys(target: StoreNode) {
   return Reflect.ownKeys(target[STORE_VALUE]);
 }
 
-const Writing = new Set<Object>();
+let Writing: Set<Object> | null = null;
 const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $TARGET) return target;
@@ -157,7 +157,7 @@ const proxyTraps: ProxyHandler<StoreNode> = {
       const desc = Object.getOwnPropertyDescriptor(storeValue, property);
       if (desc && desc.get) return desc.get.call(receiver);
     }
-    if (Writing.has(storeValue)) {
+    if (Writing?.has(storeValue)) {
       const value = tracked ? tracked._value : storeValue[property];
       return isWrappable(value) ? (Writing.add(value[$RAW] || value), wrap(value)) : value;
     }
@@ -186,13 +186,13 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   set(target, property, value) {
-    Writing.has(target[STORE_VALUE]) &&
+    Writing?.has(target[STORE_VALUE]) &&
       setProperty(target[STORE_VALUE], property, unwrap(value, false));
     return true;
   },
 
   deleteProperty(target, property) {
-    Writing.has(target[STORE_VALUE]) && setProperty(target[STORE_VALUE], property, undefined, true);
+    Writing?.has(target[STORE_VALUE]) && setProperty(target[STORE_VALUE], property, undefined, true);
     return true;
   },
 
@@ -292,11 +292,14 @@ export function createStore<T extends object = {}>(
   const unwrappedStore = unwrap(store!);
   let wrappedStore = wrap(unwrappedStore);
   const setStore = (fn: (draft: T) => void): void => {
+    const prevWriting = Writing;
+    Writing = new Set();
+    Writing.add(unwrappedStore);
     try {
-      Writing.add(unwrappedStore);
       fn(wrappedStore);
     } finally {
       Writing.clear();
+      Writing = prevWriting;
     }
   };
 

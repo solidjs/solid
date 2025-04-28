@@ -105,6 +105,45 @@ describe("Projection basics", () => {
     expect(projection.bar).toBe("baz");
     expect(spy).toHaveBeenCalledTimes(2);
   });
+
+  it("should work for chained projections", () => {
+    const [$x, setX] = createSignal(1);
+
+    const tmp = vi.fn();
+
+    createRoot(() => {
+      const a = createProjection(
+        state => {
+          state.v = $x();
+        },
+        {
+          v: 0
+        }
+      );
+
+      const b = createProjection(
+        state => {
+          state.v = a.v;
+        },
+        {
+          v: 0
+        }
+      );
+
+      createRenderEffect(() => b.v, (v, p) => tmp(v, p));
+    });
+    flushSync();
+
+    expect(tmp).toBeCalledTimes(1);
+    expect(tmp).toBeCalledWith(1, undefined);
+
+    tmp.mockReset();
+    setX(2);
+    flushSync();
+
+    expect(tmp).toBeCalledWith(2, 1);
+    expect(tmp);
+  });
 });
 
 describe("selection with projections", () => {

@@ -2,6 +2,7 @@ import {
   EFFECT_PURE,
   EFFECT_RENDER,
   EFFECT_USER,
+  STATE_CHECK,
   STATE_CLEAN,
   STATE_DIRTY,
   STATE_DISPOSED
@@ -139,7 +140,7 @@ export class ProjectionComputation extends Computation {
   _notify(state: number, skipQueue?: boolean): void {
     if (this._state >= state && !this._forceNotify) return;
 
-    if (this._state === STATE_CLEAN && !skipQueue) this._queue.enqueue(EFFECT_PURE, this);
+    if (!skipQueue && (this._state === STATE_CLEAN || (this._state === STATE_CHECK && this._forceNotify))) this._queue.enqueue(EFFECT_PURE, this);
 
     super._notify(state, true);
   }
