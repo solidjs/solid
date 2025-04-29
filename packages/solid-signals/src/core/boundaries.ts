@@ -44,7 +44,7 @@ class ConditionalQueue extends Queue {
     this._disabled = disabled;
   }
   run(type: number) {
-    if (type && this._disabled.read()) return;
+    if (!type || this._disabled.read()) return;
     return super.run(type);
   }
   notify(node: Effect, type: number, flags: number) {
@@ -68,6 +68,10 @@ export class CollectionQueue extends Queue {
   constructor(type: number) {
     super();
     this._collectionType = type;
+  }
+  run(type: number) {
+    if (!type || this._disabled.read()) return;
+    return super.run(type);
   }
   notify(node: Effect, type: number, flags: number) {
     if (!(type & this._collectionType)) return super.notify(node, type, flags);
