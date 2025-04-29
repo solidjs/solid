@@ -161,13 +161,13 @@ it("should generate ids if id is provided", () => {
       r = getOwner();
       memo()();
     }, () => {});
-  }, { id: "$" });
+  }, { id: "" });
 
-  expect(o!.id).toEqual("$");
-  expect(m!.id).toEqual("$0");
-  expect(c!).toEqual("$00");
-  expect(m2!.id).toEqual("$01");
-  expect(r!.id).toEqual("$1");
-  expect(c2!).toEqual("$010");
-  expect(c3!).toEqual("$011");
+  expect(o!.id).toEqual("");
+  expect(m!.id).toEqual("0");
+  expect(c!).toEqual("00");
+  expect(m2!.id).toEqual("01");
+  expect(r!.id).toEqual("1");
+  expect(c2!).toEqual("010");
+  expect(c3!).toEqual("011");
 });

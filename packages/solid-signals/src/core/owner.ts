@@ -82,7 +82,7 @@ export class Owner {
   constructor(id: string | null = null, skipAppend = false) {
     this.id = id;
     if (currentOwner) {
-      if (!id && currentOwner.id) this.id = currentOwner.getNextChildId();
+      if (id == null && currentOwner.id != null) this.id = currentOwner.getNextChildId();
       !skipAppend && currentOwner.append(this);
     }
   }
@@ -148,7 +148,7 @@ export class Owner {
   }
 
   getNextChildId(): string {
-    if (this.id) return formatId(this.id, this._childCount++);
+    if (this.id != null) return formatId(this.id, this._childCount++);
     throw new Error("Cannot get child id from owner without an id");
   }
 }
