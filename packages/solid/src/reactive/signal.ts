@@ -743,9 +743,13 @@ export function createResource<T, S, R>(
       }
     }
   });
-  if (dynamic) createComputed(() => load(false));
+  let owner = Owner;
+  if (dynamic) createComputed(() => ((owner = Owner), load(false)));
   else load(false);
-  return [read as Resource<T>, { refetch: load, mutate: setValue }];
+  return [
+    read as Resource<T>,
+    { refetch: info => runWithOwner(owner, () => load(info)), mutate: setValue }
+  ];
 }
 
 export interface DeferredOptions<T> {
