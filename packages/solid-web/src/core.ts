@@ -7,5 +7,7 @@ export {
   sharedConfig,
   untrack,
   merge as mergeProps,
-  flatten
+  flatten,
+  ssrHandleError,
+  ssrRunInScope
 } from "solid-js";

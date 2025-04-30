@@ -1,9 +1,19 @@
-import { flatten, getContext, setContext, type Accessor, type Setter } from "@solidjs/signals";
+import {
+  flatten,
+  getContext,
+  Owner,
+  runWithOwner,
+  setContext,
+  type Accessor,
+  type Setter
+} from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
 import type { ChildrenReturn, Context, EffectOptions, FlowProps } from "../index.js";
-import { onCleanup, createSignal, createMemo, untrack } from "./signals.js";
+import { onCleanup, createSignal, createMemo, createRoot, createEffect } from "./signals.js";
 
-export function onMount(fn: () => void) {}
+export function onMount(fn: () => void) {
+  (createEffect as any)();
+}
 
 // Context API
 
@@ -13,11 +23,8 @@ export function createContext<T>(
 ): Context<T | undefined> {
   const id = Symbol((options && options.name) || "");
   function provider(props: FlowProps<{ value: unknown }>) {
-    return createMemo(() => {
-      setContext(
-        provider,
-        untrack(() => props.value)
-      );
+    return createRoot(() => {
+      setContext(provider, props.value);
       return children(() => props.children);
     });
   }
@@ -79,4 +86,10 @@ export function from<T>(
     onCleanup(clean);
   }
   return s;
+}
+
+export function ssrRunInScope<T>(fn: () => T): () => T {
+  return function (this: Owner) {
+    return runWithOwner(this, fn);
+  }.bind(new Owner());
 }

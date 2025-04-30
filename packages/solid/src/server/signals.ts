@@ -1,6 +1,6 @@
-import { NotReadyError, Owner, runWithOwner } from "@solidjs/signals";
+import { getOwner, NotReadyError, Owner, runWithOwner } from "@solidjs/signals";
 
-export { runWithOwner, onCleanup } from "@solidjs/signals";
+export { createRoot, runWithOwner, onCleanup, getOwner } from "@solidjs/signals";
 
 import type {
   Accessor,
@@ -13,6 +13,7 @@ import type {
   Signal,
   SignalOptions
 } from "@solidjs/signals";
+import { sharedConfig } from "./rendering.js";
 
 let Observer: Computation | null = null;
 
@@ -24,11 +25,6 @@ function run<T>(ownerObserver: Owner, fn: () => T) {
   } finally {
     Observer = prevObserver;
   }
-}
-
-export function createRoot<T>(fn: ((dispose: () => void) => T) | (() => T)): T {
-  const owner = new Owner();
-  return runWithOwner(owner, !fn.length ? (fn as () => T) : () => fn(() => owner.dispose()));
 }
 
 export function createSignal<T>(): Signal<T | undefined>;
@@ -55,6 +51,8 @@ export function createSignal<T>(
     });
     return [() => memo()[0](), (v => memo()[1](v as any)) as Setter<T | undefined>];
   }
+  let o = getOwner();
+  if (o?.id) o?.getNextChildId();
   return [
     () => first as T,
     v => {
@@ -108,7 +106,7 @@ export function createRenderEffect<Next, Init>(
     );
   } catch (err) {
     // TODO: Vet Error Handling
-    owner.handleError(err);
+    // owner.handleError(err);
   }
 }
 
@@ -130,50 +128,98 @@ export function createEffect<Next, Init>(
   error?: (err: unknown) => void,
   value?: Init,
   options?: EffectOptions
-): void {}
+): void {
+  let o = getOwner();
+  if (o?.id) o?.getNextChildId();
+}
 
 export function createAsync<T>(
   compute: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
   value?: T,
-  options?: MemoOptions<T>
+  options?: MemoOptions<T> & { deferStream?: boolean }
 ): Accessor<T> {
+  const ctx = sharedConfig.context!;
+  const o = new Owner();
+  const id = o.id!;
+  const resource = ctx.resources[id];
+  if (resource) return resource;
   let uninitialized = value === undefined;
-  const source = compute(value);
-  const isPromise = source instanceof Promise;
-  const iterator = (source as AsyncIterable<T>)[Symbol.asyncIterator];
-  if (isPromise) {
-    source.then(v => (value = v));
-  } else if (iterator) {
-    iterator()
-      .next()
-      .then(v => (value = v.value));
-  } else return () => source as T;
-  return () => {
-    if (value === undefined && uninitialized) throw new NotReadyError();
-    return value as T;
-  };
+  let source: Promise<T> | AsyncIterable<T> | T;
+  function processSource() {
+    try {
+      source = run(o, () => compute(value));
+    } catch (err) {
+      if (err instanceof NotReadyError) {
+        (source = err.cause as Promise<any>)!.then(() => processSource()) as any;
+      }
+      return;
+    }
+
+    const iterator = (source as AsyncIterable<T>)[Symbol.asyncIterator];
+    if (source instanceof Promise) {
+      source.then(v => {
+        (source as any).status = "success";
+        return ((source as any).value = value = v);
+      });
+      if (ctx.serialize) ctx.serialize(id, source, options?.deferStream);
+      return;
+    } else if (iterator) {
+      source = iterator()
+        .next()
+        .then(v => {
+          (source as any).status = "success";
+          return ((source as any).value = value = v.value);
+        });
+      if (ctx.serialize) ctx.serialize(id, iterator(), options?.deferStream);
+      return;
+    }
+    return () => source as T;
+  }
+
+  return (
+    processSource() ||
+    (ctx.resources[id] = () => {
+      if (value === undefined && uninitialized) {
+        const error = new NotReadyError();
+        error.cause = source;
+        throw error;
+      }
+      return value as T;
+    })
+  );
 }
 
-export function isPending() {
-  // TODO: Implement isPending
+export function isPending(fn: () => any, fallback?: boolean): boolean {
+  try {
+    fn();
+    return false;
+  } catch (err) {
+    if (err instanceof NotReadyError && arguments.length > 1) {
+      return fallback!;
+    }
+    throw err;
+  }
 }
 
-export function latest() {
-  // TODO: Implement latest
+export function latest<T>(fn: () => T, fallback?: T): T | undefined {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof NotReadyError && arguments.length > 1) {
+      return fallback!;
+    }
+    throw err;
+  }
 }
 
 export function resolve() {
-  // TODO: Implement resolve
+  throw new Error("resolve is not implemented on the server");
 }
 
 export function flushSync() {}
 
 export function getObserver() {
   return Observer;
-}
-
-export function getOwner() {
-  return Owner;
 }
 
 export function runWithObserver<T>(o: Computation, fn: () => T): T | undefined {

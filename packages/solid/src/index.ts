@@ -2,7 +2,6 @@ export {
   $PROXY,
   $TRACK,
   $RAW,
-  catchError,
   createAsync,
   createEffect,
   createMemo,
@@ -28,12 +27,14 @@ export {
   resolve,
   runWithObserver,
   runWithOwner,
+  tryCatch,
   untrack,
   unwrap
 } from "@solidjs/signals";
 
 export type {
   Accessor,
+  BoundaryMode,
   ComputeFunction,
   EffectFunction,
   EffectOptions,
@@ -48,7 +49,8 @@ export type {
   Store,
   SolidStore,
   StoreNode,
-  StoreSetter
+  StoreSetter,
+  TryCatchResult
 } from "@solidjs/signals";
 
 // needs wrappers
@@ -68,6 +70,9 @@ export * from "./client/observable.js";
 export * from "./client/component.js";
 export * from "./client/flow.js";
 export { sharedConfig } from "./client/hydration.js";
+// stub
+export function ssrHandleError() {}
+export function ssrRunInScope() {}
 
 import type { JSX } from "./jsx.js";
 type JSXElement = JSX.Element;

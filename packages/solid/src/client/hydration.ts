@@ -1,4 +1,6 @@
-export type HydrationContext = { id: string; count: number };
+import { getOwner } from "@solidjs/signals";
+
+export type HydrationContext = {};
 
 type SharedConfig = {
   context?: HydrationContext;
@@ -10,7 +12,7 @@ type SharedConfig = {
   done?: boolean;
   count?: number;
   // effects?: Computation<any, any>[];
-  getContextId(): string;
+  // getContextId(): string;
   getNextContextId(): string;
 };
 
@@ -19,19 +21,12 @@ export const sharedConfig: SharedConfig = {
   registry: undefined,
   // effects: undefined,
   done: false,
-  getContextId() {
-    return getContextId(this.context!.count);
-  },
   getNextContextId() {
-    return getContextId(this.context!.count++);
+    const o = getOwner();
+    if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+    return o.getNextChildId();
   }
 };
-
-function getContextId(count: number) {
-  const num = String(count),
-    len = num.length - 1;
-  return sharedConfig.context!.id + (len ? String.fromCharCode(96 + len) : "") + num;
-}
 
 export function setHydrateContext(context?: HydrationContext): void {
   sharedConfig.context = context;
@@ -39,8 +34,6 @@ export function setHydrateContext(context?: HydrationContext): void {
 
 export function nextHydrateContext(): HydrationContext | undefined {
   return {
-    ...sharedConfig.context,
-    id: sharedConfig.getNextContextId(),
-    count: 0
+    ...sharedConfig.context
   };
 }

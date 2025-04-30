@@ -1,6 +1,5 @@
-import { createAsync } from "solid-js";
-import Profile from "./Profile";
-// const Profile = lazy(() => import("./Profile"));
+import { createAsync, lazy } from "solid-js";
+const Profile = lazy(() => import("./Profile"));
 
 // this component lazy loads data and code in parallel
 export default () => {
@@ -12,9 +11,9 @@ export default () => {
       });
     }),
     info = createAsync(() => {
+      user();
       // simulate cascading data loading
       console.log("LOAD INFO");
-      user();
       return new Promise(res => {
         setTimeout(
           () =>

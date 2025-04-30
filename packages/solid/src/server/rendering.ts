@@ -1,58 +1,57 @@
-import type { Accessor } from "@solidjs/signals";
-import { mapArray, repeat } from "./signals.js";
+import {
+  NotReadyError,
+  Owner,
+  setContext,
+  getContext,
+  type Accessor,
+  type Context,
+  flatten,
+  getOwner
+} from "@solidjs/signals";
+import { createMemo, mapArray, repeat, runWithOwner } from "./signals.js";
 import type { JSX } from "../jsx.js";
-import type { Component } from "../index.js";
+import type { Component, ComponentProps } from "../index.js";
+import { children } from "./reactive.js";
+
+const SuspenseContext: Context<SuspenseContextType | null> = {
+  id: Symbol("SuspenseContext"),
+  defaultValue: null
+};
+
+const ErrorContext: Context<Function | null> = {
+  id: Symbol("ErrorContext"),
+  defaultValue: null
+};
+
+export function ssrHandleError(err: any) {
+  if (err instanceof NotReadyError) {
+    getContext(SuspenseContext)?.promises.add(err.cause as Promise<any>);
+    return true;
+  }
+  const handler = getContext(ErrorContext);
+  if (handler) {
+    handler(err);
+    return true;
+  }
+}
 
 type SharedConfig = {
   context?: HydrationContext;
-  getContextId(): string;
   getNextContextId(): string;
 };
 export const sharedConfig: SharedConfig = {
-  context: undefined,
-  getContextId() {
-    if (!this.context) throw new Error(`getContextId cannot be used under non-hydrating context`);
-    return getContextId(this.context.count);
-  },
   getNextContextId() {
-    if (!this.context)
-      throw new Error(`getNextContextId cannot be used under non-hydrating context`);
-    return getContextId(this.context.count++);
+    const o = getOwner();
+    if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+    return o.getNextChildId();
   }
 };
-
-function getContextId(count: number) {
-  const num = String(count),
-    len = num.length - 1;
-  return sharedConfig.context!.id + (len ? String.fromCharCode(96 + len) : "") + num;
-}
-
-function setHydrateContext(context?: HydrationContext): void {
-  sharedConfig.context = context;
-}
-
-function nextHydrateContext(): HydrationContext | undefined {
-  return sharedConfig.context
-    ? {
-        ...sharedConfig.context,
-        id: sharedConfig.getNextContextId(),
-        count: 0
-      }
-    : undefined;
-}
 
 export function createUniqueId(): string {
   return sharedConfig.getNextContextId();
 }
 
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
-  if (sharedConfig.context && !sharedConfig.context.noHydrate) {
-    const c = sharedConfig.context;
-    setHydrateContext(nextHydrateContext());
-    const r = Comp(props || ({} as T));
-    setHydrateContext(c);
-    return r;
-  }
   return Comp(props || ({} as T));
 }
 
@@ -101,17 +100,22 @@ export function Switch(props: {
   fallback?: string;
   children: MatchProps<unknown> | MatchProps<unknown>[];
 }) {
-  let conditions = props.children;
-  Array.isArray(conditions) || (conditions = [conditions]);
+  const o = getOwner();
+  const conditions = children(() => props.children as any);
+  o!.getNextChildId();
+  return createMemo(() => {
+    let conds: MatchProps<unknown> | MatchProps<unknown>[] = conditions() as any;
+    Array.isArray(conds) || (conds = [conds]);
 
-  for (let i = 0; i < conditions.length; i++) {
-    const w = conditions[i].when;
-    if (w) {
-      const c = conditions[i].children;
-      return typeof c === "function" ? c(() => w) : c;
+    for (let i = 0; i < conds.length; i++) {
+      const w = conds[i].when;
+      if (w) {
+        const c = conds[i].children;
+        return typeof c === "function" ? c(() => w) : c;
+      }
     }
-  }
-  return props.fallback || "";
+    return props.fallback || "";
+  });
 }
 
 type MatchProps<T> = {
@@ -127,20 +131,74 @@ export function ErrorBoundary(props: {
   fallback: string | ((err: any, reset: () => void) => string);
   children: string;
 }) {
-  // TODO: Implement ErrorBoundary
+  const ctx = sharedConfig.context!;
+  let sync = true;
+  return createMemo(() => {
+    const o = getOwner()!;
+    const id = o.id!;
+    let res: any;
+    setContext(
+      ErrorContext,
+      (err: any) => {
+        o.dispose(false);
+        // display fallback
+        ctx.serialize(id, err);
+        runWithOwner(o, () => {
+          const f = props.fallback;
+          res = typeof f === "function" && f.length ? f(err, () => {}) : f;
+          !sync && ctx.replace("e" + id, () => res);
+        });
+      },
+      o
+    );
+    try {
+      res = flatten(props.children);
+    } catch (err) {
+      if (!ssrHandleError(err)) throw err;
+    }
+    sync = false;
+    return { t: `<!--!$e${id}-->${ctx.resolve(res)}<!--!$/e${id}-->` };
+  });
 }
 
 // Suspense Context
 type SuspenseContextType = {
-  resources: Map<string, { loading: boolean; error: any }>;
-  completed: () => void;
+  promises: Set<Promise<any>>;
 };
 
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  // TODO: Implement lazy
-  return {} as any;
+  let p: Promise<{ default: T }> & { resolved?: T };
+  let load = (id?: string) => {
+    if (!p) {
+      p = fn();
+      p.then(mod => (p.resolved = mod.default));
+      if (id) sharedConfig.context!.resources[id] = p;
+    }
+    return p;
+  };
+  const wrap: Component<ComponentProps<T>> & {
+    preload?: () => Promise<{ default: T }>;
+  } = props => {
+    const id = sharedConfig.getNextContextId();
+    let ref = sharedConfig.context!.resources[id];
+    if (ref) p = ref;
+    else load(id);
+    if (p.resolved) return p.resolved(props);
+    const ctx = getContext(SuspenseContext);
+    if (ctx) ctx.promises.add(p);
+    if (sharedConfig.context!.async) {
+      sharedConfig.context!.block(
+        p.then(() => {
+          (p as any).status = "success";
+        })
+      );
+    }
+    return "";
+  };
+  wrap.preload = load;
+  return wrap as T & { preload: () => Promise<{ default: T }> };
 }
 
 export function enableHydration() {}
@@ -149,17 +207,67 @@ type HydrationContext = {
   id: string;
   count: number;
   serialize: (id: string, v: Promise<any> | any, deferStream?: boolean) => void;
-  nextRoot: (v: any) => string;
+  resolve(value: any): string;
   replace: (id: string, replacement: () => any) => void;
   block: (p: Promise<any>) => void;
   resources: Record<string, any>;
-  suspense: Record<string, SuspenseContextType>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
-  lazy: Record<string, Promise<any>>;
   async?: boolean;
   noHydrate: boolean;
 };
 
+function suspenseComplete(c: SuspenseContextType) {
+  for (const r of c.promises.values()) {
+    if (!(r as any).status) return false;
+  }
+  return true;
+}
+
 export function Suspense(props: { fallback?: string; children: string }) {
-  // TODO: Implement Suspense
+  let done: undefined | ((html?: string, error?: any) => boolean);
+  const ctx = sharedConfig.context!;
+  const o = new Owner();
+  const id = o.id!;
+  const value: SuspenseContextType =
+    ctx.resources[id] ||
+    (ctx.resources[id] = {
+      promises: new Set()
+    });
+  setContext(SuspenseContext, value, o);
+
+  function runSuspense() {
+    o.dispose(false);
+    const res = runWithOwner(o, () => {
+      try {
+        return flatten(props.children);
+      } catch (err) {
+        if (!ssrHandleError(err)) throw err;
+      }
+    });
+    if (ctx.async && !suspenseComplete(value))
+      Promise.all(value.promises).then(() => {
+        const res = runSuspense();
+        if (suspenseComplete(value)) {
+          done!(ctx.resolve(res));
+        }
+      });
+    return res;
+  }
+  const res = runSuspense();
+
+  // never suspended
+  if (suspenseComplete(value)) {
+    delete ctx.resources[id];
+    return res;
+  }
+
+  done = ctx.async ? ctx.registerFragment(id) : undefined;
+  if (ctx.async) {
+    const res = {
+      t: `<template id="pl-${id}"></template>${ctx.resolve(props.fallback)}<!--pl-${id}-->`
+    };
+    return res;
+  }
+  ctx.serialize(id, "$$f");
+  return props.fallback;
 }

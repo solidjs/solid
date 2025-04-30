@@ -5,10 +5,12 @@ import {
   mapArray,
   createSuspense,
   createErrorBoundary,
+  createBoundary,
   repeat
 } from "@solidjs/signals";
-import type { Accessor } from "@solidjs/signals";
+import type { Accessor, BoundaryMode } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
+import { J } from "vitest/dist/chunks/environment.LoooBwUu.js";
 
 const narrowedError = (name: string) =>
   IS_DEV
@@ -266,5 +268,12 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
   return createSuspense(
     () => props.children,
     () => props.fallback
+  ) as unknown as JSX.Element;
+}
+
+export function Boundary(props: { mode: BoundaryMode; children: JSX.Element }): JSX.Element {
+  return createBoundary(
+    () => props.children,
+    () => props.mode
   ) as unknown as JSX.Element;
 }

@@ -1,6 +1,6 @@
 import { untrack, createSignal, createAsync, createMemo } from "@solidjs/signals";
 import { $DEVCOMP, IS_DEV, devComponent } from "../client/core.js";
-import { sharedConfig, nextHydrateContext, setHydrateContext } from "./hydration.js";
+import { sharedConfig, setHydrateContext } from "./hydration.js";
 import type { JSX } from "../jsx.js";
 
 let hydrationEnabled = false;
@@ -83,17 +83,6 @@ export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T
 ): JSX.Element {
-  if (hydrationEnabled) {
-    if (sharedConfig.context) {
-      const c = sharedConfig.context;
-      setHydrateContext(nextHydrateContext());
-      const r = IS_DEV
-        ? devComponent(Comp, props || ({} as T))
-        : untrack(() => Comp(props || ({} as T)));
-      setHydrateContext(c);
-      return r;
-    }
-  }
   if (IS_DEV) return devComponent(Comp, props || ({} as T));
   return untrack(() => Comp(props || ({} as T)));
 }

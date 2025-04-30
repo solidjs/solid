@@ -69,11 +69,8 @@ export function createContext<T>(
 ): Context<T | undefined> {
   const id = Symbol((options && options.name) || "");
   function provider(props: FlowProps<{ value: unknown }>) {
-    return createMemo(() => {
-      setContext(
-        provider,
-        untrack(() => props.value)
-      );
+    return createRoot(() => {
+      setContext(provider, props.value);
       return children(() => props.children);
     });
   }

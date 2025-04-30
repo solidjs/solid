@@ -1,5 +1,5 @@
 // TODO: Implement server-side rendering
-export { $PROXY, $TRACK, $RAW, catchError, flatten, isEqual, isWrappable } from "@solidjs/signals";
+export { $PROXY, $TRACK, $RAW, tryCatch, flatten, isEqual, isWrappable } from "@solidjs/signals";
 
 export {
   createAsync,
@@ -23,7 +23,15 @@ export {
   // enableExternalSource
 } from "./signals.js";
 
-export { observable, from, children, createContext, onMount, useContext } from "./reactive.js";
+export {
+  observable,
+  from,
+  children,
+  createContext,
+  onMount,
+  useContext,
+  ssrRunInScope
+} from "./reactive.js";
 
 export { createProjection, createStore, unwrap, reconcile, merge, omit } from "./store.js";
 
@@ -40,7 +48,8 @@ export {
   enableHydration,
   createUniqueId,
   lazy,
-  sharedConfig
+  sharedConfig,
+  ssrHandleError
 } from "./rendering.js";
 
 export const $DEVCOMP = Symbol("solid-dev-component");
