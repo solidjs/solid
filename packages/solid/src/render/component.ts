@@ -102,7 +102,7 @@ export function createComponent<T extends Record<string, any>>(
       setHydrateContext(nextHydrateContext());
       const r = IS_DEV
         ? devComponent(Comp, props || ({} as T))
-        : untrack(() => Comp(props || ({} as T)));
+        : untrack(() => Comp.call(Comp, props || ({} as T)));
       setHydrateContext(c);
       return r;
     }
