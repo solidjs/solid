@@ -557,7 +557,7 @@ function pendingCheck(fn: () => any, loadingValue: boolean | undefined): boolean
 }
 
 /**
- * Returns an accessor that is true if the given function contains async signals are out of date.
+ * Returns an accessor that is true if the given function contains async signals that are out of date.
  */
 export function isPending(fn: () => any):boolean;
 export function isPending(fn: () => any, loadingValue: boolean):boolean;
