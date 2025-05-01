@@ -377,11 +377,11 @@ export function lazy<T extends Component<any>>(
     return createMemo(() =>
       (Comp = comp())
         ? untrack(() => {
-            if (IS_DEV) Object.assign(Comp!, { [$DEVCOMP]: true });
-            if (!ctx || sharedConfig.done) return Comp!(props);
+            if (!ctx || sharedConfig.done)
+              return IS_DEV ? devComponent(Comp!, props) : Comp!(props);
             const c = sharedConfig.context;
             setHydrateContext(ctx);
-            const r = Comp!(props);
+            const r = IS_DEV ? devComponent(Comp!, props) : Comp!(props);
             setHydrateContext(c);
             return r;
           })
