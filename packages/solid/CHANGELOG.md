@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.9.6
+
+### Patch Changes
+
+- 362e99f: fix #2444 prev value in memo messing with reactive rendering
+- 8356213: update compiler config, fix boolean attribute regression, update JSX types
+- c65faec: fix #2428 - owner always present in resource fetcher
+- 6380b01: fix #2399: novalidate, #2460 spellcheck types
+
 ## 1.9.5
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # babel-preset-solid
 
+## 1.9.6
+
+### Patch Changes
+
+- 8356213: update compiler config, fix boolean attribute regression, update JSX types
+
 ## 1.9.5
 
 ### Patch Changes
