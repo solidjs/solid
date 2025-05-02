@@ -13,6 +13,7 @@
     "ssr-example": "0.0.0"
   },
   "changesets": [
+    "afraid-queens-divide",
     "curly-rats-dress",
     "lemon-mails-lick",
     "perfect-spies-pretend",

@@ -1,5 +1,11 @@
 # solid-js
 
+## 2.0.0-experimental.5
+
+### Patch Changes
+
+- 512fd5e: update signals to 0.3.0, boundary component
+
 ## 2.0.0-experimental.4
 
 ### Patch Changes
@@ -33,6 +39,7 @@
 ### Patch Changes
 
 - fff8aed: Update typescript to 5.7
+
 ## 1.9.6
 
 ### Patch Changes
