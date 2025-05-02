@@ -1,9 +1,10 @@
+//@ts-nocheck
+import { createMemo } from "solid-js";
 export {
   getOwner,
   createComponent,
   createRoot as root,
   createRenderEffect as effect,
-  createMemo as memo,
   sharedConfig,
   untrack,
   merge as mergeProps,
@@ -11,3 +12,5 @@ export {
   ssrHandleError,
   ssrRunInScope
 } from "solid-js";
+
+export const memo = fn => createMemo(() => fn());

@@ -8,7 +8,8 @@ import {
   Resource,
   ResourceFetcherInfo,
   Signal,
-  createMemo
+  createMemo,
+  getOwner
 } from "../src/index.js";
 
 import { createStore, reconcile, ReconcileOptions, Store, unwrap } from "../store/src/index.js";
@@ -89,6 +90,7 @@ describe("Simulate a dynamic fetch with state and reconcile", () => {
     state: { user?: User; userLoading: boolean },
     count = 0;
   function fetcher(_: unknown, { value }: ResourceFetcherInfo<Store<User>>) {
+    expect(getOwner()).toBeDefined();
     return new Promise<User>(r => {
       resolve = r;
     }).then(next => reconcile(next)(value!));

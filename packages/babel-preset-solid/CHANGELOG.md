@@ -25,6 +25,11 @@
 ### Major Changes
 
 - 1da85a3: Update to new package layout, signals implementation, compiler
+## 1.9.6
+
+### Patch Changes
+
+- 8356213: update compiler config, fix boolean attribute regression, update JSX types
 
 ## 1.9.5
 
