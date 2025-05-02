@@ -10,7 +10,6 @@ import {
 } from "@solidjs/signals";
 import type { Accessor, BoundaryMode } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
-import { J } from "vitest/dist/chunks/environment.LoooBwUu.js";
 
 const narrowedError = (name: string) =>
   IS_DEV
