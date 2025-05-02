@@ -13,7 +13,7 @@ class BoundaryComputation<T> extends EagerComputation<T | undefined> {
   }
   write(value: T | UNCHANGED, flags: number) {
     super.write(value, flags & ~this._propagationMask);
-    if(this._propagationMask & LOADING_BIT && !(this._stateFlags & UNINITIALIZED_BIT)) {
+    if (this._propagationMask & LOADING_BIT && !(this._stateFlags & UNINITIALIZED_BIT)) {
       flags &= ~LOADING_BIT;
     }
     this._queue.notify(this as any, this._propagationMask, flags);
@@ -21,7 +21,12 @@ class BoundaryComputation<T> extends EagerComputation<T | undefined> {
   }
 }
 
-function createBoundChildren<T>(owner: Owner, fn: () => T, queue: IQueue, mask: number): Computation<T> {
+function createBoundChildren<T>(
+  owner: Owner,
+  fn: () => T,
+  queue: IQueue,
+  mask: number
+): Computation<T> {
   const parentQueue = owner._queue;
   parentQueue.addChild((owner._queue = queue));
   onCleanup(() => parentQueue.removeChild(owner._queue!));
@@ -49,15 +54,20 @@ class ConditionalQueue extends Queue {
   }
   notify(node: Effect, type: number, flags: number) {
     if (this._disabled.read()) {
-      if (type === LOADING_BIT) {
-        flags & LOADING_BIT ? this._pendingNodes.add(node) : this._pendingNodes.delete(node);
+      if (type & LOADING_BIT) {
+        if (flags & LOADING_BIT) {
+          this._pendingNodes.add(node);
+          type &= ~LOADING_BIT;
+        } else if (this._pendingNodes.delete(node)) type &= ~LOADING_BIT;
       }
-      if (type === ERROR_BIT) {
-        flags & ERROR_BIT ? this._errorNodes.add(node) : this._errorNodes.delete(node);
+      if (type & ERROR_BIT) {
+        if (flags & ERROR_BIT) {
+          this._errorNodes.add(node);
+          type &= ~ERROR_BIT;
+        } else if (this._errorNodes.delete(node)) type &= ~ERROR_BIT;
       }
-      return true;
     }
-    return super.notify(node, type, flags);
+    return type ? super.notify(node, type, flags) : true;
   }
 }
 
@@ -89,11 +99,13 @@ export class CollectionQueue extends Queue {
 
 export enum BoundaryMode {
   VISIBLE = "visible",
-  HIDDEN = "hidden",
+  HIDDEN = "hidden"
 }
 export function createBoundary<T>(fn: () => T, condition: () => BoundaryMode) {
   const owner = new Owner();
-  const queue = new ConditionalQueue(new Computation(undefined, () => condition() === BoundaryMode.HIDDEN));
+  const queue = new ConditionalQueue(
+    new Computation(undefined, () => condition() === BoundaryMode.HIDDEN)
+  );
   const tree = createBoundChildren(owner, fn, queue, 0);
   new EagerComputation(undefined, () => {
     const disabled = queue._disabled.read();
@@ -105,7 +117,7 @@ export function createBoundary<T>(fn: () => T, condition: () => BoundaryMode) {
       queue._errorNodes.clear();
     }
   });
-  return () => queue._disabled.read() ? undefined : tree.read();
+  return () => (queue._disabled.read() ? undefined : tree.read());
 }
 
 function createCollectionBoundary<T>(
