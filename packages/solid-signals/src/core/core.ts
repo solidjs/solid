@@ -34,6 +34,7 @@ import { getOwner, Owner, setOwner } from "./owner.js";
 import { getClock } from "./scheduler.js";
 
 export interface SignalOptions<T> {
+  id?: string;
   name?: string;
   equals?: ((prev: T, next: T) => boolean) | false;
   unobserved?: () => void;
@@ -108,7 +109,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // Initialize self as a node in the Owner tree, for tracking cleanups.
     // If we aren't passed a compute function, we don't need to track nested computations
     // because there is no way to create a nested computation (a child to the owner tree)
-    super(null, compute === null);
+    super(options?.id, compute === null);
 
     this._compute = compute;
 

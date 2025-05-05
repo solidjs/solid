@@ -82,7 +82,6 @@ export class Owner {
   constructor(id: string | null = null, skipAppend = false) {
     this.id = id;
     if (currentOwner) {
-      if (id == null && currentOwner.id != null) this.id = currentOwner.getNextChildId();
       !skipAppend && currentOwner.append(this);
     }
   }
@@ -95,6 +94,7 @@ export class Owner {
     child._nextSibling = this._nextSibling;
     this._nextSibling = child;
 
+    if (this.id != null && child.id == null) child.id = this.getNextChildId();
     if (child._context !== this._context) {
       child._context = { ...this._context, ...child._context };
     }

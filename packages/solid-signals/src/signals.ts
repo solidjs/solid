@@ -6,6 +6,7 @@ import {
   EagerComputation,
   Effect,
   ERROR_BIT,
+  getOwner,
   NotReadyError,
   onCleanup,
   Owner,
@@ -91,7 +92,13 @@ export function createSignal<T>(
     });
     return [() => memo()[0](), (value => memo()[1](value)) as Setter<T | undefined>];
   }
-  const node = new Computation(first, null, second as SignalOptions<T>);
+  const o = getOwner();
+  const needsId = !!o?.id;
+  const node = new Computation(
+    first,
+    null,
+    needsId ? { id: o.getNextChildId(), ...second } : (second as SignalOptions<T>)
+  );
   return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
 }
 
