@@ -1,9 +1,10 @@
 import { STATE_DIRTY } from "./constants.js";
-import { Computation, compute, flatten, UNCHANGED } from "./core.js";
+import { Computation, compute, UNCHANGED } from "./core.js";
 import { EagerComputation, type Effect } from "./effect.js";
 import { ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT } from "./flags.js";
 import { onCleanup, Owner } from "./owner.js";
 import { incrementClock, Queue, type IQueue } from "./scheduler.js";
+import { flatten } from "./utils.js";
 
 class BoundaryComputation<T> extends EagerComputation<T | undefined> {
   _propagationMask: number;
