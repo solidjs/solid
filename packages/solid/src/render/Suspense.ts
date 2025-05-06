@@ -145,7 +145,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
     const key = sharedConfig.getContextId();
     let ref = sharedConfig.load(key);
     if (ref) {
-      if (typeof ref !== "object" || ref.status !== "success") p = ref;
+      if (typeof ref !== "object" || ref.s !== 1) p = ref;
       else sharedConfig.gather!(key);
     }
     if (p && p !== "$$f") {
