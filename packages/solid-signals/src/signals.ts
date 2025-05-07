@@ -93,7 +93,7 @@ export function createSignal<T>(
     return [() => memo()[0](), (value => memo()[1](value)) as Setter<T | undefined>];
   }
   const o = getOwner();
-  const needsId = !!o?.id;
+  const needsId = o?.id != null;
   const node = new Computation(
     first,
     null,
