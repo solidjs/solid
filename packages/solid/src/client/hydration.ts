@@ -3,7 +3,7 @@ import { getOwner } from "@solidjs/signals";
 export type HydrationContext = {};
 
 type SharedConfig = {
-  context?: HydrationContext;
+  hydrating?: boolean;
   resources?: { [key: string]: any };
   load?: (id: string) => Promise<any> | any;
   has?: (id: string) => boolean;
@@ -17,7 +17,7 @@ type SharedConfig = {
 };
 
 export const sharedConfig: SharedConfig = {
-  context: undefined,
+  hydrating: false,
   registry: undefined,
   // effects: undefined,
   done: false,
@@ -27,13 +27,3 @@ export const sharedConfig: SharedConfig = {
     return o.getNextChildId();
   }
 };
-
-export function setHydrateContext(context?: HydrationContext): void {
-  sharedConfig.context = context;
-}
-
-export function nextHydrateContext(): HydrationContext | undefined {
-  return {
-    ...sharedConfig.context
-  };
-}

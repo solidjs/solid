@@ -88,8 +88,12 @@ export function from<T>(
   return s;
 }
 
-export function ssrRunInScope<T>(fn: () => T): () => T {
-  return function (this: Owner) {
-    return runWithOwner(this, fn);
-  }.bind(new Owner());
+export function ssrRunInScope(fn: () => any): () => any;
+export function ssrRunInScope(array: (() => any)[]): (() => any)[];
+export function ssrRunInScope(fn: (() => any) | (() => any)[]): (() => any) | (() => any)[] {
+  if (Array.isArray(fn)) {
+    const o = new Owner();
+    return fn.map<() => any>(f => runWithOwner.bind(null, o, f));
+  }
+  return runWithOwner.bind(null, new Owner(), fn);
 }

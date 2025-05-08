@@ -1,6 +1,6 @@
-import { untrack, createSignal, createAsync, createMemo } from "@solidjs/signals";
+import { untrack, createSignal, createAsync, createMemo, getOwner } from "@solidjs/signals";
 import { $DEVCOMP, IS_DEV, devComponent } from "../client/core.js";
-import { sharedConfig, setHydrateContext } from "./hydration.js";
+import { sharedConfig } from "./hydration.js";
 import type { JSX } from "../jsx.js";
 
 let hydrationEnabled = false;
@@ -94,19 +94,20 @@ export function lazy<T extends Component<any>>(
   let comp: () => T | undefined;
   let p: Promise<{ default: T }> | undefined;
   const wrap: T & { preload?: () => void } = ((props: any) => {
-    const ctx = sharedConfig.context;
-    if (ctx) {
-      const [s, set] = createSignal<T>();
-      sharedConfig.count || (sharedConfig.count = 0);
-      sharedConfig.count++;
-      (p || (p = fn())).then(mod => {
-        !sharedConfig.done && setHydrateContext(ctx);
-        sharedConfig.count!--;
-        set(() => mod.default);
-        setHydrateContext();
-      });
-      comp = s;
-    } else if (!comp) {
+    // const ctx = sharedConfig.context;
+    // if (ctx) {
+    //   const [s, set] = createSignal<T>();
+    //   sharedConfig.count || (sharedConfig.count = 0);
+    //   sharedConfig.count++;
+    //   (p || (p = fn())).then(mod => {
+    //     !sharedConfig.done && setHydrateContext(ctx);
+    //     sharedConfig.count!--;
+    //     set(() => mod.default);
+    //     setHydrateContext();
+    //   });
+    //   comp = s;
+    // } else
+    if (!comp) {
       const s = createAsync<T>(() => (p || (p = fn())).then(mod => mod.default));
       comp = s;
     }
@@ -115,12 +116,7 @@ export function lazy<T extends Component<any>>(
       (Comp = comp())
         ? untrack(() => {
             if (IS_DEV) Object.assign(Comp!, { [$DEVCOMP]: true });
-            if (!ctx || sharedConfig.done) return Comp!(props);
-            const c = sharedConfig.context;
-            setHydrateContext(ctx);
-            const r = Comp!(props);
-            setHydrateContext(c);
-            return r;
+            return Comp!(props);
           })
         : ""
     ) as unknown as JSX.Element;
@@ -131,6 +127,5 @@ export function lazy<T extends Component<any>>(
 
 let counter = 0;
 export function createUniqueId(): string {
-  const ctx = sharedConfig.context;
-  return ctx ? sharedConfig.getNextContextId() : `cl-${counter++}`;
+  return sharedConfig.hydrating ? sharedConfig.getNextContextId() : `cl-${counter++}`;
 }

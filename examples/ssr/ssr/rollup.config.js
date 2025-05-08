@@ -2,6 +2,7 @@ import nodeResolve from "@rollup/plugin-node-resolve";
 import common from "@rollup/plugin-commonjs";
 import babel from "@rollup/plugin-babel";
 import copy from "rollup-plugin-copy";
+import outputManifest from "rollup-plugin-output-manifest";
 
 export default [
   {
@@ -19,7 +20,11 @@ export default [
         babelHelpers: "bundled",
         presets: [["solid", { generate: "ssr", hydratable: true }]]
       }),
-      common()
+      common(),
+      outputManifest.default({
+        fileName: "server-manifest.json",
+        format: "esm"
+      })
     ],
     preserveEntrySignatures: false
   },
@@ -46,6 +51,10 @@ export default [
             dest: "ssr/public"
           }
         ]
+      }),
+      outputManifest.default({
+        fileName: "client-manifest.json",
+        format: "esm"
       })
     ]
   }

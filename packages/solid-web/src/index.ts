@@ -116,7 +116,7 @@ export function createDynamic<T extends ValidComponent>(
 
       case "string":
         const isSvg = SVGElements.has(component);
-        const el = sharedConfig.context ? getNextElement() : createElement(component, isSvg);
+        const el = sharedConfig.hydrating ? getNextElement() : createElement(component, isSvg);
         spread(el, props, isSvg);
         return el;
 

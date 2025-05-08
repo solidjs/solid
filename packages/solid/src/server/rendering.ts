@@ -227,6 +227,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
   let done: undefined | ((html?: string, error?: any) => boolean);
   const ctx = sharedConfig.context!;
   const o = new Owner();
+  o.id += "0"; // fake depth
   const id = o.id!;
   const value: SuspenseContextType =
     ctx.resources[id] ||

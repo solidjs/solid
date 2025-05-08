@@ -12,9 +12,7 @@ function RouteHOC(Comp) {
     !isServer && (window.onpopstate = () => setLocation(window.location.pathname.slice(1)));
 
     return (
-      <RouterContext
-        value={[location, () => false, { setLocation: v => start(() => setLocation(v)), matches }]}
-      >
+      <RouterContext value={[location, () => false, { setLocation: v => setLocation(v), matches }]}>
         <Comp />
       </RouterContext>
     );

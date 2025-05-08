@@ -52,7 +52,7 @@ export function createSignal<T>(
     return [() => memo()[0](), (v => memo()[1](v as any)) as Setter<T | undefined>];
   }
   let o = getOwner();
-  if (o?.id) o?.getNextChildId();
+  if (o?.id != null) o?.getNextChildId();
   return [
     () => first as T,
     v => {
@@ -130,7 +130,7 @@ export function createEffect<Next, Init>(
   options?: EffectOptions
 ): void {
   let o = getOwner();
-  if (o?.id) o?.getNextChildId();
+  if (o?.id !== null) o?.getNextChildId();
 }
 
 export function createAsync<T>(
@@ -243,14 +243,20 @@ export function mapArray<T, U>(
 ): () => U[] {
   const items = list();
   let s: U[] = [];
+  const root = getOwner()!;
+  const id = root.getNextChildId();
   if (items && items.length) {
-    for (let i = 0, len = items.length; i < len; i++)
+    for (let i = 0, len = items.length; i < len; i++) {
+      const o = new Owner(id + i);
       s.push(
-        mapFn(
-          () => items[i],
-          () => i
+        runWithOwner(o, () =>
+          mapFn(
+            () => items[i],
+            () => i
+          )
         )
       );
+    }
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
 }

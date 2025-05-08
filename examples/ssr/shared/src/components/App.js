@@ -1,12 +1,13 @@
-import { useContext, lazy, ErrorBoundary } from "solid-js";
+import { useContext } from "solid-js";
 import { HydrationScript } from "@solidjs/web";
 import { Link, RouteHOC, RouterContext } from "../router";
 // import stub as main package to allowing fetch as you load
 import Profile from "./Profile";
 import Home from "./Home";
+import Settings from "./Settings";
 
 // const Home = lazy(() => import("./Home"));
-const Settings = lazy(() => import("./Settings"));
+// const Settings = lazy(() => import("./Settings"));
 
 const App = RouteHOC(() => {
   const [, pending, { matches }] = useContext(RouterContext);
