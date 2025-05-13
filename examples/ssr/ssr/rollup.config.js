@@ -23,7 +23,8 @@ export default [
       common(),
       outputManifest.default({
         fileName: "server-manifest.json",
-        format: "esm"
+        format: "esm",
+        filter: () => true
       })
     ],
     preserveEntrySignatures: false
@@ -54,7 +55,8 @@ export default [
       }),
       outputManifest.default({
         fileName: "client-manifest.json",
-        format: "esm"
+        format: "esm",
+        filter: () => true
       })
     ]
   }

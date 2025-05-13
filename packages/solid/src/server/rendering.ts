@@ -13,11 +13,6 @@ import type { JSX } from "../jsx.js";
 import type { Component, ComponentProps } from "../index.js";
 import { children } from "./reactive.js";
 
-const SuspenseContext: Context<SuspenseContextType | null> = {
-  id: Symbol("SuspenseContext"),
-  defaultValue: null
-};
-
 const ErrorContext: Context<Function | null> = {
   id: Symbol("ErrorContext"),
   defaultValue: null
@@ -25,14 +20,14 @@ const ErrorContext: Context<Function | null> = {
 
 export function ssrHandleError(err: any) {
   if (err instanceof NotReadyError) {
-    getContext(SuspenseContext)?.promises.add(err.cause as Promise<any>);
-    return true;
+    return err.cause as Promise<any>;
   }
   const handler = getContext(ErrorContext);
   if (handler) {
     handler(err);
-    return true;
+    return;
   }
+  throw err;
 }
 
 type SharedConfig = {
@@ -60,7 +55,7 @@ export function For<T>(props: {
   fallback?: string;
   children: (item: Accessor<T>, index: Accessor<number>) => string;
 }) {
-  return mapArray(() => props.each, props.children, { fallback: () => props.fallback });
+  return createMemo(mapArray(() => props.each, props.children, { fallback: () => props.fallback }));
 }
 
 // non-keyed
@@ -154,27 +149,25 @@ export function ErrorBoundary(props: {
     try {
       res = flatten(props.children);
     } catch (err) {
-      if (!ssrHandleError(err)) throw err;
+      const p = ssrHandleError(err);
+      if (p) {
+      }
     }
     sync = false;
-    return { t: `<!--!$e${id}-->${ctx.resolve(res)}<!--!$/e${id}-->` };
+    return ctx.ssr([`<!--!$e${id}-->`, `<!--!$/e${id}-->`], ctx.escape(res));
   });
 }
-
-// Suspense Context
-type SuspenseContextType = {
-  promises: Set<Promise<any>>;
-};
 
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  let p: Promise<{ default: T }> & { resolved?: T };
+  let p: Promise<{ default: T; __url: string }> & { v?: T };
   let load = (id?: string) => {
     if (!p) {
-      p = fn();
-      p.then(mod => (p.resolved = mod.default));
-      if (id) sharedConfig.context!.resources[id] = p;
+      p = fn() as any;
+      p.then(mod => {
+        p.v = mod.default;
+      });
     }
     return p;
   };
@@ -182,12 +175,8 @@ export function lazy<T extends Component<any>>(
     preload?: () => Promise<{ default: T }>;
   } = props => {
     const id = sharedConfig.getNextContextId();
-    let ref = sharedConfig.context!.resources[id];
-    if (ref) p = ref;
-    else load(id);
-    if (p.resolved) return p.resolved(props);
-    const ctx = getContext(SuspenseContext);
-    if (ctx) ctx.promises.add(p);
+    load(id);
+    if (p.v) return p.v(props);
     if (sharedConfig.context!.async) {
       sharedConfig.context!.block(
         p.then(() => {
@@ -195,7 +184,9 @@ export function lazy<T extends Component<any>>(
         })
       );
     }
-    return "";
+    const err = new NotReadyError();
+    err.cause = p;
+    throw err;
   };
   wrap.preload = load;
   return wrap as T & { preload: () => Promise<{ default: T }> };
@@ -203,71 +194,61 @@ export function lazy<T extends Component<any>>(
 
 export function enableHydration() {}
 
+type SSRTemplateObject = { t: string[]; h: Function[]; p: Promise<any>[] };
 type HydrationContext = {
   id: string;
   count: number;
   serialize: (id: string, v: Promise<any> | any, deferStream?: boolean) => void;
-  resolve(value: any): string;
+  resolve(value: any): SSRTemplateObject;
+  ssr(template: string[], ...values: any[]): SSRTemplateObject;
+  escape(value: any): string;
   replace: (id: string, replacement: () => any) => void;
   block: (p: Promise<any>) => void;
-  resources: Record<string, any>;
   registerFragment: (v: string) => (v?: string, err?: any) => boolean;
   async?: boolean;
   noHydrate: boolean;
 };
 
-function suspenseComplete(c: SuspenseContextType) {
-  for (const r of c.promises.values()) {
-    if (!(r as any).status) return false;
-  }
-  return true;
-}
-
 export function Suspense(props: { fallback?: string; children: string }) {
-  let done: undefined | ((html?: string, error?: any) => boolean);
   const ctx = sharedConfig.context!;
   const o = new Owner();
-  o.id += "0"; // fake depth
   const id = o.id!;
-  const value: SuspenseContextType =
-    ctx.resources[id] ||
-    (ctx.resources[id] = {
-      promises: new Set()
-    });
-  setContext(SuspenseContext, value, o);
+  o.id += "00"; // fake depth
 
-  function runSuspense() {
+  let runPromise;
+  function runInitially(): SSRTemplateObject {
     o.dispose(false);
-    const res = runWithOwner(o, () => {
+    return runWithOwner(o, () => {
       try {
-        return flatten(props.children);
+        return ctx.resolve(flatten(props.children));
       } catch (err) {
-        if (!ssrHandleError(err)) throw err;
+        runPromise = ssrHandleError(err);
       }
-    });
-    if (ctx.async && !suspenseComplete(value))
-      Promise.all(value.promises).then(() => {
-        const res = runSuspense();
-        if (suspenseComplete(value)) {
-          done!(ctx.resolve(res));
-        }
-      });
-    return res;
+    }) as any;
   }
-  const res = runSuspense();
-
+  let ret = runInitially();
   // never suspended
-  if (suspenseComplete(value)) {
-    delete ctx.resources[id];
-    return res;
-  }
+  if (!(runPromise || ret!.p.length)) return ret;
 
-  done = ctx.async ? ctx.registerFragment(id) : undefined;
   if (ctx.async) {
-    const res = {
-      t: `<template id="pl-${id}"></template>${ctx.resolve(props.fallback)}<!--pl-${id}-->`
-    };
-    return res;
+    const done = ctx.registerFragment(id);
+    (async () => {
+      while (runPromise) {
+        await runPromise;
+        runPromise = undefined;
+        ret = runInitially();
+      }
+      while (ret.p.length) {
+        await Promise.all(ret.p);
+        ret = ctx.ssr(ret.t, ...ret.h);
+      }
+      done!(ret.t[0]);
+    })();
+
+    return ctx.ssr(
+      [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`],
+      ctx.escape(props.fallback)
+    );
   }
   ctx.serialize(id, "$$f");
   return props.fallback;

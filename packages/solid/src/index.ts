@@ -2,7 +2,6 @@ export {
   $PROXY,
   $TRACK,
   $RAW,
-  createAsync,
   createEffect,
   createMemo,
   createProjection,
@@ -69,7 +68,7 @@ export * from "./client/observable.js";
 
 export * from "./client/component.js";
 export * from "./client/flow.js";
-export { sharedConfig } from "./client/hydration.js";
+export { sharedConfig, createAsync, Suspense } from "./client/hydration.js";
 // stub
 export function ssrHandleError() {}
 export function ssrRunInScope() {}

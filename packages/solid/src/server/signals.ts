@@ -4,7 +4,6 @@ export { createRoot, runWithOwner, onCleanup, getOwner } from "@solidjs/signals"
 
 import type {
   Accessor,
-  Computation,
   ComputeFunction,
   EffectFunction,
   EffectOptions,
@@ -15,17 +14,34 @@ import type {
 } from "@solidjs/signals";
 import { sharedConfig } from "./rendering.js";
 
-let Observer: Computation | null = null;
-
-function run<T>(ownerObserver: Owner, fn: () => T) {
-  const prevObserver = Observer;
-  Observer = ownerObserver as any;
-  try {
-    return runWithOwner(ownerObserver, fn);
-  } finally {
-    Observer = prevObserver;
+class Computation<T> extends Owner {
+  _value: T;
+  _compute: ComputeFunction<T>;
+  _error: unknown;
+  constructor(initialValue: T, compute: ComputeFunction<T>) {
+    super();
+    this._value = initialValue;
+    this._compute = compute;
+  }
+  update() {
+    try {
+      this._error = undefined;
+      runWithOwner(this, () =>
+        runWithObserver(this, () => (this._value = this._compute(this._value)))
+      );
+    } catch (err) {
+      this._error = err;
+    }
+  }
+  read() {
+    if (this._error) {
+      throw this._error;
+    }
+    return this._value;
   }
 }
+
+let Observer: Computation<any> | null = null;
 
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
@@ -74,11 +90,12 @@ export function createMemo<Next extends Prev, Init, Prev>(
   value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
-  const owner = new Owner();
+  const node = new Computation(value as any, compute);
   let v: Next;
   return () => {
     if (v !== undefined) return v;
-    return run(owner, () => (v = compute(value as any)));
+    node.update();
+    return (v = node.read() as Next);
   };
 }
 
@@ -98,12 +115,10 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  const owner = new Owner();
+  const node = new Computation(value as any, compute);
+  node.update() as any;
   try {
-    effect(
-      run(owner, () => compute(value as any)),
-      value as any
-    );
+    effect(node.read() as any, value as any);
   } catch (err) {
     // TODO: Vet Error Handling
     // owner.handleError(err);
@@ -141,13 +156,11 @@ export function createAsync<T>(
   const ctx = sharedConfig.context!;
   const o = new Owner();
   const id = o.id!;
-  const resource = ctx.resources[id];
-  if (resource) return resource;
   let uninitialized = value === undefined;
   let source: Promise<T> | AsyncIterable<T> | T;
   function processSource() {
     try {
-      source = run(o, () => compute(value));
+      source = runWithOwner(o, () => runWithObserver(o as any, () => compute(value))) as any;
     } catch (err) {
       if (err instanceof NotReadyError) {
         (source = err.cause as Promise<any>)!.then(() => processSource()) as any;
@@ -178,7 +191,7 @@ export function createAsync<T>(
 
   return (
     processSource() ||
-    (ctx.resources[id] = () => {
+    (() => {
       if (value === undefined && uninitialized) {
         const error = new NotReadyError();
         error.cause = source;
@@ -222,7 +235,7 @@ export function getObserver() {
   return Observer;
 }
 
-export function runWithObserver<T>(o: Computation, fn: () => T): T | undefined {
+export function runWithObserver<T>(o: Computation<any>, fn: () => T): T | undefined {
   const prev = Observer;
   Observer = o;
   try {
@@ -241,24 +254,27 @@ export function mapArray<T, U>(
   mapFn: (v: Accessor<T>, i: Accessor<number>) => U,
   options: { fallback?: Accessor<any> } = {}
 ): () => U[] {
-  const items = list();
-  let s: U[] = [];
   const root = getOwner()!;
   const id = root.getNextChildId();
-  if (items && items.length) {
-    for (let i = 0, len = items.length; i < len; i++) {
-      const o = new Owner(id + i);
-      s.push(
-        runWithOwner(o, () =>
-          mapFn(
-            () => items[i],
-            () => i
+  return () => {
+    const items = list();
+    let s: U[] = [];
+    if (items && items.length) {
+      for (let i = 0, len = items.length; i < len; i++) {
+        const o = new Owner(id + i, true);
+        root.append(o);
+        s.push(
+          runWithOwner(o, () =>
+            mapFn(
+              () => items[i],
+              () => i
+            )
           )
-        )
-      );
-    }
-  } else if (options.fallback) s = [options.fallback()];
-  return () => s;
+        );
+      }
+    } else if (options.fallback) s = [options.fallback()];
+    return s;
+  };
 }
 
 export function repeat<T>(

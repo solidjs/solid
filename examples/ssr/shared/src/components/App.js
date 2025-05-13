@@ -34,17 +34,19 @@ const App = RouteHOC(() => {
             </li>
           </ul>
           <div class={["tab", { pending: pending() }]}>
-            <Switch>
-              <Match when={matches("index")}>
-                <Home />
-              </Match>
-              <Match when={matches("profile")}>
-                <Profile />
-              </Match>
-              <Match when={matches("settings")}>
-                <Settings />
-              </Match>
-            </Switch>
+            <Suspense fallback={<span class="loader">Loading...</span>}>
+              <Switch>
+                <Match when={matches("index")}>
+                  <Home />
+                </Match>
+                <Match when={matches("profile")}>
+                  <Profile />
+                </Match>
+                <Match when={matches("settings")}>
+                  <Settings />
+                </Match>
+              </Switch>
+            </Suspense>
           </div>
         </div>
       </body>

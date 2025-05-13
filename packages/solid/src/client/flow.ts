@@ -3,7 +3,6 @@ import {
   createMemo,
   untrack,
   mapArray,
-  createSuspense,
   createErrorBoundary,
   createBoundary,
   repeat
@@ -249,24 +248,6 @@ export function ErrorBoundary(props: {
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err);
       return typeof f === "function" && f.length ? f(err, reset) : f;
     }
-  ) as unknown as JSX.Element;
-}
-
-/**
- * Tracks all resources inside a component and renders a fallback until they are all resolved
- * ```typescript
- * const AsyncComponent = lazy(() => import('./component'));
- *
- * <Suspense fallback={<LoadingIndicator />}>
- *   <AsyncComponent />
- * </Suspense>
- * ```
- * @description https://docs.solidjs.com/reference/components/suspense
- */
-export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
-  return createSuspense(
-    () => props.children,
-    () => props.fallback
   ) as unknown as JSX.Element;
 }
 
