@@ -39,13 +39,13 @@ export type VoidComponent<P extends Record<string, any> = {}> = Component<VoidPr
 
 /**
  * Extend props to allow an optional `children` prop with the usual
- * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * type in JSX, `JSX.Element` (which allows elements, arrays, strings, etc.).
  * Use this for components that you want to accept children.
  */
 export type ParentProps<P extends Record<string, any> = {}> = P & { children?: JSX.Element };
 /**
  * `ParentComponent` allows an optional `children` prop with the usual
- * type in JSX, `JSX.Element` (which allows elements, arrays, functions, etc.).
+ * type in JSX, `JSX.Element` (which allows elements, arrays, strings, etc.).
  * Use this for components that you want to accept children.
  */
 export type ParentComponent<P extends Record<string, any> = {}> = Component<ParentProps<P>>;
