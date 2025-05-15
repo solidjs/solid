@@ -1,4 +1,4 @@
-// https://github.com/preactjs/signals/blob/main/packages/core/test/signal.test.tsx#L1249
+// https://github.com/preactjs/signals/blob/17c0155997f47f4bb81e5715b46a55d1fafa22a2/packages/core/test/signal.test.tsx#L1383
 
 import { createMemo, createSignal } from "../src/index.js";
 
