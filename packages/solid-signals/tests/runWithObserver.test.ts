@@ -1,7 +1,7 @@
 import {
   createEffect,
-  createSignal,
   createRoot,
+  createSignal,
   flushSync,
   getObserver,
   runWithObserver,

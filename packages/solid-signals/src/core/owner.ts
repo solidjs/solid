@@ -30,9 +30,8 @@
 
 import { STATE_CLEAN, STATE_DISPOSED } from "./constants.js";
 import type { Computation } from "./core.js";
-import { ContextNotFoundError, NoOwnerError, type ErrorHandler } from "./error.js";
+import { ContextNotFoundError, NoOwnerError } from "./error.js";
 import { globalQueue, type IQueue } from "./scheduler.js";
-import { isUndefined } from "./utils.js";
 
 export type ContextRecord = Record<string | symbol, unknown>;
 
@@ -54,12 +53,6 @@ export function setOwner(owner: Owner | null): Owner | null {
   const out = currentOwner;
   currentOwner = owner;
   return out;
-}
-
-function formatId(prefix: string, id: number) {
-  const num = id.toString(36),
-    len = num.length - 1;
-  return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
 }
 
 export class Owner {
@@ -238,4 +231,14 @@ export function onCleanup(fn: Disposable): Disposable {
     node._disposal = [node._disposal, fn];
   }
   return fn;
+}
+
+function formatId(prefix: string, id: number) {
+  const num = id.toString(36),
+    len = num.length - 1;
+  return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
+}
+
+function isUndefined(value: any): value is undefined {
+  return typeof value === "undefined";
 }

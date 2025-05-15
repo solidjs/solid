@@ -192,7 +192,8 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   deleteProperty(target, property) {
-    Writing?.has(target[STORE_VALUE]) && setProperty(target[STORE_VALUE], property, undefined, true);
+    Writing?.has(target[STORE_VALUE]) &&
+      setProperty(target[STORE_VALUE], property, undefined, true);
     return true;
   },
 

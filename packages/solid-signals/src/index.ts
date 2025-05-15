@@ -6,7 +6,6 @@ export {
   Owner,
   Queue,
   createContext,
-  flatten,
   flushSync,
   getContext,
   setContext,
@@ -19,23 +18,17 @@ export {
   hasUpdated,
   isPending,
   latest,
-  tryCatch,
   runWithObserver,
-  createErrorBoundary,
-  createSuspense,
-  createBoundary,
   SUPPORTS_PROXY
 } from "./core/index.js";
-export type {
-  ErrorHandler,
-  SignalOptions,
-  BoundaryMode,
-  TryCatchResult,
-  Context,
-  ContextRecord,
-  Disposable,
-  IQueue
-} from "./core/index.js";
+export type { SignalOptions, Context, ContextRecord, Disposable, IQueue } from "./core/index.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./signals.js";
 export * from "./store/index.js";
+export {
+  createSuspense,
+  createErrorBoundary,
+  createBoundary,
+  flatten,
+  type BoundaryMode
+} from "./boundaries.js";

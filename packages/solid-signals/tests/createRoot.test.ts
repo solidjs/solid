@@ -129,7 +129,7 @@ it("should not generate ids if no id is provided", () => {
     o = getOwner();
     const c = createMemo(() => {
       m = getOwner();
-    })
+    });
     c();
   });
 
@@ -146,22 +146,28 @@ it("should generate ids if id is provided", () => {
   let c3: string;
   let r: Owner | null;
 
-  createRoot(() => {
-    o = getOwner();
-    const memo = createMemo(() => {
-      m = getOwner()!;
-      c = m.getNextChildId();
-      return createMemo(() => {
-        m2 = getOwner()!;
-        c2 = m2.getNextChildId();
-        c3 = m2.getNextChildId();
-      })
-    })
-    createRenderEffect(() => {
-      r = getOwner();
-      memo()();
-    }, () => {});
-  }, { id: "" });
+  createRoot(
+    () => {
+      o = getOwner();
+      const memo = createMemo(() => {
+        m = getOwner()!;
+        c = m.getNextChildId();
+        return createMemo(() => {
+          m2 = getOwner()!;
+          c2 = m2.getNextChildId();
+          c3 = m2.getNextChildId();
+        });
+      });
+      createRenderEffect(
+        () => {
+          r = getOwner();
+          memo()();
+        },
+        () => {}
+      );
+    },
+    { id: "" }
+  );
 
   expect(o!.id).toEqual("");
   expect(m!.id).toEqual("0");

@@ -166,13 +166,13 @@ it("should resolve to a value with resolveAsync", async () => {
 });
 
 it("should handle streams", async () => {
-  const effect = vi.fn()
+  const effect = vi.fn();
   createRoot(() => {
-    const v = createAsync(async function*() {
+    const v = createAsync(async function* () {
       yield await Promise.resolve(1);
       yield await Promise.resolve(2);
       yield await Promise.resolve(3);
-    })
+    });
     createEffect(v, v => effect(v));
   });
   flushSync();
@@ -193,4 +193,4 @@ it("should handle streams", async () => {
   await Promise.resolve();
   expect(effect).toHaveBeenCalledTimes(3);
   expect(effect).toHaveBeenCalledWith(3);
-})
+});

@@ -1,5 +1,3 @@
-import type { Owner } from "./owner.js";
-
 export class NotReadyError extends Error {}
 
 export class NoOwnerError extends Error {
@@ -23,7 +21,4 @@ export class EffectError extends Error {
     super(__DEV__ ? `Uncaught error while running effect:\n\n  ${effect.toString()}\n` : "");
     this.cause = cause;
   }
-}
-export interface ErrorHandler {
-  (error: unknown, node: Owner): void;
 }

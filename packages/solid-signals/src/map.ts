@@ -299,7 +299,7 @@ interface RepeatData<MappedItem = any> {
   _mappings: MappedItem[];
   _nodes: Owner[];
   _offset: number;
-  _from?: Accessor<number| undefined>;
+  _from?: Accessor<number | undefined>;
   _fallback?: Accessor<any>;
 }
 

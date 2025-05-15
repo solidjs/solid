@@ -130,7 +130,10 @@ describe("Projection basics", () => {
         }
       );
 
-      createRenderEffect(() => b.v, (v, p) => tmp(v, p));
+      createRenderEffect(
+        () => b.v,
+        (v, p) => tmp(v, p)
+      );
     });
     flushSync();
 
