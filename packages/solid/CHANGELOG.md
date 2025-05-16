@@ -1,5 +1,12 @@
 # solid-js
 
+## 1.9.7
+
+### Patch Changes
+
+- 84ca952: Fix hydration issues caused by seroval update.
+- 4cd7eb1: Catch synchronous errors in `createResource`.
+
 ## 1.9.6
 
 ### Patch Changes
