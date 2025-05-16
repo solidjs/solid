@@ -5,7 +5,7 @@ import { renderToStream } from "solid-js/web";
 import App from "../shared/src/components/App";
 
 const app = express();
-const port = 8080;
+const port = 3000;
 
 app.use(express.static(url.fileURLToPath(new URL("../public", import.meta.url))));
 
