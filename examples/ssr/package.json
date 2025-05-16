@@ -7,10 +7,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "async:build": "rollup -c async/rollup.config.js",
-    "async:start": "node async/lib/index.js",
-    "ssr:build": "rollup -c ssr/rollup.config.js",
-    "ssr:start": "node ssr/lib/index.js",
+    "string:build": "rollup -c string/rollup.config.js",
+    "string:start": "node string/lib/index.js",
     "stream:build": "rollup -c stream/rollup.config.js",
     "stream:start": "node stream/lib/index.js",
     "clean": "rimraf */lib/ */public/"

@@ -2,17 +2,17 @@ import nodeResolve from "@rollup/plugin-node-resolve";
 import common from "@rollup/plugin-commonjs";
 import babel from "@rollup/plugin-babel";
 import copy from "rollup-plugin-copy";
+import outputManifest from "rollup-plugin-output-manifest";
 
 export default [
   {
-    input: "./async/index.js",
+    input: "./string/index.js",
     output: [
       {
-        dir: "async/lib",
+        dir: "string/lib",
         format: "esm"
       }
     ],
-    preserveEntrySignatures: false,
     external: ["solid-js", "@solidjs/web", "path", "express"],
     plugins: [
       nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"] }),
@@ -20,14 +20,20 @@ export default [
         babelHelpers: "bundled",
         presets: [["solid", { generate: "ssr", hydratable: true }]]
       }),
-      common()
-    ]
+      common(),
+      outputManifest.default({
+        fileName: "server-manifest.json",
+        format: "esm",
+        filter: () => true
+      })
+    ],
+    preserveEntrySignatures: false
   },
   {
     input: "shared/src/index.js",
     output: [
       {
-        dir: "async/public/js",
+        dir: "string/public/js",
         format: "esm"
       }
     ],
@@ -43,9 +49,14 @@ export default [
         targets: [
           {
             src: ["shared/static/*"],
-            dest: "async/public"
+            dest: "string/public"
           }
         ]
+      }),
+      outputManifest.default({
+        fileName: "client-manifest.json",
+        format: "esm",
+        filter: () => true
       })
     ]
   }

@@ -8,7 +8,7 @@ export default () => {
       // simulate data loading
       console.log("LOAD USER");
       return new Promise(res => {
-        setTimeout(() => res({ firstName: "Jon", lastName: "Snow" }), 1000);
+        setTimeout(() => res({ firstName: "Jon", lastName: "Snow" }), 400);
       });
     }),
     info = createAsync(() => {
@@ -19,7 +19,7 @@ export default () => {
         setTimeout(
           () =>
             res(["Something Interesting", "Something else you might care about", "Or maybe not"]),
-          1000
+          400
         );
       });
     });

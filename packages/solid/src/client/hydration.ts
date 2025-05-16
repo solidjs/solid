@@ -6,23 +6,22 @@ import {
   createSuspense,
   createSignal,
   flushSync,
-  createMemo
+  createMemo,
+  runWithObserver,
+  Computation
 } from "@solidjs/signals";
 import { JSX } from "../jsx.js";
 
 export type HydrationContext = {};
 
 type SharedConfig = {
-  hydrating?: boolean;
+  hydrating: boolean;
   resources?: { [key: string]: any };
   load?: (id: string) => Promise<any> | any;
   has?: (id: string) => boolean;
   gather?: (key: string) => void;
   registry?: Map<string, Element>;
-  done?: boolean;
-  count?: number;
-  // effects?: Computation<any, any>[];
-  // getContextId(): string;
+  done: boolean;
   getNextContextId(): string;
 };
 
@@ -55,46 +54,43 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       () => props.children,
       () => props.fallback
     ) as unknown as JSX.Element;
-  let p: Promise<any> | any;
-  let error: any;
 
-  const decision = createMemo(() => {
+  return createMemo(() => {
     const o = getOwner()!;
     const id = o.id!;
-    if (sharedConfig.load && sharedConfig.has!(id)) {
-      let ref = sharedConfig.load(id);
+    if (sharedConfig.hydrating && sharedConfig.has!(id)) {
+      let ref = sharedConfig.load!(id);
+      let p: Promise<any> | any;
       if (ref) {
         if (typeof ref !== "object" || ref.status !== "success") p = ref;
         else sharedConfig.gather!(id);
       }
-      if (p && p !== "$$f") {
+      if (p) {
         const [s, set] = createSignal(undefined, { equals: false });
         s();
-        p.then(
-          () => {
-            sharedConfig.gather!(id);
-            sharedConfig.hydrating = true;
-            p = undefined;
-            set();
-            flushSync();
-            sharedConfig.hydrating = false;
-          },
-          (err: any) => {
-            error = err;
-            p = undefined;
-            set();
-          }
-        );
+        if (p !== "$$f") {
+          p.then(
+            () => {
+              sharedConfig.gather!(id);
+              sharedConfig.hydrating = true;
+              set();
+              flushSync();
+              sharedConfig.hydrating = false;
+            },
+            (err: any) =>
+              runWithObserver(o as Computation<any>, () => {
+                throw err;
+              })
+          );
+        } else queueMicrotask(set);
         return props.fallback;
       }
     }
-    if (error) throw error;
     return createSuspense(
       () => props.children,
       () => props.fallback
-    ) as unknown as JSX.Element;
-  });
-  return decision as unknown as JSX.Element;
+    );
+  }) as unknown as JSX.Element;
 }
 
 /**
@@ -123,7 +119,7 @@ export function createAsync<T>(
       if (!sharedConfig.hydrating) return compute(prev);
       const o = getOwner()!;
       let initP: any;
-      if (sharedConfig.load && sharedConfig.has!(o.id!)) initP = sharedConfig.load(o.id!);
+      if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
       const init = initP?.value || initP;
       return init ? (subFetch<T>(compute, prev), init) : compute(prev);
     },

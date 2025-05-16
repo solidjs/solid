@@ -1,22 +1,22 @@
 import express from "express";
 import url from "url";
 
-import { renderToStringAsync } from "@solidjs/web";
+import { renderToString } from "@solidjs/web";
 import App from "../shared/src/components/App";
 
 const app = express();
-const port = 8080;
+const port = 3000;
 
 app.use(express.static(url.fileURLToPath(new URL("../public", import.meta.url))));
 
-app.get("*", async (req, res) => {
-  let result;
+app.get("*", (req, res) => {
+  let html;
   try {
-    result = await renderToStringAsync(() => <App url={req.url} />);
+    html = renderToString(() => <App url={req.url} />);
   } catch (err) {
     console.error(err);
   } finally {
-    res.send(result);
+    res.send(html);
   }
 });
 

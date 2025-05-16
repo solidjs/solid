@@ -52,21 +52,7 @@ a.link {
   color: black;
 }
 .loader {
-  opacity: 0;
   color: #aaa;
   font-size: 16px;
   font-weight: 600;
-  animation: fadeInAnimation ease .3s;
-  animation-delay: .2s;
-  animation-iteration-count: 1;
-  animation-fill-mode: forwards;
-}
-
-@keyframes fadeInAnimation {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
 }

@@ -230,6 +230,8 @@ export function Suspense(props: { fallback?: string; children: string }) {
   // never suspended
   if (!(runPromise || ret!.p.length)) return ret;
 
+  const fallbackOwner = new Owner(id);
+  fallbackOwner.getNextChildId(); // move counter forward
   if (ctx.async) {
     const done = ctx.registerFragment(id);
     (async () => {
@@ -245,11 +247,13 @@ export function Suspense(props: { fallback?: string; children: string }) {
       done!(ret.t[0]);
     })();
 
-    return ctx.ssr(
-      [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`],
-      ctx.escape(props.fallback)
+    return runWithOwner(fallbackOwner, () =>
+      ctx.ssr(
+        [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`],
+        ctx.escape(props.fallback)
+      )
     );
   }
   ctx.serialize(id, "$$f");
-  return props.fallback;
+  return runWithOwner(fallbackOwner, () => props.fallback);
 }
