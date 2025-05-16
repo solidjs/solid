@@ -709,9 +709,9 @@ export function createResource<T, S, R>(
       return p;
     }
     pr = p;
-    if ("value" in p) {
-      if ((p as any).status === "success") loadEnd(pr, p.value as T, undefined, lookup);
-      else loadEnd(pr, undefined, castError(p.value), lookup);
+    if ("v" in p) {
+      if ((p as any).s === 1) loadEnd(pr, p.v as T, undefined, lookup);
+      else loadEnd(pr, undefined, castError(p.v), lookup);
       return p;
     }
     scheduled = true;
