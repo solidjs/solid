@@ -695,16 +695,24 @@ export function createResource<T, S, R>(
       return;
     }
     if (Transition && pr) Transition.promises.delete(pr);
+    let error: unknown;
     const p =
       initP !== NO_INIT
         ? (initP as T | Promise<T>)
-        : untrack(() =>
-            fetcher(lookup, {
-              value: value(),
-              refetching
-            })
-          );
-    if (!isPromise(p)) {
+        : untrack(() => {
+            try {
+              return fetcher(lookup, {
+                value: value(),
+                refetching
+              });
+            } catch (fetcherError) {
+              error = fetcherError;
+            }
+          });
+    if (error !== undefined) {
+      loadEnd(pr, undefined, castError(error), lookup);
+      return;
+    } else if (!isPromise(p)) {
       loadEnd(pr, p, undefined, lookup);
       return p;
     }

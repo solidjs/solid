@@ -211,6 +211,29 @@ describe("using Resource with errors", () => {
   });
 });
 
+describe("using Resource with synchronous error", () => {
+  let value: Resource<number | undefined>;
+  let error: Error;
+  test("catches the error", async () => {
+    createRoot(() => {
+      catchError(
+        () => {
+          [value] = createResource(() => {
+            throw new Error("Fetcher error");
+          });
+          createRenderEffect(value);
+        },
+        e => {
+          error = e;
+        }
+      );
+    });
+    expect(value.state === "errored").toBe(true);
+    expect(value.error).toBe(error);
+    expect(value.error.message).toBe("Fetcher error");
+  });
+});
+
 describe("using Resource with custom store", () => {
   type User = {
     firstName: string;
