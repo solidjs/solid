@@ -8,6 +8,7 @@ export type {
   SetStoreFunction,
   SolidStore,
   Store,
+  StoreBundle,
   StoreNode,
   StorePathRange,
   StoreSetter
