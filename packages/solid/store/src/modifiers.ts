@@ -40,7 +40,11 @@ function applyState(
         start = 0, end = Math.min(previous.length, target.length);
         start < end &&
         (previous[start] === target[start] ||
-          (key && previous[start] && target[start] && previous[start][key] === target[start][key]));
+          (key &&
+            previous[start] &&
+            target[start] &&
+            previous[start][key] &&
+            previous[start][key] === target[start][key]));
         start++
       ) {
         applyState(target[start], previous, start, merge, key);
@@ -54,7 +58,11 @@ function applyState(
         end >= start &&
         newEnd >= start &&
         (previous[end] === target[newEnd] ||
-          (key && previous[end] && target[newEnd] && previous[end][key] === target[newEnd][key]));
+          (key &&
+            previous[end] &&
+            target[newEnd] &&
+            previous[end][key] &&
+            previous[end][key] === target[newEnd][key]));
         end--, newEnd--
       ) {
         temp[newEnd] = previous[end];
