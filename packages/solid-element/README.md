@@ -8,7 +8,7 @@ This library extends [Solid](https://github.com/solidjs/solid) by adding Custom 
 
 ## Example
 
-[See here](https://webcomponents.dev/edit/yGRb00wV4AMncPupRmA9) for an example of a webcomponent created by `solid-element`.
+[See here](./sample.jsx) for an example of a webcomponent created by `solid-element`.
 
 ## Installation
 
