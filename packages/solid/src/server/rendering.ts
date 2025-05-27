@@ -439,7 +439,7 @@ export function createResource<T, S>(
   const id = sharedConfig.getNextContextId();
   let resource: { ref?: any; data?: T } = {};
   let value = options.storage ? options.storage(options.initialValue)[0]() : options.initialValue;
-  let p: Promise<T> | T | null;
+  let p: Promise<T> | T | null | undefined;
   let error: any;
   if (sharedConfig.context!.async && options.ssrLoadFrom !== "initial") {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
@@ -522,10 +522,9 @@ export function createResource<T, S>(
     return ctx.resources[id].data;
   }
   if (options.ssrLoadFrom !== "initial") load();
-  return (resource.ref = [
-    read,
-    { refetch: load, mutate: (v: T) => (value = v) }
-  ] as ResourceReturn<T>);
+  const ref = [read, { refetch: load, mutate: (v: T) => (value = v) }] as ResourceReturn<T>;
+  if (p) resource.ref = ref;
+  return ref;
 }
 
 export function lazy<T extends Component<any>>(
