@@ -1138,7 +1138,7 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
     () =>
       untrack(() => {
         Object.assign(Comp, { [$DEVCOMP]: true });
-        return Comp(props);
+        return Comp.call(Comp, props);
       }),
     undefined,
     true,
