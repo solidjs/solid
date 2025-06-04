@@ -30,7 +30,7 @@ const narrowedError = (name: string) =>
 export function For<T extends readonly any[], U extends JSX.Element>(props: {
   each: T | undefined | null | false;
   fallback?: JSX.Element;
-  keyed?: boolean | ((item: T) => any);
+  keyed?: boolean | ((item: T[number]) => any);
   children: (item: Accessor<T[number]>, index: Accessor<number>) => U;
 }) {
   const options =
