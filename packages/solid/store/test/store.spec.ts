@@ -722,6 +722,37 @@ describe("Nested Classes", () => {
     expect(sum).toBe(15);
   });
 
+  test("wrapped nested class getter", () => {
+    class CustomThing {
+      a: number;
+      b: number;
+      constructor(value: number) {
+        this.a = value;
+        this.b = 10;
+      }
+      get sum(): number {
+        return this.a + this.b;
+      }
+    }
+
+    const [inner] = createStore(new CustomThing(1));
+    const [store, setStore] = createStore({ inner });
+
+    expect(store.inner.sum).toBe(11);
+
+    let sum;
+    createRoot(() => {
+      createEffect(() => {
+        sum = store.inner.sum;
+      });
+    });
+    expect(sum).toBe(11);
+    setStore("inner", "a", 10);
+    expect(sum).toBe(20);
+    setStore("inner", "b", 5);
+    expect(sum).toBe(15);
+  });
+
   test("not wrapped nested class", () => {
     class CustomThing {
       a: number;
@@ -747,6 +778,37 @@ describe("Nested Classes", () => {
     expect(sum).toBe(11);
     setStore("inner", "b", 5);
     expect(sum).toBe(11);
+  });
+
+  test("not wrapped nested class getter", () => {
+    class CustomThing {
+      a: number;
+      b: number;
+      constructor(value: number) {
+        this.a = value;
+        this.b = 10;
+      }
+      get sum(): number {
+        return this.a + this.b;
+      }
+    }
+
+    const [store, setStore] = createStore({ inner: new CustomThing(1) });
+
+    let sum;
+    createRoot(() => {
+      createEffect(() => {
+        sum = store.inner.sum;
+      });
+    });
+    expect(sum).toBe(11);
+    expect(store.inner.sum).toBe(11);
+    setStore("inner", "a", 10);
+    expect(sum).toBe(11);
+    expect(store.inner.sum).toBe(20);
+    setStore("inner", "b", 5);
+    expect(sum).toBe(11);
+    expect(store.inner.sum).toBe(15);
   });
 });
 
