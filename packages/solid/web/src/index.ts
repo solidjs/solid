@@ -63,6 +63,8 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
         el: (T extends true ? { readonly shadowRoot: ShadowRoot } : {}) &
           (S extends true ? SVGGElement : HTMLDivElement)
       ) => void);
+  asElement?: keyof HTMLElementTagNameMap;
+  class?: string[];
   children: JSX.Element;
 }) {
   const { useShadow } = props,
@@ -84,11 +86,13 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
         createRoot(dispose => insert(el, () => (!clean() ? content!() : dispose()), null));
         onCleanup(cleanup);
       } else {
-        const container = createElement(props.isSVG ? "g" : "div", props.isSVG),
-          renderRoot =
-            useShadow && container.attachShadow
-              ? container.attachShadow({ mode: "open" })
-              : container;
+        const container = createElement(props.isSVG ? "g" : props.asElement || "div", props.isSVG);
+        props.class && container.classList.add(...props.class.flatMap(str => str.split(" ")));
+
+        const renderRoot =
+          useShadow && container.attachShadow
+            ? container.attachShadow({ mode: "open" })
+            : container;
 
         Object.defineProperty(container, "_$host", {
           get() {
