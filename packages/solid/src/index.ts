@@ -28,7 +28,8 @@ export {
   runWithOwner,
   tryCatch,
   untrack,
-  unwrap
+  unwrap,
+  deep,
 } from "@solidjs/signals";
 
 export type {
