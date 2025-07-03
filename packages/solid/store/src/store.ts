@@ -316,18 +316,18 @@ export function updatePath(current: StoreNode, path: any[], traversed: PropertyK
 export type DeepReadonly<T> = 0 extends 1 & T
   ? T
   : T extends NotWrappable
-  ? T
-  : {
-      readonly [K in keyof T]: DeepReadonly<T[K]>;
-    };
+    ? T
+    : {
+        readonly [K in keyof T]: DeepReadonly<T[K]>;
+      };
 /** @deprecated */
 export type DeepMutable<T> = 0 extends 1 & T
   ? T
   : T extends NotWrappable
-  ? T
-  : {
-      -readonly [K in keyof T]: DeepMutable<T[K]>;
-    };
+    ? T
+    : {
+        -readonly [K in keyof T]: DeepMutable<T[K]>;
+      };
 
 export type CustomPartial<T> = T extends readonly unknown[]
   ? "0" extends keyof T
@@ -367,11 +367,11 @@ type KeyOf<T> = number extends keyof T // have to check this otherwise ts won't 
   ? 0 extends 1 & T // if it's any just return keyof T
     ? keyof T
     : [T] extends [never]
-    ? never // keyof never is PropertyKey, which number extends. this must go before
-    : // checking [T] extends [readonly unknown[]] because never extends everything
-    [T] extends [readonly unknown[]]
-    ? number // it's an array or tuple; exclude the non-number properties
-    : keyof T // it's something which contains an index signature for strings or numbers
+      ? never // keyof never is PropertyKey, which number extends. this must go before
+      : // checking [T] extends [readonly unknown[]] because never extends everything
+        [T] extends [readonly unknown[]]
+        ? number // it's an array or tuple; exclude the non-number properties
+        : keyof T // it's something which contains an index signature for strings or numbers
   : keyof T;
 
 type MutableKeyOf<T> = KeyOf<T> & keyof PickMutable<T>;
@@ -380,10 +380,10 @@ type MutableKeyOf<T> = KeyOf<T> & keyof PickMutable<T>;
 type Rest<T, U extends PropertyKey[], K extends KeyOf<T> = KeyOf<T>> = [T] extends [never]
   ? never
   : K extends MutableKeyOf<T>
-  ? [Part<T, K>, ...RestSetterOrContinue<T[K], [K, ...U]>]
-  : K extends KeyOf<T>
-  ? [Part<T, K>, ...RestContinue<T[K], [K, ...U]>]
-  : never;
+    ? [Part<T, K>, ...RestSetterOrContinue<T[K], [K, ...U]>]
+    : K extends KeyOf<T>
+      ? [Part<T, K>, ...RestContinue<T[K], [K, ...U]>]
+      : never;
 
 type RestContinue<T, U extends PropertyKey[]> = 0 extends 1 & T
   ? [...Part<any>[], StoreSetter<any, PropertyKey[]>]
