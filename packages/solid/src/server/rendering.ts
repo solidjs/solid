@@ -26,8 +26,8 @@ export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (str
 export type ComponentProps<T extends ValidComponent> = T extends Component<infer P>
   ? P
   : T extends keyof JSX.IntrinsicElements
-  ? JSX.IntrinsicElements[T]
-  : Record<string, unknown>;
+    ? JSX.IntrinsicElements[T]
+    : Record<string, unknown>;
 
 // these methods are duplicates from solid-js/web
 // we need a better solution for this in the future
