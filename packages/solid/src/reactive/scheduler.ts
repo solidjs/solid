@@ -21,7 +21,7 @@ let taskIdCounter = 1,
   deadline = 0,
   maxYieldInterval = 300,
   scheduleCallback: (() => void) | null = null,
-  scheduledCallback: ((hasTimeRemaining: boolean, initialTime: number) => boolean) | null = null;
+  scheduledCallback: ((initialTime: number) => boolean) | null = null;
 
 const maxSigned31BitInt = 1073741823;
 /* istanbul ignore next */
@@ -33,9 +33,8 @@ function setupScheduler() {
     if (scheduledCallback !== null) {
       const currentTime = performance.now();
       deadline = currentTime + yieldInterval;
-      const hasTimeRemaining = true;
       try {
-        const hasMoreWork = scheduledCallback(hasTimeRemaining, currentTime);
+        const hasMoreWork = scheduledCallback(currentTime);
         if (!hasMoreWork) {
           scheduledCallback = null;
         } else port.postMessage(null);
@@ -128,23 +127,23 @@ export function cancelCallback(task: Task) {
   task.fn = null;
 }
 
-function flushWork(hasTimeRemaining: boolean, initialTime: number) {
+function flushWork(initialTime: number) {
   // We'll need a host callback the next time work is scheduled.
   isCallbackScheduled = false;
   isPerformingWork = true;
   try {
-    return workLoop(hasTimeRemaining, initialTime);
+    return workLoop(initialTime);
   } finally {
     currentTask = null;
     isPerformingWork = false;
   }
 }
 
-function workLoop(hasTimeRemaining: boolean, initialTime: number) {
+function workLoop(initialTime: number) {
   let currentTime = initialTime;
   currentTask = taskQueue[0] || null;
   while (currentTask !== null) {
-    if (currentTask.expirationTime > currentTime && (!hasTimeRemaining || shouldYieldToHost!())) {
+    if (currentTask.expirationTime > currentTime && shouldYieldToHost!()) {
       // This currentTask hasn't expired, and we've reached the deadline.
       break;
     }
