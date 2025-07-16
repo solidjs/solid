@@ -6,7 +6,7 @@ import {
   createStore,
   flushSync,
   untrack,
-  unwrap
+  snapshot
 } from "../../src/index.js";
 import { sharedClone } from "./shared-clone.js";
 
@@ -86,7 +86,7 @@ describe("recursive effects", () => {
       createEffect(
         () => {
           prev = next;
-          next = unwrap(sharedClone(next, store));
+          next = snapshot(sharedClone(next, store));
           called++;
         },
         () => {}

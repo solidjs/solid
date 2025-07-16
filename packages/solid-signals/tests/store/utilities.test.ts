@@ -1,3 +1,4 @@
+import exp from "constants";
 import {
   Computation,
   createEffect,
@@ -8,7 +9,8 @@ import {
   flushSync,
   getOwner,
   merge,
-  omit
+  omit,
+  snapshot
 } from "../../src/index.js";
 
 type SimplePropTypes = {
@@ -552,5 +554,80 @@ describe("deep", () => {
     setStore(s => (s.second.nested.shared.b = 4));
     flushSync();
     expect(effect).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("snapshot", () => {
+  test("returns same object if unchanged", () => {
+    const ref = { a: 1, b: 2 };
+    const [state, setState] = createStore(ref);
+    const immutable = snapshot(state);
+    expect(immutable).not.toBe(state);
+    expect(immutable).toEqual(state);
+    expect(immutable).toBe(ref);
+  });
+  test("returns new object if changed", () => {
+    const ref = { a: 1, b: 2 };
+    const [state, setState] = createStore(ref);
+    const immutable = snapshot(state);
+    expect(immutable).not.toBe(state);
+    expect(immutable).toEqual(state);
+    expect(immutable).toBe(ref);
+
+    setState(s => {
+      s.a = 3;
+    });
+    const newImmutable = snapshot(state);
+    expect(newImmutable).not.toBe(state);
+    expect(newImmutable).toEqual(state);
+    expect(newImmutable).not.toBe(immutable);
+    expect(newImmutable).not.toEqual(immutable);
+  });
+  test("returns new object if nested changed", () => {
+    const ref = { a: 1, b: { c: 2 } };
+    const [state, setState] = createStore(ref);
+    const immutable = snapshot(state);
+    expect(immutable).not.toBe(state);
+    expect(immutable).toEqual(state);
+    expect(immutable).toBe(ref);
+
+    setState(s => {
+      s.b.c = 3;
+    });
+    const newImmutable = snapshot(state);
+    expect(newImmutable).not.toBe(state);
+    expect(newImmutable).toEqual(state);
+    expect(newImmutable).not.toBe(immutable);
+  });
+  test("returns existing object if nested unchanged", () => {
+    const ref = { a: 1, b: { c: 2 } };
+    const [state, setState] = createStore(ref);
+    const immutable = snapshot(state);
+    expect(immutable).not.toBe(state);
+    expect(immutable).toEqual(state);
+    expect(immutable).toBe(ref);
+    setState(s => {
+      s.a = 3;
+    });
+    const newImmutable = snapshot(state);
+    expect(newImmutable).not.toBe(state);
+    expect(newImmutable).toEqual(state);
+    expect(newImmutable).not.toBe(immutable);
+    expect(newImmutable.b).toBe(immutable.b);
+  });
+  test("returns new object if nested array changed", () => {
+    const ref = { a: 1, b: [2, 3] };
+    const [state, setState] = createStore(ref);
+    const immutable = snapshot(state);
+    expect(immutable).not.toBe(state);
+    expect(immutable).toEqual(state);
+    expect(immutable).toBe(ref);
+    setState(s => {
+      s.b[0] = 4;
+    });
+    const newImmutable = snapshot(state);
+    expect(newImmutable).not.toBe(state);
+    expect(newImmutable).toEqual(state);
+    expect(newImmutable).not.toBe(immutable);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createStore, reconcile, unwrap } from "../../src/index.js";
+import { createStore, reconcile, snapshot } from "../../src/index.js";
 
 describe("setState with reconcile", () => {
   test("Reconcile a simple object", () => {
@@ -32,7 +32,7 @@ describe("setState with reconcile", () => {
     expect(state.data.user.firstName).toBe("John");
     expect(state.data.user.lastName).toBe("Snow");
     setState(s => {
-      s.data.user = reconcile({ firstName: "Jake", middleName: "R" }, "id")(s.data.user);
+      reconcile({ firstName: "Jake", middleName: "R" }, "id")(s.data.user);
     });
     expect(state.data.user.firstName).toBe("Jake");
     expect(state.data.user.middleName).toBe("R");
@@ -45,34 +45,34 @@ describe("setState with reconcile", () => {
       BRANDON = { id: 3, firstName: "Brandon", lastName: "Start" },
       ARYA = { id: 4, firstName: "Arya", lastName: "Start" };
     const [state, setState] = createStore({ users: [JOHN, NED, BRANDON] });
-    expect(Object.is(unwrap(state.users[0]), JOHN)).toBe(true);
-    expect(Object.is(unwrap(state.users[1]), NED)).toBe(true);
-    expect(Object.is(unwrap(state.users[2]), BRANDON)).toBe(true);
+    expect(Object.is(snapshot(state.users[0]), JOHN)).toBe(true);
+    expect(Object.is(snapshot(state.users[1]), NED)).toBe(true);
+    expect(Object.is(snapshot(state.users[2]), BRANDON)).toBe(true);
     setState(s => {
-      s.users = reconcile([NED, JOHN, BRANDON], "id")(s.users);
+      reconcile([NED, JOHN, BRANDON], "id")(s.users);
     });
-    expect(Object.is(unwrap(state.users[0]), NED)).toBe(true);
-    expect(Object.is(unwrap(state.users[1]), JOHN)).toBe(true);
-    expect(Object.is(unwrap(state.users[2]), BRANDON)).toBe(true);
+    expect(Object.is(snapshot(state.users[0]), NED)).toBe(true);
+    expect(Object.is(snapshot(state.users[1]), JOHN)).toBe(true);
+    expect(Object.is(snapshot(state.users[2]), BRANDON)).toBe(true);
     setState(s => {
-      s.users = reconcile([NED, BRANDON, JOHN], "id")(s.users);
+      reconcile([NED, BRANDON, JOHN], "id")(s.users);
     });
-    expect(Object.is(unwrap(state.users[0]), NED)).toBe(true);
-    expect(Object.is(unwrap(state.users[1]), BRANDON)).toBe(true);
-    expect(Object.is(unwrap(state.users[2]), JOHN)).toBe(true);
+    expect(Object.is(snapshot(state.users[0]), NED)).toBe(true);
+    expect(Object.is(snapshot(state.users[1]), BRANDON)).toBe(true);
+    expect(Object.is(snapshot(state.users[2]), JOHN)).toBe(true);
     setState(s => {
-      s.users = reconcile([NED, BRANDON, JOHN, ARYA], "id")(s.users);
+      reconcile([NED, BRANDON, JOHN, ARYA], "id")(s.users);
     });
-    expect(Object.is(unwrap(state.users[0]), NED)).toBe(true);
-    expect(Object.is(unwrap(state.users[1]), BRANDON)).toBe(true);
-    expect(Object.is(unwrap(state.users[2]), JOHN)).toBe(true);
-    expect(Object.is(unwrap(state.users[3]), ARYA)).toBe(true);
+    expect(Object.is(snapshot(state.users[0]), NED)).toBe(true);
+    expect(Object.is(snapshot(state.users[1]), BRANDON)).toBe(true);
+    expect(Object.is(snapshot(state.users[2]), JOHN)).toBe(true);
+    expect(Object.is(snapshot(state.users[3]), ARYA)).toBe(true);
     setState(s => {
-      s.users = reconcile([BRANDON, JOHN, ARYA], "id")(s.users);
+      reconcile([BRANDON, JOHN, ARYA], "id")(s.users);
     });
-    expect(Object.is(unwrap(state.users[0]), BRANDON)).toBe(true);
-    expect(Object.is(unwrap(state.users[1]), JOHN)).toBe(true);
-    expect(Object.is(unwrap(state.users[2]), ARYA)).toBe(true);
+    expect(Object.is(snapshot(state.users[0]), BRANDON)).toBe(true);
+    expect(Object.is(snapshot(state.users[1]), JOHN)).toBe(true);
+    expect(Object.is(snapshot(state.users[2]), ARYA)).toBe(true);
   });
 
   test("Reconcile overwrite in non-keyed merge mode", () => {
@@ -89,7 +89,7 @@ describe("setState with reconcile", () => {
     expect(state.users[2].id).toBe(3);
     expect(state.users[2].firstName).toBe("Brandon");
     setState(s => {
-      s.users = reconcile([{ ...NED }, { ...JOHN }, { ...BRANDON }], "")(s.users);
+      reconcile([{ ...NED }, { ...JOHN }, { ...BRANDON }], "")(s.users);
     });
     expect(state.users[0].id).toBe(2);
     expect(state.users[0].firstName).toBe("Ned");
@@ -120,7 +120,7 @@ describe("setState with reconcile", () => {
     expect(user.user.firstName).toBe("John");
     expect(() =>
       setUser(s => {
-        s.user = reconcile(NED, "id")(s.user);
+        reconcile(NED, "id")(s.user);
       })
     ).toThrow();
     // expect(user.user.id).toBe(2);

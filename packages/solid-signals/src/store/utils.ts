@@ -1,6 +1,70 @@
 import { SUPPORTS_PROXY } from "../core/index.js";
 import { createMemo } from "../signals.js";
-import { $PROXY } from "./store.js";
+import {
+  $PROXY,
+  $TARGET,
+  $DELETED,
+  getKeys,
+  getPropertyDescriptor,
+  isWrappable,
+  STORE_OVERRIDE,
+  STORE_VALUE,
+  type StoreNode
+} from "./store.js";
+
+/**
+ * Returns a non reactive copy of the store object.
+ * It will attempt to preserver the original reference unless the value has been modified.
+ * @param item store proxy object
+ */
+export function snapshot<T>(item: T, map?: Map<unknown, unknown>): T;
+export function snapshot<T>(item: any, map?: Map<unknown, unknown>): T {
+  let target: StoreNode | undefined, isArray, override, result, unwrapped, v;
+  if (!isWrappable(item)) return item;
+  if (map && map.has(item)) return map.get(item) as T;
+  if (!map) map = new Map();
+  if ((target = item[$TARGET] || item[$PROXY]?.[$TARGET])) {
+    override = target[STORE_OVERRIDE];
+    isArray = Array.isArray(target[STORE_VALUE]);
+    map.set(
+      item,
+      override
+        ? (result = isArray ? [] : (Object.create(Object.getPrototypeOf(target[STORE_VALUE])) as T))
+        : target[STORE_VALUE]
+    );
+    item = target[STORE_VALUE];
+  } else {
+    isArray = Array.isArray(item);
+    map.set(item, item);
+  }
+  if (isArray) {
+    const len = override?.length || item.length;
+    for (let i = 0; i < len; i++) {
+      v = (override && i in override) ? override[i] : item[i];
+      if (v === $DELETED) continue; // skip deleted items
+      if ((unwrapped = snapshot(v, map)) !== v || result) {
+        if (!result) map.set(item, (result = [...item]));
+        result[i] = unwrapped;
+      }
+    }
+  } else {
+    const keys = getKeys(item, override);
+    for (let i = 0, l = keys.length; i < l; i++) {
+      let prop = keys[i];
+      const desc = getPropertyDescriptor(item, override, prop)!;
+      if (desc.get) continue;
+      v = override && prop in override ? override[prop] : item[prop];
+      if ((unwrapped = snapshot(v, map)) !== item[prop] || result) {
+        if (!result) {
+          result = Object.create(Object.getPrototypeOf(item)) as Record<PropertyKey, any>;
+          Object.assign(result, item);
+        }
+        result[prop] = unwrapped;
+      }
+    }
+  }
+  return result || item;
+}
 
 function trueFn() {
   return true;

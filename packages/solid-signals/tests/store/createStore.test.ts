@@ -1,5 +1,5 @@
 import {
-  $RAW,
+  $TARGET,
   createEffect,
   createMemo,
   createRoot,
@@ -7,8 +7,8 @@ import {
   createStore,
   flushSync,
   mapArray,
-  untrack,
-  unwrap
+  snapshot,
+  untrack
 } from "../../src/index.js";
 
 describe("State immutability", () => {
@@ -100,31 +100,31 @@ describe("Unwrapping Edge Cases", () => {
     const [state] = createStore({
         data: Object.freeze({ user: { firstName: "John", lastName: "Snow" } })
       }),
-      s = unwrap({ ...state });
+      s = snapshot(state);
     expect(s.data.user.firstName).toBe("John");
     expect(s.data.user.lastName).toBe("Snow");
     // @ts-ignore check if proxy still
-    expect(s.data.user[$RAW]).toBeUndefined();
+    expect(s.data.user[$TARGET]).toBeUndefined();
   });
   test("Unwrap nested frozen array", () => {
     const [state] = createStore({
         data: [{ user: { firstName: "John", lastName: "Snow" } }]
       }),
-      s = unwrap({ data: state.data.slice(0) });
+      s = snapshot({ data: state.data });
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
     // @ts-ignore check if proxy still
-    expect(s.data[0].user[$RAW]).toBeUndefined();
+    expect(s.data[0].user[$TARGET]).toBeUndefined();
   });
   test("Unwrap nested frozen state array", () => {
     const [state] = createStore({
         data: Object.freeze([{ user: { firstName: "John", lastName: "Snow" } }])
       }),
-      s = unwrap({ ...state });
+      s = snapshot(state);
     expect(s.data[0].user.firstName).toBe("John");
     expect(s.data[0].user.lastName).toBe("Snow");
     // @ts-ignore check if proxy still
-    expect(s.data[0].user[$RAW]).toBeUndefined();
+    expect(s.data[0].user[$TARGET]).toBeUndefined();
   });
 });
 
@@ -340,7 +340,7 @@ describe("Tracking State changes", () => {
           for (const key in state.obj) {
             key;
           }
-          const u = unwrap(state.obj);
+          const u = snapshot(state.obj);
           if (executionCount2 === 0) expect(u.item).toBeUndefined();
           else if (executionCount2 === 1) {
             expect(u.item).toBe(5);
@@ -429,7 +429,7 @@ describe("Tracking State changes", () => {
           for (const key in state) {
             key;
           }
-          const u = unwrap(state);
+          const u = snapshot(state);
           if (executionCount2 === 0) expect(u.item).toBeUndefined();
           else if (executionCount2 === 1) {
             expect(u.item).toBe(5);

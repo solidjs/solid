@@ -5,15 +5,20 @@ import {
   isWrappable,
   STORE_HAS,
   STORE_NODE,
+  STORE_OVERRIDE,
   STORE_VALUE,
-  unwrap,
   wrap
 } from "./store.js";
+
+function unwrap(value: any) {
+  return value?.[$TARGET]?.[STORE_NODE] ?? value;
+}
 
 function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => any) {
   const target = state?.[$TARGET];
   if (!target) return;
   const previous = target[STORE_VALUE];
+  const override = target[STORE_OVERRIDE];
   if (next === previous) return;
 
   // swap
@@ -21,8 +26,8 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
     value: previous[$PROXY],
     writable: true
   });
-  previous[$PROXY] = null;
   target[STORE_VALUE] = next;
+  target[STORE_OVERRIDE] = undefined;
 
   // merge
   if (Array.isArray(previous)) {
@@ -122,8 +127,8 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
     const keys = Object.keys(nodes);
     for (let i = 0, len = keys.length; i < len; i++) {
       const node = nodes[keys[i]];
-      const previousValue = unwrap(previous[keys[i]], false);
-      let nextValue = unwrap(next[keys[i]], false);
+      const previousValue = unwrap(previous[keys[i]]);
+      let nextValue = unwrap(next[keys[i]]);
       if (previousValue === nextValue) continue;
       if (
         !previousValue ||
@@ -153,6 +158,5 @@ export function reconcile<T extends U, U>(
     if (keyFn(value) !== keyFn(state))
       throw new Error("Cannot reconcile states with different identity");
     applyState(value, state, keyFn);
-    return state as T;
   };
 }
