@@ -7,6 +7,7 @@ import {
   getKeys,
   getPropertyDescriptor,
   isWrappable,
+  storeLookup,
   STORE_OVERRIDE,
   STORE_VALUE,
   type StoreNode
@@ -17,13 +18,14 @@ import {
  * It will attempt to preserver the original reference unless the value has been modified.
  * @param item store proxy object
  */
-export function snapshot<T>(item: T, map?: Map<unknown, unknown>): T;
-export function snapshot<T>(item: any, map?: Map<unknown, unknown>): T {
+export function snapshot<T>(item: T): T;
+export function snapshot<T>(item: T, map?: Map<unknown, unknown>, lookup?: WeakMap<any, any>): T;
+export function snapshot<T>(item: any, map?: Map<unknown, unknown>, lookup?: WeakMap<any, any>): T {
   let target: StoreNode | undefined, isArray, override, result, unwrapped, v;
   if (!isWrappable(item)) return item;
   if (map && map.has(item)) return map.get(item) as T;
   if (!map) map = new Map();
-  if ((target = item[$TARGET] || item[$PROXY]?.[$TARGET])) {
+  if ((target = item[$TARGET] || lookup?.get(item)?.[$TARGET])) {
     override = target[STORE_OVERRIDE];
     isArray = Array.isArray(target[STORE_VALUE]);
     map.set(
@@ -33,6 +35,7 @@ export function snapshot<T>(item: any, map?: Map<unknown, unknown>): T {
         : target[STORE_VALUE]
     );
     item = target[STORE_VALUE];
+    lookup = storeLookup;
   } else {
     isArray = Array.isArray(item);
     map.set(item, item);
@@ -42,7 +45,7 @@ export function snapshot<T>(item: any, map?: Map<unknown, unknown>): T {
     for (let i = 0; i < len; i++) {
       v = (override && i in override) ? override[i] : item[i];
       if (v === $DELETED) continue; // skip deleted items
-      if ((unwrapped = snapshot(v, map)) !== v || result) {
+      if ((unwrapped = snapshot(v, map, lookup)) !== v || result) {
         if (!result) map.set(item, (result = [...item]));
         result[i] = unwrapped;
       }
@@ -54,7 +57,7 @@ export function snapshot<T>(item: any, map?: Map<unknown, unknown>): T {
       const desc = getPropertyDescriptor(item, override, prop)!;
       if (desc.get) continue;
       v = override && prop in override ? override[prop] : item[prop];
-      if ((unwrapped = snapshot(v, map)) !== item[prop] || result) {
+      if ((unwrapped = snapshot(v, map, lookup)) !== item[prop] || result) {
         if (!result) {
           result = Object.create(Object.getPrototypeOf(item)) as Record<PropertyKey, any>;
           Object.assign(result, item);

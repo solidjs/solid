@@ -63,6 +63,7 @@ let currentObserver: ObserverType | null = null,
   newSources: SourceType[] | null = null,
   newSourcesIndex = 0,
   newFlags = 0,
+  unobserved: SourceType[] = [],
   notStale = false,
   updateCheck: null | { _value: boolean } = null,
   staleCheck: null | { _value: boolean } = null;
@@ -195,7 +196,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     const valueChanged =
       newValue !== UNCHANGED &&
       (!!(this._stateFlags & UNINITIALIZED_BIT) ||
-        this._stateFlags & LOADING_BIT & ~flags ||
+        // this._stateFlags & LOADING_BIT & ~flags ||
         this._equals === false ||
         !this._equals(this._value!, newValue));
 
@@ -485,6 +486,7 @@ export function update<T>(node: Computation<T>): void {
       removeSourceObservers(node, newSourcesIndex);
       node._sources.length = newSourcesIndex;
     }
+    unobserved.length && notifyUnobserved();
 
     // Reset global context after computation
     newSources = prevSources;
@@ -508,10 +510,17 @@ function removeSourceObservers(node: ObserverType, index: number): void {
       swap = source._observers.indexOf(node);
       source._observers[swap] = source._observers[source._observers.length - 1];
       source._observers.pop();
-      // maybe could get overcalled?
-      if (!source._observers.length) source._unobserved?.();
+      if (!source._observers.length) unobserved.push(source);
     }
   }
+}
+
+function notifyUnobserved(): void {
+  for (let i = 0; i < unobserved.length; i++) {
+    const source = unobserved[i];
+    if (!source._observers || !source._observers.length) unobserved[i]._unobserved?.(); // Call the unobserved callback if it exists
+  }
+  unobserved = [];
 }
 
 export function isEqual<T>(a: T, b: T): boolean {
