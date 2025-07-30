@@ -8,7 +8,6 @@ import {
   STATE_DISPOSED
 } from "./constants.js";
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
-import { EffectError } from "./error.js";
 import { ERROR_BIT, LOADING_BIT } from "./flags.js";
 import type { Owner } from "./owner.js";
 import { getClock } from "./scheduler.js";
@@ -20,7 +19,7 @@ import { getClock } from "./scheduler.js";
  */
 export class Effect<T = any> extends Computation<T> {
   _effect: (val: T, prev: T | undefined) => void | (() => void);
-  _onerror: ((err: unknown) => void | (() => void)) | undefined;
+  _onerror: ((err: unknown, cleanup: () => void) => void) | undefined;
   _cleanup: (() => void) | undefined;
   _modified: boolean = false;
   _prevValue: T | undefined;
@@ -77,14 +76,14 @@ export class Effect<T = any> extends Computation<T> {
 
   override _setError(error: unknown): void {
     this._error = error;
-    this._cleanup?.();
     this._queue.notify(this, LOADING_BIT, 0);
     this._stateFlags = ERROR_BIT;
     if (this._type === EFFECT_USER) {
       try {
-        return this._onerror
-          ? (this._cleanup = this._onerror(error) as any)
-          : console.error(new EffectError(this._effect, error));
+        return this._onerror ? this._onerror(error, () => {
+          this._cleanup?.();
+          this._cleanup = undefined;
+        }) : console.error(error);
       } catch (e) {
         error = e;
       }

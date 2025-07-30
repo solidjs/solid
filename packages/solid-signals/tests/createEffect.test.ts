@@ -432,7 +432,6 @@ it("should defer user effects with the defer option", () => {
         mark += "b";
       },
       undefined,
-      undefined,
       { defer: true }
     );
   });

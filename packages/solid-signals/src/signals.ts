@@ -31,6 +31,10 @@ export type EffectFunction<Prev, Next extends Prev = Prev> = (
   v: Next,
   p?: Prev
 ) => (() => void) | void;
+export type EffectBundle<Prev, Next extends Prev = Prev> = {
+  effect: EffectFunction<Prev, Next>;
+  error: (err: unknown, cleanup: () => void) => void;
+};
 
 export interface EffectOptions {
   name?: string;
@@ -239,28 +243,25 @@ export function createAsync<T>(
  */
 export function createEffect<Next>(
   compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effect: EffectFunction<NoInfer<Next>, Next>,
-  error?: (err: unknown) => void
+  effect: EffectFunction<NoInfer<Next>, Next> | EffectBundle<NoInfer<Next>, Next>
 ): void;
 export function createEffect<Next, Init = Next>(
   compute: ComputeFunction<Init | Next, Next>,
-  effect: EffectFunction<Next, Next>,
-  error: ((err: unknown) => void) | undefined,
+  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
 export function createEffect<Next, Init>(
   compute: ComputeFunction<Init | Next, Next>,
-  effect: EffectFunction<Next, Next>,
-  error?: (err: unknown) => void,
+  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
   value?: Init,
   options?: EffectOptions
 ): void {
   void new Effect(
     value as any,
     compute as any,
-    effect,
-    error,
+    (effect as any).effect ? (effect as any).effect : effect,
+    (effect as any).error,
     __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
   );
 }

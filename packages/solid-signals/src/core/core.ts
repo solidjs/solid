@@ -28,7 +28,7 @@
  */
 
 import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
-import { NotReadyError } from "./error.js";
+import { NotReadyError, ImpureWriteError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
 import { getClock } from "./scheduler.js";
@@ -192,7 +192,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   ): T {
     // Firewall Guard, TODO: Make it better
     if (!this._compute && !(this as any)._pureWrite && getOwner() && !(getOwner() as any).firewall)
-      throw new Error("Cannot write to a Signal in an owned scope");
+      throw new ImpureWriteError();
     const newValue =
       !raw && typeof value === "function"
         ? (value as (currentValue: T) => T)(this._value!)

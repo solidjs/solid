@@ -16,9 +16,8 @@ export class ContextNotFoundError extends Error {
   }
 }
 
-export class EffectError extends Error {
-  constructor(effect: Function, cause: unknown) {
-    super(__DEV__ ? `Uncaught error while running effect:\n\n  ${effect.toString()}\n` : "");
-    this.cause = cause;
+export class ImpureWriteError extends Error {
+  constructor() {
+    super(__DEV__ ? "Cannot write to a Signal in an owned scope." : "");
   }
 }
