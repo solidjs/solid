@@ -33,6 +33,7 @@ export function mapArray<Item, MappedItem>(
   });
 }
 
+const pureOptions = { pureWrite: true };
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   const newItems = this._list() || [],
     newLen = newItems.length;
@@ -43,8 +44,8 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       j: number,
       mapper = this._rows
         ? () => {
-            this._rows![j] = new Computation(newItems[j], null);
-            this._indexes && (this._indexes![j] = new Computation(j, null));
+            this._rows![j] = new Computation(newItems[j], null, pureOptions);
+            this._indexes && (this._indexes![j] = new Computation(j, null, pureOptions));
             return this._map(
               Computation.prototype.read.bind(this._rows![j]),
               this._indexes
@@ -55,7 +56,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         : this._indexes
           ? () => {
               const item = newItems[j];
-              this._indexes![j] = new Computation(j, null);
+              this._indexes![j] = new Computation(j, null, pureOptions);
               return this._map(() => item, Computation.prototype.read.bind(this._indexes![j]));
             }
           : () => {

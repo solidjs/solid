@@ -143,7 +143,8 @@ export class EagerComputation<T = any> extends Computation<T> {
   }
 }
 
-export class ProjectionComputation extends Computation {
+export class FirewallComputation extends Computation {
+  firewall = true;
   constructor(compute: () => void) {
     super(undefined, compute);
     if (__DEV__ && !this._parent)

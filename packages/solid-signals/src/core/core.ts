@@ -37,6 +37,7 @@ export interface SignalOptions<T> {
   id?: string;
   name?: string;
   equals?: ((prev: T, next: T) => boolean) | false;
+  pureWrite?: boolean;
   unobserved?: () => void;
 }
 
@@ -92,6 +93,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   // which could enable more efficient DIRTY notification
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
   _unobserved: (() => void) | undefined;
+  _pureWrite: boolean = false;
 
   /** Whether the computation is an error or has ancestors that are unresolved */
   _stateFlags = 0;
@@ -122,7 +124,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (__DEV__) this._name = options?.name ?? (this._compute ? "computed" : "signal");
 
     if (options?.equals !== undefined) this._equals = options.equals;
-
+    if (options?.pureWrite) this._pureWrite = true;
     if (options?.unobserved) this._unobserved = options?.unobserved;
   }
 
@@ -188,6 +190,9 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // Tracks whether a function was returned from a compute result so we don't unwrap it.
     raw = false
   ): T {
+    // Firewall Guard, TODO: Make it better
+    if (!this._compute && !(this as any)._pureWrite && getOwner() && !(getOwner() as any).firewall)
+      throw new Error("Cannot write to a Signal in an owned scope");
     const newValue =
       !raw && typeof value === "function"
         ? (value as (currentValue: T) => T)(this._value!)

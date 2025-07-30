@@ -1,4 +1,4 @@
-import { ProjectionComputation } from "../core/effect.js";
+import { FirewallComputation } from "../core/effect.js";
 import { getOwner } from "../core/owner.js";
 import {
   $TARGET,
@@ -20,7 +20,7 @@ export function createProjection<T extends Object>(
   initialValue: T = {} as T
 ): Store<T> {
   let wrappedStore: Store<T>;
-  const node = new ProjectionComputation(() => {
+  const node = new FirewallComputation(() => {
     storeSetter(wrappedStore, fn);
   });
   const wrappedMap = new WeakMap();

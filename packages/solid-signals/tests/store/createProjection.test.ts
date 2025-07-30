@@ -9,9 +9,10 @@ import {
 
 describe("Projection basics", () => {
   it("should observe key changes", () => {
-    createRoot(dispose => {
+    let effect0, effect1, effect2, $effect0, $effect1, $effect2, setSource;
+    const dispose = createRoot(dispose => {
       let previous;
-      const [$source, setSource] = createSignal(0),
+      const [$source, set] = createSignal(0),
         selected = createProjection(
           draft => {
             const s = $source();
@@ -20,67 +21,64 @@ describe("Projection basics", () => {
             previous = s;
           },
           [false, false, false]
-        ),
-        effect0 = vi.fn(() => selected[0]),
-        effect1 = vi.fn(() => selected[1]),
-        effect2 = vi.fn(() => selected[2]);
-
-      let $effect0 = createMemo(effect0),
-        $effect1 = createMemo(effect1),
-        $effect2 = createMemo(effect2);
-
-      expect($effect0()).toBe(true);
-      expect($effect1()).toBe(false);
-      expect($effect2()).toBe(false);
-
-      expect(effect0).toHaveBeenCalledTimes(1);
-      expect(effect1).toHaveBeenCalledTimes(1);
-      expect(effect2).toHaveBeenCalledTimes(1);
-
-      setSource(1);
-
-      expect($effect0()).toBe(false);
-      expect($effect1()).toBe(true);
-      expect($effect2()).toBe(false);
-
-      expect(effect0).toHaveBeenCalledTimes(2);
-      expect(effect1).toHaveBeenCalledTimes(2);
-      expect(effect2).toHaveBeenCalledTimes(1);
-
-      setSource(2);
-
-      expect($effect0()).toBe(false);
-      expect($effect1()).toBe(false);
-      expect($effect2()).toBe(true);
-
-      expect(effect0).toHaveBeenCalledTimes(2);
-      expect(effect1).toHaveBeenCalledTimes(3);
-      expect(effect2).toHaveBeenCalledTimes(2);
-
-      setSource(-1);
-
-      expect($effect0()).toBe(false);
-      expect($effect1()).toBe(false);
-      expect($effect2()).toBe(false);
-
-      expect(effect0).toHaveBeenCalledTimes(2);
-      expect(effect1).toHaveBeenCalledTimes(3);
-      expect(effect2).toHaveBeenCalledTimes(3);
-
-      dispose();
-
-      setSource(0);
-      setSource(1);
-      setSource(2);
-
-      // expect($effect0).toThrow();
-      // expect($effect1).toThrow();
-      // expect($effect2).toThrow();
-
-      expect(effect0).toHaveBeenCalledTimes(2);
-      expect(effect1).toHaveBeenCalledTimes(3);
-      expect(effect2).toHaveBeenCalledTimes(3);
+        );
+      effect0 = vi.fn(() => selected[0]);
+      effect1 = vi.fn(() => selected[1]);
+      effect2 = vi.fn(() => selected[2]);
+      setSource = set;
+      $effect0 = createMemo(effect0);
+      $effect1 = createMemo(effect1);
+      $effect2 = createMemo(effect2);
+      return dispose;
     });
+
+    expect($effect0()).toBe(true);
+    expect($effect1()).toBe(false);
+    expect($effect2()).toBe(false);
+
+    expect(effect0).toHaveBeenCalledTimes(1);
+    expect(effect1).toHaveBeenCalledTimes(1);
+    expect(effect2).toHaveBeenCalledTimes(1);
+
+    setSource(1);
+
+    expect($effect0()).toBe(false);
+    expect($effect1()).toBe(true);
+    expect($effect2()).toBe(false);
+
+    expect(effect0).toHaveBeenCalledTimes(2);
+    expect(effect1).toHaveBeenCalledTimes(2);
+    expect(effect2).toHaveBeenCalledTimes(1);
+
+    setSource(2);
+
+    expect($effect0()).toBe(false);
+    expect($effect1()).toBe(false);
+    expect($effect2()).toBe(true);
+
+    expect(effect0).toHaveBeenCalledTimes(2);
+    expect(effect1).toHaveBeenCalledTimes(3);
+    expect(effect2).toHaveBeenCalledTimes(2);
+
+    setSource(-1);
+
+    expect($effect0()).toBe(false);
+    expect($effect1()).toBe(false);
+    expect($effect2()).toBe(false);
+
+    expect(effect0).toHaveBeenCalledTimes(2);
+    expect(effect1).toHaveBeenCalledTimes(3);
+    expect(effect2).toHaveBeenCalledTimes(3);
+
+    dispose();
+
+    setSource(0);
+    setSource(1);
+    setSource(2);
+
+    expect(effect0).toHaveBeenCalledTimes(2);
+    expect(effect1).toHaveBeenCalledTimes(3);
+    expect(effect2).toHaveBeenCalledTimes(3);
   });
 
   it("should not self track", () => {

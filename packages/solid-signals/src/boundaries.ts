@@ -84,7 +84,7 @@ class ConditionalQueue extends Queue {
 export class CollectionQueue extends Queue {
   _collectionType: number;
   _nodes: Set<Effect> = new Set();
-  _disabled: Computation<boolean> = new Computation(false, null);
+  _disabled: Computation<boolean> = new Computation(false, null, { pureWrite: true});
   constructor(type: number) {
     super();
     this._collectionType = type;
