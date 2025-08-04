@@ -3,14 +3,14 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  flushSync,
+  flush,
   getOwner
 } from "../src/index.js";
 
 function gc() {
   return new Promise(resolve =>
     setTimeout(async () => {
-      flushSync(); // flush call stack (holds a reference)
+      flush(); // flush call stack (holds a reference)
       global.gc!();
       resolve(void 0);
     }, 0)

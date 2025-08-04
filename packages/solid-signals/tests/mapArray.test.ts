@@ -1,4 +1,4 @@
-import { createEffect, createRoot, createSignal, flushSync, mapArray } from "../src/index.js";
+import { createEffect, createRoot, createSignal, flush, mapArray } from "../src/index.js";
 
 it("should compute keyed map", () => {
   const [$source, setSource] = createSignal([{ id: "a" }, { id: "b" }, { id: "c" }]);
@@ -82,10 +82,10 @@ it("should notify observer", () => {
 
   const effect = vi.fn();
   createRoot(() => createEffect(map, effect));
-  flushSync();
+  flush();
 
   setSource(prev => prev.slice(1));
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(2);
 });
 

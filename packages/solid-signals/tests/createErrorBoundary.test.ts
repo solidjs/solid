@@ -4,7 +4,7 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flushSync
+  flush
 } from "../src/index.js";
 
 it("should let errors bubble up when not handled", () => {
@@ -18,7 +18,7 @@ it("should let errors bubble up when not handled", () => {
         () => {}
       );
     });
-    flushSync();
+    flush();
   }).toThrowError(error.cause as Error);
 });
 
@@ -77,11 +77,11 @@ it("should not duplicate error handler", () => {
   });
 
   setX(1);
-  flushSync();
+  flush();
 
   shouldThrow = true;
   setX(2);
-  flushSync();
+  flush();
   expect(handler).toHaveBeenCalledTimes(1);
 });
 
@@ -114,7 +114,7 @@ it("should not trigger wrong handler", () => {
   expect(rootHandler).toHaveBeenCalledTimes(0);
   shouldThrow = true;
   setX(1);
-  flushSync();
+  flush();
 
   expect(rootHandler).toHaveBeenCalledTimes(1);
   expect(handler).not.toHaveBeenCalledWith(error);
@@ -165,7 +165,7 @@ it("should handle errors when the effect is on the outside", async () => {
   });
   expect(rootHandler).toHaveBeenCalledTimes(0);
   setX(1);
-  flushSync();
+  flush();
   expect(rootHandler).toHaveBeenCalledWith(error);
   expect(rootHandler).toHaveBeenCalledTimes(1);
 });

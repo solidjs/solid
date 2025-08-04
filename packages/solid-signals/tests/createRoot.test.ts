@@ -5,7 +5,7 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flushSync,
+  flush,
   getOwner,
   onCleanup,
   Owner,
@@ -13,7 +13,7 @@ import {
   type Signal
 } from "../src/index.js";
 
-afterEach(() => flushSync());
+afterEach(() => flush());
 
 it("should dispose of inner computations", () => {
   let $x: Signal<number>;
@@ -31,10 +31,10 @@ it("should dispose of inner computations", () => {
   // expect($y!).toThrow();
   expect(memo).toHaveBeenCalledTimes(1);
 
-  flushSync();
+  flush();
 
   $x![1](50);
-  flushSync();
+  flush();
 
   // expect($y!).toThrow();
   expect(memo).toHaveBeenCalledTimes(1);
@@ -64,7 +64,7 @@ it("should create new tracking scope", () => {
 
     return dispose;
   });
-  flushSync();
+  flush();
 
   expect(effect).toHaveBeenCalledWith(0, undefined);
   expect(effect).toHaveBeenCalledTimes(1);
@@ -72,7 +72,7 @@ it("should create new tracking scope", () => {
   stopEffect();
 
   setX(10);
-  flushSync();
+  flush();
   expect(effect).not.toHaveBeenCalledWith(10);
   expect(effect).toHaveBeenCalledTimes(1);
 });
@@ -91,7 +91,7 @@ it("should not be reactive", () => {
   expect(root).toHaveBeenCalledTimes(1);
 
   $x![1](1);
-  flushSync();
+  flush();
   expect(root).toHaveBeenCalledTimes(1);
 });
 

@@ -4,11 +4,11 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flushSync,
+  flush,
   onCleanup
 } from "../src/index.js";
 
-afterEach(() => flushSync());
+afterEach(() => flush());
 
 it("should run effect", () => {
   const [$x, setX] = createSignal(0),
@@ -18,13 +18,13 @@ it("should run effect", () => {
   createRoot(() => createEffect(compute, effect));
   expect(compute).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(0);
-  flushSync();
+  flush();
   expect(compute).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledWith(0, undefined);
 
   setX(1);
-  flushSync();
+  flush();
   expect(compute).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledWith(1, 0);
@@ -44,16 +44,16 @@ it("should run effect on change", () => {
   expect(effect).to.toHaveBeenCalledTimes(0);
 
   setX(20);
-  flushSync();
+  flush();
   expect(effect).to.toHaveBeenCalledTimes(1);
 
   setY(20);
-  flushSync();
+  flush();
   expect(effect).to.toHaveBeenCalledTimes(2);
 
   setX(20);
   setY(20);
-  flushSync();
+  flush();
   expect(effect).to.toHaveBeenCalledTimes(2);
 });
 
@@ -86,21 +86,21 @@ it("should handle nested effect", () => {
     return dispose;
   });
 
-  flushSync();
+  flush();
   expect(outerEffect).toHaveBeenCalledTimes(1);
   expect(innerEffect).toHaveBeenCalledTimes(1);
   expect(innerPureDispose).toHaveBeenCalledTimes(0);
   expect(innerEffectDispose).toHaveBeenCalledTimes(0);
 
   setY(1);
-  flushSync();
+  flush();
   expect(outerEffect).toHaveBeenCalledTimes(1);
   expect(innerEffect).toHaveBeenCalledTimes(2);
   expect(innerPureDispose).toHaveBeenCalledTimes(1);
   expect(innerEffectDispose).toHaveBeenCalledTimes(1);
 
   setY(2);
-  flushSync();
+  flush();
   expect(outerEffect).toHaveBeenCalledTimes(1);
   expect(innerEffect).toHaveBeenCalledTimes(3);
   expect(innerPureDispose).toHaveBeenCalledTimes(2);
@@ -111,14 +111,14 @@ it("should handle nested effect", () => {
   innerEffectDispose.mockReset();
 
   setX(1);
-  flushSync();
+  flush();
   expect(outerEffect).toHaveBeenCalledTimes(2);
   expect(innerEffect).toHaveBeenCalledTimes(1); // new one is created
   expect(innerPureDispose).toHaveBeenCalledTimes(1);
   expect(innerEffectDispose).toHaveBeenCalledTimes(1);
 
   setY(3);
-  flushSync();
+  flush();
   expect(outerEffect).toHaveBeenCalledTimes(2);
   expect(innerEffect).toHaveBeenCalledTimes(2);
   expect(innerPureDispose).toHaveBeenCalledTimes(2);
@@ -146,7 +146,7 @@ it("should stop effect", () => {
   stopEffect();
 
   setX(20);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(0);
 });
 
@@ -178,7 +178,7 @@ it("should run all disposals before each new run", () => {
       }
     )
   );
-  flushSync();
+  flush();
 
   expect(effect).toHaveBeenCalledTimes(1);
   expect(disposeA).toHaveBeenCalledTimes(0);
@@ -187,7 +187,7 @@ it("should run all disposals before each new run", () => {
 
   for (let i = 1; i <= 3; i += 1) {
     setX(i);
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(i + 1);
     expect(disposeA).toHaveBeenCalledTimes(i);
     expect(disposeB).toHaveBeenCalledTimes(i);
@@ -213,7 +213,7 @@ it("should dispose of nested effect", () => {
   stopEffect();
 
   setX(10);
-  flushSync();
+  flush();
   expect(innerEffect).toHaveBeenCalledTimes(0);
   expect(innerEffect).not.toHaveBeenCalledWith(10);
 });
@@ -227,28 +227,28 @@ it("should conditionally observe", () => {
   const effect = vi.fn();
 
   createRoot(() => createEffect($a, effect));
-  flushSync();
+  flush();
 
   expect(effect).toHaveBeenCalledTimes(1);
 
   setY(1);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(1);
 
   setX(1);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(2);
 
   setCondition(false);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(2);
 
   setY(2);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(3);
 
   setX(3);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(3);
 });
 
@@ -282,9 +282,9 @@ it("should dispose of nested conditional effect", () => {
       () => {}
     )
   );
-  flushSync();
+  flush();
   setCondition(false);
-  flushSync();
+  flush();
   expect(disposeA).toHaveBeenCalledTimes(1);
 });
 
@@ -314,7 +314,7 @@ it("should handle looped effects", () => {
     )
   );
 
-  flushSync();
+  flush();
 
   expect(values).toHaveLength(3);
   expect(values.join(",")).toBe("0,0,1");
@@ -322,14 +322,14 @@ it("should handle looped effects", () => {
   loop = 1;
   values = [];
   setValue(1);
-  flushSync();
+  flush();
 
   expect(values).toHaveLength(2);
   expect(values.join(",")).toBe("1,1");
 
   values = [];
   setValue(2);
-  flushSync();
+  flush();
 
   expect(values).toHaveLength(2);
   expect(values.join(",")).toBe("2,2");
@@ -351,7 +351,7 @@ it("should apply changes in effect in same flush", async () => {
       setX(n => n + 1);
     })
   );
-  flushSync();
+  flush();
 
   expect($x()).toBe(1);
   expect($b()).toBe(4);
@@ -359,7 +359,7 @@ it("should apply changes in effect in same flush", async () => {
 
   setY(1);
 
-  flushSync();
+  flush();
 
   expect($x()).toBe(2);
   expect($b()).toBe(5);
@@ -367,7 +367,7 @@ it("should apply changes in effect in same flush", async () => {
 
   setY(2);
 
-  flushSync();
+  flush();
 
   expect($x()).toBe(3);
   expect($b()).toBe(6);
@@ -398,7 +398,7 @@ it("should run parent effect before child effect", () => {
   );
 
   setX(1);
-  flushSync();
+  flush();
   expect(calls).toBe(2);
 });
 
@@ -415,10 +415,10 @@ it("should run render effect before user effects", () => {
     });
   });
 
-  flushSync();
+  flush();
   expect(mark).toBe("ab");
   setX(1);
-  flushSync();
+  flush();
   expect(mark).toBe("abab");
 });
 
@@ -435,9 +435,9 @@ it("should defer user effects with the defer option", () => {
       { defer: true }
     );
   });
-  flushSync();
+  flush();
   expect(mark).toBe("");
   setX(1);
-  flushSync();
+  flush();
   expect(mark).toBe("b");
 });

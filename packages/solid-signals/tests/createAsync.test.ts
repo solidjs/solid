@@ -4,7 +4,7 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  flushSync,
+  flush,
   isPending,
   latest,
   resolve
@@ -46,7 +46,7 @@ it("diamond should not cause waterfalls on read", async () => {
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(1);
   expect(effect).toHaveBeenCalledTimes(1);
-  flushSync();
+  flush();
   expect(async1).toHaveBeenCalledTimes(2);
   expect(async2).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(1);
@@ -95,7 +95,7 @@ it("should waterfall when dependent on another async with shared source", async 
   expect(async1).toHaveBeenCalledTimes(1);
   expect(async2).toHaveBeenCalledTimes(2);
   expect(effect).toHaveBeenCalledTimes(1);
-  flushSync();
+  flush();
   expect(async1).toHaveBeenCalledTimes(2);
   expect(async2).toHaveBeenCalledTimes(3);
   expect(effect).toHaveBeenCalledTimes(1);
@@ -116,7 +116,7 @@ it("should should show stale state with `isPending`", async () => {
   expect(b()).toBe("not stale");
   set(2);
   expect(b()).toBe("stale");
-  flushSync();
+  flush();
   expect(b()).toBe("stale");
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe("not stale");
@@ -132,7 +132,7 @@ it("should get latest value with `latest`", async () => {
   expect(b()).toBe(1);
   set(2);
   expect(b()).toBe(1);
-  flushSync();
+  flush();
   expect(b()).toBe(1);
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(2);
@@ -158,7 +158,7 @@ it("should resolve to a value with resolveAsync", async () => {
   expect(value).toBe(1);
   set(2);
   expect(value).toBe(1);
-  flushSync();
+  flush();
   expect(value).toBe(1);
   await new Promise(r => setTimeout(r, 0));
   // doesn't update because not tracked
@@ -175,7 +175,7 @@ it("should handle streams", async () => {
     });
     createEffect(v, v => effect(v));
   });
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(0);
   await Promise.resolve();
   await Promise.resolve();

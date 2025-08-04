@@ -4,7 +4,7 @@ import {
   createRoot,
   createSignal,
   createStore,
-  flushSync,
+  flush,
   untrack,
   snapshot
 } from "../../src/index.js";
@@ -26,7 +26,7 @@ describe("recursive effects", () => {
         () => {}
       );
     });
-    flushSync();
+    flush();
 
     setStore(s => {
       s.foo = "1";
@@ -36,7 +36,7 @@ describe("recursive effects", () => {
       s.bar.baz = "2";
     });
 
-    flushSync();
+    flush();
     expect(called).toBe(2);
   });
 
@@ -55,7 +55,7 @@ describe("recursive effects", () => {
         () => {}
       );
     });
-    flushSync();
+    flush();
 
     setStore(s => {
       s.foo = "1";
@@ -71,7 +71,7 @@ describe("recursive effects", () => {
       };
     });
 
-    flushSync();
+    flush();
     expect(called).toBe(2);
   });
 
@@ -92,7 +92,7 @@ describe("recursive effects", () => {
         () => {}
       );
     });
-    flushSync();
+    flush();
 
     setStore(s => {
       s.foo = "1";
@@ -102,7 +102,7 @@ describe("recursive effects", () => {
       s.bar.baz = "2";
     });
 
-    flushSync();
+    flush();
     expect(next).not.toBe(prev);
     expect(called).toBe(2);
   });
@@ -126,9 +126,9 @@ describe("recursive effects", () => {
         () => {}
       );
     });
-    flushSync();
+    flush();
     setX(1);
-    flushSync();
+    flush();
     expect(calls).toBe(2);
   });
 });

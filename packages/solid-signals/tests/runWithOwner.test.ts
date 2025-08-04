@@ -2,7 +2,7 @@ import {
   createErrorBoundary,
   createRenderEffect,
   createRoot,
-  flushSync,
+  flush,
   getOwner,
   Owner,
   runWithOwner
@@ -48,6 +48,6 @@ it("should handle errors", () => {
   });
 
   b();
-  flushSync();
+  flush();
   expect(handler).toHaveBeenCalledWith(error);
 });

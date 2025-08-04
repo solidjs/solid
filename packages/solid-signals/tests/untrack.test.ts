@@ -3,12 +3,12 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  flushSync,
+  flush,
   onCleanup,
   untrack
 } from "../src/index.js";
 
-afterEach(() => flushSync());
+afterEach(() => flush());
 
 it("should not create dependency", () => {
   const effect = vi.fn();
@@ -33,13 +33,13 @@ it("should not create dependency", () => {
       () => {}
     )
   );
-  flushSync();
+  flush();
 
   expect(effect).toHaveBeenCalledTimes(1);
   expect(memo).toHaveBeenCalledTimes(1);
 
   setX(20);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(1);
   expect(memo).toHaveBeenCalledTimes(1);
 });
@@ -67,26 +67,26 @@ it("should not affect deep dependency being created", () => {
       () => {}
     )
   );
-  flushSync();
+  flush();
 
   expect(effect).toHaveBeenCalledTimes(1);
   expect($a()).toBe(40);
   expect(memo).toHaveBeenCalledTimes(1);
 
   setX(20);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(1);
   expect($a()).toBe(50);
   expect(memo).toHaveBeenCalledTimes(2);
 
   setY(20);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(1);
   expect($a()).toBe(50);
   expect(memo).toHaveBeenCalledTimes(2);
 
   setZ(20);
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(1);
   expect($a()).toBe(50);
   expect(memo).toHaveBeenCalledTimes(2);
@@ -115,10 +115,10 @@ it("should track owner across peeks", () => {
     untrack(() => createChild());
     return dispose;
   });
-  flushSync();
+  flush();
 
   setX(1);
-  flushSync();
+  flush();
   expect(childCompute).toHaveBeenCalledWith(2);
   expect(childDispose).toHaveBeenCalledTimes(1);
 
@@ -126,7 +126,7 @@ it("should track owner across peeks", () => {
   expect(childDispose).toHaveBeenCalledTimes(2);
 
   setX(2);
-  flushSync();
+  flush();
   expect(childCompute).not.toHaveBeenCalledWith(4);
   expect(childDispose).toHaveBeenCalledTimes(2);
 });

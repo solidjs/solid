@@ -4,7 +4,7 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flushSync
+  flush
 } from "../../src/index.js";
 
 describe("Projection basics", () => {
@@ -98,7 +98,7 @@ describe("Projection basics", () => {
     expect(projection.bar).toBe("foo");
     expect(spy).toHaveBeenCalledTimes(1);
     setBar("baz");
-    flushSync();
+    flush();
     expect(projection.foo).toBe("foo");
     expect(projection.bar).toBe("baz");
     expect(spy).toHaveBeenCalledTimes(2);
@@ -133,14 +133,14 @@ describe("Projection basics", () => {
         (v, p) => tmp(v, p)
       );
     });
-    flushSync();
+    flush();
 
     expect(tmp).toBeCalledTimes(1);
     expect(tmp).toBeCalledWith(1, undefined);
 
     tmp.mockReset();
     setX(2);
-    flushSync();
+    flush();
 
     expect(tmp).toBeCalledWith(2, 1);
     expect(tmp);
@@ -176,22 +176,22 @@ describe("selection with projections", () => {
 
     count = 0;
     set(3);
-    flushSync();
+    flush();
     expect(count).toBe(1);
     expect(list[3]).toBe("selected");
 
     count = 0;
     set(6);
-    flushSync();
+    flush();
     expect(count).toBe(2);
     expect(list[3]).toBe("no");
     expect(list[6]).toBe("selected");
     set(undefined);
-    flushSync();
+    flush();
     expect(count).toBe(3);
     expect(list[6]).toBe("no");
     set(5);
-    flushSync();
+    flush();
     expect(count).toBe(4);
     expect(list[5]).toBe("selected");
   });
@@ -233,14 +233,14 @@ describe("selection with projections", () => {
 
     count = 0;
     set(3);
-    flushSync();
+    flush();
     expect(count).toBe(2);
     expect(list[3][0]).toBe("selected");
     expect(list[3][1]).toBe("oui");
 
     count = 0;
     set(6);
-    flushSync();
+    flush();
     expect(count).toBe(4);
     expect(list[3][0]).toBe("no");
     expect(list[6][0]).toBe("selected");

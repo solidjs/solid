@@ -25,6 +25,6 @@ export {
   type SignalOptions
 } from "./core.js";
 export { Effect, EagerComputation } from "./effect.js";
-export { flushSync, Queue, incrementClock, getClock, type IQueue } from "./scheduler.js";
+export { flush, Queue, incrementClock, getClock, type IQueue } from "./scheduler.js";
 export * from "./constants.js";
 export * from "./flags.js";

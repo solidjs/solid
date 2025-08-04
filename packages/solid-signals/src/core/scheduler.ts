@@ -12,7 +12,7 @@ let scheduled = false;
 function schedule() {
   if (scheduled) return;
   scheduled = true;
-  if (!globalQueue._running) queueMicrotask(flushSync);
+  if (!globalQueue._running) queueMicrotask(flush);
 }
 
 type QueueCallback = (type: number) => void;
@@ -84,9 +84,9 @@ export const globalQueue = new Queue();
 
 /**
  * By default, changes are batched on the microtask queue which is an async process. You can flush
- * the queue synchronously to get the latest updates by calling `flushSync()`.
+ * the queue synchronously to get the latest updates by calling `flush()`.
  */
-export function flushSync(): void {
+export function flush(): void {
   let count = 0;
   while (scheduled) {
     if (__DEV__ && ++count === 1e5) throw new Error("Potential Infinite Loop Detected.");

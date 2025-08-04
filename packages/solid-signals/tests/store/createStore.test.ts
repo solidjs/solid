@@ -5,7 +5,7 @@ import {
   createRoot,
   createSignal,
   createStore,
-  flushSync,
+  flush,
   mapArray,
   snapshot,
   untrack
@@ -55,7 +55,7 @@ describe("State Getters", () => {
     });
     expect(state!.greeting).toBe("Hi, John");
     setState(s => (s.name = "Jake"));
-    flushSync();
+    flush();
     expect(state!.greeting).toBe("Hi, Jake");
   });
 });
@@ -150,12 +150,12 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     setState(s => (s.data = 5));
-    flushSync();
+    flush();
     // same value again should not retrigger
     setState(s => (s.data = 5));
-    flushSync();
+    flush();
   });
 
   test("Track a nested state change", () => {
@@ -182,9 +182,9 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     setState(s => (s.user.firstName = "Jake"));
-    flushSync();
+    flush();
   });
 
   test("Track array item on removal", () => {
@@ -209,9 +209,9 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     setState(s => s.pop());
-    flushSync();
+    flush();
   });
 
   test("Tracking Top-Level Array iteration", () => {
@@ -296,18 +296,18 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     // add
     setState(s => (s[1] = "item"));
-    flushSync();
+    flush();
 
     // update
     setState(s => (s[1] = "new"));
-    flushSync();
+    flush();
 
     // delete
     setState(s => [s[0]]);
-    flushSync();
+    flush();
     expect.assertions(15);
   });
 
@@ -356,18 +356,18 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     // add
     setState(s => (s.obj.item = 5));
-    flushSync();
+    flush();
 
     // update
     // setState(s => s.obj.item = 10);
-    // flushSync();
+    // flush();
 
     // delete
     setState(s => delete s.obj.item);
-    flushSync();
+    flush();
     expect.assertions(7);
   });
 
@@ -389,14 +389,14 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     // add
     setState(s => (s.obj.item = 5));
-    flushSync();
+    flush();
 
     // delete
     setState(s => delete s.obj.item);
-    flushSync();
+    flush();
     expect.assertions(1);
   });
 
@@ -445,14 +445,14 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     // add
     setState(s => (s.item = 5));
-    flushSync();
+    flush();
 
     // delete
     setState(s => delete s.item);
-    flushSync();
+    flush();
     expect.assertions(7);
   });
 
@@ -473,14 +473,14 @@ describe("Tracking State changes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     // add
     setState(s => (s.item = 5));
-    flushSync();
+    flush();
 
     // delete
     setState(s => delete s.item);
-    flushSync();
+    flush();
     expect.assertions(1);
   });
 });
@@ -514,7 +514,7 @@ describe("Setting state from Effects", () => {
       createEffect(getData, v => setState(s => (s.data = v)));
     });
     setData("signal");
-    flushSync();
+    flush();
     expect(state.data).toBe("signal");
   });
 
@@ -562,11 +562,11 @@ describe("Array length", () => {
         }
       );
     });
-    flushSync();
+    flush();
     expect(length).toBe(0);
     // insert at index 0
     setState(s => (s.list[0] = 1));
-    flushSync();
+    flush();
     expect(length).toBe(1);
   });
 });
@@ -607,13 +607,13 @@ describe("Nested Classes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     expect(sum).toBe(11);
     setStore(s => (s.inner.a = 10));
-    flushSync();
+    flush();
     expect(sum).toBe(20);
     setStore(s => (s.inner.b = 5));
-    flushSync();
+    flush();
     expect(sum).toBe(15);
   });
 
@@ -640,13 +640,13 @@ describe("Nested Classes", () => {
         }
       );
     });
-    flushSync();
+    flush();
     expect(sum).toBe(11);
     setStore(s => (s.inner.a = 10));
-    flushSync();
+    flush();
     expect(sum).toBe(20);
     setStore(s => (s.inner.b = 5));
-    flushSync();
+    flush();
     expect(sum).toBe(15);
   });
 });
@@ -722,14 +722,14 @@ describe("objects", () => {
         v => effect(v)
       )
     );
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(1);
     expect(effect).toHaveBeenCalledWith("foo");
 
     setStore(s => {
       s.foo = "bar";
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(2);
     expect(store.foo).toBe("bar");
   });
@@ -743,14 +743,14 @@ describe("objects", () => {
         v => effect(v)
       )
     );
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(1);
     expect(effect).toHaveBeenCalledWith("bar");
 
     setStore(s => {
       s.foo.bar = "baz";
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(2);
     expect(effect).toHaveBeenCalledWith("baz");
   });
@@ -764,13 +764,13 @@ describe("objects", () => {
         v => effect(v)
       )
     );
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(1);
     expect(effect).toHaveBeenCalledWith("foo");
 
     /* @ts-ignore */
     store.foo = "bar";
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(1);
     expect(store.foo).toBe("foo");
   });
@@ -784,28 +784,28 @@ describe("objects", () => {
         v => effect(v)
       )
     );
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(1);
     expect(effect).toHaveBeenCalledWith(false);
 
     setStore(s => {
       s.foo = "bar";
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(2);
     expect(effect).toHaveBeenCalledWith(true);
 
     setStore(s => {
       s.foo = undefined;
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(2);
     expect(effect).toHaveBeenCalledWith(true);
 
     setStore(s => {
       delete s.foo;
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(3);
     expect(effect).toHaveBeenCalledWith(false);
   });
@@ -834,7 +834,7 @@ describe("arrays", () => {
         v => effectB(v.i)
       );
     });
-    flushSync();
+    flush();
     expect(effectA).toHaveBeenCalledTimes(1);
     expect(effectA).toHaveBeenCalledWith(6);
     expect(effectB).toHaveBeenCalledTimes(1);
@@ -845,7 +845,7 @@ describe("arrays", () => {
     setStore(s => {
       s[0].i = 2;
     });
-    flushSync();
+    flush();
     expect(effectA).toHaveBeenCalledTimes(2);
     expect(effectA).toHaveBeenCalledWith(7);
     expect(effectB).toHaveBeenCalledTimes(1);
@@ -855,7 +855,7 @@ describe("arrays", () => {
     setStore(s => {
       s.push({ i: 4 });
     });
-    flushSync();
+    flush();
     expect(effectA).toHaveBeenCalledTimes(3);
     expect(effectA).toHaveBeenCalledWith(11);
     expect(effectB).toHaveBeenCalledTimes(1);

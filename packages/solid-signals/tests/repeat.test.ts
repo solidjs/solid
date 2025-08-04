@@ -3,7 +3,7 @@ import {
   createRoot,
   createSignal,
   createStore,
-  flushSync,
+  flush,
   repeat
 } from "../src/index.js";
 
@@ -96,10 +96,10 @@ it("should notify observer", () => {
 
   const effect = vi.fn();
   createRoot(() => createEffect(map, effect));
-  flushSync();
+  flush();
 
   setSource(prev => prev.pop());
-  flushSync();
+  flush();
   expect(effect).toHaveBeenCalledTimes(2);
 });
 

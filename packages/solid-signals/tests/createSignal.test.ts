@@ -1,6 +1,6 @@
-import { createSignal, flushSync } from "../src/index.js";
+import { createSignal, flush } from "../src/index.js";
 
-afterEach(() => flushSync());
+afterEach(() => flush());
 
 it("should store and return value on read", () => {
   const [$x] = createSignal(1);

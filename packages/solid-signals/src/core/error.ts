@@ -15,9 +15,3 @@ export class ContextNotFoundError extends Error {
     );
   }
 }
-
-export class ImpureWriteError extends Error {
-  constructor() {
-    super(__DEV__ ? "Cannot write to a Signal in an owned scope." : "");
-  }
-}

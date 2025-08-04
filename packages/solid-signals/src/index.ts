@@ -6,7 +6,7 @@ export {
   Owner,
   Queue,
   createContext,
-  flushSync,
+  flush,
   getContext,
   setContext,
   hasContext,

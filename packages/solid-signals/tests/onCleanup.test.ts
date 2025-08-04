@@ -1,6 +1,6 @@
-import { createEffect, createRoot, flushSync, onCleanup } from "../src/index.js";
+import { createEffect, createRoot, flush, onCleanup } from "../src/index.js";
 
-afterEach(() => flushSync());
+afterEach(() => flush());
 
 it("should be invoked when computation is disposed", () => {
   const disposeA = vi.fn();
@@ -19,7 +19,7 @@ it("should be invoked when computation is disposed", () => {
 
     return dispose;
   });
-  flushSync();
+  flush();
 
   stopEffect();
 
@@ -48,7 +48,7 @@ it("should not trigger wrong onCleanup", () => {
     });
 
     stopEffect();
-    flushSync();
+    flush();
 
     expect(dispose).toHaveBeenCalledTimes(0);
   });
@@ -85,7 +85,7 @@ it("should clean up in reverse order", () => {
 
     return dispose;
   });
-  flushSync();
+  flush();
 
   stopEffect();
 
@@ -139,7 +139,7 @@ it("should dispose all roots", () => {
     return dispose;
   });
 
-  flushSync();
+  flush();
   dispose();
 
   expect(disposals).toMatchInlineSnapshot(`

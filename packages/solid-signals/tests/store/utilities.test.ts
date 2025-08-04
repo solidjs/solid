@@ -6,7 +6,7 @@ import {
   createSignal,
   createStore,
   deep,
-  flushSync,
+  flush,
   getOwner,
   merge,
   omit,
@@ -308,13 +308,13 @@ describe("Merge Signal", () => {
         }
       );
     });
-    flushSync();
+    flush();
     expect(props.a).toBe("ji");
     expect(props.b).toBe(null);
     expect(props.c).toBe("j");
     expect(props.d).toBe("DD");
     set({ a: "h" });
-    flushSync();
+    flush();
     expect(props.a).toBe("h");
     expect(props.b).toBe("ggg");
     expect(props.c).toBeUndefined();
@@ -482,7 +482,7 @@ describe("deep", () => {
         v => {}
       );
     });
-    flushSync();
+    flush();
     expect(o!._sources!.length).toBe(1);
   });
   test("tests tracks deep updates", () => {
@@ -497,25 +497,25 @@ describe("deep", () => {
       );
     });
     expect(effect).toHaveBeenCalledTimes(0);
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(1);
 
     setState(s => {
       s.list[0].a = 2;
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(2);
     expect(effect.mock.calls[1][0]).toEqual({ list: [{ a: 2 }, { b: 2 }] });
     setState(s => {
       s.list.push({ c: 3 });
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(3);
     expect(effect.mock.calls[2][0]).toEqual({ list: [{ a: 2 }, { b: 2 }, { c: 3 }] });
     setState(s => {
       s.list = [{ d: 4 }];
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(4);
     expect(effect.mock.calls[3][0]).toEqual({ list: [{ d: 4 }] });
   });
@@ -540,19 +540,19 @@ describe("deep", () => {
     createRoot(() => {
       createEffect(() => deep(store.first), effect);
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(1);
     setStore(s => (s.second.nested.shared.b = 3));
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(2);
     setStore(s => {
       s.first.nested.shared = sharedReference2;
       s.second.nested.shared = sharedReference2;
     });
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(3);
     setStore(s => (s.second.nested.shared.b = 4));
-    flushSync();
+    flush();
     expect(effect).toHaveBeenCalledTimes(4);
   });
 });

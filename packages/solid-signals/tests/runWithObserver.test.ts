@@ -2,7 +2,7 @@ import {
   createEffect,
   createRoot,
   createSignal,
-  flushSync,
+  flush,
   getObserver,
   runWithObserver,
   type Computation
@@ -38,10 +38,10 @@ it("should add dependencies to no deps", () => {
     );
   });
   expect(count).toBe(0);
-  flushSync();
+  flush();
   expect(count).toBe(1);
   setA(1);
-  flushSync();
+  flush();
   expect(count).toBe(2);
 });
 
@@ -62,12 +62,12 @@ it("should add dependencies to existing deps", () => {
     );
   });
   expect(count).toBe(0);
-  flushSync();
+  flush();
   expect(count).toBe(1);
   setB(1);
-  flushSync();
+  flush();
   expect(count).toBe(2);
   setA(1);
-  flushSync();
+  flush();
   expect(count).toBe(3);
 });

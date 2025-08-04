@@ -28,7 +28,7 @@
  */
 
 import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
-import { NotReadyError, ImpureWriteError } from "./error.js";
+import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
 import { getClock } from "./scheduler.js";
@@ -190,9 +190,9 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // Tracks whether a function was returned from a compute result so we don't unwrap it.
     raw = false
   ): T {
-    // Firewall Guard, TODO: Make it better
-    if (!this._compute && !(this as any)._pureWrite && getOwner() && !(getOwner() as any).firewall)
-      throw new ImpureWriteError();
+    // Warn about writing to a signal in an owned scope in development mode.
+    if (__DEV__ && !this._compute && !(this as any)._pureWrite && getOwner() && !(getOwner() as any).firewall)
+      console.warn("A Signal was written to in an owned scope.")
     const newValue =
       !raw && typeof value === "function"
         ? (value as (currentValue: T) => T)(this._value!)
