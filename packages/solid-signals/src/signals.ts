@@ -364,6 +364,16 @@ export function resolve<T>(fn: () => T): Promise<T> {
   });
 }
 
+/**
+ * Runs the given function and returns a tuple with the result or an error.
+ * If the function throws an error, it will be caught and returned as the first element of the tuple.
+ * If the function returns a promise, it will resolve to a tuple with the result or an error.
+ *
+ * @param fn The function to run.
+ * @returns A tuple with either [undefined, result] or [error].
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/try-catch
+ */
 export type TryCatchResult<T, E> = [undefined, T] | [E];
 export function tryCatch<T, E = Error>(fn: () => Promise<T>): Promise<TryCatchResult<T, E>>;
 export function tryCatch<T, E = Error>(fn: () => T): TryCatchResult<T, E>;
@@ -386,4 +396,37 @@ export function tryCatch<T, E = Error>(
     if (e instanceof NotReadyError) throw e;
     return [e as E];
   }
+}
+
+/**
+ * Runs the given function in a transition scope, allowing for batch updates and optimizations.
+ * This is useful for grouping multiple state updates together to avoid unnecessary re-renders.
+ *
+ * @param fn A function that receives a resume function to continue the transition.
+ * The resume function can be called with another function to continue the transition.
+ *
+ * @description https://docs.solidjs.com/reference/advanced-reactivity/transition
+ */
+export function transition(
+  fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any>,
+): void {
+  // TODO: Implement transition
+}
+
+/**
+ * Creates an optimistic signal that can be used to optimistically update a value
+ * and then revert it back to the previous value at end of transition.
+ *
+ * @param initial The initial value of the signal.
+ * @param compute An optional function to compute the next value based on the previous value and change.
+ * @param options Optional signal options.
+ *
+ * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
+ */
+export function createOptimistic<T, U>(
+  initial: T,
+  compute?: (prev: T, change: U) => void,
+  options?: SignalOptions<T>
+): [Accessor<T>, (v: U) => void] {
+  return [] as any; // TODO: Implement createOptimistic
 }
