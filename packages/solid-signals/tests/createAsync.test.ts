@@ -122,6 +122,23 @@ it("should should show stale state with `isPending`", async () => {
   expect(b()).toBe("not stale");
 });
 
+it("should handle refreshes", async () => {
+  let n = 1;
+  const a = createRoot(() => createAsync(() => Promise.resolve(n++)));
+  const b = createMemo(() => (isPending(a) ? "stale" : a()));
+  expect(b).toThrow();
+  await new Promise(r => setTimeout(r, 0));
+  expect(b()).toBe(1);
+  a.refresh();
+  expect(b()).toBe("stale");
+  await new Promise(r => setTimeout(r, 0));
+  expect(b()).toBe(2);
+  a.refresh();
+  expect(b()).toBe("stale");
+  await new Promise(r => setTimeout(r, 0));
+  expect(b()).toBe(3);
+});
+
 it("should get latest value with `latest`", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));

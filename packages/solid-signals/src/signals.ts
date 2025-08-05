@@ -9,6 +9,7 @@ import {
   NotReadyError,
   onCleanup,
   Owner,
+  STATE_DIRTY,
   STATE_DISPOSED,
   untrack
 } from "./core/index.js";
@@ -177,14 +178,18 @@ export function createMemo<Next extends Prev, Init, Prev>(
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-async
  */
 export function createAsync<T>(
-  compute: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
+  compute: (prev: T | undefined, refreshing: boolean) => Promise<T> | AsyncIterable<T> | T,
   value?: T,
   options?: MemoOptions<T>
-): Accessor<T> {
+): Accessor<T> & {
+  refresh: () => void;
+} {
+  let refreshing = false;
   const node = new EagerComputation(
     value as T,
     (p?: T) => {
-      const source = compute(p);
+      const source = compute(p, refreshing);
+      refreshing = false;
       const isPromise = source instanceof Promise;
       const iterator = source[Symbol.asyncIterator];
       if (!isPromise && !iterator) {
@@ -220,7 +225,15 @@ export function createAsync<T>(
     },
     options
   );
-  return node.wait.bind(node) as Accessor<T>;
+  const read = node.wait.bind(node) as Accessor<T> & {
+    refresh: () => void;
+  };
+  read.refresh = () => {
+    node._state = STATE_DIRTY;
+    refreshing = true;
+    node._updateIfNecessary();
+  };
+  return read;
 }
 
 /**
