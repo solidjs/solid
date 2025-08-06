@@ -217,7 +217,7 @@ describe("Setting state from Effects", () => {
     let state: { data: string };
     let getData: Accessor<string>, setData: Setter<string>;
     createRoot(() => {
-      ([getData, setData] = createSignal("init")), (state = createMutable({ data: "" }));
+      (([getData, setData] = createSignal("init")), (state = createMutable({ data: "" })));
       // don't do this often
       createEffect(() => (state.data = getData()));
     });

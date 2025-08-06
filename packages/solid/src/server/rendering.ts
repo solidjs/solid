@@ -23,11 +23,12 @@ export type FlowProps<P = {}, C = JSX.Element> = P & { children: C };
 export type FlowComponent<P = {}, C = JSX.Element> = Component<FlowProps<P, C>>;
 export type Ref<T> = T | ((val: T) => void);
 export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
-export type ComponentProps<T extends ValidComponent> = T extends Component<infer P>
-  ? P
-  : T extends keyof JSX.IntrinsicElements
-  ? JSX.IntrinsicElements[T]
-  : Record<string, unknown>;
+export type ComponentProps<T extends ValidComponent> =
+  T extends Component<infer P>
+    ? P
+    : T extends keyof JSX.IntrinsicElements
+      ? JSX.IntrinsicElements[T]
+      : Record<string, unknown>;
 
 // these methods are duplicates from solid-js/web
 // we need a better solution for this in the future

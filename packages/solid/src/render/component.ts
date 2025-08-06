@@ -79,11 +79,12 @@ export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (str
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<T extends ValidComponent> = T extends Component<infer P>
-  ? P
-  : T extends keyof JSX.IntrinsicElements
-  ? JSX.IntrinsicElements[T]
-  : Record<string, unknown>;
+export type ComponentProps<T extends ValidComponent> =
+  T extends Component<infer P>
+    ? P
+    : T extends keyof JSX.IntrinsicElements
+      ? JSX.IntrinsicElements[T]
+      : Record<string, unknown>;
 
 /**
  * Type of `props.ref`, for use in `Component` or `props` typing.
@@ -163,8 +164,8 @@ type OverrideSpread<T, U> = T extends any
       })]: K extends keyof T
         ? Exclude<U extends any ? U[K & keyof U] : never, undefined> | T[K]
         : U extends any
-        ? U[K & keyof U]
-        : never;
+          ? U[K & keyof U]
+          : never;
     }
   : T & U;
 type Simplify<T> = T extends any ? { [K in keyof T]: T[K] } : T;
@@ -174,12 +175,12 @@ type _MergeProps<T extends unknown[], Curr = {}> = T extends [
 ]
   ? _MergeProps<Rest, Override<Curr, Next>>
   : T extends [...infer Rest, infer Next | (() => infer Next)]
-  ? Override<_MergeProps<Rest, Curr>, Next>
-  : T extends []
-  ? Curr
-  : T extends (infer I | (() => infer I))[]
-  ? OverrideSpread<Curr, I>
-  : Curr;
+    ? Override<_MergeProps<Rest, Curr>, Next>
+    : T extends []
+      ? Curr
+      : T extends (infer I | (() => infer I))[]
+        ? OverrideSpread<Curr, I>
+        : Curr;
 
 export type MergeProps<T extends unknown[]> = Simplify<_MergeProps<T>>;
 
@@ -250,8 +251,8 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
               get: resolveSources.bind((sourcesMap[key] = [desc.get.bind(source)]))
             }
           : desc.value !== undefined
-          ? desc
-          : undefined;
+            ? desc
+            : undefined;
       } else {
         const sources = sourcesMap[key];
         if (sources) {
