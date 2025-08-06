@@ -37,8 +37,10 @@ export const isServer: boolean = false;
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-function createElement(tagName: string, isSVG = false): HTMLElement | SVGElement {
-  return isSVG ? document.createElementNS(SVG_NAMESPACE, tagName) : document.createElement(tagName);
+function createElement(tagName: string, isSVG = false, is = undefined): HTMLElement | SVGElement {
+  return isSVG
+    ? document.createElementNS(SVG_NAMESPACE, tagName)
+    : document.createElement(tagName, { is });
 }
 
 export const hydrate: typeof hydrateCore = (...args) => {
@@ -140,7 +142,9 @@ export function createDynamic<T extends ValidComponent>(
 
       case "string":
         const isSvg = SVGElements.has(component);
-        const el = sharedConfig.context ? getNextElement() : createElement(component, isSvg);
+        const el = sharedConfig.context
+          ? getNextElement()
+          : createElement(component, isSvg, props.is);
         spread(el, props, isSvg);
         return el;
 
