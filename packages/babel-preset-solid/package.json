@@ -1,6 +1,6 @@
 {
   "name": "babel-preset-solid",
-  "version": "1.9.6",
+  "version": "1.9.8",
   "description": "Babel preset to transform JSX for Solid.js",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
   "homepage": "https://github.com/solidjs/solid/blob/main/packages/babel-preset-solid#readme",
@@ -17,6 +17,12 @@
     "babel-plugin-jsx-dom-expressions": "^0.40.0"
   },
   "peerDependencies": {
-    "@babel/core": "^7.0.0"
+    "@babel/core": "^7.0.0",
+    "solid-js": "^1.9.8"
+  },
+  "peerDependenciesMeta": {
+    "solid-js": {
+      "optional": true
+    }
   }
 }

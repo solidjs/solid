@@ -1,5 +1,25 @@
 # solid-js
 
+## 1.9.8
+
+### Patch Changes
+
+- 09a9c1d: Export RendererOptions and Renderer types from solid-js/universal
+- 472c007: fix(scheduler): adjust yield timing logic to improve task scheduling …
+- 3d3207d: fix #2491 no key on merge false
+- 2cd810f: compiler and jsx type updates
+  - fix: ssr style undefined
+  - fix: ssr double escaped array
+  - fix: skip jsxImportSource skipping transform
+  - fix: @once on style, classlist
+  - JSX type updates
+  - Update Universal Renderer Types
+- cbff564: feat: createMutable support for class inheritance
+- e056eab: add support for `is` in `Dynamic`, closes #2413
+- bdba4dc: Fix resource instances always getting cached on SSR
+- Updated dependencies [2cd810f]
+  - babel-preset-solid@1.9.8
+
 ## 1.9.7
 
 ### Patch Changes
