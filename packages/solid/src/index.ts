@@ -59,7 +59,8 @@ export type {
   ReturnTypes,
   Setter,
   Signal,
-  SignalOptions
+  SignalOptions,
+  Transition
 } from "./reactive/signal.js";
 
 export * from "./reactive/observable.js";
