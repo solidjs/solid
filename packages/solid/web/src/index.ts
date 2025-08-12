@@ -37,7 +37,11 @@ export const isServer: boolean = false;
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-function createElement(tagName: string, isSVG = false, is = undefined): HTMLElement | SVGElement {
+function createElement(
+  tagName: string,
+  isSVG = false,
+  is: string | undefined = undefined
+): HTMLElement | SVGElement {
   return isSVG
     ? document.createElementNS(SVG_NAMESPACE, tagName)
     : document.createElement(tagName, { is });
@@ -130,11 +134,14 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  */
 export function createDynamic<T extends ValidComponent>(
   component: () => T | undefined,
+  isWCAttr: () => string | undefined,
   props: ComponentProps<T>
 ): JSX.Element {
-  const cached = createMemo<Function | string | undefined>(component);
+  const cachedComponent = createMemo<Function | string | undefined>(component);
+  const cachedIsWCAttr = createMemo<string | undefined>(isWCAttr);
+
   return createMemo(() => {
-    const component = cached();
+    const component = cachedComponent();
     switch (typeof component) {
       case "function":
         if (isDev) Object.assign(component, { [$DEVCOMP]: true });
@@ -144,7 +151,7 @@ export function createDynamic<T extends ValidComponent>(
         const isSvg = SVGElements.has(component);
         const el = sharedConfig.context
           ? getNextElement()
-          : createElement(component, isSvg, props.is);
+          : createElement(component, isSvg, cachedIsWCAttr());
         spread(el, props, isSvg);
         return el;
 
@@ -162,6 +169,10 @@ export function createDynamic<T extends ValidComponent>(
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
-  const [, others] = splitProps(props, ["component"]);
-  return createDynamic(() => props.component, others as ComponentProps<T>);
+  const [, others] = splitProps(props, ["component", "is"]);
+  return createDynamic(
+    () => props.component,
+    () => props.is,
+    others as ComponentProps<T>
+  );
 }
