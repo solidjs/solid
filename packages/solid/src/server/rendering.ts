@@ -623,6 +623,7 @@ export function SuspenseList(props: {
   revealOrder: "forwards" | "backwards" | "together";
   tail?: "collapsed" | "hidden";
 }) {
+  // TODO: support revealOrder and tail options
   if (sharedConfig.context && !sharedConfig.context.noHydrate) {
     const c = sharedConfig.context;
     setHydrateContext(nextHydrateContext());
