@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.9.9
+
+### Patch Changes
+
+- f59ee48: fix dynamic overtracking
+- 62c5a98: Update `SuspenseList` to handle hydration context
+- 62c5a98: Add unit tests for `resolveSSRNode` and `createResource` functions
+- c07887c: fix #2524 closedby types, fix regression inlining style/classList
+
 ## 1.9.8
 
 ### Patch Changes
