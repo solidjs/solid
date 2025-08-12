@@ -1,16 +1,16 @@
 import {
-  Owner,
+  Accessor,
+  castError,
+  catchError,
+  cleanNode,
   createContext,
   createMemo,
-  useContext,
+  createOwner,
+  Owner,
   runWithOwner,
-  catchError,
-  Accessor,
   Setter,
   Signal,
-  castError,
-  cleanNode,
-  createOwner
+  useContext
 } from "./reactive.js";
 import type { JSX } from "../jsx.js";
 
@@ -623,7 +623,14 @@ export function SuspenseList(props: {
   revealOrder: "forwards" | "backwards" | "together";
   tail?: "collapsed" | "hidden";
 }) {
-  // TODO: support tail options
+  // TODO: support revealOrder and tail options
+  if (sharedConfig.context && !sharedConfig.context.noHydrate) {
+    const c = sharedConfig.context;
+    setHydrateContext(nextHydrateContext());
+    const result = props.children;
+    setHydrateContext(c);
+    return result;
+  }
   return props.children;
 }
 
