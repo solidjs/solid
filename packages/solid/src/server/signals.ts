@@ -171,7 +171,7 @@ export function createAsync<T>(
     const iterator = (source as AsyncIterable<T>)[Symbol.asyncIterator];
     if (source instanceof Promise) {
       source.then(v => {
-        (source as any).status = "success";
+        (source as any).s = "success";
         return ((source as any).value = value = v);
       });
       if (ctx.serialize) ctx.serialize(id, source, options?.deferStream);
@@ -180,7 +180,7 @@ export function createAsync<T>(
       source = iterator()
         .next()
         .then(v => {
-          (source as any).status = "success";
+          (source as any).s = "success";
           return ((source as any).value = value = v.value);
         });
       if (ctx.serialize) ctx.serialize(id, iterator(), options?.deferStream);

@@ -27,6 +27,28 @@
 ### Major Changes
 
 - 1da85a3: Update to new package layout, signals implementation, compiler
+## 1.9.9
+
+### Patch Changes
+
+- c07887c: fix #2524 closedby types, fix regression inlining style/classList
+- Updated dependencies [f59ee48]
+- Updated dependencies [62c5a98]
+- Updated dependencies [62c5a98]
+- Updated dependencies [c07887c]
+  - solid-js@1.9.9
+
+## 1.9.8
+
+### Patch Changes
+
+- 2cd810f: compiler and jsx type updates
+  - fix: ssr style undefined
+  - fix: ssr double escaped array
+  - fix: skip jsxImportSource skipping transform
+  - fix: @once on style, classlist
+  - JSX type updates
+  - Update Universal Renderer Types
 
 ## 1.9.6
 

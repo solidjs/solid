@@ -52,6 +52,37 @@
 - Updated dependencies [1da85a3]
   - solid-js@2.0.0-experimental.0
   - babel-preset-solid@2.0.0-experimental.0
+## 1.9.9
+
+### Patch Changes
+
+- Updated dependencies [f59ee48]
+- Updated dependencies [62c5a98]
+- Updated dependencies [62c5a98]
+- Updated dependencies [c07887c]
+  - solid-js@1.9.9
+  - babel-preset-solid@1.9.9
+
+## 1.9.8
+
+### Patch Changes
+
+- Updated dependencies [09a9c1d]
+- Updated dependencies [472c007]
+- Updated dependencies [3d3207d]
+- Updated dependencies [2cd810f]
+- Updated dependencies [cbff564]
+- Updated dependencies [e056eab]
+- Updated dependencies [bdba4dc]
+  - solid-js@1.9.8
+  - babel-preset-solid@1.9.8
+
+## 1.9.7
+
+### Patch Changes
+
+- Updated dependencies [4cd7eb1]
+  - solid-js@1.9.7
 
 ## 1.9.6
 

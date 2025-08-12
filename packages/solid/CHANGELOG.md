@@ -40,6 +40,42 @@
 
 - fff8aed: Update typescript to 5.7
 
+## 1.9.9
+
+### Patch Changes
+
+- f59ee48: fix dynamic overtracking
+- 62c5a98: Update `SuspenseList` to handle hydration context
+- 62c5a98: Add unit tests for `resolveSSRNode` and `createResource` functions
+- c07887c: fix #2524 closedby types, fix regression inlining style/classList
+
+## 1.9.8
+
+### Patch Changes
+
+- 09a9c1d: Export RendererOptions and Renderer types from solid-js/universal
+- 472c007: fix(scheduler): adjust yield timing logic to improve task scheduling …
+- 3d3207d: fix #2491 no key on merge false
+- 2cd810f: compiler and jsx type updates
+  - fix: ssr style undefined
+  - fix: ssr double escaped array
+  - fix: skip jsxImportSource skipping transform
+  - fix: @once on style, classlist
+  - JSX type updates
+  - Update Universal Renderer Types
+- cbff564: feat: createMutable support for class inheritance
+- e056eab: add support for `is` in `Dynamic`, closes #2413
+- bdba4dc: Fix resource instances always getting cached on SSR
+- Updated dependencies [2cd810f]
+  - babel-preset-solid@1.9.8
+
+## 1.9.7
+
+### Patch Changes
+
+- 84ca952: Fix hydration issues caused by seroval update.
+- 4cd7eb1: Catch synchronous errors in `createResource`.
+
 ## 1.9.6
 
 ### Patch Changes

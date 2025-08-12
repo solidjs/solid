@@ -62,7 +62,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
       let ref = sharedConfig.load!(id);
       let p: Promise<any> | any;
       if (ref) {
-        if (typeof ref !== "object" || ref.status !== "success") p = ref;
+        if (typeof ref !== "object" || ref.s !== "success") p = ref;
         else sharedConfig.gather!(id);
       }
       if (p) {

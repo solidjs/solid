@@ -180,7 +180,7 @@ export function lazy<T extends Component<any>>(
     if (sharedConfig.context!.async) {
       sharedConfig.context!.block(
         p.then(() => {
-          (p as any).status = "success";
+          (p as any).s = "success";
         })
       );
     }

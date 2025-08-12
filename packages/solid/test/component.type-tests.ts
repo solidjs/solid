@@ -2,11 +2,8 @@ import { merge, omit } from "../src/index.js";
 
 type Assert<T extends true> = never;
 // from: https://github.com/Microsoft/TypeScript/issues/27024#issuecomment-421529650
-type IsExact<T, U, I = never> = (<G>() => G extends T | I ? 1 : 2) extends <G>() => G extends U | I
-  ? 1
-  : 2
-  ? true
-  : false;
+type IsExact<T, U, I = never> =
+  (<G>() => G extends T | I ? 1 : 2) extends <G>() => G extends U | I ? 1 : 2 ? true : false;
 
 // m1: merge multiple property case
 const m1 = merge(
