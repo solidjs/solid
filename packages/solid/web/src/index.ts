@@ -144,7 +144,11 @@ export function createDynamic<T extends ValidComponent>(
         const isSvg = SVGElements.has(component);
         const el = sharedConfig.context
           ? getNextElement()
-          : createElement(component, isSvg, props.is);
+          : createElement(
+              component,
+              isSvg,
+              untrack(() => props.is)
+            );
         spread(el, props, isSvg);
         return el;
 
