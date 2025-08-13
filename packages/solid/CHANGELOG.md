@@ -1,5 +1,11 @@
 # solid-js
 
+## 2.0.0-experimental.6
+
+### Patch Changes
+
+- 5f29f14: Update signals, dom expressions to default attrs
+
 ## 2.0.0-experimental.5
 
 ### Patch Changes
