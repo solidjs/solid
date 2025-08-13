@@ -116,6 +116,10 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   component: T | undefined;
 };
 
+export type ClassList = {
+  [k: string]: boolean | undefined;
+};
+
 /**
  * Renders an arbitrary component or element with the given props
  *
