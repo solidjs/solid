@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
-import { createRoot, createSignal, Component, JSX, createStore, flushSync } from "solid-js";
+import { createRoot, createSignal, Component, JSX, createStore, flush } from "solid-js";
 import { Dynamic } from "../src/index.js";
 
 describe("Testing Dynamic control flow", () => {
@@ -27,7 +27,7 @@ describe("Testing Dynamic control flow", () => {
       disposer = dispose;
       <Component />;
     });
-    flushSync();
+    flush();
   });
 
   afterEach(() => disposer());
@@ -35,29 +35,29 @@ describe("Testing Dynamic control flow", () => {
   test("Toggle Dynamic control flow", () => {
     expect(div.innerHTML).toBe("");
     setComp(() => CompA);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("<div>Hi Smith</div>");
     setName("Smithers");
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("<div>Hi Smithers</div>");
     setComp(() => CompB);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(`<h1 id="Smithers"></h1>`);
     setName("Sunny");
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
     expect(div.querySelector("h1")).toBeInstanceOf(HTMLElement);
   });
 
   test("Renders SVG elements", () => {
     setComp("svg");
-    flushSync();
+    flush();
     expect(div.querySelector("svg")).toBeInstanceOf(SVGSVGElement);
     setComp("path");
-    flushSync();
+    flush();
     expect(div.querySelector("path")).toBeInstanceOf(SVGElement);
   });
 });
@@ -92,21 +92,21 @@ describe("Testing Dynamic with state spread", () => {
   test("Toggle Dynamic control flow", () => {
     expect(div.innerHTML).toBe("");
     setComp(() => CompA);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("<div>Hi Smith</div>");
     setState(s => {
       s.id = "Smithers";
     });
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("<div>Hi Smithers</div>");
     setComp(() => CompB);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("<span>Yo Smithers</span>");
     setComp("h1");
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(`<h1 id="Smithers"></h1>`);
     setState(s => (s.id = "Sunny"));
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
     expect(div.querySelector("h1")).toBeInstanceOf(HTMLElement);
   });

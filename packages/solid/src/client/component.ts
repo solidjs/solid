@@ -66,11 +66,12 @@ export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (str
  * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
  * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
  */
-export type ComponentProps<T extends ValidComponent> = T extends Component<infer P>
-  ? P
-  : T extends keyof JSX.IntrinsicElements
-  ? JSX.IntrinsicElements[T]
-  : Record<string, unknown>;
+export type ComponentProps<T extends ValidComponent> =
+  T extends Component<infer P>
+    ? P
+    : T extends keyof JSX.IntrinsicElements
+      ? JSX.IntrinsicElements[T]
+      : Record<string, unknown>;
 
 /**
  * Type of `props.ref`, for use in `Component` or `props` typing.

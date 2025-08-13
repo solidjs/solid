@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { render } from "../src/index.js";
-import { createRoot, createSignal, Switch, Match, For, createStore, flushSync } from "solid-js";
+import { createRoot, createSignal, Switch, Match, For, createStore, flush } from "solid-js";
 
 describe("Testing a single match switch control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -28,10 +28,10 @@ describe("Testing a single match switch control flow", () => {
 
   test("Toggle Switch control flow", () => {
     setCount(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("1");
     setCount(3);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("fallback");
   });
 
@@ -62,26 +62,26 @@ describe("Testing an only child Switch control flow", () => {
 
   test("Toggle Switch control flow", () => {
     setCount(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("1");
     setCount(4);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
     setCount(7);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("3");
     setCount(9);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("fallback");
   });
 
   test("doesn't re-render on same option", () => {
     setCount(4);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
     const c = div.firstChild;
     setCount(4);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
     expect(div.firstChild).toBe(c);
   });
@@ -121,16 +121,16 @@ describe("Testing keyed Switch control flow", () => {
 
   test("Toggle Switch control flow", () => {
     setC(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("1");
     setB(2);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
     setA(3);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("3");
     setA(0);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
   });
 
@@ -169,16 +169,16 @@ describe("Testing keyed function handler Switch control flow", () => {
 
   test("Toggle Switch control flow", () => {
     setC(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("1");
     setB(2);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
     setA(3);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("3");
     setA(0);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
   });
 
@@ -211,16 +211,16 @@ describe("Testing non-keyed function handler Switch control flow", () => {
 
   test("Toggle Switch control flow", () => {
     setC(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("1");
     setB(2);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
     setA(3);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("3");
     setA(0);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("2");
   });
 
@@ -271,73 +271,73 @@ describe("Testing Switch conditions evaluation counts", () => {
 
   test("Toggle conditions", () => {
     c.set(5);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("c=5");
     expect(a.evalCount).toBe(1);
     expect(b.evalCount).toBe(1);
     expect(c.evalCount).toBe(2);
     a.set(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(2);
     expect(b.evalCount).toBe(1);
     expect(c.evalCount).toBe(2);
     b.set(3);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(2);
     expect(b.evalCount).toBe(1); // did not evaluate
     expect(c.evalCount).toBe(2);
     b.set(2);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(2);
     expect(b.evalCount).toBe(1); // did not evaluate
     expect(c.evalCount).toBe(2);
     a.set(0);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("b=2");
     expect(a.evalCount).toBe(3);
     expect(b.evalCount).toBe(2); // evaluated now
     expect(c.evalCount).toBe(2);
     b.set(3);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("b=3");
     expect(a.evalCount).toBe(3);
     expect(b.evalCount).toBe(3);
     expect(c.evalCount).toBe(2);
     c.set(3);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("b=3");
     expect(a.evalCount).toBe(3);
     expect(b.evalCount).toBe(3);
     expect(c.evalCount).toBe(2); // did not evaluate
     a.set(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(4);
     expect(b.evalCount).toBe(3);
     expect(c.evalCount).toBe(2);
     b.set(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(4);
     expect(b.evalCount).toBe(3); // did not evaluate
     expect(c.evalCount).toBe(2);
     b.set(0);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("a=1");
     expect(a.evalCount).toBe(4);
     expect(b.evalCount).toBe(3); // did not evaluate
     expect(c.evalCount).toBe(2);
     a.set(0);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("c=3");
     expect(a.evalCount).toBe(5);
     expect(b.evalCount).toBe(4); // evaluated now, as b changed since its last evaluation
     expect(c.evalCount).toBe(3); // evaluated now
     c.set(0);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("fallback");
     expect(a.evalCount).toBe(5);
     expect(b.evalCount).toBe(4);
@@ -377,7 +377,7 @@ describe("Testing non-keyed function handler Switch control flow with dangling c
         <Component />;
       });
       setA(1);
-      flushSync();
+      flush();
 
       expect(div.innerHTML).toBe("1");
       callback = () => {
@@ -419,13 +419,13 @@ describe("Testing a For in a Switch control flow", () => {
 
   test("Toggle Switch control flow", () => {
     setState(s => (s.users[1].certified = true));
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("Janice");
     setState(s => (s.users[0].certified = true));
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("Jerry");
     setState(s => s.users.unshift({ firstName: "Gordy", certified: true }));
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("Gordy");
   });
 
@@ -447,7 +447,7 @@ describe("Test top level switch control flow", () => {
 
     expect(div.innerHTML).toBe("fallback");
     setCount(1);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("1");
   });
 

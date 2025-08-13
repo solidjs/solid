@@ -24,7 +24,6 @@ createEffect(
     return "hello";
   },
   () => {},
-  () => {},
   "init"
 );
 
@@ -34,7 +33,6 @@ createEffect(
     const p: string = prev;
     return p + "hello";
   },
-  () => {},
   () => {},
   "init"
 );
@@ -45,7 +43,6 @@ createEffect(
     return p + "hello";
   },
   () => {},
-  () => {},
   "init"
 );
 
@@ -53,7 +50,6 @@ createEffect(
   () => {
     return "hello";
   },
-  () => {},
   () => {},
   123
 );
@@ -65,7 +61,6 @@ createEffect(
     return p + "hello";
   },
   () => {},
-  () => {},
   123
 );
 
@@ -74,7 +69,6 @@ createEffect(
     const p: number | string = prev;
     return p + "hello";
   },
-  () => {},
   () => {},
   123
 );
@@ -101,7 +95,6 @@ createEffect(
 createEffect(
   (v: number | string): number => 123,
   () => {},
-  () => {},
   "asdf"
 );
 
@@ -118,12 +111,10 @@ createEffect(
 createEffect<number>(
   (v: number | string): number => 123,
   () => {},
-  () => {},
   123
 );
 createEffect<number | string>(
   (v: number | string): number => 123,
-  () => {},
   () => {},
   123
 );
@@ -134,12 +125,10 @@ createEffect((v: number | boolean): number | boolean => false);
 createEffect(
   (v: Animal): Dog => new Dog(),
   () => {},
-  () => {},
   new Dog()
 );
 createEffect(
   (v: Animal): Dog => new Dog(),
-  () => {},
   () => {},
   new Animal()
 );
@@ -165,13 +154,11 @@ createEffect<number | boolean>(
 createEffect(
   (v: number | string): number => 123,
   () => {},
-  () => {},
   "asdf"
 );
 
 createEffect(
   (v: number) => 123,
-  () => {},
   () => {},
   123
 );
@@ -180,7 +167,6 @@ createEffect(
   (v?: number) => {
     return 123;
   },
-  () => {},
   () => {},
   123,
   {}
@@ -205,7 +191,6 @@ createEffect(
     return 123;
   },
   () => {},
-  () => {},
   123
 );
 createEffect(
@@ -218,7 +203,6 @@ createEffect(
 createEffect(
   (v: number) => 123,
   () => {},
-  () => {},
   123
 );
 createEffect(
@@ -230,20 +214,17 @@ createEffect<number | undefined>(
   // @ts-expect-error the void return is not assignable to the number|undefined parameter
   (v?: number) => {},
   () => {},
-  () => {},
   123
 );
 createEffect<number | undefined>(
   // @ts-expect-error the void return is not assignable to the explicitly specified number|undefined return
   v => {},
   () => {},
-  () => {},
   123
 );
 createEffect(
   // @ts-expect-error the void return is not assignable to the number|undefined parameter
   (v?: number) => {},
-  () => {},
   () => {},
   undefined
 );
@@ -260,7 +241,6 @@ createEffect(
 createEffect(
   // @ts-expect-error void return not assignable to number parameter
   (v: number) => {},
-  () => {},
   () => {},
   123
 );
@@ -1073,7 +1053,6 @@ const a5: Accessor<number | boolean> = createMemo<number | boolean>(() => bool()
 createEffect<number | boolean>(
   () => bool(),
   () => {},
-  () => {},
   false
 );
 createRenderEffect<number | boolean>(
@@ -1090,7 +1069,6 @@ const a51: Accessor<number | boolean> = createMemo<number | boolean>(
 );
 createEffect<number | boolean>(
   () => bool(),
-  () => {},
   () => {},
   // @ts-expect-error FIXME edge case: string is not assignable to number|boolean, but really it should say that the effect function expects 0 args but 1 arg was provided.
   "foo"
@@ -1128,7 +1106,6 @@ createRenderEffect<number | boolean>(
 const a7: Accessor<number> = createMemo<number>((v: number | string) => 123, "asd");
 createEffect<number>(
   (v: number | string) => 123,
-  () => {},
   () => {},
   // @ts-expect-error second generic is not inferred and remains as number
   "asd"

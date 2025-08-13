@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createSignal, flushSync, Show } from "solid-js";
+import { createSignal, flush, Show } from "solid-js";
 import { render, clearDelegatedEvents, Portal } from "../src/index.js";
 
 describe("Testing a simple Portal", () => {
@@ -62,16 +62,16 @@ describe("Testing a Portal to the head", () => {
 
   test("Update title text", () => {
     set("A New Better Page Title");
-    flushSync();
+    flush();
     expect(document.head.innerHTML).toBe("<title>A New Better Page Title</title>");
   });
 
   test("Hide Portal", () => {
     setVisible(false);
-    flushSync();
+    flush();
     expect(document.head.innerHTML).toBe("");
     setVisible(true);
-    flushSync();
+    flush();
     expect(document.head.innerHTML).toBe("<title>A New Better Page Title</title>");
   });
 
@@ -127,10 +127,10 @@ describe("Testing a Portal with direct reactive children", () => {
   test("Click to trigger reactive update", () => {
     expect(document.body.innerHTML).toBe("1");
     setCount(count() + 1);
-    flushSync();
+    flush();
     expect(document.body.innerHTML).toBe("2");
     setCount(count() + 1);
-    flushSync();
+    flush();
     expect(document.body.innerHTML).toBe("3");
   });
 

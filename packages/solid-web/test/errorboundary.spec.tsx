@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, ErrorBoundary, flushSync } from "solid-js";
+import { createRoot, ErrorBoundary, flush } from "solid-js";
 
 describe("Testing ErrorBoundary control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -79,7 +79,7 @@ describe("Testing ErrorBoundary control flow", () => {
     expect(div.innerHTML).toBe("Failure");
 
     r!();
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("Success");
     first = true;
   });

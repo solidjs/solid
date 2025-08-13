@@ -12,7 +12,7 @@ import {
   // useTransition,
   Suspense,
   createStore,
-  flushSync
+  flush
 } from "solid-js";
 import { render } from "../src/index.js";
 
@@ -35,7 +35,7 @@ describe("Testing Basics", () => {
     }, div);
     expect(div.innerHTML).toBe("0");
     increment!();
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("1");
     disposer();
   });
@@ -80,10 +80,10 @@ describe("Testing Suspense", () => {
     for (const r of resolvers) r({ default: ChildComponent });
     await Promise.resolve();
     await Promise.resolve();
-    flushSync();
+    flush();
     vi.runAllTimers();
     await Promise.resolve();
-    flushSync();
+    flush();
 
     expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
   });

@@ -1,7 +1,6 @@
 export {
   $PROXY,
   $TRACK,
-  $RAW,
   createEffect,
   createMemo,
   createProjection,
@@ -10,7 +9,7 @@ export {
   createSignal,
   createStore,
   flatten,
-  flushSync,
+  flush,
   getObserver,
   getOwner,
   isEqual,
@@ -26,10 +25,10 @@ export {
   resolve,
   runWithObserver,
   runWithOwner,
+  snapshot,
   tryCatch,
   untrack,
-  unwrap,
-  deep,
+  deep
 } from "@solidjs/signals";
 
 export type {
@@ -98,7 +97,7 @@ if (IS_DEV && globalThis) {
 
 /* Not Implemented
 export {
-  batch, // flushSync
+  batch, // flush
   catchError, // old version handled by createErrorBoundary. new version is different helper.
   createComputed, // nope
   createDeferred, // take it outside
@@ -123,6 +122,7 @@ export {
   createMutable,
   modifyMutable,
   produce, // now default
+  unwrap, // snapshot
 }
 
 type {

@@ -229,7 +229,7 @@ export function resolve() {
   throw new Error("resolve is not implemented on the server");
 }
 
-export function flushSync() {}
+export function flush() {}
 
 export function getObserver() {
   return Observer;

@@ -1,5 +1,5 @@
 // TODO: Implement server-side rendering
-export { $PROXY, $TRACK, $RAW, tryCatch, flatten, isEqual, isWrappable } from "@solidjs/signals";
+export { $PROXY, $TRACK, tryCatch, flatten, isEqual, isWrappable } from "@solidjs/signals";
 
 export {
   createAsync,
@@ -8,7 +8,7 @@ export {
   createRenderEffect,
   createRoot,
   createSignal,
-  flushSync,
+  flush,
   getObserver,
   getOwner,
   isPending,

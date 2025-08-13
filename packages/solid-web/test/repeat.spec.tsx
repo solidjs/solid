@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, Repeat, flushSync } from "solid-js";
+import { createRoot, createSignal, Repeat, flush } from "solid-js";
 import { insert } from "../src/index.js";
 
 describe("Testing an only child each control flow", () => {
@@ -21,10 +21,10 @@ describe("Testing an only child each control flow", () => {
 
   function apply(array: string[]) {
     setList(array);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(array.join(""));
     setList([n1, n2, n3, n4]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("abcd");
   }
 
@@ -86,9 +86,9 @@ describe("Testing an only child each control flow", () => {
 
   test("swap backward edge", () => {
     setList(["milk", "bread", "chips", "cookie", "honey"]);
-    flushSync();
+    flush();
     setList(["chips", "bread", "cookie", "milk", "honey"]);
-    flushSync();
+    flush();
   });
 
   test("dispose", () => disposer());
@@ -107,10 +107,10 @@ describe("Testing an multi child each control flow", () => {
 
   function apply(array: string[]) {
     setList(array);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(`${array.join("")}z`);
     setList([n1, n2, n3, n4]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("abcdz");
   }
 
@@ -172,9 +172,9 @@ describe("Testing an multi child each control flow", () => {
 
   test("swap backward edge", () => {
     setList(["milk", "bread", "chips", "cookie", "honey"]);
-    flushSync();
+    flush();
     setList(["chips", "bread", "cookie", "milk", "honey"]);
-    flushSync();
+    flush();
   });
 
   test("dispose", () => disposer());
@@ -202,10 +202,10 @@ describe("Testing an only child each control flow with fragment children", () =>
 
   function apply(array: string[]) {
     setList(array);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(array.map(p => `${p}${p}`).join(""));
     setList([n1, n2, n3, n4]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("aabbccdd");
   }
 
@@ -295,10 +295,10 @@ describe("Testing an only child each control flow with array children", () => {
 
   function apply(array: string[]) {
     setList(array);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(array.map(p => `${p}${p}`).join(""));
     setList([n1, n2, n3, n4]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("aabbccdd");
   }
 
@@ -360,9 +360,9 @@ describe("Testing an only child each control flow with array children", () => {
 
   test("swap backward edge", () => {
     setList(["milk", "bread", "chips", "cookie", "honey"]);
-    flushSync();
+    flush();
     setList(["chips", "bread", "cookie", "milk", "honey"]);
-    flushSync();
+    flush();
   });
 
   test("dispose", () => disposer());
@@ -390,10 +390,10 @@ describe("Testing each control flow with fallback", () => {
     });
     expect(div.innerHTML).toBe("Empty");
     setList([n1, n2, n3, n4]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("abcd");
     setList([]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("Empty");
   });
 
@@ -420,10 +420,10 @@ describe("Testing each that maps to undefined", () => {
     });
     expect(div.innerHTML).toBe("");
     setList([n1, n2, n3, n4]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("");
     setList([]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("");
   });
 
@@ -452,25 +452,25 @@ describe("Testing each without callback", () => {
     });
     expect(div.innerHTML).toBe("");
     setList([n1, n2, n3, n4]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(
       "<span>Hello</span><span>Hello</span><span>Hello</span><span>Hello</span>"
     );
     setList([n2, n3, n4, n1]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(
       "<span>Hello</span><span>Hello</span><span>Hello</span><span>Hello</span>"
     );
     setList([n3, n4, n1]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("<span>Hello</span><span>Hello</span><span>Hello</span>");
     setList([n3, n2, n4, n1]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe(
       "<span>Hello</span><span>Hello</span><span>Hello</span><span>Hello</span>"
     );
     setList([]);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("");
   });
 

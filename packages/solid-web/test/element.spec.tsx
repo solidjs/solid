@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, createUniqueId, JSX, children, flushSync } from "solid-js";
+import { createRoot, createSignal, createUniqueId, JSX, children, flush } from "solid-js";
 
 declare module "solid-js/jsx-runtime" {
   namespace JSX {
@@ -46,7 +46,7 @@ describe("Basic element attributes", () => {
     });
     expect(div.innerHTML).toBe("Small");
     setS(7);
-    flushSync();
+    flush();
     expect(div.innerHTML).toBe("Large");
   });
 
@@ -58,7 +58,7 @@ describe("Basic element attributes", () => {
       div2 = div1;
     });
     setS(7);
-    flushSync();
+    flush();
     expect(div1!).toBe(div2!);
   });
 

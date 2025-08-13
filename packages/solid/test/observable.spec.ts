@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { createRoot, createSignal, flushSync, from, observable } from "../src/index.js";
+import { createRoot, createSignal, flush, from, observable } from "../src/index.js";
 
 describe("Observable operator", () => {
   test("to observable", () => {
@@ -12,10 +12,10 @@ describe("Observable operator", () => {
       set = _set;
       obsv$.subscribe({ next: v => (out = v) });
     });
-    flushSync();
+    flush();
     expect(out!).toBe("Hi");
     set!("John");
-    flushSync();
+    flush();
     expect(out!).toBe("John");
   });
 
@@ -30,7 +30,7 @@ describe("Observable operator", () => {
 
       obsv$.subscribe(observer);
     });
-    flushSync();
+    flush();
     expect(observer.next).toHaveReturnedWith(observer);
   });
 
@@ -53,11 +53,11 @@ describe("Observable operator", () => {
       });
     });
     set("John");
-    flushSync();
+    flush();
     expect(out!).toBe("John");
     subscription.unsubscribe();
     set("Benjamin");
-    flushSync();
+    flush();
     expect(out!).toBe("John");
   });
 });
@@ -73,10 +73,10 @@ describe("from transform", () => {
       set = _set;
       out = from(obsv$);
     });
-    flushSync();
+    flush();
     expect(out!()).toBe("Hi");
     set!("John");
-    flushSync();
+    flush();
     expect(out!()).toBe("John");
   });
 
@@ -93,10 +93,10 @@ describe("from transform", () => {
         return () => sub.unsubscribe();
       });
     });
-    flushSync();
+    flush();
     expect(out!()).toBe("Hi");
     set!("John");
-    flushSync();
+    flush();
     expect(out!()).toBe("John");
   });
 });

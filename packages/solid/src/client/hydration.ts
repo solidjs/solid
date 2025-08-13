@@ -5,7 +5,7 @@ import {
   Accessor,
   createSuspense,
   createSignal,
-  flushSync,
+  flush,
   createMemo,
   runWithObserver,
   Computation
@@ -74,7 +74,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
               sharedConfig.gather!(id);
               sharedConfig.hydrating = true;
               set();
-              flushSync();
+              flush();
               sharedConfig.hydrating = false;
             },
             (err: any) =>
