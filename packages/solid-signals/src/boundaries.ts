@@ -161,7 +161,7 @@ export function createErrorBoundary<U>(
       incrementClock();
       for (let node of queue._nodes) {
         (node as any)._state = STATE_DIRTY;
-        (node as any)._queue?.enqueue((node as any)._type, node);
+        (node as any)._queue?.enqueue((node as any)._type, node._run.bind(node));
       }
     })
   );
