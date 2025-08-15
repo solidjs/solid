@@ -373,7 +373,7 @@ export interface Resource<T> {
 }
 
 type SuspenseContextType = {
-  resources: Map<string, { loading: boolean; error: any }>;
+  resources: Map<string, { _loading: boolean; error: any }>;
   completed: () => void;
 };
 
@@ -445,39 +445,53 @@ export function createResource<T, S>(
   if (sharedConfig.context!.async && options.ssrLoadFrom !== "initial") {
     resource = sharedConfig.context!.resources[id] || (sharedConfig.context!.resources[id] = {});
     if (resource.ref) {
-      if (!resource.data && !resource.ref[0].loading && !resource.ref[0].error)
+      if (!resource.data && !resource.ref[0]._loading && !resource.ref[0].error)
         resource.ref[1].refetch();
       return resource.ref;
     }
   }
-  const read = () => {
+  const prepareResource = () => {
     if (error) throw error;
     const resolved =
       options.ssrLoadFrom !== "initial" &&
       sharedConfig.context!.async &&
       "data" in sharedConfig.context!.resources[id];
     if (!resolved && resourceContext) resourceContext.push(id);
-    if (!resolved && read.loading) {
+    if (!resolved && read._loading) {
       const ctx = useContext(SuspenseContext);
       if (ctx) {
         ctx.resources.set(id, read);
         contexts.add(ctx);
       }
     }
-    return resolved ? sharedConfig.context!.resources[id].data : value;
+    return resolved;
   };
-  read.loading = false;
+  const read = () => {
+    return prepareResource() ? sharedConfig.context!.resources[id].data : value;
+  };
+  const loading = () => {
+    prepareResource();
+    return read._loading;
+  };
+  read._loading = false;
   read.error = undefined as any;
   read.state = "initialValue" in options ? "ready" : "unresolved";
-  Object.defineProperty(read, "latest", {
-    get() {
-      return read();
+  Object.defineProperties(read, {
+    latest: {
+      get() {
+        return read();
+      }
+    },
+    loading: {
+      get() {
+        return loading();
+      }
     }
   });
   function load() {
     const ctx = sharedConfig.context!;
     if (!ctx.async)
-      return (read.loading = !!(typeof source === "function" ? (source as () => S)() : source));
+      return (read._loading = !!(typeof source === "function" ? (source as () => S)() : source));
     if (ctx.resources && id in ctx.resources && "data" in ctx.resources[id]) {
       value = ctx.resources[id].data;
       return;
@@ -495,11 +509,11 @@ export function createResource<T, S>(
       p = (fetcher as ResourceFetcher<S, T>)(lookup, { value });
     }
     if (p != undefined && typeof p === "object" && "then" in p) {
-      read.loading = true;
+      read._loading = true;
       read.state = "pending";
       p = p
         .then(res => {
-          read.loading = false;
+          read._loading = false;
           read.state = "ready";
           ctx.resources[id].data = res;
           p = null;
@@ -507,7 +521,7 @@ export function createResource<T, S>(
           return res;
         })
         .catch(err => {
-          read.loading = false;
+          read._loading = false;
           read.state = "errored";
           read.error = error = castError(err);
           p = null;
@@ -523,7 +537,10 @@ export function createResource<T, S>(
     return ctx.resources[id].data;
   }
   if (options.ssrLoadFrom !== "initial") load();
-  const ref = [read, { refetch: load, mutate: (v: T) => (value = v) }] as ResourceReturn<T>;
+  const ref = [
+    read as unknown as Resource<T>,
+    { refetch: load, mutate: (v: T) => (value = v) }
+  ] as ResourceReturn<T>;
   if (p) resource.ref = ref;
   return ref;
 }
@@ -550,7 +567,7 @@ export function lazy<T extends Component<any>>(
     else load(id);
     if (p.resolved) return p.resolved(props);
     const ctx = useContext(SuspenseContext);
-    const track = { loading: true, error: undefined };
+    const track = { _loading: true, error: undefined };
     if (ctx) {
       ctx.resources.set(id, track);
       contexts.add(ctx);
@@ -558,7 +575,7 @@ export function lazy<T extends Component<any>>(
     if (sharedConfig.context!.async) {
       sharedConfig.context!.block(
         p.then(() => {
-          track.loading = false;
+          track._loading = false;
           notifySuspense(contexts);
         })
       );
@@ -571,7 +588,7 @@ export function lazy<T extends Component<any>>(
 
 function suspenseComplete(c: SuspenseContextType) {
   for (const r of c.resources.values()) {
-    if (r.loading) return false;
+    if (r._loading) return false;
   }
   return true;
 }
@@ -642,7 +659,7 @@ export function Suspense(props: { fallback?: string; children: string }) {
   const value: SuspenseContextType =
     ctx.suspense[id] ||
     (ctx.suspense[id] = {
-      resources: new Map<string, { loading: boolean; error: any }>(),
+      resources: new Map<string, { _loading: boolean; error: any }>(),
       completed: () => {
         const res = runSuspense();
         if (suspenseComplete(value)) {
