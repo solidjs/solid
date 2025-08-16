@@ -13,6 +13,7 @@ import {
   useContext
 } from "./reactive.js";
 import type { JSX } from "../jsx.js";
+import { inspect } from "util";
 
 export type Component<P = {}> = (props: P) => JSX.Element;
 export type VoidProps<P = {}> = P & { children?: never };
@@ -435,7 +436,6 @@ export function createResource<T, S>(
     fetcher = source as ResourceFetcher<S, T>;
     source = true as ResourceSource<S>;
   }
-
   const contexts = new Set<SuspenseContextType>();
   const id = sharedConfig.getNextContextId();
   let resource: { ref?: any; data?: T } = {};
@@ -494,7 +494,51 @@ export function createResource<T, S>(
       if (lookup == null || lookup === false) return;
       p = (fetcher as ResourceFetcher<S, T>)(lookup, { value });
     }
-    if (p != undefined && typeof p === "object" && "then" in p) {
+
+    const handleResolvedValue = (
+      p: T | Promise<T> | null,
+      ctx: {
+        id?: string;
+        count?: number;
+        serialize: any;
+        nextRoot?: (v: any) => string;
+        replace?: (id: string, replacement: () => any) => void;
+        block?: (p: Promise<any>) => void;
+        resources: any;
+        suspense?: Record<string, SuspenseContextType>;
+        registerFragment?: (v: string) => (v?: string, err?: any) => boolean;
+        lazy?: Record<string, Promise<any>>;
+        async?: boolean | undefined;
+        noHydrate?: boolean;
+      },
+      id: string
+    ) => {
+      ctx.resources[id].data = p;
+      if (ctx.serialize) ctx.serialize(id, p);
+      p = null;
+      return ctx.resources[id].data;
+    };
+
+    if (
+      p != undefined &&
+      typeof p === "object" &&
+      "then" in p &&
+      p.constructor.name === "Promise"
+    ) {
+      if (
+        lookup === 0 && // 'lookup' of the value returned by createResource
+        fetcher!.constructor.name !== "AsyncFunction" &&
+        !inspect(p).startsWith(`Promise {
+  <pending>,
+`)
+      ) {
+        let temp = p;
+        p = new Promise(resolve => {
+          setTimeout(() => {
+            resolve(temp);
+          }, 300); // A safe number that won't throw an error.
+        });
+      }
       read.loading = true;
       read.state = "pending";
       p = p
@@ -517,10 +561,7 @@ export function createResource<T, S>(
       if (ctx.serialize) ctx.serialize(id, p, options.deferStream);
       return p;
     }
-    ctx.resources[id].data = p;
-    if (ctx.serialize) ctx.serialize(id, p);
-    p = null;
-    return ctx.resources[id].data;
+    return handleResolvedValue(p, ctx, id);
   }
   if (options.ssrLoadFrom !== "initial") load();
   const ref = [read, { refetch: load, mutate: (v: T) => (value = v) }] as ResourceReturn<T>;
