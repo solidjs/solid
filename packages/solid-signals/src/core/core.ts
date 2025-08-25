@@ -31,7 +31,7 @@ import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constan
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
-import { getClock } from "./scheduler.js";
+import { clock, ActiveTransition, cloneGraph, removeSourceObservers, type Transition } from "./scheduler.js";
 
 export interface SignalOptions<T> {
   id?: string;
@@ -41,16 +41,18 @@ export interface SignalOptions<T> {
   unobserved?: () => void;
 }
 
-interface SourceType {
+export interface SourceType {
   _observers: ObserverType[] | null;
   _unobserved?: () => void;
   _updateIfNecessary: () => void;
 
+  _transition?: Transition;
+  _cloned?: Computation;
   _stateFlags: Flags;
   _time: number;
 }
 
-interface ObserverType {
+export interface ObserverType {
   _sources: SourceType[] | null;
   _notify: (state: number, skipQueue?: boolean) => void;
 
@@ -64,7 +66,6 @@ let currentObserver: ObserverType | null = null,
   newSources: SourceType[] | null = null,
   newSourcesIndex = 0,
   newFlags = 0,
-  unobserved: SourceType[] = [],
   notStale = false,
   updateCheck: null | { _value: boolean } = null,
   staleCheck: null | { _value: boolean } = null;
@@ -103,6 +104,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
   _time: number = -1;
   _forceNotify = false;
+  _transition?: Transition | undefined;
+  _cloned?: Computation;
 
   constructor(
     initialValue: T | undefined,
@@ -126,14 +129,14 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (options?.equals !== undefined) this._equals = options.equals;
     if (options?.pureWrite) this._pureWrite = true;
     if (options?.unobserved) this._unobserved = options?.unobserved;
+
+    if (ActiveTransition) {
+      this._transition = ActiveTransition;
+      ActiveTransition._sources.set(this, this);
+    }
   }
 
   _read(): T {
-    if (this._compute) {
-      if (this._stateFlags & ERROR_BIT && this._time <= getClock()) update(this);
-      else this._updateIfNecessary();
-    }
-
     // When the currentObserver reads this._value, the want to add this computation as a source
     // so that when this._value changes, the currentObserver will be re-executed
     track(this);
@@ -153,6 +156,14 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * Automatically re-executes the surrounding computation when the value changes
    */
   read(): T {
+    if (ActiveTransition && ActiveTransition._sources.has(this)) {
+      return ActiveTransition._sources.get(this)!.read();
+    }
+    if (this._compute) {
+      if (this._stateFlags & ERROR_BIT && this._time <= clock) update(this);
+      else this._updateIfNecessary();
+    }
+
     return this._read();
   }
 
@@ -164,15 +175,16 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * before continuing
    */
   wait(): T {
-    if (this._compute && this._stateFlags & ERROR_BIT && this._time <= getClock()) {
-      update(this);
-    } else {
-      this._updateIfNecessary();
+    if (ActiveTransition && ActiveTransition._sources.has(this)) {
+      return ActiveTransition._sources.get(this)!.wait();
+    }
+    if (this._compute) {
+      if (this._stateFlags & ERROR_BIT && this._time <= clock) update(this);
+      else this._updateIfNecessary();
     }
 
-    track(this);
-
     if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && this._stateFlags & LOADING_BIT) {
+      track(this);
       throw new NotReadyError();
     }
 
@@ -190,9 +202,21 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // Tracks whether a function was returned from a compute result so we don't unwrap it.
     raw = false
   ): T {
+    if (ActiveTransition && !this._cloned) {
+      const clone = cloneGraph(this);
+      return clone.write(value, flags, raw);
+    }
+
     // Warn about writing to a signal in an owned scope in development mode.
-    if (__DEV__ && !this._compute && !(this as any)._pureWrite && getOwner() && !(getOwner() as any).firewall)
-      console.warn("A Signal was written to in an owned scope.")
+    if (
+      __DEV__ &&
+      !this._compute &&
+      !(this as any)._pureWrite &&
+      getOwner() &&
+      !(getOwner() as any).firewall
+    )
+      console.warn("A Signal was written to in an owned scope.");
+
     const newValue =
       !raw && typeof value === "function"
         ? (value as (currentValue: T) => T)(this._value!)
@@ -214,7 +238,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
       changedFlags = changedFlagsMask & flags;
 
     this._stateFlags = flags;
-    this._time = getClock() + 1;
+    this._time = clock + 1;
 
     // Our value has changed, so we need to notify all of our observers that the value has
     // changed and so they must rerun
@@ -237,6 +261,10 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * Set the current node's state, and recursively mark all of this node's observers as STATE_CHECK
    */
   _notify(state: number, skipQueue?: boolean): void {
+    if (ActiveTransition && ActiveTransition._sources.has(this)) {
+      return ActiveTransition._sources.get(this)!._notify(state, skipQueue);
+    }
+
     // If the state is already STATE_DIRTY and we are trying to set it to STATE_CHECK,
     // then we don't need to do anything. Similarly, if the state is already STATE_CHECK
     // and we are trying to set it to STATE_CHECK, then we don't need to do anything because
@@ -341,12 +369,15 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // and then update our value and loading state.
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
+        const source =
+          (ActiveTransition && ActiveTransition._sources.get(this._sources![i] as any)) ||
+          this._sources![i];
         // Make sure the parent is up to date. If it changed value, then it will mark us as
         // STATE_DIRTY, and we will know to rerun
-        this._sources![i]._updateIfNecessary();
+        source._updateIfNecessary();
 
         // If the parent is loading, then we are waiting
-        observerFlags |= this._sources![i]._stateFlags;
+        observerFlags |= source._stateFlags;
 
         // If the parent changed value, it will mark us as STATE_DIRTY and we need to call update()
         // Cast because the _updateIfNecessary call above can change our state
@@ -400,6 +431,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
  * When the sources do change, we create newSources and push the values that we read into it
  */
 function track(computation: SourceType): void {
+  if (ActiveTransition && computation._cloned) computation = computation._cloned;
   if (currentObserver) {
     if (
       !newSources &&
@@ -491,41 +523,18 @@ export function update<T>(node: Computation<T>): void {
       removeSourceObservers(node, newSourcesIndex);
       node._sources.length = newSourcesIndex;
     }
-    unobserved.length && notifyUnobserved();
 
     // Reset global context after computation
     newSources = prevSources;
     newSourcesIndex = prevSourcesIndex;
     newFlags = prevFlags;
 
-    node._time = getClock() + 1;
+    node._time = clock + 1;
 
     // By now, we have updated the node's value and sources array, so we can mark it as clean
     // TODO: This assumes that the computation didn't write to any signals, throw an error if it did
     node._state = STATE_CLEAN;
   }
-}
-
-function removeSourceObservers(node: ObserverType, index: number): void {
-  let source: SourceType;
-  let swap: number;
-  for (let i = index; i < node._sources!.length; i++) {
-    source = node._sources![i];
-    if (source._observers) {
-      swap = source._observers.indexOf(node);
-      source._observers[swap] = source._observers[source._observers.length - 1];
-      source._observers.pop();
-      if (!source._observers.length) unobserved.push(source);
-    }
-  }
-}
-
-function notifyUnobserved(): void {
-  for (let i = 0; i < unobserved.length; i++) {
-    const source = unobserved[i];
-    if (!source._observers || !source._observers.length) unobserved[i]._unobserved?.(); // Call the unobserved callback if it exists
-  }
-  unobserved = [];
 }
 
 export function isEqual<T>(a: T, b: T): boolean {

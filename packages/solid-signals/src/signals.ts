@@ -11,7 +11,8 @@ import {
   Owner,
   STATE_DIRTY,
   STATE_DISPOSED,
-  untrack
+  untrack,
+  ActiveTransition
 } from "./core/index.js";
 
 export type Accessor<T> = () => T;
@@ -197,14 +198,17 @@ export function createAsync<T>(
       }
       let abort = false;
       onCleanup(() => (abort = true));
+      const transition = ActiveTransition;
       if (isPromise) {
         source.then(
           value3 => {
             if (abort) return;
+            if (transition) return transition.runTransition(() => node.write(value3, 0, true));
             node.write(value3, 0, true);
           },
           error => {
             if (abort) return;
+            if(transition) return transition.runTransition(() => node._setError(error));
             node._setError(error);
           }
         );
@@ -399,21 +403,6 @@ export function tryCatch<T, E = Error>(
 }
 
 /**
- * Runs the given function in a transition scope, allowing for batch updates and optimizations.
- * This is useful for grouping multiple state updates together to avoid unnecessary re-renders.
- *
- * @param fn A function that receives a resume function to continue the transition.
- * The resume function can be called with another function to continue the transition.
- *
- * @description https://docs.solidjs.com/reference/advanced-reactivity/transition
- */
-export function transition(
-  fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any>,
-): void {
-  // TODO: Implement transition
-}
-
-/**
  * Creates an optimistic signal that can be used to optimistically update a value
  * and then revert it back to the previous value at end of transition.
  *
@@ -424,9 +413,20 @@ export function transition(
  * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
  */
 export function createOptimistic<T, U>(
-  initial: T,
+  initial: T | Accessor<T>,
   compute?: (prev: T, change: U) => void,
   options?: SignalOptions<T>
-): [Accessor<T>, (v: U) => void] {
-  return [] as any; // TODO: Implement createOptimistic
+): [Accessor<T>, (value: U | ((v?: T) => U)) => void] {
+  const node = new Computation(
+    typeof initial === "function" ? (initial as Accessor<T>)() : initial,
+    null,
+    options
+  );
+  (node as any)._reset = () => node.write(typeof initial === "function" ? (initial as Accessor<T>)() : initial)
+  function write(v: U | ((v?: T) => U)) {
+    if (!ActiveTransition) throw new Error("createOptimistic can only be updated inside a transition");
+    ActiveTransition._optimistic.add(node as any);
+    queueMicrotask(() => node.write(v as any));
+  }
+  return [node.read.bind(node), write] as any;
 }
