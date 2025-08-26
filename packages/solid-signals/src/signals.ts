@@ -1,5 +1,6 @@
 import type { SignalOptions } from "./core/index.js";
 import {
+  ActiveTransition,
   Computation,
   compute,
   EagerComputation,
@@ -11,8 +12,7 @@ import {
   Owner,
   STATE_DIRTY,
   STATE_DISPOSED,
-  untrack,
-  ActiveTransition
+  untrack
 } from "./core/index.js";
 
 export type Accessor<T> = () => T;
@@ -203,12 +203,14 @@ export function createAsync<T>(
         source.then(
           value3 => {
             if (abort) return;
-            if (transition) return transition.runTransition(() => node.write(value3, 0, true));
+            if (transition && !transition._done)
+              return transition.runTransition(() => node.write(value3, 0, true));
             node.write(value3, 0, true);
           },
           error => {
             if (abort) return;
-            if(transition) return transition.runTransition(() => node._setError(error));
+            if (transition && !transition._done)
+              return transition.runTransition(() => node._setError(error));
             node._setError(error);
           }
         );
@@ -422,9 +424,11 @@ export function createOptimistic<T, U>(
     null,
     options
   );
-  (node as any)._reset = () => node.write(typeof initial === "function" ? (initial as Accessor<T>)() : initial)
+  (node as any)._reset = () =>
+    node.write(typeof initial === "function" ? (initial as Accessor<T>)() : initial);
   function write(v: U | ((v?: T) => U)) {
-    if (!ActiveTransition) throw new Error("createOptimistic can only be updated inside a transition");
+    if (!ActiveTransition)
+      throw new Error("createOptimistic can only be updated inside a transition");
     ActiveTransition._optimistic.add(node as any);
     queueMicrotask(() => node.write(v as any));
   }
