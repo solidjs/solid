@@ -157,7 +157,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    */
   read(): T {
     if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      return ActiveTransition._sources.get(this)!.read();
+      const clone = ActiveTransition._sources.get(this)!;
+      if (clone !== this) return clone.read();
     }
     if (this._compute) {
       if (this._stateFlags & ERROR_BIT && this._time <= clock) update(this);
@@ -176,7 +177,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    */
   wait(): T {
     if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      return ActiveTransition._sources.get(this)!.wait();
+      const clone = ActiveTransition._sources.get(this)!;
+      if (clone !== this) return clone.wait();
     }
     if (this._compute) {
       if (this._stateFlags & ERROR_BIT && this._time <= clock) update(this);
@@ -262,7 +264,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    */
   _notify(state: number, skipQueue?: boolean): void {
     if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      return ActiveTransition._sources.get(this)!._notify(state, skipQueue);
+      const clone = ActiveTransition._sources.get(this)!;
+      if (clone !== this) return clone._notify(state, skipQueue);
     }
 
     // If the state is already STATE_DIRTY and we are trying to set it to STATE_CHECK,

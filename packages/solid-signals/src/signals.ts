@@ -14,6 +14,7 @@ import {
   STATE_DISPOSED,
   untrack
 } from "./core/index.js";
+import { createStore, reconcile } from "./store/index.js";
 
 export type Accessor<T> = () => T;
 
@@ -203,14 +204,12 @@ export function createAsync<T>(
         source.then(
           value3 => {
             if (abort) return;
-            if (transition && !transition._done)
-              return transition.runTransition(() => node.write(value3, 0, true));
+            if (transition) return transition.runTransition(() => node.write(value3, 0, true), true);
             node.write(value3, 0, true);
           },
           error => {
             if (abort) return;
-            if (transition && !transition._done)
-              return transition.runTransition(() => node._setError(error));
+            if (transition) return transition.runTransition(() => node._setError(error),  true);
             node._setError(error);
           }
         );
@@ -414,23 +413,60 @@ export function tryCatch<T, E = Error>(
  *
  * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
  */
+export function createOptimistic<T>(
+  initial: Exclude<T, Function>,
+  compute?: never
+): [Accessor<T>, (value: T | ((v?: T) => T)) => void];
+export function createOptimistic<T extends object, U>(
+  initial: T | Accessor<T>,
+  compute: (prev: T, change: U) => void,
+  key: string | ((item: any) => any)
+): [Accessor<T>, (value: U | ((v?: U) => U)) => void];
 export function createOptimistic<T, U>(
   initial: T | Accessor<T>,
   compute?: (prev: T, change: U) => void,
-  options?: SignalOptions<T>
-): [Accessor<T>, (value: U | ((v?: T) => U)) => void] {
-  const node = new Computation(
-    typeof initial === "function" ? (initial as Accessor<T>)() : initial,
-    null,
-    options
-  );
-  (node as any)._reset = () =>
-    node.write(typeof initial === "function" ? (initial as Accessor<T>)() : initial);
+  key?: string | ((item: any) => any)
+): [Accessor<T>, (value: U | ((v?: U) => U)) => void] {
+  if (!compute) {
+    const node = new Computation(initial as T, null);
+    const reset = () => node.write(initial);
+    function write(v: U | ((v?: T) => U)) {
+      if (!ActiveTransition)
+        throw new Error("createOptimistic can only be updated inside a transition");
+      ActiveTransition.addOptimistic(reset);
+      queueMicrotask(() => node.write(v as any));
+    }
+    return [node.read.bind(node), write] as any;
+  }
+  let store, setStore;
+  if (typeof initial === "function") {
+    [store, setStore] = createStore(
+      s => {
+        const value = (initial as Accessor<T>)();
+        if (!ActiveTransition) s.value = value;
+      },
+      { value: undefined } as { value: T }
+    );
+  } else [store, setStore] = createStore({ value: initial } as { value: T });
+
+  const reset = () =>
+    setStore(s =>
+      reconcile(
+        typeof initial === "function" ? (initial as Accessor<T>)() : (initial as any),
+        key!
+      )(s.value)
+    );
+  let lastChange = undefined as U | undefined;
   function write(v: U | ((v?: T) => U)) {
     if (!ActiveTransition)
       throw new Error("createOptimistic can only be updated inside a transition");
-    ActiveTransition._optimistic.add(node as any);
-    queueMicrotask(() => node.write(v as any));
+    ActiveTransition.addOptimistic(reset);
+    queueMicrotask(() =>
+      setStore(s => {
+        lastChange = typeof v === "function" ? (v as (v?: U) => U)(lastChange) : v;
+        compute!(s.value as T, lastChange as U);
+      })
+    );
   }
-  return [node.read.bind(node), write] as any;
+  return [() => store.value, write] as any;
 }

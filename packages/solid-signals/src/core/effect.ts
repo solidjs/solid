@@ -8,9 +8,9 @@ import {
   STATE_DISPOSED
 } from "./constants.js";
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
-import { ERROR_BIT, LOADING_BIT } from "./flags.js";
+import { ERROR_BIT, LOADING_BIT, type Flags } from "./flags.js";
 import type { Owner } from "./owner.js";
-import { clock, ActiveTransition } from "./scheduler.js";
+import { ActiveTransition, clock } from "./scheduler.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -71,9 +71,21 @@ export class Effect<T = any> extends Computation<T> {
     }
     if (this._state >= state || skipQueue) return;
 
-    if (this._state === STATE_CLEAN) (ActiveTransition || this._queue).enqueue(this._type, this._run.bind(this));
+    if (this._state === STATE_CLEAN)
+      (ActiveTransition || this._queue).enqueue(this._type, this._run.bind(this));
 
     this._state = state;
+  }
+
+  override _notifyFlags(mask: Flags, newFlags: Flags): void {
+    if (ActiveTransition && ActiveTransition._sources.has(this)) {
+      if (this._state >= STATE_CHECK) return;
+      if (mask & 3) {
+        this._notify(STATE_DIRTY);
+        return;
+      }
+    }
+    super._notifyFlags(mask, newFlags);
   }
 
   override _setError(error: unknown): void {

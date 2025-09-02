@@ -115,8 +115,8 @@ export class Transition implements IQueue {
   _sources: Map<Computation, Computation> = new Map();
   _pendingNodes: Set<Effect> = new Set();
   _promises: Set<Promise<any>> = new Set();
-  _optimistic: Set<Computation & { _reset: () => void }> = new Set();
-  _done: boolean = false;
+  _optimistic: Set<(() => void) & { _transition?: Transition }> = new Set();
+  _done: Transition | boolean = false;
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
   _pureQueue: QueueCallback[] = [];
   _children: IQueue[] = [];
@@ -181,25 +181,40 @@ export class Transition implements IQueue {
     this._scheduled = true;
     if (!this._running) queueMicrotask(() => this.flush());
   }
-  runTransition(fn: () => any | Promise<any>) {
-    if (this._done) throw new Error("Transition already completed");
+  runTransition(fn: () => any | Promise<any>, force = false): void {
+    if (this._done) {
+      if (this._done instanceof Transition) return this._done.runTransition(fn, force);
+      if (!force) throw new Error("Transition already completed");
+      fn();
+      return;
+    }
     ActiveTransition = this;
     try {
       const result = fn();
+      const transition = ActiveTransition
       if (result instanceof Promise) {
-        this._promises.add(result);
+        transition._promises.add(result);
         result.finally(() => {
-          this._promises.delete(result);
-          finishTransition(this);
+          transition._promises.delete(result);
+          finishTransition(transition);
         });
       }
     } finally {
-      finishTransition(this);
+      const transition = ActiveTransition;
       ActiveTransition = null;
+      finishTransition(transition);
     }
   }
+  addOptimistic(fn: (() => void) & { _transition?: Transition }) {
+    if (fn._transition && fn._transition !== this) {
+      mergeTransitions(fn._transition, this);
+      ActiveTransition = fn._transition!;
+      return;
+    }
+    fn._transition = this;
+    this._optimistic.add(fn as any);
+  }
 }
-
 
 const Transitions = new Set();
 
@@ -216,21 +231,14 @@ export function transition(
   fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any>
 ): void {
   let t: Transition = new Transition();
+  Transitions.add(t);
   queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));
 }
 
 export function cloneGraph(node: Computation): Computation {
   if (node._transition) {
     if (node._transition !== ActiveTransition) {
-      // we need to merge transitions
-      ActiveTransition!._sources.forEach((value, key) => node._transition!._sources.set(key, value));
-      ActiveTransition!._optimistic.forEach(c => node._transition!._optimistic.add(c));
-      ActiveTransition!._promises.forEach(p => node._transition!._promises.add(p));
-      ActiveTransition!._pendingNodes.forEach(n => node._transition!._pendingNodes.add(n));
-      ActiveTransition!._queues[0].forEach(f => node._transition!._queues[0].push(f));
-      ActiveTransition!._queues[1].forEach(f => node._transition!._queues[1].push(f));
-      ActiveTransition!._pureQueue.forEach(f => node._transition!._pureQueue.push(f));
-      ActiveTransition!._children.forEach(c => node._transition!.addChild(c));
+      mergeTransitions(node._transition, ActiveTransition!);
       ActiveTransition = node._transition;
     }
     return node._transition._sources.get(node)!;
@@ -265,6 +273,25 @@ export function removeSourceObservers(node: ObserverType, index: number): void {
   }
 }
 
+function mergeTransitions(t1: Transition, t2: Transition) {
+  t2._sources.forEach((value, key) => {
+    key._transition = t1;
+    t1._sources.set(key, value);
+  });
+  t2._optimistic.forEach(c => {
+    c._transition = t1;
+    t1._optimistic.add(c);
+  });
+  t2._promises.forEach(p => t1._promises.add(p));
+  t2._pendingNodes.forEach(n => t1._pendingNodes.add(n));
+  t2._queues[0].forEach(f => t1._queues[0].push(f));
+  t2._queues[1].forEach(f => t1._queues[1].push(f));
+  t2._pureQueue.forEach(f => t1._pureQueue.push(f));
+  t2._children.forEach(c => t1.addChild(c));
+  t2._done = t1;
+  Transitions.delete(t2);
+}
+
 function finishTransition(transition: Transition) {
   if (
     transition._done ||
@@ -290,5 +317,8 @@ function finishTransition(transition: Transition) {
   transition.run(EFFECT_RENDER);
   transition.run(EFFECT_USER);
 
-  for (const c of transition._optimistic) c._reset();
+  for (const reset of transition._optimistic) {
+    delete reset._transition;
+    reset();
+  }
 }
