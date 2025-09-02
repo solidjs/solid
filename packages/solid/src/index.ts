@@ -3,6 +3,7 @@ export {
   $TRACK,
   createEffect,
   createMemo,
+  createOptimistic,
   createProjection,
   createRenderEffect,
   createRoot,
@@ -28,7 +29,8 @@ export {
   snapshot,
   tryCatch,
   untrack,
-  deep
+  deep,
+  transition
 } from "@solidjs/signals";
 
 export type {
