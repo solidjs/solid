@@ -52,7 +52,8 @@ export class Effect<T = any> extends Computation<T> {
   }
 
   override write(value: T, flags = 0): T {
-    if (this._state == STATE_DIRTY || flags !== this._stateFlags) {
+    // || ActiveTransition && flags !== this._stateFlags
+    if (this._state == STATE_DIRTY) {
       this._stateFlags = flags;
       if (this._type === EFFECT_RENDER) {
         (ActiveTransition || this._queue).notify(this, LOADING_BIT | ERROR_BIT, flags);
