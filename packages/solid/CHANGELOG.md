@@ -1,5 +1,11 @@
 # solid-js
 
+## 2.0.0-experimental.7
+
+### Patch Changes
+
+- 53dcb14: expose new transition methods
+
 ## 2.0.0-experimental.6
 
 ### Patch Changes
