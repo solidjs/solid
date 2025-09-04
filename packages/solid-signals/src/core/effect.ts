@@ -45,7 +45,7 @@ export class Effect<T = any> extends Computation<T> {
     this._updateIfNecessary();
     !options?.defer &&
       (this._type === EFFECT_USER
-        ? (ActiveTransition || this._queue).enqueue(this._type, this._run.bind(this))
+        ? this._queue.enqueue(this._type, this._run.bind(this))
         : this._run(this._type));
     if (__DEV__ && !this._parent)
       console.warn("Effects created outside a reactive context will never be disposed");
@@ -56,7 +56,7 @@ export class Effect<T = any> extends Computation<T> {
     if (this._state == STATE_DIRTY) {
       this._stateFlags = flags;
       if (this._type === EFFECT_RENDER) {
-        (ActiveTransition || this._queue).notify(this, LOADING_BIT | ERROR_BIT, flags);
+        this._queue.notify(this, LOADING_BIT | ERROR_BIT, flags);
       }
     }
     if (value === UNCHANGED) return this._value as T;
@@ -73,7 +73,7 @@ export class Effect<T = any> extends Computation<T> {
     if (this._state >= state || skipQueue) return;
 
     if (this._state === STATE_CLEAN)
-      (ActiveTransition || this._queue).enqueue(this._type, this._run.bind(this));
+      this._queue.enqueue(this._type, this._run.bind(this));
 
     this._state = state;
   }
@@ -91,7 +91,7 @@ export class Effect<T = any> extends Computation<T> {
 
   override _setError(error: unknown): void {
     this._error = error;
-    (ActiveTransition || this._queue).notify(this, LOADING_BIT, 0);
+    this._queue.notify(this, LOADING_BIT, 0);
     this._stateFlags = ERROR_BIT;
     if (this._type === EFFECT_USER) {
       try {
@@ -105,7 +105,7 @@ export class Effect<T = any> extends Computation<T> {
         error = e;
       }
     }
-    if (!(ActiveTransition || this._queue).notify(this, ERROR_BIT, ERROR_BIT)) throw error;
+    if (!this._queue.notify(this, ERROR_BIT, ERROR_BIT)) throw error;
   }
 
   override _disposeNode(): void {
@@ -120,15 +120,16 @@ export class Effect<T = any> extends Computation<T> {
 
   _run(type: number): void {
     if (type) {
-      if (this._modified && this._state !== STATE_DISPOSED) {
-        this._cleanup?.();
+      const effect: Effect = (this._cloned as Effect) || this;
+      if (effect._modified && effect._state !== STATE_DISPOSED) {
+        effect._cleanup?.();
         try {
-          this._cleanup = this._effect(this._value!, this._prevValue) as any;
+          effect._cleanup = effect._effect(effect._value!, effect._prevValue) as any;
         } catch (e) {
-          if (!(ActiveTransition || this._queue).notify(this, ERROR_BIT, ERROR_BIT)) throw e;
+          if (!effect._queue.notify(effect, ERROR_BIT, ERROR_BIT)) throw e;
         } finally {
-          this._prevValue = this._value;
-          this._modified = false;
+          effect._prevValue = effect._value;
+          effect._modified = false;
         }
       }
     } else this._state !== STATE_CLEAN && runTop(this);
@@ -153,7 +154,7 @@ export class EagerComputation<T = any> extends Computation<T> {
       !skipQueue &&
       (this._state === STATE_CLEAN || (this._state === STATE_CHECK && this._forceNotify))
     )
-      (ActiveTransition || this._queue).enqueue(EFFECT_PURE, this._run.bind(this));
+      this._queue.enqueue(EFFECT_PURE, this._run.bind(this));
 
     super._notify(state, skipQueue);
   }
@@ -180,7 +181,7 @@ export class FirewallComputation extends Computation {
       !skipQueue &&
       (this._state === STATE_CLEAN || (this._state === STATE_CHECK && this._forceNotify))
     )
-      (ActiveTransition || this._queue).enqueue(EFFECT_PURE, this._run.bind(this));
+      this._queue.enqueue(EFFECT_PURE, this._run.bind(this));
 
     super._notify(state, true);
     this._forceNotify = !!skipQueue; // they don't need to be forced themselves unless from above

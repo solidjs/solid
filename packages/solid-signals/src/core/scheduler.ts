@@ -35,7 +35,9 @@ export interface IQueue {
   removeChild(child: IQueue): void;
   created: number;
   notify(...args: any[]): boolean;
+  merge(queue: IQueue): void;
   _parent: IQueue | null;
+  _cloned?: IQueue | undefined;
 }
 
 let pureQueue: QueueCallback[] = [];
@@ -46,7 +48,8 @@ export class Queue implements IQueue {
   _children: IQueue[] = [];
   created = clock;
   enqueue(type: number, fn: QueueCallback): void {
-    if (ActiveTransition) return ActiveTransition.enqueue(type, fn);
+    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
+      return ActiveTransition._clonedQueues.get(this)!.enqueue(type, fn);
     pureQueue.push(fn);
     if (type) this._queues[type - 1].push(fn);
     schedule();
@@ -88,8 +91,19 @@ export class Queue implements IQueue {
     if (index >= 0) this._children.splice(index, 1);
   }
   notify(...args: any[]) {
+    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
+      return ActiveTransition._clonedQueues.get(this)!.notify(...args);
     if (this._parent) return this._parent.notify(...args);
     return false;
+  }
+  merge(queue: Queue) {
+    this._queues[0].push.apply(this._queues[0], queue._queues[0]);
+    this._queues[1].push.apply(this._queues[1], queue._queues[1]);
+    for (let i = 0; i < queue._children.length; i++) {
+      const og = this._children.find(c => c._cloned === (queue._children[i] as any)._cloned);
+      if (og) og.merge(queue._children[i]);
+      else this.addChild(queue._children[i]);
+    }
   }
 }
 
@@ -118,12 +132,19 @@ export class Transition implements IQueue {
   _optimistic: Set<(() => void) & { _transition?: Transition }> = new Set();
   _done: Transition | boolean = false;
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
+  _clonedQueues: Map<Queue, Queue> = new Map();
   _pureQueue: QueueCallback[] = [];
   _children: IQueue[] = [];
   _parent: IQueue | null = null;
   _running: boolean = false;
   _scheduled: boolean = false;
   created: number = clock;
+  constructor() {
+    this._clonedQueues.set(globalQueue, this);
+    for (const child of globalQueue._children) {
+      cloneQueue(child as Queue, this, this._clonedQueues);
+    }
+  }
   enqueue(type: number, fn: QueueCallback): void {
     this._pureQueue.push(fn);
     if (type) this._queues[type - 1].push(fn);
@@ -176,6 +197,16 @@ export class Transition implements IQueue {
     }
     return true;
   }
+  merge(queue: Transition) {
+    this._queues[0].push.apply(this._queues[0], queue._queues[0]);
+    this._queues[1].push.apply(this._queues[1], queue._queues[1]);
+    this._pureQueue.push.apply(this._pureQueue, queue._pureQueue);
+    for (let i = 0; i < queue._children.length; i++) {
+      const og = this._children.find(c => c._cloned === (queue._children[i] as any)._cloned);
+      if (og) og.merge(queue._children[i]);
+      else this.addChild(queue._children[i]);
+    }
+  }
   schedule() {
     if (this._scheduled) return;
     this._scheduled = true;
@@ -191,7 +222,7 @@ export class Transition implements IQueue {
     ActiveTransition = this;
     try {
       const result = fn();
-      const transition = ActiveTransition
+      const transition = ActiveTransition;
       if (result instanceof Promise) {
         transition._promises.add(result);
         result.finally(() => {
@@ -216,8 +247,6 @@ export class Transition implements IQueue {
   }
 }
 
-const Transitions = new Set();
-
 /**
  * Runs the given function in a transition scope, allowing for batch updates and optimizations.
  * This is useful for grouping multiple state updates together to avoid unnecessary re-renders.
@@ -231,7 +260,6 @@ export function transition(
   fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any>
 ): void {
   let t: Transition = new Transition();
-  Transitions.add(t);
   queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));
 }
 
@@ -273,6 +301,50 @@ export function removeSourceObservers(node: ObserverType, index: number): void {
   }
 }
 
+function cloneQueue(queue: Queue, parent: Queue, clonedQueues: Map<Queue, Queue>) {
+  const clone = Object.create(Object.getPrototypeOf(queue)) as Queue;
+  Object.assign(clone, queue, {
+    _cloned: queue,
+    _parent: parent,
+    _children: [],
+    enqueue(type, fn) {
+      ActiveTransition?.enqueue(type, fn);
+    },
+    notify(node: Effect, type: number, flags: number) {
+      node = (node._cloned || node) as Effect;
+      if (!(clone as any)._collectionType || type & LOADING_BIT) {
+        type &= ~LOADING_BIT;
+        ActiveTransition?.notify(node, LOADING_BIT, flags);
+        if (!type) return true;
+      }
+      return queue.notify.call(this, node, type, flags);
+    }
+  });
+  parent._children.push(clone);
+  clonedQueues.set(queue, clone);
+  for (const child of queue._children) {
+    cloneQueue(child as Queue, clone, clonedQueues);
+  }
+}
+
+function resolveQueues(children: Queue[]) {
+  for (const child of children) {
+    const og = (child as any)._cloned;
+    if (og) {
+      const clonedChildren = child._children;
+      delete (child as any).enqueue;
+      delete (child as any).notify;
+      delete (child as any)._parent;
+      delete (child as any)._children;
+      Object.assign(og, child);
+      delete og._cloned;
+      resolveQueues(clonedChildren as Queue[]);
+    } else if (child._parent!._cloned) {
+      child._parent!._cloned.addChild(child);
+    }
+  }
+}
+
 function mergeTransitions(t1: Transition, t2: Transition) {
   t2._sources.forEach((value, key) => {
     key._transition = t1;
@@ -284,12 +356,8 @@ function mergeTransitions(t1: Transition, t2: Transition) {
   });
   t2._promises.forEach(p => t1._promises.add(p));
   t2._pendingNodes.forEach(n => t1._pendingNodes.add(n));
-  t2._queues[0].forEach(f => t1._queues[0].push(f));
-  t2._queues[1].forEach(f => t1._queues[1].push(f));
-  t2._pureQueue.forEach(f => t1._pureQueue.push(f));
-  t2._children.forEach(c => t1.addChild(c));
+  t1.merge(t2);
   t2._done = t1;
-  Transitions.delete(t2);
 }
 
 function finishTransition(transition: Transition) {
@@ -310,12 +378,13 @@ function finishTransition(transition: Transition) {
     delete source._cloned;
     delete source._transition;
   }
+  globalQueue._queues[0].push.apply(globalQueue._queues[0], transition._queues[0]);
+  globalQueue._queues[1].push.apply(globalQueue._queues[1], transition._queues[1]);
+  resolveQueues(transition._children as Queue[]);
   transition._done = true;
-  Transitions.delete(transition);
 
   // run the queued effects
-  transition.run(EFFECT_RENDER);
-  transition.run(EFFECT_USER);
+  globalQueue.flush();
 
   for (const reset of transition._optimistic) {
     delete reset._transition;

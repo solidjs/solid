@@ -1,4 +1,5 @@
 import {
+  ActiveTransition,
   Computation,
   compute,
   EagerComputation,
@@ -63,6 +64,8 @@ class ConditionalQueue extends Queue {
     return super.run(type);
   }
   notify(node: Effect, type: number, flags: number) {
+    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
+      return ActiveTransition._clonedQueues.get(this)!.notify(node, type, flags);
     if (this._disabled.read()) {
       if (type & LOADING_BIT) {
         if (flags & LOADING_BIT) {
@@ -79,12 +82,17 @@ class ConditionalQueue extends Queue {
     }
     return type ? super.notify(node, type, flags) : true;
   }
+  merge(queue: ConditionalQueue): void {
+    queue._pendingNodes.forEach(n => this.notify(n, LOADING_BIT, LOADING_BIT));
+    queue._errorNodes.forEach(n => this.notify(n, ERROR_BIT, ERROR_BIT));
+    super.merge(queue);
+  }
 }
 
 export class CollectionQueue extends Queue {
   _collectionType: number;
   _nodes: Set<Effect> = new Set();
-  _disabled: Computation<boolean> = new Computation(false, null, { pureWrite: true});
+  _disabled: Computation<boolean> = new Computation(false, null, { pureWrite: true });
   constructor(type: number) {
     super();
     this._collectionType = type;
@@ -94,6 +102,8 @@ export class CollectionQueue extends Queue {
     return super.run(type);
   }
   notify(node: Effect, type: number, flags: number) {
+    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
+      return ActiveTransition._clonedQueues.get(this)!.notify(node, type, flags);
     if (!(type & this._collectionType)) return super.notify(node, type, flags);
     if (flags & this._collectionType) {
       this._nodes.add(node);
@@ -104,6 +114,10 @@ export class CollectionQueue extends Queue {
     }
     type &= ~this._collectionType;
     return type ? super.notify(node, type, flags) : true;
+  }
+  merge(queue: CollectionQueue): void {
+    queue._nodes.forEach(n => this.notify(n, this._collectionType, this._collectionType));
+    super.merge(queue);
   }
 }
 
@@ -156,15 +170,17 @@ export function createErrorBoundary<U>(
   fn: () => any,
   fallback: (error: unknown, reset: () => void) => U
 ) {
-  return createCollectionBoundary(ERROR_BIT, fn, queue =>
-    fallback(queue._nodes!.values().next().value!._error, () => {
+  return createCollectionBoundary(ERROR_BIT, fn, queue => {
+    let node = queue._nodes!.values().next().value!;
+    ActiveTransition && ActiveTransition._sources.has(node) && (node = ActiveTransition._sources.get(node)! as Effect);
+    return fallback(node._error, () => {
       incrementClock();
       for (let node of queue._nodes) {
         (node as any)._state = STATE_DIRTY;
         (node as any)._queue?.enqueue((node as any)._type, node._run.bind(node));
       }
-    })
-  );
+    });
+  });
 }
 
 export function flatten(

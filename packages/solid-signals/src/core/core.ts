@@ -206,7 +206,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   ): T {
     if (ActiveTransition && !this._cloned) {
       const clone = cloneGraph(this);
-      return clone.write(value, flags, raw);
+      if (clone !== this) return clone.write(value, flags, raw);
     }
 
     // Warn about writing to a signal in an owned scope in development mode.
@@ -327,6 +327,10 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   }
 
   _setError(error: unknown): void {
+    if (ActiveTransition && !this._cloned) {
+      const clone = cloneGraph(this);
+      if (clone !== this) return clone._setError(error);
+    }
     this._error = error;
     this.write(UNCHANGED, (this._stateFlags & ~LOADING_BIT) | ERROR_BIT | UNINITIALIZED_BIT);
   }
