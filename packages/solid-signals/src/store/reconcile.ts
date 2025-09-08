@@ -170,6 +170,7 @@ export function reconcile<T extends U, U>(
   all = false
 ) {
   return (state: U) => {
+    if (state == null) throw new Error("Cannot reconcile null or undefined state");
     const keyFn = typeof key === "string" ? item => item[key] : key;
     const eq = keyFn(state);
     if (eq !== undefined && keyFn(value) !== keyFn(state))

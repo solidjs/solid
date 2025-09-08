@@ -10,7 +10,7 @@ import {
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { ERROR_BIT, LOADING_BIT, type Flags } from "./flags.js";
 import type { Owner } from "./owner.js";
-import { ActiveTransition, clock } from "./scheduler.js";
+import { clock } from "./scheduler.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -37,10 +37,11 @@ export class Effect<T = any> extends Computation<T> {
     this._prevValue = initialValue;
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     if (this._type === EFFECT_RENDER) {
-      this._compute = p =>
-        !ActiveTransition && clock > this._queue.created && !(this._stateFlags & ERROR_BIT)
+      this._compute = function(p) {
+        return !this._cloned && clock > this._queue.created && !(this._stateFlags & ERROR_BIT)
           ? latest(() => compute(p))
           : compute(p);
+      };
     }
     this._updateIfNecessary();
     !options?.defer &&
@@ -52,35 +53,31 @@ export class Effect<T = any> extends Computation<T> {
   }
 
   override write(value: T, flags = 0): T {
-    // || ActiveTransition && flags !== this._stateFlags
     if (this._state == STATE_DIRTY) {
       this._stateFlags = flags;
       if (this._type === EFFECT_RENDER) {
-        this._queue.notify(this, LOADING_BIT | ERROR_BIT, flags);
+        this._queue.notify(this, LOADING_BIT | ERROR_BIT, this._stateFlags);
       }
     }
     if (value === UNCHANGED) return this._value as T;
     this._value = value;
     this._modified = true;
+    this._error = undefined;
 
     return value;
   }
 
   override _notify(state: number, skipQueue?: boolean): void {
-    if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      return ActiveTransition._sources.get(this)!._notify(state, skipQueue);
-    }
     if (this._state >= state || skipQueue) return;
 
-    if (this._state === STATE_CLEAN)
-      this._queue.enqueue(this._type, this._run.bind(this));
+    if (this._state === STATE_CLEAN) this._queue.enqueue(this._type, this._run.bind(this));
 
     this._state = state;
   }
 
   override _notifyFlags(mask: Flags, newFlags: Flags): void {
-    if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      if (this._state >= STATE_CHECK) return;
+    if (this._cloned) {
+      if (this._state >= STATE_DIRTY) return;
       if (mask & 3) {
         this._notify(STATE_DIRTY);
         return;
@@ -145,9 +142,6 @@ export class EagerComputation<T = any> extends Computation<T> {
   }
 
   override _notify(state: number, skipQueue?: boolean): void {
-    if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      return ActiveTransition._sources.get(this)!._notify(state, skipQueue);
-    }
     if (this._state >= state && !this._forceNotify) return;
 
     if (
@@ -172,9 +166,6 @@ export class FirewallComputation extends Computation {
       console.warn("Eager Computations created outside a reactive context will never be disposed");
   }
   _notify(state: number, skipQueue?: boolean): void {
-    if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      return ActiveTransition._sources.get(this)!._notify(state, skipQueue);
-    }
     if (this._state >= state && !this._forceNotify) return;
 
     if (

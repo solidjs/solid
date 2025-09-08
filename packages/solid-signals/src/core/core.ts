@@ -31,7 +31,7 @@ import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constan
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
-import { clock, ActiveTransition, cloneGraph, removeSourceObservers, type Transition } from "./scheduler.js";
+import { ActiveTransition, clock, cloneGraph, Unobserved, type Transition } from "./scheduler.js";
 
 export interface SignalOptions<T> {
   id?: string;
@@ -263,11 +263,6 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * Set the current node's state, and recursively mark all of this node's observers as STATE_CHECK
    */
   _notify(state: number, skipQueue?: boolean): void {
-    if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      const clone = ActiveTransition._sources.get(this)!;
-      if (clone !== this) return clone._notify(state, skipQueue);
-    }
-
     // If the state is already STATE_DIRTY and we are trying to set it to STATE_CHECK,
     // then we don't need to do anything. Similarly, if the state is already STATE_CHECK
     // and we are trying to set it to STATE_CHECK, then we don't need to do anything because
@@ -520,7 +515,9 @@ export function update<T>(node: Computation<T>): void {
       // For each new source, we need to add this `node` to the source's observers array (downlinks)
       let source: SourceType;
       for (let i = newSourcesIndex; i < node._sources.length; i++) {
-        source = node._sources[i];
+        source =
+          (ActiveTransition && ActiveTransition._sources.get(node._sources![i] as any)) ||
+          node._sources![i];
         if (!source._observers) source._observers = [node];
         else source._observers.push(node);
       }
@@ -541,6 +538,23 @@ export function update<T>(node: Computation<T>): void {
     // By now, we have updated the node's value and sources array, so we can mark it as clean
     // TODO: This assumes that the computation didn't write to any signals, throw an error if it did
     node._state = STATE_CLEAN;
+  }
+}
+
+function removeSourceObservers(node: ObserverType, index: number): void {
+  let source: SourceType;
+  let swap: number;
+  for (let i = index; i < node._sources!.length; i++) {
+    source =
+      (ActiveTransition && ActiveTransition._sources.get(node._sources![i] as any)) ||
+      node._sources![i];
+    if (source._observers) {
+      if ((swap = source._observers.indexOf(node)) !== -1) {
+        source._observers[swap] = source._observers[source._observers.length - 1];
+        source._observers.pop();
+      }
+      if (!source._observers.length) Unobserved.push(source);
+    }
   }
 }
 
@@ -701,7 +715,7 @@ export function compute<T>(
   notStale = true;
 
   try {
-    return fn(observer ? observer._value : undefined);
+    return fn.call(observer, observer ? observer._value : undefined);
   } finally {
     setOwner(prevOwner);
     currentObserver = prevObserver;

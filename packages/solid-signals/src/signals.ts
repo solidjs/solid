@@ -14,6 +14,7 @@ import {
   STATE_DISPOSED,
   untrack
 } from "./core/index.js";
+import { cloneGraph } from "./core/scheduler.js";
 import { createStore, reconcile } from "./store/index.js";
 
 export type Accessor<T> = () => T;
@@ -204,12 +205,13 @@ export function createAsync<T>(
         source.then(
           value3 => {
             if (abort) return;
-            if (transition) return transition.runTransition(() => node.write(value3, 0, true), true);
+            if (transition)
+              return transition.runTransition(() => node.write(value3, 0, true), true);
             node.write(value3, 0, true);
           },
           error => {
             if (abort) return;
-            if (transition) return transition.runTransition(() => node._setError(error),  true);
+            if (transition) return transition.runTransition(() => node._setError(error), true);
             node._setError(error);
           }
         );
@@ -234,9 +236,13 @@ export function createAsync<T>(
     refresh: () => void;
   };
   read.refresh = () => {
-    node._state = STATE_DIRTY;
+    let n = node;
+    if (ActiveTransition && !node._cloned) {
+      n = cloneGraph(node) as EagerComputation<T>;
+    }
+    n._state = STATE_DIRTY;
     refreshing = true;
-    node._updateIfNecessary();
+    n._updateIfNecessary();
   };
   return read;
 }
@@ -443,7 +449,7 @@ export function createOptimistic<T, U>(
     [store, setStore] = createStore(
       s => {
         const value = (initial as Accessor<T>)();
-        if (!ActiveTransition) s.value = value;
+        if (!ActiveTransition) reconcile({ value }, key!)(s);
       },
       { value: undefined } as { value: T }
     );
@@ -452,9 +458,9 @@ export function createOptimistic<T, U>(
   const reset = () =>
     setStore(s =>
       reconcile(
-        typeof initial === "function" ? (initial as Accessor<T>)() : (initial as any),
+        { value: typeof initial === "function" ? (initial as Accessor<T>)() : (initial as any) },
         key!
-      )(s.value)
+      )(s)
     );
   let lastChange = undefined as U | undefined;
   function write(v: U | ((v?: T) => U)) {

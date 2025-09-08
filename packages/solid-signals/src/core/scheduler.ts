@@ -8,8 +8,7 @@ export function incrementClock(): void {
   clock++;
 }
 export let ActiveTransition: Transition | null = null;
-
-let unobserved: SourceType[] = [];
+export let Unobserved: SourceType[] = [];
 let scheduled = false;
 
 function schedule() {
@@ -19,11 +18,11 @@ function schedule() {
 }
 
 function notifyUnobserved(): void {
-  for (let i = 0; i < unobserved.length; i++) {
-    const source = unobserved[i];
-    if (!source._observers || !source._observers.length) unobserved[i]._unobserved?.(); // Call the unobserved callback if it exists
+  for (let i = 0; i < Unobserved.length; i++) {
+    const source = Unobserved[i];
+    if (!source._observers || !source._observers.length) Unobserved[i]._unobserved?.(); // Call the unobserved callback if it exists
   }
-  unobserved = [];
+  Unobserved = [];
 }
 
 export type QueueCallback = (type: number) => void;
@@ -79,7 +78,7 @@ export class Queue implements IQueue {
       this.run(EFFECT_USER);
     } finally {
       this._running = false;
-      unobserved.length && notifyUnobserved();
+      Unobserved.length && notifyUnobserved();
     }
   }
   addChild(child: IQueue) {
@@ -272,31 +271,37 @@ export function cloneGraph(node: Computation): Computation {
     return node._transition._sources.get(node)!;
   }
   const clone = Object.create(Object.getPrototypeOf(node)) as Computation;
-  Object.assign(clone, node, { _disposal: null, _nextSibling: null, _cloned: node });
+  Object.assign(clone, node, {
+    _disposal: null,
+    _nextSibling: null,
+    _observers: null,
+    _sources: node._sources ? [...node._sources] : null,
+    _cloned: node
+  });
   ActiveTransition!._sources.set(node, clone);
   node._transition = ActiveTransition!;
+  if (node._sources) {
+    for (let i = 0; i < node._sources.length; i++) node._sources[i]._observers!.push(clone);
+  }
   if (node._observers) {
+    clone._observers = [];
     for (let i = 0, length = node._observers.length; i < length; i++) {
-      const o = node._observers[i];
-      node._observers.push(cloneGraph(o as any));
+      !(node._observers[i] as Computation)._cloned && clone._observers.push(cloneGraph(node._observers[i] as any));
     }
   }
   return clone;
 }
 
-export function removeSourceObservers(node: ObserverType, index: number): void {
+function replaceSourceObservers(node: ObserverType, transition: Transition) {
   let source: SourceType;
+  let transitionSource: SourceType | undefined;
   let swap: number;
-  for (let i = index; i < node._sources!.length; i++) {
-    source =
-      (ActiveTransition && ActiveTransition._sources.get(node._sources![i] as any)) ||
-      node._sources![i];
-    if (source._observers) {
-      if ((swap = source._observers.indexOf(node)) !== -1) {
-        source._observers[swap] = source._observers[source._observers.length - 1];
-        source._observers.pop();
-      }
-      if (!source._observers.length) unobserved.push(source);
+  for (let i = 0; i < node._sources!.length; i++) {
+    transitionSource = transition._sources.get(node._sources![i] as any);
+    source = transitionSource || node._sources![i];
+    if (source._observers && (swap = source._observers.indexOf(node)) !== -1) {
+      source._observers[swap] = transitionSource ? (node as any)._cloned : source._observers[source._observers.length - 1];
+      !transitionSource && source._observers.pop();
     }
   }
 }
@@ -371,7 +376,7 @@ function finishTransition(transition: Transition) {
   // do the actual merging
   for (const [source, clone] of transition._sources) {
     if (source === clone || source._transition !== transition) continue; // already merged
-    if (clone._sources) removeSourceObservers(clone, 0);
+    if (clone._sources) replaceSourceObservers(clone, transition);
     source.dispose(false);
     source.emptyDisposal();
     Object.assign(source, clone);
@@ -383,11 +388,11 @@ function finishTransition(transition: Transition) {
   resolveQueues(transition._children as Queue[]);
   transition._done = true;
 
-  // run the queued effects
-  globalQueue.flush();
-
+  // clear optimistic updates
   for (const reset of transition._optimistic) {
     delete reset._transition;
     reset();
   }
+  // run the queued effects
+  globalQueue.flush();
 }
