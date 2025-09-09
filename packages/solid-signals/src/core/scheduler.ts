@@ -1,7 +1,7 @@
 import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER } from "./constants.js";
 import type { Computation, ObserverType, SourceType } from "./core.js";
 import type { Effect } from "./effect.js";
-import { LOADING_BIT } from "./flags.js";
+import { LOADING_BIT, UNINITIALIZED_BIT } from "./flags.js";
 
 export let clock = 0;
 export function incrementClock(): void {
@@ -278,6 +278,7 @@ export function cloneGraph(node: Computation): Computation {
     _sources: node._sources ? [...node._sources] : null,
     _cloned: node
   });
+  if (clone._compute) clone._stateFlags |= UNINITIALIZED_BIT;
   ActiveTransition!._sources.set(node, clone);
   node._transition = ActiveTransition!;
   if (node._sources) {
@@ -377,10 +378,12 @@ function finishTransition(transition: Transition) {
   for (const [source, clone] of transition._sources) {
     if (source === clone || source._transition !== transition) continue; // already merged
     if (clone._sources) replaceSourceObservers(clone, transition);
-    source.dispose(false);
-    source.emptyDisposal();
-    Object.assign(source, clone);
-    delete source._cloned;
+    if (!(clone._stateFlags & UNINITIALIZED_BIT)) {
+      source.dispose(false);
+      source.emptyDisposal();
+      Object.assign(source, clone);
+      delete source._cloned;
+    }
     delete source._transition;
   }
   globalQueue._queues[0].push.apply(globalQueue._queues[0], transition._queues[0]);

@@ -157,7 +157,11 @@ export function createMemo<Next extends Prev, Init, Prev>(
       resolvedValue = node.wait();
       // no sources so will never update so can be disposed.
       // additionally didn't create nested reactivity so can be disposed.
-      if (!node._sources?.length && node._nextSibling?._parent !== node && !(node._stateFlags & UNINITIALIZED_BIT)) {
+      if (
+        !node._sources?.length &&
+        node._nextSibling?._parent !== node &&
+        !(node._stateFlags & UNINITIALIZED_BIT)
+      ) {
         node.dispose();
         node = undefined;
       }
@@ -441,7 +445,7 @@ export function createOptimistic<T, U>(
       if (!ActiveTransition)
         throw new Error("createOptimistic can only be updated inside a transition");
       ActiveTransition.addOptimistic(reset);
-      queueMicrotask(() => node.write(v as any));
+      queueMicrotask(() => (reset as any)._transition && node.write(v as any));
     }
     return [node.read.bind(node), write] as any;
   }
@@ -468,11 +472,13 @@ export function createOptimistic<T, U>(
     if (!ActiveTransition)
       throw new Error("createOptimistic can only be updated inside a transition");
     ActiveTransition.addOptimistic(reset);
-    queueMicrotask(() =>
-      setStore(s => {
-        lastChange = typeof v === "function" ? (v as (v?: U) => U)(lastChange) : v;
-        compute!(s.value as T, lastChange as U);
-      })
+    queueMicrotask(
+      () =>
+        (reset as any)._transition &&
+        setStore(s => {
+          lastChange = typeof v === "function" ? (v as (v?: U) => U)(lastChange) : v;
+          compute!(s.value as T, lastChange as U);
+        })
     );
   }
   return [() => store.value, write] as any;
