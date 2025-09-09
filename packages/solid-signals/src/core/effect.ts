@@ -112,6 +112,7 @@ export class Effect<T = any> extends Computation<T> {
     this._onerror = undefined as any;
     this._cleanup?.();
     this._cleanup = undefined;
+    this._queue.notify(this, ERROR_BIT | LOADING_BIT, 0);
     super._disposeNode();
   }
 
