@@ -15,6 +15,7 @@ import {
   UNINITIALIZED_BIT
 } from "./core/index.js";
 import type { Effect, IQueue } from "./core/index.js";
+import { cloneGraph } from "./core/scheduler.js";
 
 class BoundaryComputation<T> extends EagerComputation<T | undefined> {
   _propagationMask: number;
@@ -176,6 +177,7 @@ export function createErrorBoundary<U>(
     return fallback(node._error, () => {
       incrementClock();
       for (let node of queue._nodes) {
+        if (ActiveTransition && !node._cloned) node = cloneGraph(node) as Effect;
         (node as any)._state = STATE_DIRTY;
         (node as any)._queue?.enqueue((node as any)._type, node._run.bind(node));
       }
