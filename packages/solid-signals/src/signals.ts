@@ -12,6 +12,7 @@ import {
   Owner,
   STATE_DIRTY,
   STATE_DISPOSED,
+  UNINITIALIZED_BIT,
   untrack
 } from "./core/index.js";
 import { cloneGraph } from "./core/scheduler.js";
@@ -156,7 +157,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
       resolvedValue = node.wait();
       // no sources so will never update so can be disposed.
       // additionally didn't create nested reactivity so can be disposed.
-      if (!node._sources?.length && node._nextSibling?._parent !== node) {
+      if (!node._sources?.length && node._nextSibling?._parent !== node && !(node._stateFlags & UNINITIALIZED_BIT)) {
         node.dispose();
         node = undefined;
       }

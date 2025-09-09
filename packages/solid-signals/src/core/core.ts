@@ -45,11 +45,11 @@ export interface SourceType {
   _observers: ObserverType[] | null;
   _unobserved?: () => void;
   _updateIfNecessary: () => void;
+  _stateFlags: Flags;
+  _time: number;
 
   _transition?: Transition;
   _cloned?: Computation;
-  _stateFlags: Flags;
-  _time: number;
 }
 
 export interface ObserverType {
@@ -59,6 +59,7 @@ export interface ObserverType {
   _handlerMask: Flags;
   _notifyFlags: (mask: Flags, newFlags: Flags) => void;
   _time: number;
+  _cloned?: Computation;
 }
 
 let currentObserver: ObserverType | null = null,
@@ -156,8 +157,12 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * Automatically re-executes the surrounding computation when the value changes
    */
   read(): T {
-    if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      const clone = ActiveTransition._sources.get(this)!;
+    if (
+      ActiveTransition &&
+      (ActiveTransition._sources.has(this) ||
+        (!this._cloned && this._stateFlags & UNINITIALIZED_BIT))
+    ) {
+      const clone = ActiveTransition._sources.get(this)! || cloneGraph(this);
       if (clone !== this) return clone.read();
     }
     if (this._compute) {
@@ -176,8 +181,12 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
    * before continuing
    */
   wait(): T {
-    if (ActiveTransition && ActiveTransition._sources.has(this)) {
-      const clone = ActiveTransition._sources.get(this)!;
+    if (
+      ActiveTransition &&
+      (ActiveTransition._sources.has(this) ||
+        (!this._cloned && this._stateFlags & UNINITIALIZED_BIT))
+    ) {
+      const clone = ActiveTransition._sources.get(this)! || cloneGraph(this);
       if (clone !== this) return clone.wait();
     }
     if (this._compute) {
@@ -379,7 +388,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
         source._updateIfNecessary();
 
         // If the parent is loading, then we are waiting
-        observerFlags |= source._stateFlags;
+        observerFlags |= source._stateFlags & ~UNINITIALIZED_BIT;
 
         // If the parent changed value, it will mark us as STATE_DIRTY and we need to call update()
         // Cast because the _updateIfNecessary call above can change our state
