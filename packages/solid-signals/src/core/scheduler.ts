@@ -378,7 +378,8 @@ function finishTransition(transition: Transition) {
   for (const [source, clone] of transition._sources) {
     if (source === clone || source._transition !== transition) continue; // already merged
     if (clone._sources) replaceSourceObservers(clone, transition);
-    if (!(clone._stateFlags & UNINITIALIZED_BIT)) {
+    // check if only uninitialized, sometimes errored also has this flag
+    if (!(clone._stateFlags === UNINITIALIZED_BIT)) {
       source.dispose(false);
       source.emptyDisposal();
       Object.assign(source, clone);
