@@ -1,7 +1,7 @@
-import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_DISPOSED } from "./constants.js";
+import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
 import type { Computation, ObserverType, SourceType } from "./core.js";
 import type { Effect } from "./effect.js";
-import { LOADING_BIT } from "./flags.js";
+import { LOADING_BIT, UNINITIALIZED_BIT } from "./flags.js";
 
 export let clock = 0;
 export function incrementClock(): void {
@@ -20,6 +20,7 @@ function schedule() {
 function notifyUnobserved(): void {
   for (let i = 0; i < Unobserved.length; i++) {
     const source = Unobserved[i];
+    // TODO better automatic disposal handling
     if (!source._observers || !source._observers.length) Unobserved[i]._unobserved?.(); // Call the unobserved callback if it exists
   }
   Unobserved = [];
@@ -124,6 +125,21 @@ export function flush(): void {
   while (scheduled) {
     if (__DEV__ && ++count === 1e5) throw new Error("Potential Infinite Loop Detected.");
     globalQueue.flush();
+  }
+}
+
+export function removeSourceObservers(node: ObserverType, index: number): void {
+  let source: SourceType;
+  let swap: number;
+  for (let i = index; i < node._sources!.length; i++) {
+    source = getTransitionSource(node._sources![i] as any);
+    if (source._observers) {
+      if ((swap = source._observers.indexOf(node)) !== -1) {
+        source._observers[swap] = source._observers[source._observers.length - 1];
+        source._observers.pop();
+      }
+      if (!source._observers.length) Unobserved.push(source);
+    }
   }
 }
 

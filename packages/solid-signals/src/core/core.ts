@@ -31,7 +31,7 @@ import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constan
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
-import { ActiveTransition, clock, cloneGraph, getTransitionSource, initialDispose, Unobserved, type Transition } from "./scheduler.js";
+import { ActiveTransition, clock, cloneGraph, removeSourceObservers, getTransitionSource, initialDispose, type Transition } from "./scheduler.js";
 
 export interface SignalOptions<T> {
   id?: string;
@@ -547,21 +547,6 @@ export function update<T>(node: Computation<T>): void {
     // By now, we have updated the node's value and sources array, so we can mark it as clean
     // TODO: This assumes that the computation didn't write to any signals, throw an error if it did
     node._state = STATE_CLEAN;
-  }
-}
-
-function removeSourceObservers(node: ObserverType, index: number): void {
-  let source: SourceType;
-  let swap: number;
-  for (let i = index; i < node._sources!.length; i++) {
-    source = getTransitionSource(node._sources![i] as any);
-    if (source._observers) {
-      if ((swap = source._observers.indexOf(node)) !== -1) {
-        source._observers[swap] = source._observers[source._observers.length - 1];
-        source._observers.pop();
-      }
-      if (!source._observers.length) Unobserved.push(source);
-    }
   }
 }
 
