@@ -31,7 +31,7 @@ import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constan
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
-import { ActiveTransition, clock, cloneGraph, Unobserved, type Transition } from "./scheduler.js";
+import { ActiveTransition, clock, cloneGraph, getTransitionSource, initialDispose, Unobserved, type Transition } from "./scheduler.js";
 
 export interface SignalOptions<T> {
   id?: string;
@@ -160,7 +160,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (
       ActiveTransition &&
       (ActiveTransition._sources.has(this) ||
-        (!this._cloned && this._stateFlags & UNINITIALIZED_BIT))
+        (!this._cloned && (this._stateFlags & UNINITIALIZED_BIT | ERROR_BIT)))
     ) {
       const clone = ActiveTransition._sources.get(this)! || cloneGraph(this);
       if (clone !== this) return clone.read();
@@ -380,9 +380,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     // and then update our value and loading state.
     if (this._state === STATE_CHECK) {
       for (let i = 0; i < this._sources!.length; i++) {
-        const source =
-          (ActiveTransition && ActiveTransition._sources.get(this._sources![i] as any)) ||
-          this._sources![i];
+        const source = getTransitionSource(this._sources![i] as any);
         // Make sure the parent is up to date. If it changed value, then it will mark us as
         // STATE_DIRTY, and we will know to rerun
         source._updateIfNecessary();
@@ -479,6 +477,10 @@ export function update<T>(node: Computation<T>): void {
   newFlags = 0;
 
   try {
+    if (ActiveTransition && node._cloned && !(node as any)._updated) {
+      initialDispose(node._cloned);
+      (node as any)._updated = true;
+    }
     node.dispose(false);
     node.emptyDisposal();
 
@@ -524,9 +526,7 @@ export function update<T>(node: Computation<T>): void {
       // For each new source, we need to add this `node` to the source's observers array (downlinks)
       let source: SourceType;
       for (let i = newSourcesIndex; i < node._sources.length; i++) {
-        source =
-          (ActiveTransition && ActiveTransition._sources.get(node._sources![i] as any)) ||
-          node._sources![i];
+        source = getTransitionSource(node._sources![i] as any);
         if (!source._observers) source._observers = [node];
         else source._observers.push(node);
       }
@@ -554,9 +554,7 @@ function removeSourceObservers(node: ObserverType, index: number): void {
   let source: SourceType;
   let swap: number;
   for (let i = index; i < node._sources!.length; i++) {
-    source =
-      (ActiveTransition && ActiveTransition._sources.get(node._sources![i] as any)) ||
-      node._sources![i];
+    source = getTransitionSource(node._sources![i] as any);
     if (source._observers) {
       if ((swap = source._observers.indexOf(node)) !== -1) {
         source._observers[swap] = source._observers[source._observers.length - 1];

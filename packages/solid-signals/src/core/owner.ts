@@ -104,7 +104,6 @@ export class Owner {
 
     while (current && current._parent === this) {
       current.dispose(true);
-      current._disposeNode();
       next = current._nextSibling as Computation | null;
       current._nextSibling = null;
       current = next;

@@ -10,7 +10,7 @@ import {
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { ERROR_BIT, LOADING_BIT, type Flags } from "./flags.js";
 import type { Owner } from "./owner.js";
-import { clock } from "./scheduler.js";
+import { ActiveTransition, clock } from "./scheduler.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -194,6 +194,7 @@ function runTop(node: Computation): void {
   const ancestors: Computation[] = [];
 
   for (let current: Owner | null = node; current !== null; current = current._parent) {
+    if (ActiveTransition && (current as any)._transition) current = ActiveTransition._sources.get(current as any)!;
     if (current._state !== STATE_CLEAN) {
       ancestors.push(current as Computation);
     }

@@ -15,7 +15,7 @@ import {
   UNINITIALIZED_BIT
 } from "./core/index.js";
 import type { Effect, IQueue } from "./core/index.js";
-import { cloneGraph } from "./core/scheduler.js";
+import { cloneGraph, getTransitionSource } from "./core/scheduler.js";
 
 class BoundaryComputation<T> extends EagerComputation<T | undefined> {
   _propagationMask: number;
@@ -109,7 +109,7 @@ export class CollectionQueue extends Queue {
     if (flags & this._collectionType) {
       this._nodes.add(node);
       if (this._nodes.size === 1) this._disabled.write(true);
-    } else {
+    } else if (this._nodes.size > 0) {
       this._nodes.delete(node);
       if (this._nodes.size === 0) this._disabled.write(false);
     }
@@ -172,8 +172,7 @@ export function createErrorBoundary<U>(
   fallback: (error: unknown, reset: () => void) => U
 ) {
   return createCollectionBoundary(ERROR_BIT, fn, queue => {
-    let node = queue._nodes!.values().next().value!;
-    ActiveTransition && ActiveTransition._sources.has(node) && (node = ActiveTransition._sources.get(node)! as Effect);
+    let node = getTransitionSource(queue._nodes!.values().next().value!) as Effect;
     return fallback(node._error, () => {
       incrementClock();
       for (let node of queue._nodes) {

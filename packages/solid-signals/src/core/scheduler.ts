@@ -1,7 +1,7 @@
-import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER } from "./constants.js";
+import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_DISPOSED } from "./constants.js";
 import type { Computation, ObserverType, SourceType } from "./core.js";
 import type { Effect } from "./effect.js";
-import { LOADING_BIT, UNINITIALIZED_BIT } from "./flags.js";
+import { LOADING_BIT } from "./flags.js";
 
 export let clock = 0;
 export function incrementClock(): void {
@@ -82,12 +82,19 @@ export class Queue implements IQueue {
     }
   }
   addChild(child: IQueue) {
+    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
+      return ActiveTransition._clonedQueues.get(this)!.addChild(child);
     this._children.push(child);
     child._parent = this;
   }
   removeChild(child: IQueue) {
+    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
+      return ActiveTransition._clonedQueues.get(this)!.removeChild(child);
     const index = this._children.indexOf(child);
-    if (index >= 0) this._children.splice(index, 1);
+    if (index >= 0) {
+      this._children.splice(index, 1);
+      child._parent = null;
+    }
   }
   notify(...args: any[]) {
     if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
@@ -137,6 +144,7 @@ export class Transition implements IQueue {
   _parent: IQueue | null = null;
   _running: boolean = false;
   _scheduled: boolean = false;
+  _cloned = globalQueue;
   created: number = clock;
   constructor() {
     this._clonedQueues.set(globalQueue, this);
@@ -278,7 +286,6 @@ export function cloneGraph(node: Computation): Computation {
     _sources: node._sources ? [...node._sources] : null,
     _cloned: node
   });
-  if (clone._compute) clone._stateFlags |= UNINITIALIZED_BIT;
   ActiveTransition!._sources.set(node, clone);
   node._transition = ActiveTransition!;
   if (node._sources) {
@@ -287,7 +294,8 @@ export function cloneGraph(node: Computation): Computation {
   if (node._observers) {
     clone._observers = [];
     for (let i = 0, length = node._observers.length; i < length; i++) {
-      !(node._observers[i] as Computation)._cloned && clone._observers.push(cloneGraph(node._observers[i] as any));
+      !(node._observers[i] as Computation)._cloned &&
+        clone._observers.push(cloneGraph(node._observers[i] as any));
     }
   }
   return clone;
@@ -301,7 +309,9 @@ function replaceSourceObservers(node: ObserverType, transition: Transition) {
     transitionSource = transition._sources.get(node._sources![i] as any);
     source = transitionSource || node._sources![i];
     if (source._observers && (swap = source._observers.indexOf(node)) !== -1) {
-      source._observers[swap] = transitionSource ? (node as any)._cloned : source._observers[source._observers.length - 1];
+      source._observers[swap] = transitionSource
+        ? (node as any)._cloned
+        : source._observers[source._observers.length - 1];
       !transitionSource && source._observers.pop();
     }
   }
@@ -366,6 +376,24 @@ function mergeTransitions(t1: Transition, t2: Transition) {
   t2._done = t1;
 }
 
+export function getOGSource<T extends Computation>(input: T): T {
+  return input?._cloned || (input as any);
+}
+
+export function getTransitionSource<T extends Computation>(input: T): T {
+  return (ActiveTransition && ActiveTransition._sources.get(input)) || (input as any);
+}
+
+export function initialDispose(node) {
+  let current = node._nextSibling as Computation | null;
+  while (current !== null && current._parent === node) {
+    initialDispose(current);
+    const clone = ActiveTransition!._sources.get(current);
+    if (clone && !(clone as any)._updated) clone.dispose(true);
+    current = current._nextSibling as Computation | null;
+  }
+}
+
 function finishTransition(transition: Transition) {
   if (
     transition._done ||
@@ -375,21 +403,36 @@ function finishTransition(transition: Transition) {
   )
     return;
   // do the actual merging
-  for (const [source, clone] of transition._sources) {
-    if (source === clone || source._transition !== transition) continue; // already merged
-    if (clone._sources) replaceSourceObservers(clone, transition);
-    // check if only uninitialized, sometimes errored also has this flag
-    if (!(clone._stateFlags === UNINITIALIZED_BIT)) {
-      source.dispose(false);
-      source.emptyDisposal();
-      Object.assign(source, clone);
-      delete source._cloned;
-    }
-    delete source._transition;
-  }
   globalQueue._queues[0].push.apply(globalQueue._queues[0], transition._queues[0]);
   globalQueue._queues[1].push.apply(globalQueue._queues[1], transition._queues[1]);
   resolveQueues(transition._children as Queue[]);
+
+  for (const [source, clone] of transition._sources) {
+    if (source === clone || source._transition !== transition) {
+      delete source._transition;
+      continue; // already merged
+    }
+    if (clone._sources) replaceSourceObservers(clone, transition);
+    // check if we need to dispose
+    if ((clone as any)._updated || clone._state === STATE_DISPOSED) {
+      source.dispose(clone._state === STATE_DISPOSED);
+      source.emptyDisposal();
+      delete (clone as any)._updated;
+    } else {
+      delete (clone as any)._nextSibling;
+      delete (clone as any)._disposal;
+    }
+    Object.assign(source, clone);
+    delete source._cloned;
+
+    let current = clone._nextSibling as Computation | null;
+    if (current?._prevSibling === clone) current._prevSibling = source;
+    while (current?._parent === clone) {
+      current._parent = source;
+      current = current._nextSibling as Computation | null;
+    }
+    delete source._transition;
+  }
   transition._done = true;
 
   // clear optimistic updates
