@@ -160,7 +160,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (
       ActiveTransition &&
       (ActiveTransition._sources.has(this) ||
-        (!this._cloned && (this._stateFlags & UNINITIALIZED_BIT | ERROR_BIT)))
+        (!this._cloned && (this._stateFlags & (UNINITIALIZED_BIT | ERROR_BIT))))
     ) {
       const clone = ActiveTransition._sources.get(this)! || cloneGraph(this);
       if (clone !== this) return clone.read();
@@ -184,7 +184,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (
       ActiveTransition &&
       (ActiveTransition._sources.has(this) ||
-        (!this._cloned && this._stateFlags & UNINITIALIZED_BIT))
+        (!this._cloned && (this._stateFlags & (UNINITIALIZED_BIT | ERROR_BIT))))
     ) {
       const clone = ActiveTransition._sources.get(this)! || cloneGraph(this);
       if (clone !== this) return clone.wait();
