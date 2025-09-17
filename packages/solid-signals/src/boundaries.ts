@@ -25,7 +25,10 @@ class BoundaryComputation<T> extends EagerComputation<T | undefined> {
   }
   write(value: T | UNCHANGED, flags: number) {
     super.write(value, flags & ~this._propagationMask);
-    if (this._propagationMask & LOADING_BIT && !(this._stateFlags & UNINITIALIZED_BIT)) {
+    if (
+      this._propagationMask & LOADING_BIT &&
+      !(this._stateFlags & UNINITIALIZED_BIT || ActiveTransition)
+    ) {
       flags &= ~LOADING_BIT;
     }
     this._queue.notify(this as any, this._propagationMask, flags);

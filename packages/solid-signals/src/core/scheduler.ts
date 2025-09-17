@@ -1,7 +1,7 @@
-import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_DIRTY, STATE_DISPOSED } from "./constants.js";
+import { EFFECT_PURE, EFFECT_RENDER, EFFECT_USER, STATE_DISPOSED } from "./constants.js";
 import type { Computation, ObserverType, SourceType } from "./core.js";
 import type { Effect } from "./effect.js";
-import { LOADING_BIT, UNINITIALIZED_BIT } from "./flags.js";
+import { LOADING_BIT } from "./flags.js";
 
 export let clock = 0;
 export function incrementClock(): void {
@@ -319,16 +319,15 @@ export function cloneGraph(node: Computation): Computation {
 
 function replaceSourceObservers(node: ObserverType, transition: Transition) {
   let source: SourceType;
-  let transitionSource: SourceType | undefined;
   let swap: number;
   for (let i = 0; i < node._sources!.length; i++) {
-    transitionSource = transition._sources.get(node._sources![i] as any);
-    source = transitionSource || node._sources![i];
+    source = transition._sources.get(node._sources![i] as any) || node._sources![i];
     if (source._observers && (swap = source._observers.indexOf(node)) !== -1) {
-      source._observers[swap] = transitionSource
+      const remove = source._observers.indexOf(node._cloned!) > -1;
+      source._observers[swap] = !remove
         ? (node as any)._cloned
         : source._observers[source._observers.length - 1];
-      !transitionSource && source._observers.pop();
+      remove && source._observers.pop();
     }
   }
 }
