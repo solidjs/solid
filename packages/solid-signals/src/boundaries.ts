@@ -12,7 +12,8 @@ import {
   Queue,
   STATE_DIRTY,
   UNCHANGED,
-  UNINITIALIZED_BIT
+  UNINITIALIZED_BIT,
+  untrack
 } from "./core/index.js";
 import type { Effect, IQueue } from "./core/index.js";
 import { cloneGraph, getTransitionSource } from "./core/scheduler.js";
@@ -159,7 +160,7 @@ function createCollectionBoundary<T>(
   const decision = new Computation(undefined, () => {
     if (!queue._disabled.read()) {
       const resolved = tree.read();
-      if (!queue._disabled.read()) return resolved;
+      if (!untrack(() => queue._disabled.read())) return resolved;
     }
     return fallback(queue);
   });
