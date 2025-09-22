@@ -542,7 +542,9 @@ describe("deep", () => {
     });
     flush();
     expect(effect).toHaveBeenCalledTimes(1);
-    setStore(s => (s.second.nested.shared.b = 3));
+    setStore(s => {
+      s.second.nested.shared.b = 3;
+    });
     flush();
     expect(effect).toHaveBeenCalledTimes(2);
     setStore(s => {
@@ -551,7 +553,9 @@ describe("deep", () => {
     });
     flush();
     expect(effect).toHaveBeenCalledTimes(3);
-    setStore(s => (s.second.nested.shared.b = 4));
+    setStore(s => {
+      s.second.nested.shared.b = 4;
+    });
     flush();
     expect(effect).toHaveBeenCalledTimes(4);
   });

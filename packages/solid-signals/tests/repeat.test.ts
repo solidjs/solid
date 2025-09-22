@@ -58,7 +58,7 @@ it("should compute keyed map", () => {
   expect(computed).toHaveBeenCalledTimes(3);
 
   // Add new value
-  setSource(p => p.push({ id: "d" }));
+  setSource(p => { p.push({ id: "d" }); });
 
   expect(map().length).toBe(4);
   expect(map()[map().length - 1].id).toBe("d");
@@ -66,7 +66,7 @@ it("should compute keyed map", () => {
   expect(computed).toHaveBeenCalledTimes(4);
 
   // Remove value
-  setSource(p => p.pop());
+  setSource(p => { p.pop(); });
 
   expect(map().length).toBe(3);
   expect(map()[0].id).toBe("b");
@@ -74,7 +74,7 @@ it("should compute keyed map", () => {
   expect(computed).toHaveBeenCalledTimes(4);
 
   // Empty
-  setSource(p => (p.length = 0));
+  setSource(p => { p.length = 0; });
 
   expect(map().length).toBe(0);
   expect(computed).toHaveBeenCalledTimes(4);
@@ -98,7 +98,7 @@ it("should notify observer", () => {
   createRoot(() => createEffect(map, effect));
   flush();
 
-  setSource(prev => prev.pop());
+  setSource(prev => { prev.pop(); });
   flush();
   expect(effect).toHaveBeenCalledTimes(2);
 });

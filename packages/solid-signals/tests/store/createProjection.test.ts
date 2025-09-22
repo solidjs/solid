@@ -1,3 +1,4 @@
+import { create } from "domain";
 import {
   createMemo,
   createProjection,
@@ -144,6 +145,43 @@ describe("Projection basics", () => {
 
     expect(tmp).toBeCalledWith(2, 1);
     expect(tmp);
+  });
+  it("should fork a signals values", () => {
+    const [$x, setX] = createSignal<{ v: number, y?: number }>({ v: 1 });
+
+    const tmp = vi.fn();
+
+    createRoot(() => {
+      const a = createProjection($x);
+
+      createRenderEffect(
+        () => a.v,
+        (v, p) => tmp(v, p)
+      );
+
+      createRenderEffect(
+        () => a.y,
+        (v, p) => tmp(v, p)
+      );
+    });
+    flush();
+
+    expect(tmp).toBeCalledTimes(2);
+    expect(tmp).toHaveBeenNthCalledWith(1, 1, undefined);
+    expect(tmp).toHaveBeenNthCalledWith(2, undefined, undefined);
+    tmp.mockReset();
+
+    setX({ v: 2 });
+    flush();
+
+    expect(tmp).toBeCalledTimes(1);
+    expect(tmp).toHaveBeenNthCalledWith(1, 2, 1);
+    tmp.mockReset();
+
+    setX({ v: 2, y: 3 });
+    flush();
+    expect(tmp).toBeCalledTimes(1);
+    expect(tmp).toHaveBeenNthCalledWith(1, 3, undefined);
   });
 });
 

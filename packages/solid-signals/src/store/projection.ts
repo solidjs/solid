@@ -1,5 +1,6 @@
 import { FirewallComputation } from "../core/effect.js";
 import { getOwner } from "../core/owner.js";
+import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
   createStoreProxy,
@@ -7,7 +8,8 @@ import {
   STORE_WRAP,
   storeSetter,
   storeTraps,
-  type Store
+  type Store,
+  type StoreOptions
 } from "./store.js";
 
 /**
@@ -16,12 +18,18 @@ import {
  * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
  */
 export function createProjection<T extends Object>(
-  fn: (draft: T) => void,
-  initialValue: T = {} as T
+  fn: (draft: T) => void | T,
+  initialValue: T = {} as T,
+  options?: StoreOptions
 ): Store<T> {
   let wrappedStore: Store<T>;
   const node = new FirewallComputation(() => {
-    storeSetter(wrappedStore, fn);
+    storeSetter(wrappedStore, (s) => {
+      const value = fn(s);
+      if (value !== s && value !== undefined) {
+        reconcile(value, options?.key || "id", options?.all)(s);
+      }
+    });
   });
   const wrappedMap = new WeakMap();
   const traps = {

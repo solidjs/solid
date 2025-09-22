@@ -16,7 +16,7 @@ import {
   untrack
 } from "./core/index.js";
 import { cloneGraph } from "./core/scheduler.js";
-import { createStore, reconcile } from "./store/index.js";
+import { createStore, reconcile, type Store, type StoreSetter } from "./store/index.js";
 
 export type Accessor<T> = () => T;
 
@@ -419,67 +419,63 @@ export function tryCatch<T, E = Error>(
  * and then revert it back to the previous value at end of transition.
  *
  * @param initial The initial value of the signal.
- * @param compute An optional function to compute the next value based on the previous value and change.
+ *
+ * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
+ */
+export function createOptimistic<T>(initial: Exclude<T, Function>): Signal<T> {
+  const node = new Computation(initial as T, null);
+  const reset = () => node.write(initial);
+  function write(v: T | ((v?: T) => T)) {
+    if (!ActiveTransition)
+      throw new Error("createOptimistic can only be updated inside a transition");
+    ActiveTransition.addOptimistic(reset);
+    queueMicrotask(() => (reset as any)._transition && node.write(v as any));
+  }
+  return [node.read.bind(node), write] as any;
+}
+
+/**
+ * Creates an optimistic signal that can be used to optimistically update a value
+ * and then revert it back to the previous value at end of transition.
+ *
+ * @param initial The initial value of the signal.
  * @param options Optional signal options.
  *
  * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
  */
-export function createOptimistic<T>(
-  initial: Exclude<T, Function>,
-  compute?: never
-): [Accessor<T>, (value: T | ((v?: T) => T)) => void];
-export function createOptimistic<T extends object, U>(
-  initial: T | Accessor<T>,
-  compute: (prev: T, change: U) => void,
-  key: string | ((item: any) => any)
-): [Accessor<T>, (value: U | ((v?: U) => U)) => void];
-export function createOptimistic<T, U>(
-  initial: T | Accessor<T>,
-  compute?: (prev: T, change: U) => void,
-  key?: string | ((item: any) => any)
-): [Accessor<T>, (value: U | ((v?: U) => U)) => void] {
-  if (!compute) {
-    const node = new Computation(initial as T, null);
-    const reset = () => node.write(initial);
-    function write(v: U | ((v?: T) => U)) {
-      if (!ActiveTransition)
-        throw new Error("createOptimistic can only be updated inside a transition");
-      ActiveTransition.addOptimistic(reset);
-      queueMicrotask(() => (reset as any)._transition && node.write(v as any));
-    }
-    return [node.read.bind(node), write] as any;
-  }
+export function createOptimisticStore<T extends object = {}>(
+  initial: T | Store<T>
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
+  fn: (store: T) => void,
+  initial: T | Store<T>,
+  options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
+): [get: Store<T>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
+  first: T | ((store: T) => void),
+  second?: T | Store<T>,
+  options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
+): [get: Store<T>, set: StoreSetter<T>] {
   let store, setStore;
-  if (typeof initial === "function") {
-    [store, setStore] = createStore(
-      s => {
-        const value = (initial as Accessor<T>)();
-        if (!ActiveTransition) reconcile({ value }, key!)(s);
-      },
-      { value: undefined } as { value: T }
-    );
-  } else [store, setStore] = createStore({ value: initial } as { value: T });
+  if (typeof first === "function") {
+    [store, setStore] = createStore(s => {
+      const value = first(s);
+      if (!ActiveTransition) return value;
+    }, {} as T);
+  } else [store, setStore] = createStore(first);
 
   const reset = () =>
     setStore(s =>
       reconcile(
-        { value: typeof initial === "function" ? (initial as Accessor<T>)() : (initial as any) },
-        key!
+        { value: typeof first === "function" ? first(second as T) : (first as T) },
+        options?.key || "id", options?.all
       )(s)
     );
-  let lastChange = undefined as U | undefined;
-  function write(v: U | ((v?: T) => U)) {
+  function write(v: (v?: T) => T) {
     if (!ActiveTransition)
       throw new Error("createOptimistic can only be updated inside a transition");
     ActiveTransition.addOptimistic(reset);
-    queueMicrotask(
-      () =>
-        (reset as any)._transition &&
-        setStore(s => {
-          lastChange = typeof v === "function" ? (v as (v?: U) => U)(lastChange) : v;
-          compute!(s.value as T, lastChange as U);
-        })
-    );
+    queueMicrotask(() => (reset as any)._transition && setStore(v));
   }
   return [() => store.value, write] as any;
 }

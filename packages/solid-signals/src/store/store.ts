@@ -2,7 +2,11 @@ import { Computation, getObserver, isEqual, untrack } from "../core/index.js";
 import { createProjection } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
-export type StoreSetter<T> = (fn: (state: T) => void) => void;
+export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
+export type StoreOptions = {
+  key?: string | ((item: NonNullable<any>) => any);
+  all?: boolean;
+}
 
 type DataNode = Computation<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
@@ -263,12 +267,24 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   }
 };
 
-export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) => void): void {
+export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) => T | void): void {
   const prevWriting = Writing;
   Writing = new Set();
   Writing.add(store);
   try {
-    fn(store);
+    const value = fn(store);
+    if (value !== store && value !== undefined) {
+      if (Array.isArray(value)) {
+        for (let i = 0, len = value.length; i < len; i++) store[i] = value[i];
+        (store as any).length = value.length;
+      } else {
+        const keys = new Set([...Object.keys(store), ...Object.keys(value)]);
+        keys.forEach(key => {
+          if (key in value) store[key] = value[key];
+          else delete store[key];
+        });
+      }
+    }
   } finally {
     Writing.clear();
     Writing = prevWriting;
@@ -280,14 +296,16 @@ export function createStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   fn: (store: T) => void,
-  store: T | Store<T>
+  store: T | Store<T>,
+  options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   first: T | ((store: T) => void),
-  second?: T | Store<T>
+  second?: T | Store<T>,
+  options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function",
-    wrappedStore = derived ? createProjection(first, second) : wrap(first);
+    wrappedStore = derived ? createProjection(first, second, options) : wrap(first);
 
   return [wrappedStore, (fn: (draft: T) => void): void => storeSetter(wrappedStore, fn)];
 }

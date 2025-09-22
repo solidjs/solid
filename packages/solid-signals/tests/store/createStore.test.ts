@@ -38,7 +38,9 @@ describe("State Getters", () => {
       }
     });
     expect(state!.greeting).toBe("Hi, John");
-    setState(s => (s.name = "Jake"));
+    setState(s => {
+      s.name = "Jake";
+    });
     expect(state!.greeting).toBe("Hi, Jake");
   });
 
@@ -54,7 +56,9 @@ describe("State Getters", () => {
       greeting = createMemo(() => `Hi, ${state.name}`);
     });
     expect(state!.greeting).toBe("Hi, John");
-    setState(s => (s.name = "Jake"));
+    setState(s => {
+      s.name = "Jake";
+    });
     flush();
     expect(state!.greeting).toBe("Hi, Jake");
   });
@@ -63,7 +67,9 @@ describe("State Getters", () => {
 describe("Simple setState modes", () => {
   test("Simple Key Value", () => {
     const [state, setState] = createStore({ key: "" });
-    setState(s => (s.key = "value"));
+    setState(s => {
+      s.key = "value";
+    });
     expect(state.key).toBe("value");
   });
 
@@ -72,9 +78,15 @@ describe("Simple setState modes", () => {
       { id: 1, title: "Go To Work", done: true },
       { id: 2, title: "Eat Lunch", done: false }
     ]);
-    setTodos(t => (t[1].done = true));
-    setTodos(t => t.push({ id: 3, title: "Go Home", done: false }));
-    setTodos(t => t.shift());
+    setTodos(t => {
+      t[1].done = true;
+    });
+    setTodos(t => {
+      t.push({ id: 3, title: "Go Home", done: false });
+    });
+    setTodos(t => {
+      t.shift();
+    });
     expect(Array.isArray(todos)).toBe(true);
     expect(todos[0].done).toBe(true);
     expect(todos[1].title).toBe("Go Home");
@@ -87,8 +99,12 @@ describe("Simple setState modes", () => {
         { id: 2, title: "Eat Lunch", done: false }
       ]
     });
-    setState(s => (s.todos[1].done = true));
-    setState(s => s.todos.push({ id: 3, title: "Go Home", done: false }));
+    setState(s => {
+      s.todos[1].done = true;
+    });
+    setState(s => {
+      s.todos.push({ id: 3, title: "Go Home", done: false });
+    });
     expect(Array.isArray(state.todos)).toBe(true);
     expect(state.todos[1].done).toBe(true);
     expect(state.todos[2].title).toBe("Go Home");
@@ -151,10 +167,14 @@ describe("Tracking State changes", () => {
       );
     });
     flush();
-    setState(s => (s.data = 5));
+    setState(s => {
+      s.data = 5;
+    });
     flush();
     // same value again should not retrigger
-    setState(s => (s.data = 5));
+    setState(s => {
+      s.data = 5;
+    });
     flush();
   });
 
@@ -183,7 +203,9 @@ describe("Tracking State changes", () => {
       );
     });
     flush();
-    setState(s => (s.user.firstName = "Jake"));
+    setState(s => {
+      s.user.firstName = "Jake";
+    });
     flush();
   });
 
@@ -210,7 +232,9 @@ describe("Tracking State changes", () => {
       );
     });
     flush();
-    setState(s => s.pop());
+    setState(s => {
+      s.pop();
+    });
     flush();
   });
 
@@ -298,11 +322,15 @@ describe("Tracking State changes", () => {
     });
     flush();
     // add
-    setState(s => (s[1] = "item"));
+    setState(s => {
+      s[1] = "item";
+    });
     flush();
 
     // update
-    setState(s => (s[1] = "new"));
+    setState(s => {
+      s[1] = "new";
+    });
     flush();
 
     // delete
@@ -358,15 +386,19 @@ describe("Tracking State changes", () => {
     });
     flush();
     // add
-    setState(s => (s.obj.item = 5));
+    setState(s => {
+      s.obj.item = 5;
+    });
     flush();
 
     // update
-    // setState(s => s.obj.item = 10);
+    // setState(s => { s.obj.item = 10; });
     // flush();
 
     // delete
-    setState(s => delete s.obj.item);
+    setState(s => {
+      delete s.obj.item;
+    });
     flush();
     expect.assertions(7);
   });
@@ -391,11 +423,15 @@ describe("Tracking State changes", () => {
     });
     flush();
     // add
-    setState(s => (s.obj.item = 5));
+    setState(s => {
+      s.obj.item = 5;
+    });
     flush();
 
     // delete
-    setState(s => delete s.obj.item);
+    setState(s => {
+      delete s.obj.item;
+    });
     flush();
     expect.assertions(1);
   });
@@ -447,11 +483,15 @@ describe("Tracking State changes", () => {
     });
     flush();
     // add
-    setState(s => (s.item = 5));
+    setState(s => {
+      s.item = 5;
+    });
     flush();
 
     // delete
-    setState(s => delete s.item);
+    setState(s => {
+      delete s.item;
+    });
     flush();
     expect.assertions(7);
   });
@@ -475,11 +515,15 @@ describe("Tracking State changes", () => {
     });
     flush();
     // add
-    setState(s => (s.item = 5));
+    setState(s => {
+      s.item = 5;
+    });
     flush();
 
     // delete
-    setState(s => delete s.item);
+    setState(s => {
+      delete s.item;
+    });
     flush();
     expect.assertions(1);
   });
@@ -500,7 +544,9 @@ describe("Handling functions in state", () => {
           fn: () => 1
         }),
         getValue = createMemo(() => state.fn());
-      setState(s => (s.fn = () => 2));
+      setState(s => {
+        s.fn = () => 2;
+      });
       expect(getValue()).toBe(2);
     });
   });
@@ -511,7 +557,11 @@ describe("Setting state from Effects", () => {
     const [getData, setData] = createSignal("init"),
       [state, setState] = createStore({ data: "" });
     createRoot(() => {
-      createEffect(getData, v => setState(s => (s.data = v)));
+      createEffect(getData, v =>
+        setState(s => {
+          s.data = v;
+        })
+      );
     });
     setData("signal");
     flush();
@@ -525,7 +575,11 @@ describe("Setting state from Effects", () => {
           setTimeout(resolve, 20, "promised");
         });
         const [state, setState] = createStore({ data: "" });
-        p.then(v => setState(s => (s.data = v)));
+        p.then(v =>
+          setState(s => {
+            s.data = v;
+          })
+        );
         await p;
         expect(state.data).toBe("promised");
         done(undefined);
@@ -565,7 +619,9 @@ describe("Array length", () => {
     flush();
     expect(length).toBe(0);
     // insert at index 0
-    setState(s => (s.list[0] = 1));
+    setState(s => {
+      s.list[0] = 1;
+    });
     flush();
     expect(length).toBe(1);
   });
@@ -609,10 +665,14 @@ describe("Nested Classes", () => {
     });
     flush();
     expect(sum).toBe(11);
-    setStore(s => (s.inner.a = 10));
+    setStore(s => {
+      s.inner.a = 10;
+    });
     flush();
     expect(sum).toBe(20);
-    setStore(s => (s.inner.b = 5));
+    setStore(s => {
+      s.inner.b = 5;
+    });
     flush();
     expect(sum).toBe(15);
   });
@@ -642,10 +702,14 @@ describe("Nested Classes", () => {
     });
     flush();
     expect(sum).toBe(11);
-    setStore(s => (s.inner.a = 10));
+    setStore(s => {
+      s.inner.a = 10;
+    });
     flush();
     expect(sum).toBe(20);
-    setStore(s => (s.inner.b = 5));
+    setStore(s => {
+      s.inner.b = 5;
+    });
     flush();
     expect(sum).toBe(15);
   });
@@ -680,14 +744,18 @@ describe("In Operator", () => {
     expect(c()).toBe(false);
     expect(access).toBe(0);
 
-    setStore(s => (s.c = 3));
+    setStore(s => {
+      s.c = 3;
+    });
 
     expect(a()).toBe(true);
     expect(b()).toBe(true);
     expect(c()).toBe(true);
     expect(access).toBe(0);
 
-    setStore(s => delete s.a);
+    setStore(s => {
+      delete s.a;
+    });
     expect(a()).toBe(false);
     expect(b()).toBe(true);
     expect(c()).toBe(true);
