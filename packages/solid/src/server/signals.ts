@@ -202,6 +202,8 @@ export function createAsync<T>(
   );
 }
 
+export const createOptimistic = createSignal;
+
 export function isPending(fn: () => any, fallback?: boolean): boolean {
   try {
     fn();

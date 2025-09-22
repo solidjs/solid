@@ -418,13 +418,19 @@ describe("Testing a For in a Switch control flow", () => {
   });
 
   test("Toggle Switch control flow", () => {
-    setState(s => (s.users[1].certified = true));
+    setState(s => {
+      s.users[1].certified = true;
+    });
     flush();
     expect(div.innerHTML).toBe("Janice");
-    setState(s => (s.users[0].certified = true));
+    setState(s => {
+      s.users[0].certified = true;
+    });
     flush();
     expect(div.innerHTML).toBe("Jerry");
-    setState(s => s.users.unshift({ firstName: "Gordy", certified: true }));
+    setState(s => {
+      s.users.unshift({ firstName: "Gordy", certified: true });
+    });
     flush();
     expect(div.innerHTML).toBe("Gordy");
   });

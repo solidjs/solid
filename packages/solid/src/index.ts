@@ -4,6 +4,7 @@ export {
   createEffect,
   createMemo,
   createOptimistic,
+  createOptimisticStore,
   createProjection,
   createRenderEffect,
   createRoot,
@@ -27,7 +28,6 @@ export {
   runWithObserver,
   runWithOwner,
   snapshot,
-  tryCatch,
   untrack,
   deep,
   transition
@@ -65,6 +65,7 @@ export type {
   ResolvedJSXElement
 } from "./client/core.js";
 
+export * from "./utilities.js";
 // under review.. might be unnecessary core with `createAsync`
 export * from "./client/observable.js";
 

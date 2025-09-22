@@ -33,6 +33,8 @@ export function createProjection<T extends Object>(
   return state;
 }
 
+export const createOptimisticStore = createStore;
+
 // Diff method for setStore TODO: Review
 export function reconcile<T extends U, U extends object>(value: T): (state: U) => T {
   return state => {
@@ -92,4 +94,8 @@ export function omit<T extends Record<any, any>, K extends readonly (keyof T)[]>
     }
   }
   return clone as unknown as Omit<T, K>;
+}
+
+export function deep<T extends object>(store: Store<T>): Store<T> {
+  return store;
 }

@@ -105,7 +105,9 @@ describe("Testing Dynamic with state spread", () => {
     setComp("h1");
     flush();
     expect(div.innerHTML).toBe(`<h1 id="Smithers"></h1>`);
-    setState(s => (s.id = "Sunny"));
+    setState(s => {
+      s.id = "Sunny";
+    });
     flush();
     expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
     expect(div.querySelector("h1")).toBeInstanceOf(HTMLElement);
