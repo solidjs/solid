@@ -365,7 +365,7 @@ function recursivelyAddParent(state: any, parent?: any): void {
   }
 }
 
-export function deep<T extends object>(store: Store<T>): Store<any> {
+export function deep<T extends object>(store: Store<T>): Store<T> {
   recursivelyAddParent(store);
   return store[$DEEP];
 }

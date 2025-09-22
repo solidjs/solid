@@ -1,5 +1,6 @@
 import { FirewallComputation } from "../core/effect.js";
 import { getOwner } from "../core/owner.js";
+import { getTransitionSource } from "../core/scheduler.js";
 import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
@@ -36,7 +37,8 @@ export function createProjection<T extends Object>(
     ...storeTraps,
     get(target, property, receiver) {
       const o = getOwner();
-      (!o || o !== node) && node.wait();
+      const n = getTransitionSource(node);
+      (!o || o !== n) && n.wait();
       return storeTraps.get!(target, property, receiver);
     }
   };

@@ -244,11 +244,29 @@ export class Transition implements IQueue {
     }
     ActiveTransition = this;
     try {
-      const result = fn();
-      const transition = ActiveTransition;
+      let result = fn();
+      let transition = ActiveTransition;
+      if (result?.next) {
+        (async function () {
+          for (const r of result) {
+            if (r instanceof Promise) {
+              transition._promises.add(r);
+              try {
+                await r;
+              } finally {
+                while (transition._done instanceof Transition) transition = transition._done;
+                transition._promises.delete(r);
+              }
+              ActiveTransition = transition;
+            }
+          }
+          finishTransition(transition);
+        })();
+      }
       if (result instanceof Promise) {
         transition._promises.add(result);
         result.finally(() => {
+          while (transition._done instanceof Transition) transition = transition._done;
           transition._promises.delete(result);
           finishTransition(transition);
         });
@@ -280,7 +298,7 @@ export class Transition implements IQueue {
  * @description https://docs.solidjs.com/reference/advanced-reactivity/transition
  */
 export function transition(
-  fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any>
+  fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
 ): void {
   let t: Transition = new Transition();
   queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));

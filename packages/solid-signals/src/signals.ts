@@ -205,13 +205,15 @@ export function createAsync<T>(
       }
       let abort = false;
       onCleanup(() => (abort = true));
-      const transition = ActiveTransition;
+      let transition = ActiveTransition;
       if (isPromise) {
         source.then(
           value3 => {
             if (abort) return;
             if (transition)
-              return transition.runTransition(() => node.write(value3, 0, true), true);
+              return transition.runTransition(() => {
+                node.write(value3, 0, true);
+              }, true);
             node.write(value3, 0, true);
           },
           error => {
@@ -225,11 +227,21 @@ export function createAsync<T>(
           try {
             for await (let value3 of source as AsyncIterable<T>) {
               if (abort) return;
+              if (transition)
+                return transition.runTransition(() => {
+                  node.write(value3, 0, true);
+                  transition = null;
+                }, true);
               node.write(value3, 0, true);
             }
           } catch (error: any) {
             if (abort) return;
-            node.write(error, ERROR_BIT);
+            if (transition)
+              return transition.runTransition(() => {
+                node._setError(error);
+                transition = null;
+              }, true);
+            node._setError(error);
           }
         })();
       }
@@ -434,7 +446,8 @@ export function createOptimisticStore<T extends object = {}>(
     setStore(s =>
       reconcile(
         { value: typeof first === "function" ? first(second as T) : (first as T) },
-        options?.key || "id", options?.all
+        options?.key || "id",
+        options?.all
       )(s)
     );
   function write(v: (v?: T) => T) {
@@ -443,5 +456,5 @@ export function createOptimisticStore<T extends object = {}>(
     ActiveTransition.addOptimistic(reset);
     queueMicrotask(() => (reset as any)._transition && setStore(v));
   }
-  return [() => store.value, write] as any;
+  return [store, write] as any;
 }
