@@ -1,5 +1,11 @@
 # solid-js
 
+## 2.0.0-experimental.8
+
+### Patch Changes
+
+- 381d895: update signals to store/projections with returns
+
 ## 2.0.0-experimental.7
 
 ### Patch Changes
