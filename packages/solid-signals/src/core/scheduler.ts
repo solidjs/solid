@@ -248,17 +248,18 @@ export class Transition implements IQueue {
       let transition = ActiveTransition;
       if (result?.next) {
         (async function () {
-          for (const r of result) {
-            if (r instanceof Promise) {
-              transition._promises.add(r);
+          let temp, value;
+          while (!(temp = result.next(value)).done) {
+            if (temp.value instanceof Promise) {
+              transition._promises.add(temp.value);
               try {
-                await r;
+                value = await temp.value;
               } finally {
                 while (transition._done instanceof Transition) transition = transition._done;
-                transition._promises.delete(r);
+                transition._promises.delete(temp.value);
               }
               ActiveTransition = transition;
-            }
+            } else value = temp.value;
           }
           finishTransition(transition);
         })();
