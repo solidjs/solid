@@ -395,14 +395,14 @@ export function resolve<T>(fn: () => T): Promise<T> {
 function createPending(): Signal<boolean> {
   const node = new Computation(false, null);
   const reset = () => node.write(false);
-  function write(v: boolean) {
-    if (!ActiveTransition) return v;
+  function write() {
+    if (!ActiveTransition) return false;
     ActiveTransition.addOptimistic(reset);
-    queueMicrotask(() => (reset as any)._transition && node.write(v as any));
+    queueMicrotask(() => (reset as any)._transition && node.write(true));
   }
   function read() {
-    node.read();
-    return !ActiveTransition;
+    const v = node.read();
+    return ActiveTransition ? false : v;
   }
   return [read, write] as any;
 }
