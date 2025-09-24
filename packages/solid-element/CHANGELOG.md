@@ -1,5 +1,13 @@
 # solid-element
 
+## 2.0.0-experimental.9
+
+### Patch Changes
+
+- Updated dependencies [15dc3c6]
+  - solid-js@2.0.0-experimental.9
+  - @solidjs/web@2.0.0-experimental.9
+
 ## 2.0.0-experimental.8
 
 ### Patch Changes

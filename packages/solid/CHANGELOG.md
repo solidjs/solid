@@ -1,5 +1,11 @@
 # solid-js
 
+## 2.0.0-experimental.9
+
+### Patch Changes
+
+- 15dc3c6: return of useTransition, small API tweaks
+
 ## 2.0.0-experimental.8
 
 ### Patch Changes
