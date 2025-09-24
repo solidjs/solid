@@ -15,7 +15,7 @@ import {
   UNINITIALIZED_BIT,
   untrack
 } from "./core/index.js";
-import { cloneGraph } from "./core/scheduler.js";
+import { cloneGraph, transition } from "./core/scheduler.js";
 import { createStore, reconcile, type Store, type StoreSetter } from "./store/index.js";
 
 export type Accessor<T> = () => T;
@@ -392,44 +392,68 @@ export function resolve<T>(fn: () => T): Promise<T> {
   });
 }
 
-/**
- * Creates an optimistic signal that can be used to optimistically update a value
- * and then revert it back to the previous value at end of transition.
- *
- * @param initial The initial value of the signal.
- *
- * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
- */
-export function createOptimistic<T>(initial: Exclude<T, Function>): Signal<T> {
-  const node = new Computation(initial as T, null);
-  const reset = () => node.write(initial);
-  function write(v: T | ((v?: T) => T)) {
-    if (!ActiveTransition)
-      throw new Error("createOptimistic can only be updated inside a transition");
+function createPending(): Signal<boolean> {
+  const node = new Computation(false, null);
+  const reset = () => node.write(false);
+  function write(v: boolean) {
+    if (!ActiveTransition) return v;
     ActiveTransition.addOptimistic(reset);
     queueMicrotask(() => (reset as any)._transition && node.write(v as any));
   }
-  return [node.read.bind(node), write] as any;
+  function read() {
+    node.read();
+    return !ActiveTransition;
+  }
+  return [read, write] as any;
+}
+
+/** Allows the user to mark a state change as non-urgent.
+ *
+ * @see {@link https://docs.solidjs.com/reference/advanced-reactivity/transition}
+ *
+ * @returns A tuple containing an accessor for the pending state and a function to start a transition.
+ */
+export function useTransition(): [
+  get: Accessor<boolean>,
+  start: (
+    fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
+  ) => void
+] {
+  const [pending, setPending] = createPending();
+  function start(fn: (v: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>) {
+    transition((resume) => {
+      setPending(true);
+      return fn(resume);
+    });
+  }
+  return [pending, start];
 }
 
 /**
- * Creates an optimistic signal that can be used to optimistically update a value
+ * Creates an optimistic store that can be used to optimistically update a value
  * and then revert it back to the previous value at end of transition.
- *
+ * ```typescript
+ * export function createOptimistic<T>(
+ *   fn: (store: T) => void,
+ *   initial: T,
+ *   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
+ * ): [get: Store<T>, set: StoreSetter<T>];
+ * ```
+ * @param fn a function that receives the current store and can be used to mutate it directly inside a transition
  * @param initial The initial value of the signal.
  * @param options Optional signal options.
  *
  * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
  */
-export function createOptimisticStore<T extends object = {}>(
+export function createOptimistic<T extends object = {}>(
   initial: T | Store<T>
 ): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimisticStore<T extends object = {}>(
+export function createOptimistic<T extends object = {}>(
   fn: (store: T) => void,
   initial: T | Store<T>,
   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimisticStore<T extends object = {}>(
+export function createOptimistic<T extends object = {}>(
   first: T | ((store: T) => void),
   second?: T | Store<T>,
   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
@@ -439,6 +463,7 @@ export function createOptimisticStore<T extends object = {}>(
     [store, setStore] = createStore(s => {
       const value = first(s);
       if (!ActiveTransition) return value;
+      ActiveTransition.addOptimistic(reset);
     }, {} as T);
   } else [store, setStore] = createStore(first);
 
