@@ -261,6 +261,7 @@ export class Transition implements IQueue {
               ActiveTransition = transition;
             } else value = temp.value;
           }
+          ActiveTransition = null;
           finishTransition(transition);
         })();
       }
@@ -269,6 +270,7 @@ export class Transition implements IQueue {
         result.finally(() => {
           while (transition._done instanceof Transition) transition = transition._done;
           transition._promises.delete(result);
+          ActiveTransition = null;
           finishTransition(transition);
         });
       }

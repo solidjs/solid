@@ -305,7 +305,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     }
 
     // If we're already check, we can delay this propagation until we check.
-    if (this._state >= STATE_CHECK) return;
+    if (this._state >= STATE_CHECK && !this._forceNotify) return;
 
     // If we're clean, and none of these flags have a handler, we can try to
     // propagate them.

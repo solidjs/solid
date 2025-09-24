@@ -420,8 +420,10 @@ export function useTransition(): [
   ) => void
 ] {
   const [pending, setPending] = createPending();
-  function start(fn: (v: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>) {
-    transition((resume) => {
+  function start(
+    fn: (v: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
+  ) {
+    transition(resume => {
       setPending(true);
       return fn(resume);
     });
@@ -468,12 +470,12 @@ export function createOptimistic<T extends object = {}>(
   } else [store, setStore] = createStore(first);
 
   const reset = () =>
-    setStore(s =>
+    setStore(
       reconcile(
-        { value: typeof first === "function" ? first(second as T) : (first as T) },
+        typeof first === "function" ? first(second as T) : (first as T),
         options?.key || "id",
         options?.all
-      )(s)
+      )
     );
   function write(v: (v?: T) => T) {
     if (!ActiveTransition)
