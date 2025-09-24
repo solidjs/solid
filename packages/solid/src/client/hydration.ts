@@ -100,7 +100,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
  *   compute: (v: T) => Promise<T> | T,
  *   value?: T,
  *   options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
- * ): () => T;
+ * ): () => T & { refresh: () => void };
  * ```
  * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
  * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
@@ -112,7 +112,7 @@ export function createAsync<T>(
   compute: (prev?: T) => Promise<T> | AsyncIterable<T> | T,
   value?: T,
   options?: MemoOptions<T>
-): Accessor<T> {
+) {
   if (!sharedConfig.hydrating) return coreAsync(compute, value, options);
   return coreAsync(
     (prev?: T | undefined) => {

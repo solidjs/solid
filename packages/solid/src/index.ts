@@ -4,7 +4,6 @@ export {
   createEffect,
   createMemo,
   createOptimistic,
-  createOptimisticStore,
   createProjection,
   createRenderEffect,
   createRoot,
@@ -30,7 +29,8 @@ export {
   snapshot,
   untrack,
   deep,
-  transition
+  transition,
+  useTransition
 } from "@solidjs/signals";
 
 export type {
@@ -50,8 +50,7 @@ export type {
   Store,
   SolidStore,
   StoreNode,
-  StoreSetter,
-  TryCatchResult
+  StoreSetter
 } from "@solidjs/signals";
 
 // needs wrappers

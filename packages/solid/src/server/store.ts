@@ -33,7 +33,7 @@ export function createProjection<T extends Object>(
   return state;
 }
 
-export const createOptimisticStore = createStore;
+export const createOptimistic = createStore;
 
 // Diff method for setStore TODO: Review
 export function reconcile<T extends U, U extends object>(value: T): (state: U) => T {

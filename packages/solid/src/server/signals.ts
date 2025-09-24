@@ -202,8 +202,6 @@ export function createAsync<T>(
   );
 }
 
-export const createOptimistic = createSignal;
-
 export function isPending(fn: () => any, fallback?: boolean): boolean {
   try {
     fn();
@@ -291,4 +289,12 @@ export function repeat<T>(
     for (let i = 0; i < len; i++) s.push(mapFn(i + offset));
   } else if (options.fallback) s = [options.fallback()];
   return () => s;
+}
+
+export function transition<T>(fn: () => T): void {
+  // noop on server
+}
+
+export function useTransition(): [() => boolean, (fn: () => void) => void] {
+  return [() => false, () => {}];
 }

@@ -1,19 +1,10 @@
 // TODO: Implement server-side rendering
-export {
-  $PROXY,
-  $TRACK,
-  tryCatch,
-  flatten,
-  isEqual,
-  isWrappable,
-  transition
-} from "@solidjs/signals";
+export { $PROXY, $TRACK, flatten, isEqual, isWrappable } from "@solidjs/signals";
 
 export {
   createAsync,
   createEffect,
   createMemo,
-  createOptimistic,
   createRenderEffect,
   createRoot,
   createSignal,
@@ -28,7 +19,9 @@ export {
   resolve,
   runWithObserver,
   runWithOwner,
-  untrack
+  untrack,
+  transition,
+  useTransition
   // enableExternalSource
 } from "./signals.js";
 
@@ -45,7 +38,7 @@ export {
 export {
   createProjection,
   createStore,
-  createOptimisticStore,
+  createOptimistic,
   unwrap,
   reconcile,
   merge,
