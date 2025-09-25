@@ -16,7 +16,7 @@ import {
   untrack
 } from "./core/index.js";
 import type { Effect, IQueue } from "./core/index.js";
-import { cloneGraph, getTransitionSource } from "./core/scheduler.js";
+import { cloneGraph, getQueue, getTransitionSource } from "./core/scheduler.js";
 
 class BoundaryComputation<T> extends EagerComputation<T | undefined> {
   _propagationMask: number;
@@ -32,7 +32,7 @@ class BoundaryComputation<T> extends EagerComputation<T | undefined> {
     ) {
       flags &= ~LOADING_BIT;
     }
-    this._queue.notify(this as any, this._propagationMask, flags);
+    getQueue(this).notify(this as any, this._propagationMask, flags);
     return this._value;
   }
 }
@@ -182,7 +182,7 @@ export function createErrorBoundary<U>(
       for (let node of queue._nodes) {
         if (ActiveTransition && !node._cloned) node = cloneGraph(node) as Effect;
         (node as any)._state = STATE_DIRTY;
-        (node as any)._queue?.enqueue((node as any)._type, node._run.bind(node));
+        getQueue(node).enqueue((node as any)._type, node._run.bind(node));
       }
     });
   });

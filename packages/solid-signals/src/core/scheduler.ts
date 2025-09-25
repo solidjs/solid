@@ -48,8 +48,6 @@ export class Queue implements IQueue {
   _children: IQueue[] = [];
   created = clock;
   enqueue(type: number, fn: QueueCallback): void {
-    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
-      return ActiveTransition._clonedQueues.get(this)!.enqueue(type, fn);
     pureQueue.push(fn);
     if (type) this._queues[type - 1].push(fn);
     schedule();
@@ -98,8 +96,6 @@ export class Queue implements IQueue {
     }
   }
   notify(...args: any[]) {
-    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
-      return ActiveTransition._clonedQueues.get(this)!.notify(...args);
     if (this._parent) return this._parent.notify(...args);
     return false;
   }
@@ -418,6 +414,11 @@ export function getOGSource<T extends Computation>(input: T): T {
 
 export function getTransitionSource<T extends Computation>(input: T): T {
   return (ActiveTransition && ActiveTransition._sources.get(input)) || (input as any);
+}
+
+export function getQueue(node: Computation): IQueue {
+  const transition = node._cloned?._transition;
+  return (transition && transition._clonedQueues.get(node._queue as Queue)) || node._queue;
 }
 
 export function initialDispose(node) {

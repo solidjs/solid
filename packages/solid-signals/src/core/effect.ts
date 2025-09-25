@@ -10,7 +10,7 @@ import {
 import { Computation, latest, UNCHANGED, type SignalOptions } from "./core.js";
 import { ERROR_BIT, LOADING_BIT, type Flags } from "./flags.js";
 import type { Owner } from "./owner.js";
-import { ActiveTransition, clock } from "./scheduler.js";
+import { ActiveTransition, clock, getQueue } from "./scheduler.js";
 
 /**
  * Effects are the leaf nodes of our reactive graph. When their sources change, they are
@@ -46,7 +46,7 @@ export class Effect<T = any> extends Computation<T> {
     this._updateIfNecessary();
     !options?.defer &&
       (this._type === EFFECT_USER
-        ? this._queue.enqueue(this._type, this._run.bind(this))
+        ? getQueue(this).enqueue(this._type, this._run.bind(this))
         : this._run(this._type));
     if (__DEV__ && !this._parent)
       console.warn("Effects created outside a reactive context will never be disposed");
@@ -56,7 +56,7 @@ export class Effect<T = any> extends Computation<T> {
     if (this._state == STATE_DIRTY) {
       this._stateFlags = flags;
       if (this._type === EFFECT_RENDER) {
-        this._queue.notify(this, LOADING_BIT | ERROR_BIT, this._stateFlags);
+        getQueue(this).notify(this, LOADING_BIT | ERROR_BIT, this._stateFlags);
       }
     }
     if (value === UNCHANGED) return this._value as T;
@@ -70,7 +70,7 @@ export class Effect<T = any> extends Computation<T> {
   override _notify(state: number, skipQueue?: boolean): void {
     if (this._state >= state || skipQueue) return;
 
-    if (this._state === STATE_CLEAN) this._queue.enqueue(this._type, this._run.bind(this));
+    if (this._state === STATE_CLEAN) getQueue(this).enqueue(this._type, this._run.bind(this));
 
     this._state = state;
   }
@@ -88,7 +88,7 @@ export class Effect<T = any> extends Computation<T> {
 
   override _setError(error: unknown): void {
     this._error = error;
-    this._queue.notify(this, LOADING_BIT, 0);
+    getQueue(this).notify(this, LOADING_BIT, 0);
     this._stateFlags = ERROR_BIT;
     if (this._type === EFFECT_USER) {
       try {
@@ -102,7 +102,7 @@ export class Effect<T = any> extends Computation<T> {
         error = e;
       }
     }
-    if (!this._queue.notify(this, ERROR_BIT, ERROR_BIT)) throw error;
+    if (!getQueue(this).notify(this, ERROR_BIT, ERROR_BIT)) throw error;
   }
 
   override _disposeNode(): void {
@@ -112,7 +112,7 @@ export class Effect<T = any> extends Computation<T> {
     this._onerror = undefined as any;
     this._cleanup?.();
     this._cleanup = undefined;
-    this._queue.notify(this, ERROR_BIT | LOADING_BIT, 0);
+    getQueue(this).notify(this, ERROR_BIT | LOADING_BIT, 0);
     super._disposeNode();
   }
 
@@ -124,7 +124,7 @@ export class Effect<T = any> extends Computation<T> {
         try {
           effect._cleanup = effect._effect(effect._value!, effect._prevValue) as any;
         } catch (e) {
-          if (!effect._queue.notify(effect, ERROR_BIT, ERROR_BIT)) throw e;
+          if (!getQueue(effect).notify(effect, ERROR_BIT, ERROR_BIT)) throw e;
         } finally {
           effect._prevValue = effect._value;
           effect._modified = false;
@@ -149,7 +149,7 @@ export class EagerComputation<T = any> extends Computation<T> {
       !skipQueue &&
       (this._state === STATE_CLEAN || (this._state === STATE_CHECK && this._forceNotify))
     )
-      this._queue.enqueue(EFFECT_PURE, this._run.bind(this));
+      getQueue(this).enqueue(EFFECT_PURE, this._run.bind(this));
 
     super._notify(state, skipQueue);
   }
@@ -173,7 +173,7 @@ export class FirewallComputation extends Computation {
       !skipQueue &&
       (this._state === STATE_CLEAN || (this._state === STATE_CHECK && this._forceNotify))
     )
-      this._queue.enqueue(EFFECT_PURE, this._run.bind(this));
+      getQueue(this).enqueue(EFFECT_PURE, this._run.bind(this));
 
     super._notify(state, true);
     this._forceNotify = !!skipQueue; // they don't need to be forced themselves unless from above
