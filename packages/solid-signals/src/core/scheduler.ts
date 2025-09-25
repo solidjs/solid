@@ -336,15 +336,16 @@ export function cloneGraph(node: Computation): Computation {
 
 function replaceSourceObservers(node: ObserverType, transition: Transition) {
   let source: SourceType;
+  let transitionSource: SourceType | undefined;
   let swap: number;
   for (let i = 0; i < node._sources!.length; i++) {
-    source = transition._sources.get(node._sources![i] as any) || node._sources![i];
+    transitionSource = transition._sources.get(node._sources![i] as any);
+    source = transitionSource || node._sources![i];
     if (source._observers && (swap = source._observers.indexOf(node)) !== -1) {
-      const remove = source._observers.indexOf(node._cloned!) > -1;
-      source._observers[swap] = !remove
+      source._observers[swap] = transitionSource
         ? (node as any)._cloned
         : source._observers[source._observers.length - 1];
-      remove && source._observers.pop();
+      !transitionSource && source._observers.pop();
     }
   }
 }
