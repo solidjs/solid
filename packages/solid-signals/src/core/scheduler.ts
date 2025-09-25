@@ -417,7 +417,7 @@ export function getTransitionSource<T extends Computation>(input: T): T {
 }
 
 export function getQueue(node: Computation): IQueue {
-  const transition = node._cloned?._transition;
+  const transition = ActiveTransition || node._cloned?._transition;
   return (transition && transition._clonedQueues.get(node._queue as Queue)) || node._queue;
 }
 
