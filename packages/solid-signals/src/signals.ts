@@ -5,7 +5,6 @@ import {
   compute,
   EagerComputation,
   Effect,
-  ERROR_BIT,
   getOwner,
   NotReadyError,
   onCleanup,

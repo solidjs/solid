@@ -6,7 +6,7 @@ export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
 export type StoreOptions = {
   key?: string | ((item: NonNullable<any>) => any);
   all?: boolean;
-}
+};
 
 type DataNode = Computation<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
@@ -196,7 +196,10 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       untrack(() => {
         const state = target[STORE_VALUE];
         const base = state[property];
-        const prev = target[STORE_OVERRIDE]?.[property] || base;
+        const prev =
+          target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
+            ? target[STORE_OVERRIDE][property]
+            : base;
         const value = rawValue?.[$TARGET]?.[STORE_VALUE] ?? rawValue;
 
         if (prev === value) return true;
@@ -230,7 +233,10 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   deleteProperty(target, property) {
     if (Writing?.has(target[$PROXY]) && target[STORE_OVERRIDE]?.[property] !== $DELETED) {
       untrack(() => {
-        const prev = target[STORE_OVERRIDE]?.[property] || target[STORE_VALUE][property];
+        const prev =
+          target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
+            ? target[STORE_OVERRIDE][property]
+            : target[STORE_VALUE][property];
         if (property in target[STORE_VALUE]) {
           (target[STORE_OVERRIDE] || (target[STORE_OVERRIDE] = Object.create(null)))[property] =
             $DELETED;

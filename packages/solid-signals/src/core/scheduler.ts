@@ -319,6 +319,7 @@ export function cloneGraph(node: Computation): Computation {
     _sources: node._sources ? [...node._sources] : null,
     _cloned: node
   });
+  delete (clone as any)._prevValue;
   ActiveTransition!._sources.set(node, clone);
   node._transition = ActiveTransition!;
   if (node._sources) {
