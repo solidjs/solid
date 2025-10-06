@@ -107,6 +107,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   _forceNotify = false;
   _transition?: Transition | undefined;
   _cloned?: Computation;
+  _optimistic?: boolean = false;
 
   constructor(
     initialValue: T | undefined,
@@ -128,8 +129,8 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (__DEV__) this._name = options?.name ?? (this._compute ? "computed" : "signal");
 
     if (options?.equals !== undefined) this._equals = options.equals;
-    if (options?.pureWrite) this._pureWrite = true;
-    if (options?.unobserved) this._unobserved = options?.unobserved;
+    this._pureWrite = !!options?.pureWrite;
+    this._unobserved = options?.unobserved;
 
     if (ActiveTransition) {
       this._transition = ActiveTransition;

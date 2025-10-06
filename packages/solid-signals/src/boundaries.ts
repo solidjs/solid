@@ -69,8 +69,6 @@ class ConditionalQueue extends Queue {
     return super.run(type);
   }
   notify(node: Effect, type: number, flags: number) {
-    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
-      return ActiveTransition._clonedQueues.get(this)!.notify(node, type, flags);
     if (this._disabled.read()) {
       if (type & LOADING_BIT) {
         if (flags & LOADING_BIT) {
@@ -107,8 +105,6 @@ export class CollectionQueue extends Queue {
     return super.run(type);
   }
   notify(node: Effect, type: number, flags: number) {
-    if (ActiveTransition && ActiveTransition._clonedQueues.has(this))
-      return ActiveTransition._clonedQueues.get(this)!.notify(node, type, flags);
     if (!(type & this._collectionType)) return super.notify(node, type, flags);
     if (flags & this._collectionType) {
       this._nodes.add(node);

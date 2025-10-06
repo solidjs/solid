@@ -37,7 +37,7 @@ export class Effect<T = any> extends Computation<T> {
     this._prevValue = initialValue;
     this._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
     if (this._type === EFFECT_RENDER) {
-      this._compute = function(p) {
+      this._compute = function (p) {
         return !this._cloned && clock > this._queue.created && !(this._stateFlags & ERROR_BIT)
           ? latest(() => compute(p))
           : compute(p);
@@ -70,7 +70,8 @@ export class Effect<T = any> extends Computation<T> {
   override _notify(state: number, skipQueue?: boolean): void {
     if (this._state >= state || skipQueue) return;
 
-    if (this._state === STATE_CLEAN) getQueue(this).enqueue(this._type, this._run.bind(this));
+    if (this._state === STATE_CLEAN || (this._cloned && !ActiveTransition))
+      getQueue(this).enqueue(this._type, this._run.bind(this));
 
     this._state = state;
   }
@@ -178,7 +179,6 @@ export class FirewallComputation extends Computation {
     super._notify(state, true);
     this._forceNotify = !!skipQueue; // they don't need to be forced themselves unless from above
   }
-
   _run(): void {
     this._state !== STATE_CLEAN && runTop(this);
   }
@@ -194,7 +194,8 @@ function runTop(node: Computation): void {
   const ancestors: Computation[] = [];
 
   for (let current: Owner | null = node; current !== null; current = current._parent) {
-    if (ActiveTransition && (current as any)._transition) current = ActiveTransition._sources.get(current as any)!;
+    if (ActiveTransition && (current as any)._transition)
+      current = ActiveTransition._sources.get(current as any)!;
     if (current._state !== STATE_CLEAN) {
       ancestors.push(current as Computation);
     }

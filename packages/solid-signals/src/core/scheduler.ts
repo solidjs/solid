@@ -161,7 +161,7 @@ export class Transition implements IQueue {
   constructor() {
     this._clonedQueues.set(globalQueue, this);
     for (const child of globalQueue._children) {
-      cloneQueue(child as Queue, this, this._clonedQueues);
+      cloneQueue(child as Queue, this, this);
     }
   }
   enqueue(type: number, fn: QueueCallback): void {
@@ -251,7 +251,7 @@ export class Transition implements IQueue {
               try {
                 value = await temp.value;
               } finally {
-                while (transition._done instanceof Transition) transition = transition._done;
+                transition = latestTransition(transition)
                 transition._promises.delete(temp.value);
               }
               ActiveTransition = transition;
@@ -264,7 +264,7 @@ export class Transition implements IQueue {
       if (result instanceof Promise) {
         transition._promises.add(result);
         result.finally(() => {
-          while (transition._done instanceof Transition) transition = transition._done;
+          transition = latestTransition(transition);
           transition._promises.delete(result);
           ActiveTransition = null;
           finishTransition(transition);
@@ -303,7 +303,7 @@ export function transition(
   queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));
 }
 
-export function cloneGraph(node: Computation): Computation {
+export function cloneGraph(node: Computation, optimistic?: boolean): Computation {
   if (node._transition) {
     if (node._transition !== ActiveTransition) {
       mergeTransitions(node._transition, ActiveTransition!);
@@ -317,22 +317,28 @@ export function cloneGraph(node: Computation): Computation {
     _nextSibling: null,
     _observers: null,
     _sources: node._sources ? [...node._sources] : null,
-    _cloned: node
+    _cloned: node,
+    _optimistic: !!optimistic
   });
   delete (clone as any)._prevValue;
   ActiveTransition!._sources.set(node, clone);
   node._transition = ActiveTransition!;
-  if (node._sources) {
+  if (!optimistic && node._sources) {
     for (let i = 0; i < node._sources.length; i++) node._sources[i]._observers!.push(clone);
   }
   if (node._observers) {
     clone._observers = [];
     for (let i = 0, length = node._observers.length; i < length; i++) {
       !(node._observers[i] as Computation)._cloned &&
-        clone._observers.push(cloneGraph(node._observers[i] as any));
+        clone._observers.push(cloneGraph(node._observers[i] as any, optimistic));
     }
   }
   return clone;
+}
+
+function latestTransition(t: Transition): Transition {
+  while (t._done instanceof Transition) t = t._done;
+  return t;
 }
 
 function replaceSourceObservers(node: ObserverType, transition: Transition) {
@@ -351,29 +357,31 @@ function replaceSourceObservers(node: ObserverType, transition: Transition) {
   }
 }
 
-function cloneQueue(queue: Queue, parent: Queue, clonedQueues: Map<Queue, Queue>) {
+function cloneQueue(queue: Queue, parent: Queue, transition: Transition) {
   const clone = Object.create(Object.getPrototypeOf(queue)) as Queue;
   Object.assign(clone, queue, {
     _cloned: queue,
     _parent: parent,
     _children: [],
     enqueue(type, fn) {
-      ActiveTransition?.enqueue(type, fn);
+      transition = latestTransition(transition);
+      transition.enqueue(type, fn);
     },
     notify(node: Effect, type: number, flags: number) {
       node = (node._cloned || node) as Effect;
       if (!(clone as any)._collectionType || type & LOADING_BIT) {
         type &= ~LOADING_BIT;
-        ActiveTransition?.notify(node, LOADING_BIT, flags);
+        transition = latestTransition(transition);
+        transition.notify(node, LOADING_BIT, flags);
         if (!type) return true;
       }
       return queue.notify.call(this, node, type, flags);
     }
   });
   parent._children.push(clone);
-  clonedQueues.set(queue, clone);
+  transition._clonedQueues.set(queue, clone);
   for (const child of queue._children) {
-    cloneQueue(child as Queue, clone, clonedQueues);
+    cloneQueue(child as Queue, clone, transition);
   }
 }
 
@@ -452,6 +460,12 @@ function finishTransition(transition: Transition) {
       continue; // already merged
     }
     if (clone._sources) replaceSourceObservers(clone, transition);
+    if (clone._optimistic) {
+      clone.dispose();
+      clone.emptyDisposal();
+      delete source._transition;
+      continue;
+    }
     // check if we need to dispose
     if ((clone as any)._updated || clone._state === STATE_DISPOSED) {
       source.dispose(clone._state === STATE_DISPOSED);

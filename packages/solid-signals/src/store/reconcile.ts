@@ -17,8 +17,8 @@ function unwrap(value: any) {
   return value?.[$TARGET]?.[STORE_NODE] ?? value;
 }
 
-function getOverrideValue(value: any, override: any, key: string) {
-  return override && key in override ? override[key] : value[key];
+function getOverrideValue(value: any, override: any, nodes: any, key: string) {
+  return nodes && key in nodes ? nodes[key].read() : override && key in override ? override[key] : value[key];
 }
 
 function getAllKeys(value, override, next) {
@@ -32,6 +32,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
   if (!target) return;
   const previous = target[STORE_VALUE];
   const override = target[STORE_OVERRIDE];
+  let nodes = target[STORE_NODE];
   if (next === previous && !override) return;
 
   // swap
@@ -42,14 +43,14 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
   // merge
   if (Array.isArray(previous)) {
     let changed = false;
-    const prevLength = getOverrideValue(previous, override, "length");
+    const prevLength = getOverrideValue(previous, override, nodes, "length");
     if (next.length && prevLength && next[0] && keyFn(next[0]) != null) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal; // common prefix
 
       for (
         start = 0, end = Math.min(prevLength, next.length);
         start < end &&
-        ((item = getOverrideValue(previous, override, start)) === next[start] ||
+        ((item = getOverrideValue(previous, override, nodes, start)) === next[start] ||
           (item && next[start] && keyFn(item) === keyFn(next[start])));
         start++
       ) {
@@ -63,7 +64,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
         end = prevLength - 1, newEnd = next.length - 1;
         end >= start &&
         newEnd >= start &&
-        ((item = getOverrideValue(previous, override, end)) === next[newEnd] ||
+        ((item = getOverrideValue(previous, override, nodes, end)) === next[newEnd] ||
           (item && next[newEnd] && keyFn(item) === keyFn(next[newEnd])));
         end--, newEnd--
       ) {
@@ -99,7 +100,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
       }
 
       for (i = start; i <= end; i++) {
-        item = getOverrideValue(previous, override, i);
+        item = getOverrideValue(previous, override, nodes, i);
         keyVal = item ? keyFn(item) : item;
         j = newIndices.get(keyVal);
 
@@ -120,7 +121,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
       if (start < next.length) changed = true;
     } else if (prevLength && next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
-        const item = getOverrideValue(previous, override, i as any);
+        const item = getOverrideValue(previous, override, nodes, i as any);
         isWrappable(item) && applyState(next[i], wrap(item, target), keyFn, all);
       }
     }
@@ -134,14 +135,13 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
   }
 
   // values
-  let nodes = target[STORE_NODE];
   if (nodes) {
     const tracked = nodes[$TRACK];
     const keys = tracked || all ? getAllKeys(previous, override, next) : Object.keys(nodes);
     for (let i = 0, len = keys.length; i < len; i++) {
       const key = keys[i];
       const node = nodes[key];
-      const previousValue = unwrap(getOverrideValue(previous, override, key));
+      const previousValue = unwrap(getOverrideValue(previous, override, nodes, key));
       let nextValue = unwrap(next[key]);
       if (previousValue === nextValue) continue;
       if (

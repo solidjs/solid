@@ -15,7 +15,6 @@ import {
   untrack
 } from "./core/index.js";
 import { cloneGraph, transition } from "./core/scheduler.js";
-import { createStore, reconcile, type Store, type StoreSetter } from "./store/index.js";
 
 export type Accessor<T> = () => T;
 
@@ -428,59 +427,4 @@ export function useTransition(): [
     });
   }
   return [pending, start];
-}
-
-/**
- * Creates an optimistic store that can be used to optimistically update a value
- * and then revert it back to the previous value at end of transition.
- * ```typescript
- * export function createOptimistic<T>(
- *   fn: (store: T) => void,
- *   initial: T,
- *   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
- * ): [get: Store<T>, set: StoreSetter<T>];
- * ```
- * @param fn a function that receives the current store and can be used to mutate it directly inside a transition
- * @param initial The initial value of the signal.
- * @param options Optional signal options.
- *
- * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
- */
-export function createOptimistic<T extends object = {}>(
-  initial: T | Store<T>
-): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimistic<T extends object = {}>(
-  fn: (store: T) => void,
-  initial: T | Store<T>,
-  options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
-): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimistic<T extends object = {}>(
-  first: T | ((store: T) => void),
-  second?: T | Store<T>,
-  options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
-): [get: Store<T>, set: StoreSetter<T>] {
-  let store, setStore;
-  if (typeof first === "function") {
-    [store, setStore] = createStore(s => {
-      const value = first(s);
-      if (!ActiveTransition) return value;
-      ActiveTransition.addOptimistic(reset);
-    }, {} as T);
-  } else [store, setStore] = createStore(first);
-
-  const reset = () =>
-    setStore(
-      reconcile(
-        typeof first === "function" ? first(second as T) : (first as T),
-        options?.key || "id",
-        options?.all
-      )
-    );
-  function write(v: (v?: T) => T) {
-    if (!ActiveTransition)
-      throw new Error("createOptimistic can only be updated inside a transition");
-    ActiveTransition.addOptimistic(reset);
-    queueMicrotask(() => (reset as any)._transition && setStore(v));
-  }
-  return [store, write] as any;
 }

@@ -13,25 +13,11 @@ import {
   type StoreOptions
 } from "./store.js";
 
-/**
- * Creates a mutable derived value
- *
- * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
- */
-export function createProjection<T extends Object>(
+export function createProjectionInternal<T extends object = {}>(
   fn: (draft: T) => void | T,
   initialValue: T = {} as T,
   options?: StoreOptions
-): Store<T> {
-  let wrappedStore: Store<T>;
-  const node = new FirewallComputation(() => {
-    storeSetter(wrappedStore, (s) => {
-      const value = fn(s);
-      if (value !== s && value !== undefined) {
-        reconcile(value, options?.key || "id", options?.all)(s);
-      }
-    });
-  });
+) {
   const wrappedMap = new WeakMap();
   const traps = {
     ...storeTraps,
@@ -42,7 +28,7 @@ export function createProjection<T extends Object>(
       return storeTraps.get!(target, property, receiver);
     }
   };
-  function wrapProjection(source) {
+  const wrapProjection = (source: T) => {
     if (wrappedMap.has(source)) return wrappedMap.get(source);
     if (source[$TARGET]?.[STORE_WRAP] === wrapProjection) return source;
     const wrapped = createStoreProxy(source, traps, {
@@ -52,6 +38,28 @@ export function createProjection<T extends Object>(
     wrappedMap.set(source, wrapped);
     return wrapped;
   }
+  const wrappedStore: Store<T> = wrapProjection(initialValue);
+  const node = new FirewallComputation(() => {
+    storeSetter(wrappedStore, s => {
+      const value = fn(s);
+      if (value !== s && value !== undefined) {
+        reconcile(value, options?.key || "id", options?.all)(s);
+      }
+    });
+  });
 
-  return (wrappedStore = wrapProjection(initialValue));
+  return { store: wrappedStore, node };
+}
+
+/**
+ * Creates a mutable derived value
+ *
+ * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
+ */
+export function createProjection<T extends Object = {}>(
+  fn: (draft: T) => void | T,
+  initialValue: T = {} as T,
+  options?: StoreOptions
+): Store<T> {
+  return createProjectionInternal(fn, initialValue, options).store;
 }

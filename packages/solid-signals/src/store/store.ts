@@ -1,5 +1,5 @@
 import { Computation, getObserver, isEqual, untrack } from "../core/index.js";
-import { createProjection } from "./projection.js";
+import { createProjectionInternal } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
@@ -301,17 +301,17 @@ export function createStore<T extends object = {}>(
   store: T | Store<T>
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (store: T) => void,
+  fn: (store: T) => void | T,
   store: T | Store<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  first: T | ((store: T) => void),
+  first: T | ((store: T) => void | T),
   second?: T | Store<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function",
-    wrappedStore = derived ? createProjection(first, second, options) : wrap(first);
+    wrappedStore = derived ? createProjectionInternal(first, second, options).store : wrap(first);
 
   return [wrappedStore, (fn: (draft: T) => void): void => storeSetter(wrappedStore, fn)];
 }
