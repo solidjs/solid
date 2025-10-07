@@ -288,8 +288,10 @@ export function splitProps<
   T extends Record<any, any>,
   K extends [readonly (keyof T)[], ...(readonly (keyof T)[])[]]
 >(props: T, ...keys: K): SplitProps<T, K> {
+  const len = keys.length;
+
   if (SUPPORTS_PROXY && $PROXY in props) {
-    const blocked = new Set<keyof T>(keys.length > 1 ? keys.flat() : keys[0]);
+    const blocked = len > 1 ? keys.flat() : keys[0];
     const res = keys.map(k => {
       return new Proxy(
         {
@@ -310,13 +312,13 @@ export function splitProps<
       new Proxy(
         {
           get(property) {
-            return blocked.has(property) ? undefined : props[property as any];
+            return blocked.includes(property) ? undefined : props[property as any];
           },
           has(property) {
-            return blocked.has(property) ? false : property in props;
+            return blocked.includes(property) ? false : property in props;
           },
           keys() {
-            return Object.keys(props).filter(k => !blocked.has(k));
+            return Object.keys(props).filter(k => !blocked.includes(k));
           }
         },
         propTraps
@@ -324,31 +326,30 @@ export function splitProps<
     );
     return res as SplitProps<T, K>;
   }
-  const otherObject: Record<string, any> = {};
-  const objects: Record<string, any>[] = keys.map(() => ({}));
+  const objects: Record<string, any>[] = [];
+  for (let i = 0; i <= len; i++) {
+    objects[i] = {};
+  }
 
   for (const propName of Object.getOwnPropertyNames(props)) {
+    let keyIndex = len;
+
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i].includes(propName)) {
+        keyIndex = i;
+        break;
+      }
+    }
+
     const desc = Object.getOwnPropertyDescriptor(props, propName)!;
     const isDefaultDesc =
       !desc.get && !desc.set && desc.enumerable && desc.writable && desc.configurable;
-    let blocked = false;
-    let objectIndex = 0;
-    for (const k of keys) {
-      if (k.includes(propName)) {
-        blocked = true;
-        isDefaultDesc
-          ? (objects[objectIndex][propName] = desc.value)
-          : Object.defineProperty(objects[objectIndex], propName, desc);
-      }
-      ++objectIndex;
-    }
-    if (!blocked) {
-      isDefaultDesc
-        ? (otherObject[propName] = desc.value)
-        : Object.defineProperty(otherObject, propName, desc);
-    }
+    isDefaultDesc
+      ? (objects[keyIndex][propName] = desc.value)
+      : Object.defineProperty(objects[keyIndex], propName, desc);
   }
-  return [...objects, otherObject] as any;
+
+  return objects as any;
 }
 
 // lazy load a function component asynchronously
