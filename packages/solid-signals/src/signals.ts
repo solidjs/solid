@@ -89,15 +89,12 @@ export function createSignal<T>(
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const memo = createMemo<Signal<T>>(p => {
-      const node = new Computation<T>(
-        (first as (prev?: T) => T)(p ? untrack(p[0]) : (second as T)),
-        null,
-        third
-      );
-      return [node.read.bind(node), node.write.bind(node)] as Signal<T>;
-    });
-    return [() => memo()[0](), (value => memo()[1](value)) as Setter<T | undefined>];
+    const node = new Computation<T>(
+      second as any,
+      first as any,
+      third
+    );
+    return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
   }
   const o = getOwner();
   const needsId = o?.id != null;
