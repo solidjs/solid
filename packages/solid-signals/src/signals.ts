@@ -1,3 +1,4 @@
+import { TrackedEffect } from "./core/effect.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   ActiveTransition,
@@ -344,6 +345,12 @@ export function createRenderEffect<Next, Init>(
   });
 }
 
+export function createTrackedEffect(
+  compute: () => void | (() => void),
+  options?: { name?: string; defer?: boolean }
+): void {
+  void new TrackedEffect(compute, options);
+}
 /**
  * Creates a new non-tracked reactive context with manual disposal
  *

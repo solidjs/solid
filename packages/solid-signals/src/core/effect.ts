@@ -135,6 +135,44 @@ export class Effect<T = any> extends Computation<T> {
   }
 }
 
+export class TrackedEffect extends Computation {
+  _type = EFFECT_USER;
+  _cleanup: (() => void) | undefined;
+  constructor(
+    compute: () => void | (() => void),
+    options?: SignalOptions<undefined>
+  ) {
+    super(undefined, () => {
+      this._cleanup?.();
+      this._cleanup = latest(compute) as (() => void) | undefined;
+      return undefined;
+    }, options);
+    getQueue(this).enqueue(this._type, this._run.bind(this));
+    if (__DEV__ && !this._parent)
+      console.warn("Effects created outside a reactive context will never be disposed");
+  }
+  override _notify(state: number, skipQueue?: boolean): void {
+    if (this._state >= state || skipQueue) return;
+
+    if (this._state === STATE_CLEAN || (this._cloned && !ActiveTransition))
+      getQueue(this).enqueue(this._type, this._run.bind(this));
+
+    this._state = state;
+  }
+
+  override _disposeNode(): void {
+    if (this._state === STATE_DISPOSED) return;
+    this._cleanup?.();
+    this._cleanup = undefined;
+    getQueue(this).notify(this, ERROR_BIT | LOADING_BIT, 0);
+    super._disposeNode();
+  }
+
+  _run(type: number): void {
+    if (type) this._state !== STATE_CLEAN && runTop(this);
+  }
+}
+
 export class EagerComputation<T = any> extends Computation<T> {
   constructor(initialValue: T, compute: () => T, options?: SignalOptions<T> & { defer?: boolean }) {
     super(initialValue, compute, options);

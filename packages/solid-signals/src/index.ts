@@ -18,7 +18,6 @@ export {
   hasUpdated,
   isPending,
   latest,
-  runWithObserver,
   transition,
   SUPPORTS_PROXY
 } from "./core/index.js";

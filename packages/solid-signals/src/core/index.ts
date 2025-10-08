@@ -21,7 +21,6 @@ export {
   latest,
   UNCHANGED,
   compute,
-  runWithObserver,
   type SignalOptions
 } from "./core.js";
 export { Effect, EagerComputation } from "./effect.js";
