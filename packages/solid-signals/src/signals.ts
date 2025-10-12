@@ -461,7 +461,8 @@ export function createOptimistic<T>(
       : new Computation(first, null, second as SignalOptions<T>);
   const reset = () => node.write(first as T);
   function write(v: T) {
-    if (!ActiveTransition) return false;
+    if (!ActiveTransition)
+      throw new Error("createOptimistic can only be updated inside a transition");
     ActiveTransition.addOptimistic(reset);
     cloneGraph(node, true);
     queueMicrotask(() => (reset as any)._transition && node.write(v));
