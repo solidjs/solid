@@ -12,8 +12,7 @@ import {
   Owner,
   STATE_DIRTY,
   STATE_DISPOSED,
-  UNINITIALIZED_BIT,
-  untrack
+  UNINITIALIZED_BIT
 } from "./core/index.js";
 import { cloneGraph, transition } from "./core/scheduler.js";
 
@@ -90,11 +89,7 @@ export function createSignal<T>(
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = new Computation<T>(
-      second as any,
-      first as any,
-      third
-    );
+    const node = new Computation<T>(second as any, first as any, third);
     return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
   }
   const o = getOwner();
@@ -297,7 +292,7 @@ export function createEffect<Next, Init>(
   void new Effect(
     value as any,
     compute as any,
-    (effect as any).effect ? (effect as any).effect : effect,
+    (effect as any).effect || effect,
     (effect as any).error,
     __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
   );
@@ -342,12 +337,63 @@ export function createRenderEffect<Next, Init>(
   });
 }
 
+/**
+ * Creates a tracked reactive effect that only tracks dependencies inside the effect itself
+ * ```typescript
+ * export function createTrackedEffect(
+ *   compute: () => (() => void) | void,
+ *   options?: { name?: string, defer?: boolean }
+ * ): void;
+ * ```
+ * @param compute a function that contains reactive reads to track and returns an optional cleanup function to run on disposal or before next execution
+ * @param options allows to set a name in dev mode for debugging purposes
+ *
+ * @description https://docs.solidjs.com/reference/secondary-primitives/create-tracked-effect
+ */
 export function createTrackedEffect(
   compute: () => void | (() => void),
-  options?: { name?: string; defer?: boolean }
+  options?: EffectOptions
 ): void {
   void new TrackedEffect(compute, options);
 }
+
+/**
+ * Creates a reactive computation that runs after the render phase with flexible tracking
+ * ```typescript
+ * export function createReaction(
+ *   onInvalidate: () => void,
+ *   options?: { name?: string }
+ * ): (fn: () => void) => void;
+ * ```
+ * @param invalidated a function that is called when tracked function is invalidated.
+ * @param options allows to set a name in dev mode for debugging purposes
+ *
+ * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
+ */
+export function createReaction(
+  effect: EffectFunction<undefined> | EffectBundle<undefined>,
+  options?: EffectOptions
+) {
+  let cleanup: (() => void) | undefined = undefined;
+  onCleanup(() => cleanup?.());
+  return (tracking: () => void) => {
+    const node = new Effect(
+      undefined,
+      tracking,
+      () => {
+        cleanup?.();
+        cleanup = ((effect as any).effect || effect)?.();
+        node.dispose(true);
+      },
+      (effect as any).error,
+      {
+        defer: true,
+        ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+      }
+    );
+  };
+}
+
 /**
  * Creates a new non-tracked reactive context with manual disposal
  *
@@ -394,19 +440,33 @@ export function resolve<T>(fn: () => T): Promise<T> {
   });
 }
 
-function createPending(): Signal<boolean> {
-  const node = new Computation(false, null);
-  const reset = () => node.write(false);
-  function write() {
+export function createOptimistic<T>(): Signal<T | undefined>;
+export function createOptimistic<T>(
+  value: Exclude<T, Function>,
+  options?: SignalOptions<T>
+): Signal<T>;
+export function createOptimistic<T>(
+  fn: ComputeFunction<T>,
+  initialValue?: T,
+  options?: SignalOptions<T>
+): Signal<T>;
+export function createOptimistic<T>(
+  first?: T | ComputeFunction<T>,
+  second?: T | SignalOptions<T>,
+  third?: SignalOptions<T>
+): Signal<T | undefined> {
+  const node =
+    typeof first === "function"
+      ? new Computation<T>(second as any, first as any, third)
+      : new Computation(first, null, second as SignalOptions<T>);
+  const reset = () => node.write(first as T);
+  function write(v: T) {
     if (!ActiveTransition) return false;
     ActiveTransition.addOptimistic(reset);
-    queueMicrotask(() => (reset as any)._transition && node.write(true));
+    cloneGraph(node, true);
+    queueMicrotask(() => (reset as any)._transition && node.write(v));
   }
-  function read() {
-    const v = node.read();
-    return ActiveTransition ? false : v;
-  }
-  return [read, write] as any;
+  return [node.read.bind(node), write] as any;
 }
 
 /** Allows the user to mark a state change as non-urgent.
@@ -421,7 +481,7 @@ export function useTransition(): [
     fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
   ) => void
 ] {
-  const [pending, setPending] = createPending();
+  const [pending, setPending] = createOptimistic(false);
   function start(
     fn: (v: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
   ) {

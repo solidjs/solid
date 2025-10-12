@@ -322,7 +322,7 @@ it("should handle looped effects", () => {
 });
 
 it("should apply changes in effect in same flush", async () => {
-  const [$x, setX] = createSignal(0),
+  const [$x, setX] = createSignal(0, { pureWrite: true }),
     [$y, setY] = createSignal(0);
 
   const $a = createMemo(() => {

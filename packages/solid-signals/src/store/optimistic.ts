@@ -23,15 +23,15 @@ import {
  *
  * @returns A tuple containing an accessor for the current value and a setter function to apply changes.
  */
-export function createOptimistic<T extends object = {}>(
+export function createOptimisticStore<T extends object = {}>(
   initial: T | Store<T>
 ): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimistic<T extends object = {}>(
+export function createOptimisticStore<T extends object = {}>(
   fn: (store: T) => T | void,
   initial: T | Store<T>,
   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
-export function createOptimistic<T extends object = {}>(
+export function createOptimisticStore<T extends object = {}>(
   first: T | ((store: T) => T | void),
   second?: T | Store<T>,
   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
@@ -49,7 +49,7 @@ export function createOptimistic<T extends object = {}>(
     );
   const write = (v: (v?: T) => T) => {
     if (!ActiveTransition)
-      throw new Error("createOptimistic can only be updated inside a transition");
+      throw new Error("createOptimisticStore can only be updated inside a transition");
     ActiveTransition.addOptimistic(reset);
     cloneGraph(node, true);
     queueMicrotask(() => (reset as any)._transition && storeSetter(store, v));

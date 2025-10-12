@@ -5,7 +5,7 @@ export { isWrappable, createStore, deep, $TRACK, $PROXY, $TARGET } from "./store
 
 export { createProjection } from "./projection.js";
 
-export { createOptimistic } from "./optimistic.js";
+export { createOptimisticStore } from "./optimistic.js";
 
 export { reconcile } from "./reconcile.js";
 
