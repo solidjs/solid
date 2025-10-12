@@ -2,13 +2,12 @@ import {
   getOwner,
   createAsync as coreAsync,
   MemoOptions,
-  Accessor,
   createSuspense,
   createSignal,
   flush,
   createMemo,
-  runWithObserver,
-  Computation
+  Computation,
+  runWithOwner
 } from "@solidjs/signals";
 import { JSX } from "../jsx.js";
 
@@ -78,7 +77,7 @@ export function Suspense(props: { fallback?: JSX.Element; children: JSX.Element 
               sharedConfig.hydrating = false;
             },
             (err: any) =>
-              runWithObserver(o as Computation<any>, () => {
+              runWithOwner(o as Computation<any>, () => {
                 throw err;
               })
           );

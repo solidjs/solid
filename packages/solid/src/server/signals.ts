@@ -5,6 +5,7 @@ export { createRoot, runWithOwner, onCleanup, getOwner } from "@solidjs/signals"
 import type {
   Accessor,
   ComputeFunction,
+  EffectBundle,
   EffectFunction,
   EffectOptions,
   MemoOptions,
@@ -127,25 +128,39 @@ export function createRenderEffect<Next, Init>(
 
 export function createEffect<Next>(
   compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effect: EffectFunction<NoInfer<Next>, Next>,
-  error?: (err: unknown) => void
+  effect: EffectFunction<NoInfer<Next>, Next> | EffectBundle<NoInfer<Next>, Next>
 ): void;
 export function createEffect<Next, Init = Next>(
   compute: ComputeFunction<Init | Next, Next>,
-  effect: EffectFunction<Next, Next>,
-  error: ((err: unknown) => void) | undefined,
+  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
 export function createEffect<Next, Init>(
   compute: ComputeFunction<Init | Next, Next>,
-  effect: EffectFunction<Next, Next>,
-  error?: (err: unknown) => void,
+  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
   value?: Init,
   options?: EffectOptions
 ): void {
   let o = getOwner();
   if (o?.id !== null) o?.getNextChildId();
+}
+
+export function createTrackedEffect(
+  compute: () => void | (() => void),
+  options?: EffectOptions
+): void {
+  let o = getOwner();
+  if (o?.id !== null) o?.getNextChildId();
+}
+
+export function createReaction(
+  effect: EffectFunction<undefined> | EffectBundle<undefined>,
+  options?: EffectOptions
+) {
+  return (tracking: () => void) => {
+    tracking();
+  };
 }
 
 export function createAsync<T>(
@@ -235,7 +250,7 @@ export function getObserver() {
   return Observer;
 }
 
-export function runWithObserver<T>(o: Computation<any>, fn: () => T): T | undefined {
+function runWithObserver<T>(o: Computation<any>, fn: () => T): T | undefined {
   const prev = Observer;
   Observer = o;
   try {
@@ -297,4 +312,8 @@ export function transition<T>(fn: () => T): void {
 
 export function useTransition(): [() => boolean, (fn: () => void) => void] {
   return [() => false, () => {}];
+}
+
+export function createOptimistic<T>(value: T): [Accessor<T>, (v: T | ((p: T) => T)) => void] {
+  return [() => value, v => v];
 }

@@ -5,8 +5,7 @@ import {
   createSignal,
   getOwner,
   onCleanup,
-  Setter,
-  untrack
+  Setter
 } from "@solidjs/signals";
 
 // Note: This will add Symbol.observable globally for all TypeScript users,
