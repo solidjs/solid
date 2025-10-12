@@ -90,7 +90,10 @@ export function createSignal<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = new Computation<T>(second as any, first as any, third);
-    return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
+    return [node.read.bind(node), ((v: any) => {
+      node._updateIfNecessary();
+      return node.write(v)
+    }) as Setter<T | undefined>];
   }
   const o = getOwner();
   const needsId = o?.id != null;
@@ -465,7 +468,12 @@ export function createOptimistic<T>(
       throw new Error("createOptimistic can only be updated inside a transition");
     ActiveTransition.addOptimistic(reset);
     cloneGraph(node, true);
-    queueMicrotask(() => (reset as any)._transition && node.write(v));
+    queueMicrotask(() => {
+      if ((reset as any)._transition) {
+        node._updateIfNecessary();
+        node.write(v);
+      }
+    });
   }
   return [node.read.bind(node), write] as any;
 }
