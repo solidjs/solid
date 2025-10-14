@@ -1,5 +1,11 @@
 # @solidjs/html
 
+## 2.0.0-experimental.10
+
+### Patch Changes
+
+- @solidjs/web@2.0.0-experimental.10
+
 ## 2.0.0-experimental.9
 
 ### Patch Changes

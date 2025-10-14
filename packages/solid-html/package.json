@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/html",
   "description": "Build-less Tagged-Template-Literal Templating for Solid",
-  "version": "2.0.0-experimental.9",
+  "version": "2.0.0-experimental.10",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -39,7 +39,7 @@
     "types:html": "tsc --project ./tsconfig.json && ncp ../../node_modules/lit-dom-expressions/types/index.d.ts ./types/lit.d.ts"
   },
   "peerDependencies": {
-    "@solidjs/web": "^2.0.0-experimental.9"
+    "@solidjs/web": "^2.0.0-experimental.10"
   },
   "devDependencies": {
     "@solidjs/web": "workspace:*"
