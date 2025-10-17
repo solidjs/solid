@@ -218,7 +218,9 @@ export class FirewallComputation extends Computation {
     this._forceNotify = !!skipQueue; // they don't need to be forced themselves unless from above
   }
   _run(): void {
+    const prevFlags = this._stateFlags;
     this._state !== STATE_CLEAN && runTop(this);
+    if (ActiveTransition && this._optimistic && this._stateFlags !== prevFlags) getQueue(this).notify(this, LOADING_BIT | ERROR_BIT, this._stateFlags);
   }
 }
 

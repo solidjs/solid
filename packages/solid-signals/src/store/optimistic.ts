@@ -37,7 +37,12 @@ export function createOptimisticStore<T extends object = {}>(
   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function";
-  const { store, node } = derived ? createProjectionInternal(first, second, options) : createProjectionInternal(() => {}, first);
+  const { store, node } = derived ? createProjectionInternal((draft) => {
+    const res = first(draft);
+    if ((reset as any)._transition) return draft;
+    return res;
+  }, second, options) : createProjectionInternal(() => {}, first);
+  node._optimistic = true;
   const reset = () =>
     storeSetter(
       store,
@@ -51,7 +56,6 @@ export function createOptimisticStore<T extends object = {}>(
     if (!ActiveTransition)
       throw new Error("createOptimisticStore can only be updated inside a transition");
     ActiveTransition.addOptimistic(reset);
-    cloneGraph(node, true);
     queueMicrotask(() => (reset as any)._transition && storeSetter(store, v));
   };
   return [store, write] as any;

@@ -254,7 +254,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     // Our value has changed, so we need to notify all of our observers that the value has
     // changed and so they must rerun
-    if (this._observers) {
+    if (this._observers && !(this._optimistic && ActiveTransition)) {
       for (let i = 0; i < this._observers.length; i++) {
         if (valueChanged) {
           this._observers[i]._notify(STATE_DIRTY);
@@ -282,7 +282,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     this._forceNotify = !!skipQueue;
     this._state = state;
 
-    if (this._observers) {
+    if (this._observers && !(this._optimistic && ActiveTransition)) {
       for (let i = 0; i < this._observers.length; i++) {
         this._observers[i]._notify(STATE_CHECK, skipQueue);
       }
@@ -300,7 +300,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (this._state >= STATE_DIRTY) return;
 
     // If the changed flags have side effects attached, we have to re-run.
-    if (mask & this._handlerMask) {
+    if (mask & this._handlerMask || this._optimistic && ActiveTransition) {
       this._notify(STATE_DIRTY);
       return;
     }

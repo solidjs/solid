@@ -184,7 +184,7 @@ export class Transition implements IQueue {
     }
   }
   flush() {
-    if (this._running) return;
+    if (this._running || this._done) return;
     this._running = true;
     let currentTransition = ActiveTransition;
     ActiveTransition = this;
@@ -220,6 +220,9 @@ export class Transition implements IQueue {
     this._queues[0].push.apply(this._queues[0], queue._queues[0]);
     this._queues[1].push.apply(this._queues[1], queue._queues[1]);
     this._pureQueue.push.apply(this._pureQueue, queue._pureQueue);
+    queue._queues[0].length = 0;
+    queue._queues[1].length = 0;
+    queue._pureQueue.length = 0;
     for (let i = 0; i < queue._children.length; i++) {
       const og = this._children.find(c => c._cloned === (queue._children[i] as any)._cloned);
       if (og) og.merge(queue._children[i]);
@@ -246,6 +249,7 @@ export class Transition implements IQueue {
         (async function () {
           let temp, value;
           while (!(temp = result.next(value)).done) {
+            transition = ActiveTransition;
             if (temp.value instanceof Promise) {
               transition._promises.add(temp.value);
               try {
@@ -303,7 +307,8 @@ export function transition(
   queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));
 }
 
-export function cloneGraph(node: Computation, optimistic?: boolean): Computation {
+export function cloneGraph(node: Computation): Computation {
+  if (node._optimistic) return node;
   if (node._transition) {
     if (node._transition !== ActiveTransition) {
       mergeTransitions(node._transition, ActiveTransition!);
@@ -317,20 +322,19 @@ export function cloneGraph(node: Computation, optimistic?: boolean): Computation
     _nextSibling: null,
     _observers: null,
     _sources: node._sources ? [...node._sources] : null,
-    _cloned: node,
-    _optimistic: !!optimistic
+    _cloned: node
   });
   delete (clone as any)._prevValue;
   ActiveTransition!._sources.set(node, clone);
   node._transition = ActiveTransition!;
-  if (!optimistic && node._sources) {
+  if (node._sources) {
     for (let i = 0; i < node._sources.length; i++) node._sources[i]._observers!.push(clone);
   }
   if (node._observers) {
     clone._observers = [];
     for (let i = 0, length = node._observers.length; i < length; i++) {
       !(node._observers[i] as Computation)._cloned &&
-        clone._observers.push(cloneGraph(node._observers[i] as any, optimistic));
+        clone._observers.push(cloneGraph(node._observers[i] as any));
     }
   }
   return clone;
@@ -460,12 +464,6 @@ function finishTransition(transition: Transition) {
       continue; // already merged
     }
     if (clone._sources) replaceSourceObservers(clone, transition);
-    if (clone._optimistic) {
-      clone.dispose();
-      clone.emptyDisposal();
-      delete source._transition;
-      continue;
-    }
     // check if we need to dispose
     if ((clone as any)._updated || clone._state === STATE_DISPOSED) {
       source.dispose(clone._state === STATE_DISPOSED);
