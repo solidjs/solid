@@ -462,18 +462,17 @@ export function createOptimistic<T>(
     typeof first === "function"
       ? new Computation<T>(second as any, (prev: any) => {
         const res = (first as ComputeFunction<T>)(prev);
-        if ((reset as any)._transition) return prev;
+        if ((node._optimistic as any)._transition) return prev;
         return res;
       }, third)
       : new Computation(first, null, second as SignalOptions<T>);
-  node._optimistic = true;
-  const reset = () => node.write(first as T);
+  node._optimistic = () => node.write(first as T);
   function write(v: T) {
     if (!ActiveTransition)
       throw new Error("createOptimistic can only be updated inside a transition");
-    ActiveTransition.addOptimistic(reset);
+    ActiveTransition.addOptimistic(node._optimistic!);
     queueMicrotask(() => {
-      if ((reset as any)._transition) {
+      if ((node._optimistic as any)._transition) {
         node._updateIfNecessary();
         node.write(v);
       }

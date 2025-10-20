@@ -42,7 +42,6 @@ export function createOptimisticStore<T extends object = {}>(
     if ((reset as any)._transition) return draft;
     return res;
   }, second, options) : createProjectionInternal(() => {}, first);
-  node._optimistic = true;
   const reset = () =>
     storeSetter(
       store,
@@ -58,5 +57,6 @@ export function createOptimisticStore<T extends object = {}>(
     ActiveTransition.addOptimistic(reset);
     queueMicrotask(() => (reset as any)._transition && storeSetter(store, v));
   };
+  node._optimistic = reset;
   return [store, write] as any;
 }

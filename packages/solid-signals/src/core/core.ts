@@ -107,7 +107,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   _forceNotify = false;
   _transition?: Transition | undefined;
   _cloned?: Computation;
-  _optimistic?: boolean = false;
+  _optimistic?: (() => void) & { _transition?: Transition };
 
   constructor(
     initialValue: T | undefined,

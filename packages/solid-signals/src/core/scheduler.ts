@@ -308,7 +308,10 @@ export function transition(
 }
 
 export function cloneGraph(node: Computation): Computation {
-  if (node._optimistic) return node;
+  if (node._optimistic) {
+    ActiveTransition!.addOptimistic(node._optimistic);
+    return node;
+  }
   if (node._transition) {
     if (node._transition !== ActiveTransition) {
       mergeTransitions(node._transition, ActiveTransition!);
