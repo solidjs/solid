@@ -603,7 +603,7 @@ export function isPending(fn: () => any, loadingValue?: boolean): boolean {
   if (!currentObserver) return pendingCheck(fn, loadingValue);
   const c = new Computation(undefined, () => pendingCheck(fn, loadingValue));
   c._handlerMask |= LOADING_BIT;
-  return c.read();
+  return c.wait();
 }
 
 /**
