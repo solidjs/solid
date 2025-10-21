@@ -493,7 +493,7 @@ export function update<T>(node: Computation<T>): void {
     node.write(result, newFlags, true);
   } catch (error) {
     if (error instanceof NotReadyError) {
-      if (error.cause !== node) compute(node, () => track(error.cause as SourceType), node as Computation);
+      if (error.cause !== node) compute(node, () => track((error as NotReadyError).cause as SourceType), node as Computation);
       node.write(UNCHANGED, newFlags | LOADING_BIT | (node._stateFlags & UNINITIALIZED_BIT));
     } else {
       node._setError(error);
