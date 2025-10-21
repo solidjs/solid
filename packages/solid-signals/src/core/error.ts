@@ -1,4 +1,9 @@
-export class NotReadyError extends Error {}
+export class NotReadyError extends Error {
+  constructor(node: any) {
+    super();
+    this.cause = node;
+  }
+}
 
 export class NoOwnerError extends Error {
   constructor() {

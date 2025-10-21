@@ -196,8 +196,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     }
 
     if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && this._stateFlags & LOADING_BIT) {
-      track(this);
-      throw new NotReadyError();
+      throw new NotReadyError(this);
     }
 
     if (staleCheck && this._stateFlags & LOADING_BIT) {
@@ -494,6 +493,7 @@ export function update<T>(node: Computation<T>): void {
     node.write(result, newFlags, true);
   } catch (error) {
     if (error instanceof NotReadyError) {
+      if (error.cause !== node) compute(node, () => track(error.cause as SourceType), node as Computation);
       node.write(UNCHANGED, newFlags | LOADING_BIT | (node._stateFlags & UNINITIALIZED_BIT));
     } else {
       node._setError(error);

@@ -4,10 +4,12 @@ import {
   createMemo,
   createRoot,
   createSignal,
+  createTrackedEffect,
   flush,
   isPending,
   latest,
-  resolve
+  resolve,
+  untrack
 } from "../src/index.js";
 
 it("diamond should not cause waterfalls on read", async () => {
@@ -210,4 +212,56 @@ it("should handle streams", async () => {
   await Promise.resolve();
   expect(effect).toHaveBeenCalledTimes(3);
   expect(effect).toHaveBeenCalledWith(3);
+});
+
+it("should still resolve in untracked scopes", async () => {
+  const [s, set] = createSignal(1);
+  const async1 = vi.fn(() => Promise.resolve(s()));
+  const effect = vi.fn();
+  createRoot(() => {
+    const a = createAsync(async1);
+    createEffect(() => untrack(a), v => effect(v));
+  });
+  expect(effect).toHaveBeenCalledTimes(0);
+  flush();
+  expect(effect).toHaveBeenCalledTimes(0);
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledWith(1);
+  set(2);
+  flush();
+  expect(effect).toHaveBeenCalledTimes(1);
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(1);
+  set(3);
+  flush();
+  expect(effect).toHaveBeenCalledTimes(1);
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(1);
+});
+
+it("should still resolve in deferred untracked scopes", async () => {
+  const [s, set] = createSignal(1);
+  const async1 = vi.fn(() => Promise.resolve(s()));
+  const effect = vi.fn();
+  createRoot(() => {
+    const a = createAsync(async1);
+    createTrackedEffect(() => untrack(() => effect(a())));
+  });
+  expect(effect).toHaveBeenCalledTimes(0);
+  flush();
+  expect(effect).toHaveBeenCalledTimes(0);
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(1);
+  expect(effect).toHaveBeenCalledWith(1);
+  set(2);
+  flush();
+  expect(effect).toHaveBeenCalledTimes(1);
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(1);
+  set(3);
+  flush();
+  expect(effect).toHaveBeenCalledTimes(1);
+  await Promise.resolve();
+  expect(effect).toHaveBeenCalledTimes(1);
 });

@@ -239,7 +239,7 @@ export function createAsync<T>(
           }
         })();
       }
-      throw new NotReadyError();
+      throw new NotReadyError(getOwner());
     },
     options
   );
