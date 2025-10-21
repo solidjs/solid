@@ -90,7 +90,7 @@ export function createSignal<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = new Computation<T>(second as any, first as any, third);
-    return [node.read.bind(node), ((v: any) => {
+    return [node.wait.bind(node), ((v: any) => {
       node._updateIfNecessary();
       return node.write(v)
     }) as Setter<T | undefined>];
