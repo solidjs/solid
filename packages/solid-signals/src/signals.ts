@@ -478,7 +478,7 @@ export function createOptimistic<T>(
       }
     });
   }
-  return [node.read.bind(node), write] as any;
+  return [node.wait.bind(node), write] as any;
 }
 
 /** Allows the user to mark a state change as non-urgent.
