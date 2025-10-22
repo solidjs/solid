@@ -5,6 +5,7 @@ import {
   EagerComputation,
   ERROR_BIT,
   incrementClock,
+  latest,
   LOADING_BIT,
   NotReadyError,
   onCleanup,
@@ -50,7 +51,7 @@ function createBoundChildren<T>(
     owner,
     () => {
       const c = new Computation(undefined, fn);
-      return new BoundaryComputation(() => flatten(c.wait()), mask);
+      return new BoundaryComputation(() => latest(() => flatten(c.wait())), mask);
     },
     null
   );
