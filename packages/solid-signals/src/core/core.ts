@@ -31,7 +31,16 @@ import { STATE_CHECK, STATE_CLEAN, STATE_DIRTY, STATE_DISPOSED } from "./constan
 import { NotReadyError } from "./error.js";
 import { DEFAULT_FLAGS, ERROR_BIT, LOADING_BIT, UNINITIALIZED_BIT, type Flags } from "./flags.js";
 import { getOwner, Owner, setOwner } from "./owner.js";
-import { ActiveTransition, clock, cloneGraph, removeSourceObservers, getTransitionSource, initialDispose, type Transition } from "./scheduler.js";
+import {
+  ActiveTransition,
+  clock,
+  cloneGraph,
+  getTransitionSource,
+  globalQueue,
+  initialDispose,
+  removeSourceObservers,
+  type Transition
+} from "./scheduler.js";
 
 export interface SignalOptions<T> {
   id?: string;
@@ -107,7 +116,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   _forceNotify = false;
   _transition?: Transition | undefined;
   _cloned?: Computation;
-  _optimistic?: (() => void) & { _transition?: Transition };
+  _optimistic?: (() => void) & { _transition?: Transition; _init?: () => void };
 
   constructor(
     initialValue: T | undefined,
@@ -161,7 +170,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (
       ActiveTransition &&
       (ActiveTransition._sources.has(this) ||
-        (!this._cloned && (this._stateFlags & (UNINITIALIZED_BIT | ERROR_BIT))))
+        (!this._cloned && this._stateFlags & (UNINITIALIZED_BIT | ERROR_BIT)))
     ) {
       const clone = ActiveTransition._sources.get(this)! || cloneGraph(this);
       if (clone !== this) return clone.read();
@@ -185,7 +194,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (
       ActiveTransition &&
       (ActiveTransition._sources.has(this) ||
-        (!this._cloned && (this._stateFlags & (UNINITIALIZED_BIT | ERROR_BIT))))
+        (!this._cloned && this._stateFlags & (UNINITIALIZED_BIT | ERROR_BIT)))
     ) {
       const clone = ActiveTransition._sources.get(this)! || cloneGraph(this);
       if (clone !== this) return clone.wait();
@@ -199,8 +208,9 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
       throw new NotReadyError(this);
     }
 
-    if (staleCheck && this._stateFlags & LOADING_BIT) {
+    if (staleCheck && (this._stateFlags & LOADING_BIT || this._transition)) {
       staleCheck._value = true;
+      this._transition?._signal.read();
     }
 
     return this._read();
@@ -299,7 +309,7 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
     if (this._state >= STATE_DIRTY) return;
 
     // If the changed flags have side effects attached, we have to re-run.
-    if (mask & this._handlerMask || this._optimistic && ActiveTransition) {
+    if (mask & this._handlerMask || (this._optimistic && ActiveTransition)) {
       this._notify(STATE_DIRTY);
       return;
     }
@@ -493,7 +503,12 @@ export function update<T>(node: Computation<T>): void {
     node.write(result, newFlags, true);
   } catch (error) {
     if (error instanceof NotReadyError) {
-      if (error.cause !== node) compute(node, () => track((error as NotReadyError).cause as SourceType), node as Computation);
+      if (error.cause !== node)
+        compute(
+          node,
+          () => track((error as NotReadyError).cause as SourceType),
+          node as Computation
+        );
       node.write(UNCHANGED, newFlags | LOADING_BIT | (node._stateFlags & UNINITIALIZED_BIT));
     } else {
       node._setError(error);
@@ -601,9 +616,19 @@ export function isPending(fn: () => any): boolean;
 export function isPending(fn: () => any, loadingValue: boolean): boolean;
 export function isPending(fn: () => any, loadingValue?: boolean): boolean {
   if (!currentObserver) return pendingCheck(fn, loadingValue);
-  const c = new Computation(undefined, () => pendingCheck(fn, loadingValue));
+  const c = new Computation(void 0, () => pendingCheck(fn, loadingValue));
+  c._optimistic = () => c.write(false);
+  c._optimistic!._init = () =>
+    globalQueue.enqueue(0, () => c._optimistic!._transition && c.write(true));
   c._handlerMask |= LOADING_BIT;
-  return c.wait();
+  const res = c.wait();
+  c._disposal = () => {
+    if (c._optimistic!._transition) {
+      c._optimistic!._transition._optimistic.delete(c._optimistic!);
+      delete c._optimistic!._transition;
+    }
+  };
+  return res;
 }
 
 /**

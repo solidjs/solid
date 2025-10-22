@@ -1,9 +1,9 @@
 import {
   createMemo,
-  createTrackedEffect,
   createRenderEffect,
   createRoot,
   createSignal,
+  createTrackedEffect,
   flush,
   onCleanup
 } from "../src/index.js";
@@ -14,9 +14,11 @@ it("should run effect", () => {
   const [$x, setX] = createSignal(0),
     effect = vi.fn($x);
 
-  createRoot(() => createTrackedEffect(() => {
-    effect();
-  }));
+  createRoot(() =>
+    createTrackedEffect(() => {
+      effect();
+    })
+  );
   expect(effect).toHaveBeenCalledTimes(0);
   flush();
   expect(effect).toHaveBeenCalledTimes(1);
@@ -35,7 +37,11 @@ it("should run effect on change", () => {
 
   const effect = vi.fn($b);
 
-  createRoot(() => createTrackedEffect(() => { effect(); }));
+  createRoot(() =>
+    createTrackedEffect(() => {
+      effect();
+    })
+  );
 
   expect(effect).to.toHaveBeenCalledTimes(0);
 
@@ -65,16 +71,14 @@ it("should handle nested effect", () => {
   const stopEffect = createRoot(dispose => {
     createTrackedEffect(() => {
       $x();
-      createTrackedEffect(
-        () => {
-          $y();
-          innerEffect();
-          onCleanup(innerPureDispose);
-          return () => {
-            innerEffectDispose();
-          };
-        },
-      );
+      createTrackedEffect(() => {
+        $y();
+        innerEffect();
+        onCleanup(innerPureDispose);
+        return () => {
+          innerEffectDispose();
+        };
+      });
       outerEffect();
     });
 
@@ -133,7 +137,9 @@ it("should stop effect", () => {
   const effect = vi.fn($x);
 
   const stopEffect = createRoot(dispose => {
-    createTrackedEffect(() => { effect(); });
+    createTrackedEffect(() => {
+      effect();
+    });
     return dispose;
   });
 
@@ -161,14 +167,12 @@ it("should run all disposals before each new run", () => {
   const [$x, setX] = createSignal(0);
 
   createRoot(() =>
-    createTrackedEffect(
-      () => {
-        fnA(), fnB();
-        $x();
-        effect();
-        return disposeC;
-      }
-    )
+    createTrackedEffect(() => {
+      fnA(), fnB();
+      $x();
+      effect();
+      return disposeC;
+    })
   );
   flush();
 
@@ -192,11 +196,11 @@ it("should dispose of nested effect", () => {
   const innerEffect = vi.fn($x);
 
   const stopEffect = createRoot(dispose => {
-    createTrackedEffect(
-      () => {
-        createTrackedEffect(() => { innerEffect(); });
-      }
-    );
+    createTrackedEffect(() => {
+      createTrackedEffect(() => {
+        innerEffect();
+      });
+    });
 
     return dispose;
   });
@@ -217,7 +221,11 @@ it("should conditionally observe", () => {
   const $a = createMemo(() => ($condition() ? $x() : $y()));
   const effect = vi.fn($a);
 
-  createRoot(() => createTrackedEffect(() => { effect(); }));
+  createRoot(() =>
+    createTrackedEffect(() => {
+      effect();
+    })
+  );
   flush();
 
   expect(effect).toHaveBeenCalledTimes(1);
@@ -250,26 +258,18 @@ it("should dispose of nested conditional effect", () => {
   const disposeB = vi.fn();
 
   function fnA() {
-    createTrackedEffect(
-      () => {
-        return disposeA;
-      }
-    );
+    createTrackedEffect(() => {
+      return disposeA;
+    });
   }
 
   function fnB() {
-    createTrackedEffect(
-      () => {
-        return disposeB;
-      }
-    );
+    createTrackedEffect(() => {
+      return disposeB;
+    });
   }
 
-  createRoot(() =>
-    createTrackedEffect(
-      () => ($condition() ? fnA() : fnB())
-    )
-  );
+  createRoot(() => createTrackedEffect(() => ($condition() ? fnA() : fnB())));
   flush();
   setCondition(false);
   flush();
@@ -285,19 +285,15 @@ it("should handle looped effects", () => {
 
   let x = 0;
   createRoot(() =>
-    createTrackedEffect(
-      () => {
-        x++;
-        values.push($value());
-        for (let i = 0; i < loop; i++) {
-          createTrackedEffect(
-            () => {
-              values.push($value() + i);
-            }
-          );
-        }
+    createTrackedEffect(() => {
+      x++;
+      values.push($value());
+      for (let i = 0; i < loop; i++) {
+        createTrackedEffect(() => {
+          values.push($value() + i);
+        });
       }
-    )
+    })
   );
 
   flush();
@@ -368,17 +364,13 @@ it("should run parent effect before child effect", () => {
   let calls = 0;
 
   createRoot(() =>
-    createTrackedEffect(
-      () => {
-        createTrackedEffect(
-          () => {
-            $x();
-            calls++;
-          }
-        );
-        $condition();
-      }
-    )
+    createTrackedEffect(() => {
+      createTrackedEffect(() => {
+        $x();
+        calls++;
+      });
+      $condition();
+    })
   );
   flush();
   expect(calls).toBe(1);
@@ -407,4 +399,3 @@ it("should run render effect before user effects", () => {
   flush();
   expect(mark).toBe("abab");
 });
-

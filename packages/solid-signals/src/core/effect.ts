@@ -138,15 +138,16 @@ export class Effect<T = any> extends Computation<T> {
 export class TrackedEffect extends Computation {
   _type = EFFECT_USER;
   _cleanup: (() => void) | undefined;
-  constructor(
-    compute: () => void | (() => void),
-    options?: SignalOptions<undefined>
-  ) {
-    super(undefined, () => {
-      this._cleanup?.();
-      this._cleanup = latest(compute) as (() => void) | undefined;
-      return undefined;
-    }, options);
+  constructor(compute: () => void | (() => void), options?: SignalOptions<undefined>) {
+    super(
+      undefined,
+      () => {
+        this._cleanup?.();
+        this._cleanup = latest(compute) as (() => void) | undefined;
+        return undefined;
+      },
+      options
+    );
     getQueue(this).enqueue(this._type, this._run.bind(this));
     if (__DEV__ && !this._parent)
       console.warn("Effects created outside a reactive context will never be disposed");
@@ -220,10 +221,14 @@ export class FirewallComputation extends Computation {
   _run(): void {
     const prevFlags = this._stateFlags;
     this._state !== STATE_CLEAN && runTop(this);
-    if (ActiveTransition && this._optimistic && (this._stateFlags !== prevFlags || this._stateFlags !== (this._optimistic as any).flags)) {
+    if (
+      ActiveTransition &&
+      this._optimistic &&
+      (this._stateFlags !== prevFlags || this._stateFlags !== (this._optimistic as any).flags)
+    ) {
       getQueue(this).notify(this, LOADING_BIT | ERROR_BIT, this._stateFlags);
       (this._optimistic as any).flags = this._stateFlags;
-      this._stateFlags = prevFlags
+      this._stateFlags = prevFlags;
     }
   }
 }

@@ -220,7 +220,10 @@ it("should still resolve in untracked scopes", async () => {
   const effect = vi.fn();
   createRoot(() => {
     const a = createAsync(async1);
-    createEffect(() => untrack(a), v => effect(v));
+    createEffect(
+      () => untrack(a),
+      v => effect(v)
+    );
   });
   expect(effect).toHaveBeenCalledTimes(0);
   flush();

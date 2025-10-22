@@ -157,8 +157,10 @@ export class Transition implements IQueue {
   _running: boolean = false;
   _scheduled: boolean = false;
   _cloned = globalQueue;
+  _signal: Computation;
   created: number = clock;
-  constructor() {
+  constructor(signal: Computation) {
+    this._signal = signal;
     this._clonedQueues.set(globalQueue, this);
     for (const child of globalQueue._children) {
       cloneQueue(child as Queue, this, this);
@@ -185,6 +187,9 @@ export class Transition implements IQueue {
   }
   flush() {
     if (this._running || this._done) return;
+    // update main branch first
+    globalQueue.flush();
+
     this._running = true;
     let currentTransition = ActiveTransition;
     ActiveTransition = this;
@@ -255,7 +260,7 @@ export class Transition implements IQueue {
               try {
                 value = await temp.value;
               } finally {
-                transition = latestTransition(transition)
+                transition = latestTransition(transition);
                 transition._promises.delete(temp.value);
               }
               ActiveTransition = transition;
@@ -291,25 +296,12 @@ export class Transition implements IQueue {
   }
 }
 
-/**
- * Runs the given function in a transition scope, allowing for batch updates and optimizations.
- * This is useful for grouping multiple state updates together to avoid unnecessary re-renders.
- *
- * @param fn A function that receives a resume function to continue the transition.
- * The resume function can be called with another function to continue the transition.
- *
- * @description https://docs.solidjs.com/reference/advanced-reactivity/transition
- */
-export function transition(
-  fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
-): void {
-  let t: Transition = new Transition();
-  queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));
-}
-
 export function cloneGraph(node: Computation): Computation {
   if (node._optimistic) {
-    ActiveTransition!.addOptimistic(node._optimistic);
+    if (node._state !== STATE_DISPOSED) {
+      node._optimistic._init?.();
+      ActiveTransition!.addOptimistic(node._optimistic);
+    }
     return node;
   }
   if (node._transition) {
@@ -494,6 +486,7 @@ function finishTransition(transition: Transition) {
     delete reset._transition;
     reset();
   }
+  transition._signal.write(true);
   // run the queued effects
   globalQueue.flush();
 }

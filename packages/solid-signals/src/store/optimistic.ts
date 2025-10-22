@@ -1,11 +1,7 @@
 import { ActiveTransition, cloneGraph } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 import { reconcile } from "./reconcile.js";
-import {
-  storeSetter,
-  type Store,
-  type StoreSetter
-} from "./store.js";
+import { storeSetter, type Store, type StoreSetter } from "./store.js";
 
 /**
  * Creates an optimistic store that can be used to optimistically update a value
@@ -37,19 +33,21 @@ export function createOptimisticStore<T extends object = {}>(
   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function";
-  const { store, node } = derived ? createProjectionInternal((draft) => {
-    const res = first(draft);
-    if ((reset as any)._transition) return draft;
-    return res;
-  }, second, options) : createProjectionInternal(() => {}, first);
+  const { store, node } = derived
+    ? createProjectionInternal(
+        draft => {
+          const res = first(draft);
+          if ((reset as any)._transition) return draft;
+          return res;
+        },
+        second,
+        options
+      )
+    : createProjectionInternal(() => {}, first);
   const reset = () =>
     storeSetter(
       store,
-      reconcile(
-        derived ? first(store) || store : (first as T),
-        options?.key || "id",
-        options?.all
-      )
+      reconcile(derived ? first(store) || store : (first as T), options?.key || "id", options?.all)
     );
   const write = (v: (v?: T) => T) => {
     if (!ActiveTransition)

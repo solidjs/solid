@@ -1,15 +1,15 @@
 import { SUPPORTS_PROXY } from "../core/index.js";
 import { createMemo } from "../signals.js";
 import {
+  $DELETED,
   $PROXY,
   $TARGET,
-  $DELETED,
   getKeys,
   getPropertyDescriptor,
   isWrappable,
-  storeLookup,
   STORE_OVERRIDE,
   STORE_VALUE,
+  storeLookup,
   type StoreNode
 } from "./store.js";
 
@@ -43,7 +43,7 @@ export function snapshot<T>(item: any, map?: Map<unknown, unknown>, lookup?: Wea
   if (isArray) {
     const len = override?.length || item.length;
     for (let i = 0; i < len; i++) {
-      v = (override && i in override) ? override[i] : item[i];
+      v = override && i in override ? override[i] : item[i];
       if (v === $DELETED) continue; // skip deleted items
       if ((unwrapped = snapshot(v, map, lookup)) !== v || result) {
         if (!result) map.set(item, (result = [...item]));

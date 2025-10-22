@@ -147,7 +147,7 @@ describe("Projection basics", () => {
     expect(tmp);
   });
   it("should fork a signals values", () => {
-    const [$x, setX] = createSignal<{ v: number, y?: number }>({ v: 1 });
+    const [$x, setX] = createSignal<{ v: number; y?: number }>({ v: 1 });
 
     const tmp = vi.fn();
 

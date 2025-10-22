@@ -18,7 +18,6 @@ export {
   hasUpdated,
   isPending,
   latest,
-  transition,
   SUPPORTS_PROXY
 } from "./core/index.js";
 export type { SignalOptions, Context, ContextRecord, Disposable, IQueue } from "./core/index.js";

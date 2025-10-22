@@ -37,7 +37,7 @@ export function createProjectionInternal<T extends object = {}>(
     });
     wrappedMap.set(source, wrapped);
     return wrapped;
-  }
+  };
   const wrappedStore: Store<T> = wrapProjection(initialValue);
   const node = new FirewallComputation(() => {
     storeSetter(wrappedStore, s => {

@@ -5,8 +5,8 @@ import {
   createSignal,
   createStore,
   flush,
-  untrack,
-  snapshot
+  snapshot,
+  untrack
 } from "../../src/index.js";
 import { sharedClone } from "./shared-clone.js";
 

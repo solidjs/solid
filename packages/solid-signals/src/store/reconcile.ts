@@ -18,7 +18,11 @@ function unwrap(value: any) {
 }
 
 function getOverrideValue(value: any, override: any, nodes: any, key: string) {
-  return nodes && key in nodes ? nodes[key].read() : override && key in override ? override[key] : value[key];
+  return nodes && key in nodes
+    ? nodes[key].read()
+    : override && key in override
+      ? override[key]
+      : value[key];
 }
 
 function getAllKeys(value, override, next) {

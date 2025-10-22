@@ -2,6 +2,7 @@ import { TrackedEffect } from "./core/effect.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   ActiveTransition,
+  cloneGraph,
   Computation,
   compute,
   EagerComputation,
@@ -12,9 +13,9 @@ import {
   Owner,
   STATE_DIRTY,
   STATE_DISPOSED,
+  Transition,
   UNINITIALIZED_BIT
 } from "./core/index.js";
-import { cloneGraph, transition } from "./core/scheduler.js";
 
 export type Accessor<T> = () => T;
 
@@ -90,10 +91,13 @@ export function createSignal<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = new Computation<T>(second as any, first as any, third);
-    return [node.wait.bind(node), ((v: any) => {
-      node._updateIfNecessary();
-      return node.write(v)
-    }) as Setter<T | undefined>];
+    return [
+      node.wait.bind(node),
+      ((v: any) => {
+        node._updateIfNecessary();
+        return node.write(v);
+      }) as Setter<T | undefined>
+    ];
   }
   const o = getOwner();
   const needsId = o?.id != null;
@@ -460,11 +464,15 @@ export function createOptimistic<T>(
 ): Signal<T | undefined> {
   const node =
     typeof first === "function"
-      ? new Computation<T>(second as any, (prev: any) => {
-        const res = (first as ComputeFunction<T>)(prev);
-        if ((node._optimistic as any)._transition) return prev;
-        return res;
-      }, third)
+      ? new Computation<T>(
+          second as any,
+          (prev: any) => {
+            const res = (first as ComputeFunction<T>)(prev);
+            if ((node._optimistic as any)._transition) return prev;
+            return res;
+          },
+          third
+        )
       : new Computation(first, null, second as SignalOptions<T>);
   node._optimistic = () => node.write(first as T);
   function write(v: T) {
@@ -479,6 +487,22 @@ export function createOptimistic<T>(
     });
   }
   return [node.wait.bind(node), write] as any;
+}
+
+/**
+ * Runs the given function in a transition scope, allowing for batch updates and optimizations.
+ * This is useful for grouping multiple state updates together to avoid unnecessary re-renders.
+ *
+ * @param fn A function that receives a resume function to continue the transition.
+ * The resume function can be called with another function to continue the transition.
+ *
+ * @description https://docs.solidjs.com/reference/advanced-reactivity/transition
+ */
+export function transition(
+  fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
+): void {
+  let t: Transition = new Transition(new Computation(undefined, null));
+  queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));
 }
 
 /** Allows the user to mark a state change as non-urgent.
