@@ -950,7 +950,7 @@ export interface OnOptions {
  * });
  * ```
  *
- * @description https://docs.solidjs.com/reference/reactive-utilities/on
+ * @description https://docs.solidjs.com/reference/reactive-utilities/on-util
  */
 export function on<S, Next extends Prev, Prev = Next>(
   deps: AccessorArray<S> | Accessor<S>,
@@ -1778,7 +1778,7 @@ type TODO = any;
  *
  * * If the error is thrown again inside the error handler, it will trigger the next available parent handler
  *
- * @description https://www.solidjs.com/docs/latest/api#onerror | https://docs.solidjs.com/reference/reactive-utilities/catch-error
+ * @description https://docs.solidjs.com/reference/reactive-utilities/catch-error
  */
 export function onError(fn: (err: Error) => void): void {
   ERROR || (ERROR = Symbol("error"));
