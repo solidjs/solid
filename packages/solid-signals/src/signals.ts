@@ -8,6 +8,7 @@ import {
   EagerComputation,
   Effect,
   getOwner,
+  latest,
   NotReadyError,
   onCleanup,
   Owner,
@@ -467,9 +468,12 @@ export function createOptimistic<T>(
       ? new Computation<T>(
           second as any,
           (prev: any) => {
-            const res = (first as ComputeFunction<T>)(prev);
-            if ((node._optimistic as any)._transition) return prev;
-            return res;
+            if ((node._optimistic as any)._transition) {
+              // track but don't use
+              latest(() => (first as ComputeFunction<T>)(prev));
+              return prev;
+            }
+            return (first as ComputeFunction<T>)(prev);
           },
           third
         )

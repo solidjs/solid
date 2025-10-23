@@ -1,4 +1,4 @@
-import { ActiveTransition, cloneGraph } from "../core/scheduler.js";
+import { ActiveTransition, latest } from "../core/index.js";
 import { createProjectionInternal } from "./projection.js";
 import { reconcile } from "./reconcile.js";
 import { storeSetter, type Store, type StoreSetter } from "./store.js";
@@ -36,9 +36,11 @@ export function createOptimisticStore<T extends object = {}>(
   const { store, node } = derived
     ? createProjectionInternal(
         draft => {
-          const res = first(draft);
-          if ((reset as any)._transition) return draft;
-          return res;
+          if ((reset as any)._transition) {
+            latest(() => first(draft));
+            return draft;
+          }
+          return first(draft);
         },
         second,
         options
