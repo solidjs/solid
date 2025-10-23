@@ -299,7 +299,7 @@ export class Transition implements IQueue {
 export function cloneGraph(node: Computation): Computation {
   if (node._optimistic) {
     if (node._state !== STATE_DISPOSED) {
-      node._optimistic._init?.();
+      !node._transition && node._optimistic._init?.();
       ActiveTransition!.addOptimistic(node._optimistic);
     }
     return node;
