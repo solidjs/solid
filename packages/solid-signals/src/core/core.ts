@@ -148,6 +148,11 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
   }
 
   _read(): T {
+    if (staleCheck && (this._stateFlags & LOADING_BIT || this._transition)) {
+      staleCheck._value = true;
+      this._transition?._signal.read();
+    }
+
     // When the currentObserver reads this._value, the want to add this computation as a source
     // so that when this._value changes, the currentObserver will be re-executed
     track(this);
@@ -206,11 +211,6 @@ export class Computation<T = any> extends Owner implements SourceType, ObserverT
 
     if ((notStale || this._stateFlags & UNINITIALIZED_BIT) && this._stateFlags & LOADING_BIT) {
       throw new NotReadyError(this);
-    }
-
-    if (staleCheck && (this._stateFlags & LOADING_BIT || this._transition)) {
-      staleCheck._value = true;
-      this._transition?._signal.read();
     }
 
     return this._read();
