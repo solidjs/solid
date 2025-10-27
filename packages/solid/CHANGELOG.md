@@ -1,5 +1,14 @@
 # solid-js
 
+## 1.9.10
+
+### Patch Changes
+
+- 2270ae9: Fix: Collision during SSR in createResource due to `loading` property.
+- 94d87f1: Update `build:clean` and `types:clean` script to include missing paths
+- 3114302: Improve `splitProps` performance
+- 6c92555: Update dom-expressions, seroval plugins, optional chaining ref, style optimization
+
 ## 1.9.9
 
 ### Patch Changes

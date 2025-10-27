@@ -1,5 +1,16 @@
 # babel-preset-solid
 
+## 1.9.10
+
+### Patch Changes
+
+- 6c92555: Update dom-expressions, seroval plugins, optional chaining ref, style optimization
+- Updated dependencies [2270ae9]
+- Updated dependencies [94d87f1]
+- Updated dependencies [3114302]
+- Updated dependencies [6c92555]
+  - solid-js@1.9.10
+
 ## 1.9.9
 
 ### Patch Changes
