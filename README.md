@@ -188,7 +188,7 @@ Solid is built on established tools like JSX and TypeScript and integrates with 
 
 ## More
 
-Check out our official [documentation](https://www.solidjs.com/guide) or browse some [examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
+Check out our official [documentation](https://docs.solidjs.com) or browse some [examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
 
 ## Browser Support
 
