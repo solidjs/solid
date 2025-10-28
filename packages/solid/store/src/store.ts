@@ -1,4 +1,4 @@
-import { getListener, batch, DEV, $PROXY, $TRACK, createSignal } from "solid-js";
+import { $PROXY, $TRACK, batch, createSignal, DEV, getListener } from "solid-js";
 
 // replaced during build
 export const IS_DEV = "_SOLID_DEV_" as string | boolean;
@@ -52,11 +52,27 @@ function wrap<T extends StoreNode>(value: T): T {
     Object.defineProperty(value, $PROXY, { value: (p = new Proxy(value, proxyTraps)) });
     if (!Array.isArray(value)) {
       const keys = Object.keys(value),
-        desc = Object.getOwnPropertyDescriptors(value);
+        desc = Object.getOwnPropertyDescriptors(value),
+        proto = Object.getPrototypeOf(value);
+
+      const isClass =
+        proto !== null &&
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        proto !== Object.prototype;
+      if (isClass) {
+        const descriptors = Object.getOwnPropertyDescriptors(proto);
+        keys.push(...Object.keys(descriptors));
+        Object.assign(desc, descriptors);
+      }
+
       for (let i = 0, l = keys.length; i < l; i++) {
         const prop = keys[i];
+        if (isClass && prop === "constructor") continue;
         if (desc[prop].get) {
           Object.defineProperty(value, prop, {
+            configurable: true,
             enumerable: desc[prop].enumerable,
             get: desc[prop].get!.bind(p)
           });
