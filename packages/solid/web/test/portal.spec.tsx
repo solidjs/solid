@@ -25,6 +25,56 @@ describe("Testing a simple Portal", () => {
   });
 });
 
+describe("Testing an Portal custom container", () => {
+  let div = document.createElement("div"),
+    disposer: () => void;
+  const testMount = document.createElement("div");
+  const Component = () => (
+    <Portal mount={testMount} asElement="section">
+      Hi
+    </Portal>
+  );
+
+  test("Create portal control flow", () => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("");
+    const container = testMount.firstChild as HTMLElement & { _$host: HTMLElement };
+    expect(container.tagName).toBe("SECTION");
+    expect(container.innerHTML).toBe("Hi");
+    expect(container._$host).toBe(div);
+  });
+
+  test("dispose", () => {
+    disposer();
+    expect(div.innerHTML).toBe("");
+  });
+});
+
+describe('Testing Portal "class" property', () => {
+  let div = document.createElement("div"),
+    disposer: () => void;
+  const testMount = document.createElement("div");
+  const Component = () => (
+    <Portal mount={testMount} class={["flex flex-col", "text-gold bg-red"]}>
+      ★
+    </Portal>
+  );
+
+  test("Create portal control flow", () => {
+    disposer = render(Component, div);
+    expect(div.innerHTML).toBe("");
+    const container = testMount.firstChild as HTMLElement & { _$host: HTMLElement };
+    expect(container.classList.toString()).toBe("flex flex-col text-gold bg-red");
+    expect(container.innerHTML).toBe("★");
+    expect(container._$host).toBe(div);
+  });
+
+  test("dispose", () => {
+    disposer();
+    expect(div.innerHTML).toBe("");
+  });
+});
+
 describe("Testing an SVG Portal", () => {
   let div = document.createElement("div"),
     disposer: () => void;
