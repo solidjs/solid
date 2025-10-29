@@ -240,7 +240,17 @@ function resolveChildren(children: any): unknown {
     const results: any[] = [];
     for (let i = 0; i < children.length; i++) {
       const result = resolveChildren(children[i]);
-      Array.isArray(result) ? results.push.apply(results, result) : results.push(result);
+      if (Array.isArray(result)) {
+        if (result.length > 32768) {
+          for (let i = 0; i < result.length; i += 32768) {
+            results.push.apply(results, result.slice(i, Math.min(i + 32768, result.length)));
+          }
+        } else {
+          results.push.apply(results, result);
+        }
+      } else {
+        results.push(result);
+      }
     }
     return results;
   }
