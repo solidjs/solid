@@ -84,8 +84,8 @@ export interface SourceMapValue {
 
 export interface SignalState<T> extends SourceMapValue {
   value: T;
-  observers: Computation<any>[] | null;
-  observerSlots: number[] | null;
+  observers: ReactiveLink | null;
+  observersTail: ReactiveLink | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
   // development-only
@@ -101,15 +101,25 @@ export interface Owner {
   name?: string;
 }
 
+interface ReactiveLink {
+  source: SignalState<unknown> | Memo<any>;
+  observer: Computation<any>;
+  nextSource: ReactiveLink | null;
+  prevObserver: ReactiveLink | null;
+  nextObserver: ReactiveLink | null;
+  version: number;
+}
+
 export interface Computation<Init, Next extends Init = Init> extends Owner {
   fn: EffectFunction<Init, Next>;
   state: ComputationState;
   tState?: ComputationState;
-  sources: SignalState<Next>[] | null;
-  sourceSlots: number[] | null;
+  sources: ReactiveLink | null;
+  sourcesTail: ReactiveLink | null;
   value?: Init;
   updatedAt: number | null;
   pure: boolean;
+  relinkTime: number;
   user?: boolean;
   suspense?: SuspenseContextType;
 }
@@ -169,7 +179,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
               throw new Error("Dispose method must be an explicit argument to createRoot function");
             })
         : fn
-      : () => fn(() => untrack(() => cleanNode(root)));
+      : () => fn(() => untrack(() => cleanupRoot(root)));
 
   if (IS_DEV) DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
 
@@ -235,7 +245,7 @@ export function createSignal<T>(
   const s: SignalState<T | undefined> = {
     value,
     observers: null,
-    observerSlots: null,
+    observersTail: null,
     comparator: options.equals || undefined
   };
 
@@ -455,7 +465,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
   ) as Partial<Memo<Init, Next>>;
 
   c.observers = null;
-  c.observerSlots = null;
+  c.observersTail = null;
   c.comparator = options.equals || undefined;
   if (Scheduler && Transition && Transition.running) {
     c.tState = STALE;
@@ -1146,7 +1156,7 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   ) as DevComponent<P>;
   c.props = props;
   c.observers = null;
-  c.observerSlots = null;
+  c.observersTail = null;
   c.name = Comp.name;
   c.component = Comp;
   updateComputation(c);
@@ -1306,24 +1316,53 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
     }
   }
   if (Listener) {
-    const sSlot = this.observers ? this.observers.length : 0;
-    if (!Listener.sources) {
-      Listener.sources = [this];
-      Listener.sourceSlots = [sSlot];
-    } else {
-      Listener.sources.push(this);
-      Listener.sourceSlots!.push(sSlot);
-    }
-    if (!this.observers) {
-      this.observers = [Listener];
-      this.observerSlots = [Listener.sources.length - 1];
-    } else {
-      this.observers.push(Listener);
-      this.observerSlots!.push(Listener.sources.length - 1);
-    }
+    link(this, Listener);
   }
   if (runningTransition && Transition!.sources.has(this)) return this.tValue;
   return this.value;
+}
+
+function link(source: SignalState<any> | Memo<any>, observer: Computation<any>) {
+  const prevSource = observer.sourcesTail;
+  if (prevSource !== null && prevSource.source === source) {
+    return;
+  }
+  const nextSource = prevSource !== null ? prevSource.nextSource : observer.sources;
+  const time = observer.relinkTime;
+  if (nextSource !== null && nextSource.source === source) {
+    nextSource.version = time;
+    observer.sourcesTail = nextSource;
+    return;
+  }
+  const prevObserver = source.observersTail;
+  if (
+    prevObserver !== null &&
+    prevObserver.version === observer.relinkTime &&
+    prevObserver.observer === observer
+  ) {
+    return;
+  }
+  const newLink =
+    (observer.sourcesTail =
+    source.observersTail =
+      {
+        source: source,
+        observer: observer,
+        nextSource: nextSource,
+        prevObserver: prevObserver,
+        nextObserver: null,
+        version: time
+      });
+  if (prevSource !== null) {
+    prevSource.nextSource = newLink;
+  } else {
+    observer.sources = newLink;
+  }
+  if (prevObserver !== null) {
+    prevObserver.nextObserver = newLink;
+  } else {
+    source.observers = newLink;
+  }
 }
 
 export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isComp?: boolean) {
@@ -1338,10 +1377,12 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
       }
       if (!TransitionRunning) node.value = value;
     } else node.value = value;
-    if (node.observers && node.observers.length) {
+    if (node.observers && node.observers) {
       runUpdates(() => {
-        for (let i = 0; i < node.observers!.length; i += 1) {
-          const o = node.observers![i];
+        for (let link = node.observers; link !== null; link = link.nextObserver) {
+          const o = link.observer;
+          if (link.version < o.relinkTime) continue;
+
           const TransitionRunning = Transition && Transition.running;
           if (TransitionRunning && Transition!.disposed.has(o)) continue;
           if (TransitionRunning ? !o.tState : !o.state) {
@@ -1365,7 +1406,9 @@ export function writeSignal(node: SignalState<any> | Memo<any>, value: any, isCo
 
 function updateComputation(node: Computation<any>) {
   if (!node.fn) return;
-  cleanNode(node);
+  node.sourcesTail = null;
+  node.relinkTime = ExecCount;
+  cleanupRoot(node);
   const time = ExecCount;
   runComputation(
     node,
@@ -1374,6 +1417,7 @@ function updateComputation(node: Computation<any>) {
       : node.value,
     time
   );
+  afterComputation(node);
 
   if (Transition && !Transition.running && Transition.sources.has(node as Memo<any>)) {
     queueMicrotask(() => {
@@ -1398,11 +1442,11 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     if (node.pure) {
       if (Transition && Transition.running) {
         node.tState = STALE;
-        (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(cleanNode);
+        (node as Memo<any>).tOwned && (node as Memo<any>).tOwned!.forEach(destroyNode);
         (node as Memo<any>).tOwned = undefined;
       } else {
         node.state = STALE;
-        node.owned && node.owned.forEach(cleanNode);
+        node.owned && node.owned.forEach(destroyNode);
         node.owned = null;
       }
     }
@@ -1437,10 +1481,11 @@ function createComputation<Next, Init = unknown>(
     updatedAt: null,
     owned: null,
     sources: null,
-    sourceSlots: null,
+    sourcesTail: null,
     cleanups: null,
     value: init,
     owner: Owner,
+    relinkTime: 0,
     context: Owner ? Owner.context : null,
     pure
   };
@@ -1557,12 +1602,12 @@ function completeUpdates(wait: boolean) {
       }
       Transition = null;
       runUpdates(() => {
-        for (const d of disposed) cleanNode(d);
+        for (const d of disposed) destroyNode(d);
         for (const v of sources) {
           v.value = v.tValue;
           if ((v as Memo<any>).owned) {
             for (let i = 0, len = (v as Memo<any>).owned!.length; i < len; i++)
-              cleanNode((v as Memo<any>).owned![i]);
+              destroyNode((v as Memo<any>).owned![i]);
           }
           if ((v as Memo<any>).tOwned) (v as Memo<any>).owned = (v as Memo<any>).tOwned!;
           delete v.tValue;
@@ -1636,8 +1681,8 @@ function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
   const runningTransition = Transition && Transition.running;
   if (runningTransition) node.tState = 0;
   else node.state = 0;
-  for (let i = 0; i < node.sources!.length; i += 1) {
-    const source = node.sources![i] as Memo<any>;
+  for (let link = node.sources; link !== null; link = link.nextSource) {
+    const source = link.source as Memo<any>;
     if (source.sources) {
       const state = runningTransition ? source.tState : source.state;
       if (state === STALE) {
@@ -1650,8 +1695,9 @@ function lookUpstream(node: Computation<any>, ignore?: Computation<any>) {
 
 function markDownstream(node: Memo<any>) {
   const runningTransition = Transition && Transition.running;
-  for (let i = 0; i < node.observers!.length; i += 1) {
-    const o = node.observers![i];
+  for (let link = node.observers; link !== null; link = link.nextObserver) {
+    const o = link.observer;
+    if (link.version < o.relinkTime) continue;
     if (runningTransition ? !o.tState : !o.state) {
       if (runningTransition) o.tState = PENDING;
       else o.state = PENDING;
@@ -1662,44 +1708,73 @@ function markDownstream(node: Memo<any>) {
   }
 }
 
-function cleanNode(node: Owner) {
+function cleanupRoot(node: Owner) {
   let i;
-  if ((node as Computation<any>).sources) {
-    while ((node as Computation<any>).sources!.length) {
-      const source = (node as Computation<any>).sources!.pop()!,
-        index = (node as Computation<any>).sourceSlots!.pop()!,
-        obs = source.observers;
-      if (obs && obs.length) {
-        const n = obs.pop()!,
-          s = source.observerSlots!.pop()!;
-        if (index < obs.length) {
-          n.sourceSlots![s] = index;
-          obs[index] = n;
-          source.observerSlots![index] = s;
-        }
-      }
-    }
-  }
 
   if ((node as Memo<any>).tOwned) {
     for (i = (node as Memo<any>).tOwned!.length - 1; i >= 0; i--)
-      cleanNode((node as Memo<any>).tOwned![i]);
+      destroyNode((node as Memo<any>).tOwned![i]);
     delete (node as Memo<any>).tOwned;
   }
   if (Transition && Transition.running && (node as Memo<any>).pure) {
     reset(node as Computation<any>, true);
   } else if (node.owned) {
-    for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
+    for (i = node.owned.length - 1; i >= 0; i--) destroyNode(node.owned[i]);
+
     node.owned = null;
   }
 
   if (node.cleanups) {
-    for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
+    for (let i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
     node.cleanups = null;
   }
   if (Transition && Transition.running) (node as Computation<any>).tState = 0;
   else (node as Computation<any>).state = 0;
   IS_DEV && delete node.sourceMap;
+}
+
+function afterComputation(node: Computation<any>) {
+  const sourcesTail = node.sourcesTail as ReactiveLink | null;
+  let toRemove = sourcesTail !== null ? sourcesTail.nextSource : node.sources;
+  if (toRemove !== null) {
+    do {
+      toRemove = unlinkFromObservers(toRemove);
+    } while (toRemove !== null);
+    if (sourcesTail !== null) {
+      sourcesTail.nextSource = null;
+    } else {
+      node.sources = null;
+    }
+  }
+}
+
+function unlinkFromObservers(link: ReactiveLink): ReactiveLink | null {
+  const source = link.source;
+  const nextSource = link.nextSource;
+  const nextObserver = link.nextObserver;
+  const prevObserver = link.prevObserver;
+  if (nextObserver !== null) {
+    nextObserver.prevObserver = prevObserver;
+  } else {
+    source.observersTail = prevObserver;
+  }
+  if (prevObserver !== null) {
+    prevObserver.nextObserver = nextObserver;
+  } else {
+    source.observers = nextObserver;
+  }
+  return nextSource;
+}
+
+function destroyNode(node: Computation<any>) {
+  let link = node.sources;
+  while (link) {
+    link = unlinkFromObservers(link);
+  }
+  node.sources = null;
+  node.sourcesTail = null;
+
+  cleanupRoot(node);
 }
 
 function reset(node: Computation<any>, top?: boolean) {
@@ -1735,6 +1810,7 @@ function handleError(err: unknown, owner = Owner) {
       fn() {
         runErrors(error, fns, owner);
       },
+      sources: null,
       state: STALE
     } as unknown as Computation<any>);
   else runErrors(error, fns, owner);
