@@ -1,6 +1,7 @@
 export class NotReadyError extends Error {
-  constructor(public cause: any) {
+  constructor(node: any) {
     super();
+    this.cause = node;
   }
 }
 

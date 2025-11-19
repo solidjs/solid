@@ -1,15 +1,21 @@
-import { createRoot } from "./core/core.js";
+import { TrackedEffect } from "./core/effect.js";
 import type { SignalOptions } from "./core/index.js";
 import {
-  asyncComputed,
-  computed,
-  effect,
-  getNextChildId,
+  ActiveTransition,
+  cloneGraph,
+  Computation,
+  compute,
+  EagerComputation,
+  Effect,
   getOwner,
+  latest,
   NotReadyError,
-  read,
-  setSignal,
-  signal,
+  onCleanup,
+  Owner,
+  STATE_DIRTY,
+  STATE_DISPOSED,
+  Transition,
+  UNINITIALIZED_BIT
 } from "./core/index.js";
 
 export type Accessor<T> = () => T;
@@ -85,22 +91,23 @@ export function createSignal<T>(
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = computed<T>(first as any, second as any, third);
+    const node = new Computation<T>(second as any, first as any, third);
     return [
-      read.bind(null, node as any) as Accessor<T | undefined>,
-      setSignal.bind(null, node as any) as Setter<T | undefined>
+      node.wait.bind(node),
+      ((v: any) => {
+        node._updateIfNecessary();
+        return node.write(v);
+      }) as Setter<T | undefined>
     ];
   }
   const o = getOwner();
-  const needsId = o?._id != null;
-  const node = signal<T>(
-    first as any,
-    needsId ? { id: getNextChildId(o), ...second } : (second as SignalOptions<T>)
+  const needsId = o?.id != null;
+  const node = new Computation(
+    first,
+    null,
+    needsId ? { id: o.getNextChildId(), ...second } : (second as SignalOptions<T>)
   );
-  return [
-    read.bind(null, node as any) as Accessor<T>,
-    setSignal.bind(null, node as any) as Setter<T | undefined>
-  ];
+  return [node.read.bind(node), node.write.bind(node) as Setter<T | undefined>];
 }
 
 /**
@@ -134,8 +141,32 @@ export function createMemo<Next extends Prev, Init, Prev>(
   value?: Init,
   options?: MemoOptions<Next>
 ): Accessor<Next> {
-  let node = computed<Next>(compute as any, value as any, options);
-  return read.bind(null, node as any) as Accessor<Next>;
+  let node: Computation<Next> | undefined = new Computation<Next>(
+    value as any,
+    compute as any,
+    options
+  );
+  let resolvedValue: Next;
+  return () => {
+    if (node) {
+      if (node._state === STATE_DISPOSED) {
+        node = undefined;
+        return resolvedValue;
+      }
+      resolvedValue = node.wait();
+      // no sources so will never update so can be disposed.
+      // additionally didn't create nested reactivity so can be disposed.
+      if (
+        !node._sources?.length &&
+        node._nextSibling?._parent !== node &&
+        !(node._stateFlags & UNINITIALIZED_BIT)
+      ) {
+        node.dispose();
+        node = undefined;
+      }
+    }
+    return resolvedValue;
+  };
 }
 
 /**
@@ -160,12 +191,76 @@ export function createAsync<T>(
 ): Accessor<T> & {
   refresh: () => void;
 } {
-  const node = asyncComputed<T>(compute as any, value as any, options);
-  const ret = read.bind(null, node as any) as Accessor<T> & {
+  let refreshing = false;
+  const node = new EagerComputation(
+    value as T,
+    (p?: T) => {
+      const source = compute(p, refreshing);
+      refreshing = false;
+      const isPromise = source instanceof Promise;
+      const iterator = source[Symbol.asyncIterator];
+      if (!isPromise && !iterator) {
+        return source as T;
+      }
+      let abort = false;
+      onCleanup(() => (abort = true));
+      let transition = ActiveTransition;
+      if (isPromise) {
+        source.then(
+          value3 => {
+            if (abort) return;
+            if (transition)
+              return transition.runTransition(() => {
+                node.write(value3, 0, true);
+              }, true);
+            node.write(value3, 0, true);
+          },
+          error => {
+            if (abort) return;
+            if (transition) return transition.runTransition(() => node._setError(error), true);
+            node._setError(error);
+          }
+        );
+      } else {
+        (async () => {
+          try {
+            for await (let value3 of source as AsyncIterable<T>) {
+              if (abort) return;
+              if (transition)
+                return transition.runTransition(() => {
+                  node.write(value3, 0, true);
+                  transition = null;
+                }, true);
+              node.write(value3, 0, true);
+            }
+          } catch (error: any) {
+            if (abort) return;
+            if (transition)
+              return transition.runTransition(() => {
+                node._setError(error);
+                transition = null;
+              }, true);
+            node._setError(error);
+          }
+        })();
+      }
+      throw new NotReadyError(getOwner());
+    },
+    options
+  );
+  const read = node.wait.bind(node) as Accessor<T> & {
     refresh: () => void;
   };
-  ret.refresh = node._refresh;
-  return ret;
+  read.refresh = () => {
+    let n = node;
+    if (ActiveTransition && !node._cloned) {
+      n = cloneGraph(node) as EagerComputation<T>;
+    }
+    n._state = STATE_DIRTY;
+    refreshing = true;
+    n._updateIfNecessary();
+  };
+  return read;
 }
 
 /**
@@ -188,7 +283,7 @@ export function createAsync<T>(
  */
 export function createEffect<Next>(
   compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effectFn: EffectFunction<NoInfer<Next>, Next> | EffectBundle<NoInfer<Next>, Next>
+  effect: EffectFunction<NoInfer<Next>, Next> | EffectBundle<NoInfer<Next>, Next>
 ): void;
 export function createEffect<Next, Init = Next>(
   compute: ComputeFunction<Init | Next, Next>,
@@ -198,15 +293,15 @@ export function createEffect<Next, Init = Next>(
 ): void;
 export function createEffect<Next, Init>(
   compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
+  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
   value?: Init,
   options?: EffectOptions
 ): void {
-  void effect(
-    compute as any,
-    (effectFn as any).effect || effectFn,
-    (effectFn as any).error,
+  void new Effect(
     value as any,
+    compute as any,
+    (effect as any).effect || effect,
+    (effect as any).error,
     __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
   );
 }
@@ -230,21 +325,21 @@ export function createEffect<Next, Init>(
  */
 export function createRenderEffect<Next>(
   compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effectFn: EffectFunction<NoInfer<Next>, Next>
+  effect: EffectFunction<NoInfer<Next>, Next>
 ): void;
 export function createRenderEffect<Next, Init = Next>(
   compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next>,
+  effect: EffectFunction<Next, Next>,
   value: Init,
   options?: EffectOptions
 ): void;
 export function createRenderEffect<Next, Init>(
   compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next>,
+  effect: EffectFunction<Next, Next>,
   value?: Init,
   options?: EffectOptions
 ): void {
-  void effect(compute as any, effectFn, undefined, value as any, {
+  void new Effect(value as any, compute as any, effect, undefined, {
     render: true,
     ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
   });
@@ -267,7 +362,7 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: EffectOptions
 ): void {
-  // void new TrackedEffect(compute, options);
+  void new TrackedEffect(compute, options);
 }
 
 /**
@@ -287,24 +382,50 @@ export function createReaction(
   effect: EffectFunction<undefined> | EffectBundle<undefined>,
   options?: EffectOptions
 ) {
-  // let cleanup: (() => void) | undefined = undefined;
-  // onCleanup(() => cleanup?.());
-  // return (tracking: () => void) => {
-  //   const node = new Effect(
-  //     undefined,
-  //     tracking,
-  //     () => {
-  //       cleanup?.();
-  //       cleanup = ((effect as any).effect || effect)?.();
-  //       node.dispose(true);
-  //     },
-  //     (effect as any).error,
-  //     {
-  //       defer: true,
-  //       ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
-  //     }
-  //   );
-  // };
+  let cleanup: (() => void) | undefined = undefined;
+  onCleanup(() => cleanup?.());
+  return (tracking: () => void) => {
+    const node = new Effect(
+      undefined,
+      tracking,
+      () => {
+        cleanup?.();
+        cleanup = ((effect as any).effect || effect)?.();
+        node.dispose(true);
+      },
+      (effect as any).error,
+      {
+        defer: true,
+        ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+      }
+    );
+  };
+}
+
+/**
+ * Creates a new non-tracked reactive context with manual disposal
+ *
+ * @param fn a function in which the reactive state is scoped
+ * @returns the output of `fn`.
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
+ */
+export function createRoot<T>(
+  init: ((dispose: () => void) => T) | (() => T),
+  options?: { id: string }
+): T {
+  const owner = new Owner(options?.id);
+  return compute(owner, !init.length ? (init as () => T) : () => init(() => owner.dispose()), null);
+}
+
+/**
+ * Runs the given function in the given owner to move ownership of nested primitives and cleanups.
+ * This method untracks the current scope.
+ *
+ * Warning: Usually there are simpler ways of modeling a problem that avoid using this function
+ */
+export function runWithOwner<T>(owner: Owner | null, run: () => T): T {
+  return compute(owner, run, null);
 }
 
 /**
@@ -314,7 +435,7 @@ export function createReaction(
 export function resolve<T>(fn: () => T): Promise<T> {
   return new Promise((res, rej) => {
     createRoot(dispose => {
-      computed(() => {
+      new EagerComputation(undefined, () => {
         try {
           res(fn());
         } catch (err) {
@@ -342,6 +463,72 @@ export function createOptimistic<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
-  // TODO: Implement proper optimistic updates
-  return {} as any;
+  const node =
+    typeof first === "function"
+      ? new Computation<T>(
+          second as any,
+          (prev: any) => {
+            if ((node._optimistic as any)._transition) {
+              // track but don't use
+              latest(() => (first as ComputeFunction<T>)(prev));
+              return prev;
+            }
+            return (first as ComputeFunction<T>)(prev);
+          },
+          third
+        )
+      : new Computation(first, null, second as SignalOptions<T>);
+  node._optimistic = () => node.write(first as T);
+  function write(v: T) {
+    if (!ActiveTransition)
+      throw new Error("createOptimistic can only be updated inside a transition");
+    ActiveTransition.addOptimistic(node._optimistic!);
+    queueMicrotask(() => {
+      if ((node._optimistic as any)._transition) {
+        node._updateIfNecessary();
+        node.write(v);
+      }
+    });
+  }
+  return [node.wait.bind(node), write] as any;
+}
+
+/**
+ * Runs the given function in a transition scope, allowing for batch updates and optimizations.
+ * This is useful for grouping multiple state updates together to avoid unnecessary re-renders.
+ *
+ * @param fn A function that receives a resume function to continue the transition.
+ * The resume function can be called with another function to continue the transition.
+ *
+ * @description https://docs.solidjs.com/reference/advanced-reactivity/transition
+ */
+export function transition(
+  fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
+): void {
+  let t: Transition = new Transition(new Computation(undefined, null));
+  queueMicrotask(() => t.runTransition(() => fn(fn => t.runTransition(fn))));
+}
+
+/** Allows the user to mark a state change as non-urgent.
+ *
+ * @see {@link https://docs.solidjs.com/reference/advanced-reactivity/transition}
+ *
+ * @returns A tuple containing an accessor for the pending state and a function to start a transition.
+ */
+export function useTransition(): [
+  get: Accessor<boolean>,
+  start: (
+    fn: (resume: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
+  ) => void
+] {
+  const [pending, setPending] = createOptimistic(false);
+  function start(
+    fn: (v: (fn: () => any | Promise<any>) => void) => any | Promise<any> | Iterable<any>
+  ) {
+    transition(resume => {
+      setPending(true);
+      return fn(resume);
+    });
+  }
+  return [pending, start];
 }
