@@ -13,7 +13,7 @@ export {
   isEqual,
   untrack,
   isPending,
-  latest,
+  pending,
   SUPPORTS_PROXY
 } from "./core/index.js";
 export type { Owner, SignalOptions, Context, ContextRecord, IQueue } from "./core/index.js";

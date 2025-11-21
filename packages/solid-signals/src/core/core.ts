@@ -10,13 +10,12 @@ import {
 import {
   activeTransition,
   clock,
-  dirty,
+  dirtyQueue,
   flush,
   globalQueue,
-  pending,
+  pendingQueue,
   Queue,
   schedule,
-  transitionComplete,
   type IQueue,
   type Transition
 } from "./scheduler.js";
@@ -54,6 +53,7 @@ export interface RawSignal<T> {
   _time: number;
   _pendingValue: T | typeof NOT_PENDING;
   _pendingCheck?: Signal<boolean> & { _set: (v: boolean) => void };
+  _pendingSignal?: Signal<T> & { _set: (v: T) => void };
   _transition?: Transition;
 }
 
@@ -97,12 +97,13 @@ Queue._update = recompute;
 Queue._dispose = disposeChildren;
 let tracking = true;
 let stale = false;
-let staleCheck: null | { _value: boolean } = null;
+let pendingValueCheck = false;
+let pendingCheck: null | { _value: boolean } = null;
 let context: Owner | null = null;
 const defaultContext = {};
 
 function recompute(el: Computed<any>, create: boolean = false): void {
-  deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? pending : dirty);
+  deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
   if (el._pendingValue !== NOT_PENDING || el._pendingFirstChild || el._pendingDisposal)
     disposeChildren(el);
   else {
@@ -122,6 +123,7 @@ function recompute(el: Computed<any>, create: boolean = false): void {
   let oldHeight = el._height;
   el._time = clock;
   let prevStatusFlags = el._statusFlags;
+  let prevError = el._error;
   clearStatusFlags(el);
   try {
     value = el._fn(value);
@@ -151,23 +153,24 @@ function recompute(el: Computed<any>, create: boolean = false): void {
   const valueChanged =
     !el._equals ||
     !el._equals(el._pendingValue === NOT_PENDING ? el._value : el._pendingValue, value);
-  const statusFlagsChanged = el._statusFlags !== prevStatusFlags;
+  const statusFlagsChanged = el._statusFlags !== prevStatusFlags || el._error !== prevError;
 
   if (valueChanged || statusFlagsChanged) {
     if (valueChanged) {
-      if (create || (el as any)._type) el._value = value;
+      if (create || (el as any)._optimistic || (el as any)._type) el._value = value;
       else {
         if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
         el._pendingValue = value;
       }
+      if (el._pendingSignal) el._pendingSignal._set(value);
     }
 
     for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeap(s._sub, s._sub._flags & ReactiveFlags.Zombie ? pending : dirty);
+      insertIntoHeap(s._sub, s._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
     }
   } else if (el._height != oldHeight) {
     for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeapHeight(s._sub, s._sub._flags & ReactiveFlags.Zombie ? pending : dirty);
+      insertIntoHeapHeight(s._sub, s._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
     }
   }
 }
@@ -291,8 +294,8 @@ function markDisposal(el: Owner): void {
     (child as Computed<unknown>)._flags |= ReactiveFlags.Zombie;
     const inHeap = (child as Computed<unknown>)._flags & ReactiveFlags.InHeap;
     if (inHeap) {
-      deleteFromHeap(child as Computed<unknown>, dirty);
-      insertIntoHeap(child as Computed<unknown>, pending);
+      deleteFromHeap(child as Computed<unknown>, dirtyQueue);
+      insertIntoHeap(child as Computed<unknown>, pendingQueue);
     }
     markDisposal(child);
     child = child._nextSibling;
@@ -305,7 +308,7 @@ function disposeChildren(node: Owner, zombie?: boolean): void {
     const nextChild = child._nextSibling;
     if ((child as Computed<unknown>)._deps) {
       const n = child as Computed<unknown>;
-      deleteFromHeap(n, n._flags & ReactiveFlags.Zombie ? pending : dirty);
+      deleteFromHeap(n, n._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
       let toRemove = n._deps;
       do {
         toRemove = unlinkSubs(toRemove!);
@@ -348,7 +351,7 @@ function withOptions<T>(obj: T, options?: SignalOptions<any> & { _internal?: any
   (obj as any)._equals = options?.equals !== undefined ? options.equals : isEqual;
   (obj as any)._pureWrite = !!options?.pureWrite;
   (obj as any)._unobserved = options?.unobserved;
-  if (options?._internal) Object.assign((obj as any), options._internal);
+  if (options?._internal) Object.assign(obj as any, options._internal);
   return obj as T & {
     _id?: string;
     _name?: string;
@@ -428,7 +431,7 @@ export function computed<T>(
         recompute(self, true);
       } else {
         self._height = parent._height + 1;
-        insertIntoHeap(self, dirty);
+        insertIntoHeap(self, dirtyQueue);
       }
     }
   } else {
@@ -572,9 +575,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     const owner = ("_owner" in el ? el._owner : el) as Computed<any>;
     if ("_fn" in owner) {
       const isZombie = (el as Computed<unknown>)._flags & ReactiveFlags.Zombie;
-      if (owner._height >= (isZombie ? pending._min : dirty._min)) {
+      if (owner._height >= (isZombie ? pendingQueue._min : dirtyQueue._min)) {
         markNode(c as Computed<any>);
-        markHeap(isZombie ? pending : dirty);
+        markHeap(isZombie ? pendingQueue : dirtyQueue);
         updateIfNecessary(owner);
       }
       const height = owner._height;
@@ -583,21 +586,39 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       }
     }
   }
-  if (staleCheck) {
+  if (pendingCheck) {
     if (!el._pendingCheck) {
-      el._pendingCheck = signal<boolean>((el._statusFlags & StatusFlags.Pending) !== 0 || !!el._transition || false) as Signal<boolean> & { _set: (v: boolean) => void };
+      el._pendingCheck = signal<boolean>(
+        (el._statusFlags & StatusFlags.Pending) !== 0 || !!el._transition || false
+      ) as Signal<boolean> & { _set: (v: boolean) => void };
+      (el._pendingCheck as any)._optimistic = true;
       el._pendingCheck._set = v => setSignal(el._pendingCheck!, v);
     }
-    const prev = staleCheck;
-    staleCheck = null;
+    const prev = pendingCheck;
+    pendingCheck = null;
     prev._value = read(el._pendingCheck) || prev._value;
-    staleCheck = prev;
+    pendingCheck = prev;
+  }
+  if (pendingValueCheck) {
+    if (!el._pendingSignal) {
+      el._pendingSignal = signal<T>(
+        el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)
+      ) as Signal<T> & { _set: (v: T) => void };
+      (el._pendingSignal as any)._optimistic = true;
+      el._pendingSignal._set = v => queueMicrotask(() => queueMicrotask(() => setSignal(el._pendingSignal!, v)));
+    }
+    pendingValueCheck = false;
+    try {
+      return read(el._pendingSignal);
+    } finally {
+      pendingValueCheck = true;
+    }
   }
   if (el._statusFlags & StatusFlags.Pending) {
     if ((c && !stale) || el._statusFlags & StatusFlags.Uninitialized) throw el._error;
-    else if (c && stale && !staleCheck) {
+    else if (c && stale && !pendingCheck) {
       setStatusFlags(
-        (c as Computed<any>),
+        c as Computed<any>,
         (c as Computed<any>)._statusFlags | 1 /* Pending */,
         el._error as Error
       );
@@ -613,10 +634,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
   }
   return !c ||
-    (stale &&
-      (el._transition || activeTransition?.pendingNodes.includes(el)) &&
-      !transitionComplete(el._transition || activeTransition!)) ||
-    el._pendingValue === NOT_PENDING
+    el._pendingValue === NOT_PENDING ||
+    (stale && !pendingCheck && el._transition && activeTransition !== el._transition)
     ? el._value
     : (el._pendingValue as T);
 }
@@ -627,17 +646,23 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
       el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)
     );
   }
-  const valueChanged = el._pendingValue === NOT_PENDING ? el._value !== v : el._pendingValue !== v;
+  const valueChanged =
+    !el._equals ||
+    !el._equals(el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T), v);
   if (!valueChanged && !el._statusFlags) return;
   if (valueChanged) {
-    if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
-    el._pendingValue = v;
+    if ((el as any)._optimistic) el._value = v;
+    else {
+      if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
+      el._pendingValue = v;
+    }
+    if (el._pendingSignal) el._pendingSignal._set(v);
   }
   clearStatusFlags(el);
   el._time = clock;
 
   for (let link = el._subs; link !== null; link = link._nextSub) {
-    insertIntoHeap(link._sub, link._sub._flags & ReactiveFlags.Zombie ? pending : dirty);
+    insertIntoHeap(link._sub, link._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
   }
   if (el._subs) schedule();
 }
@@ -722,10 +747,6 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   }
 }
 
-export function latest<T>(fn: () => T): T {
-  return staleValues(fn, false);
-}
-
 export function staleValues<T>(fn: () => T, set = true): T {
   const prevStale = stale;
   stale = set;
@@ -736,19 +757,29 @@ export function staleValues<T>(fn: () => T, set = true): T {
   }
 }
 
+export function pending<T>(fn: () => T): T {
+  const prevLatest = pendingValueCheck;
+  pendingValueCheck = true;
+  try {
+    return staleValues(fn, false);
+  } finally {
+    pendingValueCheck = prevLatest;
+  }
+}
+
 export function isPending(fn: () => any): boolean;
 export function isPending(fn: () => any, loadingValue: boolean): boolean;
 export function isPending(fn: () => any, loadingValue?: boolean): boolean {
-  const current = staleCheck;
-  staleCheck = { _value: false };
+  const current = pendingCheck;
+  pendingCheck = { _value: false };
   try {
     staleValues(fn);
-    return staleCheck._value;
+    return pendingCheck._value;
   } catch (err) {
     if (!(err instanceof NotReadyError)) return false;
     if (loadingValue !== undefined) return loadingValue!;
     throw err;
   } finally {
-    staleCheck = current;
+    pendingCheck = current;
   }
 }

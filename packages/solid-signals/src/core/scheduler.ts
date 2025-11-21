@@ -11,7 +11,7 @@ export interface Transition {
   time: number;
   asyncNodes: Computed<any>[];
   pendingNodes: Signal<any>[];
-  effects: QueueCallback[];
+  queues: [QueueCallback[], QueueCallback[]];
 }
 
 let scheduled = false;
@@ -21,13 +21,13 @@ export function schedule() {
   if (!globalQueue._running) queueMicrotask(flush);
 }
 
-export const dirty: Heap = {
+export const dirtyQueue: Heap = {
   _heap: new Array(2000).fill(undefined),
   _marked: false,
   _min: 0,
   _max: 0
 };
-export const pending: Heap = {
+export const pendingQueue: Heap = {
   _heap: new Array(2000).fill(undefined),
   _marked: false,
   _min: 0,
@@ -74,26 +74,27 @@ export class Queue implements IQueue {
     if (this._running) return;
     this._running = true;
     try {
-      runHeap(dirty, Queue._update);
+      runHeap(dirtyQueue, Queue._update);
       if (activeTransition) {
         if (!transitionComplete(activeTransition)) {
-          runHeap(pending, Queue._update);
+          runHeap(pendingQueue, Queue._update);
           globalQueue._pendingNodes = [];
-          activeTransition!.effects.push(...globalQueue._queues[1]);
-          globalQueue._queues = [globalQueue._queues[0], []];
+          activeTransition!.queues[0].push(...globalQueue._queues[0]);
+          activeTransition!.queues[1].push(...globalQueue._queues[1]);
+          globalQueue._queues = [[], []];
           clock++;
           scheduled = false;
-          runIsPending(activeTransition!.pendingNodes, true);
+          runPending(activeTransition!.pendingNodes, true);
           activeTransition = null;
-          this.run(EffectType.Render);
           return;
         }
         globalQueue._pendingNodes.push(...activeTransition.pendingNodes);
-        globalQueue._queues[1].push(...activeTransition.effects);
+        globalQueue._queues[0].push(...activeTransition.queues[0]);
+        globalQueue._queues[1].push(...activeTransition.queues[1]);
         transitions.delete(activeTransition);
         activeTransition = null;
-        if (runIsPending(globalQueue._pendingNodes, false)) runHeap(dirty, Queue._update);
-      } else if (transitions.size) runHeap(pending, Queue._update);
+        if (runPending(globalQueue._pendingNodes, false)) runHeap(dirtyQueue, Queue._update);
+      } else if (transitions.size) runHeap(pendingQueue, Queue._update);
       for (let i = 0; i < globalQueue._pendingNodes.length; i++) {
         const n = globalQueue._pendingNodes[i];
         if (n._pendingValue !== NOT_PENDING) {
@@ -144,17 +145,21 @@ export class Queue implements IQueue {
         time: clock,
         pendingNodes: [],
         asyncNodes: [],
-        effects: []
+        queues: [[], []]
       };
     }
     transitions.add(activeTransition);
     activeTransition.time = clock;
-    activeTransition.pendingNodes.push(...globalQueue._pendingNodes);
+    for (let i = 0; i < globalQueue._pendingNodes.length; i++) {
+      const n = globalQueue._pendingNodes[i];
+      n._transition = activeTransition;
+      activeTransition.pendingNodes.push(n);
+    }
     globalQueue._pendingNodes = activeTransition.pendingNodes;
   }
 }
 
-function runIsPending(pendingNodes, value: boolean) {
+function runPending(pendingNodes, value: boolean) {
   let needsReset = false;
   const p = pendingNodes.slice();
   for (let i = 0; i < p.length; i++) {
@@ -188,7 +193,6 @@ function runQueue(queue: QueueCallback[], type: number): void {
 }
 
 export function transitionComplete(transition: Transition): boolean {
-  if (transition?.time === clock && !transition.asyncNodes.length) return false;
   let done = true;
   for (let i = 0; i < transition.asyncNodes.length; i++) {
     if (transition.asyncNodes[i]._statusFlags & StatusFlags.Pending) {

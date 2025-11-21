@@ -20,7 +20,7 @@ export {
   onCleanup,
   getNextChildId,
   isPending,
-  latest,
+  pending,
   type Owner,
   type Computed,
   type SignalOptions

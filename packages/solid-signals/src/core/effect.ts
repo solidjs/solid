@@ -47,7 +47,7 @@ export function effect<T>(
       return equal;
     },
     _internal: {
-      _modified: false,
+      _modified: true,
       _prevValue: initialValue,
       _effectFn: effect,
       _errorFn: error,
