@@ -56,9 +56,13 @@ export function effect<T>(
       _type: options?.render ? EffectType.Render : EffectType.User,
       _notifyQueue() {
         (this as any)._type === EffectType.Render &&
-          (this as any)._queue.notify(this, StatusFlags.Pending | StatusFlags.Error, (this as any)._statusFlags);
+          (this as any)._queue.notify(
+            this,
+            StatusFlags.Pending | StatusFlags.Error,
+            (this as any)._statusFlags
+          );
       }
-    },
+    }
   } as any) as Effect<T>;
   initialized = true;
   if (node._type === EffectType.Render) {

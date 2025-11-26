@@ -55,7 +55,7 @@ export class Queue implements IQueue {
   _pendingNodes: Signal<any>[] = [];
   created = clock;
   static _update: (el: Computed<unknown>) => void;
-  static _dispose: (el: Computed<unknown>, zombie: boolean) => void;
+  static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
   enqueue(type: number, fn: QueueCallback): void {
     if (type) this._queues[type - 1].push(fn);
     schedule();
@@ -101,7 +101,7 @@ export class Queue implements IQueue {
           n._value = n._pendingValue as any;
           n._pendingValue = NOT_PENDING;
         }
-        if ((n as Computed<unknown>)._fn) Queue._dispose(n as Computed<unknown>, true);
+        if ((n as Computed<unknown>)._fn) Queue._dispose(n as Computed<unknown>, false, true);
       }
       globalQueue._pendingNodes.length = 0;
       clock++;

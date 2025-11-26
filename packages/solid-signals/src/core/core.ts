@@ -67,7 +67,7 @@ export interface Owner {
   _id?: string;
   _disposal: Disposable | Disposable[] | null;
   _parent: Owner | null;
-  _context: Record<symbol, unknown>;
+  _context: Record<symbol | string, unknown>;
   _childCount: number;
   _queue: IQueue;
   _firstChild: Owner | null;
@@ -170,7 +170,10 @@ function recompute(el: Computed<any>, create: boolean = false): void {
     }
   } else if (el._height != oldHeight) {
     for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeapHeight(s._sub, s._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
+      insertIntoHeapHeight(
+        s._sub,
+        s._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue
+      );
     }
   }
 }
@@ -302,7 +305,9 @@ function markDisposal(el: Owner): void {
   }
 }
 
-function disposeChildren(node: Owner, zombie?: boolean): void {
+function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
+  if ((node as any)._flags & ReactiveFlags.Disposed) return;
+  if (self) (node as any)._flags = ReactiveFlags.Disposed;
   let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
   while (child) {
     const nextChild = child._nextSibling;
@@ -315,9 +320,8 @@ function disposeChildren(node: Owner, zombie?: boolean): void {
       } while (toRemove !== null);
       n._deps = null;
       n._depsTail = null;
-      n._flags = ReactiveFlags.None;
     }
-    disposeChildren(child);
+    disposeChildren(child, true);
     child = nextChild;
   }
   if (zombie) {
@@ -347,8 +351,8 @@ function runDisposal(node: Owner, zombie?: boolean): void {
 function withOptions<T>(obj: T, options?: SignalOptions<any> & { _internal?: any }) {
   if (__DEV__)
     (obj as any)._name = options?.name ?? ((obj as Computed<any>)._fn ? "computed" : "signal");
-  (obj as any)._id = options?.id;
-  (obj as any)._equals = options?.equals !== undefined ? options.equals : isEqual;
+  (obj as any)._id = options?.id ?? (context?._id != null ? getNextChildId(context) : undefined);
+  (obj as any)._equals = options?.equals != null ? options.equals : isEqual;
   (obj as any)._pureWrite = !!options?.pureWrite;
   (obj as any)._unobserved = options?.unobserved;
   if (options?._internal) Object.assign(obj as any, options._internal);
@@ -425,18 +429,16 @@ export function computed<T>(
       self._nextSibling = lastChild;
       context._firstChild = self;
     }
-    if (parent) {
-      if (parent._depsTail === null || (options as any)._forceRun) {
-        self._height = parent._height;
-        recompute(self, true);
-      } else {
-        self._height = parent._height + 1;
-        insertIntoHeap(self, dirtyQueue);
-      }
-    }
-  } else {
-    recompute(self, true);
   }
+  if (parent) {
+    if (parent._depsTail === null || (options as any)?._forceRun) {
+      self._height = parent._height;
+      recompute(self, true);
+    } else {
+      self._height = parent._height + 1;
+      insertIntoHeap(self, dirtyQueue);
+    }
+  } else recompute(self, true);
 
   return self;
 }
@@ -605,7 +607,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)
       ) as Signal<T> & { _set: (v: T) => void };
       (el._pendingSignal as any)._optimistic = true;
-      el._pendingSignal._set = v => queueMicrotask(() => queueMicrotask(() => setSignal(el._pendingSignal!, v)));
+      el._pendingSignal._set = v =>
+        queueMicrotask(() => queueMicrotask(() => setSignal(el._pendingSignal!, v)));
     }
     pendingValueCheck = false;
     try {
@@ -664,7 +667,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   for (let link = el._subs; link !== null; link = link._nextSub) {
     insertIntoHeap(link._sub, link._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
   }
-  if (el._subs) schedule();
+  schedule();
 }
 
 export function getObserver(): Owner | null {
@@ -706,8 +709,10 @@ export function createRoot<T>(
   const owner = {
     _root: true,
     _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
+    _firstChild: null,
+    _nextSibling: null,
     _disposal: null,
-    _id: options?.id ?? (parent?._id ? getNextChildId(parent) : undefined),
+    _id: options?.id ?? (parent?._id != null ? getNextChildId(parent) : undefined),
     _queue: parent?._queue ?? globalQueue,
     _context: parent?._context || defaultContext,
     _childCount: 0,
@@ -727,7 +732,7 @@ export function createRoot<T>(
   }
   return runWithOwner(
     owner as Owner,
-    !init.length ? (init as () => T) : () => init(() => disposeChildren(owner))
+    !init.length ? (init as () => T) : () => init(() => disposeChildren(owner, true))
   );
 }
 

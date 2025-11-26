@@ -12,6 +12,7 @@ export {
   untrack,
   getOwner,
   runWithOwner,
+  createRoot,
   computed,
   signal,
   asyncComputed,

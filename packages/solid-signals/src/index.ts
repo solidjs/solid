@@ -4,6 +4,8 @@ export {
   NotReadyError,
   Queue,
   createContext,
+  createRoot,
+  runWithOwner,
   flush,
   getContext,
   setContext,

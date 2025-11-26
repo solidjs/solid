@@ -9,7 +9,7 @@ import {
   NotReadyError,
   read,
   setSignal,
-  signal,
+  signal
 } from "./core/index.js";
 
 export type Accessor<T> = () => T;

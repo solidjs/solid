@@ -5,7 +5,8 @@ export const enum ReactiveFlags {
   RecomputingDeps = 1 << 2,
   InHeap = 1 << 3,
   InHeapHeight = 1 << 4,
-  Zombie = 1 << 5
+  Zombie = 1 << 5,
+  Disposed = 1 << 6
 }
 
 export const enum StatusFlags {
