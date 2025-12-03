@@ -8,8 +8,7 @@ import {
   type Signal
 } from "./core/index.js";
 import { createMemo, type Accessor } from "./signals.js";
-
-// import { $TRACK } from "./store/index.js";
+import { $TRACK } from "./store/index.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
 
@@ -45,7 +44,7 @@ const pureOptions = { pureWrite: true };
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   const newItems = this._list() || [],
     newLen = newItems.length;
-  // (newItems as any)[$TRACK]; // top level tracking
+  (newItems as any)[$TRACK]; // top level tracking
 
   runWithOwner(this._owner, () => {
     let i: number,

@@ -23,6 +23,7 @@ export {
   getNextChildId,
   isPending,
   pending,
+  staleValues,
   type Owner,
   type Computed,
   type Root,
