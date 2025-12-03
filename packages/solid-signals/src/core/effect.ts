@@ -1,4 +1,4 @@
-import { EffectType, StatusFlags } from "./constants.js";
+import { EffectType, ReactiveFlags, StatusFlags } from "./constants.js";
 import {
   computed,
   getOwner,
@@ -35,17 +35,6 @@ export function effect<T>(
   let initialized = false;
   const node = computed<T>(compute, initialValue, {
     ...options,
-    _forceRun: true,
-    equals(prev, val) {
-      const equal = isEqual(prev, val);
-      if (initialized) {
-        node._modified = !equal;
-        if (!equal && !(node._statusFlags & StatusFlags.Error)) {
-          node._queue.enqueue(node._type, runEffect.bind(node));
-        }
-      }
-      return equal;
-    },
     _internal: {
       _modified: true,
       _prevValue: initialValue,
@@ -54,7 +43,14 @@ export function effect<T>(
       _cleanup: undefined,
       _queue: getOwner()?._queue ?? globalQueue,
       _type: options?.render ? EffectType.Render : EffectType.User,
-      _notifyQueue() {
+      _notifyQueue(statusFlagsChanged: boolean, prevStatusFlags: number) {
+        if (initialized) {
+          const errorChanged = node._statusFlags && (node._statusFlags === prevStatusFlags) && statusFlagsChanged;
+          node._modified = !(node._statusFlags & StatusFlags.Error) && !(node._statusFlags & StatusFlags.Pending & ~prevStatusFlags) && !errorChanged;
+          if (node._modified) {
+            node._queue.enqueue(node._type, runEffect.bind(node));
+          }
+        }
         (this as any)._type === EffectType.Render &&
           (this as any)._queue.notify(
             this,
@@ -80,7 +76,7 @@ export function effect<T>(
 }
 
 function runEffect(this: Effect<any>) {
-  if (!this._modified) return;
+  if (!this._modified || this._flags & ReactiveFlags.Disposed) return;
   this._cleanup?.();
   this._cleanup = undefined;
   try {

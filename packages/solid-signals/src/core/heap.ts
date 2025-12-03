@@ -1,5 +1,5 @@
 import { ReactiveFlags } from "./constants.js";
-import type { Computed, FirewallSignal } from "./core.js";
+import type { Computed, FirewallSignal, Root } from "./core.js";
 
 export interface Heap {
   _heap: (Computed<unknown> | undefined)[];
@@ -15,6 +15,10 @@ export function increaseHeapSize(n: number, heap: Heap): void {
 }
 
 function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
+  const parentHeight = ((n._parent as Root)?._root
+      ? (n._parent as Root)._parentComputed?._height
+      : (n._parent as Computed<any> | null)?._height) ?? -1;
+  if (parentHeight >= n._height) n._height = parentHeight + 1;
   const height = n._height;
   const heapAtHeight = heap._heap[height];
   if (heapAtHeight === undefined) {

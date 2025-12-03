@@ -12,6 +12,7 @@ export {
   untrack,
   getOwner,
   runWithOwner,
+  createOwner,
   createRoot,
   computed,
   signal,
@@ -24,6 +25,8 @@ export {
   pending,
   type Owner,
   type Computed,
+  type Root,
+  type Signal,
   type SignalOptions
 } from "./core.js";
 export { effect } from "./effect.js";

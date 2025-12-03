@@ -20,3 +20,4 @@ export {
 } from "./core/index.js";
 export type { Owner, SignalOptions, Context, ContextRecord, IQueue } from "./core/index.js";
 export * from "./signals.js";
+export { mapArray, repeat, type Maybe } from "./map.js";

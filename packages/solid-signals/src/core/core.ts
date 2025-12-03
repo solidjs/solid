@@ -85,12 +85,13 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _prevHeap: Computed<any>;
   _fn: (prev?: T) => T;
   _child: FirewallSignal<any> | null;
-  _notifyQueue?: () => void;
+  _notifyQueue?: (statusFlagsChanged: boolean, prevStatusFlags: number) => void;
 }
 
 export interface Root extends Owner {
   _root: true;
   _parentComputed: Computed<any> | null;
+  dispose(self?: boolean): void;
 }
 
 Queue._update = recompute;
@@ -119,22 +120,26 @@ function recompute(el: Computed<any>, create: boolean = false): void {
   context = el;
   el._depsTail = null;
   el._flags = ReactiveFlags.RecomputingDeps;
+  el._time = clock;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
-  el._time = clock;
   let prevStatusFlags = el._statusFlags;
   let prevError = el._error;
+  let prevTracking = tracking;
   clearStatusFlags(el);
+  tracking = true;
   try {
     value = el._fn(value);
   } catch (e) {
     if (e instanceof NotReadyError) {
+      if (e.cause !== el) link(e.cause, el);
       setStatusFlags(el, (prevStatusFlags & ~StatusFlags.Error) | StatusFlags.Pending, e);
     } else {
       setError(el, e as Error);
     }
+  } finally {
+    tracking = prevTracking;
   }
-  el._notifyQueue?.();
   el._flags = ReactiveFlags.None;
   context = oldcontext;
 
@@ -154,6 +159,7 @@ function recompute(el: Computed<any>, create: boolean = false): void {
     !el._equals ||
     !el._equals(el._pendingValue === NOT_PENDING ? el._value : el._pendingValue, value);
   const statusFlagsChanged = el._statusFlags !== prevStatusFlags || el._error !== prevError;
+  el._notifyQueue?.(statusFlagsChanged, prevStatusFlags);
 
   if (valueChanged || statusFlagsChanged) {
     if (valueChanged) {
@@ -335,7 +341,7 @@ function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): 
 
 function runDisposal(node: Owner, zombie?: boolean): void {
   let disposal = zombie ? node._pendingDisposal : node._disposal;
-  if (!disposal || disposal === NOT_PENDING) return;
+  if (!disposal) return;
 
   if (Array.isArray(disposal)) {
     for (let i = 0; i < disposal.length; i++) {
@@ -430,15 +436,8 @@ export function computed<T>(
       context._firstChild = self;
     }
   }
-  if (parent) {
-    if (parent._depsTail === null || (options as any)?._forceRun) {
-      self._height = parent._height;
-      recompute(self, true);
-    } else {
-      self._height = parent._height + 1;
-      insertIntoHeap(self, dirtyQueue);
-    }
-  } else recompute(self, true);
+  if (parent) self._height = parent._height + 1;
+  recompute(self, true);
 
   return self;
 }
@@ -589,17 +588,20 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
   }
   if (pendingCheck) {
+    const pendingResult =
+      (el._statusFlags & StatusFlags.Pending) !== 0 || !!el._transition || false;
     if (!el._pendingCheck) {
-      el._pendingCheck = signal<boolean>(
-        (el._statusFlags & StatusFlags.Pending) !== 0 || !!el._transition || false
-      ) as Signal<boolean> & { _set: (v: boolean) => void };
+      el._pendingCheck = signal<boolean>(pendingResult) as Signal<boolean> & {
+        _set: (v: boolean) => void;
+      };
       (el._pendingCheck as any)._optimistic = true;
       el._pendingCheck._set = v => setSignal(el._pendingCheck!, v);
     }
     const prev = pendingCheck;
     pendingCheck = null;
-    prev._value = read(el._pendingCheck) || prev._value;
+    read(el._pendingCheck);
     pendingCheck = prev;
+    prev._value = pendingResult || prev._value;
   }
   if (pendingValueCheck) {
     if (!el._pendingSignal) {
@@ -693,18 +695,7 @@ export function onCleanup(fn: Disposable): Disposable {
   return fn;
 }
 
-/**
- * Creates a new non-tracked reactive context with manual disposal
- *
- * @param fn a function in which the reactive state is scoped
- * @returns the output of `fn`.
- *
- * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
- */
-export function createRoot<T>(
-  init: ((dispose: () => void) => T) | (() => T),
-  options?: { id: string }
-): T {
+export function createOwner(options?: { id: string }) {
   const parent = context;
   const owner = {
     _root: true,
@@ -718,7 +709,10 @@ export function createRoot<T>(
     _childCount: 0,
     _pendingDisposal: null,
     _pendingFirstChild: null,
-    _parent: parent
+    _parent: parent,
+    dispose(self: boolean = true) {
+      disposeChildren(owner, self);
+    }
   } as Root;
 
   if (parent) {
@@ -730,10 +724,23 @@ export function createRoot<T>(
       parent._firstChild = owner;
     }
   }
-  return runWithOwner(
-    owner as Owner,
-    !init.length ? (init as () => T) : () => init(() => disposeChildren(owner, true))
-  );
+  return owner;
+}
+
+/**
+ * Creates a new non-tracked reactive context with manual disposal
+ *
+ * @param fn a function in which the reactive state is scoped
+ * @returns the output of `fn`.
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
+ */
+export function createRoot<T>(
+  init: ((dispose: () => void) => T) | (() => T),
+  options?: { id: string }
+): T {
+  const owner = createOwner(options);
+  return runWithOwner(owner, () => init(owner.dispose));
 }
 
 /**
