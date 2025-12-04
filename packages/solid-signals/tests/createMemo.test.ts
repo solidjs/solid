@@ -1,6 +1,6 @@
 import {
   createEffect,
-  // createErrorBoundary,
+  createErrorBoundary,
   createMemo,
   createRoot,
   createSignal,
@@ -169,21 +169,21 @@ it("should accept equals option", () => {
   expect(effectA).toHaveBeenCalledTimes(2);
 });
 
-// it("should use fallback if error is thrown during init", () => {
-//   createRoot(() => {
-//     createErrorBoundary(
-//       () => {
-//         const $a = createMemo(() => {
-//           if (1) throw Error();
-//           return "";
-//         }, "foo");
+it("should use fallback if error is thrown during init", () => {
+  createRoot(() => {
+    createErrorBoundary(
+      () => {
+        const $a = createMemo(() => {
+          if (1) throw Error();
+          return "";
+        }, "foo");
 
-//         expect($a()).toBe("foo");
-//       },
-//       () => {}
-//     )();
-//   });
-// });
+        expect($a()).toBe("foo");
+      },
+      () => {}
+    )();
+  });
+});
 
 // it("should detect which signal triggered it", () => {
 //   const [$x, setX] = createSignal(0);

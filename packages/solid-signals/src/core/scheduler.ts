@@ -38,27 +38,32 @@ export type QueueCallback = (type: number) => void;
 export interface IQueue {
   enqueue(type: number, fn: QueueCallback): void;
   run(type: number): boolean | void;
-  flush(): void;
   addChild(child: IQueue): void;
   removeChild(child: IQueue): void;
   created: number;
   notify(node: Computed<any>, mask: number, flags: number): boolean;
   _parent: IQueue | null;
-  _cloned?: IQueue | undefined;
 }
 
 export class Queue implements IQueue {
   _parent: IQueue | null = null;
-  _running: boolean = false;
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
   _children: IQueue[] = [];
-  _pendingNodes: Signal<any>[] = [];
   created = clock;
-  static _update: (el: Computed<unknown>) => void;
-  static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
-  enqueue(type: number, fn: QueueCallback): void {
-    if (type) this._queues[type - 1].push(fn);
-    schedule();
+  addChild(child: IQueue) {
+    this._children.push(child);
+    child._parent = this;
+  }
+  removeChild(child: IQueue) {
+    const index = this._children.indexOf(child);
+    if (index >= 0) {
+      this._children.splice(index, 1);
+      child._parent = null;
+    }
+  }
+  notify(node: Computed<any>, mask: number, flags: number): boolean {
+    if (this._parent) return this._parent.notify(node, mask, flags);
+    return false;
   }
   run(type: number) {
     if (this._queues[type - 1].length) {
@@ -70,14 +75,25 @@ export class Queue implements IQueue {
       this._children[i].run(type);
     }
   }
+  enqueue(type: number, fn: QueueCallback): void {
+    if (type) this._queues[type - 1].push(fn);
+    schedule();
+  }
+}
+
+export class GlobalQueue extends Queue {
+  _running: boolean = false;
+  _pendingNodes: Signal<any>[] = [];
+  static _update: (el: Computed<unknown>) => void;
+  static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
   flush() {
     if (this._running) return;
     this._running = true;
     try {
-      runHeap(dirtyQueue, Queue._update);
+      runHeap(dirtyQueue, GlobalQueue._update);
       if (activeTransition) {
         if (!transitionComplete(activeTransition)) {
-          runHeap(pendingQueue, Queue._update);
+          runHeap(pendingQueue, GlobalQueue._update);
           globalQueue._pendingNodes = [];
           activeTransition!.queues[0].push(...globalQueue._queues[0]);
           activeTransition!.queues[1].push(...globalQueue._queues[1]);
@@ -93,15 +109,15 @@ export class Queue implements IQueue {
         globalQueue._queues[1].push(...activeTransition.queues[1]);
         transitions.delete(activeTransition);
         activeTransition = null;
-        if (runPending(globalQueue._pendingNodes, false)) runHeap(dirtyQueue, Queue._update);
-      } else if (transitions.size) runHeap(pendingQueue, Queue._update);
+        if (runPending(globalQueue._pendingNodes, false)) runHeap(dirtyQueue, GlobalQueue._update);
+      } else if (transitions.size) runHeap(pendingQueue, GlobalQueue._update);
       for (let i = 0; i < globalQueue._pendingNodes.length; i++) {
         const n = globalQueue._pendingNodes[i];
         if (n._pendingValue !== NOT_PENDING) {
           n._value = n._pendingValue as any;
           n._pendingValue = NOT_PENDING;
         }
-        if ((n as Computed<unknown>)._fn) Queue._dispose(n as Computed<unknown>, false, true);
+        if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
       }
       globalQueue._pendingNodes.length = 0;
       clock++;
@@ -111,17 +127,6 @@ export class Queue implements IQueue {
     } finally {
       this._running = false;
       unobserved.length && notifyUnobserved();
-    }
-  }
-  addChild(child: IQueue) {
-    this._children.push(child);
-    child._parent = this;
-  }
-  removeChild(child: IQueue) {
-    const index = this._children.indexOf(child);
-    if (index >= 0) {
-      this._children.splice(index, 1);
-      child._parent = null;
     }
   }
   notify(node: Computed<any>, mask: number, flags: number): boolean {
@@ -135,7 +140,6 @@ export class Queue implements IQueue {
       }
       return true;
     }
-    if (this._parent) return this._parent.notify(node, mask, flags);
     return false;
   }
   initTransition(node: Computed<any>): void {
@@ -174,7 +178,7 @@ function runPending(pendingNodes, value: boolean) {
   return needsReset;
 }
 
-export const globalQueue = new Queue();
+export const globalQueue = new GlobalQueue();
 
 /**
  * By default, changes are batched on the microtask queue which is an async process. You can flush

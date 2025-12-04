@@ -13,8 +13,8 @@ import {
   dirtyQueue,
   flush,
   globalQueue,
+  GlobalQueue,
   pendingQueue,
-  Queue,
   schedule,
   type IQueue,
   type Transition
@@ -94,8 +94,8 @@ export interface Root extends Owner {
   dispose(self?: boolean): void;
 }
 
-Queue._update = recompute;
-Queue._dispose = disposeChildren;
+GlobalQueue._update = recompute;
+GlobalQueue._dispose = disposeChildren;
 let tracking = true;
 let stale = false;
 let pendingValueCheck = false;
@@ -103,7 +103,7 @@ let pendingCheck: null | { _value: boolean } = null;
 let context: Owner | null = null;
 const defaultContext = {};
 
-function recompute(el: Computed<any>, create: boolean = false): void {
+export function recompute(el: Computed<any>, create: boolean = false): void {
   deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
   if (el._pendingValue !== NOT_PENDING || el._pendingFirstChild || el._pendingDisposal)
     disposeChildren(el);
@@ -646,6 +646,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 }
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): void {
+  // Warn about writing to a signal in an owned scope in development mode.
+  if (__DEV__ && !el._pureWrite && context && !(context as any).firewall)
+    console.warn("A Signal was written to in an owned scope.");
+
   if (typeof v === "function") {
     v = (v as (prev: T) => T)(
       el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)

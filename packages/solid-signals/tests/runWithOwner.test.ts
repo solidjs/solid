@@ -1,5 +1,5 @@
 import {
-  // createErrorBoundary,
+  createErrorBoundary,
   createRenderEffect,
   createRoot,
   flush,
@@ -25,29 +25,29 @@ it("should return value", () => {
   expect(runWithOwner(null, () => 100)).toBe(100);
 });
 
-// it("should handle errors", () => {
-//   const error = new Error(),
-//     handler = vi.fn();
+it("should handle errors", () => {
+  const error = new Error(),
+    handler = vi.fn();
 
-//   let owner!: Owner | null;
-//   const b = createErrorBoundary(
-//     () => {
-//       owner = getOwner();
-//     },
-//     err => handler(err)
-//   );
-//   b();
+  let owner!: Owner | null;
+  const b = createErrorBoundary(
+    () => {
+      owner = getOwner();
+    },
+    err => handler(err)
+  );
+  b();
 
-//   runWithOwner(owner, () => {
-//     createRenderEffect(
-//       () => {
-//         throw error;
-//       },
-//       () => {}
-//     );
-//   });
+  runWithOwner(owner, () => {
+    createRenderEffect(
+      () => {
+        throw error;
+      },
+      () => {}
+    );
+  });
 
-//   b();
-//   flush();
-//   expect(handler).toHaveBeenCalledWith(error);
-// });
+  b();
+  flush();
+  expect(handler).toHaveBeenCalledWith(error);
+});

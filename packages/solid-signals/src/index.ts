@@ -2,7 +2,6 @@ export {
   ContextNotFoundError,
   NoOwnerError,
   NotReadyError,
-  Queue,
   createContext,
   createRoot,
   runWithOwner,
@@ -22,3 +21,10 @@ export type { Owner, SignalOptions, Context, ContextRecord, IQueue } from "./cor
 export * from "./signals.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./store/index.js";
+export {
+  createLoadBoundary,
+  createErrorBoundary,
+  createBoundary,
+  flatten,
+  type BoundaryMode
+} from "./boundaries.js";

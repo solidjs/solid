@@ -11,7 +11,7 @@ import {
 } from "./core.js";
 import { globalQueue } from "./scheduler.js";
 
-interface Effect<T> extends Computed<T>, Owner {
+export interface Effect<T> extends Computed<T>, Owner {
   _effectFn: (val: T, prev: T | undefined) => void | (() => void);
   _errorFn?: (err: unknown, cleanup: () => void) => void;
   _cleanup?: () => void;
@@ -43,20 +43,40 @@ export function effect<T>(
       _cleanup: undefined,
       _queue: getOwner()?._queue ?? globalQueue,
       _type: options?.render ? EffectType.Render : EffectType.User,
-      _notifyQueue(statusFlagsChanged: boolean, prevStatusFlags: number) {
+      _notifyQueue(this: Effect<T>, statusFlagsChanged: boolean, prevStatusFlags: number) {
         if (initialized) {
-          const errorChanged = node._statusFlags && (node._statusFlags === prevStatusFlags) && statusFlagsChanged;
-          node._modified = !(node._statusFlags & StatusFlags.Error) && !(node._statusFlags & StatusFlags.Pending & ~prevStatusFlags) && !errorChanged;
-          if (node._modified) {
-            node._queue.enqueue(node._type, runEffect.bind(node));
-          }
+          const errorChanged =
+            this._statusFlags && this._statusFlags === prevStatusFlags && statusFlagsChanged;
+          this._modified =
+            !(this._statusFlags & StatusFlags.Error) &&
+            !(this._statusFlags & StatusFlags.Pending & ~prevStatusFlags) &&
+            !errorChanged;
+          if (this._modified) this._queue.enqueue(this._type, runEffect.bind(this));
         }
-        (this as any)._type === EffectType.Render &&
+
+        if (this._statusFlags & StatusFlags.Error) {
+          let error = this._error;
+          this._queue.notify(this, StatusFlags.Pending, 0);
+          if (this._type === EffectType.User) {
+            try {
+              return this._errorFn
+                ? this._errorFn(error, () => {
+                    this._cleanup?.();
+                    this._cleanup = undefined;
+                  })
+                : console.error(error);
+            } catch (e) {
+              error = e;
+            }
+          }
+          if (!this._queue.notify(this, StatusFlags.Error, StatusFlags.Error)) throw error;
+        } else if ((this as any)._type === EffectType.Render) {
           (this as any)._queue.notify(
             this,
             StatusFlags.Pending | StatusFlags.Error,
             (this as any)._statusFlags
           );
+        }
       }
     }
   } as any) as Effect<T>;
@@ -75,26 +95,13 @@ export function effect<T>(
     console.warn("Effects created outside a reactive context will never be disposed");
 }
 
-function runEffect(this: Effect<any>) {
+export function runEffect(this: Effect<any>) {
   if (!this._modified || this._flags & ReactiveFlags.Disposed) return;
   this._cleanup?.();
   this._cleanup = undefined;
   try {
     this._cleanup = this._effectFn(this._value, this._prevValue) as any;
   } catch (error) {
-    this._queue.notify(this, StatusFlags.Pending, 0);
-    if (this._type === EffectType.User) {
-      try {
-        return this._errorFn
-          ? this._errorFn(error, () => {
-              this._cleanup?.();
-              this._cleanup = undefined;
-            })
-          : console.error(error);
-      } catch (e) {
-        error = e;
-      }
-    }
     if (!this._queue.notify(this, StatusFlags.Error, StatusFlags.Error)) throw error;
   } finally {
     this._prevValue = this._value;

@@ -30,6 +30,6 @@ export {
   type Signal,
   type SignalOptions
 } from "./core.js";
-export { effect } from "./effect.js";
+export { effect, type Effect } from "./effect.js";
 export { flush, Queue, type IQueue } from "./scheduler.js";
 export * from "./constants.js";
