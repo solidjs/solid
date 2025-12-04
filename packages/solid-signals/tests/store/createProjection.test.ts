@@ -42,6 +42,7 @@ describe("Projection basics", () => {
     expect(effect2).toHaveBeenCalledTimes(1);
 
     setSource(1);
+    flush();
 
     expect($effect0()).toBe(false);
     expect($effect1()).toBe(true);
@@ -52,6 +53,7 @@ describe("Projection basics", () => {
     expect(effect2).toHaveBeenCalledTimes(1);
 
     setSource(2);
+    flush();
 
     expect($effect0()).toBe(false);
     expect($effect1()).toBe(false);
@@ -62,6 +64,7 @@ describe("Projection basics", () => {
     expect(effect2).toHaveBeenCalledTimes(2);
 
     setSource(-1);
+    flush();
 
     expect($effect0()).toBe(false);
     expect($effect1()).toBe(false);

@@ -2,7 +2,6 @@ import { EffectType, ReactiveFlags, StatusFlags } from "./constants.js";
 import {
   computed,
   getOwner,
-  isEqual,
   onCleanup,
   staleValues,
   type Computed,

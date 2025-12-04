@@ -31,6 +31,6 @@ export function createOptimisticStore<T extends object = {}>(
   second?: T | Store<T>,
   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>] {
-  // Todo: implement
+  // TODO: implement
   return [] as any;
 }

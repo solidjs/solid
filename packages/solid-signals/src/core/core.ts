@@ -96,7 +96,7 @@ export interface Root extends Owner {
 
 GlobalQueue._update = recompute;
 GlobalQueue._dispose = disposeChildren;
-let tracking = true;
+let tracking = false;
 let stale = false;
 let pendingValueCheck = false;
 let pendingCheck: null | { _value: boolean } = null;

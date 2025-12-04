@@ -1,10 +1,10 @@
 import {
   getObserver,
   isEqual,
+  NOT_PENDING,
   read,
   setSignal,
   signal,
-  staleValues,
   untrack,
   type Signal
 } from "../core/index.js";
@@ -160,7 +160,12 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       if (desc && desc.get) return desc.get.call(receiver);
     }
     if (Writing?.has(receiver)) {
-      let value = tracked && (overridden || !proxySource) ? tracked._value : storeValue[property];
+      let value =
+        tracked && (overridden || !proxySource)
+          ? tracked._pendingValue !== NOT_PENDING
+            ? tracked._pendingValue
+            : tracked._value
+          : storeValue[property];
       value === $DELETED && (value = undefined);
       if (!isWrappable(value)) return value;
       const wrapped = wrap(value, target);
@@ -226,7 +231,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         if (recursivelyNotify(store, storeLookup) && wrappable) recursivelyAddParent(value, store);
         target[STORE_HAS]?.[property] && setSignal(target[STORE_HAS]![property], true);
         const nodes = getNodes(target, STORE_NODE);
-        nodes[property] && setSignal(nodes[property], () => wrappable ? wrap(value, target) : value);
+        nodes[property] &&
+          setSignal(nodes[property], () => (wrappable ? wrap(value, target) : value));
         // notify length change
         if (Array.isArray(state)) {
           const index = parseInt(property as string) + 1;
@@ -287,21 +293,19 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
   Writing = new Set();
   Writing.add(store);
   try {
-    staleValues(() => {
-      const value = fn(store);
-      if (value !== store && value !== undefined) {
-        if (Array.isArray(value)) {
-          for (let i = 0, len = value.length; i < len; i++) store[i] = value[i];
-          (store as any).length = value.length;
-        } else {
-          const keys = new Set([...Object.keys(store), ...Object.keys(value)]);
-          keys.forEach(key => {
-            if (key in value) store[key] = value[key];
-            else delete store[key];
-          });
-        }
+    const value = fn(store);
+    if (value !== store && value !== undefined) {
+      if (Array.isArray(value)) {
+        for (let i = 0, len = value.length; i < len; i++) store[i] = value[i];
+        (store as any).length = value.length;
+      } else {
+        const keys = new Set([...Object.keys(store), ...Object.keys(value)]);
+        keys.forEach(key => {
+          if (key in value) store[key] = value[key];
+          else delete store[key];
+        });
       }
-    }, false);
+    }
   } finally {
     Writing.clear();
     Writing = prevWriting;

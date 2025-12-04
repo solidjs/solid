@@ -1,4 +1,3 @@
-// import { FirewallComputation } from "../core/effect.js";
 import { getOwner, computed, read } from "../core/index.js";
 import { reconcile } from "./reconcile.js";
 import {
@@ -17,13 +16,14 @@ export function createProjectionInternal<T extends object = {}>(
   initialValue: T = {} as T,
   options?: StoreOptions
 ) {
+  let node;
   const wrappedMap = new WeakMap();
   const traps = {
     ...storeTraps,
     get(target, property, receiver) {
       const o = getOwner();
       const n = node;
-      (!o || o !== n) && read(n);
+      (!o || o !== n) && n && read(n);
       return storeTraps.get!(target, property, receiver);
     }
   };
@@ -38,7 +38,9 @@ export function createProjectionInternal<T extends object = {}>(
     return wrapped;
   };
   const wrappedStore: Store<T> = wrapProjection(initialValue);
-  const node = computed(() => {
+
+  // TODO update to firewall computation
+  node = computed(() => {
     storeSetter(wrappedStore, s => {
       const value = fn(s);
       if (value !== s && value !== undefined) {

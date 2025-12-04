@@ -1,3 +1,4 @@
+import { read, setSignal } from "../core/index.js";
 import {
   $PROXY,
   $TARGET,
@@ -19,7 +20,7 @@ function unwrap(value: any) {
 
 function getOverrideValue(value: any, override: any, nodes: any, key: string) {
   return nodes && key in nodes
-    ? nodes[key].read()
+    ? read(nodes[key])
     : override && key in override
       ? override[key]
       : value[key];
@@ -78,18 +79,18 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
       if (start > newEnd || start > end) {
         for (j = start; j <= newEnd; j++) {
           changed = true;
-          target[STORE_NODE][j]?.write(wrap(next[j], target));
+          target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrap(next[j], target));
         }
 
         for (; j < next.length; j++) {
           changed = true;
           const wrapped = wrap(temp[j], target);
-          target[STORE_NODE][j]?.write(wrapped);
+          target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrapped);
           applyState(next[j], wrapped, keyFn, all);
         }
 
-        changed && target[STORE_NODE][$TRACK]?.write(void 0);
-        prevLength !== next.length && target[STORE_NODE].length?.write(next.length);
+        changed && target[STORE_NODE][$TRACK] && setSignal(target[STORE_NODE][$TRACK], void 0);
+        prevLength !== next.length && target[STORE_NODE].length && setSignal(target[STORE_NODE].length, next.length);
         return;
       }
 
@@ -118,9 +119,9 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
       for (j = start; j < next.length; j++) {
         if (j in temp) {
           const wrapped = wrap(temp[j], target);
-          target[STORE_NODE][j]?.write(wrapped);
+          target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrapped);
           applyState(next[j], wrapped, keyFn, all);
-        } else target[STORE_NODE][j]?.write(wrap(next[j], target));
+        } else target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrap(next[j], target));
       }
       if (start < next.length) changed = true;
     } else if (prevLength && next.length) {
@@ -132,9 +133,9 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
 
     if (prevLength !== next.length) {
       changed = true;
-      target[STORE_NODE].length?.write(next.length);
+      target[STORE_NODE].length && setSignal(target[STORE_NODE].length, next.length);
     }
-    changed && target[STORE_NODE][$TRACK]?.write(void 0);
+    changed && target[STORE_NODE][$TRACK] && setSignal(target[STORE_NODE][$TRACK], void 0);
     return;
   }
 
@@ -153,8 +154,8 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
         !isWrappable(previousValue) ||
         (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
       ) {
-        tracked?.write(void 0);
-        node?.write(isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
+        tracked && setSignal(tracked, void 0);
+        node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
       } else applyState(nextValue, wrap(previousValue, target), keyFn, all);
     }
   }
@@ -163,7 +164,8 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
   if ((nodes = target[STORE_HAS])) {
     const keys = Object.keys(nodes);
     for (let i = 0, len = keys.length; i < len; i++) {
-      nodes[keys[i]].write(keys[i] in next);
+      const key = keys[i];
+      setSignal(nodes[key], key in next);
     }
   }
 }
