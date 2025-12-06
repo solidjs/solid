@@ -4,8 +4,8 @@ import {
   createRoot,
   flush,
   getOwner,
-  type Owner,
-  runWithOwner
+  runWithOwner,
+  type Owner
 } from "../src/index.js";
 
 it("should scope function to current scope", () => {

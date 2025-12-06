@@ -27,7 +27,7 @@ export const dirtyQueue: Heap = {
   _min: 0,
   _max: 0
 };
-export const pendingQueue: Heap = {
+export const zombieQueue: Heap = {
   _heap: new Array(2000).fill(undefined),
   _marked: false,
   _min: 0,
@@ -93,7 +93,7 @@ export class GlobalQueue extends Queue {
       runHeap(dirtyQueue, GlobalQueue._update);
       if (activeTransition) {
         if (!transitionComplete(activeTransition)) {
-          runHeap(pendingQueue, GlobalQueue._update);
+          runHeap(zombieQueue, GlobalQueue._update);
           globalQueue._pendingNodes = [];
           activeTransition!.queues[0].push(...globalQueue._queues[0]);
           activeTransition!.queues[1].push(...globalQueue._queues[1]);
@@ -110,7 +110,7 @@ export class GlobalQueue extends Queue {
         transitions.delete(activeTransition);
         activeTransition = null;
         if (runPending(globalQueue._pendingNodes, false)) runHeap(dirtyQueue, GlobalQueue._update);
-      } else if (transitions.size) runHeap(pendingQueue, GlobalQueue._update);
+      } else if (transitions.size) runHeap(zombieQueue, GlobalQueue._update);
       for (let i = 0; i < globalQueue._pendingNodes.length; i++) {
         const n = globalQueue._pendingNodes[i];
         if (n._pendingValue !== NOT_PENDING) {

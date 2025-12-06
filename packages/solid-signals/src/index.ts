@@ -6,6 +6,7 @@ export {
   createRoot,
   runWithOwner,
   flush,
+  getNextChildId,
   getContext,
   setContext,
   getOwner,

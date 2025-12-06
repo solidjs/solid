@@ -15,7 +15,8 @@ export function increaseHeapSize(n: number, heap: Heap): void {
 }
 
 function actualInsertIntoHeap(n: Computed<unknown>, heap: Heap) {
-  const parentHeight = ((n._parent as Root)?._root
+  const parentHeight =
+    ((n._parent as Root)?._root
       ? (n._parent as Root)._parentComputed?._height
       : (n._parent as Computed<any> | null)?._height) ?? -1;
   if (parentHeight >= n._height) n._height = parentHeight + 1;

@@ -25,19 +25,21 @@ export function mapArray<Item, MappedItem>(
   options?: { keyed?: boolean | ((item: Item) => any); fallback?: Accessor<any> }
 ): Accessor<MappedItem[]> {
   const keyFn = typeof options?.keyed === "function" ? options.keyed : undefined;
-  return createMemo(updateKeyedMap.bind({
-    _owner: createOwner(),
-    _len: 0,
-    _list: list,
-    _items: [],
-    _map: map,
-    _mappings: [],
-    _nodes: [],
-    _key: keyFn,
-    _rows: keyFn || options?.keyed === false ? [] : undefined,
-    _indexes: map.length > 1 ? [] : undefined,
-    _fallback: options?.fallback
-  }));
+  return createMemo(
+    updateKeyedMap.bind({
+      _owner: createOwner(),
+      _len: 0,
+      _list: list,
+      _items: [],
+      _map: map,
+      _mappings: [],
+      _nodes: [],
+      _key: keyFn,
+      _rows: keyFn || options?.keyed === false ? [] : undefined,
+      _indexes: map.length > 1 ? [] : undefined,
+      _fallback: options?.fallback
+    })
+  );
 }
 
 const pureOptions = { pureWrite: true };
@@ -62,7 +64,10 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
           ? () => {
               const item = newItems[j];
               this._indexes![j] = signal(j, pureOptions);
-              return this._map(() => item, read.bind(null, this._indexes![j] as any) as Accessor<number>);
+              return this._map(
+                () => item,
+                read.bind(null, this._indexes![j] as any) as Accessor<number>
+              );
             }
           : () => {
               const item = newItems[j];

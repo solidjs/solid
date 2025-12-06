@@ -90,7 +90,9 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
         }
 
         changed && target[STORE_NODE][$TRACK] && setSignal(target[STORE_NODE][$TRACK], void 0);
-        prevLength !== next.length && target[STORE_NODE].length && setSignal(target[STORE_NODE].length, next.length);
+        prevLength !== next.length &&
+          target[STORE_NODE].length &&
+          setSignal(target[STORE_NODE].length, next.length);
         return;
       }
 

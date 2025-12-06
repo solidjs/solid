@@ -1,4 +1,4 @@
-import { getOwner, computed, read } from "../core/index.js";
+import { computed, getOwner, read } from "../core/index.js";
 import { reconcile } from "./reconcile.js";
 import {
   $TARGET,

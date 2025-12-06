@@ -14,8 +14,8 @@ import {
   flush,
   globalQueue,
   GlobalQueue,
-  pendingQueue,
   schedule,
+  zombieQueue,
   type IQueue,
   type Transition
 } from "./scheduler.js";
@@ -40,12 +40,12 @@ export interface SignalOptions<T> {
 }
 
 export interface RawSignal<T> {
+  id?: string;
   _subs: Link | null;
   _subsTail: Link | null;
   _value: T;
   _error?: unknown;
   _statusFlags: StatusFlags;
-  _id?: string;
   _name?: string;
   _equals: false | ((a: T, b: T) => boolean);
   _pureWrite?: boolean;
@@ -64,7 +64,7 @@ export interface FirewallSignal<T> extends RawSignal<T> {
 
 export type Signal<T> = RawSignal<T> | FirewallSignal<T>;
 export interface Owner {
-  _id?: string;
+  id?: string;
   _disposal: Disposable | Disposable[] | null;
   _parent: Owner | null;
   _context: Record<symbol | string, unknown>;
@@ -104,7 +104,7 @@ let context: Owner | null = null;
 const defaultContext = {};
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
-  deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
+  deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
   if (el._pendingValue !== NOT_PENDING || el._pendingFirstChild || el._pendingDisposal)
     disposeChildren(el);
   else {
@@ -172,14 +172,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     }
 
     for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeap(s._sub, s._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
+      const queue = s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue;
+      if (s._sub._height < el._height && queue._min > s._sub._height) queue._min = s._sub._height;
+      insertIntoHeap(s._sub, queue);
     }
   } else if (el._height != oldHeight) {
     for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeapHeight(
-        s._sub,
-        s._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue
-      );
+      insertIntoHeapHeight(s._sub, s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
     }
   }
 }
@@ -304,7 +303,7 @@ function markDisposal(el: Owner): void {
     const inHeap = (child as Computed<unknown>)._flags & ReactiveFlags.InHeap;
     if (inHeap) {
       deleteFromHeap(child as Computed<unknown>, dirtyQueue);
-      insertIntoHeap(child as Computed<unknown>, pendingQueue);
+      insertIntoHeap(child as Computed<unknown>, zombieQueue);
     }
     markDisposal(child);
     child = child._nextSibling;
@@ -319,7 +318,7 @@ function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): 
     const nextChild = child._nextSibling;
     if ((child as Computed<unknown>)._deps) {
       const n = child as Computed<unknown>;
-      deleteFromHeap(n, n._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
+      deleteFromHeap(n, n._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
       let toRemove = n._deps;
       do {
         toRemove = unlinkSubs(toRemove!);
@@ -357,13 +356,13 @@ function runDisposal(node: Owner, zombie?: boolean): void {
 function withOptions<T>(obj: T, options?: SignalOptions<any> & { _internal?: any }) {
   if (__DEV__)
     (obj as any)._name = options?.name ?? ((obj as Computed<any>)._fn ? "computed" : "signal");
-  (obj as any)._id = options?.id ?? (context?._id != null ? getNextChildId(context) : undefined);
+  (obj as any).id = options?.id ?? (context?.id != null ? getNextChildId(context) : undefined);
   (obj as any)._equals = options?.equals != null ? options.equals : isEqual;
   (obj as any)._pureWrite = !!options?.pureWrite;
   (obj as any)._unobserved = options?.unobserved;
   if (options?._internal) Object.assign(obj as any, options._internal);
   return obj as T & {
-    _id?: string;
+    id?: string;
     _name?: string;
     _equals: false | ((a: any, b: any) => boolean);
     _pureWrite?: boolean;
@@ -372,7 +371,7 @@ function withOptions<T>(obj: T, options?: SignalOptions<any> & { _internal?: any
 }
 
 export function getNextChildId(owner: Owner): string {
-  if (owner._id != null) return formatId(owner._id, owner._childCount++);
+  if (owner.id != null) return formatId(owner.id, owner._childCount++);
   throw new Error("Cannot get child id from owner without an id");
 }
 
@@ -471,7 +470,7 @@ export function asyncComputed<T>(
         .then(v => {
           if (lastResult !== result) return;
           globalQueue.initTransition(self);
-          setSignal(self, v);
+          setSignal(self, () => v);
           flush();
         })
         .catch(e => {
@@ -486,7 +485,7 @@ export function asyncComputed<T>(
           for await (let value of result as AsyncIterable<T>) {
             if (lastResult !== result) return;
             globalQueue.initTransition(self);
-            setSignal(self, value);
+            setSignal(self, () => value);
             flush();
           }
         } catch (error) {
@@ -576,13 +575,14 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     const owner = ("_owner" in el ? el._owner : el) as Computed<any>;
     if ("_fn" in owner) {
       const isZombie = (el as Computed<unknown>)._flags & ReactiveFlags.Zombie;
-      if (owner._height >= (isZombie ? pendingQueue._min : dirtyQueue._min)) {
+      if (owner._height >= (isZombie ? zombieQueue._min : dirtyQueue._min)) {
         markNode(c as Computed<any>);
-        markHeap(isZombie ? pendingQueue : dirtyQueue);
+        markHeap(isZombie ? zombieQueue : dirtyQueue);
         updateIfNecessary(owner);
       }
       const height = owner._height;
-      if (height >= (c as Computed<any>)._height) {
+      // parent check is shallow, might need to be recursive
+      if (height >= (c as Computed<any>)._height && (el as Computed<any>)._parent !== c) {
         (c as Computed<any>)._height = height + 1;
       }
     }
@@ -645,7 +645,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     : (el._pendingValue as T);
 }
 
-export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): void {
+export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   // Warn about writing to a signal in an owned scope in development mode.
   if (__DEV__ && !el._pureWrite && context && !(context as any).firewall)
     console.warn("A Signal was written to in an owned scope.");
@@ -658,7 +658,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   const valueChanged =
     !el._equals ||
     !el._equals(el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T), v);
-  if (!valueChanged && !el._statusFlags) return;
+  if (!valueChanged && !el._statusFlags) return v;
   if (valueChanged) {
     if ((el as any)._optimistic) el._value = v;
     else {
@@ -671,9 +671,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   el._time = clock;
 
   for (let link = el._subs; link !== null; link = link._nextSub) {
-    insertIntoHeap(link._sub, link._sub._flags & ReactiveFlags.Zombie ? pendingQueue : dirtyQueue);
+    insertIntoHeap(link._sub, link._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
   }
   schedule();
+  return v;
 }
 
 export function getObserver(): Owner | null {
@@ -707,7 +708,7 @@ export function createOwner(options?: { id: string }) {
     _firstChild: null,
     _nextSibling: null,
     _disposal: null,
-    _id: options?.id ?? (parent?._id != null ? getNextChildId(parent) : undefined),
+    id: options?.id ?? (parent?.id != null ? getNextChildId(parent) : undefined),
     _queue: parent?._queue ?? globalQueue,
     _context: parent?._context || defaultContext,
     _childCount: 0,

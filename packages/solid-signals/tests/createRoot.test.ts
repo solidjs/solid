@@ -8,8 +8,8 @@ import {
   flush,
   getOwner,
   onCleanup,
-  type Owner,
   type Accessor,
+  type Owner,
   type Signal
 } from "../src/index.js";
 
@@ -132,8 +132,8 @@ it("should not generate ids if no id is provided", () => {
     c();
   });
 
-  expect(o!._id).toEqual(undefined);
-  expect(m!._id).toEqual(undefined);
+  expect(o!.id).toEqual(undefined);
+  expect(m!.id).toEqual(undefined);
 });
 
 it("should generate ids if id is provided", () => {
@@ -168,11 +168,11 @@ it("should generate ids if id is provided", () => {
     { id: "" }
   );
 
-  expect(o!._id).toEqual("");
-  expect(m!._id).toEqual("0");
+  expect(o!.id).toEqual("");
+  expect(m!.id).toEqual("0");
   expect(c!).toEqual("00");
-  expect(m2!._id).toEqual("01");
-  expect(r!._id).toEqual("1");
+  expect(m2!.id).toEqual("01");
+  expect(r!.id).toEqual("1");
   expect(c2!).toEqual("010");
   expect(c3!).toEqual("011");
 });

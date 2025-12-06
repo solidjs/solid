@@ -4,7 +4,7 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  flush,
+  flush
   // hasUpdated
 } from "../src/index.js";
 

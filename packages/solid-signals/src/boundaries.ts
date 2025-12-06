@@ -1,4 +1,4 @@
-import { runEffect } from "./core/effect.js";
+import { recompute } from "./core/core.js";
 import {
   computed,
   createOwner,
@@ -25,12 +25,12 @@ export interface BoundaryComputed<T> extends Computed<T> {
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
   const node = computed<T>(fn, undefined, {
     _internal: {
-      _notifyQueue(this: BoundaryComputed<T>, statusFlagsChanged: boolean, prevStatusFlags: number) {
+      _notifyQueue(this: BoundaryComputed<T>) {
         let flags = this._statusFlags;
         this._statusFlags &= ~this._propagationMask;
         if (
           this._propagationMask & StatusFlags.Pending &&
-          !(this._statusFlags & StatusFlags.Uninitialized /*|| ActiveTransition*/)
+          !((this._statusFlags & StatusFlags.Uninitialized) /*|| ActiveTransition*/)
         ) {
           flags &= ~StatusFlags.Pending;
         }
@@ -171,7 +171,7 @@ export function createErrorBoundary<U>(
     return fallback(node._error, () => {
       // incrementClock();
       for (let node of queue._nodes) {
-        // figure this out
+        recompute(node as Computed<unknown>, true);
       }
     });
   });

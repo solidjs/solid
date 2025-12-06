@@ -92,7 +92,7 @@ export function createSignal<T>(
     ];
   }
   const o = getOwner();
-  const needsId = o?._id != null;
+  const needsId = o?.id != null;
   const node = signal<T>(
     first as any,
     needsId ? { id: getNextChildId(o), ...second } : (second as SignalOptions<T>)
@@ -344,4 +344,8 @@ export function createOptimistic<T>(
 ): Signal<T | undefined> {
   // TODO: Implement proper optimistic updates
   return {} as any;
+}
+
+export function onSettled(callback: () => void | (() => void)): void {
+  // TODO: Implement onSettled logic
 }
