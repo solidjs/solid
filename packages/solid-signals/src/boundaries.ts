@@ -16,7 +16,7 @@ import {
   type Effect,
   type Owner
 } from "./core/index.js";
-import type { IQueue, QueueCallback, Signal } from "./core/index.js";
+import type { IQueue, Signal } from "./core/index.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
   _propagationMask: number;
@@ -101,12 +101,6 @@ export class CollectionQueue extends Queue {
   run(type: number) {
     if (!type || read(this._disabled)) return;
     return super.run(type);
-  }
-  enqueue(type: number, fn: QueueCallback): void {
-    if (this._collectionType & StatusFlags.Pending && this._initialized) {
-      return this._parent?.enqueue(type, fn);
-    }
-    return super.enqueue(type, fn);
   }
   notify(node: Effect<any>, type: number, flags: number) {
     if (

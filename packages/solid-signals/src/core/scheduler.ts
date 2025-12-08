@@ -7,11 +7,17 @@ export let clock = 0;
 export let activeTransition: Transition | null = null;
 export let unobserved: Signal<unknown>[] = [];
 const transitions = new Set<Transition>();
+
+export type QueueCallback = (type: number) => void;
+type QueueStub = {
+  _queues: [QueueCallback[], QueueCallback[]];
+  _children: QueueStub[];
+}
 export interface Transition {
   time: number;
   asyncNodes: Computed<any>[];
   pendingNodes: Signal<any>[];
-  queues: [QueueCallback[], QueueCallback[]];
+  queueStash: QueueStub;
 }
 
 let scheduled = false;
@@ -34,7 +40,6 @@ export const zombieQueue: Heap = {
   _max: 0
 };
 
-export type QueueCallback = (type: number) => void;
 export interface IQueue {
   enqueue(type: number, fn: QueueCallback): void;
   run(type: number): boolean | void;
@@ -42,6 +47,8 @@ export interface IQueue {
   removeChild(child: IQueue): void;
   created: number;
   notify(node: Computed<any>, mask: number, flags: number): boolean;
+  stashQueues(stub: QueueStub): void;
+  restoreQueues(stub: QueueStub): void;
   _parent: IQueue | null;
 }
 
@@ -79,6 +86,29 @@ export class Queue implements IQueue {
     if (type) this._queues[type - 1].push(fn);
     schedule();
   }
+  stashQueues(stub: QueueStub): void {
+    stub._queues[0].push(...this._queues[0]);
+    stub._queues[1].push(...this._queues[1]);
+    this._queues = [[], []];
+    for (let i = 0; i < this._children.length; i++) {
+      let child = this._children[i];
+      let childStub = stub._children[i];
+      if (!childStub) {
+        childStub = { _queues: [[], []], _children: [] };
+        stub._children[i] = childStub;
+      }
+      child.stashQueues(childStub);
+    }
+  }
+  restoreQueues(stub: QueueStub) {
+    this._queues[0].push(...stub._queues[0]);
+    this._queues[1].push(...stub._queues[1]);
+    for (let i = 0; i < stub._children.length; i++) {
+      const childStub = stub._children[i];
+      let child = this._children[i];
+      if (child) child.restoreQueues(childStub);
+    }
+  }
 }
 
 export class GlobalQueue extends Queue {
@@ -95,9 +125,7 @@ export class GlobalQueue extends Queue {
         if (!transitionComplete(activeTransition)) {
           runHeap(zombieQueue, GlobalQueue._update);
           globalQueue._pendingNodes = [];
-          activeTransition!.queues[0].push(...globalQueue._queues[0]);
-          activeTransition!.queues[1].push(...globalQueue._queues[1]);
-          globalQueue._queues = [[], []];
+          globalQueue.stashQueues(activeTransition!.queueStash);
           clock++;
           scheduled = false;
           runPending(activeTransition!.pendingNodes, true);
@@ -105,8 +133,7 @@ export class GlobalQueue extends Queue {
           return;
         }
         globalQueue._pendingNodes.push(...activeTransition.pendingNodes);
-        globalQueue._queues[0].push(...activeTransition.queues[0]);
-        globalQueue._queues[1].push(...activeTransition.queues[1]);
+        globalQueue.restoreQueues(activeTransition.queueStash);
         transitions.delete(activeTransition);
         activeTransition = null;
         if (runPending(globalQueue._pendingNodes, false)) runHeap(dirtyQueue, GlobalQueue._update);
@@ -149,7 +176,7 @@ export class GlobalQueue extends Queue {
         time: clock,
         pendingNodes: [],
         asyncNodes: [],
-        queues: [[], []]
+        queueStash: { _queues: [[], []], _children: [] }
       };
     }
     transitions.add(activeTransition);
