@@ -16,7 +16,7 @@ import {
   type Effect,
   type Owner
 } from "./core/index.js";
-import type { IQueue, Signal } from "./core/index.js";
+import type { IQueue, QueueCallback, Signal } from "./core/index.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
   _propagationMask: number;
@@ -93,6 +93,7 @@ export class CollectionQueue extends Queue {
   _collectionType: number;
   _nodes: Set<Effect<any>> = new Set();
   _disabled: Signal<boolean> = signal(false, { pureWrite: true });
+  _initialized: boolean = false;
   constructor(type: number) {
     super();
     this._collectionType = type;
@@ -101,8 +102,18 @@ export class CollectionQueue extends Queue {
     if (!type || read(this._disabled)) return;
     return super.run(type);
   }
+  enqueue(type: number, fn: QueueCallback): void {
+    if (this._collectionType & StatusFlags.Pending && this._initialized) {
+      return this._parent?.enqueue(type, fn);
+    }
+    return super.enqueue(type, fn);
+  }
   notify(node: Effect<any>, type: number, flags: number) {
-    if (!(type & this._collectionType)) return super.notify(node, type, flags);
+    if (
+      !(type & this._collectionType) ||
+      (this._collectionType & StatusFlags.Pending && this._initialized)
+    )
+      return super.notify(node, type, flags);
     if (flags & this._collectionType) {
       this._nodes.add(node);
       if (this._nodes.size === 1) setSignal(this._disabled, true);
@@ -151,7 +162,8 @@ function createCollectionBoundary<T>(
   const decision = computed(() => {
     if (!read(queue._disabled)) {
       const resolved = read(tree);
-      if (!untrack(() => read(queue._disabled))) return resolved;
+      if (!untrack(() => read(queue._disabled))) queue._initialized = true;
+      return resolved;
     }
     return fallback(queue);
   });

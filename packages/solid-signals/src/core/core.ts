@@ -670,8 +670,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   clearStatusFlags(el);
   el._time = clock;
 
-  for (let link = el._subs; link !== null; link = link._nextSub) {
-    insertIntoHeap(link._sub, link._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
+  for (let s = el._subs; s !== null; s = s._nextSub) {
+    const queue = s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue;
+    if (queue._min > s._sub._height) queue._min = s._sub._height;
+    insertIntoHeap(s._sub, queue);
   }
   schedule();
   return v;
