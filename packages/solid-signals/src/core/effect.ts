@@ -80,10 +80,7 @@ export function effect<T>(
     }
   } as any) as Effect<T>;
   initialized = true;
-  if (node._type === EffectType.Render) {
-    node._fn = p =>
-      !(node._statusFlags & StatusFlags.Error) ? staleValues(() => compute(p)) : compute(p);
-  }
+  if (node._type === EffectType.Render) node._fn = p => staleValues(() => compute(p));
   !options?.defer &&
     !(node._statusFlags & (StatusFlags.Error | StatusFlags.Pending)) &&
     (node._type === EffectType.User

@@ -103,6 +103,14 @@ let pendingCheck: null | { _value: boolean } = null;
 let context: Owner | null = null;
 const defaultContext = {};
 
+function notifySubs(node: Signal<any> | Computed<any>): void {
+  for (let s = node._subs; s !== null; s = s._nextSub) {
+    const queue = s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue;
+    if (queue._min > s._sub._height) queue._min = s._sub._height;
+    insertIntoHeap(s._sub, queue);
+  }
+}
+
 export function recompute(el: Computed<any>, create: boolean = false): void {
   deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
   if (el._pendingValue !== NOT_PENDING || el._pendingFirstChild || el._pendingDisposal)
@@ -289,7 +297,7 @@ function setStatusFlags<T>(signal: Signal<T>, flags: StatusFlags, error: Error |
 }
 
 function setError<T>(signal: Signal<T>, error: Error) {
-  setStatusFlags(signal, StatusFlags.Error | StatusFlags.Uninitialized, error);
+  setStatusFlags(signal, StatusFlags.Error, error);
 }
 
 function clearStatusFlags<T>(signal: Signal<T>) {
@@ -477,6 +485,9 @@ export function asyncComputed<T>(
           if (lastResult !== result) return;
           globalQueue.initTransition(self);
           setError(self, e as Error);
+          self._time = clock;
+          notifySubs(self);
+          schedule();
           flush();
         });
     } else {
@@ -492,6 +503,9 @@ export function asyncComputed<T>(
           if (lastResult !== result) return;
           globalQueue.initTransition(self);
           setError(self, error as Error);
+          self._time = clock;
+          notifySubs(self);
+          schedule();
           flush();
         }
       })();
@@ -669,12 +683,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   }
   clearStatusFlags(el);
   el._time = clock;
-
-  for (let s = el._subs; s !== null; s = s._nextSub) {
-    const queue = s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue;
-    if (queue._min > s._sub._height) queue._min = s._sub._height;
-    insertIntoHeap(s._sub, queue);
-  }
+  notifySubs(el);
   schedule();
   return v;
 }

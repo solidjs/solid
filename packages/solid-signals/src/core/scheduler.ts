@@ -12,7 +12,7 @@ export type QueueCallback = (type: number) => void;
 type QueueStub = {
   _queues: [QueueCallback[], QueueCallback[]];
   _children: QueueStub[];
-}
+};
 export interface Transition {
   time: number;
   asyncNodes: Computed<any>[];
