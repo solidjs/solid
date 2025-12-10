@@ -3,6 +3,7 @@ import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
   createStoreProxy,
+  STORE_FIREWALL,
   STORE_LOOKUP,
   STORE_WRAP,
   storeSetter,
@@ -18,28 +19,21 @@ export function createProjectionInternal<T extends object = {}>(
 ) {
   let node;
   const wrappedMap = new WeakMap();
-  const traps = {
-    ...storeTraps,
-    get(target, property, receiver) {
-      const o = getOwner();
-      const n = node;
-      (!o || o !== n) && n && read(n);
-      return storeTraps.get!(target, property, receiver);
-    }
-  };
   const wrapProjection = (source: T) => {
     if (wrappedMap.has(source)) return wrappedMap.get(source);
     if (source[$TARGET]?.[STORE_WRAP] === wrapProjection) return source;
-    const wrapped = createStoreProxy(source, traps, {
+    const wrapped = createStoreProxy(source, storeTraps, {
       [STORE_WRAP]: wrapProjection,
-      [STORE_LOOKUP]: wrappedMap
+      [STORE_LOOKUP]: wrappedMap,
+      [STORE_FIREWALL]() {
+        return node;
+      }
     });
     wrappedMap.set(source, wrapped);
     return wrapped;
   };
   const wrappedStore: Store<T> = wrapProjection(initialValue);
 
-  // TODO update to firewall computation
   node = computed(() => {
     storeSetter(wrappedStore, s => {
       const value = fn(s);

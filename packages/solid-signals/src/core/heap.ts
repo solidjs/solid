@@ -128,8 +128,8 @@ function adjustHeight(el: Computed<unknown>, heap: Heap) {
   let newHeight = el._height;
   for (let d = el._deps; d; d = d._nextDep) {
     const dep1 = d._dep;
-    const dep = ("_owner" in dep1 ? dep1._owner : dep1) as Computed<unknown>;
-    if ("_fn" in dep) {
+    const dep = (dep1 as FirewallSignal<unknown>)._firewall || dep1;
+    if ((dep as Computed<unknown>)._fn) {
       if (dep._height >= newHeight) {
         newHeight = dep._height + 1;
       }

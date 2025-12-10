@@ -6,6 +6,7 @@ import {
   setSignal,
   signal,
   untrack,
+  type Computed,
   type Signal
 } from "../core/index.js";
 import { createProjectionInternal } from "./projection.js";
@@ -33,7 +34,8 @@ export const STORE_VALUE = "v",
   STORE_NODE = "n",
   STORE_HAS = "h",
   STORE_WRAP = "w",
-  STORE_LOOKUP = "l";
+  STORE_LOOKUP = "l",
+  STORE_FIREWALL = "f";
 
 export type StoreNode = {
   [$PROXY]: any;
@@ -43,6 +45,7 @@ export type StoreNode = {
   [STORE_HAS]?: DataNodes;
   [STORE_WRAP]?: (value: any, target?: StoreNode) => any;
   [STORE_LOOKUP]?: WeakMap<any, any>;
+  [STORE_FIREWALL]?: () => Computed<any>;
 };
 
 export namespace SolidStore {
@@ -93,23 +96,24 @@ function getNodes(target: StoreNode, type: typeof STORE_NODE | typeof STORE_HAS)
   return nodes;
 }
 
-function getNode(
+function getNode<T>(
   nodes: DataNodes,
   property: PropertyKey,
-  value?: any,
+  value: T,
+  firewall?: Computed<T>,
   equals: false | ((a: any, b: any) => boolean) = isEqual
 ): DataNode {
   if (nodes[property]) return nodes[property]!;
-  return (nodes[property] = signal<any>(value, {
+  return (nodes[property] = signal<T>(value, {
     equals: equals,
     unobserved() {
       delete nodes[property];
     }
-  }));
+  }, firewall));
 }
 
 function trackSelf(target: StoreNode, symbol: symbol = $TRACK) {
-  getObserver() && read(getNode(getNodes(target, STORE_NODE), symbol, undefined, false));
+  getObserver() && read(getNode(getNodes(target, STORE_NODE), symbol, undefined, target[STORE_FIREWALL]?.(), false));
 }
 
 export function getKeys(
@@ -187,7 +191,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           ? value.bind(storeValue)
           : value;
       } else if (getObserver()) {
-        return read(getNode(nodes, property, isWrappable(value) ? wrap(value, target) : value));
+        return read(getNode(nodes, property, isWrappable(value) ? wrap(value, target) : value, target[STORE_FIREWALL]?.()));
       }
     }
     return isWrappable(value) ? wrap(value, target) : value;
@@ -200,7 +204,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         ? target[STORE_OVERRIDE][property] !== $DELETED
         : property in target[STORE_VALUE];
 
-    getObserver() && read(getNode(getNodes(target, STORE_HAS), property, has));
+    getObserver() && read(getNode(getNodes(target, STORE_HAS), property, has, target[STORE_FIREWALL]?.()));
     return has;
   },
 

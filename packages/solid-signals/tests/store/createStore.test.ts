@@ -539,17 +539,15 @@ describe("Handling functions in state", () => {
   });
 
   test("Track function change", () => {
-    createRoot(() => {
-      const [state, setState] = createStore<{ fn: () => number }>({
-          fn: () => 1
-        }),
-        getValue = createMemo(() => state.fn());
-      setState(s => {
-        s.fn = () => 2;
-      });
-      flush();
-      expect(getValue()).toBe(2);
+    const [state, setState] = createStore<{ fn: () => number }>({
+        fn: () => 1
+      }),
+      getValue = createMemo(() => state.fn());
+    setState(s => {
+      s.fn = () => 2;
     });
+    flush();
+    expect(getValue()).toBe(2);
   });
 });
 

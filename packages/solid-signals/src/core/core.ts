@@ -58,7 +58,7 @@ export interface RawSignal<T> {
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {
-  _owner: Computed<any>;
+  _firewall: Computed<any>;
   _nextChild: FirewallSignal<unknown> | null;
 }
 
@@ -195,8 +195,8 @@ function updateIfNecessary(el: Computed<unknown>): void {
   if (el._flags & ReactiveFlags.Check) {
     for (let d = el._deps; d; d = d._nextDep) {
       const dep1 = d._dep;
-      const dep = ("_owner" in dep1 ? dep1._owner : dep1) as Computed<unknown>;
-      if ("_fn" in dep) {
+      const dep = (dep1 as FirewallSignal<unknown>)._firewall || dep1;
+      if ((dep as Computed<unknown>)._fn) {
         updateIfNecessary(dep);
       }
       if (el._flags & ReactiveFlags.Dirty) {
@@ -539,7 +539,7 @@ export function signal<T>(
         _value: v,
         _subs: null,
         _subsTail: null,
-        _owner: firewall,
+        _firewall: firewall,
         _nextChild: firewall._child,
         _statusFlags: StatusFlags.None,
         _time: clock,
@@ -586,8 +586,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (c && tracking) {
     link(el, c as Computed<any>);
 
-    const owner = ("_owner" in el ? el._owner : el) as Computed<any>;
-    if ("_fn" in owner) {
+    const owner = (el as FirewallSignal<any>)._firewall || el;
+    if ((owner as Computed<unknown>)._fn) {
       const isZombie = (el as Computed<unknown>)._flags & ReactiveFlags.Zombie;
       if (owner._height >= (isZombie ? zombieQueue._min : dirtyQueue._min)) {
         markNode(c as Computed<any>);
@@ -661,7 +661,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   // Warn about writing to a signal in an owned scope in development mode.
-  if (__DEV__ && !el._pureWrite && context && !(context as any).firewall)
+  if (__DEV__ && !el._pureWrite && context && (el as FirewallSignal<any>)._firewall !== context)
     console.warn("A Signal was written to in an owned scope.");
 
   if (typeof v === "function") {
