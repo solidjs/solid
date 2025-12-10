@@ -5,7 +5,6 @@ import { runHeap, type Heap } from "./heap.js";
 
 export let clock = 0;
 export let activeTransition: Transition | null = null;
-export let unobserved: Signal<unknown>[] = [];
 const transitions = new Set<Transition>();
 
 export type QueueCallback = (type: number) => void;
@@ -153,7 +152,6 @@ export class GlobalQueue extends Queue {
       this.run(EffectType.User);
     } finally {
       this._running = false;
-      unobserved.length && notifyUnobserved();
     }
   }
   notify(node: Computed<any>, mask: number, flags: number): boolean {
@@ -232,13 +230,4 @@ export function transitionComplete(transition: Transition): boolean {
     }
   }
   return done;
-}
-
-function notifyUnobserved(): void {
-  for (let i = 0; i < unobserved.length; i++) {
-    const source = unobserved[i];
-    // TODO better automatic disposal handling
-    if (!source._subs) unobserved[i]._unobserved?.(); // Call the unobserved callback if it exists
-  }
-  unobserved = [];
 }

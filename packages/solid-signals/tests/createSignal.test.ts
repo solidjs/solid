@@ -1,4 +1,4 @@
-import { createSignal, flush } from "../src/index.js";
+import { createMemo, createRoot, createSignal, flush } from "../src/index.js";
 
 afterEach(() => flush());
 
@@ -66,4 +66,38 @@ it("should create signal derived from another signal", () => {
   setX(2);
   flush();
   expect($y()).toBe(3);
+});
+
+it("should call unobserved callback when subscriber is disposed", () => {
+  const unobserved = vi.fn();
+  const [$x, setX] = createSignal(1, { unobserved });
+
+  const disposer = createRoot((dispose) => {
+    createMemo(() => $x());
+    return dispose
+  });
+
+  expect(unobserved).not.toBeCalled();
+  disposer();
+  expect(unobserved).toBeCalledTimes(1);
+
+  setX(2);
+  flush();
+  expect(unobserved).toBeCalledTimes(1);
+});
+
+it("should call unobserved callback when signal is unobserved", () => {
+  const unobserved = vi.fn();
+  const [$x, setX] = createSignal(true);
+  const [$y, setY] = createSignal(1, { unobserved });
+
+  createRoot(() => {
+    createMemo(() => $x() ? $y() : null);
+  });
+
+  expect(unobserved).not.toBeCalled();
+
+  setX(false);
+  flush();
+  expect(unobserved).toBeCalledTimes(1);
 });

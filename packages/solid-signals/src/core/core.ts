@@ -227,8 +227,23 @@ function unlinkSubs(link: Link): Link | null {
     prevSub._nextSub = nextSub;
   } else {
     dep._subs = nextSub;
+    if (nextSub === null) {
+      dep._unobserved?.();
+      // No more subscribers, unwatch if computed
+      (dep as Computed<any>)._fn && unobserved(dep as Computed<any>);
+    }
   }
   return nextDep;
+}
+
+function unobserved(el: Computed<unknown>) {
+  deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
+  let dep = el._deps;
+  while (dep !== null) {
+    dep = unlinkSubs(dep);
+  }
+  el._deps = null;
+  runDisposal(el);
 }
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
