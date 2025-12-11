@@ -333,6 +333,16 @@ function markDisposal(el: Owner): void {
   }
 }
 
+export function dispose(node: Computed<unknown>): void {
+  let toRemove = node._deps || null;
+  do {
+    toRemove = unlinkSubs(toRemove!);
+  } while (toRemove !== null);
+  node._deps = null;
+  node._depsTail = null;
+  disposeChildren(node, true);
+}
+
 function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
   if ((node as any)._flags & ReactiveFlags.Disposed) return;
   if (self) (node as any)._flags = ReactiveFlags.Disposed;

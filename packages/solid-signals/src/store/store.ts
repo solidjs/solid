@@ -104,16 +104,23 @@ function getNode<T>(
   equals: false | ((a: any, b: any) => boolean) = isEqual
 ): DataNode {
   if (nodes[property]) return nodes[property]!;
-  return (nodes[property] = signal<T>(value, {
-    equals: equals,
-    unobserved() {
-      delete nodes[property];
-    }
-  }, firewall));
+  return (nodes[property] = signal<T>(
+    value,
+    {
+      equals: equals,
+      unobserved() {
+        delete nodes[property];
+      }
+    },
+    firewall
+  ));
 }
 
 function trackSelf(target: StoreNode, symbol: symbol = $TRACK) {
-  getObserver() && read(getNode(getNodes(target, STORE_NODE), symbol, undefined, target[STORE_FIREWALL]?.(), false));
+  getObserver() &&
+    read(
+      getNode(getNodes(target, STORE_NODE), symbol, undefined, target[STORE_FIREWALL]?.(), false)
+    );
 }
 
 export function getKeys(
@@ -191,7 +198,14 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           ? value.bind(storeValue)
           : value;
       } else if (getObserver()) {
-        return read(getNode(nodes, property, isWrappable(value) ? wrap(value, target) : value, target[STORE_FIREWALL]?.()));
+        return read(
+          getNode(
+            nodes,
+            property,
+            isWrappable(value) ? wrap(value, target) : value,
+            target[STORE_FIREWALL]?.()
+          )
+        );
       }
     }
     return isWrappable(value) ? wrap(value, target) : value;
@@ -204,7 +218,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         ? target[STORE_OVERRIDE][property] !== $DELETED
         : property in target[STORE_VALUE];
 
-    getObserver() && read(getNode(getNodes(target, STORE_HAS), property, has, target[STORE_FIREWALL]?.()));
+    getObserver() &&
+      read(getNode(getNodes(target, STORE_HAS), property, has, target[STORE_FIREWALL]?.()));
     return has;
   },
 

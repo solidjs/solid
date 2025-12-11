@@ -15,6 +15,7 @@ export {
   createOwner,
   createRoot,
   computed,
+  dispose,
   signal,
   asyncComputed,
   read,

@@ -1,12 +1,14 @@
-import { createRoot } from "./core/core.js";
 import type { SignalOptions } from "./core/index.js";
 import {
   asyncComputed,
   computed,
+  createRoot,
+  dispose,
   effect,
   getNextChildId,
   getOwner,
   NotReadyError,
+  onCleanup,
   read,
   setSignal,
   signal
@@ -284,27 +286,27 @@ export function createTrackedEffect(
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
  */
 export function createReaction(
-  effect: EffectFunction<undefined> | EffectBundle<undefined>,
+  effectFn: EffectFunction<undefined> | EffectBundle<undefined>,
   options?: EffectOptions
 ) {
-  // let cleanup: (() => void) | undefined = undefined;
-  // onCleanup(() => cleanup?.());
-  // return (tracking: () => void) => {
-  //   const node = new Effect(
-  //     undefined,
-  //     tracking,
-  //     () => {
-  //       cleanup?.();
-  //       cleanup = ((effect as any).effect || effect)?.();
-  //       node.dispose(true);
-  //     },
-  //     (effect as any).error,
-  //     {
-  //       defer: true,
-  //       ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
-  //     }
-  //   );
-  // };
+  let cleanup: (() => void) | undefined = undefined;
+  onCleanup(() => cleanup?.());
+  return (tracking: () => void) => {
+    effect(
+      () => (tracking(), getOwner()!),
+      node => {
+        cleanup?.();
+        cleanup = ((effectFn as any).effect || effectFn)?.();
+        dispose(node as any);
+      },
+      (effectFn as any).error,
+      undefined,
+      {
+        defer: true,
+        ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+      }
+    );
+  };
 }
 
 /**

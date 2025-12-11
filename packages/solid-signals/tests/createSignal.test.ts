@@ -72,9 +72,9 @@ it("should call unobserved callback when subscriber is disposed", () => {
   const unobserved = vi.fn();
   const [$x, setX] = createSignal(1, { unobserved });
 
-  const disposer = createRoot((dispose) => {
+  const disposer = createRoot(dispose => {
     createMemo(() => $x());
-    return dispose
+    return dispose;
   });
 
   expect(unobserved).not.toBeCalled();
@@ -92,7 +92,7 @@ it("should call unobserved callback when signal is unobserved", () => {
   const [$y, setY] = createSignal(1, { unobserved });
 
   createRoot(() => {
-    createMemo(() => $x() ? $y() : null);
+    createMemo(() => ($x() ? $y() : null));
   });
 
   expect(unobserved).not.toBeCalled();
