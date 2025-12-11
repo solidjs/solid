@@ -91,7 +91,7 @@ export function effect<T>(
     console.warn("Effects created outside a reactive context will never be disposed");
 }
 
-export function runEffect(this: Effect<any>) {
+function runEffect(this: Effect<any>) {
   if (!this._modified || this._flags & ReactiveFlags.Disposed) return;
   this._cleanup?.();
   this._cleanup = undefined;

@@ -5,6 +5,7 @@ import {
   createRoot,
   dispose,
   effect,
+  EffectType,
   getNextChildId,
   getOwner,
   NotReadyError,
@@ -13,6 +14,7 @@ import {
   setSignal,
   signal
 } from "./core/index.js";
+import { globalQueue } from "./core/scheduler.js";
 
 export type Accessor<T> = () => T;
 
@@ -349,5 +351,11 @@ export function createOptimistic<T>(
 }
 
 export function onSettled(callback: () => void | (() => void)): void {
-  // TODO: Implement onSettled logic
+  let cleanup;
+  const o = getOwner();
+  if (o) onCleanup(() => cleanup?.());
+  globalQueue.enqueue(EffectType.User, () => {
+    cleanup = callback();
+    !o && cleanup?.();
+  });
 }
