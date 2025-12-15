@@ -2,13 +2,13 @@
   "compilerOptions": {
     "declaration": true,
     "emitDeclarationOnly": true,
-    "target": "ESNext",
+    "target": "esnext",
     "newLine": "LF",
-    "moduleResolution": "NodeNext",
+    "moduleResolution": "nodenext",
     "noImplicitAny": false,
     "strict": true,
     "outDir": "dist/types",
-    "module": "NodeNext",
+    "module": "nodenext",
     "types": ["vitest/globals"],
     "verbatimModuleSyntax": true
   },

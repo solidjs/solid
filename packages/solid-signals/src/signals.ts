@@ -5,7 +5,7 @@ import {
   createRoot,
   dispose,
   effect,
-  EffectType,
+  EFFECT_USER,
   getNextChildId,
   getOwner,
   NotReadyError,
@@ -354,7 +354,7 @@ export function onSettled(callback: () => void | (() => void)): void {
   let cleanup;
   const o = getOwner();
   if (o) onCleanup(() => cleanup?.());
-  globalQueue.enqueue(EffectType.User, () => {
+  globalQueue.enqueue(EFFECT_USER, () => {
     cleanup = callback();
     !o && cleanup?.();
   });

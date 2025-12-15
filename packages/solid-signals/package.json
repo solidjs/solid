@@ -19,7 +19,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "rimraf dist && tsup && pnpm types",
+    "build": "rimraf dist && rollup -c && pnpm types",
     "types": "tsc -p tsconfig.build.json",
     "format": "prettier src tests --write --log-level warn",
     "sandbox": "node ./.sandbox/launch.js",
@@ -32,9 +32,14 @@
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.1.1",
+    "@rollup/plugin-replace": "^6.0.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^12.3.0",
     "@types/node": "^20.5.1",
     "rimraf": "^5.0.1",
-    "tsup": "^7.2.0",
+    "rollup": "^4.53.4",
+    "rollup-plugin-prettier": "^4.1.2",
+    "tslib": "^2.8.1",
     "typescript": "5.1.6",
     "vite": "^5.4.10",
     "vitest": "^2.0.0"

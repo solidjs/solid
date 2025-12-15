@@ -1,4 +1,4 @@
-import { NOT_PENDING, ReactiveFlags, StatusFlags } from "./constants.js";
+import { defaultContext, NOT_PENDING, REACTIVE_CHECK, REACTIVE_DIRTY, REACTIVE_DISPOSED, REACTIVE_IN_HEAP, REACTIVE_NONE, REACTIVE_RECOMPUTING_DEPS, REACTIVE_ZOMBIE, STATUS_ERROR, STATUS_NONE, STATUS_PENDING, STATUS_UNINITIALIZED, } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import {
   deleteFromHeap,
@@ -45,7 +45,7 @@ export interface RawSignal<T> {
   _subsTail: Link | null;
   _value: T;
   _error?: unknown;
-  _statusFlags: StatusFlags;
+  _statusFlags: number;
   _name?: string;
   _equals: false | ((a: T, b: T) => boolean);
   _pureWrite?: boolean;
@@ -79,7 +79,7 @@ export interface Owner {
 export interface Computed<T> extends RawSignal<T>, Owner {
   _deps: Link | null;
   _depsTail: Link | null;
-  _flags: ReactiveFlags;
+  _flags: number;
   _height: number;
   _nextHeap: Computed<any> | undefined;
   _prevHeap: Computed<any>;
@@ -100,19 +100,18 @@ let tracking = false;
 let stale = false;
 let pendingValueCheck = false;
 let pendingCheck: null | { _value: boolean } = null;
-let context: Owner | null = null;
-const defaultContext = {};
+export let context: Owner | null = null;
 
 function notifySubs(node: Signal<any> | Computed<any>): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    const queue = s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue;
+    const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
     if (queue._min > s._sub._height) queue._min = s._sub._height;
     insertIntoHeap(s._sub, queue);
   }
 }
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
-  deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
+  deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
   if (el._pendingValue !== NOT_PENDING || el._pendingFirstChild || el._pendingDisposal)
     disposeChildren(el);
   else {
@@ -127,28 +126,26 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const oldcontext = context;
   context = el;
   el._depsTail = null;
-  el._flags = ReactiveFlags.RecomputingDeps;
+  el._flags = REACTIVE_RECOMPUTING_DEPS;
   el._time = clock;
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
   let prevStatusFlags = el._statusFlags;
   let prevError = el._error;
   let prevTracking = tracking;
-  clearStatusFlags(el);
+  setStatusFlags(el, STATUS_NONE);
   tracking = true;
   try {
     value = el._fn(value);
   } catch (e) {
     if (e instanceof NotReadyError) {
       if (e.cause !== el) link(e.cause, el);
-      setStatusFlags(el, (prevStatusFlags & ~StatusFlags.Error) | StatusFlags.Pending, e);
-    } else {
-      setError(el, e as Error);
-    }
+      setStatusFlags(el, (prevStatusFlags & ~STATUS_ERROR) | STATUS_PENDING, e);
+    } else setStatusFlags(el, STATUS_ERROR, e as Error);
   } finally {
     tracking = prevTracking;
   }
-  el._flags = ReactiveFlags.None;
+  el._flags = REACTIVE_NONE;
   context = oldcontext;
 
   const depsTail = el._depsTail as Link | null;
@@ -157,11 +154,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     do {
       toRemove = unlinkSubs(toRemove);
     } while (toRemove !== null);
-    if (depsTail !== null) {
-      depsTail._nextDep = null;
-    } else {
-      el._deps = null;
-    }
+    if (depsTail !== null) depsTail._nextDep = null;
+    else el._deps = null;
   }
   const valueChanged =
     !el._equals ||
@@ -180,36 +174,36 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     }
 
     for (let s = el._subs; s !== null; s = s._nextSub) {
-      const queue = s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue;
+      const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
       if (s._sub._height < el._height && queue._min > s._sub._height) queue._min = s._sub._height;
       insertIntoHeap(s._sub, queue);
     }
   } else if (el._height != oldHeight) {
     for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeapHeight(s._sub, s._sub._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
+      insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     }
   }
 }
 
 function updateIfNecessary(el: Computed<unknown>): void {
-  if (el._flags & ReactiveFlags.Check) {
+  if (el._flags & REACTIVE_CHECK) {
     for (let d = el._deps; d; d = d._nextDep) {
       const dep1 = d._dep;
       const dep = (dep1 as FirewallSignal<unknown>)._firewall || dep1;
       if ((dep as Computed<unknown>)._fn) {
         updateIfNecessary(dep);
       }
-      if (el._flags & ReactiveFlags.Dirty) {
+      if (el._flags & REACTIVE_DIRTY) {
         break;
       }
     }
   }
 
-  if (el._flags & ReactiveFlags.Dirty) {
+  if (el._flags & REACTIVE_DIRTY) {
     recompute(el);
   }
 
-  el._flags = ReactiveFlags.None;
+  el._flags = REACTIVE_NONE;
 }
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
@@ -218,14 +212,11 @@ function unlinkSubs(link: Link): Link | null {
   const nextDep = link._nextDep;
   const nextSub = link._nextSub;
   const prevSub = link._prevSub;
-  if (nextSub !== null) {
-    nextSub._prevSub = prevSub;
-  } else {
-    dep._subsTail = prevSub;
-  }
-  if (prevSub !== null) {
-    prevSub._nextSub = nextSub;
-  } else {
+  if (nextSub !== null) nextSub._prevSub = prevSub;
+  else dep._subsTail = prevSub;
+
+  if (prevSub !== null) prevSub._nextSub = nextSub;
+  else {
     dep._subs = nextSub;
     if (nextSub === null) {
       dep._unobserved?.();
@@ -237,7 +228,7 @@ function unlinkSubs(link: Link): Link | null {
 }
 
 function unobserved(el: Computed<unknown>) {
-  deleteFromHeap(el, el._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
+  deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
   let dep = el._deps;
   while (dep !== null) {
     dep = unlinkSubs(dep);
@@ -249,11 +240,10 @@ function unobserved(el: Computed<unknown>) {
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
 function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
   const prevDep = sub._depsTail;
-  if (prevDep !== null && prevDep._dep === dep) {
-    return;
-  }
+  if (prevDep !== null && prevDep._dep === dep) return;
+
   let nextDep: Link | null = null;
-  const isRecomputing = sub._flags & ReactiveFlags.RecomputingDeps;
+  const isRecomputing = sub._flags & REACTIVE_RECOMPUTING_DEPS;
   if (isRecomputing) {
     nextDep = prevDep !== null ? prevDep._nextDep : sub._deps;
     if (nextDep !== null && nextDep._dep === dep) {
@@ -263,9 +253,9 @@ function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
   }
 
   const prevSub = dep._subsTail;
-  if (prevSub !== null && prevSub._sub === sub && (!isRecomputing || isValidLink(prevSub, sub))) {
+  if (prevSub !== null && prevSub._sub === sub && (!isRecomputing || isValidLink(prevSub, sub)))
     return;
-  }
+
   const newLink =
     (sub._depsTail =
     dep._subsTail =
@@ -276,16 +266,11 @@ function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
         _prevSub: prevSub,
         _nextSub: null
       });
-  if (prevDep !== null) {
-    prevDep._nextDep = newLink;
-  } else {
-    sub._deps = newLink;
-  }
-  if (prevSub !== null) {
-    prevSub._nextSub = newLink;
-  } else {
-    dep._subs = newLink;
-  }
+  if (prevDep !== null) prevDep._nextDep = newLink;
+  else sub._deps = newLink;
+
+  if (prevSub !== null) prevSub._nextSub = newLink;
+  else dep._subs = newLink;
 }
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L284
@@ -294,37 +279,24 @@ function isValidLink(checkLink: Link, sub: Computed<unknown>): boolean {
   if (depsTail !== null) {
     let link = sub._deps!;
     do {
-      if (link === checkLink) {
-        return true;
-      }
-      if (link === depsTail) {
-        break;
-      }
+      if (link === checkLink) return true;
+      if (link === depsTail) break;
       link = link._nextDep!;
     } while (link !== null);
   }
   return false;
 }
 
-function setStatusFlags<T>(signal: Signal<T>, flags: StatusFlags, error: Error | null = null) {
+function setStatusFlags<T>(signal: Signal<T>, flags: number, error: Error | null = null) {
   signal._statusFlags = flags;
   signal._error = error;
-}
-
-function setError<T>(signal: Signal<T>, error: Error) {
-  setStatusFlags(signal, StatusFlags.Error, error);
-}
-
-function clearStatusFlags<T>(signal: Signal<T>) {
-  setStatusFlags(signal, StatusFlags.None);
 }
 
 function markDisposal(el: Owner): void {
   let child = el._firstChild;
   while (child) {
-    (child as Computed<unknown>)._flags |= ReactiveFlags.Zombie;
-    const inHeap = (child as Computed<unknown>)._flags & ReactiveFlags.InHeap;
-    if (inHeap) {
+    (child as Computed<unknown>)._flags |= REACTIVE_ZOMBIE;
+    if ((child as Computed<unknown>)._flags & REACTIVE_IN_HEAP) {
       deleteFromHeap(child as Computed<unknown>, dirtyQueue);
       insertIntoHeap(child as Computed<unknown>, zombieQueue);
     }
@@ -344,14 +316,14 @@ export function dispose(node: Computed<unknown>): void {
 }
 
 function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
-  if ((node as any)._flags & ReactiveFlags.Disposed) return;
-  if (self) (node as any)._flags = ReactiveFlags.Disposed;
+  if ((node as any)._flags & REACTIVE_DISPOSED) return;
+  if (self) (node as any)._flags = REACTIVE_DISPOSED;
   let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
   while (child) {
     const nextChild = child._nextSibling;
     if ((child as Computed<unknown>)._deps) {
       const n = child as Computed<unknown>;
-      deleteFromHeap(n, n._flags & ReactiveFlags.Zombie ? zombieQueue : dirtyQueue);
+      deleteFromHeap(n, n._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
       let toRemove = n._deps;
       do {
         toRemove = unlinkSubs(toRemove!);
@@ -386,23 +358,6 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   zombie ? (node._pendingDisposal = null) : (node._disposal = null);
 }
 
-function withOptions<T>(obj: T, options?: SignalOptions<any> & { _internal?: any }) {
-  if (__DEV__)
-    (obj as any)._name = options?.name ?? ((obj as Computed<any>)._fn ? "computed" : "signal");
-  (obj as any).id = options?.id ?? (context?.id != null ? getNextChildId(context) : undefined);
-  (obj as any)._equals = options?.equals != null ? options.equals : isEqual;
-  (obj as any)._pureWrite = !!options?.pureWrite;
-  (obj as any)._unobserved = options?.unobserved;
-  if (options?._internal) Object.assign(obj as any, options._internal);
-  return obj as T & {
-    id?: string;
-    _name?: string;
-    _equals: false | ((a: any, b: any) => boolean);
-    _pureWrite?: boolean;
-    _unobserved?: () => void;
-  };
-}
-
 export function getNextChildId(owner: Owner): string {
   if (owner.id != null) return formatId(owner.id, owner._childCount++);
   throw new Error("Cannot get child id from owner without an id");
@@ -425,41 +380,43 @@ export function computed<T>(
   initialValue?: T,
   options?: SignalOptions<T>
 ): Computed<T> {
-  const self: Computed<T> = withOptions(
-    {
-      _disposal: null,
-      _queue: globalQueue,
-      _context: defaultContext,
-      _childCount: 0,
-      _fn: fn,
-      _value: initialValue as T,
-      _height: 0,
-      _child: null,
-      _nextHeap: undefined,
-      _prevHeap: null as any,
-      _deps: null,
-      _depsTail: null,
-      _subs: null,
-      _subsTail: null,
-      _parent: context,
-      _nextSibling: null,
-      _firstChild: null,
-      _flags: ReactiveFlags.None,
-      _statusFlags: StatusFlags.Uninitialized,
-      _time: clock,
-      _pendingValue: NOT_PENDING,
-      _pendingDisposal: null,
-      _pendingFirstChild: null
-    },
-    options
-  );
+  const self: Computed<T> = {
+    id: options?.id ?? (context?.id != null ? getNextChildId(context) : undefined),
+    _equals: options?.equals != null ? options.equals : isEqual,
+    _pureWrite: !!options?.pureWrite,
+    _unobserved: options?.unobserved,
+    _disposal: null,
+    _queue: context?._queue ?? globalQueue,
+    _context: context?._context ?? defaultContext,
+    _childCount: 0,
+    _fn: fn,
+    _value: initialValue as T,
+    _height: 0,
+    _child: null,
+    _nextHeap: undefined,
+    _prevHeap: null as any,
+    _deps: null,
+    _depsTail: null,
+    _subs: null,
+    _subsTail: null,
+    _parent: context,
+    _nextSibling: null,
+    _firstChild: null,
+    _flags: REACTIVE_NONE,
+    _statusFlags: STATUS_UNINITIALIZED,
+    _time: clock,
+    _pendingValue: NOT_PENDING,
+    _pendingDisposal: null,
+    _pendingFirstChild: null
+  } as Computed<T>;
+
+  if ((options as any)?._internal) Object.assign(self, (options as any)._internal);
+  if (__DEV__) (self as any)._name = options?.name ?? "computed";
   self._prevHeap = self;
   const parent = (context as Root)?._root
     ? (context as Root)._parentComputed
     : (context as Computed<any> | null);
   if (context) {
-    context._queue && (self._queue = context._queue);
-    context._context && (self._context = context._context);
     const lastChild = context._firstChild;
     if (lastChild === null) {
       context._firstChild = self;
@@ -509,7 +466,7 @@ export function asyncComputed<T>(
         .catch(e => {
           if (lastResult !== result) return;
           globalQueue.initTransition(self);
-          setError(self, e as Error);
+          setStatusFlags(self, STATUS_ERROR, e as Error);
           self._time = clock;
           notifySubs(self);
           schedule();
@@ -527,7 +484,7 @@ export function asyncComputed<T>(
         } catch (error) {
           if (lastResult !== result) return;
           globalQueue.initTransition(self);
-          setError(self, error as Error);
+          setStatusFlags(self, STATUS_ERROR, error as Error);
           self._time = clock;
           notifySubs(self);
           schedule();
@@ -558,33 +515,23 @@ export function signal<T>(
   options?: SignalOptions<T>,
   firewall: Computed<unknown> | null = null
 ): Signal<T> {
-  if (firewall !== null) {
-    return (firewall._child = withOptions(
-      {
-        _value: v,
-        _subs: null,
-        _subsTail: null,
-        _firewall: firewall,
-        _nextChild: firewall._child,
-        _statusFlags: StatusFlags.None,
-        _time: clock,
-        _pendingValue: NOT_PENDING
-      },
-      options
-    )) as FirewallSignal<T>;
-  } else {
-    return withOptions(
-      {
-        _value: v,
-        _subs: null,
-        _subsTail: null,
-        _statusFlags: StatusFlags.None,
-        _time: clock,
-        _pendingValue: NOT_PENDING
-      },
-      options
-    ) as Signal<T>;
-  }
+  const s = {
+    id: options?.id ?? (context?.id != null ? getNextChildId(context) : undefined),
+    _equals: options?.equals != null ? options.equals : isEqual,
+    _pureWrite: !!options?.pureWrite,
+    _unobserved: options?.unobserved,
+    _value: v,
+    _subs: null,
+    _subsTail: null,
+    _statusFlags: STATUS_NONE,
+    _time: clock,
+    _firewall: firewall,
+    _nextChild: firewall?._child || null,
+    _pendingValue: NOT_PENDING
+  };
+  if (__DEV__) (s as any)._name = options?.name ?? "signal";
+  firewall && (firewall._child = s as FirewallSignal<unknown>);
+  return s as Signal<T>;
 }
 
 export function isEqual<T>(a: T, b: T): boolean {
@@ -613,7 +560,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
     const owner = (el as FirewallSignal<any>)._firewall || el;
     if ((owner as Computed<unknown>)._fn) {
-      const isZombie = (el as Computed<unknown>)._flags & ReactiveFlags.Zombie;
+      const isZombie = (el as Computed<unknown>)._flags & REACTIVE_ZOMBIE;
       if (owner._height >= (isZombie ? zombieQueue._min : dirtyQueue._min)) {
         markNode(c as Computed<any>);
         markHeap(isZombie ? zombieQueue : dirtyQueue);
@@ -628,7 +575,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
   if (pendingCheck) {
     const pendingResult =
-      (el._statusFlags & StatusFlags.Pending) !== 0 || !!el._transition || false;
+      (el._statusFlags & STATUS_PENDING) !== 0 || !!el._transition || false;
     if (!el._pendingCheck) {
       el._pendingCheck = signal<boolean>(pendingResult) as Signal<boolean> & {
         _set: (v: boolean) => void;
@@ -658,8 +605,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       pendingValueCheck = true;
     }
   }
-  if (el._statusFlags & StatusFlags.Pending) {
-    if ((c && !stale) || el._statusFlags & StatusFlags.Uninitialized) throw el._error;
+  if (el._statusFlags & STATUS_PENDING) {
+    if ((c && !stale) || el._statusFlags & STATUS_UNINITIALIZED) throw el._error;
     else if (c && stale && !pendingCheck) {
       setStatusFlags(
         c as Computed<any>,
@@ -668,7 +615,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       );
     }
   }
-  if (el._statusFlags & StatusFlags.Error) {
+  if (el._statusFlags & STATUS_ERROR) {
     if (el._time < clock) {
       // treat error reset like create
       recompute(el as Computed<unknown>, true);
@@ -706,7 +653,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     }
     if (el._pendingSignal) el._pendingSignal._set(v);
   }
-  clearStatusFlags(el);
+  setStatusFlags(el, STATUS_NONE);
   el._time = clock;
   notifySubs(el);
   schedule();

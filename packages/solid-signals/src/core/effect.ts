@@ -1,4 +1,4 @@
-import { EffectType, ReactiveFlags, StatusFlags } from "./constants.js";
+import { EFFECT_RENDER, EFFECT_USER, STATUS_PENDING, STATUS_ERROR, REACTIVE_DISPOSED } from "./constants.js";
 import {
   computed,
   getOwner,
@@ -41,22 +41,22 @@ export function effect<T>(
       _errorFn: error,
       _cleanup: undefined,
       _queue: getOwner()?._queue ?? globalQueue,
-      _type: options?.render ? EffectType.Render : EffectType.User,
+      _type: options?.render ? EFFECT_RENDER : EFFECT_USER,
       _notifyQueue(this: Effect<T>, statusFlagsChanged: boolean, prevStatusFlags: number) {
         if (initialized) {
           const errorChanged =
             this._statusFlags && this._statusFlags === prevStatusFlags && statusFlagsChanged;
           this._modified =
-            !(this._statusFlags & StatusFlags.Error) &&
-            !(this._statusFlags & StatusFlags.Pending & ~prevStatusFlags) &&
+            !(this._statusFlags & STATUS_ERROR) &&
+            !(this._statusFlags & STATUS_PENDING & ~prevStatusFlags) &&
             !errorChanged;
           if (this._modified) this._queue.enqueue(this._type, runEffect.bind(this));
         }
 
-        if (this._statusFlags & StatusFlags.Error) {
+        if (this._statusFlags & STATUS_ERROR) {
           let error = this._error;
-          this._queue.notify(this, StatusFlags.Pending, 0);
-          if (this._type === EffectType.User) {
+          this._queue.notify(this, STATUS_PENDING, 0);
+          if (this._type === EFFECT_USER) {
             try {
               return this._errorFn
                 ? this._errorFn(error, () => {
@@ -68,11 +68,11 @@ export function effect<T>(
               error = e;
             }
           }
-          if (!this._queue.notify(this, StatusFlags.Error, StatusFlags.Error)) throw error;
-        } else if ((this as any)._type === EffectType.Render) {
+          if (!this._queue.notify(this, STATUS_ERROR, STATUS_ERROR)) throw error;
+        } else if ((this as any)._type === EFFECT_RENDER) {
           (this as any)._queue.notify(
             this,
-            StatusFlags.Pending | StatusFlags.Error,
+            STATUS_PENDING | STATUS_ERROR,
             (this as any)._statusFlags
           );
         }
@@ -80,10 +80,10 @@ export function effect<T>(
     }
   } as any) as Effect<T>;
   initialized = true;
-  if (node._type === EffectType.Render) node._fn = p => staleValues(() => compute(p));
+  if (node._type === EFFECT_RENDER) node._fn = p => staleValues(() => compute(p));
   !options?.defer &&
-    !(node._statusFlags & (StatusFlags.Error | StatusFlags.Pending)) &&
-    (node._type === EffectType.User
+    !(node._statusFlags & (STATUS_ERROR | STATUS_PENDING)) &&
+    (node._type === EFFECT_USER
       ? node._queue.enqueue(node._type, runEffect.bind(node))
       : runEffect.call(node));
   onCleanup(() => node._cleanup?.());
@@ -92,13 +92,13 @@ export function effect<T>(
 }
 
 function runEffect(this: Effect<any>) {
-  if (!this._modified || this._flags & ReactiveFlags.Disposed) return;
+  if (!this._modified || this._flags & REACTIVE_DISPOSED) return;
   this._cleanup?.();
   this._cleanup = undefined;
   try {
     this._cleanup = this._effectFn(this._value, this._prevValue) as any;
   } catch (error) {
-    if (!this._queue.notify(this, StatusFlags.Error, StatusFlags.Error)) throw error;
+    if (!this._queue.notify(this, STATUS_ERROR, STATUS_ERROR)) throw error;
   } finally {
     this._prevValue = this._value;
     this._modified = false;

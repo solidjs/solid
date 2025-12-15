@@ -10,7 +10,9 @@ import {
   setSignal,
   signal,
   staleValues,
-  StatusFlags,
+  STATUS_ERROR,
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED,
   untrack,
   type Computed,
   type Effect,
@@ -29,10 +31,10 @@ function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComp
         let flags = this._statusFlags;
         this._statusFlags &= ~this._propagationMask;
         if (
-          this._propagationMask & StatusFlags.Pending &&
-          !((this._statusFlags & StatusFlags.Uninitialized) /*|| ActiveTransition*/)
+          this._propagationMask & STATUS_PENDING &&
+          !((this._statusFlags & STATUS_UNINITIALIZED) /*|| ActiveTransition*/)
         ) {
-          flags &= ~StatusFlags.Pending;
+          flags &= ~STATUS_PENDING;
         }
         this._queue.notify(this as any, this._propagationMask, flags);
       },
@@ -72,17 +74,17 @@ class ConditionalQueue extends Queue {
   }
   notify(node: Effect<any>, type: number, flags: number) {
     if (read(this._disabled)) {
-      if (type & StatusFlags.Pending) {
-        if (flags & StatusFlags.Pending) {
+      if (type & STATUS_PENDING) {
+        if (flags & STATUS_PENDING) {
           this._pendingNodes.add(node);
-          type &= ~StatusFlags.Pending;
-        } else if (this._pendingNodes.delete(node)) type &= ~StatusFlags.Pending;
+          type &= ~STATUS_PENDING;
+        } else if (this._pendingNodes.delete(node)) type &= ~STATUS_PENDING;
       }
-      if (type & StatusFlags.Error) {
-        if (flags & StatusFlags.Error) {
+      if (type & STATUS_ERROR) {
+        if (flags & STATUS_ERROR) {
           this._errorNodes.add(node);
-          type &= ~StatusFlags.Error;
-        } else if (this._errorNodes.delete(node)) type &= ~StatusFlags.Error;
+          type &= ~STATUS_ERROR;
+        } else if (this._errorNodes.delete(node)) type &= ~STATUS_ERROR;
       }
     }
     return type ? super.notify(node, type, flags) : true;
@@ -105,7 +107,7 @@ export class CollectionQueue extends Queue {
   notify(node: Effect<any>, type: number, flags: number) {
     if (
       !(type & this._collectionType) ||
-      (this._collectionType & StatusFlags.Pending && this._initialized)
+      (this._collectionType & STATUS_PENDING && this._initialized)
     )
       return super.notify(node, type, flags);
     if (flags & this._collectionType) {
@@ -120,7 +122,7 @@ export class CollectionQueue extends Queue {
   }
 }
 
-export enum BoundaryMode {
+export const enum BoundaryMode {
   VISIBLE = "visible",
   HIDDEN = "hidden"
 }
@@ -130,14 +132,10 @@ export function createBoundary<T>(fn: () => T, condition: () => BoundaryMode) {
   const tree = createBoundChildren(owner, fn, queue, 0);
   computed(() => {
     const disabled = read(queue._disabled);
-    (tree as BoundaryComputed<any>)._propagationMask = disabled
-      ? StatusFlags.Error | StatusFlags.Pending
-      : 0;
+    (tree as BoundaryComputed<any>)._propagationMask = disabled ? STATUS_ERROR | STATUS_PENDING : 0;
     if (!disabled) {
-      queue._pendingNodes.forEach(node =>
-        queue.notify(node, StatusFlags.Pending, StatusFlags.Pending)
-      );
-      queue._errorNodes.forEach(node => queue.notify(node, StatusFlags.Error, StatusFlags.Error));
+      queue._pendingNodes.forEach(node => queue.notify(node, STATUS_PENDING, STATUS_PENDING));
+      queue._errorNodes.forEach(node => queue.notify(node, STATUS_ERROR, STATUS_ERROR));
       queue._pendingNodes.clear();
       queue._errorNodes.clear();
     }
@@ -165,14 +163,14 @@ function createCollectionBoundary<T>(
 }
 
 export function createLoadBoundary(fn: () => any, fallback: () => any) {
-  return createCollectionBoundary(StatusFlags.Pending, fn, () => fallback());
+  return createCollectionBoundary(STATUS_PENDING, fn, () => fallback());
 }
 
 export function createErrorBoundary<U>(
   fn: () => any,
   fallback: (error: unknown, reset: () => void) => U
 ) {
-  return createCollectionBoundary(StatusFlags.Error, fn, queue => {
+  return createCollectionBoundary(STATUS_ERROR, fn, queue => {
     let node = queue._nodes!.values().next().value!;
     return fallback(node._error, () => {
       // incrementClock();
