@@ -11,6 +11,7 @@ import {
   NotReadyError,
   onCleanup,
   read,
+  runWithOwner,
   setSignal,
   signal
 } from "./core/index.js";
@@ -293,21 +294,24 @@ export function createReaction(
 ) {
   let cleanup: (() => void) | undefined = undefined;
   onCleanup(() => cleanup?.());
+  const owner = getOwner();
   return (tracking: () => void) => {
-    effect(
-      () => (tracking(), getOwner()!),
-      node => {
-        cleanup?.();
-        cleanup = ((effectFn as any).effect || effectFn)?.();
-        dispose(node as any);
-      },
-      (effectFn as any).error,
-      undefined,
-      {
-        defer: true,
-        ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
-      }
-    );
+    runWithOwner(owner!, () => {
+      effect(
+        () => (tracking(), getOwner()!),
+        node => {
+          cleanup?.();
+          cleanup = ((effectFn as any).effect || effectFn)?.();
+          dispose(node as any);
+        },
+        (effectFn as any).error,
+        undefined,
+        {
+          defer: true,
+          ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+        }
+      );
+    });
   };
 }
 

@@ -40,7 +40,6 @@ export function effect<T>(
       _effectFn: effect,
       _errorFn: error,
       _cleanup: undefined,
-      _queue: getOwner()?._queue ?? globalQueue,
       _type: options?.render ? EFFECT_RENDER : EFFECT_USER,
       _notifyQueue(this: Effect<T>, statusFlagsChanged: boolean, prevStatusFlags: number) {
         if (initialized) {
