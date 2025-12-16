@@ -19,6 +19,7 @@ import {
   type Owner
 } from "./core/index.js";
 import type { IQueue, Signal } from "./core/index.js";
+import { schedule } from "./core/scheduler.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
   _propagationMask: number;
@@ -166,6 +167,20 @@ export function createLoadBoundary(fn: () => any, fallback: () => any) {
   return createCollectionBoundary(STATUS_PENDING, fn, () => fallback());
 }
 
+function collectErrorSources(node: Computed<any>, sources: Computed<any>[]) {
+  let root = true;
+  let dep = node._deps;
+  while (dep !== null) {
+    const source = dep._dep;
+    if ((source as Computed<any>)._deps && source._statusFlags & STATUS_ERROR) {
+      root = false;
+      collectErrorSources(source as any, sources)
+    }
+    dep = dep._nextDep;
+  }
+  root && sources.push(node);
+}
+
 export function createErrorBoundary<U>(
   fn: () => any,
   fallback: (error: unknown, reset: () => void) => U
@@ -173,10 +188,10 @@ export function createErrorBoundary<U>(
   return createCollectionBoundary(STATUS_ERROR, fn, queue => {
     let node = queue._nodes!.values().next().value!;
     return fallback(node._error, () => {
-      // incrementClock();
-      for (let node of queue._nodes) {
-        recompute(node as Computed<unknown>, true);
-      }
+      const sources: Computed<any>[] = [];
+      for (let node of queue._nodes) collectErrorSources(node as any, sources)
+      for (const source of sources) recompute(source);
+      schedule();
     });
   });
 }

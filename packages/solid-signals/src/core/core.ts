@@ -134,10 +134,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let prevStatusFlags = el._statusFlags;
   let prevError = el._error;
   let prevTracking = tracking;
-  setStatusFlags(el, STATUS_NONE);
+  setStatusFlags(el, STATUS_NONE | (prevStatusFlags & STATUS_UNINITIALIZED));
   tracking = true;
   try {
     value = el._fn(value);
+    el._statusFlags &= ~STATUS_UNINITIALIZED;
   } catch (e) {
     if (e instanceof NotReadyError) {
       if (e.cause !== el) link(e.cause, el);
