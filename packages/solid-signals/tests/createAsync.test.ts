@@ -123,8 +123,7 @@ it("should should show stale state with `isPending`", async () => {
   expect(b()).toBe("not stale");
 });
 
-// TODO fix pending timing
-it.skip("should handle refreshes", async () => {
+it("should handle refreshes", async () => {
   let n = 1;
   const a = createRoot(() => createAsync(() => Promise.resolve(n++)));
   const b = createMemo(() => (isPending(a) ? "stale" : a()));

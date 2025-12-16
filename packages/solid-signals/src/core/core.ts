@@ -55,6 +55,7 @@ export interface RawSignal<T> {
   _pendingCheck?: Signal<boolean> & { _set: (v: boolean) => void };
   _pendingSignal?: Signal<T> & { _set: (v: T) => void };
   _transition?: Transition;
+  _optimistic?: boolean;
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {
@@ -159,13 +160,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
   const valueChanged =
     !el._equals ||
-    !el._equals(el._pendingValue === NOT_PENDING ? el._value : el._pendingValue, value);
+    !el._equals(el._pendingValue === NOT_PENDING || el._optimistic ? el._value : el._pendingValue, value);
   const statusFlagsChanged = el._statusFlags !== prevStatusFlags || el._error !== prevError;
   el._notifyQueue?.(statusFlagsChanged, prevStatusFlags);
 
   if (valueChanged || statusFlagsChanged) {
     if (valueChanged) {
-      if (create || (el as any)._optimistic || (el as any)._type) el._value = value;
+      if (create || el._optimistic || (el as any)._type) el._value = value;
       else {
         if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
         el._pendingValue = value;
@@ -499,6 +500,7 @@ export function asyncComputed<T>(
   (self as any)._refresh = () => {
     refreshing = true;
     recompute(self);
+    schedule();
     flush();
   };
   return self as Computed<T> & { _refresh: () => void };
@@ -594,9 +596,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       el._pendingSignal = signal<T>(
         el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)
       ) as Signal<T> & { _set: (v: T) => void };
-      (el._pendingSignal as any)._optimistic = true;
-      el._pendingSignal._set = v =>
-        queueMicrotask(() => queueMicrotask(() => setSignal(el._pendingSignal!, v)));
+      el._pendingSignal._optimistic = true;
+      el._pendingSignal._set = v => setSignal(el._pendingSignal!, v);
     }
     pendingValueCheck = false;
     try {
@@ -624,7 +625,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       throw el._error;
     }
   }
-  return !c ||
+  return !c || el._optimistic ||
     el._pendingValue === NOT_PENDING ||
     (stale && !pendingCheck && el._transition && activeTransition !== el._transition)
     ? el._value
@@ -643,15 +644,15 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   }
   const valueChanged =
     !el._equals ||
-    !el._equals(el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T), v);
+    !el._equals(el._pendingValue === NOT_PENDING || el._optimistic ? el._value : (el._pendingValue as T), v);
   if (!valueChanged && !el._statusFlags) return v;
   if (valueChanged) {
-    if ((el as any)._optimistic) el._value = v;
+    if (el._optimistic) el._value = v;
     else {
       if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
       el._pendingValue = v;
     }
-    if (el._pendingSignal) el._pendingSignal._set(v);
+    if (el._pendingSignal) el._pendingSignal._pendingValue = v;
   }
   setStatusFlags(el, STATUS_NONE);
   el._time = clock;

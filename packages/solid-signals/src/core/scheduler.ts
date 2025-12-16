@@ -199,6 +199,11 @@ function runPending(pendingNodes, value: boolean) {
       n._pendingCheck._set(value);
       needsReset = true;
     }
+    if (n._pendingSignal && n._pendingSignal._pendingValue !== NOT_PENDING) {
+      n._pendingSignal._set(n._pendingSignal._pendingValue);
+      n._pendingSignal._pendingValue = NOT_PENDING;
+      needsReset = true;
+    }
   }
   return needsReset;
 }
