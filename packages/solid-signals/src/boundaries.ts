@@ -189,7 +189,7 @@ export function createErrorBoundary<U>(
     let node = queue._nodes!.values().next().value!;
     return fallback(node._error, () => {
       const sources: Computed<any>[] = [];
-      for (let node of queue._nodes) collectErrorSources(node as any, sources)
+      for (const node of queue._nodes) collectErrorSources(node as any, sources)
       for (const source of sources) recompute(source);
       schedule();
     });

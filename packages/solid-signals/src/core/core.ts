@@ -1,4 +1,18 @@
-import { defaultContext, NOT_PENDING, REACTIVE_CHECK, REACTIVE_DIRTY, REACTIVE_DISPOSED, REACTIVE_IN_HEAP, REACTIVE_NONE, REACTIVE_RECOMPUTING_DEPS, REACTIVE_ZOMBIE, STATUS_ERROR, STATUS_NONE, STATUS_PENDING, STATUS_UNINITIALIZED, } from "./constants.js";
+import {
+  defaultContext,
+  NOT_PENDING,
+  REACTIVE_CHECK,
+  REACTIVE_DIRTY,
+  REACTIVE_DISPOSED,
+  REACTIVE_IN_HEAP,
+  REACTIVE_NONE,
+  REACTIVE_RECOMPUTING_DEPS,
+  REACTIVE_ZOMBIE,
+  STATUS_ERROR,
+  STATUS_NONE,
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
+} from "./constants.js";
 import { NotReadyError } from "./error.js";
 import {
   deleteFromHeap,
@@ -161,7 +175,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
   const valueChanged =
     !el._equals ||
-    !el._equals(el._pendingValue === NOT_PENDING || el._optimistic ? el._value : el._pendingValue, value);
+    !el._equals(
+      el._pendingValue === NOT_PENDING || el._optimistic ? el._value : el._pendingValue,
+      value
+    );
   const statusFlagsChanged = el._statusFlags !== prevStatusFlags || el._error !== prevError;
   el._notifyQueue?.(statusFlagsChanged, prevStatusFlags);
 
@@ -558,7 +575,7 @@ export function untrack<T>(fn: () => T): T {
 export function read<T>(el: Signal<T> | Computed<T>): T {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  if (c && tracking) {
+  if (c && tracking && !pendingCheck && !pendingValueCheck) {
     link(el, c as Computed<any>);
 
     const owner = (el as FirewallSignal<any>)._firewall || el;
@@ -577,10 +594,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
   }
   if (pendingCheck) {
-    const pendingResult =
-      (el._statusFlags & STATUS_PENDING) !== 0 || !!el._transition || false;
     if (!el._pendingCheck) {
-      el._pendingCheck = signal<boolean>(pendingResult) as Signal<boolean> & {
+      el._pendingCheck = signal<boolean>(false) as Signal<boolean> & {
         _set: (v: boolean) => void;
       };
       (el._pendingCheck as any)._optimistic = true;
@@ -588,15 +603,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
     const prev = pendingCheck;
     pendingCheck = null;
-    read(el._pendingCheck);
+    prev._value = read(el._pendingCheck) || prev._value;
     pendingCheck = prev;
-    prev._value = pendingResult || prev._value;
   }
   if (pendingValueCheck) {
     if (!el._pendingSignal) {
-      el._pendingSignal = signal<T>(
-        el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)
-      ) as Signal<T> & { _set: (v: T) => void };
+      el._pendingSignal = signal<T>(el._value) as Signal<T> & { _set: (v: T) => void };
       el._pendingSignal._optimistic = true;
       el._pendingSignal._set = v => setSignal(el._pendingSignal!, v);
     }
@@ -626,7 +638,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       throw el._error;
     }
   }
-  return !c || el._optimistic ||
+  return !c ||
+    el._optimistic ||
     el._pendingValue === NOT_PENDING ||
     (stale && !pendingCheck && el._transition && activeTransition !== el._transition)
     ? el._value
@@ -645,7 +658,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   }
   const valueChanged =
     !el._equals ||
-    !el._equals(el._pendingValue === NOT_PENDING || el._optimistic ? el._value : (el._pendingValue as T), v);
+    !el._equals(
+      el._pendingValue === NOT_PENDING || el._optimistic ? el._value : (el._pendingValue as T),
+      v
+    );
   if (!valueChanged && !el._statusFlags) return v;
   if (valueChanged) {
     if (el._optimistic) el._value = v;

@@ -2,6 +2,7 @@ import {
   createAsync,
   createEffect,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   // createTrackedEffect,
@@ -111,7 +112,11 @@ it("should waterfall when dependent on another async with shared source", async 
 it("should should show stale state with `isPending`", async () => {
   const [s, set] = createSignal(1);
   const async1 = vi.fn(() => Promise.resolve(s()));
-  const a = createRoot(() => createAsync(async1));
+  const a = createRoot(() => {
+    const a = createAsync(async1);
+    createRenderEffect(a, () => {}); // ensure re-compute
+    return a;
+  });
   const b = createMemo(() => (isPending(a) ? "stale" : "not stale"));
   expect(b).toThrow();
   await new Promise(r => setTimeout(r, 0));
@@ -125,7 +130,11 @@ it("should should show stale state with `isPending`", async () => {
 
 it("should handle refreshes", async () => {
   let n = 1;
-  const a = createRoot(() => createAsync(() => Promise.resolve(n++)));
+  const a = createRoot(() => {
+    const a = createAsync(() => Promise.resolve(n++));
+    createRenderEffect(a, () => {}); // ensure re-compute
+    return a;
+  });
   const b = createMemo(() => (isPending(a) ? "stale" : a()));
   expect(b).toThrow();
   await new Promise(r => setTimeout(r, 0));
@@ -138,6 +147,24 @@ it("should handle refreshes", async () => {
   expect(b()).toBe("stale");
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe(3);
+});
+
+it("should should show pending state", async () => {
+  const [s, set] = createSignal(1);
+  let res: number | null = null;
+  const async1 = vi.fn(() => Promise.resolve(s()));
+  createRoot(() => {
+    const a = createAsync(async1);
+    createRenderEffect(() => pending(s), (v) => { res = v })
+    createRenderEffect(a, () => {}); // ensure re-compute
+  });
+  await new Promise(r => setTimeout(r, 0));
+  expect(res).toBe(1);
+  set(2);
+  flush();
+  expect(res).toBe(2);
+  await new Promise(r => setTimeout(r, 0));
+  expect(res).toBe(2);
 });
 
 it("should resolve to a value with resolveAsync", async () => {
