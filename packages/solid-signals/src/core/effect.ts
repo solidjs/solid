@@ -1,4 +1,10 @@
-import { EFFECT_RENDER, EFFECT_USER, STATUS_PENDING, STATUS_ERROR, REACTIVE_DISPOSED } from "./constants.js";
+import {
+  EFFECT_RENDER,
+  EFFECT_USER,
+  REACTIVE_DISPOSED,
+  STATUS_ERROR,
+  STATUS_PENDING
+} from "./constants.js";
 import {
   computed,
   getOwner,

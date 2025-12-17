@@ -174,7 +174,7 @@ function collectErrorSources(node: Computed<any>, sources: Computed<any>[]) {
     const source = dep._dep;
     if ((source as Computed<any>)._deps && source._statusFlags & STATUS_ERROR) {
       root = false;
-      collectErrorSources(source as any, sources)
+      collectErrorSources(source as any, sources);
     }
     dep = dep._nextDep;
   }
@@ -189,7 +189,7 @@ export function createErrorBoundary<U>(
     let node = queue._nodes!.values().next().value!;
     return fallback(node._error, () => {
       const sources: Computed<any>[] = [];
-      for (const node of queue._nodes) collectErrorSources(node as any, sources)
+      for (const node of queue._nodes) collectErrorSources(node as any, sources);
       for (const source of sources) recompute(source);
       schedule();
     });

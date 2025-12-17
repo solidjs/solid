@@ -155,7 +155,12 @@ it("should should show pending state", async () => {
   const async1 = vi.fn(() => Promise.resolve(s()));
   createRoot(() => {
     const a = createAsync(async1);
-    createRenderEffect(() => pending(s), (v) => { res = v })
+    createRenderEffect(
+      () => pending(s),
+      v => {
+        res = v;
+      }
+    );
     createRenderEffect(a, () => {}); // ensure re-compute
   });
   await new Promise(r => setTimeout(r, 0));
