@@ -28,6 +28,7 @@ import {
   flush,
   globalQueue,
   GlobalQueue,
+  runInTransition,
   schedule,
   zombieQueue,
   type IQueue,
@@ -184,7 +185,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
   if (valueChanged || statusFlagsChanged) {
     if (valueChanged) {
-      if (create || el._optimistic || (el as any)._type) el._value = value;
+      if (create || el._optimistic || ((el as any)._type && el._transition != activeTransition)) el._value = value;
       else {
         if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
         el._pendingValue = value;
@@ -202,6 +203,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     }
   }
+  if ((el as any)._type && el._transition && activeTransition !== el._transition) runInTransition(el, recompute);
 }
 
 function updateIfNecessary(el: Computed<unknown>): void {

@@ -142,6 +142,7 @@ export class GlobalQueue extends Queue {
         if (n._pendingValue !== NOT_PENDING) {
           n._value = n._pendingValue as any;
           n._pendingValue = NOT_PENDING;
+          if ((n as any)._type) (n as any)._modified = true;
         }
         if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
       }
@@ -226,7 +227,7 @@ function runQueue(queue: QueueCallback[], type: number): void {
   for (let i = 0; i < queue.length; i++) queue[i](type);
 }
 
-export function transitionComplete(transition: Transition): boolean {
+function transitionComplete(transition: Transition): boolean {
   let done = true;
   for (let i = 0; i < transition.asyncNodes.length; i++) {
     if (transition.asyncNodes[i]._statusFlags & STATUS_PENDING) {
@@ -235,4 +236,11 @@ export function transitionComplete(transition: Transition): boolean {
     }
   }
   return done;
+}
+
+export function runInTransition(el: Computed<unknown>, recompute: (el: Computed<unknown>) => void) {
+  const prevTransition = activeTransition;
+  activeTransition = el._transition!;
+  recompute(el);
+  activeTransition = prevTransition;
 }
