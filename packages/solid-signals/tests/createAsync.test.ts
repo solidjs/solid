@@ -118,7 +118,9 @@ it("should should show stale state with `isPending`", async () => {
     return a;
   });
   const b = createMemo(() => (isPending(a) ? "stale" : "not stale"));
-  expect(b).toThrow();
+  expect(b()).toBe("not stale");
+  flush();
+  expect(b()).toBe("stale");
   await new Promise(r => setTimeout(r, 0));
   expect(b()).toBe("not stale");
   set(2);

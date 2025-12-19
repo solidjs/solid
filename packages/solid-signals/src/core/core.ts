@@ -66,10 +66,10 @@ export interface RawSignal<T> {
   _pureWrite?: boolean;
   _unobserved?: () => void;
   _time: number;
+  _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
   _pendingCheck?: Signal<boolean> & { _set: (v: boolean) => void };
   _pendingSignal?: Signal<T> & { _set: (v: T) => void };
-  _transition?: Transition;
   _optimistic?: boolean;
 }
 
@@ -174,10 +174,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (depsTail !== null) depsTail._nextDep = null;
     else el._deps = null;
   }
+  const honoraryOptimistic = (el as any)._type && el._transition != activeTransition;
   const valueChanged =
     !el._equals ||
     !el._equals(
-      el._pendingValue === NOT_PENDING || el._optimistic ? el._value : el._pendingValue,
+      el._pendingValue === NOT_PENDING || el._optimistic || honoraryOptimistic
+        ? el._value
+        : el._pendingValue,
       value
     );
   const statusFlagsChanged = el._statusFlags !== prevStatusFlags || el._error !== prevError;
@@ -185,8 +188,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
   if (valueChanged || statusFlagsChanged) {
     if (valueChanged) {
-      if (create || el._optimistic || ((el as any)._type && el._transition != activeTransition))
-        el._value = value;
+      if (create || el._optimistic || honoraryOptimistic) el._value = value;
       else {
         if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
         el._pendingValue = value;
@@ -204,8 +206,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     }
   }
-  if ((el as any)._type && el._transition && activeTransition !== el._transition)
-    runInTransition(el, recompute);
+  if (el._transition && honoraryOptimistic) runInTransition(el, recompute);
 }
 
 function updateIfNecessary(el: Computed<unknown>): void {
@@ -430,7 +431,8 @@ export function computed<T>(
     _time: clock,
     _pendingValue: NOT_PENDING,
     _pendingDisposal: null,
-    _pendingFirstChild: null
+    _pendingFirstChild: null,
+    _transition: null
   } as Computed<T>;
 
   if ((options as any)?._internal) Object.assign(self, (options as any)._internal);
@@ -623,9 +625,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       pendingValueCheck = true;
     }
   }
-  if (el._statusFlags & STATUS_PENDING) {
+  if (el._statusFlags & STATUS_PENDING && !pendingCheck) {
     if ((c && !stale) || el._statusFlags & STATUS_UNINITIALIZED) throw el._error;
-    else if (c && stale && !pendingCheck) {
+    else if (c && stale) {
       setStatusFlags(
         c as Computed<any>,
         (c as Computed<any>)._statusFlags | 1 /* Pending */,
@@ -789,9 +791,7 @@ export function pending<T>(fn: () => T): T {
   }
 }
 
-export function isPending(fn: () => any): boolean;
-export function isPending(fn: () => any, loadingValue: boolean): boolean;
-export function isPending(fn: () => any, loadingValue?: boolean): boolean {
+export function isPending(fn: () => any): boolean {
   const current = pendingCheck;
   pendingCheck = { _value: false };
   try {
@@ -799,7 +799,6 @@ export function isPending(fn: () => any, loadingValue?: boolean): boolean {
     return pendingCheck._value;
   } catch (err) {
     if (!(err instanceof NotReadyError)) return false;
-    if (loadingValue !== undefined) return loadingValue!;
     throw err;
   } finally {
     pendingCheck = current;

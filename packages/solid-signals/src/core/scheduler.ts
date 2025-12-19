@@ -161,8 +161,10 @@ export class GlobalQueue extends Queue {
         if (
           activeTransition &&
           !activeTransition.asyncNodes.includes((node._error as NotReadyError).cause)
-        )
+        ) {
           activeTransition.asyncNodes.push((node._error as NotReadyError).cause);
+          schedule();
+        }
       }
       return true;
     }
