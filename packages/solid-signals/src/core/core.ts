@@ -165,14 +165,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   el._flags = REACTIVE_NONE;
   context = oldcontext;
 
-  const depsTail = el._depsTail as Link | null;
-  let toRemove = depsTail !== null ? depsTail._nextDep : el._deps;
-  if (toRemove !== null) {
-    do {
-      toRemove = unlinkSubs(toRemove);
-    } while (toRemove !== null);
-    if (depsTail !== null) depsTail._nextDep = null;
-    else el._deps = null;
+  // TODO: more optimal way to handle async unlinking
+  if (!(el._statusFlags & STATUS_PENDING)) {
+    const depsTail = el._depsTail as Link | null;
+    let toRemove = depsTail !== null ? depsTail._nextDep : el._deps;
+    if (toRemove !== null) {
+      do {
+        toRemove = unlinkSubs(toRemove);
+      } while (toRemove !== null);
+      if (depsTail !== null) depsTail._nextDep = null;
+      else el._deps = null;
+    }
   }
   const honoraryOptimistic = (el as any)._type && el._transition != activeTransition;
   const valueChanged =
@@ -258,7 +261,7 @@ function unobserved(el: Computed<unknown>) {
     dep = unlinkSubs(dep);
   }
   el._deps = null;
-  runDisposal(el);
+  disposeChildren(el, true);
 }
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
@@ -582,6 +585,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
   if (c && tracking && !pendingCheck && !pendingValueCheck) {
+    if ((el as Computed<unknown>)._fn && (el as Computed<unknown>)._flags & REACTIVE_DISPOSED)
+      recompute(el as Computed<any>);
     link(el, c as Computed<any>);
 
     const owner = (el as FirewallSignal<any>)._firewall || el;
