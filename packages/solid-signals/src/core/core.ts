@@ -206,12 +206,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     }
   }
-  if (
-    (!create || el._statusFlags & STATUS_PENDING) &&
-    !el._optimistic &&
-    !honoraryOptimistic &&
-    !el._transition
-  )
+  if ((!create || el._statusFlags & STATUS_PENDING) && !el._optimistic && !el._transition)
     globalQueue._pendingNodes.push(el);
   if (el._transition && honoraryOptimistic) runInTransition(el, recompute);
 }
@@ -252,7 +247,9 @@ function unlinkSubs(link: Link): Link | null {
     if (nextSub === null) {
       dep._unobserved?.();
       // No more subscribers, unwatch if computed
-      (dep as Computed<any>)._fn && !(dep as any)._preventAutoDisposal && unobserved(dep as Computed<any>);
+      (dep as Computed<any>)._fn &&
+        !(dep as any)._preventAutoDisposal &&
+        unobserved(dep as Computed<any>);
     }
   }
   return nextDep;
