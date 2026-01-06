@@ -132,23 +132,29 @@ it("should should show stale state with `isPending`", async () => {
 
 it("should handle refreshes", async () => {
   let n = 1;
+  let value;
   const a = createRoot(() => {
     const a = createAsync(() => Promise.resolve(n++));
     createRenderEffect(a, () => {}); // ensure re-compute
+    createRenderEffect(
+      () => (isPending(a) ? "stale" : a()),
+      v => {
+        value = v;
+      }
+    );
     return a;
   });
-  const b = createMemo(() => (isPending(a) ? "stale" : a()));
-  expect(b).toThrow();
+  expect(value).toBe(undefined);
   await new Promise(r => setTimeout(r, 0));
-  expect(b()).toBe(1);
+  expect(value).toBe(1);
   a.refresh();
-  expect(b()).toBe("stale");
+  expect(value).toBe("stale");
   await new Promise(r => setTimeout(r, 0));
-  expect(b()).toBe(2);
+  expect(value).toBe(2);
   a.refresh();
-  expect(b()).toBe("stale");
+  expect(value).toBe("stale");
   await new Promise(r => setTimeout(r, 0));
-  expect(b()).toBe(3);
+  expect(value).toBe(3);
 });
 
 it("should should show pending state", async () => {

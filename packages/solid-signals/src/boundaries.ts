@@ -43,6 +43,7 @@ function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComp
     }
   } as any) as BoundaryComputed<T>;
   node._propagationMask = propagationMask;
+  (node as any)._preventAutoDisposal = true;
   return node;
 }
 

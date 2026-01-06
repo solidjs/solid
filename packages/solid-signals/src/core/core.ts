@@ -127,18 +127,20 @@ function notifySubs(node: Signal<any> | Computed<any>): void {
 }
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
-  deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-  if (el._pendingValue !== NOT_PENDING || el._pendingFirstChild || el._pendingDisposal)
-    disposeChildren(el);
-  else {
-    markDisposal(el);
-    globalQueue._pendingNodes.push(el);
-    el._pendingDisposal = el._disposal;
-    el._pendingFirstChild = el._firstChild;
-    el._disposal = null;
-    el._firstChild = null;
+  const honoraryOptimistic = (el as any)._type && el._transition != activeTransition;
+  if (!create) {
+    if (el._transition && activeTransition !== el._transition && !honoraryOptimistic)
+      globalQueue.initTransition(el);
+    deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+    if (el._transition) disposeChildren(el);
+    else {
+      markDisposal(el);
+      el._pendingDisposal = el._disposal;
+      el._pendingFirstChild = el._firstChild;
+      el._disposal = null;
+      el._firstChild = null;
+    }
   }
-
   const oldcontext = context;
   context = el;
   el._depsTail = null;
@@ -177,7 +179,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       else el._deps = null;
     }
   }
-  const honoraryOptimistic = (el as any)._type && el._transition != activeTransition;
   const valueChanged =
     !el._equals ||
     !el._equals(
@@ -192,13 +193,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if (valueChanged || statusFlagsChanged) {
     if (valueChanged) {
       if (create || el._optimistic || honoraryOptimistic) el._value = value;
-      else {
-        if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
-        el._pendingValue = value;
-      }
-      if (el._pendingSignal) el._pendingSignal._set(value);
+      else el._pendingValue = value;
+      if (el._pendingSignal) el._pendingSignal._pendingValue = value;
     }
-
     for (let s = el._subs; s !== null; s = s._nextSub) {
       const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
       if (s._sub._height < el._height && queue._min > s._sub._height) queue._min = s._sub._height;
@@ -209,6 +206,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     }
   }
+  if (
+    (!create || el._statusFlags & STATUS_PENDING) &&
+    !el._optimistic &&
+    !honoraryOptimistic &&
+    !el._transition
+  )
+    globalQueue._pendingNodes.push(el);
   if (el._transition && honoraryOptimistic) runInTransition(el, recompute);
 }
 
@@ -248,7 +252,7 @@ function unlinkSubs(link: Link): Link | null {
     if (nextSub === null) {
       dep._unobserved?.();
       // No more subscribers, unwatch if computed
-      (dep as Computed<any>)._fn && unobserved(dep as Computed<any>);
+      (dep as Computed<any>)._fn && !(dep as any)._preventAutoDisposal && unobserved(dep as Computed<any>);
     }
   }
   return nextDep;
