@@ -16,6 +16,8 @@ export {
   untrack,
   isPending,
   pending,
+  isRefreshing,
+  refresh,
   SUPPORTS_PROXY
 } from "./core/index.js";
 export type { Owner, SignalOptions, Context, ContextRecord, IQueue } from "./core/index.js";

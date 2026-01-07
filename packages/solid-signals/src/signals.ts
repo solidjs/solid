@@ -1,6 +1,5 @@
 import type { SignalOptions } from "./core/index.js";
 import {
-  asyncComputed,
   computed,
   createRoot,
   dispose,
@@ -30,7 +29,9 @@ export type Setter<in out T> = {
 
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
-export type ComputeFunction<Prev, Next extends Prev = Prev> = (v: Prev) => Next;
+export type ComputeFunction<Prev, Next extends Prev = Prev> = (
+  v: Prev
+) => Promise<Next> | AsyncIterable<Next> | Next;
 export type EffectFunction<Prev, Next extends Prev = Prev> = (
   v: Next,
   p?: Prev
@@ -141,36 +142,6 @@ export function createMemo<Next extends Prev, Init, Prev>(
 ): Accessor<Next> {
   let node = computed<Next>(compute as any, value as any, options);
   return read.bind(null, node as any) as Accessor<Next>;
-}
-
-/**
- * Creates a readonly derived async reactive memoized signal
- * ```typescript
- * export function createAsync<T>(
- *   compute: (v: T) => Promise<T> | T,
- *   value?: T,
- *   options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
- * ): () => T;
- * ```
- * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
- * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
- * @param options allows to set a name in dev mode for debugging purposes and use a custom comparison function in equals
- *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-async
- */
-export function createAsync<T>(
-  compute: (prev: T | undefined, refreshing: boolean) => Promise<T> | AsyncIterable<T> | T,
-  value?: T,
-  options?: MemoOptions<T>
-): Accessor<T> & {
-  refresh: () => void;
-} {
-  const node = asyncComputed<T>(compute as any, value as any, options);
-  const ret = read.bind(null, node as any) as Accessor<T> & {
-    refresh: () => void;
-  };
-  ret.refresh = node._refresh;
-  return ret;
 }
 
 /**

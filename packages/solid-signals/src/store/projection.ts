@@ -1,4 +1,4 @@
-import { computed } from "../core/index.js";
+import { computed, getOwner, handleAsync, type Computed } from "../core/index.js";
 import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
@@ -13,7 +13,7 @@ import {
 } from "./store.js";
 
 export function createProjectionInternal<T extends object = {}>(
-  fn: (draft: T) => void | T,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T = {} as T,
   options?: StoreOptions
 ) {
@@ -35,11 +35,14 @@ export function createProjectionInternal<T extends object = {}>(
   const wrappedStore: Store<T> = wrapProjection(initialValue);
 
   node = computed(() => {
+    const owner = node || (getOwner() as Computed<void | T>);
     storeSetter(wrappedStore, s => {
-      const value = fn(s);
-      if (value !== s && value !== undefined) {
-        reconcile(value, options?.key || "id", options?.all)(s);
-      }
+      const value = handleAsync(owner, fn(s), value => {
+        value !== s &&
+          value !== undefined &&
+          storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
+      });
+      value !== s && value !== undefined && reconcile(value, options?.key || "id", options?.all)(s);
     });
   });
 
@@ -52,7 +55,7 @@ export function createProjectionInternal<T extends object = {}>(
  * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
  */
 export function createProjection<T extends Object = {}>(
-  fn: (draft: T) => void | T,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T = {} as T,
   options?: StoreOptions
 ): Store<T> {

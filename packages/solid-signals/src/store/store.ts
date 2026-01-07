@@ -335,12 +335,12 @@ export function createStore<T extends object = {}>(
   store: T | Store<T>
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  fn: (store: T) => void | T,
+  fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   store: T | Store<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
-  first: T | ((store: T) => void | T),
+  first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: T | Store<T>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>] {

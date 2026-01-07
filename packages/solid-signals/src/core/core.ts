@@ -100,6 +100,7 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _nextHeap: Computed<any> | undefined;
   _prevHeap: Computed<any>;
   _fn: (prev?: T) => T;
+  _inFlight: Promise<T> | AsyncIterable<T> | null;
   _child: FirewallSignal<any> | null;
   _notifyQueue?: (statusFlagsChanged: boolean, prevStatusFlags: number) => void;
 }
@@ -116,6 +117,7 @@ let tracking = false;
 let stale = false;
 let pendingValueCheck = false;
 let pendingCheck: null | { _value: boolean } = null;
+let refreshing = false;
 export let context: Owner | null = null;
 
 function notifySubs(node: Signal<any> | Computed<any>): void {
@@ -154,7 +156,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   setStatusFlags(el, STATUS_NONE | (prevStatusFlags & STATUS_UNINITIALIZED));
   tracking = true;
   try {
-    value = el._fn(value);
+    value = handleAsync(el, el._fn(value));
     el._statusFlags &= ~STATUS_UNINITIALIZED;
   } catch (e) {
     if (e instanceof NotReadyError) {
@@ -209,6 +211,60 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if ((!create || el._statusFlags & STATUS_PENDING) && !el._optimistic && !el._transition)
     globalQueue._pendingNodes.push(el);
   if (el._transition && honoraryOptimistic) runInTransition(el, recompute);
+}
+
+export function handleAsync<T>(
+  el: Computed<T>,
+  result: T | Promise<T> | AsyncIterable<T>,
+  setter?: (value: T) => void
+): T {
+  const isObject = typeof result === "object" && result !== null;
+  const isPromise = isObject && result instanceof Promise;
+  const iterator = isObject && untrack(() => result[Symbol.asyncIterator]);
+  if (!isPromise && !iterator) {
+    el._inFlight = null;
+    return result as T;
+  }
+  el._inFlight = result as Promise<T> | AsyncIterable<T>;
+  if (isPromise) {
+    result
+      .then(value => {
+        if (el._inFlight !== result) return;
+        globalQueue.initTransition(el);
+        setter?.(value) ?? setSignal(el, () => value);
+        flush();
+      })
+      .catch(e => {
+        if (el._inFlight !== result) return;
+        globalQueue.initTransition(el);
+        setStatusFlags(el, STATUS_ERROR, e as Error);
+        el._time = clock;
+        notifySubs(el);
+        schedule();
+        flush();
+      });
+  } else {
+    (async () => {
+      try {
+        for await (let value of result as AsyncIterable<T>) {
+          if (el._inFlight !== result) return;
+          globalQueue.initTransition(el);
+          setter?.(value) ?? setSignal(el, () => value);
+          flush();
+        }
+      } catch (error) {
+        if (el._inFlight !== result) return;
+        globalQueue.initTransition(el);
+        setStatusFlags(el, STATUS_ERROR, error as Error);
+        el._time = clock;
+        notifySubs(el);
+        schedule();
+        flush();
+      }
+    })();
+  }
+  globalQueue.initTransition(el as any);
+  throw new NotReadyError(context!);
 }
 
 function updateIfNecessary(el: Computed<unknown>): void {
@@ -397,14 +453,14 @@ function formatId(prefix: string, id: number) {
   return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
 }
 
-export function computed<T>(fn: (prev?: T) => T): Computed<T>;
+export function computed<T>(fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>): Computed<T>;
 export function computed<T>(
-  fn: (prev: T) => T,
+  fn: (prev: T) => T | Promise<T> | AsyncIterable<T>,
   initialValue?: T,
   options?: SignalOptions<T>
 ): Computed<T>;
 export function computed<T>(
-  fn: (prev?: T) => T,
+  fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>,
   initialValue?: T,
   options?: SignalOptions<T>
 ): Computed<T> {
@@ -436,6 +492,7 @@ export function computed<T>(
     _pendingValue: NOT_PENDING,
     _pendingDisposal: null,
     _pendingFirstChild: null,
+    _inFlight: null,
     _transition: null
   } as Computed<T>;
 
@@ -458,80 +515,6 @@ export function computed<T>(
   recompute(self, true);
 
   return self;
-}
-
-export function asyncComputed<T>(
-  asyncFn: (prev?: T, refreshing?: boolean) => T | Promise<T> | AsyncIterable<T>
-): Computed<T> & { _refresh: () => void };
-export function asyncComputed<T>(
-  asyncFn: (prev: T, refreshing?: boolean) => T | Promise<T> | AsyncIterable<T>,
-  initialValue: T,
-  options?: SignalOptions<T>
-): Computed<T> & { _refresh: () => void };
-export function asyncComputed<T>(
-  asyncFn: (prev?: T, refreshing?: boolean) => T | Promise<T> | AsyncIterable<T>,
-  initialValue?: T,
-  options?: SignalOptions<T>
-): Computed<T> & { _refresh: () => void } {
-  let lastResult = undefined as T | undefined;
-  let refreshing = false;
-  const fn = (prev?: T) => {
-    const result = asyncFn(prev, refreshing);
-    refreshing = false;
-    lastResult = result as T;
-    const isPromise = result instanceof Promise;
-    const iterator = result[Symbol.asyncIterator];
-    if (!isPromise && !iterator) {
-      return result as T;
-    }
-    if (isPromise) {
-      result
-        .then(v => {
-          if (lastResult !== result) return;
-          globalQueue.initTransition(self);
-          setSignal(self, () => v);
-          flush();
-        })
-        .catch(e => {
-          if (lastResult !== result) return;
-          globalQueue.initTransition(self);
-          setStatusFlags(self, STATUS_ERROR, e as Error);
-          self._time = clock;
-          notifySubs(self);
-          schedule();
-          flush();
-        });
-    } else {
-      (async () => {
-        try {
-          for await (let value of result as AsyncIterable<T>) {
-            if (lastResult !== result) return;
-            globalQueue.initTransition(self);
-            setSignal(self, () => value);
-            flush();
-          }
-        } catch (error) {
-          if (lastResult !== result) return;
-          globalQueue.initTransition(self);
-          setStatusFlags(self, STATUS_ERROR, error as Error);
-          self._time = clock;
-          notifySubs(self);
-          schedule();
-          flush();
-        }
-      })();
-    }
-    globalQueue.initTransition(context as any);
-    throw new NotReadyError(context!);
-  };
-  const self = computed<T>(fn, initialValue as T, options);
-  (self as any)._refresh = () => {
-    refreshing = true;
-    recompute(self);
-    schedule();
-    flush();
-  };
-  return self as Computed<T> & { _refresh: () => void };
 }
 
 export function signal<T>(v: T, options?: SignalOptions<T>): Signal<T>;
@@ -585,6 +568,7 @@ export function untrack<T>(fn: () => T): T {
 export function read<T>(el: Signal<T> | Computed<T>): T {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
+  if (refreshing && (el as Computed<unknown>)._fn) recompute(el as Computed<unknown>);
   if (c && tracking && !pendingCheck && !pendingValueCheck) {
     if ((el as Computed<unknown>)._fn && (el as Computed<unknown>)._flags & REACTIVE_DISPOSED)
       recompute(el as Computed<any>);
@@ -809,4 +793,22 @@ export function isPending(fn: () => any): boolean {
   } finally {
     pendingCheck = current;
   }
+}
+
+export function refresh<T>(fn: () => T): T {
+  let prevRefreshing = refreshing;
+  refreshing = true;
+  try {
+    return untrack(fn);
+  } finally {
+    refreshing = prevRefreshing;
+    if (!prevRefreshing) {
+      schedule();
+      flush();
+    }
+  }
+}
+
+export function isRefreshing(): boolean {
+  return refreshing;
 }
