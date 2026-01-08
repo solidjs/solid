@@ -127,7 +127,7 @@ export class GlobalQueue extends Queue {
           this.stashQueues(activeTransition!.queueStash);
           clock++;
           scheduled = false;
-          runPending(activeTransition!.pendingNodes, true);
+          runTransitionPending(activeTransition!.pendingNodes, true);
           activeTransition = null;
           return;
         }
@@ -135,18 +135,14 @@ export class GlobalQueue extends Queue {
         this.restoreQueues(activeTransition.queueStash);
         transitions.delete(activeTransition);
         activeTransition = null;
-        if (runPending(this._pendingNodes, false)) runHeap(dirtyQueue, GlobalQueue._update);
+        runTransitionPending(this._pendingNodes, false);
+        dirtyQueue._max >= dirtyQueue._min && runHeap(dirtyQueue, GlobalQueue._update);
       } else if (transitions.size) runHeap(zombieQueue, GlobalQueue._update);
-      for (let i = 0; i < this._pendingNodes.length; i++) {
-        const n = this._pendingNodes[i];
-        if (n._pendingValue !== NOT_PENDING) {
-          n._value = n._pendingValue as any;
-          n._pendingValue = NOT_PENDING;
-          if ((n as any)._type) (n as any)._modified = true;
-        }
-        if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
+      runPending(this._pendingNodes);
+      while (dirtyQueue._max >= dirtyQueue._min) {
+        runHeap(dirtyQueue, GlobalQueue._update);
+        runPending(this._pendingNodes);
       }
-      this._pendingNodes.length = 0;
       clock++;
       scheduled = false;
       this.run(EFFECT_RENDER);
@@ -191,24 +187,33 @@ export class GlobalQueue extends Queue {
   }
 }
 
-function runPending(pendingNodes, value: boolean) {
-  let needsReset = false;
+function runPending(pendingNodes: Signal<any>[]) {
+  for (let i = 0; i < pendingNodes.length; i++) {
+    const n = pendingNodes[i];
+    if (n._pendingValue !== NOT_PENDING) {
+      n._value = n._pendingValue as any;
+      n._pendingValue = NOT_PENDING;
+      if ((n as any)._type) (n as any)._modified = true;
+    }
+    if (n._pendingSignal && n._pendingSignal._pendingValue !== NOT_PENDING)
+      n._pendingSignal._set(n._pendingSignal._pendingValue);
+    if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
+  }
+  pendingNodes.length = 0;
+}
+
+function runTransitionPending(pendingNodes, value: boolean) {
   const p = pendingNodes.slice();
   for (let i = 0; i < p.length; i++) {
     const n = p[i];
     // set or unset the transition
     n._transition = activeTransition;
-    if (n._pendingCheck) {
-      n._pendingCheck._set(value);
-      needsReset = true;
-    }
+    if (n._pendingCheck) n._pendingCheck._set(value);
     if (n._pendingSignal && n._pendingSignal._pendingValue !== NOT_PENDING) {
       n._pendingSignal._set(n._pendingSignal._pendingValue);
       n._pendingSignal._pendingValue = NOT_PENDING;
-      needsReset = true;
     }
   }
-  return needsReset;
 }
 
 export const globalQueue = new GlobalQueue();
