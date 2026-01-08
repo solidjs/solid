@@ -28,6 +28,8 @@ import {
   flush,
   globalQueue,
   GlobalQueue,
+  notifySubs,
+  optimisticRun,
   runInTransition,
   schedule,
   zombieQueue,
@@ -120,14 +122,6 @@ let pendingCheck: null | { _value: boolean } = null;
 let refreshing = false;
 export let context: Owner | null = null;
 
-function notifySubs(node: Signal<any> | Computed<any>): void {
-  for (let s = node._subs; s !== null; s = s._nextSub) {
-    const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-    if (queue._min > s._sub._height) queue._min = s._sub._height;
-    insertIntoHeap(s._sub, queue);
-  }
-}
-
 export function recompute(el: Computed<any>, create: boolean = false): void {
   const honoraryOptimistic = (el as any)._type && el._transition != activeTransition;
   if (!create) {
@@ -196,19 +190,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (valueChanged) {
       if (create || el._optimistic || honoraryOptimistic) el._value = value;
       else el._pendingValue = value;
-      if (el._pendingSignal) el._pendingSignal._pendingValue = value;
+      if (el._pendingSignal) setSignal(el._pendingSignal, value);
     }
-    for (let s = el._subs; s !== null; s = s._nextSub) {
-      const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-      if (s._sub._height < el._height && queue._min > s._sub._height) queue._min = s._sub._height;
-      insertIntoHeap(s._sub, queue);
-    }
+    el._optimistic && !optimisticRun ? globalQueue._optimisticNodes.push(el) : notifySubs(el);
   } else if (el._height != oldHeight) {
     for (let s = el._subs; s !== null; s = s._nextSub) {
       insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     }
   }
-  if ((!create || el._statusFlags & STATUS_PENDING) && !el._optimistic && !el._transition)
+  if ((!create || el._statusFlags & STATUS_PENDING) && !el._transition)
     globalQueue._pendingNodes.push(el);
   if (el._transition && honoraryOptimistic) runInTransition(el, recompute);
 }
@@ -606,7 +596,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (!el._pendingSignal) {
       el._pendingSignal = signal<T>(el._value) as Signal<T> & { _set: (v: T) => void };
       el._pendingSignal._optimistic = true;
-      el._pendingSignal._set = v => setSignal(el._pendingSignal!, v);
     }
     pendingValueCheck = false;
     try {
@@ -637,7 +626,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   return !c ||
     el._optimistic ||
     el._pendingValue === NOT_PENDING ||
-    (stale && !pendingCheck && el._transition && activeTransition !== el._transition)
+    (stale &&
+      !pendingCheck &&
+      ((c as Computed<unknown>)._optimistic ||
+        (el._transition && activeTransition !== el._transition)))
     ? el._value
     : (el._pendingValue as T);
 }
@@ -665,11 +657,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
       if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
       el._pendingValue = v;
     }
-    if (el._pendingSignal) el._pendingSignal._pendingValue = v;
+    if (el._pendingSignal) setSignal(el._pendingSignal, v);
   }
   setStatusFlags(el, STATUS_NONE);
   el._time = clock;
-  notifySubs(el);
+  el._optimistic && !optimisticRun ? globalQueue._optimisticNodes.push(el) : notifySubs(el);
   schedule();
   return v;
 }

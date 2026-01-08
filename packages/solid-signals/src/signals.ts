@@ -12,7 +12,8 @@ import {
   read,
   runWithOwner,
   setSignal,
-  signal
+  signal,
+  staleValues
 } from "./core/index.js";
 import { globalQueue } from "./core/scheduler.js";
 
@@ -321,8 +322,27 @@ export function createOptimistic<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
-  // TODO: Implement proper optimistic updates
-  return {} as any;
+  if (typeof first === "function") {
+    const node = computed<T>((prev) => staleValues(() => (first as any)(prev)), second as any, third);
+    node._optimistic = true;
+    (node as any)._reset = () => setSignal(node as any, first as any);
+    return [
+      read.bind(null, node as any) as Accessor<T | undefined>,
+      setSignal.bind(null, node as any) as Setter<T | undefined>
+    ];
+  }
+  const o = getOwner();
+  const needsId = o?.id != null;
+  const node = signal<T>(
+    first as any,
+    needsId ? { id: getNextChildId(o), ...second } : (second as SignalOptions<T>)
+  );
+  node._optimistic = true;
+  (node as any)._reset = () => setSignal(node as any, first as any);
+  return [
+    read.bind(null, node as any) as Accessor<T>,
+    setSignal.bind(null, node as any) as Setter<T | undefined>
+  ];
 }
 
 export function onSettled(callback: () => void | (() => void)): void {
