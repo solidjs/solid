@@ -216,10 +216,12 @@ export function runOptimistic(activeTransition: Transition | null = null) {
   optimisticRun = true;
   for (let i = 0; i < optimisticNodes.length; i++) {
     const n = optimisticNodes[i];
-    if (!activeTransition && (!n._transition || n._transition.done) && (n as any)._reset)
-      (n as any)._reset();
-    else notifySubs(n);
+    if (!activeTransition && (!n._transition || n._transition.done) && n._pendingValue !== NOT_PENDING) {
+      n._value = n._pendingValue as any;
+      n._pendingValue = NOT_PENDING;
+    }
     n._transition = activeTransition;
+    notifySubs(n);
   }
   globalQueue._optimisticNodes = [];
   if (dirtyQueue._max >= dirtyQueue._min) {

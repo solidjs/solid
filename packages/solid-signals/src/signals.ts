@@ -323,9 +323,16 @@ export function createOptimistic<T>(
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = computed<T>((prev) => staleValues(() => (first as any)(prev)), second as any, third);
+    const node = computed<T>((prev) => {
+      let n = node || getOwner();
+      const v = (first as any)(prev);
+      if (n._transition) {
+        n._pendingValue = v;
+        return prev;
+      }
+      return v;
+    }, second as any, third);
     node._optimistic = true;
-    (node as any)._reset = () => setSignal(node as any, first as any);
     return [
       read.bind(null, node as any) as Accessor<T | undefined>,
       setSignal.bind(null, node as any) as Setter<T | undefined>
@@ -338,10 +345,12 @@ export function createOptimistic<T>(
     needsId ? { id: getNextChildId(o), ...second } : (second as SignalOptions<T>)
   );
   node._optimistic = true;
-  (node as any)._reset = () => setSignal(node as any, first as any);
   return [
     read.bind(null, node as any) as Accessor<T>,
-    setSignal.bind(null, node as any) as Setter<T | undefined>
+    (v => {
+      node._pendingValue = first as any;
+      return setSignal(node as any, v);
+    }) as Setter<T | undefined>
   ];
 }
 

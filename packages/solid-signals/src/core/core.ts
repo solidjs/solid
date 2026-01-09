@@ -54,6 +54,7 @@ export interface SignalOptions<T> {
   equals?: ((prev: T, next: T) => boolean) | false;
   pureWrite?: boolean;
   unobserved?: () => void;
+  lazy?: boolean;
 }
 
 export interface RawSignal<T> {
@@ -142,7 +143,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   el._depsTail = null;
   el._flags = REACTIVE_RECOMPUTING_DEPS;
   el._time = clock;
-  let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
+  let value =
+    el._pendingValue === NOT_PENDING || (el._optimistic && el._transition)
+      ? el._value
+      : el._pendingValue;
   let oldHeight = el._height;
   let prevStatusFlags = el._statusFlags;
   let prevError = el._error;
@@ -178,7 +182,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const valueChanged =
     !el._equals ||
     !el._equals(
-      el._pendingValue === NOT_PENDING || el._optimistic || honoraryOptimistic
+      el._pendingValue === NOT_PENDING || (el._optimistic && el._transition) || honoraryOptimistic
         ? el._value
         : el._pendingValue,
       value
@@ -502,7 +506,7 @@ export function computed<T>(
     }
   }
   if (parent) self._height = parent._height + 1;
-  recompute(self, true);
+  !options?.lazy && recompute(self, true);
 
   return self;
 }
@@ -641,13 +645,17 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   if (typeof v === "function") {
     v = (v as (prev: T) => T)(
-      el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)
+      el._pendingValue === NOT_PENDING || (el._optimistic && el._transition)
+        ? el._value
+        : (el._pendingValue as T)
     );
   }
   const valueChanged =
     !el._equals ||
     !el._equals(
-      el._pendingValue === NOT_PENDING || el._optimistic ? el._value : (el._pendingValue as T),
+      el._pendingValue === NOT_PENDING || (el._optimistic && el._transition)
+        ? el._value
+        : (el._pendingValue as T),
       v
     );
   if (!valueChanged && !el._statusFlags) return v;
