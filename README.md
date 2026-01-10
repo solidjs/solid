@@ -48,7 +48,7 @@ import { render } from "solid-js/web";
 
 // A component is just a function that returns a DOM node
 function Counter() {
-  // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
+  // Create a piece of reactive state, giving us an accessor, count(), and a setter, setCount()
   const [count, setCount] = createSignal(0);
   
   //To create derived state, just wrap an expression in a function
