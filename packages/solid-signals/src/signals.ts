@@ -325,12 +325,8 @@ export function createOptimistic<T>(
   if (typeof first === "function") {
     const node = computed<T>((prev) => {
       let n = node || getOwner();
-      const v = (first as any)(prev);
-      if (n._transition) {
-        n._pendingValue = v;
-        return prev;
-      }
-      return v;
+      n._pendingValue = (first as any)(prev);
+      return prev;
     }, second as any, third);
     node._optimistic = true;
     return [

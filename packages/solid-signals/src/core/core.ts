@@ -182,7 +182,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const valueChanged =
     !el._equals ||
     !el._equals(
-      el._pendingValue === NOT_PENDING || (el._optimistic && el._transition) || honoraryOptimistic
+      el._pendingValue === NOT_PENDING || el._optimistic || honoraryOptimistic
         ? el._value
         : el._pendingValue,
       value
@@ -196,15 +196,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       else el._pendingValue = value;
       if (el._pendingSignal) setSignal(el._pendingSignal, value);
     }
-    el._optimistic && !optimisticRun ? globalQueue._optimisticNodes.push(el) : notifySubs(el);
+    (!el._optimistic || optimisticRun) && notifySubs(el);
   } else if (el._height != oldHeight) {
     for (let s = el._subs; s !== null; s = s._nextSub) {
       insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     }
   }
-  if ((!create || el._statusFlags & STATUS_PENDING) && !el._transition)
+  el._optimistic && !optimisticRun && globalQueue._optimisticNodes.push(el);
+  (!create || el._statusFlags & STATUS_PENDING) &&
+    !el._transition &&
     globalQueue._pendingNodes.push(el);
-  if (el._transition && honoraryOptimistic) runInTransition(el, recompute);
+  el._transition && honoraryOptimistic && runInTransition(el, recompute);
 }
 
 export function handleAsync<T>(
@@ -653,9 +655,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   const valueChanged =
     !el._equals ||
     !el._equals(
-      el._pendingValue === NOT_PENDING || (el._optimistic && el._transition)
-        ? el._value
-        : (el._pendingValue as T),
+      el._pendingValue === NOT_PENDING || el._optimistic ? el._value : (el._pendingValue as T),
       v
     );
   if (!valueChanged && !el._statusFlags) return v;
