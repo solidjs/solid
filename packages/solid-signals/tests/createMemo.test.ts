@@ -288,7 +288,7 @@ describe("async compute", () => {
     expect(effect).toHaveBeenCalledWith(4);
   });
 
-  it("should should show stale state with `isPending`", async () => {
+  it("should should show stale state with `isPending` in graph", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     const a = createRoot(() => {
@@ -307,6 +307,26 @@ describe("async compute", () => {
     expect(b()).toBe("stale");
     await new Promise(r => setTimeout(r, 0));
     expect(b()).toBe("not stale");
+  });
+
+  it("should should show stale state with `isPending` out of graph", async () => {
+    const [s, set] = createSignal(1);
+    const async1 = vi.fn(() => Promise.resolve(s()));
+    const a = createRoot(() => {
+      const a = createMemo(async1);
+      createRenderEffect(a, () => {}); // ensure re-compute
+      return a;
+    });
+    expect(isPending(a)).toBe(false);
+    flush();
+    expect(isPending(a)).toBe(true);
+    await new Promise(r => setTimeout(r, 0));
+    expect(isPending(a)).toBe(false);
+    set(2);
+    flush();
+    expect(isPending(a)).toBe(true);
+    await new Promise(r => setTimeout(r, 0));
+    expect(isPending(a)).toBe(false);
   });
 
   it("should handle refreshes", async () => {
@@ -336,7 +356,7 @@ describe("async compute", () => {
     expect(value).toBe(3);
   });
 
-  it("should should show pending state", async () => {
+  it("should should show pending state in graph", async () => {
     const [s, set] = createSignal(1);
     let res: number | null = null;
     const async1 = vi.fn(() => Promise.resolve(s()));
@@ -357,6 +377,22 @@ describe("async compute", () => {
     expect(res).toBe(2);
     await new Promise(r => setTimeout(r, 0));
     expect(res).toBe(2);
+  });
+
+  it("should should show pending state outside of graph", async () => {
+    const [s, set] = createSignal(1);
+    const async1 = vi.fn(() => Promise.resolve(s()));
+    createRoot(() => {
+      const a = createMemo(async1);
+      createRenderEffect(a, () => {}); // ensure re-compute
+    });
+    await new Promise(r => setTimeout(r, 0));
+    expect(pending(s)).toBe(1);
+    set(2);
+    flush();
+    expect(pending(s)).toBe(2);
+    await new Promise(r => setTimeout(r, 0));
+    expect(pending(s)).toBe(2);
   });
 
   it("should resolve to a value with resolveAsync", async () => {

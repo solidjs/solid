@@ -4,9 +4,10 @@ import {
   createRoot,
   createSignal,
   flush,
-  refresh,
   isPending,
-  NotReadyError
+  NotReadyError,
+  pending,
+  refresh
 } from "../../src/index.js";
 
 describe("Projection async behavior", () => {
@@ -427,18 +428,28 @@ describe("Projection async behavior", () => {
 });
 
 describe.skip("Projection + transition behavior", () => {
-  it("initial async run: not pending, reading throws NotReadyError, effects do not run until resolved", async () => {
+  it("initial async run: not pending, reading throws NotReadyError, pending() returns committed value", async () => {
     let proj;
     const effectFn = vi.fn();
 
     createRoot(() => {
-      proj = createProjection(async draft => {
-        await Promise.resolve();
-        draft.value = 123;
-      }, { value: 0 });
+      proj = createProjection(
+        async draft => {
+          await Promise.resolve();
+          draft.value = 123;
+        },
+        { value: 0 }
+      );
 
       createRenderEffect(
-        () => proj.value,
+        () => {
+          try {
+            return proj.value;
+          } catch (e) {
+            if (e instanceof NotReadyError) return "loading";
+            throw e;
+          }
+        },
         v => effectFn(v)
       );
     });
@@ -448,8 +459,11 @@ describe.skip("Projection + transition behavior", () => {
     // initial load is NOT pending
     expect(isPending(() => proj.value)).toBe(false);
 
-    // effect does NOT run yet (not deferred — simply not run because read throws)
-    expect(effectFn).not.toHaveBeenCalled();
+    // pending() returns committed value (initial value)
+    expect(pending(() => proj.value)).toBe(0);
+
+    // effect does NOT run yet
+    expect(effectFn).toHaveBeenCalled();
 
     // resolve async
     await Promise.resolve();
@@ -457,20 +471,24 @@ describe.skip("Projection + transition behavior", () => {
 
     // effect runs after resolution
     expect(effectFn).toHaveBeenCalledWith(123);
+
+    // pending() now returns committed value
+    expect(pending(() => proj.value)).toBe(123);
   });
 
-  it("second async run (update) enters pending=true until completion", async () => {
+  it("update enters pending=true and pending() returns pending value", async () => {
     const [$x, setX] = createSignal(1);
     let proj;
 
     createRoot(() => {
-      proj = createProjection(async draft => {
-        const v = $x();
-        await Promise.resolve();
-        draft.value = v * 10;
-      }, { value: 0 });
-
-      createRenderEffect(() => proj.value, () => {});
+      proj = createProjection(
+        async draft => {
+          const v = $x();
+          await Promise.resolve();
+          draft.value = v * 10;
+        },
+        { value: 0 }
+      );
     });
 
     // initial load
@@ -479,74 +497,124 @@ describe.skip("Projection + transition behavior", () => {
     await Promise.resolve();
     expect(proj.value).toBe(10);
     expect(isPending(() => proj.value)).toBe(false);
+    expect(pending(() => proj.value)).toBe(10);
 
     // update → enters pending
     setX(2);
     flush();
+
     expect(isPending(() => proj.value)).toBe(true);
+    expect(pending(() => proj.value)).toBe(20);
 
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(proj.value).toBe(20);
     expect(isPending(() => proj.value)).toBe(false);
+    expect(pending(() => proj.value)).toBe(20);
+    expect(proj.value).toBe(20);
   });
 
-  it("supersession only applies to updates (not initial load)", async () => {
-    const [$x, setX] = createSignal(1);
-
-    let proj, resolve1, resolve2;
+  it("pending() updates on each yield during async iterable projection", async () => {
+    let proj;
 
     createRoot(() => {
-      proj = createProjection<{ value: string | null }>(async draft => {
-        const v = $x();
-        if (v === 1) {
-          await new Promise(r => (resolve1 = r));
-          draft.value = "first";
-        } else {
-          await new Promise(r => (resolve2 = r));
-          draft.value = "second";
-        }
-      }, { value: null });
+      proj = createProjection(
+        async function* (draft) {
+          draft.step = 1;
+          yield;
+          draft.step = 2;
+          yield;
+          draft.step = 3;
+        },
+        { step: 0 }
+      );
     });
 
     // initial load
     flush();
-    expect(isPending(() => proj.value)).toBe(false);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pending(() => proj.step)).toBe(0);
 
-    // resolve initial load
+    // update
+    refresh(proj);
+    flush();
+
+    expect(isPending(() => proj.step)).toBe(true);
+    expect(pending(() => proj.step)).toBe(1);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pending(() => proj.step)).toBe(2);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(isPending(() => proj.step)).toBe(false);
+    expect(pending(() => proj.step)).toBe(3);
+    expect(proj.step).toBe(3);
+  });
+
+  it("supersession only applies to updates; pending() reflects newest pending value", async () => {
+    const [$x, setX] = createSignal(1);
+    let proj, resolve1, resolve2;
+
+    createRoot(() => {
+      proj = createProjection<{ value: string | null }>(
+        async draft => {
+          const v = $x();
+          if (v === 1) {
+            await new Promise(r => (resolve1 = r));
+            draft.value = "first";
+          } else {
+            await new Promise(r => (resolve2 = r));
+            draft.value = "second";
+          }
+        },
+        { value: null }
+      );
+    });
+
+    // initial load
+    flush();
     resolve1();
     await Promise.resolve();
     await Promise.resolve();
-    expect(proj.value).toBe("first");
 
-    // update → enters pending
+    expect(proj.value).toBe("first");
+    expect(pending(() => proj.value)).toBe("first");
+
+    // update → pending
     setX(2);
     flush();
     expect(isPending(() => proj.value)).toBe(true);
+    expect(pending(() => proj.value)).toBe("second");
 
-    // supersede update
+    // supersede old run
     resolve1(); // ignored
     await Promise.resolve();
     await Promise.resolve();
-    expect(proj.value).toBe("first");
-    expect(isPending(() => proj.value)).toBe(true);
+    expect(pending(() => proj.value)).toBe("second");
 
-    resolve2(); // new run commits
+    resolve2(); // commits
     await Promise.resolve();
     await Promise.resolve();
-    expect(proj.value).toBe("second");
+
     expect(isPending(() => proj.value)).toBe(false);
+    expect(pending(() => proj.value)).toBe("second");
+    expect(proj.value).toBe("second");
   });
 
-  it("refresh() always enters pending and cancels previous async run", async () => {
+  it("refresh() always enters pending and pending() returns pending value", async () => {
     let proj, resolve;
 
     createRoot(() => {
-      proj = createProjection(async draft => {
-        await new Promise(r => (resolve = r));
-        draft.value = "done";
-      }, { value: "init" });
+      proj = createProjection(
+        async draft => {
+          await new Promise(r => (resolve = r));
+          draft.value = "done";
+        },
+        { value: "init" }
+      );
     });
 
     // initial load
@@ -555,12 +623,15 @@ describe.skip("Projection + transition behavior", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(proj.value).toBe("done");
-    expect(isPending(() => proj.value)).toBe(false);
+    expect(pending(() => proj.value)).toBe("done");
 
-    // refresh → enters pending
+    // refresh → pending
     refresh(proj);
     flush();
     expect(isPending(() => proj.value)).toBe(true);
+
+    // pending value is the new in-flight value
+    expect(pending(() => proj.value)).toBe("done");
 
     // resolve old run (ignored)
     resolve();
@@ -571,19 +642,24 @@ describe.skip("Projection + transition behavior", () => {
     // allow new run to complete
     await Promise.resolve();
     await Promise.resolve();
+
     expect(isPending(() => proj.value)).toBe(false);
+    expect(pending(() => proj.value)).toBe("done");
   });
 
-  it("effects inside transitions are deferred only on updates (not initial load)", async () => {
+  it("effects inside transitions are deferred only on updates", async () => {
     let proj;
     const inside = vi.fn();
     const outside = vi.fn();
 
     createRoot(() => {
-      proj = createProjection(async draft => {
-        await Promise.resolve();
-        draft.value = 1;
-      }, { value: 0 });
+      proj = createProjection(
+        async draft => {
+          await Promise.resolve();
+          draft.value = 1;
+        },
+        { value: 0 }
+      );
 
       // inside transition
       createRenderEffect(
@@ -605,16 +681,11 @@ describe.skip("Projection + transition behavior", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // initial load: not pending
     expect(isPending(() => proj.value)).toBe(false);
-
-    // outside effect ran
     expect(outside).toHaveBeenCalledWith(1);
-
-    // inside effect did NOT run (not pending)
     expect(inside).not.toHaveBeenCalled();
 
-    // update → enters pending
+    // update → pending
     refresh(proj);
     flush();
     expect(isPending(() => proj.value)).toBe(true);
@@ -622,7 +693,6 @@ describe.skip("Projection + transition behavior", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // inside effect runs after pending resolves
     expect(inside).toHaveBeenCalled();
   });
 
@@ -632,11 +702,14 @@ describe.skip("Projection + transition behavior", () => {
     const effectFn = vi.fn();
 
     createRoot(() => {
-      proj = createProjection(async draft => {
-        const v = $x();
-        await Promise.resolve();
-        draft.value = v;
-      }, { value: 0 });
+      proj = createProjection(
+        async draft => {
+          const v = $x();
+          await Promise.resolve();
+          draft.value = v;
+        },
+        { value: 0 }
+      );
 
       createRenderEffect(
         () => proj.value,
@@ -650,7 +723,7 @@ describe.skip("Projection + transition behavior", () => {
     await Promise.resolve();
     expect(effectFn).toHaveBeenCalledWith(1);
 
-    // update → enters pending
+    // update → pending
     setX(2);
     flush();
     expect(isPending(() => proj.value)).toBe(true);
@@ -671,9 +744,12 @@ describe.skip("Projection + transition behavior", () => {
     const effectFn = vi.fn();
 
     createRoot(() => {
-      proj = createProjection(draft => {
-        draft.value = $x();
-      }, { value: 0 });
+      proj = createProjection(
+        draft => {
+          draft.value = $x();
+        },
+        { value: 0 }
+      );
 
       createRenderEffect(
         () => proj.value,

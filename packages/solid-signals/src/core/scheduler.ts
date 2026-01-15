@@ -145,6 +145,8 @@ export class GlobalQueue extends Queue {
           return;
         }
         this._pendingNodes.push(...activeTransition.pendingNodes);
+        this._optimisticNodes !== activeTransition.optimisticNodes &&
+          this._optimisticNodes.push(...activeTransition.optimisticNodes);
         this.restoreQueues(activeTransition.queueStash);
         transitions.delete(activeTransition);
         activeTransition = null;
@@ -311,22 +313,13 @@ export function action<Args extends any[], Y, R>(
     globalQueue.initTransition();
     let ctx = activeTransition!;
     ctx!.actions.push(iterator);
-    let sawAsyncStep = false;
-    let sawAnyYield = false;
     const step = (input?: any) => {
       let nextValue = iterator.next(input);
-      if (nextValue instanceof Promise) {
-        sawAsyncStep = true;
-        return nextValue.then(process);
-      }
+      if (nextValue instanceof Promise) return nextValue.then(process);
       process(nextValue);
     };
     const process = (result: IteratorResult<Y, R>) => {
       if (result.done) {
-        if (__DEV__ && sawAsyncStep && !sawAnyYield)
-          console.warn(
-            "Action Missing `yield` after `await`. Async resumed but no synchronous yield occurred."
-          );
         ctx!.actions.splice(ctx!.actions.indexOf(iterator), 1);
         activeTransition = ctx;
         schedule();
@@ -334,11 +327,7 @@ export function action<Args extends any[], Y, R>(
         return;
       }
       const yielded = result.value;
-      sawAnyYield = true;
-      if (yielded instanceof Promise) {
-        yielded.then(step);
-        return;
-      }
+      if (yielded instanceof Promise) return yielded.then(step);
       runInTransition(ctx, () => step(yielded));
     };
     runInTransition(ctx, () => step());
