@@ -1,4 +1,5 @@
 import {
+  $REFRESH,
   defaultContext,
   NOT_PENDING,
   REACTIVE_CHECK,
@@ -182,7 +183,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const valueChanged =
     !el._equals ||
     !el._equals(
-      el._pendingValue === NOT_PENDING || el._optimistic || honoraryOptimistic
+      el._pendingValue === NOT_PENDING || (el._optimistic && el._transition) || honoraryOptimistic
         ? el._value
         : el._pendingValue,
       value
@@ -206,7 +207,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   (!create || el._statusFlags & STATUS_PENDING) &&
     !el._transition &&
     globalQueue._pendingNodes.push(el);
-  el._transition && honoraryOptimistic && runInTransition(el, recompute);
+  el._transition && honoraryOptimistic && runInTransition(el._transition, () => recompute(el));
 }
 
 export function handleAsync<T>(
@@ -585,19 +586,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       }
     }
   }
-  if (pendingCheck) {
-    if (!el._pendingCheck) {
-      el._pendingCheck = signal<boolean>(false) as Signal<boolean> & {
-        _set: (v: boolean) => void;
-      };
-      (el._pendingCheck as any)._optimistic = true;
-      el._pendingCheck._set = v => setSignal(el._pendingCheck!, v);
-    }
-    const prev = pendingCheck;
-    pendingCheck = null;
-    prev._value = read(el._pendingCheck) || prev._value;
-    pendingCheck = prev;
-  }
   if (pendingValueCheck) {
     if (!el._pendingSignal) {
       el._pendingSignal = signal<T>(el._value) as Signal<T> & { _set: (v: T) => void };
@@ -610,13 +598,28 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       pendingValueCheck = true;
     }
   }
-  if (el._statusFlags & STATUS_PENDING && !pendingCheck) {
-    if ((c && !stale) || el._statusFlags & STATUS_UNINITIALIZED) throw el._error;
+  const asyncCompute = (el as FirewallSignal<any>)._firewall || el;
+  if (pendingCheck) {
+    if (!asyncCompute._pendingCheck) {
+      asyncCompute._pendingCheck = signal<boolean>(false) as Signal<boolean> & {
+        _set: (v: boolean) => void;
+      };
+      (asyncCompute._pendingCheck as any)._optimistic = true;
+      asyncCompute._pendingCheck._set = v => setSignal(asyncCompute._pendingCheck!, v);
+    }
+    const prev = pendingCheck;
+    pendingCheck = null;
+    prev._value = read(asyncCompute._pendingCheck) || prev._value;
+    pendingCheck = prev;
+  }
+  if (!pendingCheck && asyncCompute._statusFlags & STATUS_PENDING) {
+    if ((c && !stale) || asyncCompute._statusFlags & STATUS_UNINITIALIZED || (el as FirewallSignal<any>)._firewall)
+      throw asyncCompute._error;
     else if (c && stale) {
       setStatusFlags(
         c as Computed<any>,
-        (c as Computed<any>)._statusFlags | 1 /* Pending */,
-        el._error as Error
+        (c as Computed<any>)._statusFlags | STATUS_PENDING,
+        asyncCompute._error as Error
       );
     }
   }
@@ -655,7 +658,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   const valueChanged =
     !el._equals ||
     !el._equals(
-      el._pendingValue === NOT_PENDING || el._optimistic ? el._value : (el._pendingValue as T),
+      el._pendingValue === NOT_PENDING || (el._optimistic && el._transition)
+        ? el._value
+        : (el._pendingValue as T),
       v
     );
   if (!valueChanged && !el._statusFlags) return v;
@@ -795,10 +800,14 @@ export function isPending(fn: () => any): boolean {
   }
 }
 
-export function refresh<T>(fn: () => T): T {
+export function refresh<T>(fn: (() => T) | (T & { [$REFRESH]: any })): T {
   let prevRefreshing = refreshing;
   refreshing = true;
   try {
+    if (typeof fn !== "function") {
+      recompute((fn as any)[$REFRESH] as Computed<any>);
+      return fn;
+    }
     return untrack(fn);
   } finally {
     refreshing = prevRefreshing;

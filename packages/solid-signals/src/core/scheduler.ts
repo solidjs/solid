@@ -38,14 +38,15 @@ export interface Transition {
   asyncNodes: Computed<any>[];
   pendingNodes: Signal<any>[];
   optimisticNodes: Signal<any>[];
+  actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
   queueStash: QueueStub;
-  done: boolean;
+  done: boolean | Transition;
 }
 
 export function schedule() {
   if (scheduled) return;
   scheduled = true;
-  if (!globalQueue._running) queueMicrotask(flush);
+  if (!globalQueue._running) Promise.resolve().then(() => queueMicrotask(flush));
 }
 
 export interface IQueue {
@@ -173,14 +174,15 @@ export class GlobalQueue extends Queue {
     }
     return false;
   }
-  initTransition(node: Computed<any>): void {
+  initTransition(node?: Computed<any>): void {
     if (activeTransition && activeTransition.time === clock) return;
     if (!activeTransition) {
-      activeTransition = node._transition ?? {
+      activeTransition = node?._transition ?? {
         time: clock,
         pendingNodes: [],
         asyncNodes: [],
         optimisticNodes: [],
+        actions: [],
         queueStash: { _queues: [[], []], _children: [] },
         done: false
       };
@@ -216,7 +218,11 @@ export function runOptimistic(activeTransition: Transition | null = null) {
   optimisticRun = true;
   for (let i = 0; i < optimisticNodes.length; i++) {
     const n = optimisticNodes[i];
-    if (!activeTransition && (!n._transition || n._transition.done) && n._pendingValue !== NOT_PENDING) {
+    if (
+      !activeTransition &&
+      (!n._transition || n._transition.done) &&
+      n._pendingValue !== NOT_PENDING
+    ) {
       n._value = n._pendingValue as any;
       n._pendingValue = NOT_PENDING;
     }
@@ -275,6 +281,7 @@ function runQueue(queue: QueueCallback[], type: number): void {
 
 function transitionComplete(transition: Transition): boolean {
   if (transition.done) return true;
+  if (transition.actions.length) return false;
   let done = true;
   for (let i = 0; i < transition.asyncNodes.length; i++) {
     if (transition.asyncNodes[i]._statusFlags & STATUS_PENDING) {
@@ -286,9 +293,54 @@ function transitionComplete(transition: Transition): boolean {
   return done;
 }
 
-export function runInTransition(el: Computed<unknown>, recompute: (el: Computed<unknown>) => void) {
+export function runInTransition<T>(transition: Transition, fn: () => T): T {
   const prevTransition = activeTransition;
-  activeTransition = el._transition!;
-  recompute(el);
-  activeTransition = prevTransition;
+  try {
+    activeTransition = transition;
+    return fn();
+  } finally {
+    activeTransition = prevTransition;
+  }
+}
+
+export function action<Args extends any[], Y, R>(
+  genFn: (...args: Args) => Generator<Y, R, any> | AsyncGenerator<Y, R, any>
+) {
+  return (...args: Args): void => {
+    const iterator = genFn(...args);
+    globalQueue.initTransition();
+    let ctx = activeTransition!;
+    ctx!.actions.push(iterator);
+    let sawAsyncStep = false;
+    let sawAnyYield = false;
+    const step = (input?: any) => {
+      let nextValue = iterator.next(input);
+      if (nextValue instanceof Promise) {
+        sawAsyncStep = true;
+        return nextValue.then(process);
+      }
+      process(nextValue);
+    };
+    const process = (result: IteratorResult<Y, R>) => {
+      if (result.done) {
+        if (__DEV__ && sawAsyncStep && !sawAnyYield)
+          console.warn(
+            "Action Missing `yield` after `await`. Async resumed but no synchronous yield occurred."
+          );
+        ctx!.actions.splice(ctx!.actions.indexOf(iterator), 1);
+        activeTransition = ctx;
+        schedule();
+        flush();
+        return;
+      }
+      const yielded = result.value;
+      sawAnyYield = true;
+      if (yielded instanceof Promise) {
+        yielded.then(step);
+        return;
+      }
+      runInTransition(ctx, () => step(yielded));
+    };
+    runInTransition(ctx, () => step());
+  };
 }

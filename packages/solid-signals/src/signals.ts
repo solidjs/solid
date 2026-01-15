@@ -12,8 +12,7 @@ import {
   read,
   runWithOwner,
   setSignal,
-  signal,
-  staleValues
+  signal
 } from "./core/index.js";
 import { globalQueue } from "./core/scheduler.js";
 
@@ -323,11 +322,15 @@ export function createOptimistic<T>(
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = computed<T>((prev) => {
-      let n = node || getOwner();
-      n._pendingValue = (first as any)(prev);
-      return prev;
-    }, second as any, third);
+    const node = computed<T>(
+      prev => {
+        let n = node || getOwner();
+        n._pendingValue = (first as any)(prev);
+        return prev;
+      },
+      second as any,
+      third
+    );
     node._optimistic = true;
     return [
       read.bind(null, node as any) as Accessor<T | undefined>,

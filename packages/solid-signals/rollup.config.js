@@ -21,6 +21,7 @@ export default [
         outDir: "dist",
         module: "esnext",
         target: "esnext",
+        moduleResolution: "bundler",
         verbatimModuleSyntax: true
       }),
       terser({
@@ -49,6 +50,7 @@ export default [
         outDir: "dist",
         module: "esnext",
         target: "esnext",
+        moduleResolution: "bundler",
         verbatimModuleSyntax: true
       }),
       terser({
@@ -82,8 +84,9 @@ export default [
       typescript({
         declaration: false,
         outDir: "dist",
-        module: "nodenext",
+        module: "NodeNext",
         target: "esnext",
+        moduleResolution: "NodeNext",
         verbatimModuleSyntax: true
       }),
       terser({

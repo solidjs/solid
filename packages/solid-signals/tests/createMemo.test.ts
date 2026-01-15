@@ -401,7 +401,6 @@ describe("async compute", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    await Promise.resolve();
     expect(effect).toHaveBeenCalledTimes(1);
     expect(effect).toHaveBeenCalledWith(1);
     await Promise.resolve();

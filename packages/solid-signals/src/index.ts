@@ -2,6 +2,7 @@ export {
   ContextNotFoundError,
   NoOwnerError,
   NotReadyError,
+  action,
   createContext,
   createRoot,
   runWithOwner,

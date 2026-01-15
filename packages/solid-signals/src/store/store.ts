@@ -1,4 +1,5 @@
 import {
+  $REFRESH,
   getObserver,
   isEqual,
   NOT_PENDING,
@@ -45,7 +46,7 @@ export type StoreNode = {
   [STORE_HAS]?: DataNodes;
   [STORE_WRAP]?: (value: any, target?: StoreNode) => any;
   [STORE_LOOKUP]?: WeakMap<any, any>;
-  [STORE_FIREWALL]?: () => Computed<any>;
+  [STORE_FIREWALL]?: Computed<any>;
 };
 
 export namespace SolidStore {
@@ -66,14 +67,14 @@ export type NotWrappable =
 export function createStoreProxy<T extends object>(
   value: T,
   traps: ProxyHandler<StoreNode> = storeTraps,
-  extend?: Record<PropertyKey, any>
+  extend?: (target: StoreNode) => void
 ) {
   let newTarget;
   if (Array.isArray(value)) {
     newTarget = [];
     newTarget.v = value;
   } else newTarget = { v: value };
-  extend && Object.assign(newTarget, extend);
+  extend && extend(newTarget);
   return (newTarget[$PROXY] = new Proxy(newTarget, traps));
 }
 
@@ -88,6 +89,14 @@ export function wrap<T extends Record<PropertyKey, any>>(value: T, target?: Stor
 export function isWrappable<T>(obj: T | NotWrappable): obj is T;
 export function isWrappable(obj: any) {
   return obj != null && typeof obj === "object" && !Object.isFrozen(obj);
+}
+let writeOverride = false;
+export function setWriteOverride(value: boolean) {
+  writeOverride = value;
+}
+
+function writeOnly(proxy: any) {
+  return writeOverride || !!Writing?.has(proxy);
 }
 
 function getNodes(target: StoreNode, type: typeof STORE_NODE | typeof STORE_HAS): DataNodes {
@@ -118,9 +127,7 @@ function getNode<T>(
 
 function trackSelf(target: StoreNode, symbol: symbol = $TRACK) {
   getObserver() &&
-    read(
-      getNode(getNodes(target, STORE_NODE), symbol, undefined, target[STORE_FIREWALL]?.(), false)
-    );
+    read(getNode(getNodes(target, STORE_NODE), symbol, undefined, target[STORE_FIREWALL], false));
 }
 
 export function getKeys(
@@ -157,6 +164,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $TARGET) return target;
     if (property === $PROXY) return receiver;
+    if (property === $REFRESH) return target[STORE_FIREWALL];
     if (property === $TRACK || property === $DEEP) {
       trackSelf(target, property);
       return receiver;
@@ -170,7 +178,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       const desc = Object.getOwnPropertyDescriptor(storeValue, property);
       if (desc && desc.get) return desc.get.call(receiver);
     }
-    if (Writing?.has(receiver)) {
+    if (writeOnly(receiver)) {
       let value =
         tracked && (overridden || !proxySource)
           ? tracked._pendingValue !== NOT_PENDING
@@ -180,7 +188,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       value === $DELETED && (value = undefined);
       if (!isWrappable(value)) return value;
       const wrapped = wrap(value, target);
-      Writing.add(wrapped);
+      Writing?.add(wrapped);
       return wrapped;
     }
     let value = tracked
@@ -203,7 +211,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
             nodes,
             property,
             isWrappable(value) ? wrap(value, target) : value,
-            target[STORE_FIREWALL]?.()
+            target[STORE_FIREWALL]
           )
         );
       }
@@ -219,13 +227,13 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         : property in target[STORE_VALUE];
 
     getObserver() &&
-      read(getNode(getNodes(target, STORE_HAS), property, has, target[STORE_FIREWALL]?.()));
+      read(getNode(getNodes(target, STORE_HAS), property, has, target[STORE_FIREWALL]));
     return has;
   },
 
   set(target, property, rawValue) {
     const store = target[$PROXY];
-    if (Writing?.has(target[$PROXY])) {
+    if (writeOnly(store)) {
       untrack(() => {
         const state = target[STORE_VALUE];
         const base = state[property];
@@ -265,7 +273,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   },
 
   deleteProperty(target, property) {
-    if (Writing?.has(target[$PROXY]) && target[STORE_OVERRIDE]?.[property] !== $DELETED) {
+    if (writeOnly(target[$PROXY]) && target[STORE_OVERRIDE]?.[property] !== $DELETED) {
       untrack(() => {
         const prev =
           target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
@@ -331,17 +339,18 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
   }
 }
 
+type NoFn<T> = T extends Function ? never : T;
 export function createStore<T extends object = {}>(
-  store: T | Store<T>
+  store: NoFn<T> | Store<NoFn<T>>
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store: T | Store<T>,
+  store?: NoFn<T> | Store<NoFn<T>>,
   options?: StoreOptions
-): [get: Store<T>, set: StoreSetter<T>];
+): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: T | Store<T>,
+  second?: NoFn<T> | Store<NoFn<T>>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function",

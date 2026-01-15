@@ -19,11 +19,7 @@ function unwrap(value: any) {
 }
 
 function getOverrideValue(value: any, override: any, nodes: any, key: string) {
-  return nodes && key in nodes
-    ? read(nodes[key])
-    : override && key in override
-      ? override[key]
-      : value[key];
+  return override && key in override ? override[key] : value[key];
 }
 
 function getAllKeys(value, override, next) {
@@ -126,10 +122,12 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
         } else target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrap(next[j], target));
       }
       if (start < next.length) changed = true;
-    } else if (prevLength && next.length) {
+    } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = getOverrideValue(previous, override, nodes, i as any);
-        isWrappable(item) && applyState(next[i], wrap(item, target), keyFn, all);
+        isWrappable(item)
+          ? applyState(next[i], wrap(item, target), keyFn, all)
+          : target[STORE_NODE][i] && setSignal(target[STORE_NODE][i], next[i]);
       }
     }
 

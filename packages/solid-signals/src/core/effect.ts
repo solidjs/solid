@@ -7,14 +7,12 @@ import {
 } from "./constants.js";
 import {
   computed,
-  getOwner,
   onCleanup,
   staleValues,
   type Computed,
   type Owner,
   type SignalOptions
 } from "./core.js";
-import { globalQueue } from "./scheduler.js";
 
 export interface Effect<T> extends Computed<T>, Owner {
   _effectFn: (val: T, prev: T | undefined) => void | (() => void);

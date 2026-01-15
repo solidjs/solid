@@ -1,8 +1,9 @@
-import { computed, getOwner, handleAsync, type Computed } from "../core/index.js";
+import { $REFRESH, computed, getOwner, handleAsync, setSignal, signal, STATUS_NONE, type Computed } from "../core/index.js";
 import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
   createStoreProxy,
+  setWriteOverride,
   STORE_FIREWALL,
   STORE_LOOKUP,
   STORE_WRAP,
@@ -19,16 +20,20 @@ export function createProjectionInternal<T extends object = {}>(
 ) {
   let node;
   const wrappedMap = new WeakMap();
+  const wrapper = s => {
+    s[STORE_WRAP] = wrapProjection;
+    s[STORE_LOOKUP] = wrappedMap;
+    Object.defineProperty(s, STORE_FIREWALL, {
+      get() {
+        return node;
+      },
+      configurable: true
+    });
+  };
   const wrapProjection = (source: T) => {
     if (wrappedMap.has(source)) return wrappedMap.get(source);
     if (source[$TARGET]?.[STORE_WRAP] === wrapProjection) return source;
-    const wrapped = createStoreProxy(source, storeTraps, {
-      [STORE_WRAP]: wrapProjection,
-      [STORE_LOOKUP]: wrappedMap,
-      [STORE_FIREWALL]() {
-        return node;
-      }
-    });
+    const wrapped = createStoreProxy(source, storeTraps, wrapper);
     wrappedMap.set(source, wrapped);
     return wrapped;
   };
@@ -36,17 +41,24 @@ export function createProjectionInternal<T extends object = {}>(
 
   node = computed(() => {
     const owner = node || (getOwner() as Computed<void | T>);
-    storeSetter(wrappedStore, s => {
+    storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
       const value = handleAsync(owner, fn(s), value => {
-        value !== s &&
+        value !== wrappedStore &&
           value !== undefined &&
           storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
+        setSignal(node, undefined);
       });
-      value !== s && value !== undefined && reconcile(value, options?.key || "id", options?.all)(s);
+      value !== wrappedStore &&
+        value !== undefined &&
+        reconcile(value, options?.key || "id", options?.all)(wrappedStore);
     });
   });
+  (node as any)._preventAutoDisposal = true
 
-  return { store: wrappedStore, node };
+  return { store: wrappedStore, node } as {
+    store: Store<T> & { [$REFRESH]: any };
+    node: Computed<void | T>;
+  };
 }
 
 /**
@@ -54,10 +66,41 @@ export function createProjectionInternal<T extends object = {}>(
  *
  * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
  */
-export function createProjection<T extends Object = {}>(
+export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T = {} as T,
   options?: StoreOptions
-): Store<T> {
+): Store<T> & { [$REFRESH]: any } {
   return createProjectionInternal(fn, initialValue, options).store;
 }
+
+const writeTraps: ProxyHandler<any> = {
+  get(_, prop) {
+    let value;
+    setWriteOverride(true);
+    try {
+      value = _[prop];
+    } finally {
+      setWriteOverride(false);
+    }
+    return typeof value === "object" && value !== null ? new Proxy(value, writeTraps) : value;
+  },
+  set(_, prop, value) {
+    setWriteOverride(true);
+    try {
+      _[prop] = value;
+    } finally {
+      setWriteOverride(false);
+    }
+    return true;
+  },
+  deleteProperty(_, prop) {
+    setWriteOverride(true);
+    try {
+      delete _[prop];
+    } finally {
+      setWriteOverride(false);
+    }
+    return true;
+  }
+};

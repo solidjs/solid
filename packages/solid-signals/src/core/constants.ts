@@ -21,3 +21,5 @@ export const NOT_PENDING = {};
 export const SUPPORTS_PROXY = typeof Proxy === "function";
 
 export const defaultContext = {};
+
+export const $REFRESH = Symbol("refresh");
