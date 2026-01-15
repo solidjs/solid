@@ -1,4 +1,4 @@
-import type { SignalOptions } from "./core/index.js";
+import type { Computed, SignalOptions } from "./core/index.js";
 import {
   computed,
   createRoot,
@@ -324,7 +324,7 @@ export function createOptimistic<T>(
   if (typeof first === "function") {
     const node = computed<T>(
       prev => {
-        let n = node || getOwner();
+        let n = getOwner() as Computed<T>;
         n._pendingValue = (first as any)(prev);
         return prev;
       },

@@ -40,13 +40,13 @@ export function createProjectionInternal<T extends object = {}>(
   const wrappedStore: Store<T> = wrapProjection(initialValue);
 
   node = computed(() => {
-    const owner = node || (getOwner() as Computed<void | T>);
+    const owner = getOwner() as Computed<void | T>;
     storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
       const value = handleAsync(owner, fn(s), value => {
         value !== wrappedStore &&
           value !== undefined &&
           storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
-        setSignal(node, undefined);
+        setSignal(owner, undefined);
       });
       value !== wrappedStore &&
         value !== undefined &&
