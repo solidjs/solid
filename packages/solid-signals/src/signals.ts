@@ -5,14 +5,14 @@ import {
   dispose,
   effect,
   EFFECT_USER,
-  getNextChildId,
   getOwner,
   NotReadyError,
   onCleanup,
   read,
   runWithOwner,
   setSignal,
-  signal
+  signal,
+  STATUS_UNINITIALIZED
 } from "./core/index.js";
 import { globalQueue } from "./core/scheduler.js";
 
@@ -97,12 +97,7 @@ export function createSignal<T>(
       setSignal.bind(null, node as any) as Setter<T | undefined>
     ];
   }
-  const o = getOwner();
-  const needsId = o?.id != null;
-  const node = signal<T>(
-    first as any,
-    needsId ? { id: getNextChildId(o), ...second } : (second as SignalOptions<T>)
-  );
+  const node = signal<T>(first as any, second as SignalOptions<T>);
   return [
     read.bind(null, node as any) as Accessor<T>,
     setSignal.bind(null, node as any) as Setter<T | undefined>
@@ -324,8 +319,10 @@ export function createOptimistic<T>(
   if (typeof first === "function") {
     const node = computed<T>(
       prev => {
-        let n = getOwner() as Computed<T>;
-        n._pendingValue = (first as any)(prev);
+        const n = getOwner() as Computed<T>;
+        const value = (first as any)(prev);
+        if (n._statusFlags & STATUS_UNINITIALIZED) return value;
+        n._pendingValue = value;
         return prev;
       },
       second as any,
@@ -337,12 +334,7 @@ export function createOptimistic<T>(
       setSignal.bind(null, node as any) as Setter<T | undefined>
     ];
   }
-  const o = getOwner();
-  const needsId = o?.id != null;
-  const node = signal<T>(
-    first as any,
-    needsId ? { id: getNextChildId(o), ...second } : (second as SignalOptions<T>)
-  );
+  const node = signal<T>(first as any, second as SignalOptions<T>);
   node._optimistic = true;
   return [
     read.bind(null, node as any) as Accessor<T>,
