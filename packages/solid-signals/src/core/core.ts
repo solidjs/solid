@@ -128,7 +128,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const honoraryOptimistic = (el as any)._type && el._transition != activeTransition;
   if (!create) {
     if (el._transition && activeTransition !== el._transition && !honoraryOptimistic)
-      globalQueue.initTransition(el);
+      globalQueue.initTransition(el._transition);
     deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
     if (el._transition) disposeChildren(el);
     else {
@@ -189,6 +189,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       value
     );
   const statusFlagsChanged = el._statusFlags !== prevStatusFlags || el._error !== prevError;
+  if (el._child && el._statusFlags & STATUS_PENDING && activeTransition)
+    activeTransition.asyncNodes.push(el);
   el._notifyQueue?.(statusFlagsChanged, prevStatusFlags);
 
   if (valueChanged || statusFlagsChanged) {
@@ -227,13 +229,13 @@ export function handleAsync<T>(
     result
       .then(value => {
         if (el._inFlight !== result) return;
-        globalQueue.initTransition(el);
-        setter?.(value) ?? setSignal(el, () => value);
+        globalQueue.initTransition(el._transition);
+        setter ? setter(value) : setSignal(el, () => value);
         flush();
       })
       .catch(e => {
         if (el._inFlight !== result) return;
-        globalQueue.initTransition(el);
+        globalQueue.initTransition(el._transition);
         setStatusFlags(el, STATUS_ERROR, e as Error);
         el._time = clock;
         notifySubs(el);
@@ -245,13 +247,13 @@ export function handleAsync<T>(
       try {
         for await (let value of result as AsyncIterable<T>) {
           if (el._inFlight !== result) return;
-          globalQueue.initTransition(el);
-          setter?.(value) ?? setSignal(el, () => value);
+          globalQueue.initTransition(el._transition);
+          setter ? setter(value) : setSignal(el, () => value);
           flush();
         }
       } catch (error) {
         if (el._inFlight !== result) return;
-        globalQueue.initTransition(el);
+        globalQueue.initTransition(el._transition);
         setStatusFlags(el, STATUS_ERROR, error as Error);
         el._time = clock;
         notifySubs(el);
@@ -260,7 +262,7 @@ export function handleAsync<T>(
       }
     })();
   }
-  globalQueue.initTransition(el as any);
+  globalQueue.initTransition(el._transition);
   throw new NotReadyError(context!);
 }
 
@@ -613,7 +615,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     pendingCheck = prev;
   }
   if (!pendingCheck && asyncCompute._statusFlags & STATUS_PENDING) {
-    if ((c && !stale) || asyncCompute._statusFlags & STATUS_UNINITIALIZED || (el as FirewallSignal<any>)._firewall)
+    if (
+      (c && !stale) ||
+      asyncCompute._statusFlags & STATUS_UNINITIALIZED ||
+      (el as FirewallSignal<any>)._firewall
+    )
       throw asyncCompute._error;
     else if (c && stale) {
       setStatusFlags(
@@ -647,6 +653,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // Warn about writing to a signal in an owned scope in development mode.
   if (__DEV__ && !el._pureWrite && context && (el as FirewallSignal<any>)._firewall !== context)
     console.warn("A Signal was written to in an owned scope.");
+
+  if (el._transition && activeTransition !== el._transition)
+    globalQueue.initTransition(el._transition);
 
   if (typeof v === "function") {
     v = (v as (prev: T) => T)(
@@ -758,11 +767,14 @@ export function createRoot<T>(
  */
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   const oldContext = context;
+  const prevTracking = tracking;
   context = owner;
+  tracking = false;
   try {
     return fn();
   } finally {
     context = oldContext;
+    tracking = prevTracking;
   }
 }
 

@@ -1,4 +1,13 @@
-import { $REFRESH, computed, getOwner, handleAsync, setSignal, signal, STATUS_NONE, type Computed } from "../core/index.js";
+import {
+  $REFRESH,
+  computed,
+  getOwner,
+  handleAsync,
+  setSignal,
+  signal,
+  STATUS_NONE,
+  type Computed
+} from "../core/index.js";
 import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
@@ -53,7 +62,7 @@ export function createProjectionInternal<T extends object = {}>(
         reconcile(value, options?.key || "id", options?.all)(wrappedStore);
     });
   });
-  (node as any)._preventAutoDisposal = true
+  (node as any)._preventAutoDisposal = true;
 
   return { store: wrappedStore, node } as {
     store: Store<T> & { [$REFRESH]: any };

@@ -144,7 +144,8 @@ export class GlobalQueue extends Queue {
           runOptimistic(t);
           return;
         }
-        this._pendingNodes.push(...activeTransition.pendingNodes);
+        this._pendingNodes !== activeTransition.pendingNodes &&
+          this._pendingNodes.push(...activeTransition.pendingNodes);
         this._optimisticNodes !== activeTransition.optimisticNodes &&
           this._optimisticNodes.push(...activeTransition.optimisticNodes);
         this.restoreQueues(activeTransition.queueStash);
@@ -176,10 +177,12 @@ export class GlobalQueue extends Queue {
     }
     return false;
   }
-  initTransition(node?: Computed<any>): void {
-    if (activeTransition && activeTransition.time === clock) return;
+  initTransition(transition?: Transition | null): void {
+    if (transition) transition = currentTransition(transition);
+    if (transition && transition === activeTransition) return;
+    if (!transition && activeTransition && activeTransition.time === clock) return;
     if (!activeTransition) {
-      activeTransition = node?._transition ?? {
+      activeTransition = transition ?? {
         time: clock,
         pendingNodes: [],
         asyncNodes: [],
@@ -188,6 +191,11 @@ export class GlobalQueue extends Queue {
         queueStash: { _queues: [[], []], _children: [] },
         done: false
       };
+    } else if (transition) {
+      activeTransition.done = transition;
+      transition.actions.push(...activeTransition.actions);
+      transitions.delete(activeTransition);
+      activeTransition = transition;
     }
     transitions.add(activeTransition);
     activeTransition.time = clock;
@@ -259,7 +267,10 @@ function runTransitionPending(pendingNodes, value: boolean) {
     const n = p[i];
     // set or unset the transition
     n._transition = activeTransition;
-    if (n._pendingCheck) n._pendingCheck._set(value);
+    if (n._pendingCheck) {
+      n._pendingCheck._transition = activeTransition;
+      n._pendingCheck._set(value);
+    }
   }
 }
 
@@ -294,11 +305,16 @@ function transitionComplete(transition: Transition): boolean {
   done && (transition.done = true);
   return done;
 }
+function currentTransition(transition: Transition) {
+  while (transition.done && typeof transition.done === "object") transition = transition.done;
+  return transition;
+}
 
 export function runInTransition<T>(transition: Transition, fn: () => T): T {
   const prevTransition = activeTransition;
+  activeTransition = null;
   try {
-    activeTransition = transition;
+    activeTransition = currentTransition(transition);
     return fn();
   } finally {
     activeTransition = prevTransition;
@@ -320,14 +336,15 @@ export function action<Args extends any[], Y, R>(
     };
     const process = (result: IteratorResult<Y, R>) => {
       if (result.done) {
-        ctx!.actions.splice(ctx!.actions.indexOf(iterator), 1);
+        ctx = currentTransition(ctx);
+        ctx.actions.splice(ctx.actions.indexOf(iterator), 1);
         activeTransition = ctx;
         schedule();
         flush();
         return;
       }
       const yielded = result.value;
-      if (yielded instanceof Promise) return yielded.then(step);
+      if (yielded instanceof Promise) return yielded.then(v => runInTransition(ctx, () => step(v)));
       runInTransition(ctx, () => step(yielded));
     };
     runInTransition(ctx, () => step());
