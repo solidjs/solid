@@ -58,7 +58,7 @@ importers:
         version: 3.1.3
       dom-expressions:
         specifier: 0.40.3
-        version: 0.40.3(csstype@3.1.3)(seroval-plugins@1.3.1(seroval@1.3.1))(seroval@1.3.1)
+        version: 0.40.3(csstype@3.1.3)(seroval-plugins@1.3.1(seroval@1.4.1))(seroval@1.4.1)
       hyper-dom-expressions:
         specifier: 0.40.3
         version: 0.40.3
@@ -90,8 +90,8 @@ importers:
         specifier: ^3.4.0
         version: 3.5.0
       seroval:
-        specifier: ~1.3.0
-        version: 1.3.1
+        specifier: ~1.4.1
+        version: 1.4.1
       simple-git-hooks:
         specifier: ^2.8.1
         version: 2.11.1
@@ -132,11 +132,11 @@ importers:
         specifier: ^3.1.0
         version: 3.1.3
       seroval:
-        specifier: ~1.3.0
-        version: 1.3.1
+        specifier: ~1.4.1
+        version: 1.4.1
       seroval-plugins:
         specifier: ~1.3.0
-        version: 1.3.1(seroval@1.3.1)
+        version: 1.3.1(seroval@1.4.1)
 
   packages/solid-element:
     dependencies:
@@ -1534,6 +1534,9 @@ packages:
   csstype@3.1.3:
     resolution: {integrity: sha512-M1uQkMl8rQK/szD0LNhtqxIPLpimGm8sOBwU7lLnCpSbTyY3yeU1Vc7l4KT5zT4s/yOxHH5O7tIuuLOCnLADRw==}
 
+  csstype@3.2.3:
+    resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
   dashdash@1.14.1:
     resolution: {integrity: sha512-jRFi8UDGo6j+odZiEpjazZaWqEal3w/basFjQHQEwVtZJGDpxbH1MeYluwCS8Xq5wmLJooDlMgvVarmWfGM44g==}
     engines: {node: '>=0.10'}
@@ -2765,8 +2768,12 @@ packages:
     peerDependencies:
       seroval: ^1.0
 
-  seroval@1.3.1:
-    resolution: {integrity: sha512-F+T9EQPdLzgdewgxnBh4mSc+vde+EOkU6dC9BDuu/bfGb+UyUlqM6t8znFCTPQSuai/ZcfFg0gu79h+bVW2O0w==}
+  seroval@1.3.2:
+    resolution: {integrity: sha512-RbcPH1n5cfwKrru7v7+zrZvjLurgHhGyso3HTyGtRivGWgYjbOmGuivCQaORNELjNONoK35nj28EoWul9sb1zQ==}
+    engines: {node: '>=10'}
+
+  seroval@1.4.1:
+    resolution: {integrity: sha512-9GOc+8T6LN4aByLN75uRvMbrwY5RDBW6lSlknsY4LEa9ZmWcxKcRe1G/Q3HZXjltxMHTrStnvrwAICxZrhldtg==}
     engines: {node: '>=10'}
 
   serve-static@1.16.2:
@@ -2960,6 +2967,7 @@ packages:
   tar@6.2.1:
     resolution: {integrity: sha512-DZ4yORTwrbTj/7MZYq2w+/ZFdI6OZ/f9SFHR+71gIVUZhOQPHzVCLpvRnPgyaMpfWxxk/4ONva3GQSyNIKRv6A==}
     engines: {node: '>=10'}
+    deprecated: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exhorbitant rates) by contacting i@izs.me
 
   term-size@2.2.1:
     resolution: {integrity: sha512-wK0Ri4fOGjv/XPy8SBHZChl8CM7uMc5VML7SqiQ0zG7+J5Vr+RMQDoHa2CNT6KHUnTGIXH34UDMkPzAUyapBZg==}
@@ -3241,6 +3249,7 @@ packages:
   whatwg-encoding@3.1.1:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
+    deprecated: Use @exodus/bytes instead for a more spec-conformant and faster implementation
 
   whatwg-mimetype@4.0.0:
     resolution: {integrity: sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg==}
@@ -4877,6 +4886,8 @@ snapshots:
 
   csstype@3.1.3: {}
 
+  csstype@3.2.3: {}
+
   dashdash@1.14.1:
     dependencies:
       assert-plus: 1.0.0
@@ -4942,12 +4953,12 @@ snapshots:
     dependencies:
       path-type: 4.0.0
 
-  dom-expressions@0.40.3(csstype@3.1.3)(seroval-plugins@1.3.1(seroval@1.3.1))(seroval@1.3.1):
+  dom-expressions@0.40.3(csstype@3.1.3)(seroval-plugins@1.3.1(seroval@1.4.1))(seroval@1.4.1):
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.1.3
-      seroval: 1.3.1
-      seroval-plugins: 1.3.1(seroval@1.3.1)
+      seroval: 1.4.1
+      seroval-plugins: 1.3.1(seroval@1.4.1)
 
   dunder-proto@1.0.1:
     dependencies:
@@ -6241,11 +6252,17 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  seroval-plugins@1.3.1(seroval@1.3.1):
+  seroval-plugins@1.3.1(seroval@1.3.2):
     dependencies:
-      seroval: 1.3.1
+      seroval: 1.3.2
 
-  seroval@1.3.1: {}
+  seroval-plugins@1.3.1(seroval@1.4.1):
+    dependencies:
+      seroval: 1.4.1
+
+  seroval@1.3.2: {}
+
+  seroval@1.4.1: {}
 
   serve-static@1.16.2:
     dependencies:
@@ -6342,9 +6359,9 @@ snapshots:
 
   solid-js@1.9.10:
     dependencies:
-      csstype: 3.1.3
-      seroval: 1.3.1
-      seroval-plugins: 1.3.1(seroval@1.3.1)
+      csstype: 3.2.3
+      seroval: 1.3.2
+      seroval-plugins: 1.3.1(seroval@1.3.2)
 
   solid-refresh@0.6.3(solid-js@1.9.10):
     dependencies:
