@@ -4,8 +4,6 @@ import {
   getOwner,
   handleAsync,
   setSignal,
-  signal,
-  STATUS_NONE,
   type Computed
 } from "../core/index.js";
 import { reconcile } from "./reconcile.js";

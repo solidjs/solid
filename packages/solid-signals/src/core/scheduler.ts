@@ -228,13 +228,12 @@ export function runOptimistic(activeTransition: Transition | null = null) {
   optimisticRun = true;
   for (let i = 0; i < optimisticNodes.length; i++) {
     const n = optimisticNodes[i];
-    if (
-      !activeTransition &&
-      (!n._transition || n._transition.done) &&
-      n._pendingValue !== NOT_PENDING
-    ) {
-      n._value = n._pendingValue as any;
-      n._pendingValue = NOT_PENDING;
+    if (!activeTransition && (!n._transition || n._transition.done)) {
+      if (n._pendingValue !== NOT_PENDING) {
+        n._value = n._pendingValue as any;
+        n._pendingValue = NOT_PENDING;
+      }
+      if ((n as any)._reset) (n as any)._reset();
     }
     n._transition = activeTransition;
     notifySubs(n);

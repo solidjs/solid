@@ -18,6 +18,7 @@ export type StoreOptions = {
   key?: string | ((item: NonNullable<any>) => any);
   all?: boolean;
 };
+export type NoFn<T> = T extends Function ? never : T;
 
 type DataNode = Signal<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
@@ -339,7 +340,6 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
   }
 }
 
-type NoFn<T> = T extends Function ? never : T;
 export function createStore<T extends object = {}>(
   store: NoFn<T> | Store<NoFn<T>>
 ): [get: Store<T>, set: StoreSetter<T>];
