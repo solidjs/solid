@@ -1,0 +1,12 @@
+{
+  "mode": "pre",
+  "tag": "beta",
+  "initialVersions": {
+    "babel-preset-solid": "1.9.10",
+    "solid-js": "1.9.11",
+    "solid-element": "1.9.1",
+    "solid-ssr": "1.7.2",
+    "test-integration": "1.9.11"
+  },
+  "changesets": []
+}
