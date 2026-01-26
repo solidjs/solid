@@ -8,5 +8,7 @@
     "solid-ssr": "1.7.2",
     "test-integration": "1.9.11"
   },
-  "changesets": []
+  "changesets": [
+    "poor-shirts-design"
+  ]
 }

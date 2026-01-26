@@ -1,5 +1,11 @@
 # solid-js
 
+## 1.10.0-beta.0
+
+### Minor Changes
+
+- b6e04e6: Provide an improved source/observer tracking mechanism
+
 ## 1.9.11
 
 ### Patch Changes
