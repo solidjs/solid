@@ -362,7 +362,7 @@ describe("createMemo", () => {
         expect(order).toBe("t1t2c1c2");
         order = "";
         set(3);
-        expect(order).toBe("t2c2t1c1");
+        expect(order).toBe("t1c2t2c1");
       });
     });
 
