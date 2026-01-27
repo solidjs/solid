@@ -27,11 +27,8 @@ export interface BoundaryComputed<T> extends Computed<T> {
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
   const node = computed<T>(fn, undefined, { lazy: true }) as BoundaryComputed<T>;
   node._notifyStatus = () => {
-    let flags = node._statusFlags;
+    const flags = node._statusFlags;
     node._statusFlags &= ~node._propagationMask;
-    if (node._propagationMask & STATUS_PENDING) {
-      flags &= ~STATUS_PENDING;
-    }
     node._queue.notify(node, node._propagationMask, flags);
   };
   node._propagationMask = propagationMask;
@@ -149,8 +146,10 @@ function createCollectionBoundary<T>(
   const decision = computed(() => {
     if (!read(queue._disabled)) {
       const resolved = read(tree);
-      if (!untrack(() => read(queue._disabled))) queue._initialized = true;
-      return resolved;
+      if (!untrack(() => read(queue._disabled))) {
+        queue._initialized = true;
+        return resolved;
+      }
     }
     return fallback(queue);
   });

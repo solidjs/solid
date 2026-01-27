@@ -154,8 +154,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     context = oldcontext;
   }
 
-  // TODO: more optimal way to handle async unlinking
-  if (!(el._statusFlags & STATUS_PENDING)) {
+  if (!el._error) {
     const depsTail = el._depsTail as Link | null;
     let toRemove = depsTail !== null ? depsTail._nextDep : el._deps;
     if (toRemove !== null) {
@@ -165,23 +164,27 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (depsTail !== null) depsTail._nextDep = null;
       else el._deps = null;
     }
-  }
-  const valueChanged =
-    !el._equals ||
-    !el._equals(el._pendingValue === NOT_PENDING ? el._value : el._pendingValue, value);
+    const valueChanged =
+      !el._equals ||
+      !el._equals(el._pendingValue === NOT_PENDING ? el._value : el._pendingValue, value);
 
-  if (valueChanged) {
-    if (create || isEffect) el._value = value;
-    else el._pendingValue = value;
-    insertSubs(el);
-  } else if (el._height != oldHeight) {
-    for (let s = el._subs; s !== null; s = s._nextSub) {
-      insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+    if (valueChanged) {
+      if (create || (isEffect && activeTransition !== el._transition)) el._value = value;
+      else el._pendingValue = value;
+      insertSubs(el);
+    } else if (el._height != oldHeight) {
+      for (let s = el._subs; s !== null; s = s._nextSub) {
+        insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+      }
     }
   }
   (!create || el._statusFlags & STATUS_PENDING) &&
     !el._transition &&
     globalQueue._pendingNodes.push(el);
+  el._transition &&
+    isEffect &&
+    activeTransition !== el._transition &&
+    runInTransition(el._transition, () => recompute(el));
 }
 
 export function handleAsync<T>(
@@ -246,8 +249,8 @@ function notifyStatus(el: Computed<any>, status: number, error: any): void {
   if (el._notifyStatus) return el._notifyStatus();
   for (let s = el._subs; s !== null; s = s._nextSub) {
     s._sub._time = clock;
-    if (s._sub._statusFlags !== status) {
-      globalQueue._pendingNodes.push(s._sub);
+    if (s._sub._error !== error) {
+      !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
       notifyStatus(s._sub, status, error);
     }
   }
@@ -258,8 +261,8 @@ function notifyStatus(el: Computed<any>, status: number, error: any): void {
   ) {
     for (let s = child._subs; s !== null; s = s._nextSub) {
       s._sub._time = clock;
-      if (s._sub._statusFlags !== status) {
-        globalQueue._pendingNodes.push(s._sub);
+      if (s._sub._error !== error) {
+        !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
         notifyStatus(s._sub, status, error);
       }
     }
