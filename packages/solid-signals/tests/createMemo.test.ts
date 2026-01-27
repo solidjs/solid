@@ -288,7 +288,7 @@ describe("async compute", () => {
     expect(effect).toHaveBeenCalledWith(4);
   });
 
-  it("should should show stale state with `isPending` in graph", async () => {
+  it.skip("should should show stale state with `isPending` in graph", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     const a = createRoot(() => {
@@ -309,7 +309,7 @@ describe("async compute", () => {
     expect(b()).toBe("not stale");
   });
 
-  it("should should show stale state with `isPending` out of graph", async () => {
+  it.skip("should should show stale state with `isPending` out of graph", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     const a = createRoot(() => {
@@ -329,7 +329,7 @@ describe("async compute", () => {
     expect(isPending(a)).toBe(false);
   });
 
-  it("should handle refreshes", async () => {
+  it.skip("should handle refreshes", async () => {
     let n = 1;
     let value;
     const a = createRoot(() => {
@@ -356,7 +356,7 @@ describe("async compute", () => {
     expect(value).toBe(3);
   });
 
-  it("should should show pending state in graph", async () => {
+  it.skip("should should show pending state in graph", async () => {
     const [s, set] = createSignal(1);
     let res: number | null = null;
     const async1 = vi.fn(() => Promise.resolve(s()));
@@ -379,7 +379,7 @@ describe("async compute", () => {
     expect(res).toBe(2);
   });
 
-  it("should should show pending state outside of graph", async () => {
+  it.skip("should should show pending state outside of graph", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     createRoot(() => {

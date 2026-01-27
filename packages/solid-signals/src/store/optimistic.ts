@@ -3,12 +3,12 @@ import {
   getOwner,
   handleAsync,
   setSignal,
-  STATUS_UNINITIALIZED,
   type Computed
 } from "../core/index.js";
 import { createProjectionInternal } from "./projection.js";
 import { reconcile } from "./reconcile.js";
 import {
+  createStore,
   storeSetter,
   type NoFn,
   type Store,
@@ -45,30 +45,32 @@ export function createOptimisticStore<T extends object = {}>(
   second?: NoFn<T> | Store<NoFn<T>>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
-  const derived = typeof first === "function";
-  let temp: T;
-  const { store, node } = derived
-    ? createProjectionInternal(
-        draft => {
-          const n = getOwner() as Computed<T>;
-          const value = (first as any)(draft);
-          if (n._statusFlags & STATUS_UNINITIALIZED) return value;
-          temp = value as T;
-          return;
-        },
-        second,
-        options
-      )
-    : createProjectionInternal(() => {}, first);
-  (node as any)._reset = () =>
-    derived
-      ? handleAsync(node as Computed<T>, temp, value => {
-          value !== store &&
-            value !== undefined &&
-            storeSetter(store, reconcile(value as any, options?.key || "id", options?.all));
-          setSignal(node as any, undefined);
-        })
-      : storeSetter(store, reconcile<T, T>(first as T, options?.key || "id", options?.all));
-  node._optimistic = true;
-  return [store, v => storeSetter(store, v)];
+  // TODO OPTIMISTIC STORE IMPLEMENTATION
+  return createStore(first as any, second, options);
+  // const derived = typeof first === "function";
+  // let temp: T;
+  // const { store, node } = derived
+  //   ? createProjectionInternal(
+  //       draft => {
+  //         const n = getOwner() as Computed<T>;
+  //         const value = (first as any)(draft);
+  //         if (n._statusFlags & STATUS_UNINITIALIZED) return value;
+  //         temp = value as T;
+  //         return;
+  //       },
+  //       second,
+  //       options
+  //     )
+  //   : createProjectionInternal(() => {}, first);
+  // (node as any)._reset = () =>
+  //   derived
+  //     ? handleAsync(node as Computed<T>, temp, value => {
+  //         value !== store &&
+  //           value !== undefined &&
+  //           storeSetter(store, reconcile(value as any, options?.key || "id", options?.all));
+  //         setSignal(node as any, undefined);
+  //       })
+  //     : storeSetter(store, reconcile<T, T>(first as T, options?.key || "id", options?.all));
+  // node._optimistic = true;
+  // return [store, v => storeSetter(store, v)];
 }

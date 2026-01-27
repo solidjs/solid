@@ -46,7 +46,7 @@ export interface Transition {
 export function schedule() {
   if (scheduled) return;
   scheduled = true;
-  if (!globalQueue._running) Promise.resolve().then(() => queueMicrotask(flush));
+  if (!globalQueue._running) queueMicrotask(flush);
 }
 
 export interface IQueue {
@@ -123,7 +123,6 @@ export class Queue implements IQueue {
 export class GlobalQueue extends Queue {
   _running: boolean = false;
   _pendingNodes: Signal<any>[] = [];
-  _optimisticNodes: Signal<any>[] = [];
   static _update: (el: Computed<unknown>) => void;
   static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
   flush() {
@@ -146,8 +145,6 @@ export class GlobalQueue extends Queue {
         }
         this._pendingNodes !== activeTransition.pendingNodes &&
           this._pendingNodes.push(...activeTransition.pendingNodes);
-        this._optimisticNodes !== activeTransition.optimisticNodes &&
-          this._optimisticNodes.push(...activeTransition.optimisticNodes);
         this.restoreQueues(activeTransition.queueStash);
         transitions.delete(activeTransition);
         activeTransition = null;
@@ -204,17 +201,11 @@ export class GlobalQueue extends Queue {
       n._transition = activeTransition;
       activeTransition.pendingNodes.push(n);
     }
-    for (let i = 0; i < this._optimisticNodes.length; i++) {
-      const n = this._optimisticNodes[i];
-      n._transition = activeTransition;
-      activeTransition.optimisticNodes.push(n);
-    }
     this._pendingNodes = activeTransition.pendingNodes;
-    this._optimisticNodes = activeTransition.optimisticNodes;
   }
 }
 
-export function notifySubs(node: Signal<any> | Computed<any>): void {
+export function insertSubs(node: Signal<any> | Computed<any>): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
     if (queue._min > s._sub._height) queue._min = s._sub._height;
@@ -224,21 +215,6 @@ export function notifySubs(node: Signal<any> | Computed<any>): void {
 
 export function runOptimistic(activeTransition: Transition | null = null) {
   let resolvePending = !activeTransition;
-  const optimisticNodes = globalQueue._optimisticNodes;
-  optimisticRun = true;
-  for (let i = 0; i < optimisticNodes.length; i++) {
-    const n = optimisticNodes[i];
-    if (!activeTransition && (!n._transition || n._transition.done)) {
-      if (n._pendingValue !== NOT_PENDING) {
-        n._value = n._pendingValue as any;
-        n._pendingValue = NOT_PENDING;
-      }
-      if ((n as any)._reset) (n as any)._reset();
-    }
-    n._transition = activeTransition;
-    notifySubs(n);
-  }
-  globalQueue._optimisticNodes = [];
   if (dirtyQueue._max >= dirtyQueue._min) {
     resolvePending = true;
     runHeap(dirtyQueue, GlobalQueue._update);
@@ -260,16 +236,12 @@ function runPending(pendingNodes: Signal<any>[]) {
   pendingNodes.length = 0;
 }
 
-function runTransitionPending(pendingNodes, value: boolean) {
+function runTransitionPending(pendingNodes: Signal<any>[], value: boolean) {
   const p = pendingNodes.slice();
   for (let i = 0; i < p.length; i++) {
     const n = p[i];
     // set or unset the transition
     n._transition = activeTransition;
-    if (n._pendingCheck) {
-      n._pendingCheck._transition = activeTransition;
-      n._pendingCheck._set(value);
-    }
   }
 }
 

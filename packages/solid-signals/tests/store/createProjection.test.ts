@@ -136,7 +136,6 @@ describe("Projection basics", () => {
         (v, p) => tmp(v, p)
       );
     });
-    flush();
 
     expect(tmp).toBeCalledTimes(1);
     expect(tmp).toBeCalledWith(1, undefined);
@@ -145,8 +144,8 @@ describe("Projection basics", () => {
     setX(2);
     flush();
 
+    expect(tmp).toBeCalledTimes(1);
     expect(tmp).toBeCalledWith(2, 1);
-    expect(tmp);
   });
   it("should fork a signals values", () => {
     const [$x, setX] = createSignal<{ v: number; y?: number }>({ v: 1 });
@@ -166,7 +165,6 @@ describe("Projection basics", () => {
         (v, p) => tmp(v, p)
       );
     });
-    flush();
 
     expect(tmp).toBeCalledTimes(2);
     expect(tmp).toHaveBeenNthCalledWith(1, 1, undefined);

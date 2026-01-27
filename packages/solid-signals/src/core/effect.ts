@@ -8,6 +8,7 @@ import {
 import {
   computed,
   onCleanup,
+  recompute,
   staleValues,
   type Computed,
   type Owner,
@@ -36,59 +37,50 @@ export function effect<T>(
   options?: SignalOptions<any> & { render?: boolean; defer?: boolean }
 ): void {
   let initialized = false;
-  const node = computed<T>(compute, initialValue, {
-    ...options,
-    _internal: {
-      _modified: true,
-      _prevValue: initialValue,
-      _effectFn: effect,
-      _errorFn: error,
-      _cleanup: undefined,
-      _type: options?.render ? EFFECT_RENDER : EFFECT_USER,
-      _notifyQueue(this: Effect<T>, statusFlagsChanged: boolean, prevStatusFlags: number) {
-        if (initialized) {
-          const errorChanged =
-            this._statusFlags && this._statusFlags === prevStatusFlags && statusFlagsChanged;
-          this._modified =
-            !(this._statusFlags & STATUS_ERROR) &&
-            !(this._statusFlags & STATUS_PENDING & ~prevStatusFlags) &&
-            !errorChanged;
-          if (this._modified) this._queue.enqueue(this._type, runEffect.bind(this));
-        }
-
-        if (this._statusFlags & STATUS_ERROR) {
-          let error = this._error;
-          this._queue.notify(this, STATUS_PENDING, 0);
-          if (this._type === EFFECT_USER) {
-            try {
-              return this._errorFn
-                ? this._errorFn(error, () => {
-                    this._cleanup?.();
-                    this._cleanup = undefined;
-                  })
-                : console.error(error);
-            } catch (e) {
-              error = e;
-            }
-          }
-          if (!this._queue.notify(this, STATUS_ERROR, STATUS_ERROR)) throw error;
-        } else if ((this as any)._type === EFFECT_RENDER) {
-          (this as any)._queue.notify(
-            this,
-            STATUS_PENDING | STATUS_ERROR,
-            (this as any)._statusFlags
-          );
+  const node = computed<T>(
+    options?.render ? p => staleValues(() => compute(p)) : compute,
+    initialValue,
+    {
+      ...options,
+      equals: () => {
+        node._modified = !node._error;
+        if (initialized) node._queue.enqueue(node._type, runEffect.bind(node));
+        return false;
+      },
+      lazy: true
+    }
+  ) as Effect<T>;
+  node._prevValue = initialValue;
+  node._effectFn = effect;
+  node._errorFn = error;
+  node._cleanup = undefined;
+  node._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
+  node._notifyStatus = () => {
+    if (node._statusFlags & STATUS_ERROR) {
+      let error = node._error;
+      node._queue.notify(node, STATUS_PENDING, 0);
+      if (node._type === EFFECT_USER) {
+        try {
+          return node._errorFn
+            ? node._errorFn(error, () => {
+                node._cleanup?.();
+                node._cleanup = undefined;
+              })
+            : console.error(error);
+        } catch (e) {
+          error = e;
         }
       }
-    }
-  } as any) as Effect<T>;
-  initialized = true;
-  if (node._type === EFFECT_RENDER) node._fn = p => staleValues(() => compute(p));
+      if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw error;
+    } else if (node._type === EFFECT_RENDER)
+      node._queue.notify(node, STATUS_PENDING | STATUS_ERROR, node._statusFlags);
+  };
+  recompute(node, true);
   !options?.defer &&
-    !(node._statusFlags & (STATUS_ERROR | STATUS_PENDING)) &&
     (node._type === EFFECT_USER
       ? node._queue.enqueue(node._type, runEffect.bind(node))
       : runEffect.call(node));
+  initialized = true;
   onCleanup(() => node._cleanup?.());
   if (__DEV__ && !node._parent)
     console.warn("Effects created outside a reactive context will never be disposed");

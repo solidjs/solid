@@ -12,7 +12,6 @@ import {
   staleValues,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED,
   untrack,
   type Computed,
   type Effect,
@@ -26,24 +25,18 @@ export interface BoundaryComputed<T> extends Computed<T> {
 }
 
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
-  const node = computed<T>(fn, undefined, {
-    _internal: {
-      _notifyQueue(this: BoundaryComputed<T>) {
-        let flags = this._statusFlags;
-        this._statusFlags &= ~this._propagationMask;
-        if (
-          this._propagationMask & STATUS_PENDING &&
-          !((this._statusFlags & STATUS_UNINITIALIZED) /*|| ActiveTransition*/)
-        ) {
-          flags &= ~STATUS_PENDING;
-        }
-        this._queue.notify(this as any, this._propagationMask, flags);
-      },
-      _propagationMask: propagationMask
+  const node = computed<T>(fn, undefined, { lazy: true }) as BoundaryComputed<T>;
+  node._notifyStatus = () => {
+    let flags = node._statusFlags;
+    node._statusFlags &= ~node._propagationMask;
+    if (node._propagationMask & STATUS_PENDING) {
+      flags &= ~STATUS_PENDING;
     }
-  } as any) as BoundaryComputed<T>;
+    node._queue.notify(node, node._propagationMask, flags);
+  };
   node._propagationMask = propagationMask;
   (node as any)._preventAutoDisposal = true;
+  recompute(node, true);
   return node;
 }
 
@@ -173,7 +166,7 @@ function collectErrorSources(node: Computed<any>, sources: Computed<any>[]) {
   let dep = node._deps;
   while (dep !== null) {
     const source = dep._dep;
-    if ((source as Computed<any>)._deps && source._statusFlags & STATUS_ERROR) {
+    if ((source as Computed<any>)._deps && (source as Computed<any>)._statusFlags & STATUS_ERROR) {
       root = false;
       collectErrorSources(source as any, sources);
     }

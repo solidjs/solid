@@ -12,7 +12,6 @@ import {
   runWithOwner,
   setSignal,
   signal,
-  STATUS_UNINITIALIZED
 } from "./core/index.js";
 import { globalQueue } from "./core/scheduler.js";
 
@@ -316,33 +315,35 @@ export function createOptimistic<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
-  if (typeof first === "function") {
-    const node = computed<T>(
-      prev => {
-        const n = getOwner() as Computed<T>;
-        const value = (first as any)(prev);
-        if (n._statusFlags & STATUS_UNINITIALIZED) return value;
-        n._pendingValue = value;
-        return prev;
-      },
-      second as any,
-      third
-    );
-    node._optimistic = true;
-    return [
-      read.bind(null, node as any) as Accessor<T | undefined>,
-      setSignal.bind(null, node as any) as Setter<T | undefined>
-    ];
-  }
-  const node = signal<T>(first as any, second as SignalOptions<T>);
-  node._optimistic = true;
-  return [
-    read.bind(null, node as any) as Accessor<T>,
-    (v => {
-      node._pendingValue = first as any;
-      return setSignal(node as any, v);
-    }) as Setter<T | undefined>
-  ];
+  return createSignal<any>(first as any, second as any, third);
+  // TODO: re-enable optimistic signals
+  // if (typeof first === "function") {
+  //   const node = computed<T>(
+  //     prev => {
+  //       const n = getOwner() as Computed<T>;
+  //       const value = (first as any)(prev);
+  //       if (n._statusFlags & STATUS_UNINITIALIZED) return value;
+  //       n._pendingValue = value;
+  //       return prev;
+  //     },
+  //     second as any,
+  //     third
+  //   );
+  //   node._optimistic = true;
+  //   return [
+  //     read.bind(null, node as any) as Accessor<T | undefined>,
+  //     setSignal.bind(null, node as any) as Setter<T | undefined>
+  //   ];
+  // }
+  // const node = signal<T>(first as any, second as SignalOptions<T>);
+  // node._optimistic = true;
+  // return [
+  //   read.bind(null, node as any) as Accessor<T>,
+  //   (v => {
+  //     node._pendingValue = first as any;
+  //     return setSignal(node as any, v);
+  //   }) as Setter<T | undefined>
+  // ];
 }
 
 export function onSettled(callback: () => void | (() => void)): void {

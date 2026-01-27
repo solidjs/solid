@@ -10,7 +10,6 @@ export const REACTIVE_DISPOSED = 1 << 6;
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
 export const STATUS_ERROR = 1 << 1;
-export const STATUS_UNINITIALIZED = 1 << 2;
 
 export const EFFECT_PURE = 0;
 export const EFFECT_RENDER = 1;
