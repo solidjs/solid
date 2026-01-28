@@ -20,6 +20,8 @@ export {
   read,
   setSignal,
   onCleanup,
+  optimisticSignal,
+  optimisticComputed,
   getNextChildId,
   isPending,
   pending,

@@ -67,6 +67,7 @@ export interface RawSignal<T> {
   _time: number;
   _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
+  _optimistic?: boolean;
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {
@@ -538,6 +539,20 @@ export function signal<T>(
   if (__DEV__) (s as any)._name = options?.name ?? "signal";
   firewall && (firewall._child = s as FirewallSignal<unknown>);
   return s as Signal<T>;
+}
+
+export function optimisticSignal<T>(v: T, options?: SignalOptions<T>): Signal<T> {
+  const s = signal(v, options);
+  s._pendingValue = v;
+  s._optimistic = true;
+  return s;
+}
+
+export function optimisticComputed<T>(fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>, initialValue?: T, options?: SignalOptions<T>): Computed<T> {
+  // TODO: implement optimistic computed
+  const c = computed(fn, initialValue, options);
+  c._optimistic = true;
+  return c;
 }
 
 export function isEqual<T>(a: T, b: T): boolean {

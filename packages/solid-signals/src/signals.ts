@@ -8,10 +8,12 @@ import {
   getOwner,
   NotReadyError,
   onCleanup,
+  optimisticComputed,
+  optimisticSignal,
   read,
   runWithOwner,
   setSignal,
-  signal,
+  signal
 } from "./core/index.js";
 import { globalQueue } from "./core/scheduler.js";
 
@@ -300,6 +302,36 @@ export function resolve<T>(fn: () => T): Promise<T> {
   });
 }
 
+/**
+ * Creates an optimistic signal that can be used to optimistically update a value
+ * and then revert it back to the previous value at end of transition.
+ * ```typescript
+ * export function createOptimistic<T>(): Signal<T | undefined>;
+ * export function createOptimistic<T>(
+ *   value: Exclude<T, Function>,
+ *   options?: SignalOptions<T>
+ * ): Signal<T>;
+ * export function createOptimistic<T>(
+ *   fn: ComputeFunction<T>,
+ *   initialValue?: T,
+ *   options?: SignalOptions<T>
+ * ): Signal<T>;
+ * ```
+ * @param value initial value of the signal; if empty, the signal's type will automatically extended with undefined; otherwise you need to extend the type manually if you want setting to undefined not be an error
+ * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
+ *
+ * @returns ```typescript
+ * [state: Accessor<T>, setState: Setter<T>]
+ * ```
+ * * the Accessor is a function that returns the current value and registers each call to the reactive root
+ * * the Setter is a function that allows directly setting or mutating the value:
+ * ```typescript
+ * const [count, setCount] = createOptimistic(0);
+ * setCount(count => count + 1);
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
+ */
 export function createOptimistic<T>(): Signal<T | undefined>;
 export function createOptimistic<T>(
   value: Exclude<T, Function>,
@@ -315,35 +347,14 @@ export function createOptimistic<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
-  return createSignal<any>(first as any, second as any, third);
-  // TODO: re-enable optimistic signals
-  // if (typeof first === "function") {
-  //   const node = computed<T>(
-  //     prev => {
-  //       const n = getOwner() as Computed<T>;
-  //       const value = (first as any)(prev);
-  //       if (n._statusFlags & STATUS_UNINITIALIZED) return value;
-  //       n._pendingValue = value;
-  //       return prev;
-  //     },
-  //     second as any,
-  //     third
-  //   );
-  //   node._optimistic = true;
-  //   return [
-  //     read.bind(null, node as any) as Accessor<T | undefined>,
-  //     setSignal.bind(null, node as any) as Setter<T | undefined>
-  //   ];
-  // }
-  // const node = signal<T>(first as any, second as SignalOptions<T>);
-  // node._optimistic = true;
-  // return [
-  //   read.bind(null, node as any) as Accessor<T>,
-  //   (v => {
-  //     node._pendingValue = first as any;
-  //     return setSignal(node as any, v);
-  //   }) as Setter<T | undefined>
-  // ];
+  const node =
+    typeof first === "function"
+      ? optimisticComputed<T>(first as any, second as any, third)
+      : optimisticSignal<T>(first as any, second as SignalOptions<T>);
+  return [
+    read.bind(null, node as any) as Accessor<T | undefined>,
+    setSignal.bind(null, node as any) as Setter<T | undefined>
+  ];
 }
 
 export function onSettled(callback: () => void | (() => void)): void {
