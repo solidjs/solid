@@ -231,7 +231,6 @@ export function finalizePureQueue(transition: Transition | null = null) {
   }
 }
 
-
 function runTransitionPending(pendingNodes: Signal<any>[], value: boolean) {
   const p = pendingNodes.slice();
   for (let i = 0; i < p.length; i++) {
@@ -279,13 +278,20 @@ function currentTransition(transition: Transition) {
 
 export function runInTransition<T>(transition: Transition, fn: () => T): T {
   const prevTransition = activeTransition;
-  activeTransition = null;
+
   try {
     activeTransition = currentTransition(transition);
     return fn();
   } finally {
     activeTransition = prevTransition;
   }
+}
+
+function restoreTransition<T>(transition: Transition, fn: () => T): T {
+  globalQueue.initTransition(transition);
+  const result = fn();
+  flush();
+  return result;
 }
 
 export function action<Args extends any[], Y, R>(
@@ -307,12 +313,12 @@ export function action<Args extends any[], Y, R>(
         ctx.actions.splice(ctx.actions.indexOf(iterator), 1);
         activeTransition = ctx;
         schedule();
-        flush();
         return;
       }
       const yielded = result.value;
-      if (yielded instanceof Promise) return yielded.then(v => runInTransition(ctx, () => step(v)));
-      runInTransition(ctx, () => step(yielded));
+      if (yielded instanceof Promise)
+        return yielded.then(v => restoreTransition(ctx, () => step(v)));
+      restoreTransition(ctx, () => step(yielded));
     };
     runInTransition(ctx, () => step());
   };

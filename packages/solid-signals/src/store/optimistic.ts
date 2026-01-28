@@ -1,10 +1,4 @@
-import {
-  $REFRESH,
-  getOwner,
-  handleAsync,
-  setSignal,
-  type Computed
-} from "../core/index.js";
+import { $REFRESH, getOwner, handleAsync, setSignal, type Computed } from "../core/index.js";
 import { createProjectionInternal } from "./projection.js";
 import { reconcile } from "./reconcile.js";
 import {

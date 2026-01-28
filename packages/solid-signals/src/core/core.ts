@@ -548,7 +548,11 @@ export function optimisticSignal<T>(v: T, options?: SignalOptions<T>): Signal<T>
   return s;
 }
 
-export function optimisticComputed<T>(fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>, initialValue?: T, options?: SignalOptions<T>): Computed<T> {
+export function optimisticComputed<T>(
+  fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>,
+  initialValue?: T,
+  options?: SignalOptions<T>
+): Computed<T> {
   // TODO: implement optimistic computed
   const c = computed(fn, initialValue, options);
   c._optimistic = true;

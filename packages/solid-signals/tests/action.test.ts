@@ -1,10 +1,4 @@
-import {
-  action,
-  createRenderEffect,
-  createRoot,
-  createSignal,
-  flush
-} from "../src/index.js";
+import { action, createRenderEffect, createRoot, createSignal, flush } from "../src/index.js";
 
 afterEach(() => flush());
 
@@ -168,7 +162,9 @@ describe("action", () => {
       createRoot(() => {
         createRenderEffect(
           () => $x(),
-          v => { values.push(v); }
+          v => {
+            values.push(v);
+          }
         );
       });
 
@@ -185,19 +181,20 @@ describe("action", () => {
 
       myAction();
       flush();
-      // First update applied
-      expect(values).toEqual([0, 1]);
-      expect($x()).toBe(1);
+      // Value is held during transition
+      expect(values).toEqual([0]);
+      expect($x()).toBe(0);
 
       await Promise.resolve();
       flush();
-      // Second update needs another tick
-      expect(values).toEqual([0, 1, 2]);
-      expect($x()).toBe(2);
+      // Still held
+      expect(values).toEqual([0]);
+      expect($x()).toBe(0);
 
       await Promise.resolve();
-      // Action complete
-      expect(values).toEqual([0, 1, 2]);
+      // Action complete, final value commits
+      expect(values).toEqual([0, 2]);
+      expect($x()).toBe(2);
     });
   });
 
@@ -250,7 +247,9 @@ describe("action", () => {
       createRoot(() => {
         createRenderEffect(
           () => $x(),
-          v => { values.push(v); }
+          v => {
+            values.push(v);
+          }
         );
       });
 
@@ -284,7 +283,7 @@ describe("action", () => {
 
       myAction();
       flush();
-      
+
       // Wait for action to complete
       await Promise.resolve();
       flush();
@@ -402,11 +401,15 @@ describe("action", () => {
       createRoot(() => {
         createRenderEffect(
           () => $a(),
-          v => { aValues.push(v); }
+          v => {
+            aValues.push(v);
+          }
         );
         createRenderEffect(
           () => $b(),
-          v => { bValues.push(v); }
+          v => {
+            bValues.push(v);
+          }
         );
       });
 
@@ -441,7 +444,8 @@ describe("action", () => {
 
       // Action B completes quickly
       await Promise.resolve();
-      flush();
+      await Promise.resolve();
+
       // B should resolve independently - its final value commits
       expect($b()).toBe(20);
       expect(bValues).toContain(20);
@@ -451,9 +455,7 @@ describe("action", () => {
 
       // Wait for action A to complete
       await Promise.resolve();
-      flush();
       await Promise.resolve();
-      flush();
 
       // Now A should be complete with its final value
       expect($a()).toBe(2);
