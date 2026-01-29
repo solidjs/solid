@@ -241,7 +241,18 @@ export function handleAsync<T>(
 function clearStatus(el: Computed<any>): void {
   el._statusFlags = STATUS_NONE;
   el._error = null;
-  el._notifyStatus?.();
+  if (el._notifyStatus) {
+    el._notifyStatus();
+  } else if (!el._transition) {
+    // No transition coordination - force recompute so pending subscribers
+    // can re-evaluate all their dependencies (handles multi-source case)
+    for (let s = el._subs; s !== null; s = s._nextSub) {
+      if (s._sub._statusFlags & STATUS_PENDING) {
+        insertIntoHeap(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+      }
+    }
+    schedule();
+  }
 }
 
 function notifyStatus(el: Computed<any>, status: number, error: any): void {
