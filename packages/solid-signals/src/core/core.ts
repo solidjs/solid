@@ -7,6 +7,7 @@ import {
   REACTIVE_DISPOSED,
   REACTIVE_IN_HEAP,
   REACTIVE_NONE,
+  REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -29,8 +30,10 @@ import {
   globalQueue,
   GlobalQueue,
   insertSubs,
+  optimisticReadActive,
   runInTransition,
   schedule,
+  setOptimisticReadActive,
   zombieQueue,
   type IQueue,
   type Transition
@@ -132,6 +135,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._firstChild = null;
     }
   }
+
+  // Check and clear optimistic dirty flag before recomputing
+  const isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
+  // Also treat as optimistic for effect routing if there's an active override
+  const hasOptimisticOverride = el._optimistic && el._pendingValue !== NOT_PENDING;
+
   const oldcontext = context;
   context = el;
   el._depsTail = null;
@@ -140,7 +149,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
   let prevTracking = tracking;
+  let prevOptimisticRead = optimisticReadActive;
   tracking = true;
+  if (isOptimisticDirty) setOptimisticReadActive(true);
   try {
     value = handleAsync(el, el._fn(value));
     clearStatus(el);
@@ -170,15 +181,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       !el._equals(el._pendingValue === NOT_PENDING ? el._value : el._pendingValue, value);
 
     if (valueChanged) {
-      if (create || (isEffect && activeTransition !== el._transition)) el._value = value;
+      // Write to _value if: creating, effect outside transition, or optimistic-dirty
+      if (create || (isEffect && activeTransition !== el._transition) || isOptimisticDirty)
+        el._value = value;
       else el._pendingValue = value;
-      insertSubs(el);
+      // Route to optimistic queue if optimistic-dirty OR has an active optimistic override
+      insertSubs(el, isOptimisticDirty || hasOptimisticOverride);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
         insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
       }
     }
   }
+  setOptimisticReadActive(prevOptimisticRead);
   (!create || el._statusFlags & STATUS_PENDING) &&
     !el._transition &&
     globalQueue._pendingNodes.push(el);
@@ -201,13 +216,36 @@ export function handleAsync<T>(
     return result as T;
   }
   el._inFlight = result as Promise<T> | AsyncIterable<T>;
+  // Handle async result - for optimistic computeds, update base value
+  const write =
+    setter ||
+    ((value: T) => {
+      if (el._optimistic) {
+        // Check if there's an active optimistic override
+        const hasOverride = el._pendingValue !== NOT_PENDING;
+        // For computeds (_fn exists), update revert target with new computed value
+        // For signals, preserve the original value saved on first write
+        if ((el as Computed<T>)._fn) {
+          el._pendingValue = value;
+        }
+        if (!hasOverride) {
+          // No override - update visible value and notify
+          el._value = value;
+          insertSubs(el);
+        }
+        el._time = clock;
+        schedule();
+      } else {
+        setSignal(el, () => value);
+      }
+    });
   if (isPromise) {
     result
       .then(value => {
         if (el._inFlight !== result) return;
         globalQueue.initTransition(el._transition);
         clearStatus(el);
-        setter ? setter(value) : setSignal(el, () => value);
+        write(value);
         flush();
       })
       .catch(e => {
@@ -223,7 +261,7 @@ export function handleAsync<T>(
           if (el._inFlight !== result) return;
           globalQueue.initTransition(el._transition);
           clearStatus(el);
-          setter ? setter(value) : setSignal(el, () => value);
+          write(value);
           flush();
         }
       } catch (error) {
@@ -554,7 +592,6 @@ export function signal<T>(
 
 export function optimisticSignal<T>(v: T, options?: SignalOptions<T>): Signal<T> {
   const s = signal(v, options);
-  s._pendingValue = v;
   s._optimistic = true;
   return s;
 }
@@ -564,7 +601,6 @@ export function optimisticComputed<T>(
   initialValue?: T,
   options?: SignalOptions<T>
 ): Computed<T> {
-  // TODO: implement optimistic computed
   const c = computed(fn, initialValue, options);
   c._optimistic = true;
   return c;
@@ -616,6 +652,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   const asyncCompute = (el as FirewallSignal<any>)._firewall || el;
   if (
     c &&
+    !optimisticReadActive &&  // Don't throw when reading optimistically - return committed value
     asyncCompute._statusFlags & STATUS_PENDING &&
     !(stale && asyncCompute._transition && activeTransition !== asyncCompute._transition)
   )
@@ -628,7 +665,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       return read(el);
     } else throw (el as Computed<any>)._error;
   }
+
   return !c ||
+    optimisticReadActive ||
     el._pendingValue === NOT_PENDING ||
     (stale && el._transition && activeTransition !== el._transition)
     ? el._value
@@ -643,19 +682,39 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (el._transition && activeTransition !== el._transition)
     globalQueue.initTransition(el._transition);
 
-  if (typeof v === "function") {
-    v = (v as (prev: T) => T)(
-      el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T)
-    );
-  }
-  const valueChanged =
-    !el._equals ||
-    !el._equals(el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T), v);
+  const isOptimistic = el._optimistic;
+  // Optimistic reads _value, regular reads pending or value
+  const currentValue = isOptimistic
+    ? el._value
+    : el._pendingValue === NOT_PENDING
+      ? el._value
+      : (el._pendingValue as T);
+
+  if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
+
+  const valueChanged = !el._equals || !el._equals(currentValue, v);
   if (!valueChanged) return v;
-  if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
-  el._pendingValue = v;
+
+  if (isOptimistic) {
+    // First write: save current value as revert target
+    const isFirstWrite = el._pendingValue === NOT_PENDING;
+    // Only entangle if there was a previous optimistic write (not first write)
+    // This prevents entangling just because _transition was set from being a pending node
+    if (el._transition && !isFirstWrite) {
+      globalQueue.initTransition(el._transition);
+    }
+    if (isFirstWrite) {
+      el._pendingValue = el._value;  // Save before overwriting
+      globalQueue._optimisticNodes.push(el);
+    }
+    el._value = v;
+  } else {
+    if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
+    el._pendingValue = v;
+  }
+
   el._time = clock;
-  insertSubs(el);
+  insertSubs(el, isOptimistic);
   schedule();
   return v;
 }
@@ -776,7 +835,6 @@ export function refresh<T>(fn: (() => T) | (T & { [$REFRESH]: any })): T {
     refreshing = prevRefreshing;
     if (!prevRefreshing) {
       schedule();
-      flush();
     }
   }
 }

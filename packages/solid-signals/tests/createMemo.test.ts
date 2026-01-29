@@ -330,6 +330,7 @@ describe("async compute", () => {
   });
 
   it.skip("should handle refreshes", async () => {
+    // Skipped: requires isPending to be implemented
     let n = 1;
     let value;
     const a = createRoot(() => {
@@ -347,10 +348,12 @@ describe("async compute", () => {
     await new Promise(r => setTimeout(r, 0));
     expect(value).toBe(1);
     refresh(a);
+    flush(); // trigger recompute synchronously to see pending state
     expect(value).toBe("stale");
     await new Promise(r => setTimeout(r, 0));
     expect(value).toBe(2);
     refresh(a);
+    flush(); // trigger recompute synchronously to see pending state
     expect(value).toBe("stale");
     await new Promise(r => setTimeout(r, 0));
     expect(value).toBe(3);

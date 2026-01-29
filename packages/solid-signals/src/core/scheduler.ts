@@ -2,6 +2,7 @@ import {
   EFFECT_RENDER,
   EFFECT_USER,
   NOT_PENDING,
+  REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_ZOMBIE,
   STATUS_PENDING
 } from "./constants.js";
@@ -26,6 +27,11 @@ export const zombieQueue: Heap = {
 export let clock = 0;
 export let activeTransition: Transition | null = null;
 let scheduled = false;
+export let optimisticReadActive = false;
+
+export function setOptimisticReadActive(value: boolean) {
+  optimisticReadActive = value;
+}
 
 export type QueueCallback = (type: number) => void;
 type QueueStub = {
@@ -36,6 +42,7 @@ export interface Transition {
   time: number;
   asyncNodes: Computed<any>[];
   pendingNodes: Signal<any>[];
+  optimisticNodes: Signal<any>[];
   actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
   queueStash: QueueStub;
   done: boolean | Transition;
@@ -62,6 +69,7 @@ export interface IQueue {
 export class Queue implements IQueue {
   _parent: IQueue | null = null;
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
+  _optimisticQueues: [QueueCallback[], QueueCallback[]] = [[], []];
   _children: IQueue[] = [];
   created = clock;
   addChild(child: IQueue) {
@@ -89,8 +97,22 @@ export class Queue implements IQueue {
       this._children[i].run(type);
     }
   }
+  runOptimistic(type: number) {
+    if (this._optimisticQueues[type - 1].length) {
+      const effects = this._optimisticQueues[type - 1];
+      this._optimisticQueues[type - 1] = [];
+      runQueue(effects, type);
+    }
+    for (let i = 0; i < this._children.length; i++) {
+      (this._children[i] as Queue).runOptimistic?.(type);
+    }
+  }
   enqueue(type: number, fn: QueueCallback): void {
-    if (type) this._queues[type - 1].push(fn);
+    if (type) {
+      // Route to optimistic queue if we're in an optimistic recomputation
+      const queue = optimisticReadActive ? this._optimisticQueues : this._queues;
+      queue[type - 1].push(fn);
+    }
     schedule();
   }
   stashQueues(stub: QueueStub): void {
@@ -121,6 +143,7 @@ export class Queue implements IQueue {
 export class GlobalQueue extends Queue {
   _running: boolean = false;
   _pendingNodes: Signal<any>[] = [];
+  _optimisticNodes: Signal<any>[] = [];
   static _update: (el: Computed<unknown>) => void;
   static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
   flush() {
@@ -129,39 +152,56 @@ export class GlobalQueue extends Queue {
     try {
       runHeap(dirtyQueue, GlobalQueue._update);
       if (activeTransition) {
-        if (!transitionComplete(activeTransition)) {
+        const isComplete = transitionComplete(activeTransition);
+        if (!isComplete) {
           let t = activeTransition;
           runHeap(zombieQueue, GlobalQueue._update);
           this._pendingNodes = [];
+          this._optimisticNodes = [];
+          
+          // Run optimistic effects immediately (before stashing)
+          this.runOptimistic(EFFECT_RENDER);
+          this.runOptimistic(EFFECT_USER);
+          
           this.stashQueues(activeTransition!.queueStash);
           clock++;
           scheduled = false;
           runTransitionPending(activeTransition!.pendingNodes, true);
           activeTransition = null;
-          finalizePureQueue(t);
+          finalizePureQueue(null, true);
           return;
         }
         this._pendingNodes !== activeTransition.pendingNodes &&
           this._pendingNodes.push(...activeTransition.pendingNodes);
         this.restoreQueues(activeTransition.queueStash);
         transitions.delete(activeTransition);
+        const completingTransition = activeTransition;
         activeTransition = null;
         runTransitionPending(this._pendingNodes, false);
-      } else if (transitions.size) runHeap(zombieQueue, GlobalQueue._update);
-      finalizePureQueue();
+        finalizePureQueue(completingTransition);
+      } else {
+        if (transitions.size) runHeap(zombieQueue, GlobalQueue._update);
+        finalizePureQueue();
+      }
       clock++;
-      scheduled = false;
+      // Check if finalization added items to the heap (from optimistic reversion)
+      scheduled = dirtyQueue._max >= dirtyQueue._min;
+      // Run both optimistic and regular effects
+      this.runOptimistic(EFFECT_RENDER);
       this.run(EFFECT_RENDER);
+      this.runOptimistic(EFFECT_USER);
       this.run(EFFECT_USER);
     } finally {
       this._running = false;
     }
   }
   notify(node: Computed<any>, mask: number, flags: number): boolean {
+    // Only track async if the boundary is propagating STATUS_PENDING (not caught by boundary)
     if (mask & STATUS_PENDING) {
       if (flags & STATUS_PENDING) {
         if (
           activeTransition &&
+          node._error &&
           !activeTransition.asyncNodes.includes((node._error as NotReadyError).cause)
         ) {
           activeTransition.asyncNodes.push((node._error as NotReadyError).cause);
@@ -181,6 +221,7 @@ export class GlobalQueue extends Queue {
         time: clock,
         pendingNodes: [],
         asyncNodes: [],
+        optimisticNodes: [],
         actions: [],
         queueStash: { _queues: [[], []], _children: [] },
         done: false
@@ -199,24 +240,37 @@ export class GlobalQueue extends Queue {
       activeTransition.pendingNodes.push(n);
     }
     this._pendingNodes = activeTransition.pendingNodes;
+    // Share reference - optimistic writes go directly to the transition's array
+    for (let i = 0; i < this._optimisticNodes.length; i++) {
+      const node = this._optimisticNodes[i];
+      node._transition = activeTransition;  // Mark ownership
+      activeTransition.optimisticNodes.push(node);
+    }
+    this._optimisticNodes = activeTransition.optimisticNodes;
   }
 }
 
-export function insertSubs(node: Signal<any> | Computed<any>): void {
+export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
+  let subCount = 0;
   for (let s = node._subs; s !== null; s = s._nextSub) {
+    subCount++;
+    if (optimistic) s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
     const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
     if (queue._min > s._sub._height) queue._min = s._sub._height;
     insertIntoHeap(s._sub, queue);
   }
 }
 
-export function finalizePureQueue(transition: Transition | null = null) {
-  let resolvePending = !transition;
+export function finalizePureQueue(completingTransition: Transition | null = null, incomplete: boolean = false) {
+  // For incomplete transitions, skip pending resolution and optimistic reversion
+  // For completing transitions or no-transition, resolve pending and revert optimistic
+  let resolvePending = !incomplete;
   if (dirtyQueue._max >= dirtyQueue._min) {
     resolvePending = true;
     runHeap(dirtyQueue, GlobalQueue._update);
   }
   if (resolvePending) {
+    // Commit pending nodes
     const pendingNodes = globalQueue._pendingNodes;
     for (let i = 0; i < pendingNodes.length; i++) {
       const n = pendingNodes[i];
@@ -228,6 +282,23 @@ export function finalizePureQueue(transition: Transition | null = null) {
       if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
     }
     pendingNodes.length = 0;
+
+    // Revert optimistic nodes from the completing transition or orphan list
+    const optimisticNodes = completingTransition
+      ? completingTransition.optimisticNodes
+      : globalQueue._optimisticNodes;
+    for (let i = 0; i < optimisticNodes.length; i++) {
+      const n = optimisticNodes[i];
+      const original = n._pendingValue;
+      // Revert to the saved value
+      if (original !== NOT_PENDING && n._value !== original) {
+        n._value = original as any;
+        insertSubs(n, true);
+      }
+      n._pendingValue = NOT_PENDING;
+      n._transition = null;  // Clear ownership
+    }
+    optimisticNodes.length = 0;
   }
 }
 
@@ -301,7 +372,7 @@ export function action<Args extends any[], Y, R>(
     const iterator = genFn(...args);
     globalQueue.initTransition();
     let ctx = activeTransition!;
-    ctx!.actions.push(iterator);
+    ctx.actions.push(iterator);
     const step = (input?: any) => {
       let nextValue = iterator.next(input);
       if (nextValue instanceof Promise) return nextValue.then(process);
@@ -320,6 +391,6 @@ export function action<Args extends any[], Y, R>(
         return yielded.then(v => restoreTransition(ctx, () => step(v)));
       restoreTransition(ctx, () => step(yielded));
     };
-    runInTransition(ctx, () => step());
+    step();
   };
 }
