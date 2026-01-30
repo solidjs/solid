@@ -72,6 +72,8 @@ export interface RawSignal<T> {
   _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
   _optimistic?: boolean;
+  _pendingSignal?: Signal<boolean>;       // Lazy signal for isPending()
+  _pendingValueComputed?: Computed<T>;    // Lazy computed for pending()
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {
@@ -119,6 +121,9 @@ GlobalQueue._dispose = disposeChildren;
 let tracking = false;
 let stale = false;
 let refreshing = false;
+let pendingCheckActive = false;
+let foundPending = false;
+let pendingReadActive = false;
 export let context: Owner | null = null;
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
@@ -280,6 +285,8 @@ export function handleAsync<T>(
 function clearStatus(el: Computed<any>): void {
   el._statusFlags = STATUS_NONE;
   el._error = null;
+  // Update pending signal for isPending() reactivity
+  updatePendingSignal(el);
   if (el._notifyStatus) {
     el._notifyStatus();
   } else if (!el._transition) {
@@ -297,6 +304,8 @@ function clearStatus(el: Computed<any>): void {
 function notifyStatus(el: Computed<any>, status: number, error: any): void {
   el._statusFlags = status;
   el._error = error;
+  // Update pending signal for isPending() reactivity
+  updatePendingSignal(el);
   if (el._notifyStatus) return el._notifyStatus();
   for (let s = el._subs; s !== null; s = s._nextSub) {
     s._sub._time = clock;
@@ -607,6 +616,53 @@ export function optimisticComputed<T>(
   return c;
 }
 
+/**
+ * Get or create the pending signal for a node (lazy).
+ * Used by isPending() to track pending state reactively.
+ */
+function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
+  if (!el._pendingSignal) {
+    el._pendingSignal = optimisticSignal(computePendingState(el), { pureWrite: true });
+  }
+  return el._pendingSignal;
+}
+
+/**
+ * Compute whether a node is in "pending" state.
+ * Pending means: has stale data while new data is loading.
+ * Returns false for initial async loads (no stale data to show).
+ */
+function computePendingState(el: Signal<any> | Computed<any>): boolean {
+  // Value held in transition = pending
+  if (el._pendingValue !== NOT_PENDING) return true;
+  // Async in flight with previous value = pending (but not initial load)
+  const comp = el as Computed<any>;
+  return !!(comp._statusFlags & STATUS_PENDING && comp._value !== undefined);
+}
+
+/**
+ * Get or create the pending value computed for a node (lazy).
+ * Used by pending() to read the in-flight value during a transition.
+ */
+function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
+  if (!el._pendingValueComputed) {
+    // Disable pendingReadActive to avoid recursion during creation
+    const prevPending = pendingReadActive;
+    pendingReadActive = false;
+    el._pendingValueComputed = optimisticComputed(() => {
+      const v = read(el); // Subscribe for reactivity
+      return el._pendingValue !== NOT_PENDING ? (el._pendingValue as T) : v;
+    });
+    pendingReadActive = prevPending;
+  }
+  return el._pendingValueComputed;
+}
+
+/** Update _pendingSignal when pending state changes. */
+function updatePendingSignal(el: Signal<any> | Computed<any>): void {
+  if (el._pendingSignal) setSignal(el._pendingSignal, computePendingState(el));
+}
+
 export function isEqual<T>(a: T, b: T): boolean {
   return a === b;
 }
@@ -626,6 +682,28 @@ export function untrack<T>(fn: () => T): T {
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
+  // Handle isPending() mode: read from _pendingSignal, set foundPending if true
+  if (pendingCheckActive) {
+    const pendingSig = getPendingSignal(el);
+    const prevCheck = pendingCheckActive;
+    pendingCheckActive = false;
+    if (read(pendingSig)) {
+      foundPending = true;
+    }
+    pendingCheckActive = prevCheck;
+    return el._value as T;
+  }
+
+  // Handle pending() mode: read from _pendingValueComputed
+  if (pendingReadActive) {
+    const pendingComputed = getPendingValueComputed(el);
+    const prevPending = pendingReadActive;
+    pendingReadActive = false;
+    const value = read(pendingComputed);
+    pendingReadActive = prevPending;
+    return value as T;
+  }
+
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
   if (refreshing && (el as Computed<unknown>)._fn) recompute(el as Computed<unknown>);
@@ -713,6 +791,14 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   } else {
     if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
     el._pendingValue = v;
+  }
+
+  // Update pending signal if it exists (for isPending reactivity)
+  updatePendingSignal(el);
+
+  // Also write to pending value computed if it exists (for pending())
+  if (el._pendingValueComputed) {
+    setSignal(el._pendingValueComputed, v);
   }
 
   el._time = clock;
@@ -815,13 +901,33 @@ export function staleValues<T>(fn: () => T, set = true): T {
 }
 
 export function pending<T>(fn: () => T): T {
-  // TODO
-  return fn();
+  const prevPending = pendingReadActive;
+  const prevOptimistic = optimisticReadActive;
+  pendingReadActive = true;
+  setOptimisticReadActive(true);  // Run in optimistic lane
+  try {
+    return fn();
+  } finally {
+    pendingReadActive = prevPending;
+    setOptimisticReadActive(prevOptimistic);
+  }
 }
 
 export function isPending(fn: () => any): boolean {
-  // TODO
-  return false;
+  const prevPendingCheck = pendingCheckActive;
+  const prevFoundPending = foundPending;
+  const prevOptimistic = optimisticReadActive;
+  pendingCheckActive = true;
+  foundPending = false;
+  setOptimisticReadActive(true);  // Run in optimistic lane
+  try {
+    fn();
+    return foundPending;
+  } finally {
+    pendingCheckActive = prevPendingCheck;
+    foundPending = prevFoundPending;
+    setOptimisticReadActive(prevOptimistic);
+  }
 }
 
 export function refresh<T>(fn: (() => T) | (T & { [$REFRESH]: any })): T {

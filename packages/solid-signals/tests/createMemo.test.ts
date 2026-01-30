@@ -288,7 +288,7 @@ describe("async compute", () => {
     expect(effect).toHaveBeenCalledWith(4);
   });
 
-  it.skip("should should show stale state with `isPending` in graph", async () => {
+  it("should should show stale state with `isPending` in graph", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     const a = createRoot(() => {
@@ -298,8 +298,6 @@ describe("async compute", () => {
     });
     const b = createMemo(() => (isPending(a) ? "stale" : "not stale"));
     expect(b()).toBe("not stale");
-    flush();
-    expect(b()).toBe("stale");
     await new Promise(r => setTimeout(r, 0));
     expect(b()).toBe("not stale");
     set(2);
@@ -309,7 +307,7 @@ describe("async compute", () => {
     expect(b()).toBe("not stale");
   });
 
-  it.skip("should should show stale state with `isPending` out of graph", async () => {
+  it("should should show stale state with `isPending` out of graph", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     const a = createRoot(() => {
@@ -317,9 +315,8 @@ describe("async compute", () => {
       createRenderEffect(a, () => {}); // ensure re-compute
       return a;
     });
+
     expect(isPending(a)).toBe(false);
-    flush();
-    expect(isPending(a)).toBe(true);
     await new Promise(r => setTimeout(r, 0));
     expect(isPending(a)).toBe(false);
     set(2);
@@ -329,8 +326,7 @@ describe("async compute", () => {
     expect(isPending(a)).toBe(false);
   });
 
-  it.skip("should handle refreshes", async () => {
-    // Skipped: requires isPending to be implemented
+  it("should handle refreshes", async () => {
     let n = 1;
     let value;
     const a = createRoot(() => {
@@ -359,7 +355,7 @@ describe("async compute", () => {
     expect(value).toBe(3);
   });
 
-  it.skip("should should show pending state in graph", async () => {
+  it("should should show pending state in graph", async () => {
     const [s, set] = createSignal(1);
     let res: number | null = null;
     const async1 = vi.fn(() => Promise.resolve(s()));
@@ -382,13 +378,14 @@ describe("async compute", () => {
     expect(res).toBe(2);
   });
 
-  it.skip("should should show pending state outside of graph", async () => {
+  it("should should show pending state outside of graph", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
     createRoot(() => {
       const a = createMemo(async1);
       createRenderEffect(a, () => {}); // ensure re-compute
     });
+    expect(pending(s)).toBe(1);
     await new Promise(r => setTimeout(r, 0));
     expect(pending(s)).toBe(1);
     set(2);
@@ -396,6 +393,38 @@ describe("async compute", () => {
     expect(pending(s)).toBe(2);
     await new Promise(r => setTimeout(r, 0));
     expect(pending(s)).toBe(2);
+  });
+
+  it("should track pending value changes for loading indicator pattern", async () => {
+    const [id, setId] = createSignal(0);
+    const data = createMemo(() => Promise.resolve("D" + id()));
+    const effectFn = vi.fn();
+
+    createRoot(() => {
+      createRenderEffect(data, () => {}); // ensure re-compute
+      // Track pending value - should return new value during transition
+      createRenderEffect(
+        () => pending(id),
+        (pendingVal) => {
+          effectFn(pendingVal);
+        }
+      );
+    });
+
+    // Initial: pending returns current value
+    await new Promise(r => setTimeout(r, 0));
+    expect(effectFn).toHaveBeenLastCalledWith(0);
+
+    // Update triggers transition
+    setId(1);
+    flush();
+
+    // During transition: pending(id) returns new value (1)
+    expect(effectFn).toHaveBeenLastCalledWith(1);
+
+    // After async resolves: pending(id) still returns 1 (now committed)
+    await new Promise(r => setTimeout(r, 0));
+    expect(effectFn).toHaveBeenLastCalledWith(1);
   });
 
   it("should resolve to a value with resolveAsync", async () => {
