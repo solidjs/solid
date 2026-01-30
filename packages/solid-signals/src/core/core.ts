@@ -12,7 +12,8 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_NONE,
-  STATUS_PENDING
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import {
@@ -157,7 +158,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let prevTracking = tracking;
   let prevOptimisticRead = optimisticReadActive;
   tracking = true;
-  if (isOptimisticDirty) setOptimisticReadActive(true);
+  setOptimisticReadActive(isOptimisticDirty);
   try {
     value = handleAsync(el, el._fn(value));
     clearStatus(el);
@@ -302,7 +303,7 @@ function clearStatus(el: Computed<any>): void {
 }
 
 function notifyStatus(el: Computed<any>, status: number, error: any): void {
-  el._statusFlags = status;
+  el._statusFlags = status | (el._statusFlags & STATUS_UNINITIALIZED);
   el._error = error;
   // Update pending signal for isPending() reactivity
   updatePendingSignal(el);
@@ -544,7 +545,7 @@ export function computed<T>(
     _nextSibling: null,
     _firstChild: null,
     _flags: REACTIVE_NONE,
-    _statusFlags: STATUS_NONE,
+    _statusFlags: STATUS_UNINITIALIZED,
     _time: clock,
     _pendingValue: NOT_PENDING,
     _pendingDisposal: null,
@@ -622,7 +623,9 @@ export function optimisticComputed<T>(
  */
 function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
   if (!el._pendingSignal) {
-    el._pendingSignal = optimisticSignal(computePendingState(el), { pureWrite: true });
+    // Start false, write true if pending - ensures reversion returns to false
+    el._pendingSignal = optimisticSignal(false, { pureWrite: true });
+    if (computePendingState(el)) setSignal(el._pendingSignal, true);
   }
   return el._pendingSignal;
 }
@@ -633,11 +636,12 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
  * Returns false for initial async loads (no stale data to show).
  */
 function computePendingState(el: Signal<any> | Computed<any>): boolean {
-  // Value held in transition = pending
+  // Upstream: value held in transition
   if (el._pendingValue !== NOT_PENDING) return true;
-  // Async in flight with previous value = pending (but not initial load)
+  // Downstream: async in flight with previous value (not initial load)
+  // STATUS_UNINITIALIZED is cleared on first successful completion
   const comp = el as Computed<any>;
-  return !!(comp._statusFlags & STATUS_PENDING && comp._value !== undefined);
+  return !!(comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED));
 }
 
 /**
@@ -649,10 +653,7 @@ function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     // Disable pendingReadActive to avoid recursion during creation
     const prevPending = pendingReadActive;
     pendingReadActive = false;
-    el._pendingValueComputed = optimisticComputed(() => {
-      const v = read(el); // Subscribe for reactivity
-      return el._pendingValue !== NOT_PENDING ? (el._pendingValue as T) : v;
-    });
+    el._pendingValueComputed = optimisticComputed(() => read(el));
     pendingReadActive = prevPending;
   }
   return el._pendingValueComputed;
@@ -684,7 +685,9 @@ export function untrack<T>(fn: () => T): T {
 export function read<T>(el: Signal<T> | Computed<T>): T {
   // Handle isPending() mode: read from _pendingSignal, set foundPending if true
   if (pendingCheckActive) {
-    const pendingSig = getPendingSignal(el);
+    // For store properties, check the firewall's (projection's) pending state
+    const target = (el as FirewallSignal<any>)._firewall || el;
+    const pendingSig = getPendingSignal(target);
     const prevCheck = pendingCheckActive;
     pendingCheckActive = false;
     if (read(pendingSig)) {
@@ -701,6 +704,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     pendingReadActive = false;
     const value = read(pendingComputed);
     pendingReadActive = prevPending;
+    // If _pendingValueComputed is pending (source was pending), fallback to el._value
+    if (pendingComputed._statusFlags & STATUS_PENDING) return el._value as T;
     return value as T;
   }
 
@@ -807,7 +812,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   return v;
 }
 
+const PENDING_OWNER = {} as Owner; // Dummy owner to trigger store's read() path
+
 export function getObserver(): Owner | null {
+  if (pendingCheckActive || pendingReadActive) return PENDING_OWNER;
   return tracking ? context : null;
 }
 

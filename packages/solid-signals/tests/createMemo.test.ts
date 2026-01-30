@@ -483,6 +483,104 @@ describe("async compute", () => {
     expect(effect).toHaveBeenCalledWith(3);
   });
 
+  it("should show isPending=false for initial generator load", async () => {
+    const a = createRoot(() => {
+      const a = createMemo(async function* () {
+        yield await Promise.resolve(1);
+        yield await Promise.resolve(2);
+      });
+      createRenderEffect(a, () => {}); // ensure re-compute
+      return a;
+    });
+
+    // Initial load: isPending should be false (no stale data)
+    expect(isPending(a)).toBe(false);
+    flush();
+    expect(isPending(a)).toBe(false);
+
+    // After first yield: still not pending
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(isPending(a)).toBe(false);
+    expect(a()).toBe(1);
+
+    // After second yield: still not pending (same sequence)
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(isPending(a)).toBe(false);
+    expect(a()).toBe(2);
+  });
+
+  it("should show isPending=true after refresh triggers new generator sequence", async () => {
+    let runCount = 0;
+    const a = createRoot(() => {
+      const a = createMemo(async function* () {
+        const run = ++runCount;
+        yield await Promise.resolve(run * 10 + 1);
+        yield await Promise.resolve(run * 10 + 2);
+      });
+      createRenderEffect(a, () => {}); // ensure re-compute
+      return a;
+    });
+
+    // Initial load completes
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(a()).toBe(11); // run 1, yield 1
+    expect(isPending(a)).toBe(false);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(a()).toBe(12); // run 1, yield 2
+    expect(isPending(a)).toBe(false);
+
+    // Refresh triggers new sequence - now we have stale data
+    refresh(a);
+    flush();
+    expect(isPending(a)).toBe(true); // has old value 12, loading new
+    expect(a()).toBe(12); // still shows old value
+
+    // After new sequence's first yield: no longer pending
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(isPending(a)).toBe(false);
+    expect(a()).toBe(21); // run 2, yield 1
+  });
+
+  it("should not be pending between yields in same sequence", async () => {
+    const pendingStates: boolean[] = [];
+    const values: number[] = [];
+
+    createRoot(() => {
+      const a = createMemo(async function* () {
+        yield await Promise.resolve(1);
+        yield await Promise.resolve(2);
+        yield await Promise.resolve(3);
+      });
+
+      createRenderEffect(a, v => {
+        values.push(v);
+        pendingStates.push(isPending(a));
+      });
+    });
+
+    flush();
+    // Wait for all yields (3 awaits per yield * 3 yields)
+    for (let i = 0; i < 9; i++) {
+      await Promise.resolve();
+    }
+
+    expect(values).toEqual([1, 2, 3]);
+    // isPending should be false for all yields (initial sequence has no stale data)
+    expect(pendingStates).toEqual([false, false, false]);
+  });
+
   it("should still resolve in untracked scopes", async () => {
     const [s, set] = createSignal(1);
     const async1 = vi.fn(() => Promise.resolve(s()));
@@ -537,6 +635,242 @@ describe("async compute", () => {
   //   await Promise.resolve();
   //   expect(effect).toHaveBeenCalledTimes(1);
   // });
+
+  it("pending() on upstream vs downstream of async", async () => {
+    const [$x, setX] = createSignal(1);
+    let syncMemo: () => number;
+    let asyncMemo: () => number;
+
+    createRoot(() => {
+      // Sync memo upstream of async
+      syncMemo = createMemo(() => $x() * 2);
+      
+      // Async memo (the async boundary)
+      asyncMemo = createMemo(async () => {
+        const v = syncMemo();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      // Effect creates the transition
+      createRenderEffect(asyncMemo, () => {});
+    });
+
+    // Initial load
+    await new Promise(r => setTimeout(r, 0));
+    expect(syncMemo!()).toBe(2);
+    expect(asyncMemo!()).toBe(20);
+
+    // Change signal - starts new async
+    setX(2);
+    flush();
+
+    // Upstream of async: pending() returns in-flight value
+    expect(pending($x)).toBe(2);    // signal: in-flight
+    expect($x()).toBe(1);           // signal: committed
+    expect(pending(syncMemo!)).toBe(4);  // sync memo: in-flight
+    expect(syncMemo!()).toBe(2);         // sync memo: committed
+
+    // The async node itself: pending() returns committed (no new value yet)
+    expect(pending(asyncMemo!)).toBe(20); // same as committed
+    expect(asyncMemo!()).toBe(20);
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe(40);
+    expect(syncMemo!()).toBe(4);
+    expect($x()).toBe(2);
+  });
+
+  it("pending() on upstream signal during transition", async () => {
+    const [$x, setX] = createSignal(1);
+    let a: () => number;
+
+    createRoot(() => {
+      a = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      createRenderEffect(a, () => {});
+    });
+
+    // Initial load
+    await new Promise(r => setTimeout(r, 0));
+    expect(a!()).toBe(10);
+
+    // Change signal - starts transition
+    setX(2);
+    flush();
+
+    // Upstream signal is also held in transition
+    expect(pending($x)).toBe(2); // new value
+    expect($x()).toBe(1); // committed value
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+    expect($x()).toBe(2);
+    expect(pending($x)).toBe(2);
+  });
+
+  it("isPending and pending on upstream signal that triggers async memo", async () => {
+    const [$x, setX] = createSignal(1);
+    let a: () => number;
+
+    createRoot(() => {
+      a = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      createRenderEffect(a, () => {});
+    });
+
+    // Initial load
+    flush();
+    expect(isPending($x)).toBe(false); // no stale data initially
+    await new Promise(r => setTimeout(r, 0));
+
+    // Change signal
+    setX(2);
+    flush();
+
+    // Upstream signal is pending (value held in transition)
+    expect(isPending($x)).toBe(true);
+    expect(pending($x)).toBe(2); // new value
+    expect($x()).toBe(1); // old value
+
+    // Downstream memo is also pending
+    expect(isPending(a!)).toBe(true);
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+    expect(isPending($x)).toBe(false);
+    expect(isPending(a!)).toBe(false);
+    expect($x()).toBe(2);
+    expect(pending($x)).toBe(2);
+  });
+
+  it("isPending with chained async memos", async () => {
+    const [$x, setX] = createSignal(1);
+    let a: () => number;
+    let b: () => number;
+
+    createRoot(() => {
+      a = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      b = createMemo(async () => {
+        const v = a();
+        await Promise.resolve();
+        return v + 1;
+      });
+
+      createRenderEffect(b, () => {});
+    });
+
+    // Initial load - wait for both to complete
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+    expect(a!()).toBe(10);
+    expect(b!()).toBe(11);
+
+    // Change signal - triggers chain
+    setX(2);
+    flush();
+
+    // Both should be pending
+    expect(isPending(a!)).toBe(true);
+    expect(isPending(b!)).toBe(true);
+
+    // After all async completes
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+    expect(a!()).toBe(20);
+    expect(b!()).toBe(21);
+    expect(isPending(a!)).toBe(false);
+    expect(isPending(b!)).toBe(false);
+  });
+
+  it("isPending with sync memo depending on async memo", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    let syncMemo: () => number;
+
+    createRoot(() => {
+      asyncMemo = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      syncMemo = createMemo(() => asyncMemo() + 1);
+
+      createRenderEffect(syncMemo, () => {});
+    });
+
+    // Initial load
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe(10);
+    expect(syncMemo!()).toBe(11);
+
+    // Change signal
+    setX(2);
+    flush();
+
+    // Both pending - sync memo has stale data from async memo
+    expect(isPending(asyncMemo!)).toBe(true);
+    expect(isPending(syncMemo!)).toBe(true);
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe(20);
+    expect(syncMemo!()).toBe(21);
+    expect(isPending(asyncMemo!)).toBe(false);
+    expect(isPending(syncMemo!)).toBe(false);
+  });
+
+  it("isPending full lifecycle - false to true to false", async () => {
+    const [$x, setX] = createSignal(1);
+    let a: () => number;
+
+    createRoot(() => {
+      a = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      createRenderEffect(a, () => {});
+    });
+
+    // Initial load - not pending (no stale data)
+    flush();
+    expect(isPending(a!)).toBe(false);
+    await new Promise(r => setTimeout(r, 0));
+    expect(isPending(a!)).toBe(false);
+    expect(a!()).toBe(10);
+
+    // Change signal
+    setX(2);
+    flush();
+
+    // Should be pending (has stale data while loading)
+    expect(isPending(a!)).toBe(true);
+    expect(a!()).toBe(10); // still old value
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+
+    // Should be not pending, new value
+    expect(isPending(a!)).toBe(false);
+    expect(a!()).toBe(20);
+  });
 });
 
 // it("should detect which signal triggered it", () => {

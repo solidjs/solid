@@ -5,7 +5,9 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flush
+  flush,
+  isPending,
+  pending
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -602,6 +604,96 @@ describe("createOptimistic", () => {
       // Now second should also revert
       expect($x2()).toBe(false);
       expect(values2).toEqual([false, true, false]);
+    });
+  });
+
+  describe("isPending and pending() with async optimistic", () => {
+    it("optimistic value matches computed result", async () => {
+      const [$id, setId] = createSignal(1);
+      let $data: () => number;
+      let setData: (v: number) => void;
+
+      createRoot(() => {
+        [$data, setData] = createOptimistic(async () => {
+          const id = $id();
+          await Promise.resolve();
+          return id * 10; // simulate fetching data for id
+        });
+
+        // Effect to create transition
+        createRenderEffect($data, () => {});
+      });
+
+      // Initial load
+      await new Promise(r => setTimeout(r, 0));
+      expect($data!()).toBe(10);
+      expect(isPending($data!)).toBe(false);
+
+      // User changes ID and optimistically sets expected data
+      setId(2);
+      setData!(20); // optimistic: "I expect id=2 to give data=20"
+      flush();
+
+      // Optimistic value is immediate
+      expect($data!()).toBe(20);
+      // isPending - async is in flight
+      expect(isPending($data!)).toBe(true);
+      // pending() returns the optimistic value
+      expect(pending($data!)).toBe(20);
+
+      // Source signal is held
+      expect($id()).toBe(1); // held during transition
+      expect(pending($id)).toBe(2); // in-flight value
+
+      // After async completes
+      await new Promise(r => setTimeout(r, 0));
+
+      // Computed value matches optimistic guess
+      expect($data!()).toBe(20); // computed: 2 * 10 = 20
+      expect($id()).toBe(2); // committed
+      expect(isPending($data!)).toBe(false);
+    });
+
+    it("optimistic value does not match computed result", async () => {
+      const [$id, setId] = createSignal(1);
+      let $data: () => number;
+      let setData: (v: number) => void;
+
+      createRoot(() => {
+        [$data, setData] = createOptimistic(async () => {
+          const id = $id();
+          await Promise.resolve();
+          return id * 10; // simulate fetching data for id
+        });
+
+        // Effect to create transition
+        createRenderEffect($data, () => {});
+      });
+
+      // Initial load
+      await new Promise(r => setTimeout(r, 0));
+      expect($data!()).toBe(10);
+      expect(isPending($data!)).toBe(false);
+
+      // User changes ID and optimistically sets WRONG expected data
+      setId(2);
+      setData!(999); // optimistic guess is wrong
+      flush();
+
+      // Optimistic value is immediate
+      expect($data!()).toBe(999);
+      // isPending - async is in flight
+      expect(isPending($data!)).toBe(true);
+      // pending() returns the optimistic value
+      expect(pending($data!)).toBe(999);
+
+      // After async completes
+      await new Promise(r => setTimeout(r, 0));
+
+      // Computed value corrects the optimistic guess
+      expect($data!()).toBe(20); // computed: 2 * 10 = 20, not 999
+      expect($id()).toBe(2); // committed
+      expect(isPending($data!)).toBe(false);
     });
   });
 });

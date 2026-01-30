@@ -6,7 +6,9 @@ import {
   createRoot,
   createSignal,
   createStore,
-  flush
+  flush,
+  isPending,
+  pending
 } from "../../src/index.js";
 
 afterEach(() => flush());
@@ -889,6 +891,118 @@ describe("createOptimisticStore", () => {
       await Promise.resolve();
       expect(state.b).toBe(2);
       expect("b" in state).toBe(true);
+    });
+  });
+
+  describe("isPending and pending() with async optimistic store", () => {
+    it("async store re-runs on dependency change", async () => {
+      const [$id, setId] = createSignal(1);
+      let state: { data: number };
+
+      createRoot(() => {
+        [state] = createOptimisticStore(
+          async (s: { data: number }) => {
+            const id = $id();
+            await Promise.resolve();
+            s.data = id * 10;
+          },
+          { data: 0 }
+        );
+
+        // Effect to create transition
+        createRenderEffect(() => state.data, () => {});
+      });
+
+      // Initial load - need flush to trigger first async run
+      flush();
+      await new Promise(r => setTimeout(r, 0));
+      expect(state!.data).toBe(10);
+
+      // Change dependency - should trigger re-run
+      setId(2);
+      flush();
+      await new Promise(r => setTimeout(r, 0));
+      expect(state!.data).toBe(20);
+    });
+
+    it("isPending and pending() during async with optimistic write", async () => {
+      const [$id, setId] = createSignal(1);
+      let state: { data: number };
+      let setState: (fn: (s: { data: number }) => void) => void;
+
+      createRoot(() => {
+        [state, setState] = createOptimisticStore(
+          async (s: { data: number }) => {
+            const id = $id();
+            await Promise.resolve();
+            s.data = id * 10;
+          },
+          { data: 0 }
+        );
+
+        createRenderEffect(() => state.data, () => {});
+      });
+
+      // Initial load - need flush to trigger first async run
+      flush();
+      await new Promise(r => setTimeout(r, 0));
+      expect(state!.data).toBe(10);
+      expect(isPending(() => state!.data)).toBe(false);
+
+      // User changes ID and optimistically sets expected data
+      setId(2);
+      setState!(s => {
+        s.data = 999;
+      }); // optimistic write
+      flush();
+
+      // Optimistic value is immediate
+      expect(state!.data).toBe(999);
+      // isPending - async is in flight
+      expect(isPending(() => state!.data)).toBe(true);
+      // pending() returns the optimistic value
+      expect(pending(() => state!.data)).toBe(999);
+    });
+
+    // TODO: Investigate - transition never completes when optimistic write + signal change
+    it.skip("optimistic write reverts to computed value after async completes", async () => {
+      const [$id, setId] = createSignal(1);
+      let state: { data: number };
+      let setState: (fn: (s: { data: number }) => void) => void;
+
+      createRoot(() => {
+        [state, setState] = createOptimisticStore(
+          async (s: { data: number }) => {
+            const id = $id();
+            await Promise.resolve();
+            s.data = id * 10;
+          },
+          { data: 0 }
+        );
+
+        createRenderEffect(() => state.data, () => {});
+      });
+
+      // Initial load - need flush to trigger first async run
+      flush();
+      await new Promise(r => setTimeout(r, 0));
+      expect(state!.data).toBe(10);
+
+      // User changes ID and optimistically sets data
+      setId(2);
+      setState!(s => {
+        s.data = 999;
+      });
+      flush();
+
+      expect(state!.data).toBe(999); // optimistic
+
+      // After async completes, should have computed value from id=2
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(state!.data).toBe(20); // computed: 2 * 10 = 20
+      expect($id()).toBe(2); // committed
+      expect(isPending(() => state!.data)).toBe(false);
     });
   });
 });

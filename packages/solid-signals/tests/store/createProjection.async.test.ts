@@ -426,3 +426,186 @@ describe("Projection async behavior", () => {
     expect(proj.value).toBe("start");
   });
 });
+
+describe("Projection isPending behavior", () => {
+  it("isPending is false during initial async load (no transition)", async () => {
+    let proj;
+
+    createRoot(() => {
+      proj = createProjection(
+        async draft => {
+          await Promise.resolve();
+          draft.value = 123;
+        },
+        { value: 0 }
+      );
+    });
+
+    // Before flush: not pending (no transition)
+    expect(isPending(() => proj.value)).toBe(false);
+
+    flush();
+
+    // During async: not pending (no effect subscribed = no transition)
+    expect(isPending(() => proj.value)).toBe(false);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // After completion: not pending
+    expect(isPending(() => proj.value)).toBe(false);
+    expect(proj.value).toBe(123);
+  });
+
+  it("isPending is true when effect subscribes and triggers transition", async () => {
+    const [$x, setX] = createSignal(1);
+    let proj;
+    const results: { pending: boolean; value: number }[] = [];
+
+    createRoot(() => {
+      proj = createProjection(
+        async draft => {
+          const v = $x();
+          await Promise.resolve();
+          draft.value = v * 10;
+        },
+        { value: 0 }
+      );
+
+      // Effect subscribes to projection - this enables transitions
+      createRenderEffect(
+        () => [isPending(() => proj.value), proj.value] as const,
+        ([pending, value]) => {
+          results.push({ pending, value });
+        }
+      );
+    });
+
+    // Initial load - effect runs with initial value
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(proj.value).toBe(10);
+    // Find the final settled state
+    const settledResult = results.find(r => r.value === 10 && !r.pending);
+    expect(settledResult).toBeDefined();
+
+    results.length = 0; // Clear for next phase
+
+    // Signal change triggers new async with transition
+    setX(2);
+    flush();
+
+    // Effect should see pending state with stale value
+    const pendingResult = results.find(r => r.pending && r.value === 10);
+    expect(pendingResult).toBeDefined();
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // After completion: not pending, new value
+    expect(proj.value).toBe(20);
+    const finalResult = results[results.length - 1];
+    expect(finalResult?.pending).toBe(false);
+    expect(finalResult?.value).toBe(20);
+  });
+
+  it("isPending with refresh() and subscribed effect", async () => {
+    let runCount = 0;
+    let proj;
+    const results: { pending: boolean; value: number }[] = [];
+
+    createRoot(() => {
+      proj = createProjection(
+        async draft => {
+          runCount++;
+          await Promise.resolve();
+          draft.value = runCount * 100;
+        },
+        { value: 0 }
+      );
+
+      createRenderEffect(
+        () => [isPending(() => proj.value), proj.value] as const,
+        ([pending, value]) => {
+          results.push({ pending, value });
+        }
+      );
+    });
+
+    // Initial load
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(proj.value).toBe(100);
+
+    results.length = 0;
+
+    // Refresh triggers new async - now we have stale data
+    refresh(proj);
+    flush();
+
+    // Should see pending state
+    const pendingResult = results.find(r => r.pending);
+    expect(pendingResult).toBeDefined();
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(proj.value).toBe(200);
+    const finalResult = results[results.length - 1];
+    expect(finalResult?.pending).toBe(false);
+  });
+
+  it("isPending with async generator and subscribed effect", async () => {
+    let proj;
+    const results: { pending: boolean; value: number }[] = [];
+
+    createRoot(() => {
+      proj = createProjection(
+        async function* (draft) {
+          draft.value = 1;
+          yield;
+          await Promise.resolve();
+          draft.value = 2;
+          yield;
+          await Promise.resolve();
+          draft.value = 3;
+        },
+        { value: 0 }
+      );
+
+      createRenderEffect(
+        () => [isPending(() => proj.value), proj.value] as const,
+        ([pending, value]) => {
+          results.push({ pending, value });
+        }
+      );
+    });
+
+    // Initial sequence - no stale data
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(proj.value).toBe(3);
+    // During initial sequence, isPending should always be false
+    expect(results.every(r => !r.pending)).toBe(true);
+
+    results.length = 0;
+
+    // Refresh triggers new sequence - now has stale data
+    refresh(proj);
+    flush();
+
+    // Should see pending state during re-run
+    const pendingResult = results.find(r => r.pending);
+    expect(pendingResult).toBeDefined();
+
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(proj.value).toBe(3);
+    const finalResult = results[results.length - 1];
+    expect(finalResult?.pending).toBe(false);
+  });
+});
