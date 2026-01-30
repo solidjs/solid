@@ -7,11 +7,11 @@ import {
   type Computed
 } from "../core/index.js";
 import { setProjectionWriteActive } from "../core/scheduler.js";
+import { writeTraps } from "./projection.js";
 import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
   createStoreProxy,
-  setWriteOverride,
   storeSetter,
   storeTraps,
   STORE_FIREWALL,
@@ -99,7 +99,7 @@ function createOptimisticProjectionInternal<T extends object = {}>(
   if (fn) {
     node = computed(() => {
       const owner = getOwner() as Computed<void | T>;
-      storeSetter<T>(new Proxy(wrappedStore, optimisticWriteTraps), s => {
+      storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
         const value = handleAsync(owner, fn(s), value => {
           // Async callback needs projectionWriteActive so reconcile goes to STORE_OVERRIDE not STORE_OPTIMISTIC_OVERRIDE
           setProjectionWriteActive(true);
@@ -125,41 +125,3 @@ function createOptimisticProjectionInternal<T extends object = {}>(
     node: Computed<void> | undefined;
   };
 }
-
-// Write traps for optimistic projection - sets projectionWriteActive so signal writes go to base
-const optimisticWriteTraps: ProxyHandler<any> = {
-  get(_, prop) {
-    let value;
-    setWriteOverride(true);
-    setProjectionWriteActive(true);
-    try {
-      value = _[prop];
-    } finally {
-      setWriteOverride(false);
-      setProjectionWriteActive(false);
-    }
-    return typeof value === "object" && value !== null ? new Proxy(value, optimisticWriteTraps) : value;
-  },
-  set(_, prop, value) {
-    setWriteOverride(true);
-    setProjectionWriteActive(true);
-    try {
-      _[prop] = value;
-    } finally {
-      setWriteOverride(false);
-      setProjectionWriteActive(false);
-    }
-    return true;
-  },
-  deleteProperty(_, prop) {
-    setWriteOverride(true);
-    setProjectionWriteActive(true);
-    try {
-      delete _[prop];
-    } finally {
-      setWriteOverride(false);
-      setProjectionWriteActive(false);
-    }
-    return true;
-  }
-};

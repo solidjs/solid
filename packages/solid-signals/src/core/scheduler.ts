@@ -331,12 +331,8 @@ export function finalizePureQueue(completingTransition: Transition | null = null
 }
 
 export function trackOptimisticStore(store: any): void {
-  if (activeTransition) {
-    activeTransition.optimisticStores.add(store);
-  } else {
-    globalQueue._optimisticStores.add(store);
-  }
-  // Ensure flush() will process the optimistic reversion
+  // After initTransition, globalQueue._optimisticStores IS activeTransition.optimisticStores (same reference)
+  globalQueue._optimisticStores.add(store);
   schedule();
 }
 

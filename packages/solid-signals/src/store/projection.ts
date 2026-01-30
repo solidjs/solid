@@ -82,7 +82,7 @@ export function createProjection<T extends object = {}>(
   return createProjectionInternal(fn, initialValue, options).store;
 }
 
-const writeTraps: ProxyHandler<any> = {
+export const writeTraps: ProxyHandler<any> = {
   get(_, prop) {
     let value;
     setWriteOverride(true);
