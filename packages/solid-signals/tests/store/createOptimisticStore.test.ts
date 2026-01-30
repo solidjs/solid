@@ -964,8 +964,7 @@ describe("createOptimisticStore", () => {
       expect(pending(() => state!.data)).toBe(999);
     });
 
-    // TODO: Investigate - transition never completes when optimistic write + signal change
-    it.skip("optimistic write reverts to computed value after async completes", async () => {
+    it("optimistic write reverts to computed value after async completes", async () => {
       const [$id, setId] = createSignal(1);
       let state: { data: number };
       let setState: (fn: (s: { data: number }) => void) => void;

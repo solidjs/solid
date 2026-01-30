@@ -12,7 +12,7 @@ import {
   type Computed,
   type Signal
 } from "../core/index.js";
-import { projectionWriteActive } from "../core/scheduler.js";
+import { globalQueue, projectionWriteActive } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
@@ -258,6 +258,14 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   set(target, property, rawValue) {
     const store = target[$PROXY];
     if (writeOnly(store)) {
+      // For optimistic stores, restore firewall's transition for async writes
+      // This ensures async writes complete in the correct transition context
+      if (target[STORE_OPTIMISTIC]) {
+        const firewall = target[STORE_FIREWALL];
+        if (firewall?._transition) {
+          globalQueue.initTransition(firewall._transition);
+        }
+      }
       untrack(() => {
         const state = target[STORE_VALUE];
         const base = state[property];

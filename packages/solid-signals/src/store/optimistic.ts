@@ -99,23 +99,29 @@ function createOptimisticProjectionInternal<T extends object = {}>(
   if (fn) {
     node = computed(() => {
       const owner = getOwner() as Computed<void | T>;
-      storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
-        const value = handleAsync(owner, fn(s), value => {
-          // Async callback needs projectionWriteActive so reconcile goes to STORE_OVERRIDE not STORE_OPTIMISTIC_OVERRIDE
-          setProjectionWriteActive(true);
-          try {
-            value !== s &&
-              value !== undefined &&
-              storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
-          } finally {
-            setProjectionWriteActive(false);
-          }
-          setSignal(owner, undefined);
+      // All writes inside firewall recompute go to STORE_OVERRIDE (base), not STORE_OPTIMISTIC_OVERRIDE
+      setProjectionWriteActive(true);
+      try {
+        storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
+          const value = handleAsync(owner, fn(s), value => {
+            // Async callback still needs projectionWriteActive for reconcile
+            setProjectionWriteActive(true);
+            try {
+              value !== s &&
+                value !== undefined &&
+                storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
+            } finally {
+              setProjectionWriteActive(false);
+            }
+            setSignal(owner, undefined);
+          });
+          value !== s &&
+            value !== undefined &&
+            reconcile(value, options?.key || "id", options?.all)(wrappedStore);
         });
-        value !== s &&
-          value !== undefined &&
-          reconcile(value, options?.key || "id", options?.all)(wrappedStore);
-      });
+      } finally {
+        setProjectionWriteActive(false);
+      }
     });
     (node as any)._preventAutoDisposal = true;
   }

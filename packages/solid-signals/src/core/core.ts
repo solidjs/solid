@@ -299,6 +299,9 @@ function clearStatus(el: Computed<any>): void {
       }
     }
     schedule();
+  } else {
+    // Schedule so transition can complete
+    schedule();
   }
 }
 
