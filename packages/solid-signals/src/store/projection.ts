@@ -6,6 +6,7 @@ import {
   setSignal,
   type Computed
 } from "../core/index.js";
+import { setProjectionWriteActive } from "../core/scheduler.js";
 import { reconcile } from "./reconcile.js";
 import {
   $TARGET,
@@ -50,12 +51,12 @@ export function createProjectionInternal<T extends object = {}>(
     const owner = getOwner() as Computed<void | T>;
     storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
       const value = handleAsync(owner, fn(s), value => {
-        value !== wrappedStore &&
+        value !== s &&
           value !== undefined &&
           storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
         setSignal(owner, undefined);
       });
-      value !== wrappedStore &&
+      value !== s &&
         value !== undefined &&
         reconcile(value, options?.key || "id", options?.all)(wrappedStore);
     });
@@ -85,28 +86,34 @@ const writeTraps: ProxyHandler<any> = {
   get(_, prop) {
     let value;
     setWriteOverride(true);
+    setProjectionWriteActive(true);
     try {
       value = _[prop];
     } finally {
       setWriteOverride(false);
+      setProjectionWriteActive(false);
     }
     return typeof value === "object" && value !== null ? new Proxy(value, writeTraps) : value;
   },
   set(_, prop, value) {
     setWriteOverride(true);
+    setProjectionWriteActive(true);
     try {
       _[prop] = value;
     } finally {
       setWriteOverride(false);
+      setProjectionWriteActive(false);
     }
     return true;
   },
   deleteProperty(_, prop) {
     setWriteOverride(true);
+    setProjectionWriteActive(true);
     try {
       delete _[prop];
     } finally {
       setWriteOverride(false);
+      setProjectionWriteActive(false);
     }
     return true;
   }

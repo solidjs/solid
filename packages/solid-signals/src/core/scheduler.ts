@@ -28,9 +28,14 @@ export let clock = 0;
 export let activeTransition: Transition | null = null;
 let scheduled = false;
 export let optimisticReadActive = false;
+export let projectionWriteActive = false;
 
 export function setOptimisticReadActive(value: boolean) {
   optimisticReadActive = value;
+}
+
+export function setProjectionWriteActive(value: boolean) {
+  projectionWriteActive = value;
 }
 
 export type QueueCallback = (type: number) => void;
@@ -43,6 +48,7 @@ export interface Transition {
   asyncNodes: Computed<any>[];
   pendingNodes: Signal<any>[];
   optimisticNodes: Signal<any>[];
+  optimisticStores: Set<any>;
   actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
   queueStash: QueueStub;
   done: boolean | Transition;
@@ -144,8 +150,10 @@ export class GlobalQueue extends Queue {
   _running: boolean = false;
   _pendingNodes: Signal<any>[] = [];
   _optimisticNodes: Signal<any>[] = [];
+  _optimisticStores: Set<any> = new Set();
   static _update: (el: Computed<unknown>) => void;
   static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
+  static _clearOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;
     this._running = true;
@@ -158,6 +166,7 @@ export class GlobalQueue extends Queue {
           runHeap(zombieQueue, GlobalQueue._update);
           this._pendingNodes = [];
           this._optimisticNodes = [];
+          this._optimisticStores = new Set();
           
           // Run optimistic effects immediately (before stashing)
           this.runOptimistic(EFFECT_RENDER);
@@ -222,6 +231,7 @@ export class GlobalQueue extends Queue {
         pendingNodes: [],
         asyncNodes: [],
         optimisticNodes: [],
+        optimisticStores: new Set(),
         actions: [],
         queueStash: { _queues: [[], []], _children: [] },
         done: false
@@ -247,6 +257,11 @@ export class GlobalQueue extends Queue {
       activeTransition.optimisticNodes.push(node);
     }
     this._optimisticNodes = activeTransition.optimisticNodes;
+    // Move optimistic stores to transition
+    for (const store of this._optimisticStores) {
+      activeTransition.optimisticStores.add(store);
+    }
+    this._optimisticStores = activeTransition.optimisticStores;
   }
 }
 
@@ -299,7 +314,30 @@ export function finalizePureQueue(completingTransition: Transition | null = null
       n._transition = null;  // Clear ownership
     }
     optimisticNodes.length = 0;
+
+    // Clear optimistic stores
+    const optimisticStores = completingTransition
+      ? completingTransition.optimisticStores
+      : globalQueue._optimisticStores;
+    if (GlobalQueue._clearOptimisticStore && optimisticStores.size) {
+      for (const store of optimisticStores) {
+        GlobalQueue._clearOptimisticStore(store);
+      }
+      optimisticStores.clear();
+      // Schedule another flush to process any dirty computeds (like projections)
+      schedule();
+    }
   }
+}
+
+export function trackOptimisticStore(store: any): void {
+  if (activeTransition) {
+    activeTransition.optimisticStores.add(store);
+  } else {
+    globalQueue._optimisticStores.add(store);
+  }
+  // Ensure flush() will process the optimistic reversion
+  schedule();
 }
 
 function runTransitionPending(pendingNodes: Signal<any>[], value: boolean) {

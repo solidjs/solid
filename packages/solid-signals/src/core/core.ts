@@ -31,6 +31,7 @@ import {
   GlobalQueue,
   insertSubs,
   optimisticReadActive,
+  projectionWriteActive,
   runInTransition,
   schedule,
   setOptimisticReadActive,
@@ -682,7 +683,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (el._transition && activeTransition !== el._transition)
     globalQueue.initTransition(el._transition);
 
-  const isOptimistic = el._optimistic;
+  // When projectionWriteActive is true, force non-optimistic behavior for projection writes
+  const isOptimistic = el._optimistic && !projectionWriteActive;
   // Optimistic reads _value, regular reads pending or value
   const currentValue = isOptimistic
     ? el._value

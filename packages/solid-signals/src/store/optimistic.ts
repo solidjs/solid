@@ -1,9 +1,23 @@
-import { $REFRESH, getOwner, handleAsync, setSignal, type Computed } from "../core/index.js";
-import { createProjectionInternal } from "./projection.js";
+import {
+  $REFRESH,
+  computed,
+  getOwner,
+  handleAsync,
+  setSignal,
+  type Computed
+} from "../core/index.js";
+import { setProjectionWriteActive } from "../core/scheduler.js";
 import { reconcile } from "./reconcile.js";
 import {
-  createStore,
+  $TARGET,
+  createStoreProxy,
+  setWriteOverride,
   storeSetter,
+  storeTraps,
+  STORE_FIREWALL,
+  STORE_LOOKUP,
+  STORE_OPTIMISTIC,
+  STORE_WRAP,
   type NoFn,
   type Store,
   type StoreOptions,
@@ -14,7 +28,7 @@ import {
  * Creates an optimistic store that can be used to optimistically update a value
  * and then revert it back to the previous value at end of transition.
  * ```typescript
- * export function createOptimistic<T>(
+ * export function createOptimisticStore<T>(
  *   fn: (store: T) => void,
  *   initial: T,
  *   options?: { key?: string | ((item: NonNullable<any>) => any); all?: boolean }
@@ -39,6 +53,113 @@ export function createOptimisticStore<T extends object = {}>(
   second?: NoFn<T> | Store<NoFn<T>>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
-  // TODO OPTIMISTIC STORE IMPLEMENTATION
-  return createStore(first as any, second, options);
+  const derived = typeof first === "function";
+  const initialValue = (derived ? second : first) as T ?? {} as T;
+  const fn = derived
+    ? first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>
+    : undefined;
+
+  // Create optimistic projection store
+  const { store: wrappedStore } = createOptimisticProjectionInternal(fn, initialValue, options);
+
+  return [wrappedStore, (fn: (draft: T) => void): void => storeSetter(wrappedStore, fn)];
 }
+
+function createOptimisticProjectionInternal<T extends object = {}>(
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) | undefined,
+  initialValue: T = {} as T,
+  options?: StoreOptions
+) {
+  let node: Computed<void> | undefined;
+  const wrappedMap = new WeakMap();
+
+  const wrapper = (s: any) => {
+    s[STORE_WRAP] = wrapProjection;
+    s[STORE_LOOKUP] = wrappedMap;
+    s[STORE_OPTIMISTIC] = true; // Mark as optimistic store
+    Object.defineProperty(s, STORE_FIREWALL, {
+      get() {
+        return node;
+      },
+      configurable: true
+    });
+  };
+
+  const wrapProjection = (source: T) => {
+    if (wrappedMap.has(source)) return wrappedMap.get(source);
+    if (source[$TARGET]?.[STORE_WRAP] === wrapProjection) return source;
+    const wrapped = createStoreProxy(source, storeTraps, wrapper);
+    wrappedMap.set(source, wrapped);
+    return wrapped;
+  };
+
+  const wrappedStore: Store<T> = wrapProjection(initialValue);
+
+  // If there's a projection function, create a computed to drive it
+  if (fn) {
+    node = computed(() => {
+      const owner = getOwner() as Computed<void | T>;
+      storeSetter<T>(new Proxy(wrappedStore, optimisticWriteTraps), s => {
+        const value = handleAsync(owner, fn(s), value => {
+          // Async callback needs projectionWriteActive so reconcile goes to STORE_OVERRIDE not STORE_OPTIMISTIC_OVERRIDE
+          setProjectionWriteActive(true);
+          try {
+            value !== s &&
+              value !== undefined &&
+              storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
+          } finally {
+            setProjectionWriteActive(false);
+          }
+          setSignal(owner, undefined);
+        });
+        value !== s &&
+          value !== undefined &&
+          reconcile(value, options?.key || "id", options?.all)(wrappedStore);
+      });
+    });
+    (node as any)._preventAutoDisposal = true;
+  }
+
+  return { store: wrappedStore, node } as {
+    store: Store<T> & { [$REFRESH]: any };
+    node: Computed<void> | undefined;
+  };
+}
+
+// Write traps for optimistic projection - sets projectionWriteActive so signal writes go to base
+const optimisticWriteTraps: ProxyHandler<any> = {
+  get(_, prop) {
+    let value;
+    setWriteOverride(true);
+    setProjectionWriteActive(true);
+    try {
+      value = _[prop];
+    } finally {
+      setWriteOverride(false);
+      setProjectionWriteActive(false);
+    }
+    return typeof value === "object" && value !== null ? new Proxy(value, optimisticWriteTraps) : value;
+  },
+  set(_, prop, value) {
+    setWriteOverride(true);
+    setProjectionWriteActive(true);
+    try {
+      _[prop] = value;
+    } finally {
+      setWriteOverride(false);
+      setProjectionWriteActive(false);
+    }
+    return true;
+  },
+  deleteProperty(_, prop) {
+    setWriteOverride(true);
+    setProjectionWriteActive(true);
+    try {
+      delete _[prop];
+    } finally {
+      setWriteOverride(false);
+      setProjectionWriteActive(false);
+    }
+    return true;
+  }
+};
