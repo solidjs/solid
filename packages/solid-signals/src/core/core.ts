@@ -290,17 +290,17 @@ function clearStatus(el: Computed<any>): void {
   updatePendingSignal(el);
   if (el._notifyStatus) {
     el._notifyStatus();
-  } else if (!el._transition) {
-    // No transition coordination - force recompute so pending subscribers
-    // can re-evaluate all their dependencies (handles multi-source case)
-    for (let s = el._subs; s !== null; s = s._nextSub) {
-      if (s._sub._statusFlags & STATUS_PENDING) {
-        insertIntoHeap(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+  } else {
+    if (!el._transition) {
+      // No transition coordination - force recompute so pending subscribers
+      // can re-evaluate all their dependencies (handles multi-source case)
+      for (let s = el._subs; s !== null; s = s._nextSub) {
+        if (s._sub._statusFlags & STATUS_PENDING) {
+          insertIntoHeap(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+        }
       }
     }
-    schedule();
-  } else {
-    // Schedule so transition can complete
+    // Always schedule so transition can complete
     schedule();
   }
 }
