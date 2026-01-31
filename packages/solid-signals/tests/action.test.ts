@@ -35,13 +35,14 @@ describe("action", () => {
       expect(receivedArgs).toEqual([42, "hello", true]);
     });
 
-    it("should return void (fire-and-forget pattern)", () => {
+    it("should return a Promise that resolves with the return value", async () => {
       const myAction = action(function* () {
         return 123;
       });
 
       const result = myAction();
-      expect(result).toBeUndefined();
+      expect(result).toBeInstanceOf(Promise);
+      expect(await result).toBe(123);
     });
   });
 
@@ -615,6 +616,415 @@ describe("action", () => {
 
       await Promise.resolve();
       expect($x()).toBe(111); // All committed
+    });
+  });
+
+  describe("yield* with helper generators", () => {
+    it("should support yield* with sync helper generator", () => {
+      const steps: string[] = [];
+
+      function* helper() {
+        steps.push("helper-1");
+        yield;
+        steps.push("helper-2");
+        yield;
+        steps.push("helper-3");
+      }
+
+      const myAction = action(function* () {
+        steps.push("start");
+        yield* helper();
+        steps.push("end");
+      });
+
+      myAction();
+      expect(steps).toEqual(["start", "helper-1", "helper-2", "helper-3", "end"]);
+    });
+
+    it("should support yield* with async helper generator", async () => {
+      const [$x, setX] = createSignal(0);
+      const steps: string[] = [];
+
+      function* helper() {
+        steps.push("helper-start");
+        setX(1);
+        yield Promise.resolve();
+        steps.push("helper-middle");
+        setX(2);
+        yield Promise.resolve();
+        steps.push("helper-end");
+      }
+
+      const myAction = action(function* () {
+        steps.push("action-start");
+        yield* helper();
+        steps.push("action-end");
+        setX(3);
+      });
+
+      myAction();
+      flush();
+      expect(steps).toEqual(["action-start", "helper-start"]);
+      expect($x()).toBe(0); // Held
+
+      await Promise.resolve();
+      flush();
+      expect(steps).toEqual(["action-start", "helper-start", "helper-middle"]);
+      expect($x()).toBe(0); // Still held
+
+      await Promise.resolve();
+      expect(steps).toEqual(["action-start", "helper-start", "helper-middle", "helper-end", "action-end"]);
+      expect($x()).toBe(3); // Committed
+    });
+
+    it("should support nested yield* (helper uses yield* on another helper)", async () => {
+      const steps: string[] = [];
+
+      function* innerHelper() {
+        steps.push("inner-1");
+        yield Promise.resolve();
+        steps.push("inner-2");
+      }
+
+      function* outerHelper() {
+        steps.push("outer-start");
+        yield* innerHelper();
+        steps.push("outer-end");
+      }
+
+      const myAction = action(function* () {
+        steps.push("action-start");
+        yield* outerHelper();
+        steps.push("action-end");
+      });
+
+      myAction();
+      expect(steps).toEqual(["action-start", "outer-start", "inner-1"]);
+
+      await Promise.resolve();
+      expect(steps).toEqual(["action-start", "outer-start", "inner-1", "inner-2", "outer-end", "action-end"]);
+    });
+
+    it("should maintain transition context across all delegated yields", async () => {
+      const [$x, setX] = createSignal(0);
+      const effectRuns = vi.fn();
+
+      createRoot(() => {
+        createRenderEffect(
+          () => $x(),
+          v => effectRuns(v)
+        );
+      });
+
+      flush();
+      expect(effectRuns).toHaveBeenCalledTimes(1);
+      expect(effectRuns).toHaveBeenLastCalledWith(0);
+
+      function* helper() {
+        setX(1);
+        yield Promise.resolve();
+        setX(2);
+        yield Promise.resolve();
+      }
+
+      const myAction = action(function* () {
+        yield* helper();
+        setX(3);
+      });
+
+      myAction();
+      flush();
+      // Effect not triggered yet (held)
+      expect(effectRuns).toHaveBeenCalledTimes(1);
+
+      await Promise.resolve();
+      flush();
+      expect(effectRuns).toHaveBeenCalledTimes(1); // Still held
+
+      await Promise.resolve();
+      // Action complete, final value commits
+      expect(effectRuns).toHaveBeenCalledTimes(2);
+      expect(effectRuns).toHaveBeenLastCalledWith(3);
+      expect($x()).toBe(3);
+    });
+
+    it("should support multiple yield* in sequence", async () => {
+      const steps: string[] = [];
+
+      function* helperA() {
+        steps.push("A-1");
+        yield Promise.resolve();
+        steps.push("A-2");
+      }
+
+      function* helperB() {
+        steps.push("B-1");
+        yield Promise.resolve();
+        steps.push("B-2");
+      }
+
+      const myAction = action(function* () {
+        yield* helperA();
+        yield* helperB();
+      });
+
+      myAction();
+      expect(steps).toEqual(["A-1"]);
+
+      await Promise.resolve();
+      expect(steps).toEqual(["A-1", "A-2", "B-1"]);
+
+      await Promise.resolve();
+      expect(steps).toEqual(["A-1", "A-2", "B-1", "B-2"]);
+    });
+
+    it("should pass values through yield* correctly", async () => {
+      const received: any[] = [];
+
+      function* helper(): Generator<Promise<number>, string, number> {
+        const a = yield Promise.resolve(1);
+        received.push(a);
+        const b = yield Promise.resolve(2);
+        received.push(b);
+        return "helper-result";
+      }
+
+      const myAction = action(function* () {
+        const result = yield* helper();
+        received.push(result);
+        return "action-result";
+      });
+
+      const promise = myAction();
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(received).toEqual([1, 2, "helper-result"]);
+      expect(await promise).toBe("action-result");
+    });
+  });
+
+  describe("error handling", () => {
+    it("should allow try/catch inside generator for yielded promise rejections", async () => {
+      const steps: string[] = [];
+
+      const myAction = action(function* () {
+        steps.push("start");
+        try {
+          yield Promise.reject(new Error("test error"));
+          steps.push("unreachable");
+        } catch (e: any) {
+          steps.push("caught: " + e.message);
+        }
+        steps.push("end");
+      });
+
+      await myAction();
+      expect(steps).toEqual(["start", "caught: test error", "end"]);
+    });
+
+    it("should reject the promise for uncaught errors", async () => {
+      const myAction = action(function* () {
+        yield Promise.reject(new Error("uncaught error"));
+      });
+
+      await expect(myAction()).rejects.toThrow("uncaught error");
+    });
+
+    it("should reject the promise when generator throws synchronously", async () => {
+      const myAction = action(function* () {
+        throw new Error("sync error");
+      });
+
+      await expect(myAction()).rejects.toThrow("sync error");
+    });
+
+    it("should reject the promise when generator throws after yield", async () => {
+      const myAction = action(function* () {
+        yield Promise.resolve();
+        throw new Error("error after yield");
+      });
+
+      await expect(myAction()).rejects.toThrow("error after yield");
+    });
+
+    it("should remove action from transition on error but let transition continue", async () => {
+      const [$x, setX] = createSignal(0);
+
+      const errorAction = action(function* () {
+        setX(1);
+        yield Promise.reject(new Error("error"));
+      });
+
+      const successAction = action(function* () {
+        setX(v => v + 10);
+        yield Promise.resolve();
+        yield Promise.resolve();
+        setX(v => v + 100);
+      });
+
+      // Start both actions in the same transition
+      const errorPromise = errorAction();
+      successAction();
+      flush();
+      expect($x()).toBe(0); // Held
+
+      await Promise.resolve();
+      // Error action fails, but success action continues
+      await expect(errorPromise).rejects.toThrow("error");
+
+      await Promise.resolve();
+      // Success action completes, transition commits
+      expect($x()).toBe(111); // 1 + 10 + 100
+    });
+
+    it("should allow recovery and continuation after caught error", async () => {
+      const [$x, setX] = createSignal(0);
+
+      const myAction = action(function* () {
+        setX(1);
+        try {
+          yield Promise.reject(new Error("recoverable"));
+        } catch {
+          setX(2); // Recover
+        }
+        yield Promise.resolve();
+        setX(3);
+      });
+
+      await myAction();
+      expect($x()).toBe(3);
+    });
+
+    it("should handle errors in yield* delegated generators", async () => {
+      const steps: string[] = [];
+
+      function* helper(): Generator<Promise<void>, void, void> {
+        steps.push("helper-start");
+        yield Promise.reject(new Error("helper error"));
+        steps.push("helper-unreachable");
+      }
+
+      const myAction = action(function* () {
+        steps.push("action-start");
+        try {
+          yield* helper();
+        } catch (e: any) {
+          steps.push("caught: " + e.message);
+        }
+        steps.push("action-end");
+      });
+
+      await myAction();
+      expect(steps).toEqual(["action-start", "helper-start", "caught: helper error", "action-end"]);
+    });
+  });
+
+  describe("promise return", () => {
+    it("should resolve with the generator return value", async () => {
+      const myAction = action(function* () {
+        yield Promise.resolve();
+        return 42;
+      });
+
+      expect(await myAction()).toBe(42);
+    });
+
+    it("should support await for waiting on action completion", async () => {
+      const [$x, setX] = createSignal(0);
+
+      const myAction = action(function* () {
+        setX(1);
+        yield Promise.resolve();
+        setX(2);
+        return "done";
+      });
+
+      const result = await myAction();
+      expect(result).toBe("done");
+      expect($x()).toBe(2);
+    });
+
+    it("should support Promise.all for parallel actions", async () => {
+      const [$x, setX] = createSignal(0);
+      const steps: string[] = [];
+
+      const actionA = action(function* () {
+        steps.push("A-start");
+        setX(v => v + 1);
+        yield Promise.resolve();
+        steps.push("A-end");
+        return "A";
+      });
+
+      const actionB = action(function* () {
+        steps.push("B-start");
+        setX(v => v + 10);
+        yield Promise.resolve();
+        steps.push("B-end");
+        return "B";
+      });
+
+      const results = await Promise.all([actionA(), actionB()]);
+
+      expect(results).toEqual(["A", "B"]);
+      expect(steps).toContain("A-start");
+      expect(steps).toContain("B-start");
+      expect(steps).toContain("A-end");
+      expect(steps).toContain("B-end");
+      expect($x()).toBe(11);
+    });
+
+    it("should support yielding another action's promise", async () => {
+      const [$x, setX] = createSignal(0);
+      const steps: string[] = [];
+
+      const innerAction = action(function* () {
+        steps.push("inner-start");
+        setX(v => v + 10);
+        yield Promise.resolve();
+        steps.push("inner-end");
+        return "inner-result";
+      });
+
+      const outerAction = action(function* () {
+        steps.push("outer-start");
+        setX(1);
+        const innerResult = yield innerAction();
+        steps.push("got: " + innerResult);
+        setX(v => v + 100);
+        steps.push("outer-end");
+        return "outer-result";
+      });
+
+      const result = await outerAction();
+
+      expect(result).toBe("outer-result");
+      expect(steps).toEqual([
+        "outer-start",
+        "inner-start",
+        "inner-end",
+        "got: inner-result",
+        "outer-end"
+      ]);
+      expect($x()).toBe(111); // 1 + 10 + 100
+    });
+
+    it("should resolve immediately for sync actions", async () => {
+      const myAction = action(function* () {
+        return "immediate";
+      });
+
+      // Should resolve in the same tick
+      let resolved = false;
+      myAction().then(() => {
+        resolved = true;
+      });
+
+      // Promise resolves in microtask
+      await Promise.resolve();
+      expect(resolved).toBe(true);
     });
   });
 });

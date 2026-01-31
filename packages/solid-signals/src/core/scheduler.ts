@@ -402,29 +402,39 @@ function restoreTransition<T>(transition: Transition, fn: () => T): T {
 export function action<Args extends any[], Y, R>(
   genFn: (...args: Args) => Generator<Y, R, any> | AsyncGenerator<Y, R, any>
 ) {
-  return (...args: Args): void => {
-    const iterator = genFn(...args);
+  return (...args: Args): Promise<R> => new Promise((resolve, reject) => {
+    const it = genFn(...args);
     globalQueue.initTransition();
     let ctx = activeTransition!;
-    ctx.actions.push(iterator);
-    const step = (input?: any) => {
-      let nextValue = iterator.next(input);
-      if (nextValue instanceof Promise) return nextValue.then(process);
-      process(nextValue);
+    ctx.actions.push(it);
+
+    const done = (v?: R, e?: any) => {
+      ctx = currentTransition(ctx);
+      const i = ctx.actions.indexOf(it);
+      if (i >= 0) ctx.actions.splice(i, 1);
+      activeTransition = ctx;
+      schedule();
+      e ? reject(e) : resolve(v!);
     };
-    const process = (result: IteratorResult<Y, R>) => {
-      if (result.done) {
-        ctx = currentTransition(ctx);
-        ctx.actions.splice(ctx.actions.indexOf(iterator), 1);
-        activeTransition = ctx;
-        schedule();
-        return;
+
+    const step = (v?: any, err?: boolean): void => {
+      let r: IteratorResult<Y, R> | Promise<IteratorResult<Y, R>>;
+      try {
+        r = err ? it.throw!(v) : it.next(v);
+      } catch (e) {
+        return done(undefined, e);
       }
-      const yielded = result.value;
-      if (yielded instanceof Promise)
-        return yielded.then(v => restoreTransition(ctx, () => step(v)));
-      restoreTransition(ctx, () => step(yielded));
+      if (r instanceof Promise) return void r.then(run, e => restoreTransition(ctx, () => step(e, true)));
+      run(r);
     };
+
+    const run = (r: IteratorResult<Y, R>) => {
+      if (r.done) return done(r.value);
+      if (r.value instanceof Promise)
+        return void r.value.then(v => restoreTransition(ctx, () => step(v)), e => restoreTransition(ctx, () => step(e, true)));
+      restoreTransition(ctx, () => step(r.value));
+    };
+
     step();
-  };
+  });
 }
