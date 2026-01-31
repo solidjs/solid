@@ -871,6 +871,129 @@ describe("async compute", () => {
     expect(isPending(a!)).toBe(false);
     expect(a!()).toBe(20);
   });
+
+  it("isPending read inside reactive context (memo)", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    let pendingMemo: () => boolean;
+    const pendingValues: boolean[] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      // Memo that tracks isPending state
+      pendingMemo = createMemo(() => isPending(asyncMemo));
+
+      createRenderEffect(asyncMemo, () => {});
+      createRenderEffect(pendingMemo, v => {
+        pendingValues.push(v);
+      });
+    });
+
+    // Initial load
+    flush();
+    expect(pendingMemo!()).toBe(false); // not pending initially (no stale data)
+    
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe(10);
+    expect(pendingMemo!()).toBe(false);
+
+    // Change signal - triggers async
+    setX(2);
+    flush();
+
+    // Memo should reactively show pending state
+    expect(pendingMemo!()).toBe(true);
+    expect(pendingValues).toContain(true);
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+    expect(pendingMemo!()).toBe(false);
+    expect(asyncMemo!()).toBe(20);
+  });
+
+  it("pending read inside reactive context (memo)", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    let pendingValueMemo: () => number;
+    const pendingValues: number[] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      // Memo that reads pending value
+      pendingValueMemo = createMemo(() => pending(asyncMemo));
+
+      createRenderEffect(asyncMemo, () => {});
+      createRenderEffect(pendingValueMemo, v => {
+        pendingValues.push(v);
+      });
+    });
+
+    // Initial load
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe(10);
+    expect(pendingValueMemo!()).toBe(10); // same as committed
+
+    // Change signal
+    setX(2);
+    flush();
+
+    // pending() should return committed value (async hasn't completed yet)
+    expect(pendingValueMemo!()).toBe(10);
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe(20);
+    expect(pendingValueMemo!()).toBe(20);
+  });
+
+  it("pending on upstream signal read inside reactive context", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    let pendingXMemo: () => number;
+
+    createRoot(() => {
+      asyncMemo = createMemo(async () => {
+        const v = $x();
+        await Promise.resolve();
+        return v * 10;
+      });
+
+      // Memo that reads pending value of upstream signal
+      pendingXMemo = createMemo(() => pending($x));
+
+      createRenderEffect(asyncMemo, () => {});
+    });
+
+    // Initial load
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+    expect($x()).toBe(1);
+    expect(pendingXMemo!()).toBe(1);
+
+    // Change signal - starts transition
+    setX(2);
+    flush();
+
+    // pending($x) should return in-flight value
+    expect($x()).toBe(1); // committed (held)
+    expect(pendingXMemo!()).toBe(2); // in-flight
+
+    // After completion
+    await new Promise(r => setTimeout(r, 0));
+    expect($x()).toBe(2);
+    expect(pendingXMemo!()).toBe(2);
+  });
 });
 
 // it("should detect which signal triggered it", () => {

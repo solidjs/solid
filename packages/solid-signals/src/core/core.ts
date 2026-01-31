@@ -158,7 +158,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let prevTracking = tracking;
   let prevOptimisticRead = optimisticReadActive;
   tracking = true;
-  setOptimisticReadActive(isOptimisticDirty);
+  if (isOptimisticDirty) setOptimisticReadActive(true);
   try {
     value = handleAsync(el, el._fn(value));
     clearStatus(el);
@@ -913,31 +913,25 @@ export function staleValues<T>(fn: () => T, set = true): T {
 
 export function pending<T>(fn: () => T): T {
   const prevPending = pendingReadActive;
-  const prevOptimistic = optimisticReadActive;
   pendingReadActive = true;
-  setOptimisticReadActive(true);  // Run in optimistic lane
   try {
     return fn();
   } finally {
     pendingReadActive = prevPending;
-    setOptimisticReadActive(prevOptimistic);
   }
 }
 
 export function isPending(fn: () => any): boolean {
   const prevPendingCheck = pendingCheckActive;
   const prevFoundPending = foundPending;
-  const prevOptimistic = optimisticReadActive;
   pendingCheckActive = true;
   foundPending = false;
-  setOptimisticReadActive(true);  // Run in optimistic lane
   try {
     fn();
     return foundPending;
   } finally {
     pendingCheckActive = prevPendingCheck;
     foundPending = prevFoundPending;
-    setOptimisticReadActive(prevOptimistic);
   }
 }
 
