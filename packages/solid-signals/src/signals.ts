@@ -176,7 +176,7 @@ export function createEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  void effect(
+  effect(
     compute as any,
     (effectFn as any).effect || effectFn,
     (effectFn as any).error,
@@ -218,7 +218,7 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  void effect(compute as any, effectFn, undefined, value as any, {
+  effect(compute as any, effectFn, undefined, value as any, {
     render: true,
     ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
   });

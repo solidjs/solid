@@ -94,25 +94,21 @@ export class Queue implements IQueue {
     if (this._parent) return this._parent.notify(node, mask, flags);
     return false;
   }
-  run(type: number) {
-    if (this._queues[type - 1].length) {
-      const effects = this._queues[type - 1];
-      this._queues[type - 1] = [];
+  private _runQueue(type: number, queues: QueueCallback[][], method: "run" | "runOptimistic") {
+    if (queues[type - 1].length) {
+      const effects = queues[type - 1];
+      queues[type - 1] = [];
       runQueue(effects, type);
     }
     for (let i = 0; i < this._children.length; i++) {
-      this._children[i].run(type);
+      (this._children[i] as any)[method]?.(type);
     }
   }
+  run(type: number) {
+    this._runQueue(type, this._queues, "run");
+  }
   runOptimistic(type: number) {
-    if (this._optimisticQueues[type - 1].length) {
-      const effects = this._optimisticQueues[type - 1];
-      this._optimisticQueues[type - 1] = [];
-      runQueue(effects, type);
-    }
-    for (let i = 0; i < this._children.length; i++) {
-      (this._children[i] as Queue).runOptimistic?.(type);
-    }
+    this._runQueue(type, this._optimisticQueues, "runOptimistic");
   }
   enqueue(type: number, fn: QueueCallback): void {
     if (type) {
@@ -176,7 +172,7 @@ export class GlobalQueue extends Queue {
           this.stashQueues(activeTransition!.queueStash);
           clock++;
           scheduled = false;
-          runTransitionPending(activeTransition!.pendingNodes, true);
+          runTransitionPending(activeTransition!.pendingNodes);
           activeTransition = null;
           finalizePureQueue(null, true);
           return;
@@ -187,7 +183,7 @@ export class GlobalQueue extends Queue {
         transitions.delete(activeTransition);
         const completingTransition = activeTransition;
         activeTransition = null;
-        runTransitionPending(this._pendingNodes, false);
+        runTransitionPending(this._pendingNodes);
         finalizePureQueue(completingTransition);
       } else {
         if (transitions.size) runHeap(zombieQueue, GlobalQueue._update);
@@ -350,12 +346,9 @@ export function trackOptimisticStore(store: any): void {
   schedule();
 }
 
-function runTransitionPending(pendingNodes: Signal<any>[], value: boolean) {
-  const p = pendingNodes.slice();
-  for (let i = 0; i < p.length; i++) {
-    const n = p[i];
-    // set or unset the transition
-    n._transition = activeTransition;
+function runTransitionPending(pendingNodes: Signal<any>[]) {
+  for (let i = 0; i < pendingNodes.length; i++) {
+    pendingNodes[i]._transition = activeTransition;
   }
 }
 
