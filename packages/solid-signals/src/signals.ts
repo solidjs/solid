@@ -13,7 +13,9 @@ import {
   read,
   runWithOwner,
   setSignal,
-  signal
+  signal,
+  trackedEffect,
+  untrack
 } from "./core/index.js";
 import { globalQueue } from "./core/scheduler.js";
 
@@ -223,11 +225,17 @@ export function createRenderEffect<Next, Init>(
 }
 
 /**
- * Creates a tracked reactive effect that only tracks dependencies inside the effect itself
+ * Creates a tracked reactive effect where dependency tracking and side effects happen
+ * in the same scope.
+ * 
+ * WARNING: Because tracking and effects happen in the same scope, this primitive
+ * may run multiple times for a single change or show tearing (reading inconsistent
+ * state). Use only when dynamic subscription patterns require same-scope tracking.
+ * 
  * ```typescript
  * export function createTrackedEffect(
  *   compute: () => (() => void) | void,
- *   options?: { name?: string, defer?: boolean }
+ *   options?: { name?: string }
  * ): void;
  * ```
  * @param compute a function that contains reactive reads to track and returns an optional cleanup function to run on disposal or before next execution
@@ -239,7 +247,10 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: EffectOptions
 ): void {
-  // void new TrackedEffect(compute, options);
+  trackedEffect(
+    compute,
+    __DEV__ ? { ...options, name: options?.name ?? "trackedEffect" } : options
+  );
 }
 
 /**
@@ -357,12 +368,23 @@ export function createOptimistic<T>(
   ];
 }
 
+/**
+ * Runs a callback after the current flush cycle completes.
+ *
+ * When called within a reactive context (owner), uses a tracked effect with untracked
+ * reads - this means normal signal reads won't create subscriptions, but uninitialized
+ * async values will throw NotReadyError, causing the callback to re-run when they settle.
+ *
+ * When called without an owner, runs once and immediately calls any returned cleanup.
+ *
+ * @param callback Function to run, may return a cleanup function
+ */
 export function onSettled(callback: () => void | (() => void)): void {
-  let cleanup;
   const o = getOwner();
-  if (o) onCleanup(() => cleanup?.());
-  globalQueue.enqueue(EFFECT_USER, () => {
-    cleanup = callback();
-    !o && cleanup?.();
-  });
+  if (o) createTrackedEffect(() => untrack(callback));
+  else
+    globalQueue.enqueue(EFFECT_USER, () => {
+      const cleanup = callback();
+      cleanup?.();
+    });
 }

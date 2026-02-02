@@ -1,5 +1,6 @@
 import {
   EFFECT_RENDER,
+  EFFECT_TRACKED,
   EFFECT_USER,
   REACTIVE_DISPOSED,
   STATUS_ERROR,
@@ -9,6 +10,7 @@ import {
   computed,
   onCleanup,
   recompute,
+  setLeafEffectActive,
   staleValues,
   type Computed,
   type Owner,
@@ -98,4 +100,52 @@ function runEffect(this: Effect<any>) {
     this._prevValue = this._value;
     this._modified = false;
   }
+}
+
+export interface TrackedEffect extends Computed<void> {
+  _cleanup?: () => void;
+  _modified: boolean;
+  _type: number;
+  _run: () => void;
+}
+
+/**
+ * Internal tracked effect - bypasses heap, goes directly to effect queue.
+ * Children forbidden (__DEV__ throws). Uses stale reads.
+ */
+export function trackedEffect(
+  fn: () => void | (() => void),
+  options?: SignalOptions<any>
+): void {
+  const run = () => {
+    if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
+    node._modified = false;
+    recompute(node);
+  };
+
+  const node = computed<void>(
+    () => {
+      setLeafEffectActive(true);
+      try {
+        node._cleanup?.();
+        node._cleanup = undefined;
+        node._cleanup = staleValues(fn) || undefined;
+      } finally {
+        setLeafEffectActive(false);
+      }
+    },
+    undefined,
+    { ...options, lazy: true }
+  ) as TrackedEffect;
+
+  node._cleanup = undefined;
+  node._modified = true;
+  node._type = EFFECT_TRACKED;
+  node._run = run;
+  node._queue.enqueue(EFFECT_USER, run);
+
+  onCleanup(() => node._cleanup?.());
+
+  if (__DEV__ && !node._parent)
+    console.warn("Effects created outside a reactive context will never be disposed");
 }

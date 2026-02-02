@@ -35,6 +35,6 @@ export {
   type Signal,
   type SignalOptions
 } from "./core.js";
-export { effect, type Effect } from "./effect.js";
+export { effect, trackedEffect, type Effect, type TrackedEffect } from "./effect.js";
 export { action, flush, Queue, GlobalQueue, trackOptimisticStore, type IQueue, type QueueCallback } from "./scheduler.js";
 export * from "./constants.js";

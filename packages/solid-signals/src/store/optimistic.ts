@@ -6,20 +6,29 @@ import {
   setSignal,
   type Computed
 } from "../core/index.js";
-import { setProjectionWriteActive } from "../core/scheduler.js";
+import { GlobalQueue, setProjectionWriteActive } from "../core/scheduler.js";
 import { writeTraps } from "./projection.js";
 import { reconcile } from "./reconcile.js";
 import {
+  $DELETED,
   $TARGET,
+  $TRACK,
   createStoreProxy,
-  storeSetter,
-  storeTraps,
+  isWrappable,
   STORE_FIREWALL,
   STORE_LOOKUP,
+  STORE_NODE,
   STORE_OPTIMISTIC,
+  STORE_OPTIMISTIC_OVERRIDE,
+  STORE_OVERRIDE,
+  STORE_VALUE,
   STORE_WRAP,
+  storeSetter,
+  storeTraps,
+  wrap,
   type NoFn,
   type Store,
+  type StoreNode,
   type StoreOptions,
   type StoreSetter
 } from "./store.js";
@@ -53,16 +62,47 @@ export function createOptimisticStore<T extends object = {}>(
   second?: NoFn<T> | Store<NoFn<T>>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
+  // Register clear function with scheduler
+  GlobalQueue._clearOptimisticStore ||= clearOptimisticStore;
   const derived = typeof first === "function";
-  const initialValue = (derived ? second : first) as T ?? {} as T;
+  const initialValue = ((derived ? second : first) as T) ?? ({} as T);
   const fn = derived
-    ? first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>
+    ? (first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
     : undefined;
 
   // Create optimistic projection store
   const { store: wrappedStore } = createOptimisticProjectionInternal(fn, initialValue, options);
 
   return [wrappedStore, (fn: (draft: T) => void): void => storeSetter(wrappedStore, fn)];
+}
+
+// Clear optimistic override for a store and notify signals
+function clearOptimisticStore(store: any): void {
+  const target = store[$TARGET] as StoreNode | undefined;
+  if (!target || !target[STORE_OPTIMISTIC_OVERRIDE]) return;
+
+  const override = target[STORE_OPTIMISTIC_OVERRIDE];
+  const nodes = target[STORE_NODE];
+
+  // Notify signals for all overridden properties
+  if (nodes) {
+    for (const key of Reflect.ownKeys(override)) {
+      if (nodes[key]) {
+        // Re-read from base (STORE_OVERRIDE or STORE_VALUE)
+        const baseValue =
+          target[STORE_OVERRIDE] && key in target[STORE_OVERRIDE]
+            ? target[STORE_OVERRIDE][key]
+            : target[STORE_VALUE][key];
+        const value = baseValue === $DELETED ? undefined : baseValue;
+        setSignal(nodes[key], isWrappable(value) ? wrap(value, target) : value);
+      }
+    }
+    // Notify $TRACK
+    nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
+  }
+
+  // Clear the optimistic override
+  delete target[STORE_OPTIMISTIC_OVERRIDE];
 }
 
 function createOptimisticProjectionInternal<T extends object = {}>(

@@ -1,7 +1,6 @@
 import {
   $REFRESH,
   getObserver,
-  GlobalQueue,
   isEqual,
   NOT_PENDING,
   read,
@@ -138,7 +137,16 @@ function getNode<T>(
 
 function trackSelf(target: StoreNode, symbol: symbol = $TRACK) {
   getObserver() &&
-    read(getNode(getNodes(target, STORE_NODE), symbol, undefined, target[STORE_FIREWALL], false, target[STORE_OPTIMISTIC]));
+    read(
+      getNode(
+        getNodes(target, STORE_NODE),
+        symbol,
+        undefined,
+        target[STORE_FIREWALL],
+        false,
+        target[STORE_OPTIMISTIC]
+      )
+    );
 }
 
 export function getKeys(
@@ -183,11 +191,13 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     const nodes = getNodes(target, STORE_NODE);
     const tracked = nodes[property];
     // Check optimistic override first, then regular override, then base value
-    const optOverridden = target[STORE_OPTIMISTIC_OVERRIDE] && property in target[STORE_OPTIMISTIC_OVERRIDE];
-    const overridden = optOverridden || (target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]);
+    const optOverridden =
+      target[STORE_OPTIMISTIC_OVERRIDE] && property in target[STORE_OPTIMISTIC_OVERRIDE];
+    const overridden =
+      optOverridden || (target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]);
     const proxySource = !!target[STORE_VALUE][$TARGET];
-    const storeValue = optOverridden 
-      ? target[STORE_OPTIMISTIC_OVERRIDE]! 
+    const storeValue = optOverridden
+      ? target[STORE_OPTIMISTIC_OVERRIDE]!
       : target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
         ? target[STORE_OVERRIDE]!
         : target[STORE_VALUE];
@@ -199,9 +209,11 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       let value =
         tracked && (overridden || !proxySource)
           ? tracked._pendingValue !== NOT_PENDING
-            // For optimistic signals, _value has current optimistic state, _pendingValue has original for reversion
-            // For regular signals, _pendingValue has the held value during transition
-            ? tracked._optimistic ? tracked._value : tracked._pendingValue
+            ? // For optimistic signals, _value has current optimistic state, _pendingValue has original for reversion
+              // For regular signals, _pendingValue has the held value during transition
+              tracked._optimistic
+              ? tracked._value
+              : tracked._pendingValue
             : tracked._value
           : storeValue[property];
       value === $DELETED && (value = undefined);
@@ -251,7 +263,16 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           : property in target[STORE_VALUE];
 
     getObserver() &&
-      read(getNode(getNodes(target, STORE_HAS), property, has, target[STORE_FIREWALL], isEqual, target[STORE_OPTIMISTIC]));
+      read(
+        getNode(
+          getNodes(target, STORE_HAS),
+          property,
+          has,
+          target[STORE_FIREWALL],
+          isEqual,
+          target[STORE_OPTIMISTIC]
+        )
+      );
     return has;
   },
 
@@ -284,12 +305,13 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         const value = rawValue?.[$TARGET]?.[STORE_VALUE] ?? rawValue;
 
         if (prev === value) return true;
-        const len = target[STORE_OPTIMISTIC_OVERRIDE]?.length || target[STORE_OVERRIDE]?.length || state.length;
+        const len =
+          target[STORE_OPTIMISTIC_OVERRIDE]?.length ||
+          target[STORE_OVERRIDE]?.length ||
+          state.length;
 
         if (value !== undefined && value === base) delete target[overrideKey]![property];
-        else
-          (target[overrideKey] || (target[overrideKey] = Object.create(null)))[property] =
-            value;
+        else (target[overrideKey] || (target[overrideKey] = Object.create(null)))[property] = value;
         const wrappable = isWrappable(value);
         if (isWrappable(prev)) {
           const parents = PARENTS.get(prev);
@@ -333,9 +355,11 @@ export const storeTraps: ProxyHandler<StoreNode> = {
             : target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
               ? target[STORE_OVERRIDE][property]
               : target[STORE_VALUE][property];
-        if (property in target[STORE_VALUE] || (target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE])) {
-          (target[overrideKey] || (target[overrideKey] = Object.create(null)))[property] =
-            $DELETED;
+        if (
+          property in target[STORE_VALUE] ||
+          (target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE])
+        ) {
+          (target[overrideKey] || (target[overrideKey] = Object.create(null)))[property] = $DELETED;
         } else if (target[overrideKey] && property in target[overrideKey]) {
           delete target[overrideKey][property];
         } else return true;
@@ -377,7 +401,12 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       if (baseDesc) {
         return { ...baseDesc, value: target[STORE_OPTIMISTIC_OVERRIDE][property] };
       }
-      return { value: target[STORE_OPTIMISTIC_OVERRIDE][property], writable: true, enumerable: true, configurable: true };
+      return {
+        value: target[STORE_OPTIMISTIC_OVERRIDE][property],
+        writable: true,
+        enumerable: true,
+        configurable: true
+      };
     }
     return getPropertyDescriptor(target[STORE_VALUE], target[STORE_OVERRIDE], property);
   },
@@ -386,37 +415,6 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     return Object.getPrototypeOf(target[STORE_VALUE]);
   }
 };
-
-// Clear optimistic override for a store and notify signals
-function clearOptimisticStore(store: any): void {
-  const target = store[$TARGET] as StoreNode | undefined;
-  if (!target || !target[STORE_OPTIMISTIC_OVERRIDE]) return;
-  
-  const override = target[STORE_OPTIMISTIC_OVERRIDE];
-  const nodes = target[STORE_NODE];
-  
-  // Notify signals for all overridden properties
-  if (nodes) {
-    for (const key of Reflect.ownKeys(override)) {
-      if (nodes[key]) {
-        // Re-read from base (STORE_OVERRIDE or STORE_VALUE)
-        const baseValue = target[STORE_OVERRIDE] && key in target[STORE_OVERRIDE]
-          ? target[STORE_OVERRIDE][key]
-          : target[STORE_VALUE][key];
-        const value = baseValue === $DELETED ? undefined : baseValue;
-        setSignal(nodes[key], isWrappable(value) ? wrap(value, target) : value);
-      }
-    }
-    // Notify $TRACK
-    nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
-  }
-  
-  // Clear the optimistic override
-  delete target[STORE_OPTIMISTIC_OVERRIDE];
-}
-
-// Register clear function with scheduler
-GlobalQueue._clearOptimisticStore = clearOptimisticStore;
 
 export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) => T | void): void {
   const prevWriting = Writing;

@@ -126,6 +126,10 @@ let pendingCheckActive = false;
 let foundPending = false;
 let pendingReadActive = false;
 export let context: Owner | null = null;
+let leafEffectActive = false;
+export function setLeafEffectActive(v: boolean) {
+  leafEffectActive = v;
+}
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
   const isEffect = (el as any)._type;
@@ -561,6 +565,9 @@ export function computed<T>(
   const parent = (context as Root)?._root
     ? (context as Root)._parentComputed
     : (context as Computed<any> | null);
+  if (__DEV__ && leafEffectActive && context) {
+    throw new Error("Cannot create reactive primitives inside createTrackedEffect");
+  }
   if (context) {
     const lastChild = context._firstChild;
     if (lastChild === null) {
@@ -854,6 +861,9 @@ export function createOwner(options?: { id: string }) {
     }
   } as Root;
 
+  if (__DEV__ && leafEffectActive && parent) {
+    throw new Error("Cannot create reactive primitives inside createTrackedEffect");
+  }
   if (parent) {
     const lastChild = parent._firstChild;
     if (lastChild === null) {

@@ -1,5 +1,6 @@
 import {
   EFFECT_RENDER,
+  EFFECT_TRACKED,
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_OPTIMISTIC_DIRTY,
@@ -167,11 +168,11 @@ export class GlobalQueue extends Queue {
           this._pendingNodes = [];
           this._optimisticNodes = [];
           this._optimisticStores = new Set();
-          
+
           // Run optimistic effects immediately (before stashing)
           this.runOptimistic(EFFECT_RENDER);
           this.runOptimistic(EFFECT_USER);
-          
+
           this.stashQueues(activeTransition!.queueStash);
           clock++;
           scheduled = false;
@@ -253,7 +254,7 @@ export class GlobalQueue extends Queue {
     // Share reference - optimistic writes go directly to the transition's array
     for (let i = 0; i < this._optimisticNodes.length; i++) {
       const node = this._optimisticNodes[i];
-      node._transition = activeTransition;  // Mark ownership
+      node._transition = activeTransition; // Mark ownership
       activeTransition.optimisticNodes.push(node);
     }
     this._optimisticNodes = activeTransition.optimisticNodes;
@@ -266,17 +267,29 @@ export class GlobalQueue extends Queue {
 }
 
 export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
-  let subCount = 0;
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    subCount++;
     if (optimistic) s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+
+    // Tracked effects bypass heap, go directly to effect queue
+    const sub = s._sub as any;
+    if (sub._type === EFFECT_TRACKED) {
+      if (!sub._modified) {
+        sub._modified = true;
+        sub._queue.enqueue(EFFECT_USER, sub._run);
+      }
+      continue;
+    }
+
     const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
     if (queue._min > s._sub._height) queue._min = s._sub._height;
     insertIntoHeap(s._sub, queue);
   }
 }
 
-export function finalizePureQueue(completingTransition: Transition | null = null, incomplete: boolean = false) {
+export function finalizePureQueue(
+  completingTransition: Transition | null = null,
+  incomplete: boolean = false
+) {
   // For incomplete transitions, skip pending resolution and optimistic reversion
   // For completing transitions or no-transition, resolve pending and revert optimistic
   let resolvePending = !incomplete;
@@ -292,7 +305,8 @@ export function finalizePureQueue(completingTransition: Transition | null = null
       if (n._pendingValue !== NOT_PENDING) {
         n._value = n._pendingValue as any;
         n._pendingValue = NOT_PENDING;
-        if ((n as any)._type) (n as any)._modified = true;
+        // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
+        if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
       }
       if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
     }
@@ -311,7 +325,7 @@ export function finalizePureQueue(completingTransition: Transition | null = null
         insertSubs(n, true);
       }
       n._pendingValue = NOT_PENDING;
-      n._transition = null;  // Clear ownership
+      n._transition = null; // Clear ownership
     }
     optimisticNodes.length = 0;
 
@@ -402,39 +416,44 @@ function restoreTransition<T>(transition: Transition, fn: () => T): T {
 export function action<Args extends any[], Y, R>(
   genFn: (...args: Args) => Generator<Y, R, any> | AsyncGenerator<Y, R, any>
 ) {
-  return (...args: Args): Promise<R> => new Promise((resolve, reject) => {
-    const it = genFn(...args);
-    globalQueue.initTransition();
-    let ctx = activeTransition!;
-    ctx.actions.push(it);
+  return (...args: Args): Promise<R> =>
+    new Promise((resolve, reject) => {
+      const it = genFn(...args);
+      globalQueue.initTransition();
+      let ctx = activeTransition!;
+      ctx.actions.push(it);
 
-    const done = (v?: R, e?: any) => {
-      ctx = currentTransition(ctx);
-      const i = ctx.actions.indexOf(it);
-      if (i >= 0) ctx.actions.splice(i, 1);
-      activeTransition = ctx;
-      schedule();
-      e ? reject(e) : resolve(v!);
-    };
+      const done = (v?: R, e?: any) => {
+        ctx = currentTransition(ctx);
+        const i = ctx.actions.indexOf(it);
+        if (i >= 0) ctx.actions.splice(i, 1);
+        activeTransition = ctx;
+        schedule();
+        e ? reject(e) : resolve(v!);
+      };
 
-    const step = (v?: any, err?: boolean): void => {
-      let r: IteratorResult<Y, R> | Promise<IteratorResult<Y, R>>;
-      try {
-        r = err ? it.throw!(v) : it.next(v);
-      } catch (e) {
-        return done(undefined, e);
-      }
-      if (r instanceof Promise) return void r.then(run, e => restoreTransition(ctx, () => step(e, true)));
-      run(r);
-    };
+      const step = (v?: any, err?: boolean): void => {
+        let r: IteratorResult<Y, R> | Promise<IteratorResult<Y, R>>;
+        try {
+          r = err ? it.throw!(v) : it.next(v);
+        } catch (e) {
+          return done(undefined, e);
+        }
+        if (r instanceof Promise)
+          return void r.then(run, e => restoreTransition(ctx, () => step(e, true)));
+        run(r);
+      };
 
-    const run = (r: IteratorResult<Y, R>) => {
-      if (r.done) return done(r.value);
-      if (r.value instanceof Promise)
-        return void r.value.then(v => restoreTransition(ctx, () => step(v)), e => restoreTransition(ctx, () => step(e, true)));
-      restoreTransition(ctx, () => step(r.value));
-    };
+      const run = (r: IteratorResult<Y, R>) => {
+        if (r.done) return done(r.value);
+        if (r.value instanceof Promise)
+          return void r.value.then(
+            v => restoreTransition(ctx, () => step(v)),
+            e => restoreTransition(ctx, () => step(e, true))
+          );
+        restoreTransition(ctx, () => step(r.value));
+      };
 
-    step();
-  });
+      step();
+    });
 }

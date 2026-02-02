@@ -16,6 +16,7 @@ export const STATUS_UNINITIALIZED = 1 << 2;
 export const EFFECT_PURE = 0;
 export const EFFECT_RENDER = 1;
 export const EFFECT_USER = 2;
+export const EFFECT_TRACKED = 3;
 
 export const NOT_PENDING = {};
 
