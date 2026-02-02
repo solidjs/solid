@@ -34,7 +34,7 @@ export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 export type ComputeFunction<Prev, Next extends Prev = Prev> = (
   v: Prev
-) => Promise<Next> | AsyncIterable<Next> | Next;
+) => PromiseLike<Next> | AsyncIterable<Next> | Next;
 export type EffectFunction<Prev, Next extends Prev = Prev> = (
   v: Next,
   p?: Prev
@@ -227,11 +227,11 @@ export function createRenderEffect<Next, Init>(
 /**
  * Creates a tracked reactive effect where dependency tracking and side effects happen
  * in the same scope.
- * 
+ *
  * WARNING: Because tracking and effects happen in the same scope, this primitive
  * may run multiple times for a single change or show tearing (reading inconsistent
  * state). Use only when dynamic subscription patterns require same-scope tracking.
- * 
+ *
  * ```typescript
  * export function createTrackedEffect(
  *   compute: () => (() => void) | void,
@@ -380,11 +380,10 @@ export function createOptimistic<T>(
  * @param callback Function to run, may return a cleanup function
  */
 export function onSettled(callback: () => void | (() => void)): void {
-  const o = getOwner();
-  if (o) createTrackedEffect(() => untrack(callback));
-  else
-    globalQueue.enqueue(EFFECT_USER, () => {
-      const cleanup = callback();
-      cleanup?.();
-    });
+  getOwner()
+    ? createTrackedEffect(() => untrack(callback))
+    : globalQueue.enqueue(EFFECT_USER, () => {
+        const cleanup = callback();
+        cleanup?.();
+      });
 }

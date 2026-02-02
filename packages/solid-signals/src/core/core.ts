@@ -73,8 +73,8 @@ export interface RawSignal<T> {
   _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
   _optimistic?: boolean;
-  _pendingSignal?: Signal<boolean>;       // Lazy signal for isPending()
-  _pendingValueComputed?: Computed<T>;    // Lazy computed for pending()
+  _pendingSignal?: Signal<boolean>; // Lazy signal for isPending()
+  _pendingValueComputed?: Computed<T>; // Lazy computed for pending()
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {
@@ -106,7 +106,7 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _nextHeap: Computed<any> | undefined;
   _prevHeap: Computed<any>;
   _fn: (prev?: T) => T;
-  _inFlight: Promise<T> | AsyncIterable<T> | null;
+  _inFlight: PromiseLike<T> | AsyncIterable<T> | null;
   _child: FirewallSignal<any> | null;
   _notifyStatus?: () => void;
 }
@@ -216,75 +216,109 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
 export function handleAsync<T>(
   el: Computed<T>,
-  result: T | Promise<T> | AsyncIterable<T>,
+  result: T | PromiseLike<T> | AsyncIterable<T>,
   setter?: (value: T) => void
 ): T {
   const isObject = typeof result === "object" && result !== null;
-  const isPromise = isObject && result instanceof Promise;
   const iterator = isObject && untrack(() => result[Symbol.asyncIterator]);
-  if (!isPromise && !iterator) {
+  const isThenable =
+    !iterator && isObject && untrack(() => typeof (result as any).then === "function");
+
+  if (!isThenable && !iterator) {
     el._inFlight = null;
     return result as T;
   }
-  el._inFlight = result as Promise<T> | AsyncIterable<T>;
-  // Handle async result - for optimistic computeds, update base value
-  const write =
-    setter ||
-    ((value: T) => {
-      if (el._optimistic) {
-        // Check if there's an active optimistic override
-        const hasOverride = el._pendingValue !== NOT_PENDING;
-        // For computeds (_fn exists), update revert target with new computed value
-        // For signals, preserve the original value saved on first write
-        if ((el as Computed<T>)._fn) {
-          el._pendingValue = value;
-        }
-        if (!hasOverride) {
-          // No override - update visible value and notify
-          el._value = value;
-          insertSubs(el);
-        }
-        el._time = clock;
-        schedule();
-      } else {
-        setSignal(el, () => value);
+
+  el._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  let syncValue: T;
+
+  const handleError = (error: any) => {
+    if (el._inFlight !== result) return;
+    globalQueue.initTransition(el._transition);
+    // NotReadyError from rejected promises should be treated as pending, not error
+    if (error instanceof NotReadyError) {
+      if (error.cause !== el) link(error.cause, el);
+      notifyStatus(el, STATUS_PENDING, error);
+    } else notifyStatus(el, STATUS_ERROR, error as Error);
+    el._time = clock;
+  };
+
+  const asyncWrite = (value: T, then?: () => void) => {
+    if (el._inFlight !== result) return;
+    globalQueue.initTransition(el._transition);
+    clearStatus(el);
+    if (setter) setter(value);
+    else if (el._optimistic) {
+      const hasOverride = el._pendingValue !== NOT_PENDING;
+      if ((el as Computed<T>)._fn) el._pendingValue = value;
+      if (!hasOverride) {
+        el._value = value;
+        insertSubs(el);
       }
-    });
-  if (isPromise) {
-    result
-      .then(value => {
-        if (el._inFlight !== result) return;
-        globalQueue.initTransition(el._transition);
-        clearStatus(el);
-        write(value);
-        flush();
-      })
-      .catch(e => {
-        if (el._inFlight !== result) return;
-        globalQueue.initTransition(el._transition);
-        notifyStatus(el, STATUS_ERROR, e as Error);
-        el._time = clock;
-      });
-  } else {
-    (async () => {
-      try {
-        for await (let value of result as AsyncIterable<T>) {
-          if (el._inFlight !== result) return;
-          globalQueue.initTransition(el._transition);
-          clearStatus(el);
-          write(value);
-          flush();
-        }
-      } catch (error) {
-        if (el._inFlight !== result) return;
-        globalQueue.initTransition(el._transition);
-        notifyStatus(el, STATUS_ERROR, error as Error);
-        el._time = clock;
+      el._time = clock;
+      schedule();
+    } else setSignal(el, () => value);
+    flush();
+    then?.();
+  };
+
+  if (isThenable) {
+    let resolved = false,
+      isSync = true;
+    (result as PromiseLike<T>).then(
+      v => {
+        if (isSync) {
+          syncValue = v;
+          resolved = true;
+        } else asyncWrite(v);
+      },
+      e => {
+        if (!isSync) handleError(e);
       }
-    })();
+    );
+    isSync = false;
+    if (!resolved) {
+      globalQueue.initTransition(el._transition);
+      throw new NotReadyError(context!);
+    }
   }
-  globalQueue.initTransition(el._transition);
-  throw new NotReadyError(context!);
+
+  if (iterator) {
+    const it = (result as AsyncIterable<T>)[Symbol.asyncIterator]();
+    let hadSyncValue = false;
+
+    const iterate = (): boolean => {
+      let syncResult: IteratorResult<T>,
+        resolved = false,
+        isSync = true;
+      it.next().then(
+        r => {
+          if (isSync) {
+            syncResult = r;
+            resolved = true;
+          } else if (!r.done) asyncWrite(r.value, iterate);
+        },
+        e => {
+          if (!isSync) handleError(e);
+        }
+      );
+      isSync = false;
+      if (resolved && !syncResult!.done) {
+        syncValue = syncResult!.value;
+        hadSyncValue = true;
+        return iterate();
+      }
+      return resolved && syncResult!.done;
+    };
+
+    const immediatelyDone = iterate();
+    if (!hadSyncValue && !immediatelyDone) {
+      globalQueue.initTransition(el._transition);
+      throw new NotReadyError(context!);
+    }
+  }
+
+  return syncValue!;
 }
 
 function clearStatus(el: Computed<any>): void {
@@ -518,14 +552,14 @@ function formatId(prefix: string, id: number) {
   return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
 }
 
-export function computed<T>(fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>): Computed<T>;
+export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
 export function computed<T>(
-  fn: (prev: T) => T | Promise<T> | AsyncIterable<T>,
+  fn: (prev: T) => T | PromiseLike<T> | AsyncIterable<T>,
   initialValue?: T,
   options?: SignalOptions<T>
 ): Computed<T>;
 export function computed<T>(
-  fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>,
+  fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>,
   initialValue?: T,
   options?: SignalOptions<T>
 ): Computed<T> {
@@ -618,7 +652,7 @@ export function optimisticSignal<T>(v: T, options?: SignalOptions<T>): Signal<T>
 }
 
 export function optimisticComputed<T>(
-  fn: (prev?: T) => T | Promise<T> | AsyncIterable<T>,
+  fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>,
   initialValue?: T,
   options?: SignalOptions<T>
 ): Computed<T> {
@@ -746,7 +780,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   const asyncCompute = (el as FirewallSignal<any>)._firewall || el;
   if (
     c &&
-    !optimisticReadActive &&  // Don't throw when reading optimistically - return committed value
+    !optimisticReadActive && // Don't throw when reading optimistically - return committed value
     asyncCompute._statusFlags & STATUS_PENDING &&
     !(stale && asyncCompute._transition && activeTransition !== asyncCompute._transition)
   )
@@ -799,7 +833,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
       globalQueue.initTransition(el._transition);
     }
     if (isFirstWrite) {
-      el._pendingValue = el._value;  // Save before overwriting
+      el._pendingValue = el._value; // Save before overwriting
       globalQueue._optimisticNodes.push(el);
     }
     el._value = v;

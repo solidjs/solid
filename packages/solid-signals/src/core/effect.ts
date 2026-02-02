@@ -113,10 +113,7 @@ export interface TrackedEffect extends Computed<void> {
  * Internal tracked effect - bypasses heap, goes directly to effect queue.
  * Children forbidden (__DEV__ throws). Uses stale reads.
  */
-export function trackedEffect(
-  fn: () => void | (() => void),
-  options?: SignalOptions<any>
-): void {
+export function trackedEffect(fn: () => void | (() => void), options?: SignalOptions<any>): void {
   const run = () => {
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
     node._modified = false;
@@ -135,7 +132,7 @@ export function trackedEffect(
       }
     },
     undefined,
-    { ...options, lazy: true }
+    { ...options, lazy: true, pureWrite: true }
   ) as TrackedEffect;
 
   node._cleanup = undefined;

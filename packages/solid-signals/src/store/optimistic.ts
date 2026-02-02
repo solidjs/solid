@@ -153,7 +153,6 @@ function createOptimisticProjectionInternal<T extends object = {}>(
             } finally {
               setProjectionWriteActive(false);
             }
-            setSignal(owner, undefined);
           });
           value !== s &&
             value !== undefined &&
