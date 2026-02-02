@@ -344,7 +344,9 @@ function clearStatus(el: Computed<any>): void {
 }
 
 function notifyStatus(el: Computed<any>, status: number, error: any): void {
-  el._statusFlags = status | (el._statusFlags & STATUS_UNINITIALIZED);
+  // Preserve UNINITIALIZED only for PENDING, not for ERROR
+  // An error is a form of completion - the error UI is "stale" content when retrying
+  el._statusFlags = status | (status !== STATUS_ERROR ? (el._statusFlags & STATUS_UNINITIALIZED) : 0);
   el._error = error;
   // Update pending signal for isPending() reactivity
   updatePendingSignal(el);
@@ -697,7 +699,11 @@ function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
     // Disable pendingReadActive to avoid recursion during creation
     const prevPending = pendingReadActive;
     pendingReadActive = false;
+    // Create outside of any owner context so it doesn't get disposed when effects re-run
+    const prevContext = context;
+    context = null;
     el._pendingValueComputed = optimisticComputed(() => read(el));
+    context = prevContext;
     pendingReadActive = prevPending;
   }
   return el._pendingValueComputed;
