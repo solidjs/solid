@@ -1027,4 +1027,161 @@ describe("action", () => {
       expect(resolved).toBe(true);
     });
   });
+
+  describe("attempt helper pattern", () => {
+    // Go-style error handling: [result, error] tuple
+    type AttemptResult<T, E = Error> = [T, undefined] | [undefined, E];
+
+    function* attempt<T>(
+      promise: Promise<T>
+    ): Generator<Promise<T>, AttemptResult<T>, T> {
+      try {
+        const result: T = yield promise;
+        return [result, undefined];
+      } catch (e) {
+        return [undefined, e instanceof Error ? e : new Error(String(e))];
+      }
+    }
+
+    it("should return [value, undefined] on success", async () => {
+      const myAction = action(function* () {
+        const [res, err] = yield* attempt(Promise.resolve(42));
+        return { res, err };
+      });
+
+      const result = await myAction();
+      expect(result.res).toBe(42);
+      expect(result.err).toBeUndefined();
+    });
+
+    it("should return [undefined, error] on failure", async () => {
+      const myAction = action(function* () {
+        const [res, err] = yield* attempt(Promise.reject<string>(new Error("test error")));
+        return { res, err };
+      });
+
+      const result = await myAction();
+      expect(result.res).toBeUndefined();
+      expect(result.err).toBeInstanceOf(Error);
+      expect(result.err?.message).toBe("test error");
+    });
+
+    it("should convert non-Error rejections to Error", async () => {
+      const myAction = action(function* () {
+        const [res, err] = yield* attempt(Promise.reject<string>("string error"));
+        return { res, err };
+      });
+
+      const result = await myAction();
+      expect(result.res).toBeUndefined();
+      expect(result.err).toBeInstanceOf(Error);
+      expect(result.err?.message).toBe("string error");
+    });
+
+    it("should hold signal updates during attempt and commit after action completes", async () => {
+      const [$x, setX] = createSignal(0);
+      const values: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => $x(),
+          v => {
+            values.push(v);
+          }
+        );
+      });
+
+      flush();
+      expect(values).toEqual([0]);
+
+      const myAction = action(function* () {
+        setX(1);
+        const [, err] = yield* attempt(Promise.resolve("success"));
+        if (!err) {
+          setX(2);
+        }
+        yield Promise.resolve(); // Another async point
+        setX(3);
+      });
+
+      const promise = myAction();
+
+      // During action - values should be held (transition pending)
+      flush();
+      expect(values).toEqual([0]); // Still held
+
+      await promise;
+
+      // After action completes - all updates committed
+      expect($x()).toBe(3);
+      expect(values).toEqual([0, 3]); // Batched update
+    });
+
+    it("should properly narrow types after error check (TypeScript validation)", async () => {
+      const myAction = action(function* () {
+        const [res, err] = yield* attempt(Promise.resolve({ id: 1, name: "test" }));
+
+        if (err) {
+          // err is narrowed to Error, res is narrowed to undefined
+          return { error: err.message };
+        }
+
+        // res is narrowed to { id: number, name: string }
+        return { id: res.id, name: res.name };
+      });
+
+      const result = await myAction();
+      expect(result).toEqual({ id: 1, name: "test" });
+    });
+
+    it("should work with async generator actions", async () => {
+      const myAction = action(async function* () {
+        const [res, err] = yield* attempt(Promise.resolve(100));
+        if (err) {
+          return -1;
+        }
+        return res * 2;
+      });
+
+      const result = await myAction();
+      expect(result).toBe(200);
+    });
+
+    it("should allow multiple attempt calls in sequence", async () => {
+      const myAction = action(function* () {
+        const [a, errA] = yield* attempt(Promise.resolve(1));
+        if (errA) return { error: "a failed" };
+
+        const [b, errB] = yield* attempt(Promise.resolve(2));
+        if (errB) return { error: "b failed" };
+
+        const [c, errC] = yield* attempt(Promise.reject<number>(new Error("c failed")));
+        if (errC) return { error: errC.message, partial: a + b };
+
+        return { sum: a + b + c! };
+      });
+
+      const result = await myAction();
+      expect(result).toEqual({ error: "c failed", partial: 3 });
+    });
+
+    it("should maintain transition context across multiple attempts", async () => {
+      const [$x, setX] = createSignal(0);
+
+      const myAction = action(function* () {
+        setX(1);
+        const [, err1] = yield* attempt(Promise.resolve());
+        if (err1) return;
+
+        setX(2);
+        const [, err2] = yield* attempt(Promise.resolve());
+        if (err2) return;
+
+        setX(3);
+      });
+
+      await myAction();
+      expect($x()).toBe(3);
+    });
+  });
 });
