@@ -207,6 +207,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   setOptimisticReadActive(prevOptimisticRead);
   (!create || el._statusFlags & STATUS_PENDING) &&
     !el._transition &&
+    !(activeTransition && el._optimistic) &&
     globalQueue._pendingNodes.push(el);
   el._transition &&
     isEffect &&
@@ -831,17 +832,24 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (!valueChanged) return v;
 
   if (isOptimistic) {
-    // First write: save current value as revert target
-    const isFirstWrite = el._pendingValue === NOT_PENDING;
-    // Only entangle if there was a previous optimistic write (not first write)
+    const alreadyTracked = globalQueue._optimisticNodes.includes(el);
+    
+    // Only entangle if there was a previous optimistic write (node already tracked)
     // This prevents entangling just because _transition was set from being a pending node
-    if (el._transition && !isFirstWrite) {
+    if (el._transition && alreadyTracked) {
       globalQueue.initTransition(el._transition);
     }
-    if (isFirstWrite) {
-      el._pendingValue = el._value; // Save before overwriting
+    
+    // Save original only if not already saved (signals need this, computeds have pending from recompute)
+    if (el._pendingValue === NOT_PENDING) {
+      el._pendingValue = el._value;
+    }
+    
+    // Always ensure we're in the list for reversion
+    if (!alreadyTracked) {
       globalQueue._optimisticNodes.push(el);
     }
+    
     el._value = v;
   } else {
     if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);

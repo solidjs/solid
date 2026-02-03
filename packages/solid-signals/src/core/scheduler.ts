@@ -290,7 +290,6 @@ export function finalizePureQueue(
   // For completing transitions or no-transition, resolve pending and revert optimistic
   let resolvePending = !incomplete;
   if (dirtyQueue._max >= dirtyQueue._min) {
-    resolvePending = true;
     runHeap(dirtyQueue, GlobalQueue._update);
   }
   if (resolvePending) {

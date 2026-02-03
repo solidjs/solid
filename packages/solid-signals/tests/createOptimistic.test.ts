@@ -13,6 +13,89 @@ import {
 afterEach(() => flush());
 
 describe("createOptimistic", () => {
+  describe("async memo with optimistic computed wrapping regular signal", () => {
+    it("should combine pending value with optimistic write when transition completes", async () => {
+      const [count, setCount] = createSignal(0);
+      const [timeline, setTimeline] = createSignal('');
+      const [optimisticTimeline, setOptimisticTimeline] = createOptimistic(timeline);
+      
+      // Async memo like user's example - setTimeout style
+      let resolveAsync: () => void;
+      const asyncCount = createMemo(() => {
+        const c = count();
+        return new Promise<number>(res => {
+          resolveAsync = () => res(c);
+        });
+      });
+
+      const timelineValues: string[] = [];
+      const countValues: number[] = [];
+      
+      createRoot(() => {
+        // Render effect on async count (like Loading boundary)
+        createRenderEffect(
+          () => asyncCount(),
+          (v) => { countValues.push(v); }
+        );
+        // Render effect on optimistic timeline
+        createRenderEffect(
+          () => optimisticTimeline(),
+          (v) => { timelineValues.push(v); }
+        );
+      });
+
+      // Initial async load
+      flush();
+      expect(countValues).toEqual([]); // Async not resolved yet
+      
+      // Resolve initial async
+      resolveAsync!();
+      await new Promise(r => setTimeout(r, 0));
+      expect(countValues).toEqual([0]);
+      expect(timelineValues).toEqual(['']);
+
+      // Click 1: "Append 0 Async" - triggers new async transition
+      setCount(1);
+      setTimeline(x => x + '0');
+      flush(); // First flush - async starts, transition begins
+      
+      // After first flush: optimisticTimeline recomputes in background (saves '0' to _pendingValue)
+      // But reading returns current _value = ''
+      expect(optimisticTimeline()).toBe(''); // Current value, not pending
+      expect(timeline()).toBe(''); // Held during transition
+      expect(timelineValues).toEqual(['']); // Effect hasn't run yet
+      
+      // Click 2: "Append 1" - during transition, adds optimistic write
+      // setTimeline builds on _pendingValue: '0' + '1' = '01'
+      // setOptimisticTimeline builds on current _value: '' + '1' = '1'
+      setTimeline(x => x + '1');
+      setOptimisticTimeline(x => x + '1');
+
+      flush();
+      
+      // During transition: 
+      // - optimisticTimeline shows optimistic override '1'
+      // - timeline._pendingValue = '01'
+      // - optimisticTimeline should recompute in background to see '01'
+      expect(optimisticTimeline()).toBe('1'); // Optimistic value
+      expect(timeline()).toBe(''); // Still held during transition
+      expect(timelineValues).toEqual(['', '1']); // Effect sees optimistic value
+
+      // Complete the async
+      resolveAsync!();
+      await new Promise(r => setTimeout(r, 0));
+      flush(); // Ensure transition completion is processed
+
+      // After transition completes:
+      // - timeline._value should be '01' (committed)
+      // - optimisticTimeline should revert to its computed value '01'
+      expect(timeline()).toBe('01');
+      expect(optimisticTimeline()).toBe('01'); // Should NOT stay '1'!
+      expect(countValues).toEqual([0, 1]);
+      expect(timelineValues).toEqual(['', '1', '01']);
+    });
+  });
+
   describe("basic behavior", () => {
     it("should store and return value on read", () => {
       const [$x] = createOptimistic(1);
