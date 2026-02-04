@@ -987,6 +987,11 @@ export function isPending(fn: () => any): boolean {
   try {
     fn();
     return foundPending;
+  } catch {
+    // When a thunk throws during pending check (e.g., accessing undefined values
+    // from uninitialized async memos), return foundPending. The error indicates
+    // we're reading from something not yet ready.
+    return foundPending;
   } finally {
     pendingCheckActive = prevPendingCheck;
     foundPending = prevFoundPending;
