@@ -1,4 +1,5 @@
 import { recompute } from "./core/core.js";
+import type { StatusError } from "./core/error.js";
 import {
   computed,
   createOwner,
@@ -85,7 +86,7 @@ class ConditionalQueue extends Queue {
 
 export class CollectionQueue extends Queue {
   _collectionType: number;
-  _nodes: Set<Effect<any>> = new Set();
+  _sources: Set<Computed<any>> = new Set();
   _disabled: Signal<boolean> = signal(false, { pureWrite: true });
   _initialized: boolean = false;
   constructor(type: number) {
@@ -103,14 +104,21 @@ export class CollectionQueue extends Queue {
     )
       return super.notify(node, type, flags);
     if (flags & this._collectionType) {
-      this._nodes.add(node);
-      if (this._nodes.size === 1) setSignal(this._disabled, true);
-    } else if (this._nodes.size > 0) {
-      this._nodes.delete(node);
-      if (this._nodes.size === 0) setSignal(this._disabled, false);
+      const source = (node._error as any)?._source;
+      if (source) {
+        const wasEmpty = this._sources.size === 0;
+        this._sources.add(source);
+        if (wasEmpty) setSignal(this._disabled, true);
+      }
     }
     type &= ~this._collectionType;
     return type ? super.notify(node, type, flags) : true;
+  }
+  checkSources() {
+    for (const source of this._sources) {
+      if (!(source._statusFlags & this._collectionType)) this._sources.delete(source);
+    }
+    if (!this._sources.size) setSignal(this._disabled, false);
   }
 }
 
@@ -160,30 +168,16 @@ export function createLoadBoundary(fn: () => any, fallback: () => any) {
   return createCollectionBoundary(STATUS_PENDING, fn, () => fallback());
 }
 
-function collectErrorSources(node: Computed<any>, sources: Computed<any>[]) {
-  let root = true;
-  let dep = node._deps;
-  while (dep !== null) {
-    const source = dep._dep;
-    if ((source as Computed<any>)._deps && (source as Computed<any>)._statusFlags & STATUS_ERROR) {
-      root = false;
-      collectErrorSources(source as any, sources);
-    }
-    dep = dep._nextDep;
-  }
-  root && sources.push(node);
-}
-
 export function createErrorBoundary<U>(
   fn: () => any,
   fallback: (error: unknown, reset: () => void) => U
 ) {
   return createCollectionBoundary(STATUS_ERROR, fn, queue => {
-    let node = queue._nodes!.values().next().value!;
-    return fallback(node._error, () => {
-      const sources: Computed<any>[] = [];
-      for (const node of queue._nodes) collectErrorSources(node as any, sources);
-      for (const source of sources) recompute(source);
+    let source = queue._sources!.values().next().value!;
+    // Get the original error from StatusError if wrapped
+    const error = (source._error as StatusError)?.cause ?? source._error;
+    return fallback(error, () => {
+      for (const source of queue._sources) recompute(source);
       schedule();
     });
   });

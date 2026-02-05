@@ -1,6 +1,14 @@
 export class NotReadyError extends Error {
-  constructor(public cause: any) {
+  constructor(public _source: any) {
     super();
+  }
+}
+
+export class StatusError extends Error {
+  constructor(public _source: any, original: any) {
+    super(original instanceof Error ? original.message : String(original), {
+      cause: original
+    });
   }
 }
 

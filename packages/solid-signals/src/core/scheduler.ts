@@ -208,9 +208,9 @@ export class GlobalQueue extends Queue {
         if (
           activeTransition &&
           node._error &&
-          !activeTransition.asyncNodes.includes((node._error as NotReadyError).cause)
+          !activeTransition.asyncNodes.includes((node._error as NotReadyError)._source)
         ) {
-          activeTransition.asyncNodes.push((node._error as NotReadyError).cause);
+          activeTransition.asyncNodes.push((node._error as NotReadyError)._source);
           schedule();
         }
       }
@@ -289,6 +289,7 @@ export function finalizePureQueue(
   // For incomplete transitions, skip pending resolution and optimistic reversion
   // For completing transitions or no-transition, resolve pending and revert optimistic
   let resolvePending = !incomplete;
+  checkBoundaryChildren(globalQueue);
   if (dirtyQueue._max >= dirtyQueue._min) {
     runHeap(dirtyQueue, GlobalQueue._update);
   }
@@ -336,6 +337,13 @@ export function finalizePureQueue(
       // Schedule another flush to process any dirty computeds (like projections)
       schedule();
     }
+  }
+}
+
+function checkBoundaryChildren(queue: Queue) {
+  for (const child of queue._children) {
+    (child as any).checkSources?.();
+    checkBoundaryChildren(child as Queue);
   }
 }
 

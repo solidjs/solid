@@ -1,6 +1,7 @@
 import {
   $REFRESH,
   defaultContext,
+  EFFECT_TRACKED,
   NOT_PENDING,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
@@ -15,7 +16,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { NotReadyError } from "./error.js";
+import { NotReadyError, StatusError } from "./error.js";
 import {
   deleteFromHeap,
   insertIntoHeap,
@@ -137,7 +138,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
     deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-    if (el._transition) disposeChildren(el);
+    // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
+    if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
     else {
       markDisposal(el);
       el._pendingDisposal = el._disposal;
@@ -167,10 +169,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     value = handleAsync(el, el._fn(value));
     clearStatus(el);
   } catch (e) {
-    if (e instanceof NotReadyError) {
-      if (e.cause !== el) link(e.cause, el);
-      notifyStatus(el, STATUS_PENDING, e);
-    } else notifyStatus(el, STATUS_ERROR, e as Error);
+    notifyStatus(el, e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR, e);
   } finally {
     tracking = prevTracking;
     el._flags = REACTIVE_NONE;
@@ -237,10 +236,7 @@ export function handleAsync<T>(
     if (el._inFlight !== result) return;
     globalQueue.initTransition(el._transition);
     // NotReadyError from rejected promises should be treated as pending, not error
-    if (error instanceof NotReadyError) {
-      if (error.cause !== el) link(error.cause, el);
-      notifyStatus(el, STATUS_PENDING, error);
-    } else notifyStatus(el, STATUS_ERROR, error as Error);
+    notifyStatus(el, error instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR, error);
     el._time = clock;
   };
 
@@ -257,8 +253,8 @@ export function handleAsync<T>(
         insertSubs(el);
       }
       el._time = clock;
-      schedule();
     } else setSignal(el, () => value);
+    schedule();
     flush();
     then?.();
   };
@@ -327,27 +323,20 @@ function clearStatus(el: Computed<any>): void {
   el._error = null;
   // Update pending signal for isPending() reactivity
   updatePendingSignal(el);
-  if (el._notifyStatus) {
-    el._notifyStatus();
-  } else {
-    if (!el._transition) {
-      // No transition coordination - force recompute so pending subscribers
-      // can re-evaluate all their dependencies (handles multi-source case)
-      for (let s = el._subs; s !== null; s = s._nextSub) {
-        if (s._sub._statusFlags & STATUS_PENDING) {
-          insertIntoHeap(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-        }
-      }
-    }
-    // Always schedule so transition can complete
-    schedule();
-  }
+  el._notifyStatus?.();
 }
 
 function notifyStatus(el: Computed<any>, status: number, error: any): void {
+  // Wrap regular errors to track source node
+  if (
+    status === STATUS_ERROR &&
+    !(error instanceof StatusError) &&
+    !(error instanceof NotReadyError)
+  )
+    error = new StatusError(el, error);
   // Preserve UNINITIALIZED only for PENDING, not for ERROR
   // An error is a form of completion - the error UI is "stale" content when retrying
-  el._statusFlags = status | (status !== STATUS_ERROR ? (el._statusFlags & STATUS_UNINITIALIZED) : 0);
+  el._statusFlags = status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
   el._error = error;
   // Update pending signal for isPending() reactivity
   updatePendingSignal(el);
@@ -388,7 +377,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
     }
   }
 
-  if (el._flags & REACTIVE_DIRTY) {
+  if (el._flags & REACTIVE_DIRTY || el._error && el._time < clock) {
     recompute(el);
   }
 
@@ -790,9 +779,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !optimisticReadActive && // Don't throw when reading optimistically - return committed value
     asyncCompute._statusFlags & STATUS_PENDING &&
     !(stale && asyncCompute._transition && activeTransition !== asyncCompute._transition)
-  )
+  ) {
+    if (!tracking) link(el, c as Computed<any>);
     throw asyncCompute._error;
-
+  }
   if ((el as Computed<any>)._fn && (el as Computed<any>)._statusFlags & STATUS_ERROR) {
     if (el._time < clock) {
       // treat error reset like create
@@ -833,23 +823,23 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   if (isOptimistic) {
     const alreadyTracked = globalQueue._optimisticNodes.includes(el);
-    
+
     // Only entangle if there was a previous optimistic write (node already tracked)
     // This prevents entangling just because _transition was set from being a pending node
     if (el._transition && alreadyTracked) {
       globalQueue.initTransition(el._transition);
     }
-    
+
     // Save original only if not already saved (signals need this, computeds have pending from recompute)
     if (el._pendingValue === NOT_PENDING) {
       el._pendingValue = el._value;
     }
-    
+
     // Always ensure we're in the list for reversion
     if (!alreadyTracked) {
       globalQueue._optimisticNodes.push(el);
     }
-    
+
     el._value = v;
   } else {
     if (el._pendingValue === NOT_PENDING) globalQueue._pendingNodes.push(el);
