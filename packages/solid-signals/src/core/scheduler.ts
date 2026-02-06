@@ -28,11 +28,102 @@ export const zombieQueue: Heap = {
 export let clock = 0;
 export let activeTransition: Transition | null = null;
 let scheduled = false;
-export let optimisticReadActive = false;
 export let projectionWriteActive = false;
 
-export function setOptimisticReadActive(value: boolean) {
-  optimisticReadActive = value;
+// ============================================================================
+// Per-Override Optimistic Lane Architecture
+// ============================================================================
+
+/**
+ * OptimisticLane represents the context for a single optimistic write.
+ * Each optimistic signal creates its own lane. Lanes merge when their
+ * dependency graphs overlap.
+ */
+export interface OptimisticLane {
+  source: Signal<any>; // The optimistic signal that created this lane
+  pendingAsync: Set<Computed<any>>; // Async nodes triggered by this lane
+  effectQueues: [QueueCallback[], QueueCallback[]]; // [render, user] effects for this lane
+  mergedInto: OptimisticLane | null; // Union-find: points to merged lane, or null if root
+}
+
+// Map from optimistic signal to its lane (reused for multiple writes to same signal)
+const signalLanes = new WeakMap<Signal<any>, OptimisticLane>();
+
+// All active lanes (for cleanup on transition completion)
+export const activeLanes = new Set<OptimisticLane>();
+
+// Current lane context during recomputation
+export let currentOptimisticLane: OptimisticLane | null = null;
+
+export function setCurrentOptimisticLane(lane: OptimisticLane | null): void {
+  currentOptimisticLane = lane;
+}
+
+/**
+ * Get an existing lane for a signal or create a new one.
+ * Reuses lane for multiple writes to the same signal.
+ */
+export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
+  let lane = signalLanes.get(signal);
+  if (lane) {
+    // Return the root lane (follow mergedInto chain)
+    return findLane(lane);
+  }
+
+  // Create new lane
+  lane = {
+    source: signal,
+    pendingAsync: new Set(),
+    effectQueues: [[], []],
+    mergedInto: null
+  };
+  signalLanes.set(signal, lane);
+  activeLanes.add(lane);
+  return lane;
+}
+
+/**
+ * Union-find: find the root lane.
+ */
+export function findLane(lane: OptimisticLane): OptimisticLane {
+  while (lane.mergedInto) lane = lane.mergedInto;
+  return lane;
+}
+
+/**
+ * Merge two lanes when their dependency graphs overlap.
+ */
+export function mergeLanes(lane1: OptimisticLane, lane2: OptimisticLane): OptimisticLane {
+  lane1 = findLane(lane1);
+  lane2 = findLane(lane2);
+  if (lane1 === lane2) return lane1;
+
+  lane2.mergedInto = lane1;
+  for (const node of lane2.pendingAsync) lane1.pendingAsync.add(node);
+  lane1.effectQueues[0].push(...lane2.effectQueues[0]);
+  lane1.effectQueues[1].push(...lane2.effectQueues[1]);
+  activeLanes.delete(lane2);
+
+  return lane1;
+}
+
+
+/**
+ * Run effects from all lanes that are ready (no pending async).
+ */
+function runLaneEffects(type: number): void {
+  const processSet = (lanes: Set<OptimisticLane>) => {
+    for (const lane of lanes) {
+      if (lane.mergedInto || lane.pendingAsync.size > 0) continue;
+      const effects = lane.effectQueues[type - 1];
+      if (effects.length) {
+        lane.effectQueues[type - 1] = [];
+        runQueue(effects, type);
+      }
+    }
+  };
+  processSet(activeLanes);
+  if (activeTransition) processSet(activeTransition.lanes);
 }
 
 export function setProjectionWriteActive(value: boolean) {
@@ -48,7 +139,8 @@ export interface Transition {
   time: number;
   asyncNodes: Computed<any>[];
   pendingNodes: Signal<any>[];
-  optimisticNodes: Signal<any>[];
+  optimisticNodes: Signal<any>[]; // Legacy - will be removed after migration
+  lanes: Set<OptimisticLane>; // Per-override lanes owned by this transition
   optimisticStores: Set<any>;
   actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
   queueStash: QueueStub;
@@ -67,7 +159,7 @@ export interface IQueue {
   addChild(child: IQueue): void;
   removeChild(child: IQueue): void;
   created: number;
-  notify(node: Computed<any>, mask: number, flags: number): boolean;
+  notify(node: Computed<any>, mask: number, flags: number, error?: any): boolean;
   stashQueues(stub: QueueStub): void;
   restoreQueues(stub: QueueStub): void;
   _parent: IQueue | null;
@@ -76,7 +168,6 @@ export interface IQueue {
 export class Queue implements IQueue {
   _parent: IQueue | null = null;
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
-  _optimisticQueues: [QueueCallback[], QueueCallback[]] = [[], []];
   _children: IQueue[] = [];
   created = clock;
   addChild(child: IQueue) {
@@ -90,31 +181,32 @@ export class Queue implements IQueue {
       child._parent = null;
     }
   }
-  notify(node: Computed<any>, mask: number, flags: number): boolean {
-    if (this._parent) return this._parent.notify(node, mask, flags);
+  notify(node: Computed<any>, mask: number, flags: number, error?: any): boolean {
+    if (this._parent) return this._parent.notify(node, mask, flags, error);
     return false;
   }
-  private _runQueue(type: number, queues: QueueCallback[][], method: "run" | "runOptimistic") {
-    if (queues[type - 1].length) {
-      const effects = queues[type - 1];
-      queues[type - 1] = [];
+  private _runQueue(type: number) {
+    if (this._queues[type - 1].length) {
+      const effects = this._queues[type - 1];
+      this._queues[type - 1] = [];
       runQueue(effects, type);
     }
     for (let i = 0; i < this._children.length; i++) {
-      (this._children[i] as any)[method]?.(type);
+      (this._children[i] as any).run?.(type);
     }
   }
   run(type: number) {
-    this._runQueue(type, this._queues, "run");
-  }
-  runOptimistic(type: number) {
-    this._runQueue(type, this._optimisticQueues, "runOptimistic");
+    this._runQueue(type);
   }
   enqueue(type: number, fn: QueueCallback): void {
     if (type) {
-      // Route to optimistic queue if we're in an optimistic recomputation
-      const queue = optimisticReadActive ? this._optimisticQueues : this._queues;
-      queue[type - 1].push(fn);
+      // Route to lane's effect queue if we're in an optimistic recomputation
+      if (currentOptimisticLane) {
+        const lane = findLane(currentOptimisticLane);
+        lane.effectQueues[type - 1].push(fn);
+      } else {
+        this._queues[type - 1].push(fn);
+      }
     }
     schedule();
   }
@@ -165,9 +257,9 @@ export class GlobalQueue extends Queue {
           this._optimisticNodes = [];
           this._optimisticStores = new Set();
 
-          // Run optimistic effects immediately (before stashing)
-          this.runOptimistic(EFFECT_RENDER);
-          this.runOptimistic(EFFECT_USER);
+          // Run lane effects immediately (before stashing) - lanes with no pending async
+          runLaneEffects(EFFECT_RENDER);
+          runLaneEffects(EFFECT_USER);
 
           this.stashQueues(activeTransition!.queueStash);
           clock++;
@@ -192,25 +284,27 @@ export class GlobalQueue extends Queue {
       clock++;
       // Check if finalization added items to the heap (from optimistic reversion)
       scheduled = dirtyQueue._max >= dirtyQueue._min;
-      // Run both optimistic and regular effects
-      this.runOptimistic(EFFECT_RENDER);
+      // Run lane effects first (for ready lanes), then regular effects
+      runLaneEffects(EFFECT_RENDER);
       this.run(EFFECT_RENDER);
-      this.runOptimistic(EFFECT_USER);
+      runLaneEffects(EFFECT_USER);
       this.run(EFFECT_USER);
     } finally {
       this._running = false;
     }
   }
-  notify(node: Computed<any>, mask: number, flags: number): boolean {
+  notify(node: Computed<any>, mask: number, flags: number, error?: any): boolean {
     // Only track async if the boundary is propagating STATUS_PENDING (not caught by boundary)
     if (mask & STATUS_PENDING) {
       if (flags & STATUS_PENDING) {
+        // Use passed error if provided (for blocked notifications), otherwise node's own
+        const actualError = error !== undefined ? error : node._error;
         if (
           activeTransition &&
-          node._error &&
-          !activeTransition.asyncNodes.includes((node._error as NotReadyError)._source)
+          actualError &&
+          !activeTransition.asyncNodes.includes((actualError as NotReadyError)._source)
         ) {
-          activeTransition.asyncNodes.push((node._error as NotReadyError)._source);
+          activeTransition.asyncNodes.push((actualError as NotReadyError)._source);
           schedule();
         }
       }
@@ -228,6 +322,7 @@ export class GlobalQueue extends Queue {
         pendingNodes: [],
         asyncNodes: [],
         optimisticNodes: [],
+        lanes: new Set(),
         optimisticStores: new Set(),
         actions: [],
         queueStash: { _queues: [[], []], _children: [] },
@@ -254,6 +349,11 @@ export class GlobalQueue extends Queue {
       activeTransition.optimisticNodes.push(node);
     }
     this._optimisticNodes = activeTransition.optimisticNodes;
+    // Move active (orphan) lanes to transition
+    for (const lane of activeLanes) {
+      activeTransition.lanes.add(lane);
+    }
+    activeLanes.clear(); // Lanes are now owned by the transition
     // Move optimistic stores to transition
     for (const store of this._optimisticStores) {
       activeTransition.optimisticStores.add(store);
@@ -263,8 +363,31 @@ export class GlobalQueue extends Queue {
 }
 
 export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolean = false): void {
+  // Get source lane: prefer node's own lane over current context
+  // This is important for isPending signals which need their own lane to flush immediately
+  const sourceLane = (node as any)._optimisticLane || currentOptimisticLane;
+  
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    if (optimistic) s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+    if (optimistic && sourceLane) {
+      s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+      // Propagate lane to subscriber (for lane-aware effect routing)
+      const subLane = (s._sub as any)._optimisticLane;
+      if (subLane) {
+        // Subscriber already has a lane - merge if different
+        const sourceRoot = findLane(sourceLane);
+        const subRoot = findLane(subLane);
+        if (sourceRoot !== subRoot) {
+          mergeLanes(sourceRoot, subRoot);
+        }
+      } else {
+        // Propagate source lane to subscriber
+        (s._sub as any)._optimisticLane = sourceLane;
+      }
+    } else if (optimistic) {
+      s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+      // No source lane means reversion - clear subscriber's lane so effects go to regular queue
+      (s._sub as any)._optimisticLane = undefined;
+    }
 
     // Tracked effects bypass heap, go directly to effect queue
     const sub = s._sub as any;
@@ -315,9 +438,13 @@ export function finalizePureQueue(
     for (let i = 0; i < optimisticNodes.length; i++) {
       const n = optimisticNodes[i];
       const original = n._pendingValue;
+      // Clear lane association before reversion so effects go to regular queue
+      n._optimisticLane = undefined;
       // Revert to the saved value
       if (original !== NOT_PENDING && n._value !== original) {
         n._value = original as any;
+        // Use optimistic=true for immediate effect execution, but lane is cleared
+        // so effects will go to regular queue (no currentOptimisticLane)
         insertSubs(n, true);
       }
       n._pendingValue = NOT_PENDING;
@@ -336,6 +463,40 @@ export function finalizePureQueue(
       optimisticStores.clear();
       // Schedule another flush to process any dirty computeds (like projections)
       schedule();
+    }
+
+    // Run lane effects BEFORE clearing lanes (so effects in lane queues get executed)
+    const lanes = completingTransition ? completingTransition.lanes : activeLanes;
+    for (const lane of lanes) {
+      if (lane.mergedInto) continue;
+      // Run render effects first, then user effects
+      if (lane.effectQueues[0].length) {
+        const effects = lane.effectQueues[0];
+        lane.effectQueues[0] = [];
+        runQueue(effects, EFFECT_RENDER);
+      }
+      if (lane.effectQueues[1].length) {
+        const effects = lane.effectQueues[1];
+        lane.effectQueues[1] = [];
+        runQueue(effects, EFFECT_USER);
+      }
+    }
+
+    // Now clear lanes
+    for (const lane of lanes) {
+      // Clear the lane's _optimisticLane reference from its source
+      if (lane.source._optimisticLane === lane) {
+        lane.source._optimisticLane = undefined;
+      }
+      // Inline clearLane
+      lane.pendingAsync.clear();
+      lane.effectQueues[0].length = 0;
+      lane.effectQueues[1].length = 0;
+      activeLanes.delete(lane);
+      signalLanes.delete(lane.source);
+    }
+    if (completingTransition) {
+      completingTransition.lanes.clear();
     }
   }
 }

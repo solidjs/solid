@@ -7,7 +7,8 @@ import {
   createSignal,
   flush,
   isPending,
-  pending
+  pending,
+  refresh
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -777,6 +778,1272 @@ describe("createOptimistic", () => {
       expect($data!()).toBe(20); // computed: 2 * 10 = 20, not 999
       expect($id()).toBe(2); // committed
       expect(isPending($data!)).toBe(false);
+    });
+  });
+
+  describe("per-lane optimistic architecture", () => {
+    it("independent optimistic writes create separate lanes", () => {
+      // Two independent optimistic signals should have separate effect tracking
+      const [a, setA] = createOptimistic(1);
+      const [b, setB] = createOptimistic(10);
+
+      const aEffects: number[] = [];
+      const bEffects: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => a(),
+          v => { aEffects.push(v); }
+        );
+        createRenderEffect(
+          () => b(),
+          v => { bEffects.push(v); }
+        );
+      });
+
+      flush();
+      expect(aEffects).toEqual([1]);
+      expect(bEffects).toEqual([10]);
+
+      // Write to a - should only trigger a's effect
+      setA(2);
+      flush();
+      expect(aEffects).toEqual([1, 2, 1]); // optimistic then revert
+      expect(bEffects).toEqual([10]); // unchanged
+
+      // Write to b - should only trigger b's effect
+      setB(20);
+      flush();
+      expect(aEffects).toEqual([1, 2, 1]); // unchanged
+      expect(bEffects).toEqual([10, 20, 10]); // optimistic then revert
+    });
+
+    it("lanes merge when computed depends on multiple optimistic sources", () => {
+      // When a computed reads from two optimistic signals, their lanes merge
+      const [a, setA] = createOptimistic(1);
+      const [b, setB] = createOptimistic(10);
+
+      const sumEffects: number[] = [];
+      let sum: () => number;
+
+      createRoot(() => {
+        sum = createMemo(() => a() + b());
+        createRenderEffect(
+          () => sum(),
+          v => { sumEffects.push(v); }
+        );
+      });
+
+      flush();
+      expect(sum!()).toBe(11);
+      expect(sumEffects).toEqual([11]);
+
+      // Write to both - should merge into single lane
+      setA(2);
+      setB(20);
+      flush();
+
+      // Both writes revert together as one lane
+      expect(sum!()).toBe(11); // back to original
+      expect(sumEffects).toEqual([11, 22, 11]); // combined optimistic then revert
+    });
+
+    it("concurrent optimistic writes in same action share a lane", async () => {
+      const [value, setValue] = createOptimistic(0);
+      const effects: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => value(),
+          v => { effects.push(v); }
+        );
+      });
+
+      flush();
+      expect(effects).toEqual([0]);
+
+      // Action with multiple optimistic writes
+      const myAction = action(function* () {
+        setValue(1);
+        yield Promise.resolve();
+        setValue(2);
+        yield Promise.resolve();
+      });
+
+      await myAction();
+      flush();
+
+      // All writes in the action should be in the same lane/transition
+      // Final value should be committed after action completes
+      expect(value()).toBe(0); // reverted after transition
+    });
+
+    it("optimistic effect runs before regular effect on same node", () => {
+      const [value, setValue] = createOptimistic(0);
+      const callOrder: string[] = [];
+
+      createRoot(() => {
+        // Regular effect
+        createRenderEffect(
+          () => value(),
+          () => { callOrder.push("regular"); }
+        );
+      });
+
+      flush();
+      expect(callOrder).toEqual(["regular"]);
+
+      // Optimistic write should trigger effect immediately (before commit)
+      setValue(1);
+      flush();
+
+      // Effect runs twice: once for optimistic value, once for reversion
+      expect(callOrder).toEqual(["regular", "regular", "regular"]);
+    });
+
+    it("nested optimistic computeds propagate through single lane", () => {
+      const [source, setSource] = createOptimistic(1);
+      const effects: number[] = [];
+
+      let doubled: () => number;
+      let quadrupled: () => number;
+
+      createRoot(() => {
+        doubled = createMemo(() => source() * 2);
+        quadrupled = createMemo(() => doubled() * 2);
+
+        createRenderEffect(
+          () => quadrupled(),
+          v => { effects.push(v); }
+        );
+      });
+
+      flush();
+      expect(quadrupled!()).toBe(4);
+      expect(effects).toEqual([4]);
+
+      // Single optimistic write propagates through chain
+      setSource(10);
+      flush();
+
+      expect(quadrupled!()).toBe(4); // reverted
+      expect(effects).toEqual([4, 40, 4]); // optimistic: 10*2*2=40, then revert to 4
+    });
+
+    it("lane effects run even when transition is stashed", async () => {
+      let resolveAsync: () => void;
+      const asyncSignal = createMemo(() => {
+        return new Promise<number>(res => {
+          resolveAsync = () => res(42);
+        });
+      });
+
+      const [optimistic, setOptimistic] = createOptimistic(0);
+      const effects: number[] = [];
+
+      createRoot(() => {
+        // This creates a transition due to async
+        createRenderEffect(
+          () => asyncSignal(),
+          () => {}
+        );
+        // Optimistic effect should still run
+        createRenderEffect(
+          () => optimistic(),
+          v => { effects.push(v); }
+        );
+      });
+
+      flush();
+      expect(effects).toEqual([0]);
+
+      // Optimistic write during pending transition
+      setOptimistic(1);
+      flush();
+
+      // Lane effect should run even though transition is stashed
+      expect(effects).toEqual([0, 1, 0]); // optimistic then revert
+
+      // Resolve async to complete transition
+      resolveAsync!();
+      await Promise.resolve();
+      flush();
+    });
+
+    it("lane reuses existing lane for same signal", () => {
+      // Multiple writes to the same optimistic signal should use the same lane
+      const [value, setValue] = createOptimistic(0);
+      const effects: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => value(),
+          v => { effects.push(v); }
+        );
+      });
+
+      flush();
+      expect(effects).toEqual([0]);
+
+      // First write
+      setValue(1);
+      // Second write before flush - should update same lane
+      setValue(2);
+      flush();
+
+      // Should see final optimistic value, then revert
+      expect(effects).toEqual([0, 2, 0]);
+    });
+
+    it("cross-lane reads return committed value during optimistic context", async () => {
+      // When in one optimistic lane, reading from another lane's pending async
+      // should return the committed value (not throw)
+      let resolveLaneA: (v: number) => void;
+
+      const [sourceA, setSourceA] = createOptimistic(1);
+      const [sourceB, setSourceB] = createOptimistic(10);
+
+      let asyncA: () => number;
+      const effectValues: Array<{ a: number; b: number }> = [];
+
+      createRoot(() => {
+        // Async computed in "lane A" context
+        asyncA = createMemo(() => {
+          const v = sourceA();
+          return new Promise<number>(res => {
+            resolveLaneA = () => res(v * 2);
+          });
+        });
+
+        // Effect that reads from both async and another optimistic signal
+        createRenderEffect(
+          () => ({ a: sourceA(), b: sourceB() }),
+          v => { effectValues.push(v); }
+        );
+
+        // Subscribe to async to trigger it
+        createRenderEffect(asyncA, () => {});
+      });
+
+      flush();
+      expect(effectValues).toEqual([{ a: 1, b: 10 }]);
+
+      // Write to sourceB (creates separate lane)
+      // Since asyncA is pending in a different lane, sourceB's effect should still run
+      setSourceB(20);
+      flush();
+
+      // Effect should see optimistic B value
+      expect(effectValues).toEqual([
+        { a: 1, b: 10 },
+        { a: 1, b: 20 },
+        { a: 1, b: 10 }  // revert
+      ]);
+
+      // Resolve async
+      resolveLaneA!(2);
+      await Promise.resolve();
+      flush();
+    });
+  });
+
+  describe("async chain: signal -> async memo -> optimistic -> async memo -> effect", () => {
+    // Helper to create the test setup
+    // Chain: source -> firstAsync (source * 10) -> optimistic -> secondAsync (passthrough) -> effect
+    function createAsyncChain() {
+      // Source signal
+      const [source, setSource] = createSignal(1);
+
+      // First async memo: source * 10
+      let resolveFirst: (() => void) | null = null;
+      let firstAsyncValue = 0;
+      const firstAsync = createMemo(() => {
+        const v = source();
+        firstAsyncValue = v * 10;
+        return new Promise<number>(res => {
+          resolveFirst = () => res(firstAsyncValue);
+        });
+      });
+
+      // Optimistic node wrapping first async
+      const [optimistic, setOptimistic] = createOptimistic(() => firstAsync());
+
+      // Second async memo: passthrough (simulates async data transformation)
+      let resolveSecond: (() => void) | null = null;
+      let secondAsyncValue = 0;
+      const secondAsync = createMemo(() => {
+        const v = optimistic();
+        secondAsyncValue = v; // Just pass through the value
+        return new Promise<number>(res => {
+          resolveSecond = () => res(secondAsyncValue);
+        });
+      });
+
+      const effectValues: number[] = [];
+
+      return {
+        source,
+        setSource,
+        firstAsync,
+        resolveFirst: () => resolveFirst?.(),
+        optimistic,
+        setOptimistic,
+        secondAsync,
+        resolveSecond: () => resolveSecond?.(),
+        effectValues,
+        setup: () => {
+          createRenderEffect(secondAsync, v => { effectValues.push(v); });
+        }
+      };
+    }
+
+    it("first async resolves first, optimistic value matches computed result", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+      // Both asyncs pending, no effect values yet
+      expect(chain.effectValues).toEqual([]);
+
+      // Resolve first async (gives 10)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // First resolved, second still pending
+      expect(chain.effectValues).toEqual([]);
+
+      // Resolve second async (gives 10, passthrough)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Chain complete: 1 * 10 = 10
+      expect(chain.effectValues).toEqual([10]);
+      expect(chain.secondAsync()).toBe(10);
+
+      // Now: same-tick update of source AND optimistic override
+      // Source: 1 -> 2, expected chain result: 2 * 10 = 20
+      chain.setSource(2);
+      chain.setOptimistic(20); // Correct guess!
+      flush();
+
+      // Effect hasn't fired yet - secondAsync needs to resolve with optimistic input
+      expect(chain.optimistic()).toBe(20);
+      expect(chain.effectValues).toEqual([10]);
+
+      // Resolve second async first (lane becomes ready!)
+      // The optimistic lane can flush BEFORE firstAsync resolves
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Lane flushed with optimistic value, even though firstAsync still pending
+      expect(chain.effectValues).toEqual([10, 20]);
+      expect(isPending(chain.firstAsync)).toBe(true); // first still pending!
+
+      // Now resolve first async (gives 20)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the new second async (gives 20 - matches optimistic!)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Optimistic was correct, value stays 20
+      expect(chain.secondAsync()).toBe(20);
+      expect(chain.optimistic()).toBe(20);
+      // No additional effect since value matched
+      expect(chain.effectValues).toEqual([10, 20]);
+    });
+
+    it("first async resolves first, optimistic value does NOT match computed result", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+
+      // Resolve initial chain
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+
+      // Same-tick update with WRONG optimistic guess
+      chain.setSource(2);
+      chain.setOptimistic(999); // Wrong guess! (correct would be 20)
+      flush();
+
+      // Optimistic set but effect hasn't fired - secondAsync still pending
+      expect(chain.optimistic()).toBe(999);
+      expect(chain.effectValues).toEqual([10]);
+
+      // Resolve second async (lane ready, flushes with optimistic value 999)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Effect sees optimistic value, firstAsync still pending
+      expect(chain.effectValues).toEqual([10, 999]);
+      expect(isPending(chain.firstAsync)).toBe(true);
+
+      // Resolve first async (gives 20)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the new second async (gives 20 - doesn't match 999!)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Auto-correction: optimistic reverts to computed value
+      expect(chain.secondAsync()).toBe(20);
+      expect(chain.optimistic()).toBe(20);
+      // Effect sees correction
+      expect(chain.effectValues).toEqual([10, 999, 20]);
+    });
+
+    it("second async resolves first, optimistic value matches", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+
+      // Resolve initial chain
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+
+      // Same-tick update
+      chain.setSource(2);
+      chain.setOptimistic(20); // Correct guess
+      flush();
+
+      // Effect hasn't fired yet - secondAsync pending
+      expect(chain.effectValues).toEqual([10]);
+
+      // Resolve second async (lane ready!)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Lane flushed, effect sees optimistic value
+      expect(chain.effectValues).toEqual([10, 20]);
+      expect(chain.optimistic()).toBe(20);
+      expect(isPending(chain.firstAsync)).toBe(true); // first still pending
+
+      // Now resolve first
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the new second async (gives 20 - matches!)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Both resolved, optimistic was correct - no additional effect
+      expect(chain.secondAsync()).toBe(20);
+      expect(chain.effectValues).toEqual([10, 20]);
+    });
+
+    it("second async resolves first, optimistic value does NOT match", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+
+      // Resolve initial chain
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+
+      // Same-tick update with wrong guess
+      chain.setSource(2);
+      chain.setOptimistic(999); // Wrong!
+      flush();
+
+      // Effect hasn't fired - secondAsync pending
+      expect(chain.effectValues).toEqual([10]);
+
+      // Resolve second async (lane ready with optimistic value)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Lane flushed with optimistic value 999
+      expect(chain.effectValues).toEqual([10, 999]);
+      expect(isPending(chain.firstAsync)).toBe(true);
+
+      // Now resolve first
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the new second async (gives 20 - doesn't match 999!)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Auto-correction happens
+      expect(chain.secondAsync()).toBe(20);
+      expect(chain.effectValues).toEqual([10, 999, 20]);
+    });
+
+    it("only first async resolves, second stays pending", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+
+      // Resolve initial chain
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+
+      // Same-tick update
+      chain.setSource(2);
+      chain.setOptimistic(20);
+      flush();
+
+      // Effect hasn't fired - secondAsync pending
+      expect(chain.effectValues).toEqual([10]);
+
+      // Only resolve first async (not second)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // First resolved, but the lane's secondAsync still pending
+      // Optimistic is set but lane hasn't flushed yet
+      expect(chain.optimistic()).toBe(20);
+      expect(isPending(chain.secondAsync)).toBe(true);
+      expect(chain.effectValues).toEqual([10]);
+
+      // Now resolve second - lane becomes ready
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Lane flushed with optimistic value
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      // Resolve the new second async from upstream resolution
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.secondAsync()).toBe(20);
+      expect(isPending(chain.secondAsync)).toBe(false);
+    });
+
+    it("multiple user actions before any async resolves", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+
+      // Resolve initial chain
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+
+      // First user action
+      chain.setSource(2);
+      chain.setOptimistic(20);
+      flush();
+
+      // Effect hasn't fired - secondAsync pending
+      expect(chain.effectValues).toEqual([10]);
+
+      // Resolve second async - lane ready with first optimistic value
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      // Second user action before first async resolves
+      chain.setSource(3);
+      chain.setOptimistic(30); // Guess for 3 * 10
+      flush();
+
+      // Effect hasn't updated yet - new secondAsync pending
+      expect(chain.optimistic()).toBe(30);
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      // Resolve second async - lane ready with new optimistic value
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10, 20, 30]);
+
+      // Resolve first async
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the final second async (gives 30 - matches!)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Final value: 3 * 10 = 30 (matches optimistic)
+      expect(chain.secondAsync()).toBe(30);
+      expect(chain.effectValues).toEqual([10, 20, 30]);
+    });
+  });
+
+  describe("async chain with isPending (nested lanes)", () => {
+    // Same chain structure but with an additional isPending effect
+    // This tests nested lanes since isPending creates an optimistic computed
+    // Chain: source -> firstAsync -> optimistic -> secondAsync -> effect
+    //                                    |
+    //                                    +-> isPending -> effect (nested lane)
+    function createAsyncChainWithPending() {
+      // Source signal
+      const [source, setSource] = createSignal(1);
+
+      // First async memo: source * 10
+      let resolveFirst: (() => void) | null = null;
+      let firstAsyncValue = 0;
+      const firstAsync = createMemo(() => {
+        const v = source();
+        firstAsyncValue = v * 10;
+        return new Promise<number>(res => {
+          resolveFirst = () => res(firstAsyncValue);
+        });
+      });
+
+      // Optimistic node wrapping first async
+      const [optimistic, setOptimistic] = createOptimistic(() => firstAsync());
+
+      // Second async memo: passthrough
+      let resolveSecond: (() => void) | null = null;
+      let secondAsyncValue = 0;
+      const secondAsync = createMemo(() => {
+        const v = optimistic();
+        secondAsyncValue = v;
+        return new Promise<number>(res => {
+          resolveSecond = () => res(secondAsyncValue);
+        });
+      });
+
+      const effectValues: number[] = [];
+      const pendingValues: boolean[] = [];
+
+      return {
+        source,
+        setSource,
+        firstAsync,
+        resolveFirst: () => resolveFirst?.(),
+        optimistic,
+        setOptimistic,
+        secondAsync,
+        resolveSecond: () => resolveSecond?.(),
+        effectValues,
+        pendingValues,
+        setup: () => {
+          // Main effect on secondAsync
+          createRenderEffect(secondAsync, v => { effectValues.push(v); });
+          // Additional effect on isPending(optimistic) - creates nested lane
+          createRenderEffect(() => isPending(optimistic), v => { pendingValues.push(v); });
+        }
+      };
+    }
+
+    it("isPending tracks optimistic node state alongside value effects", async () => {
+      const chain = createAsyncChainWithPending();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+
+      // Initial: both asyncs pending, but isPending returns false for initial loads
+      // (no stale data to show yet)
+      expect(chain.effectValues).toEqual([]);
+      expect(chain.pendingValues).toEqual([false]); // Initial load - not "pending"
+
+      // Resolve first async (gives 10)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // First resolved, second still pending (but still initial load)
+      expect(chain.effectValues).toEqual([]);
+      expect(chain.pendingValues).toEqual([false]);
+
+      // Resolve second async
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Chain complete - now we have data
+      expect(chain.effectValues).toEqual([10]);
+      expect(chain.pendingValues).toEqual([false]); // No change, wasn't pending
+
+      // Same-tick update with optimistic
+      chain.setSource(2);
+      chain.setOptimistic(20);
+      flush();
+
+      // Optimistic is set - NOW we're pending (have stale data, loading new)
+      expect(chain.optimistic()).toBe(20);
+      expect(chain.pendingValues).toEqual([false, true]); // Now pending!
+
+      // Resolve second async (lane ready)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Lane flushed with optimistic value
+      expect(chain.effectValues).toEqual([10, 20]);
+      expect(isPending(chain.firstAsync)).toBe(true); // firstAsync still pending
+
+      // Resolve first async
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the new second async
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // All resolved, values match
+      expect(chain.effectValues).toEqual([10, 20]);
+      expect(chain.secondAsync()).toBe(20);
+      expect(chain.pendingValues).toEqual([false, true, false]); // Back to not pending
+    });
+
+    it("isPending shows optimistic pending state during mismatch correction", async () => {
+      const chain = createAsyncChainWithPending();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      flush();
+
+      // Initial resolution (isPending = false for initial loads)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+      expect(chain.pendingValues).toEqual([false]); // Initial load complete
+
+      // Same-tick update with WRONG optimistic guess
+      chain.setSource(2);
+      chain.setOptimistic(999); // Wrong!
+      flush();
+
+      expect(chain.pendingValues).toEqual([false, true]); // Now pending (have stale data)
+
+      // Resolve second async (lane flushes with wrong value)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10, 999]);
+
+      // Resolve first async (gives 20, triggers correction)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve corrected second async
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Corrected value
+      expect(chain.effectValues).toEqual([10, 999, 20]);
+      expect(chain.secondAsync()).toBe(20);
+      expect(chain.pendingValues).toEqual([false, true, false]); // Back to not pending
+    });
+
+    it("multiple isPending effects track independently", async () => {
+      const [source, setSource] = createSignal(1);
+
+      let resolveFirst: (() => void) | null = null;
+      const firstAsync = createMemo(() => {
+        const v = source();
+        return new Promise<number>(res => {
+          resolveFirst = () => res(v * 10);
+        });
+      });
+
+      const [optimistic, setOptimistic] = createOptimistic(() => firstAsync());
+
+      let resolveSecond: (() => void) | null = null;
+      const secondAsync = createMemo(() => {
+        const v = optimistic();
+        return new Promise<number>(res => {
+          resolveSecond = () => res(v);
+        });
+      });
+
+      const pendingOptimistic: boolean[] = [];
+      const pendingSecond: boolean[] = [];
+      const values: number[] = [];
+
+      createRoot(() => {
+        // Three separate effects - tests lane routing
+        createRenderEffect(() => isPending(optimistic), v => { pendingOptimistic.push(v); });
+        createRenderEffect(() => isPending(secondAsync), v => { pendingSecond.push(v); });
+        createRenderEffect(secondAsync, v => { values.push(v); });
+      });
+
+      flush();
+
+      // Initial load - isPending is false (no stale data yet)
+      expect(pendingOptimistic).toEqual([false]);
+      expect(pendingSecond).toEqual([false]);
+      expect(values).toEqual([]);
+
+      // Resolve first
+      resolveFirst!();
+      await Promise.resolve();
+      flush();
+
+      // optimistic resolved, secondAsync still initial loading
+      expect(pendingOptimistic).toEqual([false]);
+      expect(pendingSecond).toEqual([false]);
+
+      // Resolve second
+      resolveSecond!();
+      await Promise.resolve();
+      flush();
+
+      // Initial load complete
+      // Note: secondAsync may have intermediate pending states as it processes
+      expect(pendingOptimistic).toEqual([false]);
+      expect(pendingSecond.at(-1)).toBe(false); // Ends not pending
+      expect(values).toEqual([10]);
+
+      // Record the state before optimistic update
+      const pendingOptimisticBefore = pendingOptimistic.length;
+      const pendingSecondBefore = pendingSecond.length;
+
+      // Optimistic update - NOW we have stale data, so isPending = true
+      setSource(2);
+      setOptimistic(20);
+      flush();
+
+      // Both should go to pending (have stale data, loading new)
+      expect(pendingOptimistic.at(-1)).toBe(true);
+      expect(pendingSecond.at(-1)).toBe(true);
+
+      // Resolve second (lane flushes)
+      resolveSecond!();
+      await Promise.resolve();
+      flush();
+
+      expect(values).toEqual([10, 20]);
+      // secondAsync resolved in lane
+      expect(pendingSecond.at(-1)).toBe(false);
+      // optimistic still pending (firstAsync not resolved)
+      expect(pendingOptimistic.at(-1)).toBe(true);
+
+      // Resolve first
+      resolveFirst!();
+      await Promise.resolve();
+      flush();
+
+      // Resolve new second
+      resolveSecond!();
+      await Promise.resolve();
+      flush();
+
+      // Final state: not pending
+      expect(pendingOptimistic.at(-1)).toBe(false);
+      expect(values).toEqual([10, 20]);
+    });
+  });
+
+  describe("real-world pattern: userPreference -> optimistic -> categoryDetails", () => {
+    // This test mirrors a common real-world pattern:
+    // 
+    // userCategory (async) ─→ optimisticCategory ─┬─→ select value (effect)
+    //                                             │
+    //                                             └─→ categoryData (async) ─→ list (effect)
+    //                                                        │
+    //                                                        └─→ isPending (effect)
+    //
+    // Action pattern: setOptimistic → yield api.update → refresh(source)
+
+    it("action pattern: setOptimistic -> yield api -> refresh", async () => {
+      // Simulated database
+      let dbUserCategory = "News";
+      const categoryItems: Record<string, string[]> = {
+        "News": ["Daily Brief", "World Report"],
+        "Finance": ["Stock Ticker", "Market Analysis"],
+        "Sports": ["Live Scores", "Match Highlights"],
+      };
+
+      // API resolvers (simulating async API calls)
+      let resolveUserCategory: ((v: string) => void) | null = null;
+      let resolveUpdateCategory: (() => void) | null = null;
+      let resolveCategoryDetails: ((v: string[]) => void) | null = null;
+
+      // userCategory: async memo fetching user preference
+      const userCategory = createMemo(() => {
+        return new Promise<string>(res => {
+          resolveUserCategory = (v: string) => res(v);
+        });
+      });
+
+      // optimisticCategory: wraps userCategory
+      const [optimisticCategory, setOptimisticCategory] = createOptimistic(() => userCategory());
+
+      // categoryData: async memo that fetches details based on optimisticCategory
+      // This is like the CategoryDisplay component's internal memo
+      const categoryData = createMemo(() => {
+        optimisticCategory(); // Read to establish dependency
+        return new Promise<string[]>(res => {
+          resolveCategoryDetails = (items: string[]) => res(items);
+        });
+      });
+
+      // Track rendered values
+      const selectedValues: string[] = [];
+      const categoryDataValues: string[][] = [];
+      const pendingStates: boolean[] = [];
+
+      createRoot(() => {
+        // Effect for select value (like the select element binding)
+        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
+        // Effect for category data list
+        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+        // Effect for isPending state
+        createRenderEffect(() => isPending(categoryData), v => { pendingStates.push(v); });
+      });
+
+      flush();
+
+      // Initial state: everything pending (initial load)
+      expect(selectedValues).toEqual([]);
+      expect(categoryDataValues).toEqual([]);
+      expect(pendingStates).toEqual([false]); // Initial load, no stale data
+
+      // Resolve initial userCategory fetch
+      resolveUserCategory!(dbUserCategory); // "News"
+      await Promise.resolve();
+      flush();
+
+      // userCategory resolved, categoryData still loading
+      expect(selectedValues).toEqual([]);
+
+      // Resolve initial categoryData fetch
+      resolveCategoryDetails!(categoryItems["News"]);
+      await Promise.resolve();
+      flush();
+
+      // Initial load complete
+      expect(selectedValues).toEqual(["News"]);
+      expect(categoryDataValues).toEqual([["Daily Brief", "World Report"]]);
+      expect(pendingStates.at(-1)).toBe(false);
+
+      // === USER ACTION: Select "Finance" ===
+      // Use action() to keep transition open during the entire operation
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleSelect = action(function* (category: string) {
+        // Step 1: Set optimistic value immediately
+        setOptimisticCategory(category);
+        
+        // Step 2: Wait for API update (simulated async)
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        
+        // Step 3: Refresh source to get server-confirmed value
+        refresh(userCategory);
+      });
+
+      // Start the action (like user selecting "Finance")
+      handleSelect("Finance");
+      flush();
+
+      // Direct read shows optimistic value immediately
+      expect(optimisticCategory()).toBe("Finance");
+      // Lane effects wait for pendingAsync (categoryData) to resolve
+      expect(selectedValues).toEqual(["News"]); // Effect hasn't fired yet
+      
+      // CRITICAL: isPending should fire IMMEDIATELY when categoryData starts loading
+      // (isPending has its own lane that can flush without waiting for categoryData)
+      expect(pendingStates.at(-1)).toBe(true);
+
+      // categoryData resolves with Finance data (optimistic path)
+      resolveCategoryDetails!(categoryItems["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      // Lane effects fire with optimistic value
+      expect(optimisticCategory()).toBe("Finance");
+      expect(selectedValues.at(-1)).toBe("Finance");
+      expect(categoryDataValues).toEqual([
+        ["Daily Brief", "World Report"],
+        ["Stock Ticker", "Market Analysis"]
+      ]);
+
+      // Step 2 completes: API update done, server confirms "Finance"
+      dbUserCategory = "Finance";
+      resolveApiUpdate!();
+      await Promise.resolve();
+      flush();
+
+      // refresh(userCategory) was called - userCategory starts refetching
+      // Optimistic value should still show during refetch
+      expect(optimisticCategory()).toBe("Finance");
+
+      // CRITICAL: isPending should remain false - the optimistic override blocks
+      // the pending state from propagating. categoryData doesn't need to refetch
+      // because optimisticCategory still returns "Finance".
+      expect(pendingStates.at(-1)).toBe(false);
+
+      // Resolve the refreshed userCategory
+      resolveUserCategory!("Finance"); // Server confirms Finance
+      await Promise.resolve();
+      flush();
+
+      // categoryData also recomputes with new promise
+      resolveCategoryDetails!(categoryItems["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      // Everything resolved, optimistic matches actual
+      expect(optimisticCategory()).toBe("Finance");
+      expect(selectedValues.at(-1)).toBe("Finance");
+      expect(categoryDataValues.at(-1)).toEqual(["Stock Ticker", "Market Analysis"]);
+      // Final pending state should be false
+      expect(pendingStates.at(-1)).toBe(false);
+    });
+
+    it("action pattern with mismatch: server returns different value", async () => {
+      // Same setup but server returns a different value than optimistic guess
+      let dbUserCategory = "News";
+      const categoryItems: Record<string, string[]> = {
+        "News": ["Daily Brief", "World Report"],
+        "Finance": ["Stock Ticker", "Market Analysis"],
+        "Sports": ["Live Scores", "Match Highlights"],
+      };
+
+      let resolveUserCategory: ((v: string) => void) | null = null;
+      let resolveCategoryDetails: ((v: string[]) => void) | null = null;
+
+      const userCategory = createMemo(() => {
+        return new Promise<string>(res => {
+          resolveUserCategory = (v: string) => res(v);
+        });
+      });
+
+      const [optimisticCategory, setOptimisticCategory] = createOptimistic(() => userCategory());
+
+      const categoryData = createMemo(() => {
+        optimisticCategory(); // Read to establish dependency
+        return new Promise<string[]>(res => {
+          resolveCategoryDetails = (items: string[]) => res(items);
+        });
+      });
+
+      const selectedValues: string[] = [];
+      const categoryDataValues: string[][] = [];
+
+      createRoot(() => {
+        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
+        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+      });
+
+      flush();
+
+      // Initial load
+      resolveUserCategory!(dbUserCategory);
+      await Promise.resolve();
+      flush();
+      resolveCategoryDetails!(categoryItems["News"]);
+      await Promise.resolve();
+      flush();
+
+      expect(selectedValues).toEqual(["News"]);
+
+      // Without action: test correction like async chain tests
+      // User selects "Finance" optimistically
+      setOptimisticCategory("Finance");
+      flush();
+
+      // Direct read shows optimistic value
+      expect(optimisticCategory()).toBe("Finance");
+      // Lane effects wait for async
+      expect(selectedValues).toEqual(["News"]);
+
+      // Resolve optimistic categoryData (lane becomes ready)
+      resolveCategoryDetails!(categoryItems["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      // Lane effects fire with optimistic value
+      expect(selectedValues.at(-1)).toBe("Finance");
+      expect(categoryDataValues).toEqual([
+        ["Daily Brief", "World Report"],
+        ["Stock Ticker", "Market Analysis"]
+      ]);
+
+      // Server update FAILS - refresh source with different value
+      refresh(userCategory);
+      flush();
+
+      // Source refetching, resolve with "News" (mismatch!)
+      resolveUserCategory!("News");
+      await Promise.resolve();
+      flush();
+
+      // categoryData recomputes with corrected value, resolve it
+      resolveCategoryDetails!(categoryItems["News"]);
+      await Promise.resolve();
+      flush();
+
+      // Full correction visible - optimistic corrected to "News"
+      expect(optimisticCategory()).toBe("News");
+      expect(selectedValues.at(-1)).toBe("News");
+      expect(categoryDataValues.at(-1)).toEqual(["Daily Brief", "World Report"]);
+    });
+
+    it("rapid user actions: multiple selections before first resolves", async () => {
+      let dbUserCategory = "News";
+      const categoryItems: Record<string, string[]> = {
+        "News": ["Daily Brief"],
+        "Finance": ["Stock Ticker"],
+        "Sports": ["Live Scores"],
+      };
+
+      let resolveUserCategory: ((v: string) => void) | null = null;
+      let resolveCategoryDetails: ((v: string[]) => void) | null = null;
+
+      const userCategory = createMemo(() => {
+        return new Promise<string>(res => {
+          resolveUserCategory = (v: string) => res(v);
+        });
+      });
+
+      const [optimisticCategory, setOptimisticCategory] = createOptimistic(() => userCategory());
+
+      const categoryData = createMemo(() => {
+        optimisticCategory(); // Read to establish dependency
+        return new Promise<string[]>(res => {
+          resolveCategoryDetails = (items: string[]) => res(items);
+        });
+      });
+
+      const selectedValues: string[] = [];
+      const categoryDataValues: string[][] = [];
+
+      createRoot(() => {
+        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
+        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+      });
+
+      flush();
+
+      // Initial load
+      resolveUserCategory!(dbUserCategory);
+      await Promise.resolve();
+      flush();
+      resolveCategoryDetails!(categoryItems["News"]);
+      await Promise.resolve();
+      flush();
+
+      expect(selectedValues).toEqual(["News"]);
+
+      // User rapidly selects Finance, then Sports (before anything resolves)
+      setOptimisticCategory("Finance");
+      flush();
+
+      // Direct read shows optimistic, effect waits
+      expect(optimisticCategory()).toBe("Finance");
+      expect(selectedValues).toEqual(["News"]);
+
+      setOptimisticCategory("Sports");
+      flush();
+
+      // Direct read shows latest optimistic
+      expect(optimisticCategory()).toBe("Sports");
+      expect(selectedValues).toEqual(["News"]); // Still waiting
+
+      // Resolve categoryData for Sports (the current optimistic value)
+      resolveCategoryDetails!(categoryItems["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // Lane effects fire with final value
+      expect(selectedValues.at(-1)).toBe("Sports");
+      expect(categoryDataValues.at(-1)).toEqual(["Live Scores"]);
+
+      // Server confirms Sports
+      dbUserCategory = "Sports";
+      refresh(userCategory);
+      flush();
+
+      resolveUserCategory!("Sports");
+      await Promise.resolve();
+      flush();
+
+      resolveCategoryDetails!(categoryItems["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // Final state: Sports
+      expect(optimisticCategory()).toBe("Sports");
+      expect(selectedValues.at(-1)).toBe("Sports");
     });
   });
 });

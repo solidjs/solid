@@ -27,10 +27,12 @@ export interface BoundaryComputed<T> extends Computed<T> {
 
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
   const node = computed<T>(fn, undefined, { lazy: true }) as BoundaryComputed<T>;
-  node._notifyStatus = () => {
-    const flags = node._statusFlags;
+  node._notifyStatus = (status?: number, error?: any) => {
+    // Use passed values if provided, otherwise read from node
+    const flags = status !== undefined ? status : node._statusFlags;
+    const actualError = error !== undefined ? error : node._error;
     node._statusFlags &= ~node._propagationMask;
-    node._queue.notify(node, node._propagationMask, flags);
+    node._queue.notify(node, node._propagationMask, flags, actualError);
   };
   node._propagationMask = propagationMask;
   (node as any)._preventAutoDisposal = true;
@@ -65,7 +67,7 @@ class ConditionalQueue extends Queue {
     if (!type || read(this._disabled)) return;
     return super.run(type);
   }
-  notify(node: Effect<any>, type: number, flags: number) {
+  notify(node: Effect<any>, type: number, flags: number, error?: any) {
     if (read(this._disabled)) {
       if (type & STATUS_PENDING) {
         if (flags & STATUS_PENDING) {
@@ -80,7 +82,7 @@ class ConditionalQueue extends Queue {
         } else if (this._errorNodes.delete(node)) type &= ~STATUS_ERROR;
       }
     }
-    return type ? super.notify(node, type, flags) : true;
+    return type ? super.notify(node, type, flags, error ?? node._error) : true;
   }
 }
 
@@ -97,14 +99,14 @@ export class CollectionQueue extends Queue {
     if (!type || read(this._disabled)) return;
     return super.run(type);
   }
-  notify(node: Effect<any>, type: number, flags: number) {
+  notify(node: Effect<any>, type: number, flags: number, error?: any) {
     if (
       !(type & this._collectionType) ||
       (this._collectionType & STATUS_PENDING && this._initialized)
     )
-      return super.notify(node, type, flags);
+      return super.notify(node, type, flags, error);
     if (flags & this._collectionType) {
-      const source = (node._error as any)?._source;
+      const source = (error as any)?._source || (node._error as any)?._source;
       if (source) {
         const wasEmpty = this._sources.size === 0;
         this._sources.add(source);
@@ -112,7 +114,7 @@ export class CollectionQueue extends Queue {
       }
     }
     type &= ~this._collectionType;
-    return type ? super.notify(node, type, flags) : true;
+    return type ? super.notify(node, type, flags, error) : true;
   }
   checkSources() {
     for (const source of this._sources) {
@@ -134,8 +136,8 @@ export function createBoundary<T>(fn: () => T, condition: () => BoundaryMode) {
     const disabled = read(queue._disabled);
     (tree as BoundaryComputed<any>)._propagationMask = disabled ? STATUS_ERROR | STATUS_PENDING : 0;
     if (!disabled) {
-      queue._pendingNodes.forEach(node => queue.notify(node, STATUS_PENDING, STATUS_PENDING));
-      queue._errorNodes.forEach(node => queue.notify(node, STATUS_ERROR, STATUS_ERROR));
+      queue._pendingNodes.forEach(node => queue.notify(node, STATUS_PENDING, STATUS_PENDING, node._error));
+      queue._errorNodes.forEach(node => queue.notify(node, STATUS_ERROR, STATUS_ERROR, node._error));
       queue._pendingNodes.clear();
       queue._errorNodes.clear();
     }

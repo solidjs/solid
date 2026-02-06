@@ -85,20 +85,32 @@ function clearOptimisticStore(store: any): void {
   const nodes = target[STORE_NODE];
 
   // Notify signals for all overridden properties
-  if (nodes) {
-    for (const key of Reflect.ownKeys(override)) {
-      if (nodes[key]) {
-        // Re-read from base (STORE_OVERRIDE or STORE_VALUE)
-        const baseValue =
-          target[STORE_OVERRIDE] && key in target[STORE_OVERRIDE]
-            ? target[STORE_OVERRIDE][key]
-            : target[STORE_VALUE][key];
-        const value = baseValue === $DELETED ? undefined : baseValue;
-        setSignal(nodes[key], isWrappable(value) ? wrap(value, target) : value);
+  // Use projectionWriteActive to bypass optimistic signal behavior (no lane creation)
+  // This ensures reversion effects go to regular queues, not lane queues
+  setProjectionWriteActive(true);
+  try {
+    if (nodes) {
+      for (const key of Reflect.ownKeys(override)) {
+        if (nodes[key]) {
+          // Clear lane association so effects go to regular queue
+          nodes[key]._optimisticLane = undefined;
+          // Re-read from base (STORE_OVERRIDE or STORE_VALUE)
+          const baseValue =
+            target[STORE_OVERRIDE] && key in target[STORE_OVERRIDE]
+              ? target[STORE_OVERRIDE][key]
+              : target[STORE_VALUE][key];
+          const value = baseValue === $DELETED ? undefined : baseValue;
+          setSignal(nodes[key], isWrappable(value) ? wrap(value, target) : value);
+        }
+      }
+      // Notify $TRACK
+      if (nodes[$TRACK]) {
+        nodes[$TRACK]._optimisticLane = undefined;
+        setSignal(nodes[$TRACK], undefined);
       }
     }
-    // Notify $TRACK
-    nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
+  } finally {
+    setProjectionWriteActive(false);
   }
 
   // Clear the optimistic override

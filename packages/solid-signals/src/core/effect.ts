@@ -57,25 +57,28 @@ export function effect<T>(
   node._errorFn = error;
   node._cleanup = undefined;
   node._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
-  node._notifyStatus = () => {
-    if (node._statusFlags & STATUS_ERROR) {
-      let error = node._error;
+  node._notifyStatus = (status?: number, error?: any) => {
+    // Use passed values if provided, otherwise read from node
+    const actualStatus = status !== undefined ? status : node._statusFlags;
+    const actualError = error !== undefined ? error : node._error;
+    if (actualStatus & STATUS_ERROR) {
+      let err = actualError;
       node._queue.notify(node, STATUS_PENDING, 0);
       if (node._type === EFFECT_USER) {
         try {
           return node._errorFn
-            ? node._errorFn(error, () => {
+            ? node._errorFn(err, () => {
                 node._cleanup?.();
                 node._cleanup = undefined;
               })
-            : console.error(error);
+            : console.error(err);
         } catch (e) {
-          error = e;
+          err = e;
         }
       }
-      if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw error;
+      if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw err;
     } else if (node._type === EFFECT_RENDER)
-      node._queue.notify(node, STATUS_PENDING | STATUS_ERROR, node._statusFlags);
+      node._queue.notify(node, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
   };
   recompute(node, true);
   !options?.defer &&
