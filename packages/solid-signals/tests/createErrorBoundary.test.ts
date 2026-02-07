@@ -1,4 +1,5 @@
 import {
+  action,
   createErrorBoundary,
   createMemo,
   createRenderEffect,
@@ -185,4 +186,86 @@ it("should handle errors when the effect is on the outside and memo in the middl
     createRenderEffect(b, () => {});
   });
   expect(rootHandler).toHaveBeenCalledTimes(1);
+});
+
+it("should hold error boundary during transition when signal change clears error", async () => {
+  const error = new Error("test error");
+  const [$shouldError, setShouldError] = createSignal(true);
+  let result: any;
+
+  createRoot(() => {
+    const b = createErrorBoundary(
+      () => {
+        if ($shouldError()) throw error;
+        return "content";
+      },
+      () => "error"
+    );
+    createRenderEffect(
+      () => (result = b()),
+      () => {}
+    );
+  });
+
+  flush();
+  expect(result).toBe("error");
+
+  // Start a transition that clears the error
+  const myAction = action(function* () {
+    setShouldError(false);
+    yield Promise.resolve();
+  });
+
+  myAction();
+  flush();
+  // Transition in progress - boundary should still show error (held)
+  expect(result).toBe("error");
+
+  await Promise.resolve();
+  // Transition complete - boundary should now show content
+  expect(result).toBe("content");
+});
+
+it("should hold error boundary during transition when reset is called", async () => {
+  const error = new Error("test error");
+  let shouldError = true;
+  let result: any;
+  let resetFn!: () => void;
+
+  createRoot(() => {
+    const b = createErrorBoundary(
+      () => {
+        if (shouldError) throw error;
+        return "content";
+      },
+      (err, reset) => {
+        resetFn = reset;
+        return "error";
+      }
+    );
+    createRenderEffect(
+      () => (result = b()),
+      () => {}
+    );
+  });
+
+  flush();
+  expect(result).toBe("error");
+  expect(resetFn).toBeDefined();
+
+  // Start a transition that resets the error boundary
+  const myAction = action(function* () {
+    shouldError = false;
+    resetFn();
+    yield Promise.resolve();
+  });
+
+  myAction();
+  flush();
+  // Transition in progress - boundary should still show error (held)
+  expect(result).toBe("error");
+
+  await Promise.resolve();
+  // Transition complete - boundary should now show content
+  expect(result).toBe("content");
 });

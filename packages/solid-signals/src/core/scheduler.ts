@@ -289,7 +289,7 @@ export function finalizePureQueue(
   // For incomplete transitions, skip pending resolution and optimistic reversion
   // For completing transitions or no-transition, resolve pending and revert optimistic
   let resolvePending = !incomplete;
-  checkBoundaryChildren(globalQueue);
+  if (!incomplete) checkBoundaryChildren(globalQueue);
   if (dirtyQueue._max >= dirtyQueue._min) {
     runHeap(dirtyQueue, GlobalQueue._update);
   }
