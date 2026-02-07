@@ -8,7 +8,8 @@ import {
   createStore,
   flush,
   isPending,
-  pending
+  pending,
+  refresh
 } from "../../src/index.js";
 
 afterEach(() => flush());
@@ -770,6 +771,446 @@ describe("createOptimisticStore", () => {
       flush();
       expect(state.length).toBe(4);
       expect([...state].map(i => i.id)).toEqual([1, 2, 3, 4]);
+    });
+
+    it("should handle rapid toggles of same property with actions and refresh", async () => {
+      // Simulates: TodoApp where user rapidly checks/unchecks same checkbox
+      // Each toggle is an action: optimistic set -> yield API -> refresh
+      let serverCompleted = false;
+      let fetchCount = 0;
+      let resolveApi1: () => void;
+      let resolveApi2: () => void;
+      let resolveFetch: (() => void) | null = null as (() => void) | null;
+      const apiPromise1 = new Promise<void>(r => (resolveApi1 = r));
+      const apiPromise2 = new Promise<void>(r => (resolveApi2 = r));
+
+      const [todos, setTodos] = createOptimisticStore(
+        async () => {
+          fetchCount++;
+          if (fetchCount === 1) {
+            // Initial fetch resolves immediately
+            return [{ id: "1", title: "Test", completed: serverCompleted }];
+          }
+          // Subsequent fetches (from refresh) need manual resolution
+          await new Promise<void>(r => (resolveFetch = r));
+          return [{ id: "1", title: "Test", completed: serverCompleted }];
+        },
+        [] as { id: string; title: string; completed: boolean }[],
+        { key: "id" }
+      );
+
+      const completedValues: (boolean | undefined)[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => todos[0]?.completed,
+          v => {
+            completedValues.push(v);
+          }
+        );
+      });
+
+      flush();
+
+      // Wait for initial async fetch
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(1);
+      expect(todos[0].completed).toBe(false);
+
+      // === Toggle 1: check (false -> true) ===
+      const toggle1 = action(function* () {
+        setTodos(t => {
+          const todo = t.find(t => t.id === "1");
+          if (todo) todo.completed = true;
+        });
+        yield apiPromise1;
+        serverCompleted = true; // server now has true
+        refresh(todos);
+      });
+      toggle1();
+      await Promise.resolve();
+
+      expect(todos[0].completed).toBe(true); // optimistic
+
+      // === Toggle 2: uncheck (true -> false) - before action 1 completes ===
+      const toggle2 = action(function* () {
+        setTodos(t => {
+          const todo = t.find(t => t.id === "1");
+          if (todo) todo.completed = false;
+        });
+        yield apiPromise2;
+        serverCompleted = false; // server now has false
+        refresh(todos);
+      });
+      toggle2();
+      await Promise.resolve();
+
+      // Optimistic should show the LATEST toggle value (false)
+      expect(todos[0].completed).toBe(false);
+
+      // === Action 1 API completes ===
+      resolveApi1!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Action 1 called refresh(todos), which triggers a new fetch
+      // But action 2 is still in progress, so optimistic overlay should persist
+      // The checkbox should still show false (from toggle 2's optimistic set)
+      expect(todos[0].completed).toBe(false);
+
+      // Resolve the refresh fetch from action 1
+      (resolveFetch as (() => void) | null)?.();
+      resolveFetch = null;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // After refresh resolves, overlay should still be active (action 2 pending)
+      expect(todos[0].completed).toBe(false);
+
+      // === Action 2 API completes ===
+      resolveApi2!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Action 2 called refresh(todos), triggers another fetch
+      // Resolve it
+      (resolveFetch as (() => void) | null)?.();
+      resolveFetch = null;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Both actions complete - transition ends, overlay clears
+      // Server state is completed=false, so final value should be false
+      expect(todos[0].completed).toBe(false);
+    });
+
+    it("should handle rapid same-tick toggles of same property", async () => {
+      // More aggressive: both toggles happen before any flush
+      let serverCompleted = false;
+      let resolveApi1: () => void;
+      let resolveApi2: () => void;
+      const apiPromise1 = new Promise<void>(r => (resolveApi1 = r));
+      const apiPromise2 = new Promise<void>(r => (resolveApi2 = r));
+
+      const [state, setState] = createOptimisticStore({ completed: false });
+      const values: boolean[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => state.completed,
+          v => {
+            values.push(v);
+          }
+        );
+      });
+
+      flush();
+      expect(values).toEqual([false]);
+
+      // Toggle 1: false -> true
+      const toggle1 = action(function* () {
+        setState(s => { s.completed = true; });
+        yield apiPromise1;
+      });
+
+      // Toggle 2: true -> false (before toggle 1 flushes)
+      const toggle2 = action(function* () {
+        setState(s => { s.completed = false; });
+        yield apiPromise2;
+      });
+
+      // Both actions start synchronously
+      toggle1();
+      toggle2();
+      await Promise.resolve();
+
+      // Should show the latest optimistic value (false)
+      expect(state.completed).toBe(false);
+
+      // Complete action 1 - overlay should persist (action 2 still active)
+      resolveApi1!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state.completed).toBe(false); // action 2 overlay still active
+
+      // Complete action 2 - both done, overlay clears
+      resolveApi2!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Reverts to base value (false)
+      expect(state.completed).toBe(false);
+    });
+
+    it("should handle 3 rapid toggles of same property correctly", async () => {
+      // Even more aggressive: 3 toggles (false -> true -> false -> true)
+      let resolveApi1: () => void;
+      let resolveApi2: () => void;
+      let resolveApi3: () => void;
+      const apiPromise1 = new Promise<void>(r => (resolveApi1 = r));
+      const apiPromise2 = new Promise<void>(r => (resolveApi2 = r));
+      const apiPromise3 = new Promise<void>(r => (resolveApi3 = r));
+
+      const [state, setState] = createOptimisticStore({ completed: false });
+      const values: boolean[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => state.completed,
+          v => {
+            values.push(v);
+          }
+        );
+      });
+
+      flush();
+      expect(values).toEqual([false]);
+
+      // Toggle 1: false -> true
+      const t1 = action(function* () {
+        setState(s => { s.completed = true; });
+        yield apiPromise1;
+      });
+      t1();
+      await Promise.resolve();
+
+      expect(state.completed).toBe(true);
+
+      // Toggle 2: true -> false
+      const t2 = action(function* () {
+        setState(s => { s.completed = false; });
+        yield apiPromise2;
+      });
+      t2();
+      await Promise.resolve();
+
+      expect(state.completed).toBe(false);
+
+      // Toggle 3: false -> true
+      const t3 = action(function* () {
+        setState(s => { s.completed = true; });
+        yield apiPromise3;
+      });
+      t3();
+      await Promise.resolve();
+
+      expect(state.completed).toBe(true);
+
+      // Complete them in order
+      resolveApi1!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Action 2 and 3 still active, overlay should show true (latest)
+      expect(state.completed).toBe(true);
+
+      resolveApi2!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Action 3 still active, overlay should show true
+      expect(state.completed).toBe(true);
+
+      resolveApi3!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // All done - reverts to base (false)
+      expect(state.completed).toBe(false);
+    });
+
+    it("should handle rapid toggles with async source and refresh (full TodoApp pattern)", async () => {
+      // Full TodoApp simulation with async projection + action + refresh
+      let serverCompleted = false;
+      let resolveFetches: (() => void)[] = [];
+
+      const [todos, setTodos] = createOptimisticStore(
+        async () => {
+          await new Promise<void>(r => resolveFetches.push(r));
+          return [{ id: "1", completed: serverCompleted }];
+        },
+        [] as { id: string; completed: boolean }[],
+        { key: "id" }
+      );
+
+      const values: (boolean | undefined)[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => todos[0]?.completed,
+          v => {
+            values.push(v);
+          }
+        );
+      });
+
+      flush();
+
+      // Resolve initial fetch
+      expect(resolveFetches.length).toBe(1);
+      resolveFetches[0]();
+      resolveFetches = [];
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(1);
+      expect(todos[0].completed).toBe(false);
+
+      // === Rapid toggle pattern ===
+      let resolveApi1: () => void;
+      let resolveApi2: () => void;
+      const apiPromise1 = new Promise<void>(r => (resolveApi1 = r));
+      const apiPromise2 = new Promise<void>(r => (resolveApi2 = r));
+
+      // Toggle 1: check (false -> true)
+      const toggle1 = action(function* () {
+        setTodos(t => {
+          const todo = t.find(x => x.id === "1");
+          if (todo) todo.completed = true;
+        });
+        yield apiPromise1;
+        serverCompleted = true;
+        refresh(todos);
+      });
+      toggle1();
+      await Promise.resolve();
+
+      expect(todos[0].completed).toBe(true); // optimistic
+
+      // Toggle 2: uncheck (true -> false) - rapid, before action 1 completes
+      const toggle2 = action(function* () {
+        setTodos(t => {
+          const todo = t.find(x => x.id === "1");
+          if (todo) todo.completed = false;
+        });
+        yield apiPromise2;
+        serverCompleted = false;
+        refresh(todos);
+      });
+      toggle2();
+      await Promise.resolve();
+
+      expect(todos[0].completed).toBe(false); // latest optimistic
+
+      // === Action 1 completes, calls refresh ===
+      resolveApi1!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // refresh(todos) triggered a new fetch - resolve it
+      expect(resolveFetches.length).toBeGreaterThanOrEqual(1);
+      resolveFetches.forEach(r => r());
+      resolveFetches = [];
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Action 2 still pending - overlay should still show false
+      expect(todos[0].completed).toBe(false);
+
+      // === Action 2 completes, calls refresh ===
+      resolveApi2!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // resolve refresh fetch
+      if (resolveFetches.length) {
+        resolveFetches.forEach(r => r());
+        resolveFetches = [];
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Both actions done - server has false, overlay cleared
+      expect(todos[0].completed).toBe(false);
+    });
+
+    it("should handle toggles with flush between them (separate event loops)", async () => {
+      // Simulates: user clicks, flush runs, then clicks again later
+      let resolveApi1: () => void;
+      let resolveApi2: () => void;
+      const apiPromise1 = new Promise<void>(r => (resolveApi1 = r));
+      const apiPromise2 = new Promise<void>(r => (resolveApi2 = r));
+
+      const [state, setState] = createOptimisticStore({ completed: false });
+      const values: boolean[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => state.completed,
+          v => {
+            values.push(v);
+          }
+        );
+      });
+
+      flush();
+      expect(state.completed).toBe(false);
+      expect(values).toEqual([false]);
+
+      // Toggle 1: false -> true (action starts, flushes)
+      const toggle1 = action(function* () {
+        setState(s => { s.completed = true; });
+        yield apiPromise1;
+      });
+      toggle1();
+      // Let the microtask queue drain - the action has yielded
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state.completed).toBe(true);
+      expect(values).toEqual([false, true]);
+
+      // Now toggle 2: true -> false (separate event, after first flush)
+      const toggle2 = action(function* () {
+        setState(s => { s.completed = false; });
+        yield apiPromise2;
+      });
+      toggle2();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The read shows the correct value
+      expect(state.completed).toBe(false);
+      // The render effect should have also been notified
+      expect(values).toEqual([false, true, false]);
+
+      // Complete action 1 - overlay should persist since action 2 is still pending
+      resolveApi1!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state.completed).toBe(false); // action 2 still active
+      // The value array should NOT have flipped back to true
+      const lastValue = values[values.length - 1];
+      expect(lastValue).toBe(false);
+
+      // Complete action 2
+      resolveApi2!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Both done - reverts to base (false)
+      expect(state.completed).toBe(false);
     });
   });
 

@@ -180,7 +180,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // If this computed was pending and is now resolved, remove from lane's pendingAsync
     if (el._optimisticLane) {
       const lane = findLane(el._optimisticLane);
-      lane.pendingAsync.delete(el);
+      lane._pendingAsync.delete(el);
     }
   } catch (e) {
     notifyStatus(el, e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR, e);
@@ -188,8 +188,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // The source creates the lane but doesn't belong to it - only downstream nodes do
     if (e instanceof NotReadyError && currentOptimisticLane) {
       const lane = findLane(currentOptimisticLane);
-      if (lane.source !== el) {
-        lane.pendingAsync.add(el);
+      if (lane._source !== el) {
+        lane._pendingAsync.add(el);
         // Also associate the node with the lane
         el._optimisticLane = lane;
       }
@@ -286,7 +286,7 @@ export function handleAsync<T>(
     // Remove from lane's pendingAsync since we're now resolved
     if ((el as any)._optimisticLane) {
       const lane = findLane((el as any)._optimisticLane);
-      lane.pendingAsync.delete(el);
+      lane._pendingAsync.delete(el);
     }
     if (setter) setter(value);
     else if (el._optimistic) {
@@ -872,7 +872,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       // BUT: if the node is the lane's source with an override, don't throw - use the override
       const lane = findLane(currentOptimisticLane);
       const isSourceWithOverride =
-        lane.source === asyncCompute &&
+        lane._source === asyncCompute &&
         asyncCompute._optimistic &&
         asyncCompute._pendingValue !== NOT_PENDING;
       if (
