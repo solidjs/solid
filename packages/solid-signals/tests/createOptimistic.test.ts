@@ -1438,6 +1438,92 @@ describe("createOptimistic", () => {
       expect(chain.secondAsync()).toBe(30);
       expect(chain.effectValues).toEqual([10, 20, 30]);
     });
+
+    it("transition holds when upstream resolves first - pending source does not leak", async () => {
+      // Same chain: source -> firstAsync -> optimistic -> secondAsync -> effect
+      // Plus: source -> sourceEffect (to detect pending value leaks)
+      //
+      // When upstream async resolves first with matching optimistic, the override stays.
+      // But the transition must NOT complete until downstream async also resolves,
+      // otherwise source's held pending value leaks to sourceEffect.
+
+      const [source, setSource] = createSignal(1);
+
+      let resolveFirst: (() => void) | null = null;
+      let firstAsyncValue = 0;
+      const firstAsync = createMemo(() => {
+        const v = source();
+        firstAsyncValue = v * 10;
+        return new Promise<number>(res => {
+          resolveFirst = () => res(firstAsyncValue);
+        });
+      });
+
+      const [optimistic, setOptimistic] = createOptimistic(() => firstAsync());
+
+      let resolveSecond: (() => void) | null = null;
+      let secondAsyncValue = 0;
+      const secondAsync = createMemo(() => {
+        const v = optimistic();
+        secondAsyncValue = v;
+        return new Promise<number>(res => {
+          resolveSecond = () => res(secondAsyncValue);
+        });
+      });
+
+      const effectValues: number[] = [];
+      const sourceValues: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect(secondAsync, v => { effectValues.push(v); });
+        createRenderEffect(source, v => { sourceValues.push(v); });
+      });
+
+      // Initial load
+      flush();
+      resolveFirst!();
+      await Promise.resolve();
+      flush();
+      resolveSecond!();
+      await Promise.resolve();
+      flush();
+
+      expect(effectValues).toEqual([10]);
+      expect(sourceValues).toEqual([1]);
+
+      // Set source + matching optimistic in same tick
+      setSource(2);
+      setOptimistic(20); // Correct guess: 2 * 10 = 20
+      flush();
+
+      // Both asyncs re-fired, transition started
+      // Source is held during transition
+      expect(optimistic()).toBe(20);
+      expect(sourceValues).toEqual([1]); // Source held, not leaked
+      expect(effectValues).toEqual([10]); // Lane async still pending
+
+      // Resolve UPSTREAM async first (gives 20 - matches optimistic!)
+      resolveFirst!();
+      await Promise.resolve();
+      flush();
+
+      // CRITICAL: Transition must NOT complete here.
+      // If it did, source's pending value (2) would leak to sourceEffect.
+      expect(sourceValues).toEqual([1]); // Source still held!
+      expect(optimistic()).toBe(20); // Override still in place
+      expect(effectValues).toEqual([10]); // Lane async still pending
+
+      // Now resolve DOWNSTREAM async (lane becomes ready)
+      resolveSecond!();
+      await Promise.resolve();
+      flush();
+
+      // Lane flushed - effect sees optimistic value
+      expect(effectValues).toEqual([10, 20]);
+      // Both asyncNodes now resolved, transition completes, source commits
+      expect(sourceValues).toEqual([1, 2]);
+      expect(optimistic()).toBe(20);
+    });
   });
 
   describe("async chain with isPending (nested lanes)", () => {
