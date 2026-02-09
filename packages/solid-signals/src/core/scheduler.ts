@@ -109,6 +109,47 @@ export function mergeLanes(lane1: OptimisticLane, lane2: OptimisticLane): Optimi
 }
 
 /**
+ * Resolve a node's lane: follow union-find chain, verify active, clear if stale.
+ */
+export function resolveLane(el: { _optimisticLane?: OptimisticLane }): OptimisticLane | undefined {
+  const lane = el._optimisticLane;
+  if (!lane) return undefined;
+  const root = findLane(lane);
+  if (activeLanes.has(root)) return root;
+  el._optimisticLane = undefined;
+  return undefined;
+}
+
+/**
+ * Check if a node has an active optimistic override (pending value differs from base).
+ */
+export function hasActiveOverride(el: { _optimistic?: boolean; _pendingValue?: any }): boolean {
+  return !!(el._optimistic && el._pendingValue !== NOT_PENDING);
+}
+
+/**
+ * Assign or merge a lane onto a node. At convergence points (node already has
+ * a different active lane), merge unless the node has an active override.
+ */
+export function assignOrMergeLane(
+  el: { _optimisticLane?: OptimisticLane; _optimistic?: boolean; _pendingValue?: any },
+  sourceLane: OptimisticLane
+): void {
+  const sourceRoot = findLane(sourceLane);
+  const existing = el._optimisticLane;
+  if (existing) {
+    const existingRoot = findLane(existing);
+    if (activeLanes.has(existingRoot)) {
+      if (existingRoot !== sourceRoot && !hasActiveOverride(el)) {
+        mergeLanes(sourceRoot, existingRoot);
+      }
+      return;
+    }
+  }
+  el._optimisticLane = sourceLane;
+}
+
+/**
  * Run effects from all lanes that are ready (no pending async).
  */
 function runLaneEffects(type: number): void {
@@ -375,28 +416,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   for (let s = node._subs; s !== null; s = s._nextSub) {
     if (optimistic && sourceLane) {
       s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
-      // Propagate lane to subscriber (for lane-aware effect routing)
-      const subLane = (s._sub as any)._optimisticLane;
-      if (subLane) {
-        const subRoot = findLane(subLane);
-        if (activeLanes.has(subRoot)) {
-          // Subscriber has an active lane - merge if different
-          const sourceRoot = findLane(sourceLane);
-          if (sourceRoot !== subRoot) {
-            // Don't merge if subscriber has an optimistic override - the override
-            // provides a fixed value, isolating its lane from upstream async
-            if (!((s._sub as any)._optimistic && (s._sub as any)._pendingValue !== NOT_PENDING)) {
-              mergeLanes(sourceRoot, subRoot);
-            }
-          }
-        } else {
-          // Subscriber has a stale lane from a previous transition - overwrite
-          (s._sub as any)._optimisticLane = sourceLane;
-        }
-      } else {
-        // Propagate source lane to subscriber
-        (s._sub as any)._optimisticLane = sourceLane;
-      }
+      assignOrMergeLane(s._sub as any, sourceLane);
     } else if (optimistic) {
       s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
       // No source lane means reversion - clear subscriber's lane so effects go to regular queue
