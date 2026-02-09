@@ -378,11 +378,20 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
       // Propagate lane to subscriber (for lane-aware effect routing)
       const subLane = (s._sub as any)._optimisticLane;
       if (subLane) {
-        // Subscriber already has a lane - merge if different
-        const sourceRoot = findLane(sourceLane);
         const subRoot = findLane(subLane);
-        if (sourceRoot !== subRoot) {
-          mergeLanes(sourceRoot, subRoot);
+        if (activeLanes.has(subRoot)) {
+          // Subscriber has an active lane - merge if different
+          const sourceRoot = findLane(sourceLane);
+          if (sourceRoot !== subRoot) {
+            // Don't merge if subscriber has an optimistic override - the override
+            // provides a fixed value, isolating its lane from upstream async
+            if (!((s._sub as any)._optimistic && (s._sub as any)._pendingValue !== NOT_PENDING)) {
+              mergeLanes(sourceRoot, subRoot);
+            }
+          }
+        } else {
+          // Subscriber has a stale lane from a previous transition - overwrite
+          (s._sub as any)._optimisticLane = sourceLane;
         }
       } else {
         // Propagate source lane to subscriber

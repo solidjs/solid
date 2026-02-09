@@ -25,6 +25,7 @@ import {
   markNode
 } from "./heap.js";
 import {
+  activeLanes,
   activeTransition,
   clock,
   currentOptimisticLane,
@@ -35,6 +36,7 @@ import {
   globalQueue,
   GlobalQueue,
   insertSubs,
+  mergeLanes,
   projectionWriteActive,
   runInTransition,
   schedule,
@@ -172,7 +174,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   tracking = true;
   // Set lane context for optimistic-dirty nodes (use node's lane or inherit from current)
   if (isOptimisticDirty && el._optimisticLane) {
-    setCurrentOptimisticLane(findLane(el._optimisticLane));
+    const lane = findLane(el._optimisticLane);
+    if (activeLanes.has(lane)) {
+      setCurrentOptimisticLane(lane);
+    } else {
+      // Stale lane reference from a previous transition - clear it
+      el._optimisticLane = undefined;
+    }
   }
   try {
     value = handleAsync(el, el._fn(value));
@@ -180,20 +188,30 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // If this computed was pending and is now resolved, remove from lane's pendingAsync
     if (el._optimisticLane) {
       const lane = findLane(el._optimisticLane);
-      lane._pendingAsync.delete(el);
+      if (activeLanes.has(lane)) {
+        lane._pendingAsync.delete(el);
+      } else {
+        el._optimisticLane = undefined;
+      }
     }
   } catch (e) {
-    notifyStatus(el, e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR, e);
     // Track pending async in the current lane, but NOT the lane's source node
     // The source creates the lane but doesn't belong to it - only downstream nodes do
+    // Set lane BEFORE notifyStatus so it can propagate it downstream
     if (e instanceof NotReadyError && currentOptimisticLane) {
       const lane = findLane(currentOptimisticLane);
       if (lane._source !== el) {
         lane._pendingAsync.add(el);
-        // Also associate the node with the lane
         el._optimisticLane = lane;
       }
     }
+    notifyStatus(
+      el,
+      e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR,
+      e,
+      undefined,
+      e instanceof NotReadyError ? el._optimisticLane : undefined
+    );
   } finally {
     tracking = prevTracking;
     el._flags = REACTIVE_NONE;
@@ -286,7 +304,11 @@ export function handleAsync<T>(
     // Remove from lane's pendingAsync since we're now resolved
     if ((el as any)._optimisticLane) {
       const lane = findLane((el as any)._optimisticLane);
-      lane._pendingAsync.delete(el);
+      if (activeLanes.has(lane)) {
+        lane._pendingAsync.delete(el);
+      } else {
+        (el as any)._optimisticLane = undefined;
+      }
     }
     if (setter) setter(value);
     else if (el._optimistic) {
@@ -300,7 +322,15 @@ export function handleAsync<T>(
     } else {
       // If node has an optimistic lane, propagate it to downstream effects
       // so they get routed through the lane's effect queue
-      const hasLane = !!(el as any)._optimisticLane;
+      let hasLane = false;
+      if ((el as any)._optimisticLane) {
+        const lane = findLane((el as any)._optimisticLane);
+        if (activeLanes.has(lane)) {
+          hasLane = true;
+        } else {
+          (el as any)._optimisticLane = undefined;
+        }
+      }
       if (hasLane) {
         // Write directly to _value for lane context reads
         // Don't add to _pendingNodes - lane will handle commit
@@ -310,6 +340,11 @@ export function handleAsync<T>(
         if (!equals || !equals(value, prevValue)) {
           el._value = value;
           el._time = clock;
+          // Write to pending value computed so pending() effects get their own
+          // independent lane and fire per-lane (not blocked by merged parent lane)
+          if (el._pendingValueComputed) {
+            setSignal(el._pendingValueComputed, value);
+          }
           insertSubs(el, true);
         }
       } else {
@@ -388,7 +423,7 @@ function clearStatus(el: Computed<any>): void {
   el._notifyStatus?.();
 }
 
-function notifyStatus(el: Computed<any>, status: number, error: any, blockStatus?: boolean): void {
+function notifyStatus(el: Computed<any>, status: number, error: any, blockStatus?: boolean, lane?: OptimisticLane): void {
   // Wrap regular errors to track source node
   if (
     status === STATUS_ERROR &&
@@ -397,10 +432,12 @@ function notifyStatus(el: Computed<any>, status: number, error: any, blockStatus
   )
     error = new StatusError(el, error);
   
-  // Check if this optimistic node with override should START blocking downstream
+  // Check if this optimistic node with override should START blocking downstream STATUS
   // (not if it's the source of the error - that node needs status set)
   const isSource = error instanceof NotReadyError && (error as NotReadyError)._source === el;
   const startsBlocking = status === STATUS_PENDING && el._optimistic && el._pendingValue !== NOT_PENDING && !isSource;
+  // Any optimistic node blocks LANE propagation (prevents contamination through _pendingValueComputed)
+  const blocksLane = status === STATUS_PENDING && el._optimistic && !isSource;
   
   // Set status on THIS node unless blocked from upstream
   // (optimistic nodes DO get status set - needed for wasPending correction logic)
@@ -413,8 +450,33 @@ function notifyStatus(el: Computed<any>, status: number, error: any, blockStatus
     updatePendingSignal(el);
   }
   
-  // For downstream: block if already blocking OR if this node starts the block
+  // Propagate lane to this node (merge if it already has a different active lane)
+  // Lane propagation is blocked by upstream blockStatus or by this node being optimistic (blocksLane)
+  if (lane && !blockStatus) {
+    const sourceLane = findLane(lane);
+    const existingLane = el._optimisticLane;
+    if (existingLane) {
+      const existingRoot = findLane(existingLane);
+      if (activeLanes.has(existingRoot)) {
+        if (existingRoot !== sourceLane) {
+          // Merge lanes at convergence point (unless this node has an optimistic override)
+          if (!(el._optimistic && el._pendingValue !== NOT_PENDING)) {
+            lane = mergeLanes(sourceLane, existingRoot);
+          }
+        }
+      } else {
+        // Stale lane - overwrite
+        el._optimisticLane = lane;
+      }
+    } else {
+      el._optimisticLane = lane;
+    }
+  }
+  
+  // For downstream: block status if already blocking OR if this node starts the block
   const downstreamBlockStatus = blockStatus || startsBlocking;
+  // Block lane propagation past any optimistic node (broader than status blocking)
+  const downstreamLane = (blockStatus || blocksLane) ? undefined : lane;
   
   if (el._notifyStatus) {
     // Pass status/error as parameters - don't rely on node's own values
@@ -430,7 +492,7 @@ function notifyStatus(el: Computed<any>, status: number, error: any, blockStatus
     s._sub._time = clock;
     if (s._sub._error !== error) {
       !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
-      notifyStatus(s._sub, status, error, downstreamBlockStatus);
+      notifyStatus(s._sub, status, error, downstreamBlockStatus, downstreamLane);
     }
   }
   for (
@@ -442,7 +504,7 @@ function notifyStatus(el: Computed<any>, status: number, error: any, blockStatus
       s._sub._time = clock;
       if (s._sub._error !== error) {
         !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
-        notifyStatus(s._sub, status, error, downstreamBlockStatus);
+        notifyStatus(s._sub, status, error, downstreamBlockStatus, downstreamLane);
       }
     }
   }
@@ -784,9 +846,36 @@ function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
   return el._pendingValueComputed;
 }
 
-/** Update _pendingSignal when pending state changes. */
+/** Update _pendingSignal when pending state changes.
+ * _pendingSignal is an optimistic signal with derived semantics: it reflects the source
+ * node's pending state. When the override clears (was true, now false = mismatch),
+ * merge the sub-lane into the source's lane so isPending effects route through the
+ * parent lane and are blocked until it fully resolves.
+ * Exception: if override matches (still pending, true -> true), setSignal is a no-op
+ * and the child lane stays independent — it can flush eagerly.
+ */
 function updatePendingSignal(el: Signal<any> | Computed<any>): void {
-  if (el._pendingSignal) setSignal(el._pendingSignal, computePendingState(el));
+  if (el._pendingSignal) {
+    const pending = computePendingState(el);
+    const sig = el._pendingSignal;
+    setSignal(sig, pending);
+    // When override clears (was true, now false): merge sub-lane into source's lane
+    if (
+      !pending &&
+      sig._optimisticLane &&
+      (el as any)._optimisticLane
+    ) {
+      const sigLane = findLane(sig._optimisticLane);
+      const sourceLane = findLane((el as any)._optimisticLane);
+      if (
+        sigLane !== sourceLane &&
+        activeLanes.has(sourceLane) &&
+        sourceLane._pendingAsync.size > 0
+      ) {
+        mergeLanes(sourceLane, sigLane);
+      }
+    }
+  }
 }
 
 export function isEqual<T>(a: T, b: T): boolean {

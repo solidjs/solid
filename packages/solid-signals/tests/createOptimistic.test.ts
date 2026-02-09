@@ -1524,6 +1524,157 @@ describe("createOptimistic", () => {
       expect(sourceValues).toEqual([1, 2]);
       expect(optimistic()).toBe(20);
     });
+
+    it("two full cycles - lanes clean up properly between transitions", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      // --- Initial load ---
+      flush();
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+      expect(chain.secondAsync()).toBe(10);
+
+      // === CYCLE 1: source 1 -> 2, optimistic 20 (correct guess) ===
+      chain.setSource(2);
+      chain.setOptimistic(20);
+      flush();
+
+      expect(chain.optimistic()).toBe(20);
+      expect(chain.effectValues).toEqual([10]);
+
+      // Resolve second async (lane ready, flushes with optimistic value)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      // Resolve first async (upstream catches up)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the re-fired second async (matches optimistic)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Cycle 1 complete: transition committed, value 20
+      expect(chain.secondAsync()).toBe(20);
+      expect(chain.optimistic()).toBe(20);
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      // === CYCLE 2: source 2 -> 3, optimistic 30 (correct guess) ===
+      // This tests that all lane state was properly cleaned up
+      chain.setSource(3);
+      chain.setOptimistic(30);
+      flush();
+
+      // Optimistic override should work on the second cycle
+      expect(chain.optimistic()).toBe(30);
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      // Resolve second async (lane ready)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Lane should flush with optimistic value on second cycle too
+      expect(chain.effectValues).toEqual([10, 20, 30]);
+
+      // Resolve first async
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve re-fired second async (matches optimistic)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Cycle 2 complete: everything consistent
+      expect(chain.secondAsync()).toBe(30);
+      expect(chain.optimistic()).toBe(30);
+      expect(chain.effectValues).toEqual([10, 20, 30]);
+    });
+
+    it("two full cycles with mismatch correction on second cycle", async () => {
+      const chain = createAsyncChain();
+
+      createRoot(() => {
+        chain.setup();
+      });
+
+      // --- Initial load ---
+      flush();
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10]);
+
+      // === CYCLE 1: matching optimistic ===
+      chain.setSource(2);
+      chain.setOptimistic(20);
+      flush();
+
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      expect(chain.effectValues).toEqual([10, 20]);
+
+      // === CYCLE 2: WRONG optimistic guess ===
+      chain.setSource(3);
+      chain.setOptimistic(999); // Wrong!
+      flush();
+
+      expect(chain.optimistic()).toBe(999);
+
+      // Resolve second async (lane ready with wrong value)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Lane flushed with wrong optimistic value
+      expect(chain.effectValues).toEqual([10, 20, 999]);
+
+      // Resolve first async (gives 30, corrects the optimistic)
+      chain.resolveFirst();
+      await Promise.resolve();
+      flush();
+
+      // Resolve the corrected second async (gives 30, not 999!)
+      chain.resolveSecond();
+      await Promise.resolve();
+      flush();
+
+      // Correction applied: effect sees the real value
+      expect(chain.secondAsync()).toBe(30);
+      expect(chain.optimistic()).toBe(30);
+      expect(chain.effectValues).toEqual([10, 20, 999, 30]);
+    });
   });
 
   describe("async chain with isPending (nested lanes)", () => {
@@ -2130,6 +2281,992 @@ describe("createOptimistic", () => {
       // Final state: Sports
       expect(optimisticCategory()).toBe("Sports");
       expect(selectedValues.at(-1)).toBe("Sports");
+    });
+
+    it("two full cycles with action+refresh - lanes clean up between transitions", async () => {
+      let dbUserCategory = "News";
+      const categoryItems: Record<string, string[]> = {
+        "News": ["Daily Brief"],
+        "Finance": ["Stock Ticker"],
+        "Sports": ["Live Scores"],
+      };
+
+      let resolveUserCategory: ((v: string) => void) | null = null;
+      let resolveUpdateCategory: (() => void) | null = null;
+      let resolveCategoryDetails: ((v: string[]) => void) | null = null;
+
+      const userCategory = createMemo(() => {
+        return new Promise<string>(res => {
+          resolveUserCategory = (v: string) => res(v);
+        });
+      });
+
+      const [optimisticCategory, setOptimisticCategory] = createOptimistic(() => userCategory());
+
+      const categoryData = createMemo(() => {
+        optimisticCategory();
+        return new Promise<string[]>(res => {
+          resolveCategoryDetails = (items: string[]) => res(items);
+        });
+      });
+
+      const selectedValues: string[] = [];
+      const categoryDataValues: string[][] = [];
+
+      createRoot(() => {
+        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
+        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+      });
+
+      flush();
+
+      // Initial load
+      resolveUserCategory!(dbUserCategory);
+      await Promise.resolve();
+      flush();
+      resolveCategoryDetails!(categoryItems["News"]);
+      await Promise.resolve();
+      flush();
+
+      expect(selectedValues).toEqual(["News"]);
+      expect(categoryDataValues).toEqual([["Daily Brief"]]);
+
+      // === CYCLE 1: News -> Finance (via action) ===
+      const handleSelect = action(function* (category: string) {
+        setOptimisticCategory(category);
+        yield new Promise<void>(r => { resolveUpdateCategory = r; });
+        refresh(userCategory);
+      });
+
+      handleSelect("Finance");
+      flush();
+
+      expect(optimisticCategory()).toBe("Finance");
+
+      // Resolve category details for Finance (lane becomes ready)
+      resolveCategoryDetails!(categoryItems["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      expect(selectedValues.at(-1)).toBe("Finance");
+      expect(categoryDataValues.at(-1)).toEqual(["Stock Ticker"]);
+
+      // Complete action: API update done
+      dbUserCategory = "Finance";
+      resolveUpdateCategory!();
+      await Promise.resolve();
+      flush();
+
+      // refresh(userCategory) fires
+      resolveUserCategory!("Finance");
+      await Promise.resolve();
+      flush();
+      resolveCategoryDetails!(categoryItems["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      // Cycle 1 complete
+      expect(optimisticCategory()).toBe("Finance");
+      expect(selectedValues.at(-1)).toBe("Finance");
+      expect(categoryDataValues.at(-1)).toEqual(["Stock Ticker"]);
+
+      const selectedLen = selectedValues.length;
+      const dataLen = categoryDataValues.length;
+
+      // === CYCLE 2: Finance -> Sports (via same action pattern) ===
+      handleSelect("Sports");
+      flush();
+
+      // Optimistic should show Sports immediately
+      expect(optimisticCategory()).toBe("Sports");
+
+      // Resolve category details for Sports (lane becomes ready)
+      resolveCategoryDetails!(categoryItems["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // Lane effects should fire with Sports data
+      expect(selectedValues.at(-1)).toBe("Sports");
+      expect(categoryDataValues.at(-1)).toEqual(["Live Scores"]);
+
+      // Complete cycle 2 action
+      dbUserCategory = "Sports";
+      resolveUpdateCategory!();
+      await Promise.resolve();
+      flush();
+      resolveUserCategory!("Sports");
+      await Promise.resolve();
+      flush();
+      resolveCategoryDetails!(categoryItems["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // Cycle 2 complete
+      expect(optimisticCategory()).toBe("Sports");
+      expect(selectedValues.at(-1)).toBe("Sports");
+      expect(categoryDataValues.at(-1)).toEqual(["Live Scores"]);
+
+      // Verify cycle 2 actually produced new effect values
+      expect(selectedValues.length).toBeGreaterThan(selectedLen);
+      expect(categoryDataValues.length).toBeGreaterThan(dataLen);
+    });
+  });
+
+  describe("parallel independent optimistic with pending() - checkout pattern", () => {
+    // Community scenario: checkout app with two independent async paths that share
+    // a downstream total. Uses pending() to allow each path to display its resolved
+    // value independently, while the total progressively updates.
+    //
+    // Graph:
+    //   country (signal) → regionalConfig (async) → courierId + taxSchemeId
+    //   courierId (optimistic) → shippingCost (async)
+    //   taxSchemeId (optimistic) → taxRate (async)
+    //   shippingCost + taxRate → orderTotal (sync memo)
+    //
+    // Display:
+    //   pending(shippingCost) → shippingDisplay    (independent)
+    //   pending(taxRate)      → taxDisplay          (independent)
+    //   orderTotal()          → totalDisplay         (progressive)
+
+    it("pending() allows independent progressive display for parallel optimistic paths", async () => {
+      const [country, setCountry] = createSignal("US");
+
+      // Regional config - async lookup returning IDs for courier and tax
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        country();
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = (v) => res(v);
+        });
+      });
+
+      // Two separate optimistic nodes for each independent path
+      const [courierId, setCourierId] = createOptimistic(() => regionalConfig().courier);
+      const [taxSchemeId, setTaxSchemeId] = createOptimistic(() => regionalConfig().tax);
+
+      // Independent async paths
+      let resolveShipping: ((v: number) => void) | null = null;
+      const shippingCost = createMemo(() => {
+        courierId();
+        return new Promise<number>(res => { resolveShipping = (v) => res(v); });
+      });
+
+      let resolveTax: ((v: number) => void) | null = null;
+      const taxRate = createMemo(() => {
+        taxSchemeId();
+        return new Promise<number>(res => { resolveTax = (v) => res(v); });
+      });
+
+      // Shared downstream: sync computed of both
+      let orderTotal: () => number;
+
+      const shippingValues: number[] = [];
+      const taxValues: number[] = [];
+      const totalValues: number[] = [];
+
+      createRoot(() => {
+        orderTotal = createMemo(() => shippingCost() + taxRate());
+
+        // Independent displays use pending() to opt into progressive updates
+        createRenderEffect(
+          () => pending(() => shippingCost()),
+          v => { shippingValues.push(v); }
+        );
+        createRenderEffect(
+          () => pending(() => taxRate()),
+          v => { taxValues.push(v); }
+        );
+        // Total reads normally
+        createRenderEffect(
+          () => orderTotal(),
+          v => { totalValues.push(v); }
+        );
+      });
+
+      // --- Initial load ---
+      flush();
+      resolveConfig!({ courier: "USPS", tax: "US-STANDARD" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!(10);
+      await Promise.resolve();
+      flush();
+      resolveTax!(5);
+      await Promise.resolve();
+      flush();
+
+      expect(shippingValues).toEqual([10]);
+      expect(taxValues).toEqual([5]);
+      expect(totalValues).toEqual([15]);
+
+      // --- User changes country to UK ---
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string) {
+        setCourierId("ROYAL-MAIL");   // optimistic guess
+        setTaxSchemeId("UK-VAT");     // optimistic guess
+        setCountry(newCountry);
+
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(regionalConfig);
+      });
+
+      handleCountryChange("UK");
+      flush();
+
+      // Both async paths re-fired with optimistic IDs, nothing resolved yet
+      expect(shippingValues).toEqual([10]);
+      expect(taxValues).toEqual([5]);
+      expect(totalValues).toEqual([15]);
+
+      // --- Shipping resolves first ---
+      resolveShipping!(12);
+      await Promise.resolve();
+      flush();
+
+      // pending() reader: shipping updates independently
+      expect(shippingValues).toEqual([10, 12]);
+      // Tax hasn't resolved - still shows initial value
+      expect(taxValues).toEqual([5]);
+      // orderTotal stays pending: lanes merged at convergence point,
+      // so it waits for both deps to resolve (no intermediate half-state)
+      expect(totalValues).toEqual([15]);
+
+      // --- Tax resolves second ---
+      resolveTax!(8);
+      await Promise.resolve();
+      flush();
+
+      // pending() reader: tax now also updates independently
+      expect(taxValues).toEqual([5, 8]);
+      // Both resolved: orderTotal updates with final value
+      expect(totalValues).toEqual([15, 20]); // 12 + 8
+
+      // --- Complete the action ---
+      resolveApiUpdate!();
+      await Promise.resolve();
+      flush();
+
+      // refresh(regionalConfig) fires, server confirms the optimistic IDs
+      resolveConfig!({ courier: "ROYAL-MAIL", tax: "UK-VAT" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!(12);
+      await Promise.resolve();
+      flush();
+      resolveTax!(8);
+      await Promise.resolve();
+      flush();
+
+      // Final state: everything consistent
+      expect(shippingValues.at(-1)).toBe(12);
+      expect(taxValues.at(-1)).toBe(8);
+      expect(totalValues.at(-1)).toBe(20);
+    });
+
+    it("two full cycles - lanes clean up properly between country changes", async () => {
+      const [country, setCountry] = createSignal("US");
+
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        country();
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = (v) => res(v);
+        });
+      });
+
+      const [courierId, setCourierId] = createOptimistic(() => regionalConfig().courier);
+      const [taxSchemeId, setTaxSchemeId] = createOptimistic(() => regionalConfig().tax);
+
+      let resolveShipping: ((v: number) => void) | null = null;
+      const shippingCost = createMemo(() => {
+        courierId();
+        return new Promise<number>(res => { resolveShipping = (v) => res(v); });
+      });
+
+      let resolveTax: ((v: number) => void) | null = null;
+      const taxRate = createMemo(() => {
+        taxSchemeId();
+        return new Promise<number>(res => { resolveTax = (v) => res(v); });
+      });
+
+      let orderTotal: () => number;
+      const shippingValues: number[] = [];
+      const taxValues: number[] = [];
+      const totalValues: number[] = [];
+
+      createRoot(() => {
+        orderTotal = createMemo(() => shippingCost() + taxRate());
+
+        createRenderEffect(
+          () => pending(() => shippingCost()),
+          v => { shippingValues.push(v); }
+        );
+        createRenderEffect(
+          () => pending(() => taxRate()),
+          v => { taxValues.push(v); }
+        );
+        createRenderEffect(
+          () => orderTotal(),
+          v => { totalValues.push(v); }
+        );
+      });
+
+      // --- Initial load ---
+      flush();
+      resolveConfig!({ courier: "USPS", tax: "US-STANDARD" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!(10);
+      await Promise.resolve();
+      flush();
+      resolveTax!(5);
+      await Promise.resolve();
+      flush();
+
+      expect(shippingValues).toEqual([10]);
+      expect(taxValues).toEqual([5]);
+      expect(totalValues).toEqual([15]);
+
+      // === CYCLE 1: US -> UK ===
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string) {
+        setCourierId(newCountry === "UK" ? "ROYAL-MAIL" : "YAMATO");
+        setTaxSchemeId(newCountry === "UK" ? "UK-VAT" : "JP-TAX");
+        setCountry(newCountry);
+
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(regionalConfig);
+      });
+
+      handleCountryChange("UK");
+      flush();
+
+      expect(shippingValues).toEqual([10]);
+      expect(taxValues).toEqual([5]);
+      expect(totalValues).toEqual([15]);
+
+      // Resolve both asyncs
+      resolveShipping!(12);
+      await Promise.resolve();
+      flush();
+      resolveTax!(8);
+      await Promise.resolve();
+      flush();
+
+      expect(shippingValues).toEqual([10, 12]);
+      expect(taxValues).toEqual([5, 8]);
+
+      // Complete action + refresh
+      resolveApiUpdate!();
+      await Promise.resolve();
+      flush();
+      resolveConfig!({ courier: "ROYAL-MAIL", tax: "UK-VAT" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!(12);
+      await Promise.resolve();
+      flush();
+      resolveTax!(8);
+      await Promise.resolve();
+      flush();
+
+      // Cycle 1 complete
+      expect(shippingValues.at(-1)).toBe(12);
+      expect(taxValues.at(-1)).toBe(8);
+      expect(totalValues.at(-1)).toBe(20);
+
+      // Snapshot lengths to detect new updates in cycle 2
+      const shippingLen = shippingValues.length;
+      const taxLen = taxValues.length;
+      const totalLen = totalValues.length;
+
+      // === CYCLE 2: UK -> JP ===
+      // This exercises the same lanes/nodes after full cleanup
+      handleCountryChange("JP");
+      flush();
+
+      // Resolve shipping (JP cost)
+      resolveShipping!(15);
+      await Promise.resolve();
+      flush();
+
+      // pending() reader: shipping updates independently on second cycle
+      expect(shippingValues.at(-1)).toBe(15);
+
+      // Resolve tax (JP rate)
+      resolveTax!(10);
+      await Promise.resolve();
+      flush();
+
+      // pending() reader: tax updates independently on second cycle
+      expect(taxValues.at(-1)).toBe(10);
+
+      // Complete action + refresh for cycle 2
+      resolveApiUpdate!();
+      await Promise.resolve();
+      flush();
+      resolveConfig!({ courier: "YAMATO", tax: "JP-TAX" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!(15);
+      await Promise.resolve();
+      flush();
+      resolveTax!(10);
+      await Promise.resolve();
+      flush();
+
+      // Cycle 2 complete: everything consistent
+      expect(shippingValues.at(-1)).toBe(15);
+      expect(taxValues.at(-1)).toBe(10);
+      expect(totalValues.at(-1)).toBe(25); // 15 + 10
+    });
+
+    it("3-optimistic-node checkout: pending() text and isPending opacity update independently", async () => {
+      // Matches user's exact app structure:
+      //   userCountry (async) → optimisticCountry → regionalConfig (async)
+      //     → optimisticCourier → shippingInfo (async) → pending(shipping) display
+      //     → optimisticTaxScheme → taxInfo (async) → pending(tax) display
+      //     shippingInfo + taxInfo → orderTotal → total display
+      // With isPending for opacity dimming on each section
+
+      // Source: user country
+      let resolveUserCountry: ((v: string) => void) | null = null;
+      const userCountry = createMemo(() => {
+        return new Promise<string>(res => {
+          resolveUserCountry = (v) => res(v);
+        });
+      });
+      const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
+
+      // Regional config (depends on optimistic country)
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        optimisticCountry(); // read optimistic country
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = (v) => res(v);
+        });
+      });
+
+      // Two optimistic wrappers on top of regional config
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(
+        () => regionalConfig().courier
+      );
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(
+        () => regionalConfig().tax
+      );
+
+      // Async shipping + tax (depend on optimistic IDs)
+      type ShipInfo = { provider: string; price: number };
+      type TaxInfo = { name: string; rate: number };
+
+      let resolveShipping: ((v: ShipInfo) => void) | null = null;
+      const shippingInfo = createMemo(() => {
+        optimisticCourier();
+        return new Promise<ShipInfo>(res => {
+          resolveShipping = (v) => res(v);
+        });
+      });
+
+      let resolveTax: ((v: TaxInfo) => void) | null = null;
+      const taxInfo = createMemo(() => {
+        optimisticTaxScheme();
+        return new Promise<TaxInfo>(res => {
+          resolveTax = (v) => res(v);
+        });
+      });
+
+      // Order total (sync memo of both)
+      let orderTotal: () => number;
+
+      // Track values
+      const shippingTexts: string[] = [];
+      const taxTexts: string[] = [];
+      const totalValues: number[] = [];
+      const shippingPending: boolean[] = [];
+      const taxPending: boolean[] = [];
+
+      createRoot(() => {
+        orderTotal = createMemo(() => {
+          const ship = shippingInfo();
+          const tax = taxInfo();
+          return 100 + 100 * tax.rate + ship.price;
+        });
+
+        // pending() for text values (user's pattern)
+        createRenderEffect(
+          () => pending(() => shippingInfo()).provider,
+          v => { shippingTexts.push(v); }
+        );
+        createRenderEffect(
+          () => pending(() => taxInfo()).name,
+          v => { taxTexts.push(v); }
+        );
+        // isPending for opacity
+        createRenderEffect(
+          () => isPending(shippingInfo),
+          v => { shippingPending.push(v); }
+        );
+        createRenderEffect(
+          () => isPending(taxInfo),
+          v => { taxPending.push(v); }
+        );
+        // Total reads normally
+        createRenderEffect(
+          () => orderTotal(),
+          v => { totalValues.push(v); }
+        );
+      });
+
+      // --- Initial load ---
+      flush();
+      resolveUserCountry!("US");
+      await Promise.resolve();
+      flush();
+      resolveConfig!({ courier: "FEDEX", tax: "US_SALES_TAX" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!({ provider: "FEDEX", price: 15 });
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "US_SALES_TAX", rate: 0.08 });
+      await Promise.resolve();
+      flush();
+
+      expect(shippingTexts).toEqual(["FEDEX"]);
+      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+      expect(totalValues).toEqual([123]); // 100 + 100*0.08 + 15
+      expect(shippingPending.at(-1)).toBe(false);
+      expect(taxPending.at(-1)).toBe(false);
+
+      // === User changes country: US -> UK ===
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string) {
+        setOptimisticCountry(newCountry);
+        setOptimisticCourier("DHL");
+        setOptimisticTaxScheme("UK_VAT");
+
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(userCountry);
+      });
+
+      handleCountryChange("UK");
+      flush();
+
+      // Optimistic values set, both asyncs re-fired
+      expect(optimisticCountry()).toBe("UK");
+      expect(optimisticCourier()).toBe("DHL");
+      expect(optimisticTaxScheme()).toBe("UK_VAT");
+
+      // isPending should show pending for both (async in flight with stale data)
+      expect(shippingPending.at(-1)).toBe(true);
+      expect(taxPending.at(-1)).toBe(true);
+
+      // Text should still show old values (async not resolved)
+      expect(shippingTexts).toEqual(["FEDEX"]);
+      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+
+      // --- Tax resolves FIRST (faster API: 700ms vs 1000ms) ---
+      resolveTax!({ name: "UK_VAT", rate: 0.20 });
+      await Promise.resolve();
+      flush();
+
+      // CRITICAL: tax text should update independently
+      expect(taxTexts).toEqual(["US_SALES_TAX", "UK_VAT"]);
+      // Tax isPending stays true: merged lane (shipping+tax at orderTotal)
+      // still has pending async (shipping hasn't resolved)
+      expect(taxPending.at(-1)).toBe(true);
+
+      // Shipping text should NOT have updated yet
+      expect(shippingTexts).toEqual(["FEDEX"]);
+      // Shipping should still be pending
+      expect(shippingPending.at(-1)).toBe(true);
+
+      // --- Shipping resolves SECOND ---
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve();
+      flush();
+
+      // Shipping text should now update
+      expect(shippingTexts).toEqual(["FEDEX", "DHL"]);
+      // NOW both isPending clear - merged lane fully resolved
+      expect(shippingPending.at(-1)).toBe(false);
+      expect(taxPending.at(-1)).toBe(false);
+
+      // Complete action + refresh
+      resolveApiUpdate!();
+      await Promise.resolve();
+      flush();
+      resolveUserCountry!("UK");
+      await Promise.resolve();
+      flush();
+      resolveConfig!({ courier: "DHL", tax: "UK_VAT" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "UK_VAT", rate: 0.20 });
+      await Promise.resolve();
+      flush();
+
+      // Final state: everything consistent
+      expect(shippingTexts.at(-1)).toBe("DHL");
+      expect(taxTexts.at(-1)).toBe("UK_VAT");
+      expect(totalValues.at(-1)).toBe(145); // 100 + 100*0.20 + 25
+      expect(shippingPending.at(-1)).toBe(false);
+      expect(taxPending.at(-1)).toBe(false);
+    });
+
+    it("shared async config resolves first: lanes stay separate despite shared dependency", async () => {
+      // KEY BUG SCENARIO: when regionalConfig resolves BEFORE shipping/tax,
+      // insertSubs(regionalConfig) visits optimisticCourier (Lane_C) and
+      // optimisticTaxScheme (Lane_T) as subscribers. Without the fix, this
+      // merges ALL lanes into one, blocking independent updates.
+      //
+      // Timeline: config(600ms) < tax(700ms) < shipping(1000ms)
+      // Tax has a MISMATCH: optimistic guess "UK_VAT" ≠ real "UK_VAT_FINAL"
+      // This triggers a correction cycle (new fetch), making tax resolve LAST.
+
+      let resolveUserCountry: ((v: string) => void) | null = null;
+      const userCountry = createMemo(() => {
+        return new Promise<string>(res => {
+          resolveUserCountry = (v) => res(v);
+        });
+      });
+      const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
+
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        optimisticCountry();
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = (v) => res(v);
+        });
+      });
+
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(
+        () => regionalConfig().courier
+      );
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(
+        () => regionalConfig().tax
+      );
+
+      type ShipInfo = { provider: string; price: number };
+      type TaxInfo = { name: string; rate: number };
+
+      let resolveShipping: ((v: ShipInfo) => void) | null = null;
+      const shippingInfo = createMemo(() => {
+        optimisticCourier();
+        return new Promise<ShipInfo>(res => {
+          resolveShipping = (v) => res(v);
+        });
+      });
+
+      let resolveTax: ((v: TaxInfo) => void) | null = null;
+      const taxInfo = createMemo(() => {
+        optimisticTaxScheme();
+        return new Promise<TaxInfo>(res => {
+          resolveTax = (v) => res(v);
+        });
+      });
+
+      let orderTotal: () => number;
+      const shippingTexts: string[] = [];
+      const taxTexts: string[] = [];
+      const totalValues: number[] = [];
+      const shippingPending: boolean[] = [];
+      const taxPending: boolean[] = [];
+
+      createRoot(() => {
+        orderTotal = createMemo(() => {
+          const ship = shippingInfo();
+          const tax = taxInfo();
+          return 100 + 100 * tax.rate + ship.price;
+        });
+
+        createRenderEffect(
+          () => pending(() => shippingInfo()).provider,
+          v => { shippingTexts.push(v); }
+        );
+        createRenderEffect(
+          () => pending(() => taxInfo()).name,
+          v => { taxTexts.push(v); }
+        );
+        createRenderEffect(
+          () => isPending(shippingInfo),
+          v => { shippingPending.push(v); }
+        );
+        createRenderEffect(
+          () => isPending(taxInfo),
+          v => { taxPending.push(v); }
+        );
+        createRenderEffect(
+          () => orderTotal(),
+          v => { totalValues.push(v); }
+        );
+      });
+
+      // --- Initial load ---
+      flush();
+      resolveUserCountry!("US");
+      await Promise.resolve();
+      flush();
+      resolveConfig!({ courier: "FEDEX", tax: "US_SALES_TAX" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!({ provider: "FEDEX", price: 15 });
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "US_SALES_TAX", rate: 0.08 });
+      await Promise.resolve();
+      flush();
+
+      expect(shippingTexts).toEqual(["FEDEX"]);
+      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+      expect(totalValues).toEqual([123]); // 100 + 100*0.08 + 15
+      expect(shippingPending.at(-1)).toBe(false);
+      expect(taxPending.at(-1)).toBe(false);
+
+      // === User changes country: US -> UK ===
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string) {
+        setOptimisticCountry(newCountry);
+        setOptimisticCourier("DHL");           // correct guess
+        setOptimisticTaxScheme("UK_VAT");      // WRONG guess (real is "UK_VAT_FINAL")
+
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(userCountry);
+      });
+
+      handleCountryChange("UK");
+      flush();
+
+      // 3 separate lanes created, all asyncs re-fired
+      expect(optimisticCountry()).toBe("UK");
+      expect(optimisticCourier()).toBe("DHL");
+      expect(optimisticTaxScheme()).toBe("UK_VAT");
+      expect(shippingPending.at(-1)).toBe(true);
+      expect(taxPending.at(-1)).toBe(true);
+
+      // --- regionalConfig resolves FIRST (600ms) ---
+      // This is the critical moment: insertSubs(regionalConfig, true) visits
+      // optimisticCourier and optimisticTaxScheme as subscribers.
+      // BUG: without fix, their different lanes merge into one mega-lane.
+      // FIX: optimistic override prevents merge, lanes stay separate.
+      resolveConfig!({ courier: "DHL", tax: "UK_VAT_FINAL" });
+      await Promise.resolve();
+      flush();
+
+      // optimisticCourier: "DHL" matches config → no change
+      // optimisticTaxScheme: "UK_VAT" ≠ "UK_VAT_FINAL" → corrected, taxInfo re-fetches
+      expect(optimisticCourier()).toBe("DHL");
+      // Tax scheme corrected (override overwritten by mismatch)
+      expect(optimisticTaxScheme()).toBe("UK_VAT_FINAL");
+
+      // --- Shipping resolves (1000ms) ---
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve();
+      flush();
+
+      // CRITICAL: shipping text should update INDEPENDENTLY
+      expect(shippingTexts).toEqual(["FEDEX", "DHL"]);
+      // isPending(shippingInfo) stays true: the merged lane (shipping+tax at orderTotal)
+      // still has pending async (tax correction in flight), so isPending reflects the lane state
+      expect(shippingPending.at(-1)).toBe(true);
+
+      // Tax should NOT have updated yet (correction re-fetch still in flight)
+      expect(taxTexts).toEqual(["US_SALES_TAX"]);
+      expect(taxPending.at(-1)).toBe(true);
+
+      // CRITICAL: orderTotal should NOT show intermediate "half-state"
+      // It depends on both shipping (resolved) and tax (still pending).
+      // The lanes should have merged at orderTotal, keeping it pending.
+      // Only the initial value (123) should be present - no intermediate updates.
+      expect(totalValues).toEqual([123]);
+
+      // --- Tax correction resolves (new fetch for "UK_VAT_FINAL") ---
+      resolveTax!({ name: "UK_VAT_FINAL", rate: 0.20 });
+      await Promise.resolve();
+      flush();
+
+      // Tax text should now update independently
+      expect(taxTexts).toEqual(["US_SALES_TAX", "UK_VAT_FINAL"]);
+      // NOW both isPending clear - merged lane fully resolved
+      expect(shippingPending.at(-1)).toBe(false);
+      expect(taxPending.at(-1)).toBe(false);
+
+      // CRITICAL: NOW orderTotal should update - both lanes have resolved
+      // 100 + 100*0.20 + 25 = 145
+      expect(totalValues).toEqual([123, 145]);
+
+      // --- Complete action + refresh ---
+      resolveApiUpdate!();
+      await Promise.resolve();
+      flush();
+      resolveUserCountry!("UK");
+      await Promise.resolve();
+      flush();
+      resolveConfig!({ courier: "DHL", tax: "UK_VAT_FINAL" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "UK_VAT_FINAL", rate: 0.20 });
+      await Promise.resolve();
+      flush();
+
+      // Final state: everything consistent
+      expect(shippingTexts.at(-1)).toBe("DHL");
+      expect(taxTexts.at(-1)).toBe("UK_VAT_FINAL");
+      expect(shippingPending.at(-1)).toBe(false);
+      expect(taxPending.at(-1)).toBe(false);
+      expect(totalValues.at(-1)).toBe(145);
+    });
+
+    it("isPending holds until merged lane completes, not just individual async", async () => {
+      // When two parallel async paths merge at a shared downstream (orderTotal),
+      // isPending for each path should stay true until the ENTIRE merged lane resolves,
+      // not just when that individual path resolves. This prevents a UI mismatch where
+      // isPending clears (opacity=1) but the actual value hasn't updated yet
+      // (still blocked by the merged lane).
+      const [country, setCountry] = createSignal("US");
+
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        country();
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = (v) => res(v);
+        });
+      });
+
+      const [courierId, setCourierId] = createOptimistic(() => regionalConfig().courier);
+      const [taxSchemeId, setTaxSchemeId] = createOptimistic(() => regionalConfig().tax);
+
+      let resolveShipping: ((v: { provider: string; price: number }) => void) | null = null;
+      const shippingInfo = createMemo(() => {
+        courierId();
+        return new Promise<{ provider: string; price: number }>(res => {
+          resolveShipping = (v) => res(v);
+        });
+      });
+
+      let resolveTax: ((v: { name: string; rate: number }) => void) | null = null;
+      const taxInfo = createMemo(() => {
+        taxSchemeId();
+        return new Promise<{ name: string; rate: number }>(res => {
+          resolveTax = (v) => res(v);
+        });
+      });
+
+      const shippingPendingValues: boolean[] = [];
+      const taxPendingValues: boolean[] = [];
+      const totalValues: number[] = [];
+
+      createRoot(() => {
+        const orderTotal = createMemo(() => {
+          const s = shippingInfo();
+          const t = taxInfo();
+          return 100 + 100 * t.rate + s.price;
+        });
+
+        // Track isPending for each path
+        createRenderEffect(
+          () => isPending(shippingInfo),
+          v => { shippingPendingValues.push(v); }
+        );
+        createRenderEffect(
+          () => isPending(taxInfo),
+          v => { taxPendingValues.push(v); }
+        );
+        // orderTotal reads both - causes lane merge
+        createRenderEffect(
+          () => orderTotal(),
+          v => { totalValues.push(v); }
+        );
+      });
+
+      // --- Initial load ---
+      flush();
+      resolveConfig!({ courier: "USPS", tax: "US-STD" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!({ provider: "USPS", price: 10 });
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "US-STD", rate: 0.05 });
+      await Promise.resolve();
+      flush();
+
+      expect(shippingPendingValues.at(-1)).toBe(false);
+      expect(taxPendingValues.at(-1)).toBe(false);
+      expect(totalValues.at(-1)).toBe(115); // 100 + 5 + 10
+
+      // Clear arrays so transition assertions start clean
+      shippingPendingValues.length = 0;
+      taxPendingValues.length = 0;
+      totalValues.length = 0;
+
+      // --- User changes country ---
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string) {
+        setCourierId("DHL");
+        setTaxSchemeId("UK-VAT");
+        setCountry(newCountry);
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(regionalConfig);
+      });
+
+      handleCountryChange("UK");
+      flush();
+
+      // Both paths now pending
+      expect(shippingPendingValues).toEqual([true]);
+      expect(taxPendingValues).toEqual([true]);
+
+      // --- Shipping resolves first ---
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve();
+      flush();
+
+      // KEY ASSERTION: isPending(shippingInfo) should STILL be true
+      // because the merged lane (shipping + tax at orderTotal) hasn't fully resolved.
+      // The actual shippingInfo value update is blocked by the merged lane,
+      // so isPending should reflect that.
+      expect(shippingPendingValues).toEqual([true]);
+      // Tax also still pending
+      expect(taxPendingValues).toEqual([true]);
+      // orderTotal hasn't updated (merged lane still pending)
+      expect(totalValues).toEqual([]);
+
+      // --- Tax resolves second ---
+      resolveTax!({ name: "UK-VAT", rate: 0.20 });
+      await Promise.resolve();
+      flush();
+
+      // NOW the merged lane is ready - both isPending clear together
+      expect(shippingPendingValues).toEqual([true, false]);
+      expect(taxPendingValues).toEqual([true, false]);
+      // orderTotal updates with final values
+      expect(totalValues).toEqual([145]); // 100 + 20 + 25
+
+      // --- Complete the action ---
+      resolveApiUpdate!();
+      await Promise.resolve();
+      flush();
+      resolveConfig!({ courier: "DHL", tax: "UK-VAT" });
+      await Promise.resolve();
+      flush();
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "UK-VAT", rate: 0.20 });
+      await Promise.resolve();
+      flush();
+
+      // Final: everything consistent, isPending cleared
+      expect(shippingPendingValues.at(-1)).toBe(false);
+      expect(taxPendingValues.at(-1)).toBe(false);
+      expect(totalValues.at(-1)).toBe(145);
     });
   });
 });
