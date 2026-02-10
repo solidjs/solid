@@ -1,0 +1,27 @@
+---
+description: Core engineering standards for this foundational reactive library
+alwaysApply: true
+---
+
+# Engineering Standards
+
+This is a foundational library laying groundwork for the future. "Good enough" is never acceptable.
+
+## Approach
+
+- **Never take shortcuts.** If a plan calls for a fundamentally different architecture, implement it differently — don't rename the existing one and call it new.
+- **Flag deviations immediately.** If you can't implement what was asked, say so and explain what you don't understand. Never silently substitute an easier alternative.
+- **Understand before implementing.** If a design or proposal isn't fully clear, ask questions first. Don't start coding until the model is understood.
+- **Correctness over speed.** Take the time to get it right. A wrong implementation that passes tests is worse than no implementation.
+
+## When Comparing Approaches
+
+- Each approach must be architecturally distinct, not a rename of the other.
+- Identify the specific structural differences before writing code.
+- If two approaches converge to the same implementation, stop and report that — it's a finding, not a failure.
+
+## Communication
+
+- Be direct about what you don't know or don't understand.
+- Never let the user discover a mistake you could have caught — if something seems off, raise it proactively.
+- When debugging, reproduce the issue in a test before attempting fixes. Don't spin in circles with speculative changes.

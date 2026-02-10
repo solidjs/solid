@@ -219,7 +219,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // For optimistic nodes with override, compare against _value (the readable override)
     const compareValue = hasOverride
       ? el._value
-      : (el._pendingValue === NOT_PENDING ? el._value : el._pendingValue);
+      : el._pendingValue === NOT_PENDING
+        ? el._value
+        : el._pendingValue;
     const valueChanged = !el._equals || !el._equals(compareValue, value);
 
     if (valueChanged) {
@@ -419,7 +421,8 @@ function notifyStatus(
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {
-    el._statusFlags = status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
+    el._statusFlags =
+      status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
     el._error = error;
     updatePendingSignal(el);
   }
@@ -485,7 +488,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
     }
   }
 
-  if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY) || el._error && el._time < clock) {
+  if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY) || (el._error && el._time < clock)) {
     recompute(el);
   }
 
