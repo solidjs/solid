@@ -236,18 +236,13 @@ export class Queue implements IQueue {
     if (this._parent) return this._parent.notify(node, mask, flags, error);
     return false;
   }
-  private _runQueue(type: number) {
+  run(type: number) {
     if (this._queues[type - 1].length) {
       const effects = this._queues[type - 1];
       this._queues[type - 1] = [];
       runQueue(effects, type);
     }
-    for (let i = 0; i < this._children.length; i++) {
-      (this._children[i] as any).run?.(type);
-    }
-  }
-  run(type: number) {
-    this._runQueue(type);
+    for (let i = 0; i < this._children.length; i++) (this._children[i] as any).run?.(type);
   }
   enqueue(type: number, fn: QueueCallback): void {
     if (type) {
@@ -416,9 +411,8 @@ export class GlobalQueue extends Queue {
       if (!lane._transition) lane._transition = activeTransition;
     }
     // Move optimistic stores to transition
-    for (const store of this._optimisticStores) {
-      activeTransition._optimisticStores.add(store);
-    }
+    for (const store of this._optimisticStores) activeTransition._optimisticStores.add(store);
+
     this._optimisticStores = activeTransition._optimisticStores;
   }
 }
@@ -462,9 +456,7 @@ export function finalizePureQueue(
   // For completing transitions or no-transition, resolve pending and revert optimistic
   let resolvePending = !incomplete;
   if (!incomplete) checkBoundaryChildren(globalQueue);
-  if (dirtyQueue._max >= dirtyQueue._min) {
-    runHeap(dirtyQueue, GlobalQueue._update);
-  }
+  if (dirtyQueue._max >= dirtyQueue._min) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
     // Commit pending nodes
     const pendingNodes = globalQueue._pendingNodes;
@@ -477,9 +469,7 @@ export function finalizePureQueue(
         if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
       }
       // Clear STATUS_UNINITIALIZED on first value commit (was preserved during clearStatus)
-      if ((n as Computed<unknown>)._statusFlags & STATUS_UNINITIALIZED) {
-        (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
-      }
+      (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
       if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
     }
     pendingNodes.length = 0;

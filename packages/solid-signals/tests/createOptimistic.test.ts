@@ -3291,8 +3291,6 @@ describe("createOptimistic", () => {
         styleShip: styleShipPending.slice(initStyle),
         styleTax: styleTaxPending.slice(initStyle),
       };
-      console.log("AFTER ACTION:", JSON.stringify(afterAction));
-
       // Both effects should see isPending(orderTotal) = true at the same time
       expect(buttonTextPending.at(-1)).toBe(true);
       expect(styleTotalPending.at(-1)).toBe(true);
@@ -3302,18 +3300,10 @@ describe("createOptimistic", () => {
       // --- Tax resolves first ---
       resolveTax!({ name: "UK_VAT", rate: 0.20 });
       await Promise.resolve(); flush();
-      console.log("AFTER TAX:", JSON.stringify({
-        btn: buttonTextPending.slice(preResolve.btn),
-        styleTotal: styleTotalPending.slice(preResolve.style),
-      }));
 
       // --- Shipping resolves second ---
       resolveShipping!({ provider: "DHL", price: 25 });
       await Promise.resolve(); flush();
-      console.log("AFTER SHIPPING:", JSON.stringify({
-        btn: buttonTextPending.slice(preResolve.btn),
-        styleTotal: styleTotalPending.slice(preResolve.style),
-      }));
 
       // Both effects should see isPending(orderTotal) = false at the same time
       expect(buttonTextPending.at(-1)).toBe(false);
@@ -3324,16 +3314,8 @@ describe("createOptimistic", () => {
       // Complete action + refresh
       resolveApiUpdate!();
       await Promise.resolve(); flush();
-      console.log("AFTER API:", JSON.stringify({
-        btn: buttonTextPending.slice(preFinalize.btn),
-        styleTotal: styleTotalPending.slice(preFinalize.style),
-      }));
       resolveUserCountry!("UK");
       await Promise.resolve(); flush();
-      console.log("AFTER COUNTRY:", JSON.stringify({
-        btn: buttonTextPending.slice(preFinalize.btn),
-        styleTotal: styleTotalPending.slice(preFinalize.style),
-      }));
       resolveConfig!({ courier: "DHL", tax: "UK_VAT" });
       await Promise.resolve(); flush();
       resolveShipping!({ provider: "DHL", price: 25 });
@@ -3341,20 +3323,10 @@ describe("createOptimistic", () => {
       resolveTax!({ name: "UK_VAT", rate: 0.20 });
       await Promise.resolve(); flush();
 
-      console.log("FINAL:", JSON.stringify({
-        btn: buttonTextPending.slice(preFinalize.btn),
-        styleTotal: styleTotalPending.slice(preFinalize.style),
-      }));
-
       // Final state: both effects agree
       expect(buttonTextPending.at(-1)).toBe(false);
       expect(styleTotalPending.at(-1)).toBe(false);
 
-      // CRITICAL CHECK: isPending(orderTotal) histories should match
-      // (ignoring the extra false entries from style being triggered by other pending changes)
-      // Both should have the same true/false pattern for orderTotal specifically
-      console.log("FULL btn:", JSON.stringify(buttonTextPending));
-      console.log("FULL style:", JSON.stringify(styleTotalPending));
     });
 
     it("shared async config resolves first: lanes stay separate despite shared dependency", async () => {
