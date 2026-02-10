@@ -67,11 +67,8 @@ export function setCurrentOptimisticLane(lane: OptimisticLane | null): void {
 export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
   let lane = signalLanes.get(signal);
   if (lane) {
-    // Return the root lane (follow mergedInto chain)
     return findLane(lane);
   }
-
-  // Create new lane
   lane = {
     _source: signal,
     _pendingAsync: new Set(),

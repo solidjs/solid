@@ -217,12 +217,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       else el._deps = null;
     }
     // For optimistic nodes with override, compare against _value (the readable override)
-    // This prevents triggering subscribers when the underlying value changes but override stays same
     const compareValue = hasOverride
       ? el._value
-      : el._pendingValue === NOT_PENDING
-        ? el._value
-        : el._pendingValue;
+      : (el._pendingValue === NOT_PENDING ? el._value : el._pendingValue);
     const valueChanged = !el._equals || !el._equals(compareValue, value);
 
     if (valueChanged) {
@@ -245,8 +242,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // Route to optimistic queue if optimistic-dirty OR has an active optimistic override
       insertSubs(el, isOptimisticDirty || hasOverride);
     } else if (hasOverride) {
-      // Even when value didn't change (override matches computed), update _pendingValue
-      // so finalization commits the correct value when override is cleared
+      // Even when value didn't change (override matches), update _pendingValue
       el._pendingValue = value;
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
@@ -414,8 +410,7 @@ function notifyStatus(
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {
-    el._statusFlags =
-      status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
+    el._statusFlags = status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
     el._error = error;
     updatePendingSignal(el);
   }
@@ -481,7 +476,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
     }
   }
 
-  if (el._flags & REACTIVE_DIRTY || (el._error && el._time < clock)) {
+  if (el._flags & REACTIVE_DIRTY || el._error && el._time < clock) {
     recompute(el);
   }
 
@@ -964,12 +959,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     const alreadyTracked = globalQueue._optimisticNodes.includes(el);
 
     // Only entangle if there was a previous optimistic write (node already tracked)
-    // This prevents entangling just because _transition was set from being a pending node
     if (el._transition && alreadyTracked) {
       globalQueue.initTransition(el._transition);
     }
 
-    // Save original only if not already saved (signals need this, computeds have pending from recompute)
+    // Save original only if not already saved
     if (el._pendingValue === NOT_PENDING) {
       el._pendingValue = el._value;
     }
