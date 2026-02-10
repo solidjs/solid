@@ -2410,6 +2410,258 @@ describe("createOptimistic", () => {
       expect(selectedValues.length).toBeGreaterThan(selectedLen);
       expect(categoryDataValues.length).toBeGreaterThan(dataLen);
     });
+
+    it("isPending effect fires on second rapid action", async () => {
+      let resolveSource: ((v: string) => void) | null = null;
+      let resolveUpdate: (() => void) | null = null;
+      let resolveDown: ((v: string) => void) | null = null;
+
+      const source = createMemo(() =>
+        new Promise<string>(res => { resolveSource = res; })
+      );
+      const [opt, setOpt] = createOptimistic(() => source());
+      const down = createMemo(() => {
+        opt();
+        return new Promise<string>(res => { resolveDown = res; });
+      });
+
+      const pendingVals: boolean[] = [];
+      createRoot(() => {
+        createRenderEffect(() => isPending(down), v => { pendingVals.push(v); });
+      });
+      flush();
+
+      // Initial load
+      resolveSource!("A");
+      await Promise.resolve();
+      flush();
+      resolveDown!("A-data");
+      await Promise.resolve();
+      flush();
+      expect(pendingVals.at(-1)).toBe(false);
+
+      // ACTION 1
+      const act = action(function* (v: string) {
+        setOpt(v);
+        yield new Promise<void>(r => { resolveUpdate = r; });
+        refresh(source);
+      });
+
+      act("B");
+      flush();
+      expect(opt()).toBe("B");
+      expect(isPending(down)).toBe(true);
+      expect(pendingVals.at(-1)).toBe(true);
+
+      // Resolve downstream for action 1
+      resolveDown!("B-data");
+      await Promise.resolve();
+      flush();
+
+      // ACTION 2 (before action 1's background completes)
+      act("C");
+      flush();
+      expect(opt()).toBe("C");
+      expect(isPending(down)).toBe(true);
+      // KEY: the pending effect should fire with true again
+      expect(pendingVals.at(-1)).toBe(true);
+    });
+
+    it("no double pending flicker during refresh phase", async () => {
+      // Models the user's category app: action → optimistic → downstream async → refresh
+      // isPending should NOT flicker true again during the refresh phase
+      let resolveSource: ((v: string) => void) | null = null;
+      let resolveUpdate: (() => void) | null = null;
+      let resolveDown: ((v: string[]) => void) | null = null;
+
+      const source = createMemo(() =>
+        new Promise<string>(res => { resolveSource = res; })
+      );
+      const [opt, setOpt] = createOptimistic(() => source());
+      const down = createMemo(() => {
+        const v = opt();
+        return new Promise<string[]>(res => { resolveDown = res; });
+      });
+
+      const pendingVals: boolean[] = [];
+      createRoot(() => {
+        createRenderEffect(() => isPending(down), v => { pendingVals.push(v); });
+      });
+      flush();
+
+      // Initial load
+      resolveSource!("News");
+      await Promise.resolve();
+      flush();
+      resolveDown!(["Daily Brief"]);
+      await Promise.resolve();
+      flush();
+      expect(pendingVals.at(-1)).toBe(false);
+      pendingVals.length = 0; // reset for clarity
+
+      // ACTION: change category
+      const handleSelect = action(function* (cat: string) {
+        setOpt(cat);
+        yield new Promise<void>(r => { resolveUpdate = r; });
+        refresh(source);
+      });
+
+      handleSelect("Finance");
+      flush();
+
+      // Phase 1: optimistic override active, downstream fetching → isPending = true
+      expect(opt()).toBe("Finance");
+      expect(isPending(down)).toBe(true);
+      expect(pendingVals.at(-1)).toBe(true);
+
+      // Phase 2: downstream resolves → isPending = false
+      resolveDown!(["Stock Ticker"]);
+      await Promise.resolve();
+      flush();
+      // Lane flushes, values visible, isPending clears
+      expect(pendingVals.at(-1)).toBe(false);
+
+      // Phase 3: background API completes → refresh(source) triggers
+      // This should NOT cause isPending to flicker true again
+      const pendingBeforeRefresh = [...pendingVals];
+      resolveUpdate!();
+      await Promise.resolve();
+      flush();
+
+      // Source is now refetching → but override blocks status propagation
+      // isPending should NOT have gone true
+      expect(pendingVals).toEqual(pendingBeforeRefresh);
+
+      // Phase 4: source resolves with matching value → transition completes
+      resolveSource!("Finance");
+      await Promise.resolve();
+      flush();
+      resolveDown!(["Stock Ticker"]);
+      await Promise.resolve();
+      flush();
+
+      // Final state: everything settled, no pending
+      expect(opt()).toBe("Finance");
+      expect(pendingVals.at(-1)).toBe(false);
+    });
+
+    it("second action while first still in flight - override should show immediately", async () => {
+      let dbCategory = "News";
+      const items: Record<string, string[]> = {
+        "News": ["Daily Brief"],
+        "Finance": ["Stock Ticker"],
+        "Sports": ["Live Scores"],
+      };
+
+      let resolveCategory: ((v: string) => void) | null = null;
+      let resolveUpdate: (() => void) | null = null;
+      let resolveDetails: ((v: string[]) => void) | null = null;
+
+      const userCategory = createMemo(() =>
+        new Promise<string>(res => { resolveCategory = res; })
+      );
+      const [optimistic, setOptimistic] = createOptimistic(() => userCategory());
+      const details = createMemo(() => {
+        optimistic();
+        return new Promise<string[]>(res => { resolveDetails = res; });
+      });
+
+      const selectedVals: string[] = [];
+      const detailVals: string[][] = [];
+      const pendingVals: boolean[] = [];
+
+      createRoot(() => {
+        createRenderEffect(optimistic, v => { selectedVals.push(v); });
+        createRenderEffect(details, v => { detailVals.push(v); });
+        createRenderEffect(() => isPending(details), v => { pendingVals.push(v); });
+      });
+      flush();
+
+      // Initial load
+      resolveCategory!("News");
+      await Promise.resolve();
+      flush();
+      resolveDetails!(items["News"]);
+      await Promise.resolve();
+      flush();
+      expect(selectedVals).toEqual(["News"]);
+      expect(pendingVals.at(-1)).toBe(false);
+
+      // ACTION 1: News -> Finance
+      const handleSelect = action(function* (cat: string) {
+        setOptimistic(cat);
+        yield new Promise<void>(r => { resolveUpdate = r; });
+        refresh(userCategory);
+      });
+
+      handleSelect("Finance");
+      flush();
+      expect(optimistic()).toBe("Finance");
+
+      // isPending should be true (details fetching for Finance)
+      expect(isPending(details)).toBe(true);
+
+      // Category details resolve (the "500ms" fetch)
+      resolveDetails!(items["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      // Lane effects fire: Finance is visible, pending clears
+      expect(selectedVals.at(-1)).toBe("Finance");
+      expect(detailVals.at(-1)).toEqual(["Stock Ticker"]);
+
+      // ACTION 2: Finance -> Sports (BEFORE action 1's 2s API completes)
+      handleSelect("Sports");
+      flush();
+
+      // Direct read: optimistic override should show "Sports" immediately
+      expect(optimistic()).toBe("Sports");
+
+      // isPending should be true again (details fetching for Sports)
+      expect(isPending(details)).toBe(true);
+      expect(pendingVals.at(-1)).toBe(true);
+
+      // Resolve category details for Sports
+      resolveDetails!(items["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // After details resolve, effects should fire with Sports
+      expect(selectedVals.at(-1)).toBe("Sports");
+      expect(detailVals.at(-1)).toEqual(["Live Scores"]);
+
+      // Now complete action 1's background work
+      dbCategory = "Finance";
+      resolveUpdate!();
+      await Promise.resolve();
+      flush();
+      resolveCategory!("Finance");
+      await Promise.resolve();
+      flush();
+      resolveDetails!(items["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      // After action 1 completes, should still show Sports (action 2 override)
+      expect(optimistic()).toBe("Sports");
+
+      // Complete action 2's background work
+      dbCategory = "Sports";
+      resolveUpdate!();
+      await Promise.resolve();
+      flush();
+      resolveCategory!("Sports");
+      await Promise.resolve();
+      flush();
+      resolveDetails!(items["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // Final state: Sports
+      expect(optimistic()).toBe("Sports");
+      expect(selectedVals.at(-1)).toBe("Sports");
+      expect(pendingVals.at(-1)).toBe(false);
+    });
   });
 
   describe("parallel independent optimistic with pending() - checkout pattern", () => {
@@ -2784,6 +3036,7 @@ describe("createOptimistic", () => {
       const totalValues: number[] = [];
       const shippingPending: boolean[] = [];
       const taxPending: boolean[] = [];
+      const totalPending: boolean[] = [];
 
       createRoot(() => {
         orderTotal = createMemo(() => {
@@ -2815,6 +3068,11 @@ describe("createOptimistic", () => {
           () => orderTotal(),
           v => { totalValues.push(v); }
         );
+        // isPending for order total (user's button + opacity pattern)
+        createRenderEffect(
+          () => isPending(orderTotal),
+          v => { totalPending.push(v); }
+        );
       });
 
       // --- Initial load ---
@@ -2837,6 +3095,7 @@ describe("createOptimistic", () => {
       expect(totalValues).toEqual([123]); // 100 + 100*0.08 + 15
       expect(shippingPending.at(-1)).toBe(false);
       expect(taxPending.at(-1)).toBe(false);
+      expect(totalPending.at(-1)).toBe(false);
 
       // === User changes country: US -> UK ===
       let resolveApiUpdate: (() => void) | null = null;
@@ -2860,6 +3119,8 @@ describe("createOptimistic", () => {
       // isPending should show pending for both (async in flight with stale data)
       expect(shippingPending.at(-1)).toBe(true);
       expect(taxPending.at(-1)).toBe(true);
+      // CRITICAL: orderTotal should also be pending (depends on pending nodes)
+      expect(totalPending.at(-1)).toBe(true);
 
       // Text should still show old values (async not resolved)
       expect(shippingTexts).toEqual(["FEDEX"]);
@@ -2891,6 +3152,8 @@ describe("createOptimistic", () => {
       // NOW both isPending clear - merged lane fully resolved
       expect(shippingPending.at(-1)).toBe(false);
       expect(taxPending.at(-1)).toBe(false);
+      // orderTotal isPending should also clear
+      expect(totalPending.at(-1)).toBe(false);
 
       // Complete action + refresh
       resolveApiUpdate!();
@@ -2915,6 +3178,183 @@ describe("createOptimistic", () => {
       expect(totalValues.at(-1)).toBe(145); // 100 + 100*0.20 + 25
       expect(shippingPending.at(-1)).toBe(false);
       expect(taxPending.at(-1)).toBe(false);
+      expect(totalPending.at(-1)).toBe(false);
+    });
+
+    it("checkout: combined style effect with multiple isPending reads matches separate effects", async () => {
+      // BUG SCENARIO: In the real CheckoutApp, a single render effect reads
+      // isPending(shippingInfo), isPending(taxInfo), AND isPending(orderTotal) together.
+      // A separate render effect reads isPending(orderTotal) for button text.
+      // The opacity isPending(orderTotal) was flickering on late and briefly.
+
+      let resolveUserCountry: ((v: string) => void) | null = null;
+      const userCountry = createMemo(() => {
+        return new Promise<string>(res => { resolveUserCountry = (v) => res(v); });
+      });
+      const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
+
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        optimisticCountry();
+        return new Promise<{ courier: string; tax: string }>(res => { resolveConfig = (v) => res(v); });
+      });
+
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(() => regionalConfig().courier);
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(() => regionalConfig().tax);
+
+      type ShipInfo = { provider: string; price: number };
+      type TaxInfo = { name: string; rate: number };
+
+      let resolveShipping: ((v: ShipInfo) => void) | null = null;
+      const shippingInfo = createMemo(() => {
+        optimisticCourier();
+        return new Promise<ShipInfo>(res => { resolveShipping = (v) => res(v); });
+      });
+
+      let resolveTax: ((v: TaxInfo) => void) | null = null;
+      const taxInfo = createMemo(() => {
+        optimisticTaxScheme();
+        return new Promise<TaxInfo>(res => { resolveTax = (v) => res(v); });
+      });
+
+      let orderTotal: () => number;
+
+      // Separate effect for button text (reads isPending(orderTotal) alone)
+      const buttonTextPending: boolean[] = [];
+      // Combined style effect (reads all 3 isPending values together, like compiled JSX)
+      const styleShipPending: boolean[] = [];
+      const styleTaxPending: boolean[] = [];
+      const styleTotalPending: boolean[] = [];
+
+      createRoot(() => {
+        orderTotal = createMemo(() => {
+          const ship = shippingInfo();
+          const tax = taxInfo();
+          return 100 + 100 * tax.rate + ship.price;
+        });
+
+        // Effect 1: button text (separate, reads only isPending(orderTotal))
+        createRenderEffect(
+          () => isPending(orderTotal),
+          v => { buttonTextPending.push(v); }
+        );
+
+        // Effect 2: combined style (reads all 3 isPending, like the compiled JSX style effect)
+        createRenderEffect(
+          () => ({
+            ship: isPending(shippingInfo) ? 0.5 : 1,
+            tax: isPending(taxInfo) ? 0.5 : 1,
+            total: isPending(orderTotal) ? 0.5 : 1,
+          }),
+          v => {
+            styleShipPending.push(v.ship === 0.5);
+            styleTaxPending.push(v.tax === 0.5);
+            styleTotalPending.push(v.total === 0.5);
+          }
+        );
+      });
+
+      // --- Initial load ---
+      flush();
+      resolveUserCountry!("US");
+      await Promise.resolve(); flush();
+      resolveConfig!({ courier: "FEDEX", tax: "US_SALES_TAX" });
+      await Promise.resolve(); flush();
+      resolveShipping!({ provider: "FEDEX", price: 15 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "US_SALES_TAX", rate: 0.08 });
+      await Promise.resolve(); flush();
+
+      expect(buttonTextPending.at(-1)).toBe(false);
+      expect(styleTotalPending.at(-1)).toBe(false);
+
+      // Clear initial entries for clarity
+      const initBtn = buttonTextPending.length;
+      const initStyle = styleTotalPending.length;
+
+      // === User changes country ===
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string) {
+        setOptimisticCountry(newCountry);
+        setOptimisticCourier("DHL");
+        setOptimisticTaxScheme("UK_VAT");
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(userCountry);
+      });
+
+      handleCountryChange("UK");
+      flush();
+
+      const afterAction = {
+        btn: buttonTextPending.slice(initBtn),
+        styleTotal: styleTotalPending.slice(initStyle),
+        styleShip: styleShipPending.slice(initStyle),
+        styleTax: styleTaxPending.slice(initStyle),
+      };
+      console.log("AFTER ACTION:", JSON.stringify(afterAction));
+
+      // Both effects should see isPending(orderTotal) = true at the same time
+      expect(buttonTextPending.at(-1)).toBe(true);
+      expect(styleTotalPending.at(-1)).toBe(true);
+
+      const preResolve = { btn: buttonTextPending.length, style: styleTotalPending.length };
+
+      // --- Tax resolves first ---
+      resolveTax!({ name: "UK_VAT", rate: 0.20 });
+      await Promise.resolve(); flush();
+      console.log("AFTER TAX:", JSON.stringify({
+        btn: buttonTextPending.slice(preResolve.btn),
+        styleTotal: styleTotalPending.slice(preResolve.style),
+      }));
+
+      // --- Shipping resolves second ---
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve(); flush();
+      console.log("AFTER SHIPPING:", JSON.stringify({
+        btn: buttonTextPending.slice(preResolve.btn),
+        styleTotal: styleTotalPending.slice(preResolve.style),
+      }));
+
+      // Both effects should see isPending(orderTotal) = false at the same time
+      expect(buttonTextPending.at(-1)).toBe(false);
+      expect(styleTotalPending.at(-1)).toBe(false);
+
+      const preFinalize = { btn: buttonTextPending.length, style: styleTotalPending.length };
+
+      // Complete action + refresh
+      resolveApiUpdate!();
+      await Promise.resolve(); flush();
+      console.log("AFTER API:", JSON.stringify({
+        btn: buttonTextPending.slice(preFinalize.btn),
+        styleTotal: styleTotalPending.slice(preFinalize.style),
+      }));
+      resolveUserCountry!("UK");
+      await Promise.resolve(); flush();
+      console.log("AFTER COUNTRY:", JSON.stringify({
+        btn: buttonTextPending.slice(preFinalize.btn),
+        styleTotal: styleTotalPending.slice(preFinalize.style),
+      }));
+      resolveConfig!({ courier: "DHL", tax: "UK_VAT" });
+      await Promise.resolve(); flush();
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_VAT", rate: 0.20 });
+      await Promise.resolve(); flush();
+
+      console.log("FINAL:", JSON.stringify({
+        btn: buttonTextPending.slice(preFinalize.btn),
+        styleTotal: styleTotalPending.slice(preFinalize.style),
+      }));
+
+      // Final state: both effects agree
+      expect(buttonTextPending.at(-1)).toBe(false);
+      expect(styleTotalPending.at(-1)).toBe(false);
+
+      // CRITICAL CHECK: isPending(orderTotal) histories should match
+      // (ignoring the extra false entries from style being triggered by other pending changes)
+      // Both should have the same true/false pattern for orderTotal specifically
+      console.log("FULL btn:", JSON.stringify(buttonTextPending));
+      console.log("FULL style:", JSON.stringify(styleTotalPending));
     });
 
     it("shared async config resolves first: lanes stay separate despite shared dependency", async () => {

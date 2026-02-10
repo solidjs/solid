@@ -27,6 +27,7 @@ import {
 import {
   activeTransition,
   assignOrMergeLane,
+  clearLaneEntry,
   clock,
   currentOptimisticLane,
   dirtyQueue,
@@ -230,11 +231,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         el._value = value;
       else el._pendingValue = value;
 
-      // For optimistic nodes with overrides: also update _value for corrections
-      // Only do this when this node was pending (waiting on async) and has now resolved
-      // This ensures corrections propagate, while preserving override for non-async changes
+      // For optimistic nodes: correct the override if the computed value differs
+      // BUT only if the override hasn't been refreshed by a newer action
+      // (compare current version against the version when the lane was created)
       if (hasOverride && !isOptimisticDirty && wasPending) {
-        el._value = value;
+        const ov = (el as any)._overrideVersion || 0;
+        const lv = (el as any)._laneVersion || 0;
+        if (ov <= lv) {
+          el._value = value;
+        }
       }
 
       // Route to optimistic queue if optimistic-dirty OR has an active optimistic override
@@ -419,12 +424,20 @@ function notifyStatus(
     assignOrMergeLane(el, lane);
   }
 
+  // When an optimistic boundary blocks status propagation, the notification may never
+  // reach a render effect (e.g. isPending only subscribes to _pendingSignal, not the node).
+  // Directly register the async source with the transition so it doesn't complete prematurely.
+  if (startsBlocking && activeTransition && error instanceof NotReadyError) {
+    const source = (error as NotReadyError)._source;
+    if (!activeTransition._asyncNodes.includes(source)) {
+      activeTransition._asyncNodes.push(source);
+    }
+  }
+
   const downstreamBlockStatus = blockStatus || startsBlocking;
   const downstreamLane = blockStatus || isOptimisticBoundary ? undefined : lane;
 
   if (el._notifyStatus) {
-    // Pass status/error as parameters - don't rely on node's own values
-    // This allows asyncNodes tracking without setting status on nodes past optimistic override
     if (downstreamBlockStatus) {
       el._notifyStatus(status, error);
     } else {
@@ -799,6 +812,7 @@ function updatePendingSignal(el: Signal<any> | Computed<any>): void {
   if (el._pendingSignal) {
     const pending = computePendingState(el);
     const sig = el._pendingSignal;
+
     setSignal(sig, pending);
     // When override clears: merge sub-lane into source's lane
     if (!pending && sig._optimisticLane) {
@@ -809,6 +823,9 @@ function updatePendingSignal(el: Signal<any> | Computed<any>): void {
           mergeLanes(sourceLane, sigLane);
         }
       }
+      // Clear so next write creates a fresh independent sub-lane
+      clearLaneEntry(sig);
+      sig._optimisticLane = undefined;
     }
   }
 }
@@ -961,6 +978,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     if (!alreadyTracked) {
       globalQueue._optimisticNodes.push(el);
     }
+
+    // Track override version for correction gating (must be before getOrCreateLane)
+    (el as any)._overrideVersion = ((el as any)._overrideVersion || 0) + 1;
 
     // Create/get lane for this optimistic signal
     const lane = getOrCreateLane(el);

@@ -81,6 +81,8 @@ export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
   };
   signalLanes.set(signal, lane);
   activeLanes.add(lane);
+  // Snapshot override version at lane creation for correction gating
+  (signal as any)._laneVersion = (signal as any)._overrideVersion || 0;
   return lane;
 }
 
@@ -106,6 +108,14 @@ export function mergeLanes(lane1: OptimisticLane, lane2: OptimisticLane): Optimi
   lane1._effectQueues[1].push(...lane2._effectQueues[1]);
 
   return lane1;
+}
+
+/**
+ * Clear a signal's lane entry so the next getOrCreateLane creates a fresh lane.
+ * Used after merging a sub-lane (e.g., _pendingSignal) into a parent lane.
+ */
+export function clearLaneEntry(signal: Signal<any>): void {
+  signalLanes.delete(signal);
 }
 
 /**
@@ -138,6 +148,13 @@ export function assignOrMergeLane(
   const sourceRoot = findLane(sourceLane);
   const existing = el._optimisticLane;
   if (existing) {
+    // If the subscriber's lane was merged into another lane, it's stale —
+    // replace it with the new source lane instead of following the merge chain
+    // (which would incorrectly merge the new lane into the old group)
+    if (existing._mergedInto) {
+      el._optimisticLane = sourceLane;
+      return;
+    }
     const existingRoot = findLane(existing);
     if (activeLanes.has(existingRoot)) {
       if (existingRoot !== sourceRoot && !hasActiveOverride(el)) {
@@ -299,7 +316,7 @@ export class GlobalQueue extends Queue {
 
           this.stashQueues(activeTransition!._queueStash);
           clock++;
-          scheduled = false;
+          scheduled = dirtyQueue._max >= dirtyQueue._min;
           reassignPendingTransition(activeTransition!._pendingNodes);
           activeTransition = null;
           finalizePureQueue(null, true);
