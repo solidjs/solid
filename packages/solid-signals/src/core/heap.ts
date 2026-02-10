@@ -5,6 +5,7 @@ import {
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_RECOMPUTING_DEPS
 } from "./constants.js";
+
 import type { Computed, FirewallSignal, Root } from "./core.js";
 
 export interface Heap {

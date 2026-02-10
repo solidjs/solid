@@ -223,24 +223,28 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     const valueChanged = !el._equals || !el._equals(compareValue, value);
 
     if (valueChanged) {
-      // Write to _value if: creating, effect outside transition, or optimistic-dirty
+      // Capture override value before writes to detect if visible value changed
+      const prevVisible = hasOverride ? el._value : undefined;
+
       if (create || (isEffect && activeTransition !== el._transition) || isOptimisticDirty)
         el._value = value;
       else el._pendingValue = value;
 
-      // For optimistic nodes: correct the override if the computed value differs
-      // BUT only if the override hasn't been refreshed by a newer action
-      // (compare current version against the version when the lane was created)
+      // Version-gated correction: correct the override if the computed value differs
+      // BUT only if the override hasn't been refreshed by a newer action.
+      // isOptimisticDirty bypasses this: upstream _inFlight matching already ensures
+      // data freshness for lane-propagated corrections.
       if (hasOverride && !isOptimisticDirty && wasPending) {
         const ov = (el as any)._overrideVersion || 0;
         const lv = (el as any)._laneVersion || 0;
-        if (ov <= lv) {
-          el._value = value;
-        }
+        if (ov <= lv) el._value = value;
       }
 
-      // Route to optimistic queue if optimistic-dirty OR has an active optimistic override
-      insertSubs(el, isOptimisticDirty || hasOverride);
+      // Skip notification if override survived — visible value unchanged,
+      // downstream would read the same override and recompute needlessly
+      if (!hasOverride || isOptimisticDirty || el._value !== prevVisible) {
+        insertSubs(el, isOptimisticDirty || hasOverride);
+      }
     } else if (hasOverride) {
       // Even when value didn't change (override matches), update _pendingValue
       el._pendingValue = value;
@@ -289,6 +293,10 @@ export function handleAsync<T>(
 
   const asyncWrite = (value: T, then?: () => void) => {
     if (el._inFlight !== result) return;
+    // If the node was dirtied by a newer write (optimistic override or regular),
+    // skip this stale async result — the upcoming flush will recompute the node
+    // with the new value, creating a fresh Promise that supersedes this one.
+    if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
     globalQueue.initTransition(el._transition);
     clearStatus(el);
     const lane = resolveLane(el as any);
@@ -383,7 +391,8 @@ export function handleAsync<T>(
 }
 
 function clearStatus(el: Computed<any>): void {
-  el._statusFlags = STATUS_NONE;
+  // Preserve STATUS_UNINITIALIZED — it's cleared on first value commit in finalizePureQueue
+  el._statusFlags = el._statusFlags & STATUS_UNINITIALIZED;
   el._error = null;
   // Update pending signal for isPending() reactivity
   updatePendingSignal(el);
@@ -476,7 +485,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
     }
   }
 
-  if (el._flags & REACTIVE_DIRTY || el._error && el._time < clock) {
+  if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY) || el._error && el._time < clock) {
     recompute(el);
   }
 
@@ -771,11 +780,11 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
  * Returns false for initial async loads (no stale data to show).
  */
 function computePendingState(el: Signal<any> | Computed<any>): boolean {
-  // Upstream: value held in transition
-  if (el._pendingValue !== NOT_PENDING) return true;
+  const comp = el as Computed<any>;
+  // Upstream: value held in transition (not during initial load)
+  if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
   // Downstream: async in flight with previous value (not initial load)
   // STATUS_UNINITIALIZED is cleared on first successful completion
-  const comp = el as Computed<any>;
   return !!(comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED));
 }
 
@@ -807,7 +816,6 @@ function updatePendingSignal(el: Signal<any> | Computed<any>): void {
   if (el._pendingSignal) {
     const pending = computePendingState(el);
     const sig = el._pendingSignal;
-
     setSignal(sig, pending);
     // When override clears: merge sub-lane into source's lane
     if (!pending && sig._optimisticLane) {
@@ -900,12 +908,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     asyncCompute._statusFlags & STATUS_PENDING &&
     !(stale && asyncCompute._transition && activeTransition !== asyncCompute._transition)
   ) {
-    // Per-lane suspension: only throw if in same lane as pending async
     if (currentOptimisticLane) {
+      // Per-lane suspension: only throw if in same lane as pending async
+      // AND the node doesn't have an active override (overrides are the visible value,
+      // downstream in the lane should read the override, not throw)
       const pendingLane = (asyncCompute as any)._optimisticLane;
       const lane = findLane(currentOptimisticLane);
-      const isSourceWithOverride = lane._source === asyncCompute && hasActiveOverride(asyncCompute);
-      if (pendingLane && findLane(pendingLane) === lane && !isSourceWithOverride) {
+      if (pendingLane && findLane(pendingLane) === lane && !hasActiveOverride(asyncCompute)) {
         if (!tracking) link(el, c as Computed<any>);
         throw asyncCompute._error;
       }
@@ -953,7 +962,17 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
 
   const valueChanged = !el._equals || !el._equals(currentValue, v);
-  if (!valueChanged) return v;
+  if (!valueChanged) {
+    // For optimistic computeds with an active override from a previous action,
+    // a correction may have updated _value to match the new override value.
+    // Downstream nodes could have stale _inFlight based on old upstream data.
+    // Re-propagate to invalidate those stale computations.
+    if (isOptimistic && el._pendingValue !== NOT_PENDING && (el as Computed<T>)._fn) {
+      insertSubs(el, true);
+      schedule();
+    }
+    return v;
+  }
 
   if (isOptimistic) {
     const alreadyTracked = globalQueue._optimisticNodes.includes(el);

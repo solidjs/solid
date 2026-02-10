@@ -5,7 +5,8 @@ import {
   NOT_PENDING,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_ZOMBIE,
-  STATUS_PENDING
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import type { Computed, Signal } from "./core.js";
 import type { NotReadyError } from "./error.js";
@@ -426,7 +427,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   // Get source lane: prefer node's own lane over current context
   // This is important for isPending signals which need their own lane to flush immediately
   const sourceLane = (node as any)._optimisticLane || currentOptimisticLane;
-  
+
   for (let s = node._subs; s !== null; s = s._nextSub) {
     if (optimistic && sourceLane) {
       s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
@@ -474,6 +475,10 @@ export function finalizePureQueue(
         n._pendingValue = NOT_PENDING;
         // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
         if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
+      }
+      // Clear STATUS_UNINITIALIZED on first value commit (was preserved during clearStatus)
+      if ((n as Computed<unknown>)._statusFlags & STATUS_UNINITIALIZED) {
+        (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
       }
       if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
     }

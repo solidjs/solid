@@ -3708,5 +3708,449 @@ describe("createOptimistic", () => {
       expect(taxPendingValues.at(-1)).toBe(false);
       expect(totalValues.at(-1)).toBe(145);
     });
+
+    it("rapid action: correction should not be blocked when lane is reused across actions", async () => {
+      // BUG (Fix 2): When a second rapid action reuses a lane, _laneVersion wasn't
+      // updated but _overrideVersion was incremented. The version check (ov > lv)
+      // in the isOptimisticDirty correction path blocked valid corrections from
+      // the current action's own fetch result.
+      //
+      // Scenario: US → UK → US (rapid, with WRONG UK tax guess)
+      // 1. Start from US
+      // 2. Action 1: US→UK, tax guess "UK_TAX_WRONG" (intentionally wrong)
+      // 3. Action 1 correction fixes tax to "UK_TAX_REAL"
+      // 4. Before action 1 completes, Action 2: UK→US with WRONG US tax guess
+      // 5. Action 2's correction should fix the guess — was blocked by version check
+
+      let resolveUserCountry: ((v: string) => void) | null = null;
+      const userCountry = createMemo(() => {
+        return new Promise<string>(res => { resolveUserCountry = (v) => res(v); });
+      });
+      const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
+
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        optimisticCountry();
+        return new Promise<{ courier: string; tax: string }>(res => { resolveConfig = (v) => res(v); });
+      });
+
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(() => regionalConfig().courier);
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(() => regionalConfig().tax);
+
+      type ShipInfo = { provider: string; price: number };
+      type TaxInfo = { name: string; rate: number };
+
+      let resolveShipping: ((v: ShipInfo) => void) | null = null;
+      const shippingInfo = createMemo(() => {
+        optimisticCourier();
+        return new Promise<ShipInfo>(res => { resolveShipping = (v) => res(v); });
+      });
+
+      let resolveTax: ((v: TaxInfo) => void) | null = null;
+      const taxInfo = createMemo(() => {
+        optimisticTaxScheme();
+        return new Promise<TaxInfo>(res => { resolveTax = (v) => res(v); });
+      });
+
+      let orderTotal: () => number;
+      const taxTexts: string[] = [];
+      const shippingTexts: string[] = [];
+      const totalValues: number[] = [];
+      const taxPending: boolean[] = [];
+
+      createRoot(() => {
+        orderTotal = createMemo(() => {
+          const ship = shippingInfo();
+          const tax = taxInfo();
+          return 100 + 100 * tax.rate + ship.price;
+        });
+        createRenderEffect(() => pending(() => shippingInfo()).provider, v => { shippingTexts.push(v); });
+        createRenderEffect(() => pending(() => taxInfo()).name, v => { taxTexts.push(v); });
+        createRenderEffect(() => orderTotal(), v => { totalValues.push(v); });
+        createRenderEffect(() => isPending(taxInfo), v => { taxPending.push(v); });
+      });
+
+      // --- Initial load (US) ---
+      flush();
+      resolveUserCountry!("US");
+      await Promise.resolve(); flush();
+      resolveConfig!({ courier: "FEDEX", tax: "US_TAX" });
+      await Promise.resolve(); flush();
+      resolveShipping!({ provider: "FEDEX", price: 15 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "US_TAX", rate: 0.08 });
+      await Promise.resolve(); flush();
+
+      expect(taxTexts).toEqual(["US_TAX"]);
+      expect(shippingTexts).toEqual(["FEDEX"]);
+      expect(totalValues).toEqual([123]); // 100 + 8 + 15
+      expect(taxPending.at(-1)).toBe(false);
+
+      // === Action 1: US → UK with WRONG tax guess ===
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string, courierGuess: string, taxGuess: string) {
+        setOptimisticCountry(newCountry);
+        setOptimisticCourier(courierGuess);
+        setOptimisticTaxScheme(taxGuess);
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(userCountry);
+      });
+
+      handleCountryChange("UK", "DHL", "UK_TAX_WRONG");
+      flush();
+
+      expect(optimisticCountry()).toBe("UK");
+      expect(optimisticTaxScheme()).toBe("UK_TAX_WRONG");
+      expect(taxPending.at(-1)).toBe(true);
+
+      // Shipping resolves for UK
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve(); flush();
+      expect(shippingTexts.at(-1)).toBe("DHL");
+
+      // Tax resolves — using the WRONG guess as key, returns data for it
+      resolveTax!({ name: "UK_TAX_WRONG", rate: 0.20 });
+      await Promise.resolve(); flush();
+      expect(taxTexts.at(-1)).toBe("UK_TAX_WRONG");
+
+      // regionalConfig resolves — reveals the CORRECT tax is "UK_TAX_REAL"
+      // This triggers correction: optimisticTaxScheme "UK_TAX_WRONG" → "UK_TAX_REAL"
+      resolveApiUpdate!();
+      await Promise.resolve(); flush();
+      resolveUserCountry!("UK");
+      await Promise.resolve(); flush();
+      resolveConfig!({ courier: "DHL", tax: "UK_TAX_REAL" });
+      await Promise.resolve(); flush();
+
+      // Correction triggered a re-fetch for the real tax
+      expect(optimisticTaxScheme()).toBe("UK_TAX_REAL");
+
+      // === Action 2 (RAPID): UK → US with WRONG tax guess ===
+      // This reuses the lane — _overrideVersion increments but _laneVersion doesn't
+      handleCountryChange("US", "FEDEX", "US_TAX_WRONG");
+      flush();
+
+      expect(optimisticCountry()).toBe("US");
+      expect(optimisticTaxScheme()).toBe("US_TAX_WRONG");
+
+      // Resolve the corrected tax fetch from action 1 (stale, should be skipped)
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
+      await Promise.resolve(); flush();
+
+      // Resolve shipping + tax for action 2's optimistic values
+      resolveShipping!({ provider: "FEDEX", price: 15 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "US_TAX_WRONG", rate: 0.10 });
+      await Promise.resolve(); flush();
+
+      // regionalConfig resolves for US → corrects tax to "US_TAX_REAL"
+      resolveApiUpdate!();
+      await Promise.resolve(); flush();
+      resolveUserCountry!("US");
+      await Promise.resolve(); flush();
+      resolveConfig!({ courier: "FEDEX", tax: "US_TAX_REAL" });
+      await Promise.resolve(); flush();
+
+      // CRITICAL: correction should NOT be blocked by version check.
+      // optimisticTaxScheme should be corrected to the real US tax.
+      expect(optimisticTaxScheme()).toBe("US_TAX_REAL");
+
+      // Resolve the corrected tax fetch
+      resolveTax!({ name: "US_TAX_REAL", rate: 0.08 });
+      await Promise.resolve(); flush();
+      resolveShipping!({ provider: "FEDEX", price: 15 });
+      await Promise.resolve(); flush();
+
+      // Final: correct US values
+      expect(taxTexts.at(-1)).toBe("US_TAX_REAL");
+      expect(shippingTexts.at(-1)).toBe("FEDEX");
+      expect(totalValues.at(-1)).toBe(123); // 100 + 8 + 15
+      expect(taxPending.at(-1)).toBe(false);
+    });
+
+    it("rapid action: unchanged override value should still dirty downstream to invalidate stale _inFlight", async () => {
+      // BUG (Fix 1): When a correction updates _value to match the next action's
+      // override, setSignal sees valueChanged=false and skips insertSubs.
+      // Downstream nodes keep stale _inFlight that resolves with wrong data.
+      //
+      // Scenario: US → UK (wrong guess, corrected) → rapid action with same tax value
+      // 1. Start from US
+      // 2. Action 1: US→UK, tax guess "UK_TAX_WRONG"
+      // 3. Correction fixes tax _value to "UK_TAX_REAL"
+      // 4. Action 2: sets tax to "UK_TAX_REAL" (matches corrected _value!)
+      //    → valueChanged=false → must still dirty downstream
+
+      let resolveUserCountry: ((v: string) => void) | null = null;
+      const userCountry = createMemo(() => {
+        return new Promise<string>(res => { resolveUserCountry = (v) => res(v); });
+      });
+      const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
+
+      let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
+      const regionalConfig = createMemo(() => {
+        optimisticCountry();
+        return new Promise<{ courier: string; tax: string }>(res => { resolveConfig = (v) => res(v); });
+      });
+
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(() => regionalConfig().courier);
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(() => regionalConfig().tax);
+
+      type ShipInfo = { provider: string; price: number };
+      type TaxInfo = { name: string; rate: number };
+
+      let resolveShipping: ((v: ShipInfo) => void) | null = null;
+      const shippingInfo = createMemo(() => {
+        optimisticCourier();
+        return new Promise<ShipInfo>(res => { resolveShipping = (v) => res(v); });
+      });
+
+      let resolveTax: ((v: TaxInfo) => void) | null = null;
+      const taxInfo = createMemo(() => {
+        optimisticTaxScheme();
+        return new Promise<TaxInfo>(res => { resolveTax = (v) => res(v); });
+      });
+
+      let orderTotal: () => number;
+      const taxTexts: string[] = [];
+      const totalValues: number[] = [];
+
+      createRoot(() => {
+        orderTotal = createMemo(() => {
+          const ship = shippingInfo();
+          const tax = taxInfo();
+          return 100 + 100 * tax.rate + ship.price;
+        });
+        createRenderEffect(() => pending(() => taxInfo()).name, v => { taxTexts.push(v); });
+        createRenderEffect(() => orderTotal(), v => { totalValues.push(v); });
+      });
+
+      // --- Initial load (US) ---
+      flush();
+      resolveUserCountry!("US");
+      await Promise.resolve(); flush();
+      resolveConfig!({ courier: "FEDEX", tax: "US_TAX" });
+      await Promise.resolve(); flush();
+      resolveShipping!({ provider: "FEDEX", price: 15 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "US_TAX", rate: 0.08 });
+      await Promise.resolve(); flush();
+
+      expect(taxTexts).toEqual(["US_TAX"]);
+      expect(totalValues).toEqual([123]);
+
+      // === Action 1: US → UK with WRONG tax guess ===
+      let resolveApiUpdate: (() => void) | null = null;
+      const handleCountryChange = action(function* (newCountry: string, courierGuess: string, taxGuess: string) {
+        setOptimisticCountry(newCountry);
+        setOptimisticCourier(courierGuess);
+        setOptimisticTaxScheme(taxGuess);
+        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        refresh(userCountry);
+      });
+
+      handleCountryChange("UK", "DHL", "UK_TAX_WRONG");
+      flush();
+
+      // Resolve shipping + tax for wrong guess
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_TAX_WRONG", rate: 0.15 });
+      await Promise.resolve(); flush();
+
+      expect(taxTexts.at(-1)).toBe("UK_TAX_WRONG");
+
+      // Complete action 1: correction reveals real tax is "UK_TAX_REAL"
+      resolveApiUpdate!();
+      await Promise.resolve(); flush();
+      resolveUserCountry!("UK");
+      await Promise.resolve(); flush();
+      resolveConfig!({ courier: "DHL", tax: "UK_TAX_REAL" });
+      await Promise.resolve(); flush();
+
+      // Correction fires: optimisticTaxScheme "UK_TAX_WRONG" → "UK_TAX_REAL"
+      expect(optimisticTaxScheme()).toBe("UK_TAX_REAL");
+
+      // Re-fetch for corrected tax resolves
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
+      await Promise.resolve(); flush();
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve(); flush();
+
+      expect(taxTexts.at(-1)).toBe("UK_TAX_REAL");
+
+      // === Action 2 (RAPID): Set tax to SAME value as corrected ===
+      // This is the key scenario: the action writes "UK_TAX_REAL" but _value
+      // is already "UK_TAX_REAL" from the correction → valueChanged=false
+      // Without the fix, taxInfo's stale _inFlight would resolve with wrong data.
+      handleCountryChange("UK", "DHL", "UK_TAX_REAL");
+      flush();
+
+      // Resolve shipping + tax for action 2
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
+      await Promise.resolve(); flush();
+
+      // Complete action 2
+      resolveApiUpdate!();
+      await Promise.resolve(); flush();
+      resolveUserCountry!("UK");
+      await Promise.resolve(); flush();
+      resolveConfig!({ courier: "DHL", tax: "UK_TAX_REAL" });
+      await Promise.resolve(); flush();
+      resolveShipping!({ provider: "DHL", price: 25 });
+      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
+      await Promise.resolve(); flush();
+
+      // CRITICAL: Final tax should be the CORRECT value, not stale data
+      expect(taxTexts.at(-1)).toBe("UK_TAX_REAL");
+      expect(totalValues.at(-1)).toBe(145); // 100 + 20 + 25
+    });
+  });
+
+  describe("DEBUG: real-world CategoryDisplay flicker reproduction", () => {
+    it("should NOT double-flicker isPending on rapid actions when background resolves", async () => {
+      // Real-world bug: two rapid category changes (News→Finance→Sports).
+      // When action 1's refresh(userCategory) resolves to "Finance",
+      // optimisticCategory recomputes (computed="Finance" ≠ override="Sports"),
+      // but the VISIBLE override is unchanged. categoryData should NOT recompute
+      // and isPending should NOT flicker.
+
+      const categoryItems: Record<string, string[]> = {
+        "News": ["Daily Brief", "World Report"],
+        "Finance": ["Stock Ticker", "Market Analysis", "Crypto Watch"],
+        "Sports": ["Live Scores", "Transfer Rumors", "Match Highlights"],
+      };
+
+      let resolveUserPref: ((v: string) => void) | null = null;
+      let resolveUpdate1: (() => void) | null = null;
+      let resolveUpdate2: (() => void) | null = null;
+      let resolveDetails: ((v: string[]) => void) | null = null;
+
+      const userCategory = createMemo(() => {
+        return new Promise<string>(res => { resolveUserPref = res; });
+      });
+
+      const [optimisticCategory, setOptimisticCategory] = createOptimistic(() => userCategory());
+
+      const categoryData = createMemo(() => {
+        const cat = optimisticCategory();
+        return new Promise<string[]>(res => { resolveDetails = res; });
+      });
+
+      const displayedCategory: string[] = [];
+      const displayedItems: string[][] = [];
+      const pendingValues: boolean[] = [];
+
+      createRoot(() => {
+        createRenderEffect(optimisticCategory, v => { displayedCategory.push(v); });
+        createRenderEffect(categoryData, v => { displayedItems.push(v); });
+        createRenderEffect(() => isPending(categoryData), v => { pendingValues.push(v); });
+      });
+      flush();
+
+      // --- Initial load ---
+      resolveUserPref!("News");
+      await Promise.resolve();
+      flush();
+      resolveDetails!(categoryItems["News"]);
+      await Promise.resolve();
+      flush();
+
+      expect(displayedCategory).toEqual(["News"]);
+      expect(displayedItems).toEqual([["Daily Brief", "World Report"]]);
+      expect(pendingValues.at(-1)).toBe(false);
+
+      // --- ACTION 1: News → Finance ---
+      const handleSelect = action(function* (cat: string) {
+        setOptimisticCategory(cat);
+        yield new Promise<void>(r => {
+          if (!resolveUpdate1) resolveUpdate1 = r;
+          else resolveUpdate2 = r;
+        });
+        refresh(userCategory);
+      });
+
+      handleSelect("Finance");
+      flush();
+
+      expect(optimisticCategory()).toBe("Finance");
+      expect(isPending(categoryData)).toBe(true);
+
+      // Category details resolve for Finance
+      resolveDetails!(categoryItems["Finance"]);
+      await Promise.resolve();
+      flush();
+
+      // Lane effects fire, isPending clears
+      expect(displayedCategory.at(-1)).toBe("Finance");
+      expect(pendingValues.at(-1)).toBe(false);
+
+      // --- ACTION 2: Finance → Sports (before action 1's background completes) ---
+      handleSelect("Sports");
+      flush();
+
+      expect(optimisticCategory()).toBe("Sports");
+      expect(isPending(categoryData)).toBe(true);
+
+      // Category details resolve for Sports
+      resolveDetails!(categoryItems["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // Lane effects fire, isPending clears
+      expect(displayedCategory.at(-1)).toBe("Sports");
+      expect(pendingValues.at(-1)).toBe(false);
+
+      // Record pending state before background completes
+      const pendingBeforeBackground = [...pendingValues];
+
+      // --- ACTION 1 background completes → refresh(userCategory) ---
+      resolveUpdate1!();
+      await Promise.resolve();
+      flush();
+
+      // userCategory refetches, resolves to "Finance" (action 1's value)
+      resolveUserPref!("Finance");
+      await Promise.resolve();
+      flush();
+
+      // CRITICAL: isPending should NOT have gone true again.
+      // The override is still "Sports", so categoryData reads the same value.
+      // Even though the computed value of optimisticCategory changed behind the scenes,
+      // the visible override hasn't changed.
+      expect(pendingValues).toEqual(pendingBeforeBackground);
+
+      // Category details resolve (refetched, same Sports data)
+      resolveDetails!(categoryItems["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // --- ACTION 2 background completes → refresh(userCategory) ---
+      resolveUpdate2!();
+      await Promise.resolve();
+      flush();
+
+      resolveUserPref!("Sports");
+      await Promise.resolve();
+      flush();
+
+      resolveDetails!(categoryItems["Sports"]);
+      await Promise.resolve();
+      flush();
+
+      // Final: Sports confirmed, no pending
+      expect(optimisticCategory()).toBe("Sports");
+      expect(displayedCategory.at(-1)).toBe("Sports");
+      expect(pendingValues.at(-1)).toBe(false);
+
+      // Count flickers: should be exactly 2 (one per action), not 3+
+      let flickers = 0;
+      for (let i = 1; i < pendingValues.length; i++) {
+        if (pendingValues[i] === true && pendingValues[i-1] === false) flickers++;
+      }
+      expect(flickers).toBe(2); // One per action, no extras
+    });
   });
 });
