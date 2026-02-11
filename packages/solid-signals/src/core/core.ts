@@ -85,6 +85,7 @@ export interface RawSignal<T> {
   _optimisticLane?: OptimisticLane; // Lane this node is associated with (for optimistic propagation)
   _pendingSignal?: Signal<boolean>; // Lazy signal for isPending()
   _pendingValueComputed?: Computed<T>; // Lazy computed for pending()
+  _parentSource?: Signal<any> | Computed<any>; // Back-reference for parent-child lane relationship
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {
@@ -181,16 +182,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     value = handleAsync(el, el._fn(value));
     clearStatus(el);
     const resolvedLane = resolveLane(el);
-    if (resolvedLane) resolvedLane._pendingAsync.delete(el);
+    if (resolvedLane) {
+      resolvedLane._pendingAsync.delete(el);
+      updatePendingSignal(resolvedLane._source);
+    }
   } catch (e) {
-    // Track pending async in the current lane, but NOT the lane's source node
-    // The source creates the lane but doesn't belong to it - only downstream nodes do
-    // Set lane BEFORE notifyStatus so it can propagate it downstream
+    // Track pending async in the lane (not the lane's source — it creates the lane
+    // but doesn't belong to it). Set lane BEFORE notifyStatus for downstream propagation.
     if (e instanceof NotReadyError && currentOptimisticLane) {
       const lane = findLane(currentOptimisticLane);
       if (lane._source !== el) {
         lane._pendingAsync.add(el);
         el._optimisticLane = lane;
+        updatePendingSignal(lane._source);
       }
     }
     notifyStatus(
@@ -772,6 +776,10 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
   if (!el._pendingSignal) {
     // Start false, write true if pending - ensures reversion returns to false
     el._pendingSignal = optimisticSignal(false, { pureWrite: true });
+    // Propagate parent-child lane relationship for isPending(() => pending(x))
+    if (el._parentSource) {
+      el._pendingSignal._parentSource = el;
+    }
     if (computePendingState(el)) setSignal(el._pendingSignal, true);
   }
   return el._pendingSignal;
@@ -784,6 +792,17 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
  */
 function computePendingState(el: Signal<any> | Computed<any>): boolean {
   const comp = el as Computed<any>;
+  // Optimistic nodes with active override:
+  if (el._optimistic && el._pendingValue !== NOT_PENDING) {
+    if (comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
+    // pendingValueComputed (has _parentSource): check lane for downstream async.
+    // User-created optimistic: override existence means pending (bridges corrections).
+    if (el._parentSource) {
+      const lane = el._optimisticLane ? findLane(el._optimisticLane) : null;
+      return !!(lane && lane._pendingAsync.size > 0);
+    }
+    return true;
+  }
   // Upstream: value held in transition (not during initial load)
   if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
   // Downstream: async in flight with previous value (not initial load)
@@ -797,14 +816,18 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
  */
 function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
   if (!el._pendingValueComputed) {
-    // Disable pendingReadActive to avoid recursion during creation
+    // Save and restore context flags to prevent leaking isPending/pending
+    // context into the computed's initial recompute.
     const prevPending = pendingReadActive;
     pendingReadActive = false;
-    // Create outside of any owner context so it doesn't get disposed when effects re-run
+    const prevCheck = pendingCheckActive;
+    pendingCheckActive = false;
     const prevContext = context;
-    context = null;
+    context = null; // Detach from owner so it isn't disposed with effects
     el._pendingValueComputed = optimisticComputed(() => read(el));
+    el._pendingValueComputed._parentSource = el; // Parent-child lane relationship
     context = prevContext;
+    pendingCheckActive = prevCheck;
     pendingReadActive = prevPending;
   }
   return el._pendingValueComputed;
@@ -865,8 +888,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     pendingReadActive = false;
     const value = read(pendingComputed);
     pendingReadActive = prevPending;
-    // If _pendingValueComputed is pending (source was pending), fallback to el._value
     if (pendingComputed._statusFlags & STATUS_PENDING) return el._value as T;
+    // Cross-lane stale read: in a child lane reading pending(x) from a parent lane
+    // with unresolved async, return committed value (stale) until parent resolves.
+    if (stale && currentOptimisticLane && pendingComputed._optimisticLane) {
+      const pcLane = findLane(pendingComputed._optimisticLane);
+      const curLane = findLane(currentOptimisticLane);
+      if (pcLane !== curLane && pcLane._pendingAsync.size > 0) {
+        return el._value as T;
+      }
+    }
     return value as T;
   }
 

@@ -46,6 +46,7 @@ export interface OptimisticLane {
   _effectQueues: [QueueCallback[], QueueCallback[]]; // [render, user] effects for this lane
   _mergedInto: OptimisticLane | null; // Union-find: points to merged lane, or null if root
   _transition: Transition | null; // Which transition owns this lane (null = orphan)
+  _parentLane: OptimisticLane | null; // Parent lane for child lanes (e.g., pendingSignal's lane → pendingComputed's lane)
 }
 
 // Map from optimistic signal to its lane (reused for multiple writes to same signal)
@@ -70,12 +71,17 @@ export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
   if (lane) {
     return findLane(lane);
   }
+  // Detect parent lane: _parentSource chains from pendingSignal → pendingValueComputed → original.
+  // The child lane should not merge with the parent lane.
+  const parentSource = signal._parentSource;
+  const parentLane = parentSource?._optimisticLane ? findLane(parentSource._optimisticLane) : null;
   lane = {
     _source: signal,
     _pendingAsync: new Set(),
     _effectQueues: [[], []],
     _mergedInto: null,
-    _transition: activeTransition
+    _transition: activeTransition,
+    _parentLane: parentLane
   };
   signalLanes.set(signal, lane);
   activeLanes.add(lane);
@@ -156,7 +162,15 @@ export function assignOrMergeLane(
     const existingRoot = findLane(existing);
     if (activeLanes.has(existingRoot)) {
       if (existingRoot !== sourceRoot && !hasActiveOverride(el)) {
-        mergeLanes(sourceRoot, existingRoot);
+        // Parent-child lanes stay independent so isPending resolves without
+        // waiting for the parent's async. The child keeps ownership.
+        if (sourceRoot._parentLane && findLane(sourceRoot._parentLane) === existingRoot) {
+          el._optimisticLane = sourceLane;
+        } else if (existingRoot._parentLane && findLane(existingRoot._parentLane) === sourceRoot) {
+          // Existing is already the child — keep it
+        } else {
+          mergeLanes(sourceRoot, existingRoot);
+        }
       }
       return;
     }

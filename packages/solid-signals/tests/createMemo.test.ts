@@ -996,6 +996,652 @@ describe("async compute", () => {
   });
 });
 
+describe("isPending and pending with async upstream and downstream", () => {
+  afterEach(() => flush());
+
+  // Diagnostic: pending(x) alone in a render effect - same setup as Test 1
+  it("diagnostic: pending(signal) alone in render effect returns in-flight value", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    const pendingValues: number[] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(() => Promise.resolve($x() * 10));
+      createRenderEffect(asyncMemo, () => {});
+      createRenderEffect(
+        () => pending($x),
+        v => { pendingValues.push(v); }
+      );
+    });
+
+    // Initial load
+    await new Promise(r => setTimeout(r, 0));
+    expect(pendingValues.at(-1)).toBe(1);
+
+    // Change signal - starts transition
+    setX(2);
+    flush();
+
+    // pending(signal) should return the in-flight value (2)
+    expect(pendingValues.at(-1)).toBe(2);
+
+    // After async resolves and transition commits
+    await new Promise(r => setTimeout(r, 0));
+    expect(pendingValues.at(-1)).toBe(2);
+  });
+
+  // Diagnostic: pending(x) + isPending(() => pending(x)) in same render effect
+  it("diagnostic: pending(x) combined with isPending(() => pending(x)) in same effect", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    const pairs: [boolean, number][] = [];
+    const pendOnly: number[] = [];
+    const ipOnly: boolean[] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(() => Promise.resolve($x() * 10));
+      createRenderEffect(asyncMemo, () => {});
+      // Effect A: combined
+      createRenderEffect(
+        () => [isPending(() => pending($x)), pending($x)] as [boolean, number],
+        ([ip, val]) => { pairs.push([ip, val]); }
+      );
+      // Effect B: pending only (same setup)
+      createRenderEffect(
+        () => pending($x),
+        v => { pendOnly.push(v); }
+      );
+      // Effect C: isPending only (same setup)
+      createRenderEffect(
+        () => isPending(() => pending($x)),
+        v => { ipOnly.push(v); }
+      );
+    });
+
+    // Initial load
+    await new Promise(r => setTimeout(r, 0));
+    expect(pairs.at(-1)).toEqual([false, 1]);
+    expect(pendOnly.at(-1)).toBe(1);
+    expect(ipOnly.at(-1)).toBe(false);
+
+    // Change signal - starts transition
+    setX(2);
+    flush();
+
+    // pending(signal) should return 2 in all contexts
+    expect(pendOnly.at(-1)).toBe(2);
+    expect(pairs.at(-1)?.[1]).toBe(2);
+  });
+
+  // Test 1: pending(signal) with sync consumer - no phase 1
+  it("pending(signal) with sync consumer - isPending(() => pending(x)) is false, contrasts with isPending(x)", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    const pendingPairs: [boolean, number][] = [];
+    const isPendingSignal: boolean[] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(() => Promise.resolve($x() * 10));
+      createRenderEffect(asyncMemo, () => {});
+      createRenderEffect(
+        () => [isPending(() => pending($x)), pending($x)] as [boolean, number],
+        ([ip, val]) => { pendingPairs.push([ip, val]); }
+      );
+      createRenderEffect(
+        () => isPending($x),
+        v => { isPendingSignal.push(v); }
+      );
+    });
+
+    // Initial load
+    await new Promise(r => setTimeout(r, 0));
+    expect(isPendingSignal.at(-1)).toBe(false);
+    expect(pendingPairs.at(-1)).toEqual([false, 1]);
+
+    // Change signal - starts transition
+    setX(2);
+    flush();
+
+    // isPending(signal) goes true (held in transition)
+    expect(isPendingSignal.at(-1)).toBe(true);
+    // But isPending(() => pending(signal)) stays false - no phase 1,
+    // override present immediately, override lane has no downstream async.
+    // pending(signal) returns the in-flight value (2).
+    expect(pendingPairs.at(-1)).toEqual([false, 2]);
+
+    // After async resolves and transition commits
+    await new Promise(r => setTimeout(r, 0));
+    expect(isPendingSignal.at(-1)).toBe(false);
+    expect(pendingPairs.at(-1)).toEqual([false, 2]);
+    expect($x()).toBe(2);
+  });
+
+  // Test 2: pending(signal) consumed by async memo - override lane has downstream async
+  // When isPending(() => pending(x)) and pending(x) are in the SAME effect, the effect
+  // subscribes to both pendingSignal and pendingComputed, causing lane merging. The merged
+  // lane has pending async from the downstream consumer, so the effect is held until that
+  // async resolves. To observe isPending independently, use a SEPARATE effect.
+  it("pending(signal) consumed by async memo - isPending(() => pending(x)) true until downstream async resolves", async () => {
+    const [$id, setId] = createSignal(1);
+    let mainAsync: () => number;
+    let details: () => string;
+    let resolveMain: (() => void) | null = null;
+    let resolveDetails: (() => void) | null = null;
+    let detailsInput = 0;
+    const pendingPairs: [boolean, number][] = [];
+    const detailPairs: [boolean, string][] = [];
+    // Separate isPending effect (independent lane, not merged with pending's lane)
+    const isPendingValues: boolean[] = [];
+    // Separate pending effect
+    const pendingValues: number[] = [];
+
+    createRoot(() => {
+      // Main async that creates the transition
+      mainAsync = createMemo(() => {
+        const v = $id();
+        return new Promise<number>(res => {
+          resolveMain = () => res(v * 10);
+        });
+      });
+      // Async memo that consumes pending($id) - fetching details for the pending ID
+      details = createMemo(() => {
+        const id = pending($id);
+        detailsInput = id;
+        return new Promise<string>(res => {
+          resolveDetails = () => res("details-" + detailsInput);
+        });
+      });
+
+      createRenderEffect(mainAsync, () => {});
+      createRenderEffect(details, () => {});
+
+      // Combined effect: held by lane merging when downstream has async
+      createRenderEffect(
+        () => [isPending(() => pending($id)), pending($id)] as [boolean, number],
+        ([ip, val]) => { pendingPairs.push([ip, val]); }
+      );
+      // Separate isPending effect: its own lane, no pending async, fires immediately
+      createRenderEffect(
+        () => isPending(() => pending($id)),
+        ip => { isPendingValues.push(ip); }
+      );
+      // Separate pending effect: in pendingComputed's lane (which has details' async)
+      createRenderEffect(
+        () => pending($id),
+        val => { pendingValues.push(val); }
+      );
+      createRenderEffect(
+        () => [isPending(details), details()] as [boolean, string],
+        ([ip, val]) => { detailPairs.push([ip, val]); }
+      );
+    });
+
+    flush();
+    // Resolve initial loads
+    resolveMain!();
+    await Promise.resolve();
+    flush();
+    resolveDetails!();
+    await Promise.resolve();
+    flush();
+
+    expect(pendingPairs.at(-1)).toEqual([false, 1]);
+    expect(isPendingValues.at(-1)).toBe(false);
+    expect(pendingValues.at(-1)).toBe(1);
+    expect(detailPairs.at(-1)).toEqual([false, "details-1"]);
+
+    // Change signal - starts transition
+    setId(2);
+    flush();
+
+    // The separate isPending effect observes true immediately (its lane has no async)
+    expect(isPendingValues.at(-1)).toBe(true);
+
+    // The combined effect is held (lane merged with pendingComputed's lane which has async)
+    // So it still shows the previous value
+    expect(pendingPairs.at(-1)).toEqual([true, 1]);
+
+    // Resolve details (the async consuming pending($id))
+    resolveDetails!();
+    await Promise.resolve();
+    flush();
+
+    // Now the merged lane is ready - combined effect fires with resolved state
+    expect(pendingPairs.at(-1)).toEqual([false, 2]);
+    // Separate isPending effect also updates (no more async in the override lane)
+    expect(isPendingValues.at(-1)).toBe(false);
+
+    // Resolve main async to complete transition
+    resolveMain!();
+    await Promise.resolve();
+    flush();
+    expect(pendingPairs.at(-1)).toEqual([false, 2]);
+    expect($id()).toBe(2);
+  });
+
+  // Test 3: Single async - [isPending(x), x()] pairs update atomically
+  it("single async - [isPending(x), x()] pairs update atomically", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    let resolveAsync: (() => void) | null = null;
+    const pairs: [boolean, number][] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveAsync = () => res(v * 10);
+        });
+      });
+      createRenderEffect(
+        () => [isPending(asyncMemo), asyncMemo()] as [boolean, number],
+        ([ip, val]) => { pairs.push([ip, val]); }
+      );
+    });
+
+    flush();
+    // Initial load
+    resolveAsync!();
+    await Promise.resolve();
+    flush();
+    expect(pairs.at(-1)).toEqual([false, 10]);
+
+    // Change signal - async in flight
+    setX(2);
+    flush();
+    // Pending true with stale value
+    expect(pairs.at(-1)).toEqual([true, 10]);
+
+    // Resolve async
+    resolveAsync!();
+    await Promise.resolve();
+    flush();
+    // Pending false with new value - atomic update
+    expect(pairs.at(-1)).toEqual([false, 20]);
+
+    // Verify no inconsistent pairs ever appeared
+    for (const [ip, val] of pairs) {
+      if (ip) expect(val).toBe(10);
+    }
+  });
+
+  // Test 4: Single async - [isPending(() => pending(x)), pending(x)] pairs update atomically
+  it("single async - [isPending(() => pending(x)), pending(x)] pairs update atomically", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncMemo: () => number;
+    let resolveAsync: (() => void) | null = null;
+    const pairs: [boolean, number][] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveAsync = () => res(v * 10);
+        });
+      });
+      createRenderEffect(asyncMemo, () => {}); // subscribe to drive transition
+      createRenderEffect(
+        () => [isPending(() => pending(asyncMemo)), pending(asyncMemo)] as [boolean, number],
+        ([ip, val]) => { pairs.push([ip, val]); }
+      );
+    });
+
+    flush();
+    // Initial load
+    resolveAsync!();
+    await Promise.resolve();
+    flush();
+    expect(pairs.at(-1)).toEqual([false, 10]);
+
+    // Change signal - async in flight
+    setX(2);
+    flush();
+    // Phase 1: _pendingValueComputed STATUS_PENDING, pending() falls back to stale
+    expect(pairs.at(-1)).toEqual([true, 10]);
+
+    // Resolve async - setSignal gives _pendingValueComputed its override
+    resolveAsync!();
+    await Promise.resolve();
+    flush();
+    // Override present, lane has no downstream async → isPending false
+    expect(pairs.at(-1)).toEqual([false, 20]);
+
+    // Verify atomicity
+    for (const [ip, val] of pairs) {
+      if (ip) expect(val).toBe(10);
+    }
+  });
+
+  // Test 5: Chained async - each [isPending(x), x()] pair tracks its own resolution
+  it("chained async - each [isPending(x), x()] pair tracks its own resolution atomically", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncA: () => number;
+    let asyncB: () => number;
+    let resolveA: (() => void) | null = null;
+    let resolveB: (() => void) | null = null;
+    const pairsA: [boolean, number][] = [];
+    const pairsB: [boolean, number][] = [];
+
+    createRoot(() => {
+      asyncA = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveA = () => res(v * 10);
+        });
+      });
+      asyncB = createMemo(() => {
+        const v = asyncA();
+        return new Promise<number>(res => {
+          resolveB = () => res(v + 1);
+        });
+      });
+      createRenderEffect(
+        () => [isPending(asyncA), asyncA()] as [boolean, number],
+        ([ip, val]) => { pairsA.push([ip, val]); }
+      );
+      createRenderEffect(
+        () => [isPending(asyncB), asyncB()] as [boolean, number],
+        ([ip, val]) => { pairsB.push([ip, val]); }
+      );
+    });
+
+    flush();
+    // Initial load - resolve chain
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 10]);
+    expect(pairsB.at(-1)).toEqual([false, 11]);
+
+    // Change signal - both re-fire
+    setX(2);
+    flush();
+    // Both pending with stale values
+    expect(pairsA.at(-1)).toEqual([true, 10]);
+    expect(pairsB.at(-1)).toEqual([true, 11]);
+
+    // Resolve asyncA - isPending(asyncA) resolves internally but removing the
+    // override entangles with the parent transition. No optimistic nodes in the
+    // dependency chain, so the effect is deferred until the transition commits.
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([true, 10]); // deferred - transition still active
+    expect(pairsB.at(-1)).toEqual([true, 11]);
+
+    // Resolve asyncB - transition commits, all effects fire
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 20]);
+    expect(pairsB.at(-1)).toEqual([false, 21]);
+
+    // Verify atomicity per node - no inconsistent pairs ever appeared
+    for (const [ip, val] of pairsA) {
+      if (ip) expect(val).toBe(10);
+    }
+    for (const [ip, val] of pairsB) {
+      if (ip) expect(val).toBe(11);
+    }
+  });
+
+  // Test 6: Chained async - [isPending(() => pending(x)), pending(x)] pairs
+  it("chained async - [isPending(() => pending(x)), pending(x)] pairs track each node's own resolution", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncA: () => number;
+    let asyncB: () => number;
+    let resolveA: (() => void) | null = null;
+    let resolveB: (() => void) | null = null;
+    const pairsA: [boolean, number][] = [];
+    const pairsB: [boolean, number][] = [];
+
+    createRoot(() => {
+      asyncA = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveA = () => res(v * 10);
+        });
+      });
+      asyncB = createMemo(() => {
+        const v = asyncA();
+        return new Promise<number>(res => {
+          resolveB = () => res(v + 1);
+        });
+      });
+      createRenderEffect(asyncB, () => {}); // subscribe to drive transition
+      createRenderEffect(
+        () => [isPending(() => pending(asyncA)), pending(asyncA)] as [boolean, number],
+        ([ip, val]) => { pairsA.push([ip, val]); }
+      );
+      createRenderEffect(
+        () => [isPending(() => pending(asyncB)), pending(asyncB)] as [boolean, number],
+        ([ip, val]) => { pairsB.push([ip, val]); }
+      );
+    });
+
+    flush();
+    // Initial load - resolve chain
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 10]);
+    expect(pairsB.at(-1)).toEqual([false, 11]);
+
+    // Change signal - both re-fire
+    setX(2);
+    flush();
+    // Both _pendingValueComputeds are STATUS_PENDING
+    expect(pairsA.at(-1)).toEqual([true, 10]);
+    expect(pairsB.at(-1)).toEqual([true, 11]);
+
+    // Resolve asyncA - asyncA's pair goes [false, 20]
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 20]);
+    expect(pairsB.at(-1)).toEqual([true, 11]);
+
+    // Resolve asyncB
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    expect(pairsB.at(-1)).toEqual([false, 21]);
+
+    // Verify atomicity per node
+    for (const [ip, val] of pairsA) {
+      if (ip) expect(val).toBe(10);
+    }
+    for (const [ip, val] of pairsB) {
+      if (ip) expect(val).toBe(11);
+    }
+  });
+
+  // Test 7: Multiple independent async sources - one resolves first
+  it("multiple independent async - [isPending(x), x()] pairs with progressive resolution", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncA: () => number;
+    let asyncB: () => number;
+    let resolveA: (() => void) | null = null;
+    let resolveB: (() => void) | null = null;
+    const pairsA: [boolean, number][] = [];
+    const pairsB: [boolean, number][] = [];
+
+    createRoot(() => {
+      asyncA = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveA = () => res(v * 10);
+        });
+      });
+      asyncB = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveB = () => res(v * 100);
+        });
+      });
+      createRenderEffect(
+        () => [isPending(asyncA), asyncA()] as [boolean, number],
+        ([ip, val]) => { pairsA.push([ip, val]); }
+      );
+      createRenderEffect(
+        () => [isPending(asyncB), asyncB()] as [boolean, number],
+        ([ip, val]) => { pairsB.push([ip, val]); }
+      );
+    });
+
+    flush();
+    // Initial load
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 10]);
+    expect(pairsB.at(-1)).toEqual([false, 100]);
+
+    // Change signal - both re-fire
+    setX(2);
+    flush();
+    expect(pairsA.at(-1)).toEqual([true, 10]);
+    expect(pairsB.at(-1)).toEqual([true, 100]);
+
+    // Resolve asyncB first - isPending(asyncB) resolves internally but removing
+    // the override entangles with the parent transition. No optimistic nodes in
+    // the dependency chain, so the effect is deferred until the transition commits.
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    expect(pairsB.at(-1)).toEqual([true, 100]); // deferred - transition still active
+    expect(pairsA.at(-1)).toEqual([true, 10]);
+
+    // Resolve asyncA - transition commits, all effects fire
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 20]);
+    expect(pairsB.at(-1)).toEqual([false, 200]);
+
+    // Verify atomicity per node - no inconsistent pairs ever appeared
+    for (const [ip, val] of pairsA) {
+      if (ip) expect(val).toBe(10);
+    }
+    for (const [ip, val] of pairsB) {
+      if (ip) expect(val).toBe(100);
+    }
+  });
+
+  // Test 8: Multiple independent async sources - isPending(() => pending(x)) pairs
+  it("multiple independent async - [isPending(() => pending(x)), pending(x)] pairs with progressive resolution", async () => {
+    const [$x, setX] = createSignal(1);
+    let asyncA: () => number;
+    let asyncB: () => number;
+    let asyncC: () => number;
+    let resolveA: (() => void) | null = null;
+    let resolveB: (() => void) | null = null;
+    let resolveC: (() => void) | null = null;
+    const pairsA: [boolean, number][] = [];
+    const pairsB: [boolean, number][] = [];
+    const pairsC: [boolean, number][] = [];
+
+    createRoot(() => {
+      asyncA = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveA = () => res(v * 10);
+        });
+      });
+      asyncB = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveB = () => res(v * 100);
+        });
+      });
+      asyncC = createMemo(() => {
+        const v = $x();
+        return new Promise<number>(res => {
+          resolveC = () => res(v * 1000);
+        });
+      });
+      createRenderEffect(asyncA, () => {});
+      createRenderEffect(asyncB, () => {});
+      createRenderEffect(asyncC, () => {});
+      createRenderEffect(
+        () => [isPending(() => pending(asyncA)), pending(asyncA)] as [boolean, number],
+        ([ip, val]) => { pairsA.push([ip, val]); }
+      );
+      createRenderEffect(
+        () => [isPending(() => pending(asyncB)), pending(asyncB)] as [boolean, number],
+        ([ip, val]) => { pairsB.push([ip, val]); }
+      );
+      createRenderEffect(
+        () => [isPending(() => pending(asyncC)), pending(asyncC)] as [boolean, number],
+        ([ip, val]) => { pairsC.push([ip, val]); }
+      );
+    });
+
+    flush();
+    // Initial load
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    resolveC!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 10]);
+    expect(pairsB.at(-1)).toEqual([false, 100]);
+    expect(pairsC.at(-1)).toEqual([false, 1000]);
+
+    // Change signal - all three re-fire
+    setX(2);
+    flush();
+    expect(pairsA.at(-1)).toEqual([true, 10]);
+    expect(pairsB.at(-1)).toEqual([true, 100]);
+    expect(pairsC.at(-1)).toEqual([true, 1000]);
+
+    // Resolve asyncC first
+    resolveC!();
+    await Promise.resolve();
+    flush();
+    expect(pairsC.at(-1)).toEqual([false, 2000]);
+    expect(pairsA.at(-1)).toEqual([true, 10]);
+    expect(pairsB.at(-1)).toEqual([true, 100]);
+
+    // Resolve asyncA
+    resolveA!();
+    await Promise.resolve();
+    flush();
+    expect(pairsA.at(-1)).toEqual([false, 20]);
+    expect(pairsB.at(-1)).toEqual([true, 100]);
+
+    // Resolve asyncB - all resolved, transition complete
+    resolveB!();
+    await Promise.resolve();
+    flush();
+    expect(pairsB.at(-1)).toEqual([false, 200]);
+
+    // Verify atomicity per node
+    for (const [ip, val] of pairsA) {
+      if (ip) expect(val).toBe(10);
+    }
+    for (const [ip, val] of pairsB) {
+      if (ip) expect(val).toBe(100);
+    }
+    for (const [ip, val] of pairsC) {
+      if (ip) expect(val).toBe(1000);
+    }
+  });
+});
+
 // it("should detect which signal triggered it", () => {
 //   const [$x, setX] = createSignal(0);
 //   const [$y, setY] = createSignal(0);
