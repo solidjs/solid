@@ -1,0 +1,73 @@
+---
+description: Core architecture and mental model for the @solidjs/signals reactive system
+alwaysApply: true
+---
+
+# Architecture
+
+Standalone reactive Signals library for next-generation SolidJS (post 1.x). Pre-alpha, every release may be breaking.
+
+## Reactive Graph
+
+Push-pull hybrid with three node types:
+
+- **Signals** (`RawSignal<T>`): leaf reactive values with a subscriber linked list (`_subs`)
+- **Computeds** (`Computed<T>`): derived values that track dependencies (`_deps` linked list) and own child computations via the `Owner` tree
+- **Effects**: terminal nodes that run side effects; types are RENDER (runs first) and USER (runs second); tracked effects bypass the heap and enqueue directly
+
+Dependencies and subscribers are connected via doubly-linked `Link` objects. The `Owner` hierarchy manages disposal and context propagation.
+
+## Scheduling
+
+Updates are batched and NOT synchronous. Signal writes call `schedule()` which queues a microtask. You must call `flush()` to process pending updates.
+
+```typescript
+setCount(1);
+console.log(count()); // Still 0 -- not flushed
+flush();
+console.log(count()); // Now 1
+```
+
+## Transitions (Async Model)
+
+Transitions are discovered, not declared. A signal write starts normally with no transition. During flush, if a downstream computed discovers async (throws `NotReadyError`), a transition is created at that point and retroactively encompasses the scope of the write. Pending values are held in `_pendingValue` and effects are stashed until all async resolves. Future writes to signals in an existing transition's graph entangle with it automatically.
+
+`action()` is one explicit way to create transitions from generator functions, but the system is designed so transitions emerge implicitly from the reactive graph when async is discovered.
+
+## Optimistic Lanes
+
+Per-optimistic-signal contexts that allow immediate UI updates while transitions are pending. The current value is shown optimistically while the previous value is stored in `_pendingValue` for automatic revert when the transition commits. Lanes track their own effect queues and use union-find for merging when graphs overlap.
+
+## Boundaries
+
+`createLoadBoundary` intercepts `STATUS_PENDING` propagation from async computeds. `createErrorBoundary` intercepts `STATUS_ERROR`. Boundaries use `_propagationMask` to control which status flags propagate up, and manage child queues for effects within their scope.
+
+## API Layers
+
+- **Raw core** (`src/core/`): internal primitives -- `signal()`, `computed()`, `read()`, `setSignal()`, `createRoot()`, `dispose()`
+- **Public API** (`src/signals.ts`): user-facing wrappers -- `createSignal()` returns `[getter, setter]`, `createMemo()` returns `Accessor<T>`, `createEffect()` for side effects
+- **Store** (`src/store/`): proxy-based deeply reactive objects via `createStore()`
+- **Entry point** (`src/index.ts`): re-exports everything
+
+## Build-time Constants
+
+`__DEV__` and `__TEST__` are replaced at build time (see `rollup.config.js`, `vite.config.ts`). Use these for debug-only code to enable tree-shaking in production.
+
+## Key Files
+
+- `src/core/core.ts`: reactive primitives, dependency linking, recomputation (~1200 lines)
+- `src/core/scheduler.ts`: flush cycle, transitions, optimistic lanes, effect queues
+- `src/core/constants.ts`: bitwise flags (REACTIVE_*, STATUS_*) and effect types
+- `src/core/heap.ts`: height-ordered execution
+- `src/core/effect.ts`: effect creation (render, user, tracked)
+- `src/signals.ts`: public API surface
+- `src/boundaries.ts`: error and load boundaries
+- `src/store/store.ts`: proxy-based stores
+
+## Commands
+
+- `pnpm test` / `pnpm test:watch`: run tests
+- `pnpm test:gc`: tests with GC exposed
+- `pnpm build`: Rollup build with dev/prod/node outputs
+- `pnpm format`: Prettier with import sorting
+- `pnpm bench`: benchmarks
