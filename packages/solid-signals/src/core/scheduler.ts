@@ -572,7 +572,14 @@ function transitionComplete(transition: Transition): boolean {
   if (transition._actions.length) return false;
   let done = true;
   for (let i = 0; i < transition._asyncNodes.length; i++) {
-    if (transition._asyncNodes[i]._statusFlags & STATUS_PENDING) {
+    const node = transition._asyncNodes[i];
+    // Only wait for nodes pending from their own async (_error._source === self).
+    // Ignore propagated STATUS_PENDING from upstream — those nodes already resolved
+    // their own async and will clear naturally if they recompute.
+    if (
+      node._statusFlags & STATUS_PENDING &&
+      (node._error as NotReadyError)?._source === node
+    ) {
       done = false;
       break;
     }

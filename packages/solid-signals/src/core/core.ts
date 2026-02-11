@@ -855,6 +855,21 @@ export function untrack<T>(fn: () => T): T {
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
+  // Handle pending() mode: read from _pendingValueComputed
+  // Checked before isPending so that isPending(() => pending(x)) checks
+  // the _pendingSignal of _pendingValueComputed (async in flight) rather
+  // than the original node (which stays "pending" while held in a transition).
+  if (pendingReadActive) {
+    const pendingComputed = getPendingValueComputed(el);
+    const prevPending = pendingReadActive;
+    pendingReadActive = false;
+    const value = read(pendingComputed);
+    pendingReadActive = prevPending;
+    // If _pendingValueComputed is pending (source was pending), fallback to el._value
+    if (pendingComputed._statusFlags & STATUS_PENDING) return el._value as T;
+    return value as T;
+  }
+
   // Handle isPending() mode: read from _pendingSignal, set foundPending if true
   if (pendingCheckActive) {
     // For store properties, check the firewall's (projection's) pending state
@@ -867,18 +882,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
     pendingCheckActive = prevCheck;
     return el._value as T;
-  }
-
-  // Handle pending() mode: read from _pendingValueComputed
-  if (pendingReadActive) {
-    const pendingComputed = getPendingValueComputed(el);
-    const prevPending = pendingReadActive;
-    pendingReadActive = false;
-    const value = read(pendingComputed);
-    pendingReadActive = prevPending;
-    // If _pendingValueComputed is pending (source was pending), fallback to el._value
-    if (pendingComputed._statusFlags & STATUS_PENDING) return el._value as T;
-    return value as T;
   }
 
   let c = context;
