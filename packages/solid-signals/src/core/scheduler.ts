@@ -168,9 +168,7 @@ export function assignOrMergeLane(
           el._optimisticLane = sourceLane;
         } else if (existingRoot._parentLane && findLane(existingRoot._parentLane) === sourceRoot) {
           // Existing is already the child — keep it
-        } else {
-          mergeLanes(sourceRoot, existingRoot);
-        }
+        } else mergeLanes(sourceRoot, existingRoot);
       }
       return;
     }
@@ -590,10 +588,7 @@ function transitionComplete(transition: Transition): boolean {
     // Only wait for nodes pending from their own async (_error._source === self).
     // Ignore propagated STATUS_PENDING from upstream — those nodes already resolved
     // their own async and will clear naturally if they recompute.
-    if (
-      node._statusFlags & STATUS_PENDING &&
-      (node._error as NotReadyError)?._source === node
-    ) {
+    if (node._statusFlags & STATUS_PENDING && (node._error as NotReadyError)?._source === node) {
       done = false;
       break;
     }
