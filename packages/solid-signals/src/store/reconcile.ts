@@ -152,6 +152,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
       if (
         !previousValue ||
         !isWrappable(previousValue) ||
+        !isWrappable(nextValue) ||
         (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
       ) {
         tracked && setSignal(tracked, void 0);
