@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/signals",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "SolidJS' standalone reactive implementation",
   "author": "Ryan Carniato",
   "license": "MIT",
