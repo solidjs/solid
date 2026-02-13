@@ -232,9 +232,9 @@ export class GlobalQueue extends Queue {
         if (
           activeTransition &&
           actualError &&
-          !activeTransition._asyncNodes.includes((actualError as NotReadyError)._source)
+          !activeTransition._asyncNodes.includes((actualError as NotReadyError).source)
         ) {
-          activeTransition._asyncNodes.push((actualError as NotReadyError)._source);
+          activeTransition._asyncNodes.push((actualError as NotReadyError).source);
           schedule();
         }
       }
@@ -457,10 +457,10 @@ function transitionComplete(transition: Transition): boolean {
   let done = true;
   for (let i = 0; i < transition._asyncNodes.length; i++) {
     const node = transition._asyncNodes[i];
-    // Only wait for nodes pending from their own async (_error._source === self).
+    // Only wait for nodes pending from their own async (_error.source === self).
     // Ignore propagated STATUS_PENDING from upstream — those nodes already resolved
     // their own async and will clear naturally if they recompute.
-    if (node._statusFlags & STATUS_PENDING && (node._error as NotReadyError)?._source === node) {
+    if (node._statusFlags & STATUS_PENDING && (node._error as NotReadyError)?.source === node) {
       done = false;
       break;
     }

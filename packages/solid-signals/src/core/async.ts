@@ -169,7 +169,7 @@ export function notifyStatus(
   )
     error = new StatusError(el, error);
 
-  const isSource = error instanceof NotReadyError && (error as NotReadyError)._source === el;
+  const isSource = error instanceof NotReadyError && (error as NotReadyError).source === el;
   const isOptimisticBoundary = status === STATUS_PENDING && el._optimistic && !isSource;
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
@@ -188,7 +188,7 @@ export function notifyStatus(
   // reach a render effect (e.g. isPending only subscribes to _pendingSignal, not the node).
   // Directly register the async source with the transition so it doesn't complete prematurely.
   if (startsBlocking && activeTransition && error instanceof NotReadyError) {
-    const source = (error as NotReadyError)._source;
+    const source = (error as NotReadyError).source;
     if (!activeTransition._asyncNodes.includes(source)) {
       activeTransition._asyncNodes.push(source);
     }

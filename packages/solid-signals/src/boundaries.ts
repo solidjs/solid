@@ -75,7 +75,7 @@ export class CollectionQueue extends Queue {
     )
       return super.notify(node, type, flags, error);
     if (flags & this._collectionType) {
-      const source = (error as any)?._source || (node._error as any)?._source;
+      const source = (error as any)?.source || (node._error as any)?.source;
       if (source) {
         const wasEmpty = this._sources.size === 0;
         this._sources.add(source);
