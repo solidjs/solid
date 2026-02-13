@@ -357,9 +357,12 @@ describe("createOptimisticStore", () => {
   describe("derived optimistic stores (projections)", () => {
     it("should derive from source signal and revert optimistic writes", () => {
       const [$x, setX] = createSignal(1);
-      const [state, setState] = createOptimisticStore(s => {
-        s.value = $x() + 1;
-      }, { value: 0 });
+      const [state, setState] = createOptimisticStore(
+        s => {
+          s.value = $x() + 1;
+        },
+        { value: 0 }
+      );
 
       flush();
       expect(state.value).toBe(2);
@@ -382,10 +385,7 @@ describe("createOptimisticStore", () => {
 
     it("should allow return value reconciliation and revert optimistic", () => {
       const [$x, setX] = createSignal(1);
-      const [state, setState] = createOptimisticStore(
-        () => ({ value: $x() * 2 }),
-        { value: 0 }
-      );
+      const [state, setState] = createOptimisticStore(() => ({ value: $x() * 2 }), { value: 0 });
 
       flush();
       expect(state.value).toBe(2);
@@ -405,11 +405,14 @@ describe("createOptimisticStore", () => {
 
     it("should handle async projection and revert optimistic writes", async () => {
       const [$x, setX] = createSignal(1);
-      const [state, setState] = createOptimisticStore(async s => {
-        const v = $x();
-        await Promise.resolve();
-        s.value = v * 2;
-      }, { value: 0 });
+      const [state, setState] = createOptimisticStore(
+        async s => {
+          const v = $x();
+          await Promise.resolve();
+          s.value = v * 2;
+        },
+        { value: 0 }
+      );
 
       createRoot(() => {
         createRenderEffect(
@@ -446,11 +449,14 @@ describe("createOptimisticStore", () => {
         { id: 2, name: "B" }
       ]);
 
-      const [state, setState] = createOptimisticStore(s => {
-        const items = $items();
-        s.items = items;
-        s.count = items.length;
-      }, { items: [] as { id: number; name: string }[], count: 0 });
+      const [state, setState] = createOptimisticStore(
+        s => {
+          const items = $items();
+          s.items = items;
+          s.count = items.length;
+        },
+        { items: [] as { id: number; name: string }[], count: 0 }
+      );
 
       flush();
       expect(state.count).toBe(2);
@@ -724,9 +730,15 @@ describe("createOptimisticStore", () => {
       expect(lengths).toEqual([1]);
 
       // Rapid successive pushes - each should see the updated length from previous
-      setState(s => { s.items.push(2); });
-      setState(s => { s.items.push(3); });
-      setState(s => { s.items.push(4); });
+      setState(s => {
+        s.items.push(2);
+      });
+      setState(s => {
+        s.items.push(3);
+      });
+      setState(s => {
+        s.items.push(4);
+      });
 
       expect(state.items.length).toBe(4);
       expect(state.items[1]).toBe(2);
@@ -742,7 +754,10 @@ describe("createOptimisticStore", () => {
     it("should handle rapid successive array deletions via filter on top-level array", () => {
       // Using top-level array store like the Todo demo
       const [state, setState] = createOptimisticStore([
-        { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }
+        { id: 1 },
+        { id: 2 },
+        { id: 3 },
+        { id: 4 }
       ] as { id: number }[]);
       const lengths: number[] = [];
 
@@ -761,10 +776,10 @@ describe("createOptimisticStore", () => {
       // Rapid successive deletions - each filter returns a new array that gets applied
       setState(s => s.filter(item => item.id !== 2));
       expect(state.length).toBe(3);
-      
+
       setState(s => s.filter(item => item.id !== 4));
       expect(state.length).toBe(2);
-      
+
       expect([...state].map(i => i.id)).toEqual([1, 3]);
 
       // All revert on flush
@@ -916,13 +931,17 @@ describe("createOptimisticStore", () => {
 
       // Toggle 1: false -> true
       const toggle1 = action(function* () {
-        setState(s => { s.completed = true; });
+        setState(s => {
+          s.completed = true;
+        });
         yield apiPromise1;
       });
 
       // Toggle 2: true -> false (before toggle 1 flushes)
       const toggle2 = action(function* () {
-        setState(s => { s.completed = false; });
+        setState(s => {
+          s.completed = false;
+        });
         yield apiPromise2;
       });
 
@@ -978,7 +997,9 @@ describe("createOptimisticStore", () => {
 
       // Toggle 1: false -> true
       const t1 = action(function* () {
-        setState(s => { s.completed = true; });
+        setState(s => {
+          s.completed = true;
+        });
         yield apiPromise1;
       });
       t1();
@@ -988,7 +1009,9 @@ describe("createOptimisticStore", () => {
 
       // Toggle 2: true -> false
       const t2 = action(function* () {
-        setState(s => { s.completed = false; });
+        setState(s => {
+          s.completed = false;
+        });
         yield apiPromise2;
       });
       t2();
@@ -998,7 +1021,9 @@ describe("createOptimisticStore", () => {
 
       // Toggle 3: false -> true
       const t3 = action(function* () {
-        setState(s => { s.completed = true; });
+        setState(s => {
+          s.completed = true;
+        });
         yield apiPromise3;
       });
       t3();
@@ -1167,7 +1192,9 @@ describe("createOptimisticStore", () => {
 
       // Toggle 1: false -> true (action starts, flushes)
       const toggle1 = action(function* () {
-        setState(s => { s.completed = true; });
+        setState(s => {
+          s.completed = true;
+        });
         yield apiPromise1;
       });
       toggle1();
@@ -1180,7 +1207,9 @@ describe("createOptimisticStore", () => {
 
       // Now toggle 2: true -> false (separate event, after first flush)
       const toggle2 = action(function* () {
-        setState(s => { s.completed = false; });
+        setState(s => {
+          s.completed = false;
+        });
         yield apiPromise2;
       });
       toggle2();
@@ -1220,12 +1249,18 @@ describe("createOptimisticStore", () => {
       const mockFetch = async () => {
         fetchCount++;
         await Promise.resolve();
-        return [{ id: 1, name: "Item 1" }, { id: 2, name: "Item 2" }];
+        return [
+          { id: 1, name: "Item 1" },
+          { id: 2, name: "Item 2" }
+        ];
       };
 
-      const [state] = createOptimisticStore(async () => {
-        return await mockFetch();
-      }, [] as { id: number; name: string }[]);
+      const [state] = createOptimisticStore(
+        async () => {
+          return await mockFetch();
+        },
+        [] as { id: number; name: string }[]
+      );
 
       createRoot(() => {
         createRenderEffect(
@@ -1351,7 +1386,10 @@ describe("createOptimisticStore", () => {
         );
 
         // Effect to create transition
-        createRenderEffect(() => state.data, () => {});
+        createRenderEffect(
+          () => state.data,
+          () => {}
+        );
       });
 
       // Initial load - need flush to trigger first async run
@@ -1381,7 +1419,10 @@ describe("createOptimisticStore", () => {
           { data: 0 }
         );
 
-        createRenderEffect(() => state.data, () => {});
+        createRenderEffect(
+          () => state.data,
+          () => {}
+        );
       });
 
       // Initial load - need flush to trigger first async run
@@ -1420,7 +1461,10 @@ describe("createOptimisticStore", () => {
           { data: 0 }
         );
 
-        createRenderEffect(() => state.data, () => {});
+        createRenderEffect(
+          () => state.data,
+          () => {}
+        );
       });
 
       // Initial load - need flush to trigger first async run

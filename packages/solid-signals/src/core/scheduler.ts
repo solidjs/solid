@@ -8,9 +8,9 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
+import { currentOptimisticLane } from "./core.js";
 import type { NotReadyError } from "./error.js";
 import { insertIntoHeap, runHeap, type Heap } from "./heap.js";
-import { currentOptimisticLane } from "./core.js";
 import {
   activeLanes,
   assignOrMergeLane,
@@ -21,7 +21,13 @@ import {
 import type { Computed, Signal } from "./types.js";
 
 export { activeLanes, assignOrMergeLane, findLane };
-export { getOrCreateLane, hasActiveOverride, mergeLanes, resolveLane, type OptimisticLane } from "./lanes.js";
+export {
+  getOrCreateLane,
+  hasActiveOverride,
+  mergeLanes,
+  resolveLane,
+  type OptimisticLane
+} from "./lanes.js";
 
 const transitions = new Set<Transition>();
 export const dirtyQueue: Heap = {

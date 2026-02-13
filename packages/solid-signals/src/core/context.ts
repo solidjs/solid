@@ -1,6 +1,6 @@
 import { getOwner } from "./core.js";
-import type { Owner } from "./types.js";
 import { ContextNotFoundError, NoOwnerError } from "./error.js";
+import type { Owner } from "./types.js";
 
 export interface Context<T> {
   readonly id: symbol;

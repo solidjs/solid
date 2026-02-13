@@ -6,14 +6,8 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
+import { context, read, setSignal, untrack, updatePendingSignal } from "./core.js";
 import { NotReadyError, StatusError } from "./error.js";
-import {
-  context,
-  read,
-  setSignal,
-  untrack,
-  updatePendingSignal
-} from "./core.js";
 import { hasActiveOverride, resolveLane, type OptimisticLane } from "./lanes.js";
 import {
   activeTransition,

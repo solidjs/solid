@@ -673,7 +673,13 @@ describe("action", () => {
       expect($x()).toBe(0); // Still held
 
       await Promise.resolve();
-      expect(steps).toEqual(["action-start", "helper-start", "helper-middle", "helper-end", "action-end"]);
+      expect(steps).toEqual([
+        "action-start",
+        "helper-start",
+        "helper-middle",
+        "helper-end",
+        "action-end"
+      ]);
       expect($x()).toBe(3); // Committed
     });
 
@@ -702,7 +708,14 @@ describe("action", () => {
       expect(steps).toEqual(["action-start", "outer-start", "inner-1"]);
 
       await Promise.resolve();
-      expect(steps).toEqual(["action-start", "outer-start", "inner-1", "inner-2", "outer-end", "action-end"]);
+      expect(steps).toEqual([
+        "action-start",
+        "outer-start",
+        "inner-1",
+        "inner-2",
+        "outer-end",
+        "action-end"
+      ]);
     });
 
     it("should maintain transition context across all delegated yields", async () => {
@@ -1032,9 +1045,7 @@ describe("action", () => {
     // Go-style error handling: [result, error] tuple
     type AttemptResult<T, E = Error> = [T, undefined] | [undefined, E];
 
-    function* attempt<T>(
-      promise: Promise<T>
-    ): Generator<Promise<T>, AttemptResult<T>, T> {
+    function* attempt<T>(promise: Promise<T>): Generator<Promise<T>, AttemptResult<T>, T> {
       try {
         const result: T = yield promise;
         return [result, undefined];

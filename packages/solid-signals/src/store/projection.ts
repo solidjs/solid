@@ -17,8 +17,8 @@ import {
   STORE_WRAP,
   storeSetter,
   storeTraps,
-  type Store,
-  type ProjectionOptions
+  type ProjectionOptions,
+  type Store
 } from "./store.js";
 
 export function createProjectionInternal<T extends object = {}>(

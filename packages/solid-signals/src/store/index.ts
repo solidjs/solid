@@ -1,4 +1,12 @@
-export type { Store, StoreSetter, StoreNode, StoreOptions, ProjectionOptions, NotWrappable, SolidStore } from "./store.js";
+export type {
+  Store,
+  StoreSetter,
+  StoreNode,
+  StoreOptions,
+  ProjectionOptions,
+  NotWrappable,
+  SolidStore
+} from "./store.js";
 export type { Merge, Omit } from "./utils.js";
 
 export { isWrappable, createStore, deep, $TRACK, $PROXY, $TARGET } from "./store.js";

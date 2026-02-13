@@ -17,9 +17,9 @@ describe("createOptimistic", () => {
   describe("async memo with optimistic computed wrapping regular signal", () => {
     it("should combine pending value with optimistic write when transition completes", async () => {
       const [count, setCount] = createSignal(0);
-      const [timeline, setTimeline] = createSignal('');
+      const [timeline, setTimeline] = createSignal("");
       const [optimisticTimeline, setOptimisticTimeline] = createOptimistic(timeline);
-      
+
       // Async memo like user's example - setTimeout style
       let resolveAsync: () => void;
       const asyncCount = createMemo(() => {
@@ -31,56 +31,60 @@ describe("createOptimistic", () => {
 
       const timelineValues: string[] = [];
       const countValues: number[] = [];
-      
+
       createRoot(() => {
         // Render effect on async count (like Loading boundary)
         createRenderEffect(
           () => asyncCount(),
-          (v) => { countValues.push(v); }
+          v => {
+            countValues.push(v);
+          }
         );
         // Render effect on optimistic timeline
         createRenderEffect(
           () => optimisticTimeline(),
-          (v) => { timelineValues.push(v); }
+          v => {
+            timelineValues.push(v);
+          }
         );
       });
 
       // Initial async load
       flush();
       expect(countValues).toEqual([]); // Async not resolved yet
-      
+
       // Resolve initial async
       resolveAsync!();
       await new Promise(r => setTimeout(r, 0));
       expect(countValues).toEqual([0]);
-      expect(timelineValues).toEqual(['']);
+      expect(timelineValues).toEqual([""]);
 
       // Click 1: "Append 0 Async" - triggers new async transition
       setCount(1);
-      setTimeline(x => x + '0');
+      setTimeline(x => x + "0");
       flush(); // First flush - async starts, transition begins
-      
+
       // After first flush: optimisticTimeline recomputes in background (saves '0' to _pendingValue)
       // But reading returns current _value = ''
-      expect(optimisticTimeline()).toBe(''); // Current value, not pending
-      expect(timeline()).toBe(''); // Held during transition
-      expect(timelineValues).toEqual(['']); // Effect hasn't run yet
-      
+      expect(optimisticTimeline()).toBe(""); // Current value, not pending
+      expect(timeline()).toBe(""); // Held during transition
+      expect(timelineValues).toEqual([""]); // Effect hasn't run yet
+
       // Click 2: "Append 1" - during transition, adds optimistic write
       // setTimeline builds on _pendingValue: '0' + '1' = '01'
       // setOptimisticTimeline builds on current _value: '' + '1' = '1'
-      setTimeline(x => x + '1');
-      setOptimisticTimeline(x => x + '1');
+      setTimeline(x => x + "1");
+      setOptimisticTimeline(x => x + "1");
 
       flush();
-      
-      // During transition: 
+
+      // During transition:
       // - optimisticTimeline shows optimistic override '1'
       // - timeline._pendingValue = '01'
       // - optimisticTimeline should recompute in background to see '01'
-      expect(optimisticTimeline()).toBe('1'); // Optimistic value
-      expect(timeline()).toBe(''); // Still held during transition
-      expect(timelineValues).toEqual(['', '1']); // Effect sees optimistic value
+      expect(optimisticTimeline()).toBe("1"); // Optimistic value
+      expect(timeline()).toBe(""); // Still held during transition
+      expect(timelineValues).toEqual(["", "1"]); // Effect sees optimistic value
 
       // Complete the async
       resolveAsync!();
@@ -90,10 +94,10 @@ describe("createOptimistic", () => {
       // After transition completes:
       // - timeline._value should be '01' (committed)
       // - optimisticTimeline should revert to its computed value '01'
-      expect(timeline()).toBe('01');
-      expect(optimisticTimeline()).toBe('01'); // Should NOT stay '1'!
+      expect(timeline()).toBe("01");
+      expect(optimisticTimeline()).toBe("01"); // Should NOT stay '1'!
       expect(countValues).toEqual([0, 1]);
-      expect(timelineValues).toEqual(['', '1', '01']);
+      expect(timelineValues).toEqual(["", "1", "01"]);
     });
   });
 
@@ -558,7 +562,9 @@ describe("createOptimistic", () => {
       createRoot(() => {
         createRenderEffect(
           () => $x(),
-          v => { values.push(v); }
+          v => {
+            values.push(v);
+          }
         );
       });
 
@@ -622,11 +628,15 @@ describe("createOptimistic", () => {
       createRoot(() => {
         createRenderEffect(
           () => $x1(),
-          v => { values1.push(v); }
+          v => {
+            values1.push(v);
+          }
         );
         createRenderEffect(
           () => $x2(),
-          v => { values2.push(v); }
+          v => {
+            values2.push(v);
+          }
         );
       });
 
@@ -793,11 +803,15 @@ describe("createOptimistic", () => {
       createRoot(() => {
         createRenderEffect(
           () => a(),
-          v => { aEffects.push(v); }
+          v => {
+            aEffects.push(v);
+          }
         );
         createRenderEffect(
           () => b(),
-          v => { bEffects.push(v); }
+          v => {
+            bEffects.push(v);
+          }
         );
       });
 
@@ -830,7 +844,9 @@ describe("createOptimistic", () => {
         sum = createMemo(() => a() + b());
         createRenderEffect(
           () => sum(),
-          v => { sumEffects.push(v); }
+          v => {
+            sumEffects.push(v);
+          }
         );
       });
 
@@ -855,7 +871,9 @@ describe("createOptimistic", () => {
       createRoot(() => {
         createRenderEffect(
           () => value(),
-          v => { effects.push(v); }
+          v => {
+            effects.push(v);
+          }
         );
       });
 
@@ -886,7 +904,9 @@ describe("createOptimistic", () => {
         // Regular effect
         createRenderEffect(
           () => value(),
-          () => { callOrder.push("regular"); }
+          () => {
+            callOrder.push("regular");
+          }
         );
       });
 
@@ -914,7 +934,9 @@ describe("createOptimistic", () => {
 
         createRenderEffect(
           () => quadrupled(),
-          v => { effects.push(v); }
+          v => {
+            effects.push(v);
+          }
         );
       });
 
@@ -950,7 +972,9 @@ describe("createOptimistic", () => {
         // Optimistic effect should still run
         createRenderEffect(
           () => optimistic(),
-          v => { effects.push(v); }
+          v => {
+            effects.push(v);
+          }
         );
       });
 
@@ -978,7 +1002,9 @@ describe("createOptimistic", () => {
       createRoot(() => {
         createRenderEffect(
           () => value(),
-          v => { effects.push(v); }
+          v => {
+            effects.push(v);
+          }
         );
       });
 
@@ -1018,7 +1044,9 @@ describe("createOptimistic", () => {
         // Effect that reads from both async and another optimistic signal
         createRenderEffect(
           () => ({ a: sourceA(), b: sourceB() }),
-          v => { effectValues.push(v); }
+          v => {
+            effectValues.push(v);
+          }
         );
 
         // Subscribe to async to trigger it
@@ -1037,7 +1065,7 @@ describe("createOptimistic", () => {
       expect(effectValues).toEqual([
         { a: 1, b: 10 },
         { a: 1, b: 20 },
-        { a: 1, b: 10 }  // revert
+        { a: 1, b: 10 } // revert
       ]);
 
       // Resolve async
@@ -1092,7 +1120,9 @@ describe("createOptimistic", () => {
         resolveSecond: () => resolveSecond?.(),
         effectValues,
         setup: () => {
-          createRenderEffect(secondAsync, v => { effectValues.push(v); });
+          createRenderEffect(secondAsync, v => {
+            effectValues.push(v);
+          });
         }
       };
     }
@@ -1475,8 +1505,12 @@ describe("createOptimistic", () => {
       const sourceValues: number[] = [];
 
       createRoot(() => {
-        createRenderEffect(secondAsync, v => { effectValues.push(v); });
-        createRenderEffect(source, v => { sourceValues.push(v); });
+        createRenderEffect(secondAsync, v => {
+          effectValues.push(v);
+        });
+        createRenderEffect(source, v => {
+          sourceValues.push(v);
+        });
       });
 
       // Initial load
@@ -1728,9 +1762,16 @@ describe("createOptimistic", () => {
         pendingValues,
         setup: () => {
           // Main effect on secondAsync
-          createRenderEffect(secondAsync, v => { effectValues.push(v); });
+          createRenderEffect(secondAsync, v => {
+            effectValues.push(v);
+          });
           // Additional effect on isPending(optimistic) - creates nested lane
-          createRenderEffect(() => isPending(optimistic), v => { pendingValues.push(v); });
+          createRenderEffect(
+            () => isPending(optimistic),
+            v => {
+              pendingValues.push(v);
+            }
+          );
         }
       };
     }
@@ -1878,9 +1919,21 @@ describe("createOptimistic", () => {
 
       createRoot(() => {
         // Three separate effects - tests lane routing
-        createRenderEffect(() => isPending(optimistic), v => { pendingOptimistic.push(v); });
-        createRenderEffect(() => isPending(secondAsync), v => { pendingSecond.push(v); });
-        createRenderEffect(secondAsync, v => { values.push(v); });
+        createRenderEffect(
+          () => isPending(optimistic),
+          v => {
+            pendingOptimistic.push(v);
+          }
+        );
+        createRenderEffect(
+          () => isPending(secondAsync),
+          v => {
+            pendingSecond.push(v);
+          }
+        );
+        createRenderEffect(secondAsync, v => {
+          values.push(v);
+        });
       });
 
       flush();
@@ -1952,7 +2005,7 @@ describe("createOptimistic", () => {
 
   describe("real-world pattern: userPreference -> optimistic -> categoryDetails", () => {
     // This test mirrors a common real-world pattern:
-    // 
+    //
     // userCategory (async) ─→ optimisticCategory ─┬─→ select value (effect)
     //                                             │
     //                                             └─→ categoryData (async) ─→ list (effect)
@@ -1965,9 +2018,9 @@ describe("createOptimistic", () => {
       // Simulated database
       let dbUserCategory = "News";
       const categoryItems: Record<string, string[]> = {
-        "News": ["Daily Brief", "World Report"],
-        "Finance": ["Stock Ticker", "Market Analysis"],
-        "Sports": ["Live Scores", "Match Highlights"],
+        News: ["Daily Brief", "World Report"],
+        Finance: ["Stock Ticker", "Market Analysis"],
+        Sports: ["Live Scores", "Match Highlights"]
       };
 
       // API resolvers (simulating async API calls)
@@ -2001,11 +2054,20 @@ describe("createOptimistic", () => {
 
       createRoot(() => {
         // Effect for select value (like the select element binding)
-        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
+        createRenderEffect(optimisticCategory, v => {
+          selectedValues.push(v);
+        });
         // Effect for category data list
-        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+        createRenderEffect(categoryData, v => {
+          categoryDataValues.push(v);
+        });
         // Effect for isPending state
-        createRenderEffect(() => isPending(categoryData), v => { pendingStates.push(v); });
+        createRenderEffect(
+          () => isPending(categoryData),
+          v => {
+            pendingStates.push(v);
+          }
+        );
       });
 
       flush();
@@ -2039,10 +2101,12 @@ describe("createOptimistic", () => {
       const handleSelect = action(function* (category: string) {
         // Step 1: Set optimistic value immediately
         setOptimisticCategory(category);
-        
+
         // Step 2: Wait for API update (simulated async)
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
-        
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
+
         // Step 3: Refresh source to get server-confirmed value
         refresh(userCategory);
       });
@@ -2055,7 +2119,7 @@ describe("createOptimistic", () => {
       expect(optimisticCategory()).toBe("Finance");
       // Lane effects wait for pendingAsync (categoryData) to resolve
       expect(selectedValues).toEqual(["News"]); // Effect hasn't fired yet
-      
+
       // CRITICAL: isPending should fire IMMEDIATELY when categoryData starts loading
       // (isPending has its own lane that can flush without waiting for categoryData)
       expect(pendingStates.at(-1)).toBe(true);
@@ -2110,9 +2174,9 @@ describe("createOptimistic", () => {
       // Same setup but server returns a different value than optimistic guess
       let dbUserCategory = "News";
       const categoryItems: Record<string, string[]> = {
-        "News": ["Daily Brief", "World Report"],
-        "Finance": ["Stock Ticker", "Market Analysis"],
-        "Sports": ["Live Scores", "Match Highlights"],
+        News: ["Daily Brief", "World Report"],
+        Finance: ["Stock Ticker", "Market Analysis"],
+        Sports: ["Live Scores", "Match Highlights"]
       };
 
       let resolveUserCategory: ((v: string) => void) | null = null;
@@ -2137,8 +2201,12 @@ describe("createOptimistic", () => {
       const categoryDataValues: string[][] = [];
 
       createRoot(() => {
-        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
-        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+        createRenderEffect(optimisticCategory, v => {
+          selectedValues.push(v);
+        });
+        createRenderEffect(categoryData, v => {
+          categoryDataValues.push(v);
+        });
       });
 
       flush();
@@ -2198,9 +2266,9 @@ describe("createOptimistic", () => {
     it("rapid user actions: multiple selections before first resolves", async () => {
       let dbUserCategory = "News";
       const categoryItems: Record<string, string[]> = {
-        "News": ["Daily Brief"],
-        "Finance": ["Stock Ticker"],
-        "Sports": ["Live Scores"],
+        News: ["Daily Brief"],
+        Finance: ["Stock Ticker"],
+        Sports: ["Live Scores"]
       };
 
       let resolveUserCategory: ((v: string) => void) | null = null;
@@ -2225,8 +2293,12 @@ describe("createOptimistic", () => {
       const categoryDataValues: string[][] = [];
 
       createRoot(() => {
-        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
-        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+        createRenderEffect(optimisticCategory, v => {
+          selectedValues.push(v);
+        });
+        createRenderEffect(categoryData, v => {
+          categoryDataValues.push(v);
+        });
       });
 
       flush();
@@ -2286,9 +2358,9 @@ describe("createOptimistic", () => {
     it("two full cycles with action+refresh - lanes clean up between transitions", async () => {
       let dbUserCategory = "News";
       const categoryItems: Record<string, string[]> = {
-        "News": ["Daily Brief"],
-        "Finance": ["Stock Ticker"],
-        "Sports": ["Live Scores"],
+        News: ["Daily Brief"],
+        Finance: ["Stock Ticker"],
+        Sports: ["Live Scores"]
       };
 
       let resolveUserCategory: ((v: string) => void) | null = null;
@@ -2314,8 +2386,12 @@ describe("createOptimistic", () => {
       const categoryDataValues: string[][] = [];
 
       createRoot(() => {
-        createRenderEffect(optimisticCategory, v => { selectedValues.push(v); });
-        createRenderEffect(categoryData, v => { categoryDataValues.push(v); });
+        createRenderEffect(optimisticCategory, v => {
+          selectedValues.push(v);
+        });
+        createRenderEffect(categoryData, v => {
+          categoryDataValues.push(v);
+        });
       });
 
       flush();
@@ -2334,7 +2410,9 @@ describe("createOptimistic", () => {
       // === CYCLE 1: News -> Finance (via action) ===
       const handleSelect = action(function* (category: string) {
         setOptimisticCategory(category);
-        yield new Promise<void>(r => { resolveUpdateCategory = r; });
+        yield new Promise<void>(r => {
+          resolveUpdateCategory = r;
+        });
         refresh(userCategory);
       });
 
@@ -2416,18 +2494,28 @@ describe("createOptimistic", () => {
       let resolveUpdate: (() => void) | null = null;
       let resolveDown: ((v: string) => void) | null = null;
 
-      const source = createMemo(() =>
-        new Promise<string>(res => { resolveSource = res; })
+      const source = createMemo(
+        () =>
+          new Promise<string>(res => {
+            resolveSource = res;
+          })
       );
       const [opt, setOpt] = createOptimistic(() => source());
       const down = createMemo(() => {
         opt();
-        return new Promise<string>(res => { resolveDown = res; });
+        return new Promise<string>(res => {
+          resolveDown = res;
+        });
       });
 
       const pendingVals: boolean[] = [];
       createRoot(() => {
-        createRenderEffect(() => isPending(down), v => { pendingVals.push(v); });
+        createRenderEffect(
+          () => isPending(down),
+          v => {
+            pendingVals.push(v);
+          }
+        );
       });
       flush();
 
@@ -2443,7 +2531,9 @@ describe("createOptimistic", () => {
       // ACTION 1
       const act = action(function* (v: string) {
         setOpt(v);
-        yield new Promise<void>(r => { resolveUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveUpdate = r;
+        });
         refresh(source);
       });
 
@@ -2474,18 +2564,28 @@ describe("createOptimistic", () => {
       let resolveUpdate: (() => void) | null = null;
       let resolveDown: ((v: string[]) => void) | null = null;
 
-      const source = createMemo(() =>
-        new Promise<string>(res => { resolveSource = res; })
+      const source = createMemo(
+        () =>
+          new Promise<string>(res => {
+            resolveSource = res;
+          })
       );
       const [opt, setOpt] = createOptimistic(() => source());
       const down = createMemo(() => {
         const v = opt();
-        return new Promise<string[]>(res => { resolveDown = res; });
+        return new Promise<string[]>(res => {
+          resolveDown = res;
+        });
       });
 
       const pendingVals: boolean[] = [];
       createRoot(() => {
-        createRenderEffect(() => isPending(down), v => { pendingVals.push(v); });
+        createRenderEffect(
+          () => isPending(down),
+          v => {
+            pendingVals.push(v);
+          }
+        );
       });
       flush();
 
@@ -2502,7 +2602,9 @@ describe("createOptimistic", () => {
       // ACTION: change category
       const handleSelect = action(function* (cat: string) {
         setOpt(cat);
-        yield new Promise<void>(r => { resolveUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveUpdate = r;
+        });
         refresh(source);
       });
 
@@ -2548,22 +2650,27 @@ describe("createOptimistic", () => {
     it("second action while first still in flight - override should show immediately", async () => {
       let dbCategory = "News";
       const items: Record<string, string[]> = {
-        "News": ["Daily Brief"],
-        "Finance": ["Stock Ticker"],
-        "Sports": ["Live Scores"],
+        News: ["Daily Brief"],
+        Finance: ["Stock Ticker"],
+        Sports: ["Live Scores"]
       };
 
       let resolveCategory: ((v: string) => void) | null = null;
       let resolveUpdate: (() => void) | null = null;
       let resolveDetails: ((v: string[]) => void) | null = null;
 
-      const userCategory = createMemo(() =>
-        new Promise<string>(res => { resolveCategory = res; })
+      const userCategory = createMemo(
+        () =>
+          new Promise<string>(res => {
+            resolveCategory = res;
+          })
       );
       const [optimistic, setOptimistic] = createOptimistic(() => userCategory());
       const details = createMemo(() => {
         optimistic();
-        return new Promise<string[]>(res => { resolveDetails = res; });
+        return new Promise<string[]>(res => {
+          resolveDetails = res;
+        });
       });
 
       const selectedVals: string[] = [];
@@ -2571,9 +2678,18 @@ describe("createOptimistic", () => {
       const pendingVals: boolean[] = [];
 
       createRoot(() => {
-        createRenderEffect(optimistic, v => { selectedVals.push(v); });
-        createRenderEffect(details, v => { detailVals.push(v); });
-        createRenderEffect(() => isPending(details), v => { pendingVals.push(v); });
+        createRenderEffect(optimistic, v => {
+          selectedVals.push(v);
+        });
+        createRenderEffect(details, v => {
+          detailVals.push(v);
+        });
+        createRenderEffect(
+          () => isPending(details),
+          v => {
+            pendingVals.push(v);
+          }
+        );
       });
       flush();
 
@@ -2590,7 +2706,9 @@ describe("createOptimistic", () => {
       // ACTION 1: News -> Finance
       const handleSelect = action(function* (cat: string) {
         setOptimistic(cat);
-        yield new Promise<void>(r => { resolveUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveUpdate = r;
+        });
         refresh(userCategory);
       });
 
@@ -2688,7 +2806,7 @@ describe("createOptimistic", () => {
       const regionalConfig = createMemo(() => {
         country();
         return new Promise<{ courier: string; tax: string }>(res => {
-          resolveConfig = (v) => res(v);
+          resolveConfig = v => res(v);
         });
       });
 
@@ -2700,13 +2818,17 @@ describe("createOptimistic", () => {
       let resolveShipping: ((v: number) => void) | null = null;
       const shippingCost = createMemo(() => {
         courierId();
-        return new Promise<number>(res => { resolveShipping = (v) => res(v); });
+        return new Promise<number>(res => {
+          resolveShipping = v => res(v);
+        });
       });
 
       let resolveTax: ((v: number) => void) | null = null;
       const taxRate = createMemo(() => {
         taxSchemeId();
-        return new Promise<number>(res => { resolveTax = (v) => res(v); });
+        return new Promise<number>(res => {
+          resolveTax = v => res(v);
+        });
       });
 
       // Shared downstream: sync computed of both
@@ -2722,16 +2844,22 @@ describe("createOptimistic", () => {
         // Independent displays use pending() to opt into progressive updates
         createRenderEffect(
           () => pending(() => shippingCost()),
-          v => { shippingValues.push(v); }
+          v => {
+            shippingValues.push(v);
+          }
         );
         createRenderEffect(
           () => pending(() => taxRate()),
-          v => { taxValues.push(v); }
+          v => {
+            taxValues.push(v);
+          }
         );
         // Total reads normally
         createRenderEffect(
           () => orderTotal(),
-          v => { totalValues.push(v); }
+          v => {
+            totalValues.push(v);
+          }
         );
       });
 
@@ -2754,11 +2882,13 @@ describe("createOptimistic", () => {
       // --- User changes country to UK ---
       let resolveApiUpdate: (() => void) | null = null;
       const handleCountryChange = action(function* (newCountry: string) {
-        setCourierId("ROYAL-MAIL");   // optimistic guess
-        setTaxSchemeId("UK-VAT");     // optimistic guess
+        setCourierId("ROYAL-MAIL"); // optimistic guess
+        setTaxSchemeId("UK-VAT"); // optimistic guess
         setCountry(newCountry);
 
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(regionalConfig);
       });
 
@@ -2822,7 +2952,7 @@ describe("createOptimistic", () => {
       const regionalConfig = createMemo(() => {
         country();
         return new Promise<{ courier: string; tax: string }>(res => {
-          resolveConfig = (v) => res(v);
+          resolveConfig = v => res(v);
         });
       });
 
@@ -2832,13 +2962,17 @@ describe("createOptimistic", () => {
       let resolveShipping: ((v: number) => void) | null = null;
       const shippingCost = createMemo(() => {
         courierId();
-        return new Promise<number>(res => { resolveShipping = (v) => res(v); });
+        return new Promise<number>(res => {
+          resolveShipping = v => res(v);
+        });
       });
 
       let resolveTax: ((v: number) => void) | null = null;
       const taxRate = createMemo(() => {
         taxSchemeId();
-        return new Promise<number>(res => { resolveTax = (v) => res(v); });
+        return new Promise<number>(res => {
+          resolveTax = v => res(v);
+        });
       });
 
       let orderTotal: () => number;
@@ -2851,15 +2985,21 @@ describe("createOptimistic", () => {
 
         createRenderEffect(
           () => pending(() => shippingCost()),
-          v => { shippingValues.push(v); }
+          v => {
+            shippingValues.push(v);
+          }
         );
         createRenderEffect(
           () => pending(() => taxRate()),
-          v => { taxValues.push(v); }
+          v => {
+            taxValues.push(v);
+          }
         );
         createRenderEffect(
           () => orderTotal(),
-          v => { totalValues.push(v); }
+          v => {
+            totalValues.push(v);
+          }
         );
       });
 
@@ -2886,7 +3026,9 @@ describe("createOptimistic", () => {
         setTaxSchemeId(newCountry === "UK" ? "UK-VAT" : "JP-TAX");
         setCountry(newCountry);
 
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(regionalConfig);
       });
 
@@ -2985,7 +3127,7 @@ describe("createOptimistic", () => {
       let resolveUserCountry: ((v: string) => void) | null = null;
       const userCountry = createMemo(() => {
         return new Promise<string>(res => {
-          resolveUserCountry = (v) => res(v);
+          resolveUserCountry = v => res(v);
         });
       });
       const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
@@ -2995,7 +3137,7 @@ describe("createOptimistic", () => {
       const regionalConfig = createMemo(() => {
         optimisticCountry(); // read optimistic country
         return new Promise<{ courier: string; tax: string }>(res => {
-          resolveConfig = (v) => res(v);
+          resolveConfig = v => res(v);
         });
       });
 
@@ -3015,7 +3157,7 @@ describe("createOptimistic", () => {
       const shippingInfo = createMemo(() => {
         optimisticCourier();
         return new Promise<ShipInfo>(res => {
-          resolveShipping = (v) => res(v);
+          resolveShipping = v => res(v);
         });
       });
 
@@ -3023,7 +3165,7 @@ describe("createOptimistic", () => {
       const taxInfo = createMemo(() => {
         optimisticTaxScheme();
         return new Promise<TaxInfo>(res => {
-          resolveTax = (v) => res(v);
+          resolveTax = v => res(v);
         });
       });
 
@@ -3048,30 +3190,42 @@ describe("createOptimistic", () => {
         // pending() for text values (user's pattern)
         createRenderEffect(
           () => pending(() => shippingInfo()).provider,
-          v => { shippingTexts.push(v); }
+          v => {
+            shippingTexts.push(v);
+          }
         );
         createRenderEffect(
           () => pending(() => taxInfo()).name,
-          v => { taxTexts.push(v); }
+          v => {
+            taxTexts.push(v);
+          }
         );
         // isPending for opacity
         createRenderEffect(
           () => isPending(shippingInfo),
-          v => { shippingPending.push(v); }
+          v => {
+            shippingPending.push(v);
+          }
         );
         createRenderEffect(
           () => isPending(taxInfo),
-          v => { taxPending.push(v); }
+          v => {
+            taxPending.push(v);
+          }
         );
         // Total reads normally
         createRenderEffect(
           () => orderTotal(),
-          v => { totalValues.push(v); }
+          v => {
+            totalValues.push(v);
+          }
         );
         // isPending for order total (user's button + opacity pattern)
         createRenderEffect(
           () => isPending(orderTotal),
-          v => { totalPending.push(v); }
+          v => {
+            totalPending.push(v);
+          }
         );
       });
 
@@ -3104,7 +3258,9 @@ describe("createOptimistic", () => {
         setOptimisticCourier("DHL");
         setOptimisticTaxScheme("UK_VAT");
 
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(userCountry);
       });
 
@@ -3127,7 +3283,7 @@ describe("createOptimistic", () => {
       expect(taxTexts).toEqual(["US_SALES_TAX"]);
 
       // --- Tax resolves FIRST (faster API: 700ms vs 1000ms) ---
-      resolveTax!({ name: "UK_VAT", rate: 0.20 });
+      resolveTax!({ name: "UK_VAT", rate: 0.2 });
       await Promise.resolve();
       flush();
 
@@ -3168,7 +3324,7 @@ describe("createOptimistic", () => {
       resolveShipping!({ provider: "DHL", price: 25 });
       await Promise.resolve();
       flush();
-      resolveTax!({ name: "UK_VAT", rate: 0.20 });
+      resolveTax!({ name: "UK_VAT", rate: 0.2 });
       await Promise.resolve();
       flush();
 
@@ -3189,18 +3345,26 @@ describe("createOptimistic", () => {
 
       let resolveUserCountry: ((v: string) => void) | null = null;
       const userCountry = createMemo(() => {
-        return new Promise<string>(res => { resolveUserCountry = (v) => res(v); });
+        return new Promise<string>(res => {
+          resolveUserCountry = v => res(v);
+        });
       });
       const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
 
       let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
       const regionalConfig = createMemo(() => {
         optimisticCountry();
-        return new Promise<{ courier: string; tax: string }>(res => { resolveConfig = (v) => res(v); });
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = v => res(v);
+        });
       });
 
-      const [optimisticCourier, setOptimisticCourier] = createOptimistic(() => regionalConfig().courier);
-      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(() => regionalConfig().tax);
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(
+        () => regionalConfig().courier
+      );
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(
+        () => regionalConfig().tax
+      );
 
       type ShipInfo = { provider: string; price: number };
       type TaxInfo = { name: string; rate: number };
@@ -3208,13 +3372,17 @@ describe("createOptimistic", () => {
       let resolveShipping: ((v: ShipInfo) => void) | null = null;
       const shippingInfo = createMemo(() => {
         optimisticCourier();
-        return new Promise<ShipInfo>(res => { resolveShipping = (v) => res(v); });
+        return new Promise<ShipInfo>(res => {
+          resolveShipping = v => res(v);
+        });
       });
 
       let resolveTax: ((v: TaxInfo) => void) | null = null;
       const taxInfo = createMemo(() => {
         optimisticTaxScheme();
-        return new Promise<TaxInfo>(res => { resolveTax = (v) => res(v); });
+        return new Promise<TaxInfo>(res => {
+          resolveTax = v => res(v);
+        });
       });
 
       let orderTotal: () => number;
@@ -3236,7 +3404,9 @@ describe("createOptimistic", () => {
         // Effect 1: button text (separate, reads only isPending(orderTotal))
         createRenderEffect(
           () => isPending(orderTotal),
-          v => { buttonTextPending.push(v); }
+          v => {
+            buttonTextPending.push(v);
+          }
         );
 
         // Effect 2: combined style (reads all 3 isPending, like the compiled JSX style effect)
@@ -3244,7 +3414,7 @@ describe("createOptimistic", () => {
           () => ({
             ship: isPending(shippingInfo) ? 0.5 : 1,
             tax: isPending(taxInfo) ? 0.5 : 1,
-            total: isPending(orderTotal) ? 0.5 : 1,
+            total: isPending(orderTotal) ? 0.5 : 1
           }),
           v => {
             styleShipPending.push(v.ship === 0.5);
@@ -3257,13 +3427,17 @@ describe("createOptimistic", () => {
       // --- Initial load ---
       flush();
       resolveUserCountry!("US");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "FEDEX", tax: "US_SALES_TAX" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveShipping!({ provider: "FEDEX", price: 15 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveTax!({ name: "US_SALES_TAX", rate: 0.08 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       expect(buttonTextPending.at(-1)).toBe(false);
       expect(styleTotalPending.at(-1)).toBe(false);
@@ -3278,7 +3452,9 @@ describe("createOptimistic", () => {
         setOptimisticCountry(newCountry);
         setOptimisticCourier("DHL");
         setOptimisticTaxScheme("UK_VAT");
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(userCountry);
       });
 
@@ -3289,7 +3465,7 @@ describe("createOptimistic", () => {
         btn: buttonTextPending.slice(initBtn),
         styleTotal: styleTotalPending.slice(initStyle),
         styleShip: styleShipPending.slice(initStyle),
-        styleTax: styleTaxPending.slice(initStyle),
+        styleTax: styleTaxPending.slice(initStyle)
       };
       // Both effects should see isPending(orderTotal) = true at the same time
       expect(buttonTextPending.at(-1)).toBe(true);
@@ -3298,12 +3474,14 @@ describe("createOptimistic", () => {
       const preResolve = { btn: buttonTextPending.length, style: styleTotalPending.length };
 
       // --- Tax resolves first ---
-      resolveTax!({ name: "UK_VAT", rate: 0.20 });
-      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_VAT", rate: 0.2 });
+      await Promise.resolve();
+      flush();
 
       // --- Shipping resolves second ---
       resolveShipping!({ provider: "DHL", price: 25 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       // Both effects should see isPending(orderTotal) = false at the same time
       expect(buttonTextPending.at(-1)).toBe(false);
@@ -3313,20 +3491,24 @@ describe("createOptimistic", () => {
 
       // Complete action + refresh
       resolveApiUpdate!();
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveUserCountry!("UK");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "DHL", tax: "UK_VAT" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveShipping!({ provider: "DHL", price: 25 });
-      await Promise.resolve(); flush();
-      resolveTax!({ name: "UK_VAT", rate: 0.20 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "UK_VAT", rate: 0.2 });
+      await Promise.resolve();
+      flush();
 
       // Final state: both effects agree
       expect(buttonTextPending.at(-1)).toBe(false);
       expect(styleTotalPending.at(-1)).toBe(false);
-
     });
 
     it("shared async config resolves first: lanes stay separate despite shared dependency", async () => {
@@ -3342,7 +3524,7 @@ describe("createOptimistic", () => {
       let resolveUserCountry: ((v: string) => void) | null = null;
       const userCountry = createMemo(() => {
         return new Promise<string>(res => {
-          resolveUserCountry = (v) => res(v);
+          resolveUserCountry = v => res(v);
         });
       });
       const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
@@ -3351,7 +3533,7 @@ describe("createOptimistic", () => {
       const regionalConfig = createMemo(() => {
         optimisticCountry();
         return new Promise<{ courier: string; tax: string }>(res => {
-          resolveConfig = (v) => res(v);
+          resolveConfig = v => res(v);
         });
       });
 
@@ -3369,7 +3551,7 @@ describe("createOptimistic", () => {
       const shippingInfo = createMemo(() => {
         optimisticCourier();
         return new Promise<ShipInfo>(res => {
-          resolveShipping = (v) => res(v);
+          resolveShipping = v => res(v);
         });
       });
 
@@ -3377,7 +3559,7 @@ describe("createOptimistic", () => {
       const taxInfo = createMemo(() => {
         optimisticTaxScheme();
         return new Promise<TaxInfo>(res => {
-          resolveTax = (v) => res(v);
+          resolveTax = v => res(v);
         });
       });
 
@@ -3397,23 +3579,33 @@ describe("createOptimistic", () => {
 
         createRenderEffect(
           () => pending(() => shippingInfo()).provider,
-          v => { shippingTexts.push(v); }
+          v => {
+            shippingTexts.push(v);
+          }
         );
         createRenderEffect(
           () => pending(() => taxInfo()).name,
-          v => { taxTexts.push(v); }
+          v => {
+            taxTexts.push(v);
+          }
         );
         createRenderEffect(
           () => isPending(shippingInfo),
-          v => { shippingPending.push(v); }
+          v => {
+            shippingPending.push(v);
+          }
         );
         createRenderEffect(
           () => isPending(taxInfo),
-          v => { taxPending.push(v); }
+          v => {
+            taxPending.push(v);
+          }
         );
         createRenderEffect(
           () => orderTotal(),
-          v => { totalValues.push(v); }
+          v => {
+            totalValues.push(v);
+          }
         );
       });
 
@@ -3442,10 +3634,12 @@ describe("createOptimistic", () => {
       let resolveApiUpdate: (() => void) | null = null;
       const handleCountryChange = action(function* (newCountry: string) {
         setOptimisticCountry(newCountry);
-        setOptimisticCourier("DHL");           // correct guess
-        setOptimisticTaxScheme("UK_VAT");      // WRONG guess (real is "UK_VAT_FINAL")
+        setOptimisticCourier("DHL"); // correct guess
+        setOptimisticTaxScheme("UK_VAT"); // WRONG guess (real is "UK_VAT_FINAL")
 
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(userCountry);
       });
 
@@ -3496,7 +3690,7 @@ describe("createOptimistic", () => {
       expect(totalValues).toEqual([123]);
 
       // --- Tax correction resolves (new fetch for "UK_VAT_FINAL") ---
-      resolveTax!({ name: "UK_VAT_FINAL", rate: 0.20 });
+      resolveTax!({ name: "UK_VAT_FINAL", rate: 0.2 });
       await Promise.resolve();
       flush();
 
@@ -3523,7 +3717,7 @@ describe("createOptimistic", () => {
       resolveShipping!({ provider: "DHL", price: 25 });
       await Promise.resolve();
       flush();
-      resolveTax!({ name: "UK_VAT_FINAL", rate: 0.20 });
+      resolveTax!({ name: "UK_VAT_FINAL", rate: 0.2 });
       await Promise.resolve();
       flush();
 
@@ -3547,7 +3741,7 @@ describe("createOptimistic", () => {
       const regionalConfig = createMemo(() => {
         country();
         return new Promise<{ courier: string; tax: string }>(res => {
-          resolveConfig = (v) => res(v);
+          resolveConfig = v => res(v);
         });
       });
 
@@ -3558,7 +3752,7 @@ describe("createOptimistic", () => {
       const shippingInfo = createMemo(() => {
         courierId();
         return new Promise<{ provider: string; price: number }>(res => {
-          resolveShipping = (v) => res(v);
+          resolveShipping = v => res(v);
         });
       });
 
@@ -3566,7 +3760,7 @@ describe("createOptimistic", () => {
       const taxInfo = createMemo(() => {
         taxSchemeId();
         return new Promise<{ name: string; rate: number }>(res => {
-          resolveTax = (v) => res(v);
+          resolveTax = v => res(v);
         });
       });
 
@@ -3584,16 +3778,22 @@ describe("createOptimistic", () => {
         // Track isPending for each path
         createRenderEffect(
           () => isPending(shippingInfo),
-          v => { shippingPendingValues.push(v); }
+          v => {
+            shippingPendingValues.push(v);
+          }
         );
         createRenderEffect(
           () => isPending(taxInfo),
-          v => { taxPendingValues.push(v); }
+          v => {
+            taxPendingValues.push(v);
+          }
         );
         // orderTotal reads both - causes lane merge
         createRenderEffect(
           () => orderTotal(),
-          v => { totalValues.push(v); }
+          v => {
+            totalValues.push(v);
+          }
         );
       });
 
@@ -3624,7 +3824,9 @@ describe("createOptimistic", () => {
         setCourierId("DHL");
         setTaxSchemeId("UK-VAT");
         setCountry(newCountry);
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(regionalConfig);
       });
 
@@ -3651,7 +3853,7 @@ describe("createOptimistic", () => {
       expect(totalValues).toEqual([]);
 
       // --- Tax resolves second ---
-      resolveTax!({ name: "UK-VAT", rate: 0.20 });
+      resolveTax!({ name: "UK-VAT", rate: 0.2 });
       await Promise.resolve();
       flush();
 
@@ -3671,7 +3873,7 @@ describe("createOptimistic", () => {
       resolveShipping!({ provider: "DHL", price: 25 });
       await Promise.resolve();
       flush();
-      resolveTax!({ name: "UK-VAT", rate: 0.20 });
+      resolveTax!({ name: "UK-VAT", rate: 0.2 });
       await Promise.resolve();
       flush();
 
@@ -3696,18 +3898,26 @@ describe("createOptimistic", () => {
 
       let resolveUserCountry: ((v: string) => void) | null = null;
       const userCountry = createMemo(() => {
-        return new Promise<string>(res => { resolveUserCountry = (v) => res(v); });
+        return new Promise<string>(res => {
+          resolveUserCountry = v => res(v);
+        });
       });
       const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
 
       let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
       const regionalConfig = createMemo(() => {
         optimisticCountry();
-        return new Promise<{ courier: string; tax: string }>(res => { resolveConfig = (v) => res(v); });
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = v => res(v);
+        });
       });
 
-      const [optimisticCourier, setOptimisticCourier] = createOptimistic(() => regionalConfig().courier);
-      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(() => regionalConfig().tax);
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(
+        () => regionalConfig().courier
+      );
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(
+        () => regionalConfig().tax
+      );
 
       type ShipInfo = { provider: string; price: number };
       type TaxInfo = { name: string; rate: number };
@@ -3715,13 +3925,17 @@ describe("createOptimistic", () => {
       let resolveShipping: ((v: ShipInfo) => void) | null = null;
       const shippingInfo = createMemo(() => {
         optimisticCourier();
-        return new Promise<ShipInfo>(res => { resolveShipping = (v) => res(v); });
+        return new Promise<ShipInfo>(res => {
+          resolveShipping = v => res(v);
+        });
       });
 
       let resolveTax: ((v: TaxInfo) => void) | null = null;
       const taxInfo = createMemo(() => {
         optimisticTaxScheme();
-        return new Promise<TaxInfo>(res => { resolveTax = (v) => res(v); });
+        return new Promise<TaxInfo>(res => {
+          resolveTax = v => res(v);
+        });
       });
 
       let orderTotal: () => number;
@@ -3736,22 +3950,46 @@ describe("createOptimistic", () => {
           const tax = taxInfo();
           return 100 + 100 * tax.rate + ship.price;
         });
-        createRenderEffect(() => pending(() => shippingInfo()).provider, v => { shippingTexts.push(v); });
-        createRenderEffect(() => pending(() => taxInfo()).name, v => { taxTexts.push(v); });
-        createRenderEffect(() => orderTotal(), v => { totalValues.push(v); });
-        createRenderEffect(() => isPending(taxInfo), v => { taxPending.push(v); });
+        createRenderEffect(
+          () => pending(() => shippingInfo()).provider,
+          v => {
+            shippingTexts.push(v);
+          }
+        );
+        createRenderEffect(
+          () => pending(() => taxInfo()).name,
+          v => {
+            taxTexts.push(v);
+          }
+        );
+        createRenderEffect(
+          () => orderTotal(),
+          v => {
+            totalValues.push(v);
+          }
+        );
+        createRenderEffect(
+          () => isPending(taxInfo),
+          v => {
+            taxPending.push(v);
+          }
+        );
       });
 
       // --- Initial load (US) ---
       flush();
       resolveUserCountry!("US");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "FEDEX", tax: "US_TAX" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveShipping!({ provider: "FEDEX", price: 15 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveTax!({ name: "US_TAX", rate: 0.08 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       expect(taxTexts).toEqual(["US_TAX"]);
       expect(shippingTexts).toEqual(["FEDEX"]);
@@ -3760,11 +3998,17 @@ describe("createOptimistic", () => {
 
       // === Action 1: US → UK with WRONG tax guess ===
       let resolveApiUpdate: (() => void) | null = null;
-      const handleCountryChange = action(function* (newCountry: string, courierGuess: string, taxGuess: string) {
+      const handleCountryChange = action(function* (
+        newCountry: string,
+        courierGuess: string,
+        taxGuess: string
+      ) {
         setOptimisticCountry(newCountry);
         setOptimisticCourier(courierGuess);
         setOptimisticTaxScheme(taxGuess);
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(userCountry);
       });
 
@@ -3777,22 +4021,27 @@ describe("createOptimistic", () => {
 
       // Shipping resolves for UK
       resolveShipping!({ provider: "DHL", price: 25 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       expect(shippingTexts.at(-1)).toBe("DHL");
 
       // Tax resolves — using the WRONG guess as key, returns data for it
-      resolveTax!({ name: "UK_TAX_WRONG", rate: 0.20 });
-      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_TAX_WRONG", rate: 0.2 });
+      await Promise.resolve();
+      flush();
       expect(taxTexts.at(-1)).toBe("UK_TAX_WRONG");
 
       // regionalConfig resolves — reveals the CORRECT tax is "UK_TAX_REAL"
       // This triggers correction: optimisticTaxScheme "UK_TAX_WRONG" → "UK_TAX_REAL"
       resolveApiUpdate!();
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveUserCountry!("UK");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "DHL", tax: "UK_TAX_REAL" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       // Correction triggered a re-fetch for the real tax
       expect(optimisticTaxScheme()).toBe("UK_TAX_REAL");
@@ -3806,22 +4055,28 @@ describe("createOptimistic", () => {
       expect(optimisticTaxScheme()).toBe("US_TAX_WRONG");
 
       // Resolve the corrected tax fetch from action 1 (stale, should be skipped)
-      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
-      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.2 });
+      await Promise.resolve();
+      flush();
 
       // Resolve shipping + tax for action 2's optimistic values
       resolveShipping!({ provider: "FEDEX", price: 15 });
-      await Promise.resolve(); flush();
-      resolveTax!({ name: "US_TAX_WRONG", rate: 0.10 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "US_TAX_WRONG", rate: 0.1 });
+      await Promise.resolve();
+      flush();
 
       // regionalConfig resolves for US → corrects tax to "US_TAX_REAL"
       resolveApiUpdate!();
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveUserCountry!("US");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "FEDEX", tax: "US_TAX_REAL" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       // CRITICAL: correction should NOT be blocked by version check.
       // optimisticTaxScheme should be corrected to the real US tax.
@@ -3829,9 +4084,11 @@ describe("createOptimistic", () => {
 
       // Resolve the corrected tax fetch
       resolveTax!({ name: "US_TAX_REAL", rate: 0.08 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveShipping!({ provider: "FEDEX", price: 15 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       // Final: correct US values
       expect(taxTexts.at(-1)).toBe("US_TAX_REAL");
@@ -3854,18 +4111,26 @@ describe("createOptimistic", () => {
 
       let resolveUserCountry: ((v: string) => void) | null = null;
       const userCountry = createMemo(() => {
-        return new Promise<string>(res => { resolveUserCountry = (v) => res(v); });
+        return new Promise<string>(res => {
+          resolveUserCountry = v => res(v);
+        });
       });
       const [optimisticCountry, setOptimisticCountry] = createOptimistic(() => userCountry());
 
       let resolveConfig: ((v: { courier: string; tax: string }) => void) | null = null;
       const regionalConfig = createMemo(() => {
         optimisticCountry();
-        return new Promise<{ courier: string; tax: string }>(res => { resolveConfig = (v) => res(v); });
+        return new Promise<{ courier: string; tax: string }>(res => {
+          resolveConfig = v => res(v);
+        });
       });
 
-      const [optimisticCourier, setOptimisticCourier] = createOptimistic(() => regionalConfig().courier);
-      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(() => regionalConfig().tax);
+      const [optimisticCourier, setOptimisticCourier] = createOptimistic(
+        () => regionalConfig().courier
+      );
+      const [optimisticTaxScheme, setOptimisticTaxScheme] = createOptimistic(
+        () => regionalConfig().tax
+      );
 
       type ShipInfo = { provider: string; price: number };
       type TaxInfo = { name: string; rate: number };
@@ -3873,13 +4138,17 @@ describe("createOptimistic", () => {
       let resolveShipping: ((v: ShipInfo) => void) | null = null;
       const shippingInfo = createMemo(() => {
         optimisticCourier();
-        return new Promise<ShipInfo>(res => { resolveShipping = (v) => res(v); });
+        return new Promise<ShipInfo>(res => {
+          resolveShipping = v => res(v);
+        });
       });
 
       let resolveTax: ((v: TaxInfo) => void) | null = null;
       const taxInfo = createMemo(() => {
         optimisticTaxScheme();
-        return new Promise<TaxInfo>(res => { resolveTax = (v) => res(v); });
+        return new Promise<TaxInfo>(res => {
+          resolveTax = v => res(v);
+        });
       });
 
       let orderTotal: () => number;
@@ -3892,31 +4161,51 @@ describe("createOptimistic", () => {
           const tax = taxInfo();
           return 100 + 100 * tax.rate + ship.price;
         });
-        createRenderEffect(() => pending(() => taxInfo()).name, v => { taxTexts.push(v); });
-        createRenderEffect(() => orderTotal(), v => { totalValues.push(v); });
+        createRenderEffect(
+          () => pending(() => taxInfo()).name,
+          v => {
+            taxTexts.push(v);
+          }
+        );
+        createRenderEffect(
+          () => orderTotal(),
+          v => {
+            totalValues.push(v);
+          }
+        );
       });
 
       // --- Initial load (US) ---
       flush();
       resolveUserCountry!("US");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "FEDEX", tax: "US_TAX" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveShipping!({ provider: "FEDEX", price: 15 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveTax!({ name: "US_TAX", rate: 0.08 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       expect(taxTexts).toEqual(["US_TAX"]);
       expect(totalValues).toEqual([123]);
 
       // === Action 1: US → UK with WRONG tax guess ===
       let resolveApiUpdate: (() => void) | null = null;
-      const handleCountryChange = action(function* (newCountry: string, courierGuess: string, taxGuess: string) {
+      const handleCountryChange = action(function* (
+        newCountry: string,
+        courierGuess: string,
+        taxGuess: string
+      ) {
         setOptimisticCountry(newCountry);
         setOptimisticCourier(courierGuess);
         setOptimisticTaxScheme(taxGuess);
-        yield new Promise<void>(r => { resolveApiUpdate = r; });
+        yield new Promise<void>(r => {
+          resolveApiUpdate = r;
+        });
         refresh(userCountry);
       });
 
@@ -3925,28 +4214,35 @@ describe("createOptimistic", () => {
 
       // Resolve shipping + tax for wrong guess
       resolveShipping!({ provider: "DHL", price: 25 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveTax!({ name: "UK_TAX_WRONG", rate: 0.15 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       expect(taxTexts.at(-1)).toBe("UK_TAX_WRONG");
 
       // Complete action 1: correction reveals real tax is "UK_TAX_REAL"
       resolveApiUpdate!();
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveUserCountry!("UK");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "DHL", tax: "UK_TAX_REAL" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       // Correction fires: optimisticTaxScheme "UK_TAX_WRONG" → "UK_TAX_REAL"
       expect(optimisticTaxScheme()).toBe("UK_TAX_REAL");
 
       // Re-fetch for corrected tax resolves
-      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
-      await Promise.resolve(); flush();
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.2 });
+      await Promise.resolve();
+      flush();
       resolveShipping!({ provider: "DHL", price: 25 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
 
       expect(taxTexts.at(-1)).toBe("UK_TAX_REAL");
 
@@ -3959,21 +4255,28 @@ describe("createOptimistic", () => {
 
       // Resolve shipping + tax for action 2
       resolveShipping!({ provider: "DHL", price: 25 });
-      await Promise.resolve(); flush();
-      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.2 });
+      await Promise.resolve();
+      flush();
 
       // Complete action 2
       resolveApiUpdate!();
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveUserCountry!("UK");
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveConfig!({ courier: "DHL", tax: "UK_TAX_REAL" });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
       resolveShipping!({ provider: "DHL", price: 25 });
-      await Promise.resolve(); flush();
-      resolveTax!({ name: "UK_TAX_REAL", rate: 0.20 });
-      await Promise.resolve(); flush();
+      await Promise.resolve();
+      flush();
+      resolveTax!({ name: "UK_TAX_REAL", rate: 0.2 });
+      await Promise.resolve();
+      flush();
 
       // CRITICAL: Final tax should be the CORRECT value, not stale data
       expect(taxTexts.at(-1)).toBe("UK_TAX_REAL");
@@ -3990,9 +4293,9 @@ describe("createOptimistic", () => {
       // and isPending should NOT flicker.
 
       const categoryItems: Record<string, string[]> = {
-        "News": ["Daily Brief", "World Report"],
-        "Finance": ["Stock Ticker", "Market Analysis", "Crypto Watch"],
-        "Sports": ["Live Scores", "Transfer Rumors", "Match Highlights"],
+        News: ["Daily Brief", "World Report"],
+        Finance: ["Stock Ticker", "Market Analysis", "Crypto Watch"],
+        Sports: ["Live Scores", "Transfer Rumors", "Match Highlights"]
       };
 
       let resolveUserPref: ((v: string) => void) | null = null;
@@ -4001,14 +4304,18 @@ describe("createOptimistic", () => {
       let resolveDetails: ((v: string[]) => void) | null = null;
 
       const userCategory = createMemo(() => {
-        return new Promise<string>(res => { resolveUserPref = res; });
+        return new Promise<string>(res => {
+          resolveUserPref = res;
+        });
       });
 
       const [optimisticCategory, setOptimisticCategory] = createOptimistic(() => userCategory());
 
       const categoryData = createMemo(() => {
         const cat = optimisticCategory();
-        return new Promise<string[]>(res => { resolveDetails = res; });
+        return new Promise<string[]>(res => {
+          resolveDetails = res;
+        });
       });
 
       const displayedCategory: string[] = [];
@@ -4016,9 +4323,18 @@ describe("createOptimistic", () => {
       const pendingValues: boolean[] = [];
 
       createRoot(() => {
-        createRenderEffect(optimisticCategory, v => { displayedCategory.push(v); });
-        createRenderEffect(categoryData, v => { displayedItems.push(v); });
-        createRenderEffect(() => isPending(categoryData), v => { pendingValues.push(v); });
+        createRenderEffect(optimisticCategory, v => {
+          displayedCategory.push(v);
+        });
+        createRenderEffect(categoryData, v => {
+          displayedItems.push(v);
+        });
+        createRenderEffect(
+          () => isPending(categoryData),
+          v => {
+            pendingValues.push(v);
+          }
+        );
       });
       flush();
 
@@ -4120,7 +4436,7 @@ describe("createOptimistic", () => {
       // Count flickers: should be exactly 2 (one per action), not 3+
       let flickers = 0;
       for (let i = 1; i < pendingValues.length; i++) {
-        if (pendingValues[i] === true && pendingValues[i-1] === false) flickers++;
+        if (pendingValues[i] === true && pendingValues[i - 1] === false) flickers++;
       }
       expect(flickers).toBe(2); // One per action, no extras
     });

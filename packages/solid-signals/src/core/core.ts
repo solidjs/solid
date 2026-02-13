@@ -1,3 +1,4 @@
+import { clearStatus, handleAsync, notifyStatus } from "./async.js";
 import {
   $REFRESH,
   defaultContext,
@@ -14,16 +15,10 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { NotReadyError } from "./error.js";
-import { clearStatus, handleAsync, notifyStatus } from "./async.js";
 import { leafEffectActive } from "./effect.js";
+import { NotReadyError } from "./error.js";
 import { link, unlinkSubs } from "./graph.js";
-import {
-  deleteFromHeap,
-  insertIntoHeapHeight,
-  markHeap,
-  markNode
-} from "./heap.js";
+import { deleteFromHeap, insertIntoHeapHeight, markHeap, markNode } from "./heap.js";
 import {
   findLane,
   getOrCreateLane,
@@ -33,7 +28,17 @@ import {
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
-export { handleAsync };
+import {
+  createOwner,
+  createRoot,
+  dispose,
+  disposeChildren,
+  getNextChildId,
+  getObserver,
+  getOwner,
+  markDisposal,
+  onCleanup
+} from "./owner.js";
 import {
   activeTransition,
   clock,
@@ -51,34 +56,17 @@ import type {
   Disposable,
   FirewallSignal,
   Link,
+  NodeOptions,
   Owner,
   Root,
-  Signal,
-  NodeOptions
+  Signal
 } from "./types.js";
+
+export { handleAsync };
 
 export type { Computed, Disposable, FirewallSignal, Link, Owner, Root, Signal, NodeOptions };
 
-import {
-  createOwner,
-  createRoot,
-  disposeChildren,
-  dispose,
-  getNextChildId,
-  getObserver,
-  getOwner,
-  markDisposal,
-  onCleanup
-} from "./owner.js";
-export {
-  createOwner,
-  createRoot,
-  dispose,
-  getNextChildId,
-  getObserver,
-  getOwner,
-  onCleanup
-};
+export { createOwner, createRoot, dispose, getNextChildId, getObserver, getOwner, onCleanup };
 
 GlobalQueue._update = recompute;
 GlobalQueue._dispose = disposeChildren;
@@ -220,7 +208,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     runInTransition(el._transition, () => recompute(el));
 }
 
-
 function updateIfNecessary(el: Computed<unknown>): void {
   if (el._flags & REACTIVE_CHECK) {
     for (let d = el._deps; d; d = d._nextDep) {
@@ -241,7 +228,6 @@ function updateIfNecessary(el: Computed<unknown>): void {
 
   el._flags = REACTIVE_NONE;
 }
-
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
 export function computed<T>(
@@ -351,7 +337,6 @@ export function optimisticComputed<T>(
   c._optimistic = true;
   return c;
 }
-
 
 export function isEqual<T>(a: T, b: T): boolean {
   return a === b;
@@ -589,7 +574,8 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   const comp = el as Computed<any>;
   // Optimistic nodes with active override:
   if (el._optimistic && el._pendingValue !== NOT_PENDING) {
-    if (comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
+    if (comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED))
+      return true;
     // pendingValueComputed (has _parentSource): check lane for downstream async.
     // User-created optimistic: override existence means pending (bridges corrections).
     if (el._parentSource) {

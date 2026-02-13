@@ -1,10 +1,4 @@
-import {
-  createMemo,
-  createRoot,
-  createSignal,
-  flush,
-  onSettled
-} from "../src/index.js";
+import { createMemo, createRoot, createSignal, flush, onSettled } from "../src/index.js";
 
 afterEach(() => flush());
 

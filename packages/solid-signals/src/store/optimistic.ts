@@ -27,9 +27,9 @@ import {
   storeTraps,
   wrap,
   type NoFn,
+  type ProjectionOptions,
   type Store,
   type StoreNode,
-  type ProjectionOptions,
   type StoreSetter
 } from "./store.js";
 

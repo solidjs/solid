@@ -4,13 +4,7 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_ZOMBIE
 } from "./constants.js";
-import {
-  context,
-  pendingCheckActive,
-  pendingReadActive,
-  runWithOwner,
-  tracking
-} from "./core.js";
+import { context, pendingCheckActive, pendingReadActive, runWithOwner, tracking } from "./core.js";
 import { leafEffectActive } from "./effect.js";
 import { unlinkSubs } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap } from "./heap.js";

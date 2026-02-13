@@ -405,7 +405,7 @@ describe("async compute", () => {
       // Track pending value - should return new value during transition
       createRenderEffect(
         () => pending(id),
-        (pendingVal) => {
+        pendingVal => {
           effectFn(pendingVal);
         }
       );
@@ -644,7 +644,7 @@ describe("async compute", () => {
     createRoot(() => {
       // Sync memo upstream of async
       syncMemo = createMemo(() => $x() * 2);
-      
+
       // Async memo (the async boundary)
       asyncMemo = createMemo(async () => {
         const v = syncMemo();
@@ -666,10 +666,10 @@ describe("async compute", () => {
     flush();
 
     // Upstream of async: pending() returns in-flight value
-    expect(pending($x)).toBe(2);    // signal: in-flight
-    expect($x()).toBe(1);           // signal: committed
-    expect(pending(syncMemo!)).toBe(4);  // sync memo: in-flight
-    expect(syncMemo!()).toBe(2);         // sync memo: committed
+    expect(pending($x)).toBe(2); // signal: in-flight
+    expect($x()).toBe(1); // signal: committed
+    expect(pending(syncMemo!)).toBe(4); // sync memo: in-flight
+    expect(syncMemo!()).toBe(2); // sync memo: committed
 
     // The async node itself: pending() returns committed (no new value yet)
     expect(pending(asyncMemo!)).toBe(20); // same as committed
@@ -897,7 +897,7 @@ describe("async compute", () => {
     // Initial load
     flush();
     expect(pendingMemo!()).toBe(false); // not pending initially (no stale data)
-    
+
     await new Promise(r => setTimeout(r, 0));
     expect(asyncMemo!()).toBe(10);
     expect(pendingMemo!()).toBe(false);
@@ -1010,7 +1010,9 @@ describe("isPending and pending with async upstream and downstream", () => {
       createRenderEffect(asyncMemo, () => {});
       createRenderEffect(
         () => pending($x),
-        v => { pendingValues.push(v); }
+        v => {
+          pendingValues.push(v);
+        }
       );
     });
 
@@ -1044,17 +1046,23 @@ describe("isPending and pending with async upstream and downstream", () => {
       // Effect A: combined
       createRenderEffect(
         () => [isPending(() => pending($x)), pending($x)] as [boolean, number],
-        ([ip, val]) => { pairs.push([ip, val]); }
+        ([ip, val]) => {
+          pairs.push([ip, val]);
+        }
       );
       // Effect B: pending only (same setup)
       createRenderEffect(
         () => pending($x),
-        v => { pendOnly.push(v); }
+        v => {
+          pendOnly.push(v);
+        }
       );
       // Effect C: isPending only (same setup)
       createRenderEffect(
         () => isPending(() => pending($x)),
-        v => { ipOnly.push(v); }
+        v => {
+          ipOnly.push(v);
+        }
       );
     });
 
@@ -1085,11 +1093,15 @@ describe("isPending and pending with async upstream and downstream", () => {
       createRenderEffect(asyncMemo, () => {});
       createRenderEffect(
         () => [isPending(() => pending($x)), pending($x)] as [boolean, number],
-        ([ip, val]) => { pendingPairs.push([ip, val]); }
+        ([ip, val]) => {
+          pendingPairs.push([ip, val]);
+        }
       );
       createRenderEffect(
         () => isPending($x),
-        v => { isPendingSignal.push(v); }
+        v => {
+          isPendingSignal.push(v);
+        }
       );
     });
 
@@ -1158,21 +1170,29 @@ describe("isPending and pending with async upstream and downstream", () => {
       // Combined effect: held by lane merging when downstream has async
       createRenderEffect(
         () => [isPending(() => pending($id)), pending($id)] as [boolean, number],
-        ([ip, val]) => { pendingPairs.push([ip, val]); }
+        ([ip, val]) => {
+          pendingPairs.push([ip, val]);
+        }
       );
       // Separate isPending effect: its own lane, no pending async, fires immediately
       createRenderEffect(
         () => isPending(() => pending($id)),
-        ip => { isPendingValues.push(ip); }
+        ip => {
+          isPendingValues.push(ip);
+        }
       );
       // Separate pending effect: in pendingComputed's lane (which has details' async)
       createRenderEffect(
         () => pending($id),
-        val => { pendingValues.push(val); }
+        val => {
+          pendingValues.push(val);
+        }
       );
       createRenderEffect(
         () => [isPending(details), details()] as [boolean, string],
-        ([ip, val]) => { detailPairs.push([ip, val]); }
+        ([ip, val]) => {
+          detailPairs.push([ip, val]);
+        }
       );
     });
 
@@ -1235,7 +1255,9 @@ describe("isPending and pending with async upstream and downstream", () => {
       });
       createRenderEffect(
         () => [isPending(asyncMemo), asyncMemo()] as [boolean, number],
-        ([ip, val]) => { pairs.push([ip, val]); }
+        ([ip, val]) => {
+          pairs.push([ip, val]);
+        }
       );
     });
 
@@ -1282,7 +1304,9 @@ describe("isPending and pending with async upstream and downstream", () => {
       createRenderEffect(asyncMemo, () => {}); // subscribe to drive transition
       createRenderEffect(
         () => [isPending(() => pending(asyncMemo)), pending(asyncMemo)] as [boolean, number],
-        ([ip, val]) => { pairs.push([ip, val]); }
+        ([ip, val]) => {
+          pairs.push([ip, val]);
+        }
       );
     });
 
@@ -1337,11 +1361,15 @@ describe("isPending and pending with async upstream and downstream", () => {
       });
       createRenderEffect(
         () => [isPending(asyncA), asyncA()] as [boolean, number],
-        ([ip, val]) => { pairsA.push([ip, val]); }
+        ([ip, val]) => {
+          pairsA.push([ip, val]);
+        }
       );
       createRenderEffect(
         () => [isPending(asyncB), asyncB()] as [boolean, number],
-        ([ip, val]) => { pairsB.push([ip, val]); }
+        ([ip, val]) => {
+          pairsB.push([ip, val]);
+        }
       );
     });
 
@@ -1414,11 +1442,15 @@ describe("isPending and pending with async upstream and downstream", () => {
       createRenderEffect(asyncB, () => {}); // subscribe to drive transition
       createRenderEffect(
         () => [isPending(() => pending(asyncA)), pending(asyncA)] as [boolean, number],
-        ([ip, val]) => { pairsA.push([ip, val]); }
+        ([ip, val]) => {
+          pairsA.push([ip, val]);
+        }
       );
       createRenderEffect(
         () => [isPending(() => pending(asyncB)), pending(asyncB)] as [boolean, number],
-        ([ip, val]) => { pairsB.push([ip, val]); }
+        ([ip, val]) => {
+          pairsB.push([ip, val]);
+        }
       );
     });
 
@@ -1487,11 +1519,15 @@ describe("isPending and pending with async upstream and downstream", () => {
       });
       createRenderEffect(
         () => [isPending(asyncA), asyncA()] as [boolean, number],
-        ([ip, val]) => { pairsA.push([ip, val]); }
+        ([ip, val]) => {
+          pairsA.push([ip, val]);
+        }
       );
       createRenderEffect(
         () => [isPending(asyncB), asyncB()] as [boolean, number],
-        ([ip, val]) => { pairsB.push([ip, val]); }
+        ([ip, val]) => {
+          pairsB.push([ip, val]);
+        }
       );
     });
 
@@ -1574,15 +1610,21 @@ describe("isPending and pending with async upstream and downstream", () => {
       createRenderEffect(asyncC, () => {});
       createRenderEffect(
         () => [isPending(() => pending(asyncA)), pending(asyncA)] as [boolean, number],
-        ([ip, val]) => { pairsA.push([ip, val]); }
+        ([ip, val]) => {
+          pairsA.push([ip, val]);
+        }
       );
       createRenderEffect(
         () => [isPending(() => pending(asyncB)), pending(asyncB)] as [boolean, number],
-        ([ip, val]) => { pairsB.push([ip, val]); }
+        ([ip, val]) => {
+          pairsB.push([ip, val]);
+        }
       );
       createRenderEffect(
         () => [isPending(() => pending(asyncC)), pending(asyncC)] as [boolean, number],
-        ([ip, val]) => { pairsC.push([ip, val]); }
+        ([ip, val]) => {
+          pairsC.push([ip, val]);
+        }
       );
     });
 
