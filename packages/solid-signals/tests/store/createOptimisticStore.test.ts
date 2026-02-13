@@ -1446,6 +1446,214 @@ describe("createOptimisticStore", () => {
       expect(pending(() => state!.data)).toBe(999);
     });
 
+    it("should preserve array item proxy identity when optimistic push is reconciled with server data", async () => {
+      // Simulates: user adds a Todo, the item should not be recreated when the
+      // transition commits and server data replaces the optimistic data.
+      // Regression: reconcile was blind to STORE_OPTIMISTIC_OVERRIDE, so prevLength
+      // was 0 and key-based matching was skipped, causing new proxy references.
+      type Todo = { id: string; title: string };
+      let serverTodos: Todo[] = [];
+      let resolveFetches: (() => void)[] = [];
+
+      const [todos, setTodos] = createOptimisticStore(
+        async () => {
+          await new Promise<void>(r => resolveFetches.push(r));
+          return serverTodos.slice(); // return a copy so references differ
+        },
+        [] as Todo[],
+        { key: "id" }
+      );
+
+      let trackedRef: any;
+      const createCount = { value: 0 };
+
+      createRoot(() => {
+        createRenderEffect(
+          () => todos.length,
+          () => {
+            // Track when item 0 changes identity — simulates what For does
+            if (todos.length > 0) {
+              const current = todos[0];
+              if (trackedRef === undefined) {
+                trackedRef = current;
+                createCount.value++;
+              } else if (current !== trackedRef) {
+                trackedRef = current;
+                createCount.value++;
+              }
+            }
+          }
+        );
+      });
+
+      flush();
+
+      // Resolve initial fetch (empty)
+      expect(resolveFetches.length).toBe(1);
+      resolveFetches[0]();
+      resolveFetches = [];
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(0);
+      expect(createCount.value).toBe(0);
+
+      // === Add a todo via action ===
+      let resolveApi: () => void;
+      const apiPromise = new Promise<void>(r => (resolveApi = r));
+      const newTodo = { id: "abc", title: "Test Todo" };
+
+      const addTodo = action(function* () {
+        setTodos(t => {
+          t.push(newTodo);
+        });
+        yield apiPromise;
+        serverTodos = [{ id: "abc", title: "Test Todo" }]; // server now has it
+        refresh(todos);
+      });
+
+      addTodo();
+      await Promise.resolve();
+
+      // Optimistic: item visible immediately
+      expect(todos.length).toBe(1);
+      expect(todos[0].title).toBe("Test Todo");
+
+      flush();
+      expect(createCount.value).toBe(1); // created once
+
+      // Capture the proxy reference
+      const optimisticRef = todos[0];
+
+      // === API completes, refresh triggers re-fetch ===
+      resolveApi!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Resolve the refresh fetch (server returns the same todo)
+      expect(resolveFetches.length).toBeGreaterThanOrEqual(1);
+      resolveFetches.forEach(r => r());
+      resolveFetches = [];
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // After transition commits: item should still be there
+      expect(todos.length).toBe(1);
+      expect(todos[0].title).toBe("Test Todo");
+
+      // KEY ASSERTION: proxy identity preserved — same reference, not recreated
+      expect(todos[0]).toBe(optimisticRef);
+      expect(createCount.value).toBe(1); // still only created once
+    });
+
+    it("should preserve proxy identity for multiple optimistic pushes reconciled with server data", async () => {
+      // Add two items sequentially, both should preserve identity
+      type Todo = { id: string; title: string };
+      let serverTodos: Todo[] = [];
+      let resolveFetches: (() => void)[] = [];
+
+      const [todos, setTodos] = createOptimisticStore(
+        async () => {
+          await new Promise<void>(r => resolveFetches.push(r));
+          return serverTodos.slice();
+        },
+        [] as Todo[],
+        { key: "id" }
+      );
+
+      createRoot(() => {
+        createRenderEffect(
+          () => todos.length,
+          () => {}
+        );
+      });
+
+      flush();
+
+      // Resolve initial fetch
+      resolveFetches[0]();
+      resolveFetches = [];
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(0);
+
+      // === Add first todo ===
+      let resolveApi1: () => void;
+      const apiPromise1 = new Promise<void>(r => (resolveApi1 = r));
+
+      const add1 = action(function* () {
+        setTodos(t => {
+          t.push({ id: "1", title: "First" });
+        });
+        yield apiPromise1;
+        serverTodos = [{ id: "1", title: "First" }];
+        refresh(todos);
+      });
+
+      add1();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(1);
+      flush();
+      const ref1 = todos[0];
+
+      // Complete first action
+      resolveApi1!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      resolveFetches.forEach(r => r());
+      resolveFetches = [];
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(1);
+      expect(todos[0]).toBe(ref1); // identity preserved
+
+      // === Add second todo ===
+      let resolveApi2: () => void;
+      const apiPromise2 = new Promise<void>(r => (resolveApi2 = r));
+
+      const add2 = action(function* () {
+        setTodos(t => {
+          t.push({ id: "2", title: "Second" });
+        });
+        yield apiPromise2;
+        serverTodos = [{ id: "1", title: "First" }, { id: "2", title: "Second" }];
+        refresh(todos);
+      });
+
+      add2();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(2);
+      flush();
+      const ref2 = todos[1];
+
+      // Complete second action
+      resolveApi2!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      resolveFetches.forEach(r => r());
+      resolveFetches = [];
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(todos.length).toBe(2);
+      expect(todos[0]).toBe(ref1); // first item identity still preserved
+      expect(todos[1]).toBe(ref2); // second item identity preserved
+    });
+
     it("optimistic write reverts to computed value after async completes", async () => {
       const [$id, setId] = createSignal(1);
       let state: { data: number };
