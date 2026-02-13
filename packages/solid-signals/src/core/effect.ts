@@ -10,12 +10,11 @@ import {
   computed,
   onCleanup,
   recompute,
-  setLeafEffectActive,
-  staleValues,
-  type Computed,
-  type Owner,
-  type SignalOptions
+  staleValues
 } from "./core.js";
+import type { Computed, Owner, NodeOptions } from "./types.js";
+
+export let leafEffectActive = false;
 
 export interface Effect<T> extends Computed<T>, Owner {
   _effectFn: (val: T, prev: T | undefined) => void | (() => void);
@@ -36,7 +35,7 @@ export function effect<T>(
   effect: (val: T, prev: T | undefined) => void | (() => void),
   error?: (err: unknown, cleanup: () => void) => void | (() => void),
   initialValue?: T,
-  options?: SignalOptions<any> & { render?: boolean; defer?: boolean }
+  options?: NodeOptions<any> & { render?: boolean; defer?: boolean }
 ): void {
   let initialized = false;
   const node = computed<T>(
@@ -116,7 +115,7 @@ export interface TrackedEffect extends Computed<void> {
  * Internal tracked effect - bypasses heap, goes directly to effect queue.
  * Children forbidden (__DEV__ throws). Uses stale reads.
  */
-export function trackedEffect(fn: () => void | (() => void), options?: SignalOptions<any>): void {
+export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
   const run = () => {
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
     node._modified = false;
@@ -125,13 +124,13 @@ export function trackedEffect(fn: () => void | (() => void), options?: SignalOpt
 
   const node = computed<void>(
     () => {
-      setLeafEffectActive(true);
+      leafEffectActive = true;
       try {
         node._cleanup?.();
         node._cleanup = undefined;
         node._cleanup = staleValues(fn) || undefined;
       } finally {
-        setLeafEffectActive(false);
+        leafEffectActive = false;
       }
     },
     undefined,

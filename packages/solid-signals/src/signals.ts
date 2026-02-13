@@ -1,4 +1,4 @@
-import type { Computed, SignalOptions } from "./core/index.js";
+import type { Computed } from "./core/index.js";
 import {
   computed,
   createRoot,
@@ -44,13 +44,42 @@ export type EffectBundle<Prev, Next extends Prev = Prev> = {
   error: (err: unknown, cleanup: () => void) => void;
 };
 
+/** Options for effect primitives (`createEffect`, `createRenderEffect`, `createTrackedEffect`, `createReaction`). */
 export interface EffectOptions {
+  /** Debug name (dev mode only) */
   name?: string;
+  /** When true, defers the initial effect execution until the next change */
   defer?: boolean;
 }
-export interface MemoOptions<T> {
+
+/** Options for plain signals created with `createSignal(value)` or `createOptimistic(value)`. */
+export interface SignalOptions<T> {
+  /** Debug name (dev mode only) */
   name?: string;
+  /** Custom equality function, or `false` to always notify subscribers */
   equals?: false | ((prev: T, next: T) => boolean);
+  /** Suppress dev-mode warnings when writing inside an owned scope */
+  pureWrite?: boolean;
+  /** Callback invoked when the signal loses all subscribers */
+  unobserved?: () => void;
+}
+
+/**
+ * Options for read-only memos created with `createMemo`.
+ * Also used in combination with `SignalOptions` for writable memos
+ * (`createSignal(fn)` / `createOptimistic(fn)`).
+ */
+export interface MemoOptions<T> {
+  /** Stable identifier for the owner hierarchy */
+  id?: string;
+  /** Debug name (dev mode only) */
+  name?: string;
+  /** Custom equality function, or `false` to always notify subscribers */
+  equals?: false | ((prev: T, next: T) => boolean);
+  /** Callback invoked when the computed loses all subscribers */
+  unobserved?: () => void;
+  /** When true, defers the initial computation until the value is first read */
+  lazy?: boolean;
 }
 
 // Magic type that when used at sites where generic types are inferred from, will prevent those sites from being involved in the inference.
@@ -59,25 +88,21 @@ export interface MemoOptions<T> {
 export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 
 /**
- * Creates a simple reactive state with a getter and setter
+ * Creates a simple reactive state with a getter and setter.
+ *
+ * When called with a plain value, creates a signal with `SignalOptions` (name, equals, pureWrite, unobserved).
+ * When called with a function, creates a writable memo with `SignalOptions & MemoOptions` (adds id, lazy).
+ *
  * ```typescript
- * const [state: Accessor<T>, setState: Setter<T>] = createSignal<T>(
- *  value: T,
- *  options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
- * )
+ * // Plain signal
+ * const [state, setState] = createSignal<T>(value, options?: SignalOptions<T>);
+ * // Writable memo (function overload)
+ * const [state, setState] = createSignal<T>(fn, initialValue?, options?: SignalOptions<T> & MemoOptions<T>);
  * ```
- * @param value initial value of the state; if empty, the state's type will automatically extended with undefined; otherwise you need to extend the type manually if you want setting to undefined not be an error
+ * @param value initial value of the state; if empty, the state's type will automatically extended with undefined
  * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
  *
- * @returns ```typescript
- * [state: Accessor<T>, setState: Setter<T>]
- * ```
- * * the Accessor is a function that returns the current value and registers each call to the reactive root
- * * the Setter is a function that allows directly setting or mutating the value:
- * ```typescript
- * const [count, setCount] = createSignal(0);
- * setCount(count => count + 1);
- * ```
+ * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal
  */
@@ -86,12 +111,12 @@ export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOpt
 export function createSignal<T>(
   fn: ComputeFunction<T>,
   initialValue?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
   first?: T | ComputeFunction<T>,
   second?: T | SignalOptions<T>,
-  third?: SignalOptions<T>
+  third?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = computed<T>(first as any, second as any, third);
@@ -108,17 +133,14 @@ export function createSignal<T>(
 }
 
 /**
- * Creates a readonly derived reactive memoized signal
+ * Creates a readonly derived reactive memoized signal.
+ *
  * ```typescript
- * export function createMemo<T>(
- *   compute: (v: T) => T,
- *   value?: T,
- *   options?: { name?: string, equals?: false | ((prev: T, next: T) => boolean) }
- * ): () => T;
+ * const value = createMemo<T>(compute, initialValue?, options?: MemoOptions<T>);
  * ```
  * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
  * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
- * @param options allows to set a name in dev mode for debugging purposes and use a custom comparison function in equals
+ * @param options `MemoOptions` -- id, name, equals, unobserved, lazy
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
  */
@@ -143,20 +165,15 @@ export function createMemo<Next extends Prev, Init, Prev>(
 }
 
 /**
- * Creates a reactive effect that runs after the render phase
+ * Creates a reactive effect that runs after the render phase.
+ *
  * ```typescript
- * export function createEffect<T>(
- *   compute: (prev: T) => T,
- *   effect: (v: T, prev: T) => (() => void) | void,
- *   value?: T,
- *   options?: { name?: string }
- * ): void;
+ * createEffect<T>(compute, effectFn | { effect, error }, initialValue?, options?: EffectOptions);
  * ```
  * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
- * @param effect a function that receives the new value and is used to perform side effects, return a cleanup function to run on disposal
- * @param error an optional function that receives an error if thrown during the computation
+ * @param effectFn a function that receives the new value and is used to perform side effects (return a cleanup function), or an `EffectBundle` with `effect` and `error` handlers
  * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
- * @param options allows to set a name in dev mode for debugging purposes
+ * @param options `EffectOptions` -- name, defer
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
@@ -186,19 +203,16 @@ export function createEffect<Next, Init>(
 }
 
 /**
- * Creates a reactive computation that runs during the render phase as DOM elements are created and updated but not necessarily connected
+ * Creates a reactive computation that runs during the render phase as DOM elements
+ * are created and updated but not necessarily connected.
+ *
  * ```typescript
- * export function createRenderEffect<T>(
- *   compute: (prev: T) => T,
- *   effect: (v: T, prev: T) => (() => void) | void,
- *   value?: T,
- *   options?: { name?: string }
- * ): void;
+ * createRenderEffect<T>(compute, effectFn, initialValue?, options?: EffectOptions);
  * ```
  * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
- * @param effect a function that receives the new value and is used to perform side effects
+ * @param effectFn a function that receives the new value and is used to perform side effects
  * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
- * @param options allows to set a name in dev mode for debugging purposes
+ * @param options `EffectOptions` -- name, defer
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */
@@ -233,13 +247,10 @@ export function createRenderEffect<Next, Init>(
  * state). Use only when dynamic subscription patterns require same-scope tracking.
  *
  * ```typescript
- * export function createTrackedEffect(
- *   compute: () => (() => void) | void,
- *   options?: { name?: string }
- * ): void;
+ * createTrackedEffect(compute, options?: EffectOptions);
  * ```
  * @param compute a function that contains reactive reads to track and returns an optional cleanup function to run on disposal or before next execution
- * @param options allows to set a name in dev mode for debugging purposes
+ * @param options `EffectOptions` -- name, defer
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-tracked-effect
  */
@@ -254,15 +265,14 @@ export function createTrackedEffect(
 }
 
 /**
- * Creates a reactive computation that runs after the render phase with flexible tracking
+ * Creates a reactive computation that runs after the render phase with flexible tracking.
+ *
  * ```typescript
- * export function createReaction(
- *   onInvalidate: () => void,
- *   options?: { name?: string }
- * ): (fn: () => void) => void;
+ * const track = createReaction(effectFn, options?: EffectOptions);
+ * track(() => { // reactive reads });
  * ```
- * @param invalidated a function that is called when tracked function is invalidated.
- * @param options allows to set a name in dev mode for debugging purposes
+ * @param effectFn a function (or `EffectBundle`) that is called when tracked function is invalidated
+ * @param options `EffectOptions` -- name, defer
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
  */
@@ -316,30 +326,20 @@ export function resolve<T>(fn: () => T): Promise<T> {
 /**
  * Creates an optimistic signal that can be used to optimistically update a value
  * and then revert it back to the previous value at end of transition.
+ *
+ * When called with a plain value, creates an optimistic signal with `SignalOptions` (name, equals, pureWrite, unobserved).
+ * When called with a function, creates a writable optimistic memo with `SignalOptions & MemoOptions` (adds id, lazy).
+ *
  * ```typescript
- * export function createOptimistic<T>(): Signal<T | undefined>;
- * export function createOptimistic<T>(
- *   value: Exclude<T, Function>,
- *   options?: SignalOptions<T>
- * ): Signal<T>;
- * export function createOptimistic<T>(
- *   fn: ComputeFunction<T>,
- *   initialValue?: T,
- *   options?: SignalOptions<T>
- * ): Signal<T>;
+ * // Plain optimistic signal
+ * const [state, setState] = createOptimistic<T>(value, options?: SignalOptions<T>);
+ * // Writable optimistic memo (function overload)
+ * const [state, setState] = createOptimistic<T>(fn, initialValue?, options?: SignalOptions<T> & MemoOptions<T>);
  * ```
- * @param value initial value of the signal; if empty, the signal's type will automatically extended with undefined; otherwise you need to extend the type manually if you want setting to undefined not be an error
+ * @param value initial value of the signal; if empty, the signal's type will automatically extended with undefined
  * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
  *
- * @returns ```typescript
- * [state: Accessor<T>, setState: Setter<T>]
- * ```
- * * the Accessor is a function that returns the current value and registers each call to the reactive root
- * * the Setter is a function that allows directly setting or mutating the value:
- * ```typescript
- * const [count, setCount] = createOptimistic(0);
- * setCount(count => count + 1);
- * ```
+ * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
  */
@@ -351,12 +351,12 @@ export function createOptimistic<T>(
 export function createOptimistic<T>(
   fn: ComputeFunction<T>,
   initialValue?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T>;
 export function createOptimistic<T>(
   first?: T | ComputeFunction<T>,
   second?: T | SignalOptions<T>,
-  third?: SignalOptions<T>
+  third?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
   const node =
     typeof first === "function"

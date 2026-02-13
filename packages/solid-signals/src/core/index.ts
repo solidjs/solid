@@ -28,13 +28,10 @@ export {
   refresh,
   isRefreshing,
   staleValues,
-  handleAsync,
-  type Owner,
-  type Computed,
-  type Root,
-  type Signal,
-  type SignalOptions
+  handleAsync
 } from "./core.js";
+export type { Computed, Disposable, FirewallSignal, Link, Owner, Root, Signal, NodeOptions } from "./types.js";
 export { effect, trackedEffect, type Effect, type TrackedEffect } from "./effect.js";
-export { action, flush, Queue, GlobalQueue, trackOptimisticStore, type IQueue, type QueueCallback } from "./scheduler.js";
+export { action } from "./action.js";
+export { flush, Queue, GlobalQueue, trackOptimisticStore, type IQueue, type QueueCallback } from "./scheduler.js";
 export * from "./constants.js";

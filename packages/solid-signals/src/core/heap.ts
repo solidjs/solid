@@ -6,7 +6,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS
 } from "./constants.js";
 
-import type { Computed, FirewallSignal, Root } from "./core.js";
+import type { Computed, FirewallSignal, Root } from "./types.js";
 
 export interface Heap {
   _heap: (Computed<unknown> | undefined)[];

@@ -4,6 +4,7 @@ export {
   NotReadyError,
   action,
   createContext,
+  createOwner,
   createRoot,
   runWithOwner,
   flush,
@@ -21,14 +22,8 @@ export {
   refresh,
   SUPPORTS_PROXY
 } from "./core/index.js";
-export type { Owner, SignalOptions, Context, ContextRecord, IQueue } from "./core/index.js";
+export type { Owner, Context, ContextRecord, IQueue } from "./core/index.js";
 export * from "./signals.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./store/index.js";
-export {
-  createLoadBoundary,
-  createErrorBoundary,
-  createBoundary,
-  flatten,
-  type BoundaryMode
-} from "./boundaries.js";
+export { createLoadBoundary, createErrorBoundary, flatten } from "./boundaries.js";

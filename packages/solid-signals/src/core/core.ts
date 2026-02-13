@@ -6,141 +6,90 @@ import {
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
-  REACTIVE_IN_HEAP,
   REACTIVE_NONE,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
-  STATUS_NONE,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { NotReadyError, StatusError } from "./error.js";
+import { NotReadyError } from "./error.js";
+import { clearStatus, handleAsync, notifyStatus } from "./async.js";
+import { leafEffectActive } from "./effect.js";
+import { link, unlinkSubs } from "./graph.js";
 import {
   deleteFromHeap,
-  insertIntoHeap,
   insertIntoHeapHeight,
   markHeap,
   markNode
 } from "./heap.js";
 import {
-  activeTransition,
-  assignOrMergeLane,
-  clearLaneEntry,
-  clock,
-  currentOptimisticLane,
-  dirtyQueue,
   findLane,
-  flush,
   getOrCreateLane,
+  hasActiveOverride,
+  mergeLanes,
+  resolveLane,
+  signalLanes,
+  type OptimisticLane
+} from "./lanes.js";
+export { handleAsync };
+import {
+  activeTransition,
+  clock,
+  dirtyQueue,
   globalQueue,
   GlobalQueue,
-  hasActiveOverride,
   insertSubs,
-  mergeLanes,
   projectionWriteActive,
-  resolveLane,
   runInTransition,
   schedule,
-  setCurrentOptimisticLane,
-  zombieQueue,
-  type IQueue,
-  type OptimisticLane,
-  type Transition
+  zombieQueue
 } from "./scheduler.js";
+import type {
+  Computed,
+  Disposable,
+  FirewallSignal,
+  Link,
+  Owner,
+  Root,
+  Signal,
+  NodeOptions
+} from "./types.js";
 
-export interface Disposable {
-  (): void;
-}
-export interface Link {
-  _dep: Signal<unknown> | Computed<unknown>;
-  _sub: Computed<unknown>;
-  _nextDep: Link | null;
-  _prevSub: Link | null;
-  _nextSub: Link | null;
-}
+export type { Computed, Disposable, FirewallSignal, Link, Owner, Root, Signal, NodeOptions };
 
-export interface SignalOptions<T> {
-  id?: string;
-  name?: string;
-  equals?: ((prev: T, next: T) => boolean) | false;
-  pureWrite?: boolean;
-  unobserved?: () => void;
-  lazy?: boolean;
-}
-
-export interface RawSignal<T> {
-  _subs: Link | null;
-  _subsTail: Link | null;
-  _value: T;
-  _name?: string;
-  _equals: false | ((a: T, b: T) => boolean);
-  _pureWrite?: boolean;
-  _unobserved?: () => void;
-  _time: number;
-  _transition: Transition | null;
-  _pendingValue: T | typeof NOT_PENDING;
-  _optimistic?: boolean;
-  _optimisticLane?: OptimisticLane; // Lane this node is associated with (for optimistic propagation)
-  _pendingSignal?: Signal<boolean>; // Lazy signal for isPending()
-  _pendingValueComputed?: Computed<T>; // Lazy computed for pending()
-  _parentSource?: Signal<any> | Computed<any>; // Back-reference for parent-child lane relationship
-}
-
-export interface FirewallSignal<T> extends RawSignal<T> {
-  _firewall: Computed<any>;
-  _nextChild: FirewallSignal<unknown> | null;
-}
-
-export type Signal<T> = RawSignal<T> | FirewallSignal<T>;
-export interface Owner {
-  id?: string;
-  _disposal: Disposable | Disposable[] | null;
-  _parent: Owner | null;
-  _context: Record<symbol | string, unknown>;
-  _childCount: number;
-  _queue: IQueue;
-  _firstChild: Owner | null;
-  _nextSibling: Owner | null;
-  _pendingDisposal: Disposable | Disposable[] | null;
-  _pendingFirstChild: Owner | null;
-}
-
-export interface Computed<T> extends RawSignal<T>, Owner {
-  _deps: Link | null;
-  _depsTail: Link | null;
-  _flags: number;
-  _error?: unknown;
-  _statusFlags: number;
-  _height: number;
-  _nextHeap: Computed<any> | undefined;
-  _prevHeap: Computed<any>;
-  _fn: (prev?: T) => T;
-  _inFlight: PromiseLike<T> | AsyncIterable<T> | null;
-  _child: FirewallSignal<any> | null;
-  _notifyStatus?: (status?: number, error?: any) => void;
-}
-
-export interface Root extends Owner {
-  _root: true;
-  _parentComputed: Computed<any> | null;
-  dispose(self?: boolean): void;
-}
+import {
+  createOwner,
+  createRoot,
+  disposeChildren,
+  dispose,
+  getNextChildId,
+  getObserver,
+  getOwner,
+  markDisposal,
+  onCleanup
+} from "./owner.js";
+export {
+  createOwner,
+  createRoot,
+  dispose,
+  getNextChildId,
+  getObserver,
+  getOwner,
+  onCleanup
+};
 
 GlobalQueue._update = recompute;
 GlobalQueue._dispose = disposeChildren;
-let tracking = false;
-let stale = false;
-let refreshing = false;
-let pendingCheckActive = false;
-let foundPending = false;
-let pendingReadActive = false;
+export let tracking = false;
+export let stale = false;
+export let refreshing = false;
+export let pendingCheckActive = false;
+export let foundPending = false;
+export let pendingReadActive = false;
 export let context: Owner | null = null;
-let leafEffectActive = false;
-export function setLeafEffectActive(v: boolean) {
-  leafEffectActive = v;
-}
+export let currentOptimisticLane: OptimisticLane | null = null;
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
   const isEffect = (el as any)._type;
@@ -176,7 +125,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   tracking = true;
   if (isOptimisticDirty) {
     const lane = resolveLane(el);
-    if (lane) setCurrentOptimisticLane(lane);
+    if (lane) currentOptimisticLane = lane;
   }
   try {
     value = handleAsync(el, el._fn(value));
@@ -260,7 +209,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       }
     }
   }
-  setCurrentOptimisticLane(prevLane);
+  currentOptimisticLane = prevLane;
   (!create || el._statusFlags & STATUS_PENDING) &&
     !el._transition &&
     !(activeTransition && el._optimistic) &&
@@ -271,212 +220,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     runInTransition(el._transition, () => recompute(el));
 }
 
-export function handleAsync<T>(
-  el: Computed<T>,
-  result: T | PromiseLike<T> | AsyncIterable<T>,
-  setter?: (value: T) => void
-): T {
-  const isObject = typeof result === "object" && result !== null;
-  const iterator = isObject && untrack(() => result[Symbol.asyncIterator]);
-  const isThenable =
-    !iterator && isObject && untrack(() => typeof (result as any).then === "function");
-
-  if (!isThenable && !iterator) {
-    el._inFlight = null;
-    return result as T;
-  }
-
-  el._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
-  let syncValue: T;
-
-  const handleError = (error: any) => {
-    if (el._inFlight !== result) return;
-    globalQueue.initTransition(el._transition);
-    // NotReadyError from rejected promises should be treated as pending, not error
-    notifyStatus(el, error instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR, error);
-    el._time = clock;
-  };
-
-  const asyncWrite = (value: T, then?: () => void) => {
-    if (el._inFlight !== result) return;
-    // If the node was dirtied by a newer write (optimistic override or regular),
-    // skip this stale async result — the upcoming flush will recompute the node
-    // with the new value, creating a fresh Promise that supersedes this one.
-    if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
-    globalQueue.initTransition(el._transition);
-    clearStatus(el);
-    const lane = resolveLane(el as any);
-    if (lane) lane._pendingAsync.delete(el);
-    if (setter) setter(value);
-    else if (el._optimistic) {
-      const hadOverride = el._pendingValue !== NOT_PENDING;
-      if ((el as Computed<T>)._fn) el._pendingValue = value;
-      if (!hadOverride) {
-        el._value = value;
-        insertSubs(el);
-      }
-      el._time = clock;
-    } else if (lane) {
-      // Route through lane's effect queue for independent flushing
-      const prevValue = el._value;
-      const equals = el._equals;
-      if (!equals || !equals(value, prevValue)) {
-        el._value = value;
-        el._time = clock;
-        // Write to _pendingValueComputed so pending() effects get independent lanes
-        if (el._pendingValueComputed) {
-          setSignal(el._pendingValueComputed, value);
-        }
-        insertSubs(el, true);
-      }
-    } else {
-      setSignal(el, () => value);
-    }
-    schedule();
-    flush();
-    then?.();
-  };
-
-  if (isThenable) {
-    let resolved = false,
-      isSync = true;
-    (result as PromiseLike<T>).then(
-      v => {
-        if (isSync) {
-          syncValue = v;
-          resolved = true;
-        } else asyncWrite(v);
-      },
-      e => {
-        if (!isSync) handleError(e);
-      }
-    );
-    isSync = false;
-    if (!resolved) {
-      globalQueue.initTransition(el._transition);
-      throw new NotReadyError(context!);
-    }
-  }
-
-  if (iterator) {
-    const it = (result as AsyncIterable<T>)[Symbol.asyncIterator]();
-    let hadSyncValue = false;
-
-    const iterate = (): boolean => {
-      let syncResult: IteratorResult<T>,
-        resolved = false,
-        isSync = true;
-      it.next().then(
-        r => {
-          if (isSync) {
-            syncResult = r;
-            resolved = true;
-          } else if (!r.done) asyncWrite(r.value, iterate);
-        },
-        e => {
-          if (!isSync) handleError(e);
-        }
-      );
-      isSync = false;
-      if (resolved && !syncResult!.done) {
-        syncValue = syncResult!.value;
-        hadSyncValue = true;
-        return iterate();
-      }
-      return resolved && syncResult!.done;
-    };
-
-    const immediatelyDone = iterate();
-    if (!hadSyncValue && !immediatelyDone) {
-      globalQueue.initTransition(el._transition);
-      throw new NotReadyError(context!);
-    }
-  }
-
-  return syncValue!;
-}
-
-function clearStatus(el: Computed<any>): void {
-  // Preserve STATUS_UNINITIALIZED — it's cleared on first value commit in finalizePureQueue
-  el._statusFlags = el._statusFlags & STATUS_UNINITIALIZED;
-  el._error = null;
-  // Update pending signal for isPending() reactivity
-  updatePendingSignal(el);
-  el._notifyStatus?.();
-}
-
-function notifyStatus(
-  el: Computed<any>,
-  status: number,
-  error: any,
-  blockStatus?: boolean,
-  lane?: OptimisticLane
-): void {
-  // Wrap regular errors to track source node
-  if (
-    status === STATUS_ERROR &&
-    !(error instanceof StatusError) &&
-    !(error instanceof NotReadyError)
-  )
-    error = new StatusError(el, error);
-
-  const isSource = error instanceof NotReadyError && (error as NotReadyError)._source === el;
-  const isOptimisticBoundary = status === STATUS_PENDING && el._optimistic && !isSource;
-  const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
-
-  if (!blockStatus) {
-    el._statusFlags =
-      status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
-    el._error = error;
-    updatePendingSignal(el);
-  }
-
-  if (lane && !blockStatus) {
-    assignOrMergeLane(el, lane);
-  }
-
-  // When an optimistic boundary blocks status propagation, the notification may never
-  // reach a render effect (e.g. isPending only subscribes to _pendingSignal, not the node).
-  // Directly register the async source with the transition so it doesn't complete prematurely.
-  if (startsBlocking && activeTransition && error instanceof NotReadyError) {
-    const source = (error as NotReadyError)._source;
-    if (!activeTransition._asyncNodes.includes(source)) {
-      activeTransition._asyncNodes.push(source);
-    }
-  }
-
-  const downstreamBlockStatus = blockStatus || startsBlocking;
-  const downstreamLane = blockStatus || isOptimisticBoundary ? undefined : lane;
-
-  if (el._notifyStatus) {
-    if (downstreamBlockStatus) {
-      el._notifyStatus(status, error);
-    } else {
-      el._notifyStatus();
-    }
-    return;
-  }
-  for (let s = el._subs; s !== null; s = s._nextSub) {
-    s._sub._time = clock;
-    if (s._sub._error !== error) {
-      !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
-      notifyStatus(s._sub, status, error, downstreamBlockStatus, downstreamLane);
-    }
-  }
-  for (
-    let child: FirewallSignal<unknown> | null = el._child;
-    child !== null;
-    child = child._nextChild
-  ) {
-    for (let s = child._subs; s !== null; s = s._nextSub) {
-      s._sub._time = clock;
-      if (s._sub._error !== error) {
-        !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
-        notifyStatus(s._sub, status, error, downstreamBlockStatus, downstreamLane);
-      }
-    }
-  }
-}
 
 function updateIfNecessary(el: Computed<unknown>): void {
   if (el._flags & REACTIVE_CHECK) {
@@ -499,176 +242,17 @@ function updateIfNecessary(el: Computed<unknown>): void {
   el._flags = REACTIVE_NONE;
 }
 
-// https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
-function unlinkSubs(link: Link): Link | null {
-  const dep = link._dep;
-  const nextDep = link._nextDep;
-  const nextSub = link._nextSub;
-  const prevSub = link._prevSub;
-  if (nextSub !== null) nextSub._prevSub = prevSub;
-  else dep._subsTail = prevSub;
-
-  if (prevSub !== null) prevSub._nextSub = nextSub;
-  else {
-    dep._subs = nextSub;
-    if (nextSub === null) {
-      dep._unobserved?.();
-      // No more subscribers, unwatch if computed
-      (dep as Computed<any>)._fn &&
-        !(dep as any)._preventAutoDisposal &&
-        unobserved(dep as Computed<any>);
-    }
-  }
-  return nextDep;
-}
-
-function unobserved(el: Computed<unknown>) {
-  deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-  let dep = el._deps;
-  while (dep !== null) {
-    dep = unlinkSubs(dep);
-  }
-  el._deps = null;
-  disposeChildren(el, true);
-}
-
-// https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L52
-function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
-  const prevDep = sub._depsTail;
-  if (prevDep !== null && prevDep._dep === dep) return;
-
-  let nextDep: Link | null = null;
-  const isRecomputing = sub._flags & REACTIVE_RECOMPUTING_DEPS;
-  if (isRecomputing) {
-    nextDep = prevDep !== null ? prevDep._nextDep : sub._deps;
-    if (nextDep !== null && nextDep._dep === dep) {
-      sub._depsTail = nextDep;
-      return;
-    }
-  }
-
-  const prevSub = dep._subsTail;
-  if (prevSub !== null && prevSub._sub === sub && (!isRecomputing || isValidLink(prevSub, sub)))
-    return;
-
-  const newLink =
-    (sub._depsTail =
-    dep._subsTail =
-      {
-        _dep: dep,
-        _sub: sub,
-        _nextDep: nextDep,
-        _prevSub: prevSub,
-        _nextSub: null
-      });
-  if (prevDep !== null) prevDep._nextDep = newLink;
-  else sub._deps = newLink;
-
-  if (prevSub !== null) prevSub._nextSub = newLink;
-  else dep._subs = newLink;
-}
-
-// https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L284
-function isValidLink(checkLink: Link, sub: Computed<unknown>): boolean {
-  const depsTail = sub._depsTail;
-  if (depsTail !== null) {
-    let link = sub._deps!;
-    do {
-      if (link === checkLink) return true;
-      if (link === depsTail) break;
-      link = link._nextDep!;
-    } while (link !== null);
-  }
-  return false;
-}
-
-function markDisposal(el: Owner): void {
-  let child = el._firstChild;
-  while (child) {
-    (child as Computed<unknown>)._flags |= REACTIVE_ZOMBIE;
-    if ((child as Computed<unknown>)._flags & REACTIVE_IN_HEAP) {
-      deleteFromHeap(child as Computed<unknown>, dirtyQueue);
-      insertIntoHeap(child as Computed<unknown>, zombieQueue);
-    }
-    markDisposal(child);
-    child = child._nextSibling;
-  }
-}
-
-export function dispose(node: Computed<unknown>): void {
-  let toRemove = node._deps || null;
-  do {
-    toRemove = unlinkSubs(toRemove!);
-  } while (toRemove !== null);
-  node._deps = null;
-  node._depsTail = null;
-  disposeChildren(node, true);
-}
-
-function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
-  if ((node as any)._flags & REACTIVE_DISPOSED) return;
-  if (self) (node as any)._flags = REACTIVE_DISPOSED;
-  let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
-  while (child) {
-    const nextChild = child._nextSibling;
-    if ((child as Computed<unknown>)._deps) {
-      const n = child as Computed<unknown>;
-      deleteFromHeap(n, n._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-      let toRemove = n._deps;
-      do {
-        toRemove = unlinkSubs(toRemove!);
-      } while (toRemove !== null);
-      n._deps = null;
-      n._depsTail = null;
-    }
-    disposeChildren(child, true);
-    child = nextChild;
-  }
-  if (zombie) {
-    node._pendingFirstChild = null;
-  } else {
-    node._firstChild = null;
-    node._nextSibling = null;
-  }
-  runDisposal(node, zombie);
-}
-
-function runDisposal(node: Owner, zombie?: boolean): void {
-  let disposal = zombie ? node._pendingDisposal : node._disposal;
-  if (!disposal) return;
-
-  if (Array.isArray(disposal)) {
-    for (let i = 0; i < disposal.length; i++) {
-      const callable = disposal[i];
-      callable.call(callable);
-    }
-  } else {
-    (disposal as Disposable).call(disposal);
-  }
-  zombie ? (node._pendingDisposal = null) : (node._disposal = null);
-}
-
-export function getNextChildId(owner: Owner): string {
-  if (owner.id != null) return formatId(owner.id, owner._childCount++);
-  throw new Error("Cannot get child id from owner without an id");
-}
-
-function formatId(prefix: string, id: number) {
-  const num = id.toString(36),
-    len = num.length - 1;
-  return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
-}
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
 export function computed<T>(
   fn: (prev: T) => T | PromiseLike<T> | AsyncIterable<T>,
   initialValue?: T,
-  options?: SignalOptions<T>
+  options?: NodeOptions<T>
 ): Computed<T>;
 export function computed<T>(
   fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>,
   initialValue?: T,
-  options?: SignalOptions<T>
+  options?: NodeOptions<T>
 ): Computed<T> {
   const self: Computed<T> = {
     id: options?.id ?? (context?.id != null ? getNextChildId(context) : undefined),
@@ -724,15 +308,15 @@ export function computed<T>(
   return self;
 }
 
-export function signal<T>(v: T, options?: SignalOptions<T>): Signal<T>;
+export function signal<T>(v: T, options?: NodeOptions<T>): Signal<T>;
 export function signal<T>(
   v: T,
-  options?: SignalOptions<T>,
+  options?: NodeOptions<T>,
   firewall?: Computed<any>
 ): FirewallSignal<T>;
 export function signal<T>(
   v: T,
-  options?: SignalOptions<T>,
+  options?: NodeOptions<T>,
   firewall: Computed<unknown> | null = null
 ): Signal<T> {
   const s = {
@@ -752,7 +336,7 @@ export function signal<T>(
   return s as Signal<T>;
 }
 
-export function optimisticSignal<T>(v: T, options?: SignalOptions<T>): Signal<T> {
+export function optimisticSignal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
   const s = signal(v, options);
   s._optimistic = true;
   return s;
@@ -761,103 +345,13 @@ export function optimisticSignal<T>(v: T, options?: SignalOptions<T>): Signal<T>
 export function optimisticComputed<T>(
   fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>,
   initialValue?: T,
-  options?: SignalOptions<T>
+  options?: NodeOptions<T>
 ): Computed<T> {
   const c = computed(fn, initialValue, options);
   c._optimistic = true;
   return c;
 }
 
-/**
- * Get or create the pending signal for a node (lazy).
- * Used by isPending() to track pending state reactively.
- */
-function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
-  if (!el._pendingSignal) {
-    // Start false, write true if pending - ensures reversion returns to false
-    el._pendingSignal = optimisticSignal(false, { pureWrite: true });
-    // Propagate parent-child lane relationship for isPending(() => pending(x))
-    if (el._parentSource) {
-      el._pendingSignal._parentSource = el;
-    }
-    if (computePendingState(el)) setSignal(el._pendingSignal, true);
-  }
-  return el._pendingSignal;
-}
-
-/**
- * Compute whether a node is in "pending" state.
- * Pending means: has stale data while new data is loading.
- * Returns false for initial async loads (no stale data to show).
- */
-function computePendingState(el: Signal<any> | Computed<any>): boolean {
-  const comp = el as Computed<any>;
-  // Optimistic nodes with active override:
-  if (el._optimistic && el._pendingValue !== NOT_PENDING) {
-    if (comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
-    // pendingValueComputed (has _parentSource): check lane for downstream async.
-    // User-created optimistic: override existence means pending (bridges corrections).
-    if (el._parentSource) {
-      const lane = el._optimisticLane ? findLane(el._optimisticLane) : null;
-      return !!(lane && lane._pendingAsync.size > 0);
-    }
-    return true;
-  }
-  // Upstream: value held in transition (not during initial load)
-  if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
-  // Downstream: async in flight with previous value (not initial load)
-  // STATUS_UNINITIALIZED is cleared on first successful completion
-  return !!(comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED));
-}
-
-/**
- * Get or create the pending value computed for a node (lazy).
- * Used by pending() to read the in-flight value during a transition.
- */
-function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
-  if (!el._pendingValueComputed) {
-    // Save and restore context flags to prevent leaking isPending/pending
-    // context into the computed's initial recompute.
-    const prevPending = pendingReadActive;
-    pendingReadActive = false;
-    const prevCheck = pendingCheckActive;
-    pendingCheckActive = false;
-    const prevContext = context;
-    context = null; // Detach from owner so it isn't disposed with effects
-    el._pendingValueComputed = optimisticComputed(() => read(el));
-    el._pendingValueComputed._parentSource = el; // Parent-child lane relationship
-    context = prevContext;
-    pendingCheckActive = prevCheck;
-    pendingReadActive = prevPending;
-  }
-  return el._pendingValueComputed;
-}
-
-/**
- * Update _pendingSignal when pending state changes. When the override clears
- * (pending -> not pending), merge the sub-lane into the source's lane so
- * isPending effects are blocked until the full scope resolves.
- */
-function updatePendingSignal(el: Signal<any> | Computed<any>): void {
-  if (el._pendingSignal) {
-    const pending = computePendingState(el);
-    const sig = el._pendingSignal;
-    setSignal(sig, pending);
-    // When override clears: merge sub-lane into source's lane
-    if (!pending && sig._optimisticLane) {
-      const sourceLane = resolveLane(el as any);
-      if (sourceLane && sourceLane._pendingAsync.size > 0) {
-        const sigLane = findLane(sig._optimisticLane);
-        if (sigLane !== sourceLane) {
-          mergeLanes(sourceLane, sigLane);
-        }
-      }
-      // Clear so next write creates a fresh independent sub-lane
-      clearLaneEntry(sig);
-      sig._optimisticLane = undefined;
-    }
-  }
-}
 
 export function isEqual<T>(a: T, b: T): boolean {
   return a === b;
@@ -1056,82 +550,6 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   return v;
 }
 
-const PENDING_OWNER = {} as Owner; // Dummy owner to trigger store's read() path
-
-export function getObserver(): Owner | null {
-  if (pendingCheckActive || pendingReadActive) return PENDING_OWNER;
-  return tracking ? context : null;
-}
-
-export function getOwner(): Owner | null {
-  return context;
-}
-
-export function onCleanup(fn: Disposable): Disposable {
-  if (!context) return fn;
-  if (!context._disposal) context._disposal = fn;
-  else if (Array.isArray(context._disposal)) context._disposal.push(fn);
-  else context._disposal = [context._disposal, fn];
-  return fn;
-}
-
-export function createOwner(options?: { id: string }) {
-  const parent = context;
-  const owner = {
-    id: options?.id ?? (parent?.id != null ? getNextChildId(parent) : undefined),
-    _root: true,
-    _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
-    _firstChild: null,
-    _nextSibling: null,
-    _disposal: null,
-    _queue: parent?._queue ?? globalQueue,
-    _context: parent?._context || defaultContext,
-    _childCount: 0,
-    _pendingDisposal: null,
-    _pendingFirstChild: null,
-    _parent: parent,
-    dispose(self: boolean = true) {
-      disposeChildren(owner, self);
-    }
-  } as Root;
-
-  if (__DEV__ && leafEffectActive && parent) {
-    throw new Error("Cannot create reactive primitives inside createTrackedEffect");
-  }
-  if (parent) {
-    const lastChild = parent._firstChild;
-    if (lastChild === null) {
-      parent._firstChild = owner;
-    } else {
-      owner._nextSibling = lastChild;
-      parent._firstChild = owner;
-    }
-  }
-  return owner;
-}
-
-/**
- * Creates a new non-tracked reactive context with manual disposal
- *
- * @param fn a function in which the reactive state is scoped
- * @returns the output of `fn`.
- *
- * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
- */
-export function createRoot<T>(
-  init: ((dispose: () => void) => T) | (() => T),
-  options?: { id: string }
-): T {
-  const owner = createOwner(options);
-  return runWithOwner(owner, () => init(owner.dispose));
-}
-
-/**
- * Runs the given function in the given owner to move ownership of nested primitives and cleanups.
- * This method untracks the current scope.
- *
- * Warning: Usually there are simpler ways of modeling a problem that avoid using this function
- */
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   const oldContext = context;
   const prevTracking = tracking;
@@ -1143,6 +561,97 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
     context = oldContext;
     tracking = prevTracking;
   }
+}
+
+/**
+ * Get or create the pending signal for a node (lazy).
+ * Used by isPending() to track pending state reactively.
+ */
+function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
+  if (!el._pendingSignal) {
+    // Start false, write true if pending - ensures reversion returns to false
+    el._pendingSignal = optimisticSignal(false, { pureWrite: true });
+    // Propagate parent-child lane relationship for isPending(() => pending(x))
+    if (el._parentSource) {
+      el._pendingSignal._parentSource = el;
+    }
+    if (computePendingState(el)) setSignal(el._pendingSignal, true);
+  }
+  return el._pendingSignal;
+}
+
+/**
+ * Compute whether a node is in "pending" state.
+ * Pending means: has stale data while new data is loading.
+ * Returns false for initial async loads (no stale data to show).
+ */
+function computePendingState(el: Signal<any> | Computed<any>): boolean {
+  const comp = el as Computed<any>;
+  // Optimistic nodes with active override:
+  if (el._optimistic && el._pendingValue !== NOT_PENDING) {
+    if (comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
+    // pendingValueComputed (has _parentSource): check lane for downstream async.
+    // User-created optimistic: override existence means pending (bridges corrections).
+    if (el._parentSource) {
+      const lane = el._optimisticLane ? findLane(el._optimisticLane) : null;
+      return !!(lane && lane._pendingAsync.size > 0);
+    }
+    return true;
+  }
+  // Upstream: value held in transition (not during initial load)
+  if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;
+  // Downstream: async in flight with previous value (not initial load)
+  // STATUS_UNINITIALIZED is cleared on first successful completion
+  return !!(comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED));
+}
+
+/**
+ * Update _pendingSignal when pending state changes. When the override clears
+ * (pending -> not pending), merge the sub-lane into the source's lane so
+ * isPending effects are blocked until the full scope resolves.
+ */
+export function updatePendingSignal(el: Signal<any> | Computed<any>): void {
+  if (el._pendingSignal) {
+    const pending = computePendingState(el);
+    const sig = el._pendingSignal;
+    setSignal(sig, pending);
+    // When override clears: merge sub-lane into source's lane
+    if (!pending && sig._optimisticLane) {
+      const sourceLane = resolveLane(el as any);
+      if (sourceLane && sourceLane._pendingAsync.size > 0) {
+        const sigLane = findLane(sig._optimisticLane);
+        if (sigLane !== sourceLane) {
+          mergeLanes(sourceLane, sigLane);
+        }
+      }
+      // Clear so next write creates a fresh independent sub-lane
+      signalLanes.delete(sig);
+      sig._optimisticLane = undefined;
+    }
+  }
+}
+
+/**
+ * Get or create the pending value computed for a node (lazy).
+ * Used by pending() to read the in-flight value during a transition.
+ */
+function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
+  if (!el._pendingValueComputed) {
+    // Save and restore context flags to prevent leaking isPending/pending
+    // context into the computed's initial recompute.
+    const prevPending = pendingReadActive;
+    pendingReadActive = false;
+    const prevCheck = pendingCheckActive;
+    pendingCheckActive = false;
+    const prevContext = context;
+    context = null; // Detach from owner so it isn't disposed with effects
+    el._pendingValueComputed = optimisticComputed(() => read(el));
+    el._pendingValueComputed._parentSource = el; // Parent-child lane relationship
+    context = prevContext;
+    pendingCheckActive = prevCheck;
+    pendingReadActive = prevPending;
+  }
+  return el._pendingValueComputed;
 }
 
 export function staleValues<T>(fn: () => T, set = true): T {

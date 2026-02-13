@@ -16,8 +16,16 @@ import { createProjectionInternal } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
+/** Base options for store primitives. */
 export type StoreOptions = {
+  /** Debug name (dev mode only) */
+  name?: string;
+};
+/** Options for derived/projected stores created with `createStore(fn)`, `createProjection`, or `createOptimisticStore(fn)`. */
+export type ProjectionOptions = StoreOptions & {
+  /** Key property name or function for reconciliation identity */
   key?: string | ((item: NonNullable<any>) => any);
+  /** When true, reconciles all properties (not just tracked ones) */
   all?: boolean;
 };
 export type NoFn<T> = T extends Function ? never : T;
@@ -440,18 +448,35 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
   }
 }
 
+/**
+ * Creates a deeply reactive store with proxy-based tracking.
+ *
+ * When called with a plain value, wraps it in a reactive proxy.
+ * When called with a function, creates a derived projection store with `ProjectionOptions` (name, key, all).
+ *
+ * ```typescript
+ * // Plain store
+ * const [store, setStore] = createStore<T>(initialValue);
+ * // Derived store (projection)
+ * const [store, setStore] = createStore<T>(fn, initialValue?, options?: ProjectionOptions);
+ * ```
+ * @param store initial value to wrap in a reactive proxy, or a derive function
+ * @param options `ProjectionOptions` -- name, key, all (only for derived stores)
+ *
+ * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
+ */
 export function createStore<T extends object = {}>(
   store: NoFn<T> | Store<NoFn<T>>
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   store?: NoFn<T> | Store<NoFn<T>>,
-  options?: StoreOptions
+  options?: ProjectionOptions
 ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: NoFn<T> | Store<NoFn<T>>,
-  options?: StoreOptions
+  options?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function",
     wrappedStore = derived ? createProjectionInternal(first, second, options).store : wrap(first);

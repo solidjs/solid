@@ -18,13 +18,13 @@ import {
   storeSetter,
   storeTraps,
   type Store,
-  type StoreOptions
+  type ProjectionOptions
 } from "./store.js";
 
 export function createProjectionInternal<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T = {} as T,
-  options?: StoreOptions
+  options?: ProjectionOptions
 ) {
   let node;
   const wrappedMap = new WeakMap();
@@ -70,14 +70,22 @@ export function createProjectionInternal<T extends object = {}>(
 }
 
 /**
- * Creates a mutable derived value
+ * Creates a mutable derived store (projection). The derive function receives a mutable
+ * draft and can mutate it directly or return a new value for reconciliation.
+ *
+ * ```typescript
+ * const store = createProjection<T>(fn, initialValue?, options?: ProjectionOptions);
+ * ```
+ * @param fn a function that receives the current draft and mutates it or returns new data
+ * @param initialValue the initial store value (defaults to `{}`)
+ * @param options `ProjectionOptions` -- name, key, all
  *
  * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
  */
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T = {} as T,
-  options?: StoreOptions
+  options?: ProjectionOptions
 ): Store<T> & { [$REFRESH]: any } {
   return createProjectionInternal(fn, initialValue, options).store;
 }

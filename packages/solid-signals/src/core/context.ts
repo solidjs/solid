@@ -1,4 +1,5 @@
-import { getOwner, type Owner } from "./core.js";
+import { getOwner } from "./core.js";
+import type { Owner } from "./types.js";
 import { ContextNotFoundError, NoOwnerError } from "./error.js";
 
 export interface Context<T> {

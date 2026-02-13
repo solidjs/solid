@@ -55,37 +55,6 @@ function createBoundChildren<T>(
   });
 }
 
-class ConditionalQueue extends Queue {
-  _disabled: Signal<boolean>;
-  _errorNodes: Set<Effect<any>> = new Set();
-  _pendingNodes: Set<Effect<any>> = new Set();
-  constructor(disabled: Signal<boolean>) {
-    super();
-    this._disabled = disabled;
-  }
-  run(type: number) {
-    if (!type || read(this._disabled)) return;
-    return super.run(type);
-  }
-  notify(node: Effect<any>, type: number, flags: number, error?: any) {
-    if (read(this._disabled)) {
-      if (type & STATUS_PENDING) {
-        if (flags & STATUS_PENDING) {
-          this._pendingNodes.add(node);
-          type &= ~STATUS_PENDING;
-        } else if (this._pendingNodes.delete(node)) type &= ~STATUS_PENDING;
-      }
-      if (type & STATUS_ERROR) {
-        if (flags & STATUS_ERROR) {
-          this._errorNodes.add(node);
-          type &= ~STATUS_ERROR;
-        } else if (this._errorNodes.delete(node)) type &= ~STATUS_ERROR;
-      }
-    }
-    return type ? super.notify(node, type, flags, error ?? node._error) : true;
-  }
-}
-
 export class CollectionQueue extends Queue {
   _collectionType: number;
   _sources: Set<Computed<any>> = new Set();
@@ -122,27 +91,6 @@ export class CollectionQueue extends Queue {
     }
     if (!this._sources.size) setSignal(this._disabled, false);
   }
-}
-
-export const enum BoundaryMode {
-  VISIBLE = "visible",
-  HIDDEN = "hidden"
-}
-export function createBoundary<T>(fn: () => T, condition: () => BoundaryMode) {
-  const owner = createOwner();
-  const queue = new ConditionalQueue(computed(() => condition() === BoundaryMode.HIDDEN));
-  const tree = createBoundChildren(owner, fn, queue, 0);
-  computed(() => {
-    const disabled = read(queue._disabled);
-    (tree as BoundaryComputed<any>)._propagationMask = disabled ? STATUS_ERROR | STATUS_PENDING : 0;
-    if (!disabled) {
-      queue._pendingNodes.forEach(node => queue.notify(node, STATUS_PENDING, STATUS_PENDING, node._error));
-      queue._errorNodes.forEach(node => queue.notify(node, STATUS_ERROR, STATUS_ERROR, node._error));
-      queue._pendingNodes.clear();
-      queue._errorNodes.clear();
-    }
-  });
-  return () => (read(queue._disabled) ? undefined : read(tree));
 }
 
 function createCollectionBoundary<T>(
