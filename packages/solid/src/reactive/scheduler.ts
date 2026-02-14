@@ -29,6 +29,12 @@ const maxSigned31BitInt = 1073741823;
 function setupScheduler() {
   const channel = new MessageChannel(),
     port = channel.port2;
+  // In Node.js, active MessagePort listeners keep the event loop alive.
+  // Calling unref() allows the process to exit naturally when there is no
+  // other work keeping it alive (e.g. after dispose). unref is not available
+  // in browsers, so we guard the call.
+  if (typeof channel.port1.unref === "function") channel.port1.unref();
+  if (typeof port.unref === "function") port.unref();
   scheduleCallback = () => port.postMessage(null);
   channel.port1.onmessage = () => {
     if (scheduledCallback !== null) {
