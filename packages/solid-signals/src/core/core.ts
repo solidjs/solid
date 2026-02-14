@@ -93,6 +93,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._pendingFirstChild = el._firstChild;
       el._disposal = null;
       el._firstChild = null;
+      el._childCount = 0;
     }
   }
 

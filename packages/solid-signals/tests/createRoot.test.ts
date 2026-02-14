@@ -176,3 +176,39 @@ it("should generate ids if id is provided", () => {
   expect(c2!).toEqual("010");
   expect(c3!).toEqual("011");
 });
+
+it("should reset child ids when computations rerun", () => {
+  const [$x, setX] = createSignal(0);
+  const ids: string[][] = [];
+
+  createRoot(
+    () => {
+      createMemo(() => {
+        $x();
+        const owner = getOwner()!;
+        const run: string[] = [];
+        run.push(
+          createMemo(() => {
+            return getOwner()!.id!;
+          })()
+        );
+        run.push(
+          createMemo(() => {
+            return getOwner()!.id!;
+          })()
+        );
+        ids.push(run);
+      });
+    },
+    { id: "" }
+  );
+
+  expect(ids).toHaveLength(1);
+  expect(ids[0]).toEqual(["00", "01"]);
+
+  setX(1);
+  flush();
+
+  expect(ids).toHaveLength(2);
+  expect(ids[1]).toEqual(["00", "01"]);
+});

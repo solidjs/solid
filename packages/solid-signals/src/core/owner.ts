@@ -60,6 +60,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   } else {
     node._firstChild = null;
     node._nextSibling = null;
+    node._childCount = 0;
   }
   runDisposal(node, zombie);
 }
