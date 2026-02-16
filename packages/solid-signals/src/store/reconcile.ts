@@ -19,13 +19,7 @@ function unwrap(value: any) {
   return value?.[$TARGET]?.[STORE_NODE] ?? value;
 }
 
-function getOverrideValue(
-  value: any,
-  override: any,
-  nodes: any,
-  key: string,
-  optOverride?: any
-) {
+function getOverrideValue(value: any, override: any, nodes: any, key: string, optOverride?: any) {
   if (optOverride && key in optOverride) return optOverride[key];
   return override && key in override ? override[key] : value[key];
 }

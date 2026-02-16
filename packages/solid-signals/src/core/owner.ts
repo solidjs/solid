@@ -81,7 +81,9 @@ function runDisposal(node: Owner, zombie?: boolean): void {
 }
 
 export function getNextChildId(owner: Owner): string {
-  if (owner.id != null) return formatId(owner.id, owner._childCount++);
+  let counter: Owner = owner;
+  while (counter._transparent && counter._parent) counter = counter._parent;
+  if (counter.id != null) return formatId(counter.id, counter._childCount++);
   throw new Error("Cannot get child id from owner without an id");
 }
 
@@ -108,10 +110,14 @@ export function onCleanup(fn: Disposable): Disposable {
   return fn;
 }
 
-export function createOwner(options?: { id: string }) {
+export function createOwner(options?: { id?: string; transparent?: boolean }) {
   const parent = context;
+  const transparent = options?.transparent ?? false;
   const owner = {
-    id: options?.id ?? (parent?.id != null ? getNextChildId(parent) : undefined),
+    id:
+      options?.id ??
+      (transparent ? parent?.id : parent?.id != null ? getNextChildId(parent) : undefined),
+    _transparent: transparent || undefined,
     _root: true,
     _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
     _firstChild: null,
@@ -153,7 +159,7 @@ export function createOwner(options?: { id: string }) {
  */
 export function createRoot<T>(
   init: ((dispose: () => void) => T) | (() => T),
-  options?: { id: string }
+  options?: { id?: string; transparent?: boolean }
 ): T {
   const owner = createOwner(options);
   return runWithOwner(owner, () => init(owner.dispose));

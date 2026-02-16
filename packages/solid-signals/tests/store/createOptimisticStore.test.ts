@@ -1626,7 +1626,10 @@ describe("createOptimisticStore", () => {
           t.push({ id: "2", title: "Second" });
         });
         yield apiPromise2;
-        serverTodos = [{ id: "1", title: "First" }, { id: "2", title: "Second" }];
+        serverTodos = [
+          { id: "1", title: "First" },
+          { id: "2", title: "Second" }
+        ];
         refresh(todos);
       });
 

@@ -241,8 +241,12 @@ export function computed<T>(
   initialValue?: T,
   options?: NodeOptions<T>
 ): Computed<T> {
+  const transparent = options?.transparent ?? false;
   const self: Computed<T> = {
-    id: options?.id ?? (context?.id != null ? getNextChildId(context) : undefined),
+    id:
+      options?.id ??
+      (transparent ? context?.id : context?.id != null ? getNextChildId(context) : undefined),
+    _transparent: transparent || undefined,
     _equals: options?.equals != null ? options.equals : isEqual,
     _pureWrite: !!options?.pureWrite,
     _unobserved: options?.unobserved,

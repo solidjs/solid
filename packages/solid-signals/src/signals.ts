@@ -74,6 +74,8 @@ export interface MemoOptions<T> {
   id?: string;
   /** Debug name (dev mode only) */
   name?: string;
+  /** When true, the owner is invisible to the ID scheme -- inherits parent ID and doesn't consume a childCount slot */
+  transparent?: boolean;
   /** Custom equality function, or `false` to always notify subscribers */
   equals?: false | ((prev: T, next: T) => boolean);
   /** Callback invoked when the computed loses all subscribers */

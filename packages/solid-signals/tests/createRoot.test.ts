@@ -212,3 +212,151 @@ it("should reset child ids when computations rerun", () => {
   expect(ids).toHaveLength(2);
   expect(ids[1]).toEqual(["00", "01"]);
 });
+
+describe("transparent owners", () => {
+  it("should not consume a _childCount slot from parent", () => {
+    let siblingId: string | undefined;
+
+    createRoot(
+      () => {
+        createRoot(() => {}, { transparent: true });
+        const memo = createMemo(() => getOwner()!.id);
+        siblingId = memo();
+      },
+      { id: "" }
+    );
+
+    expect(siblingId).toEqual("0");
+  });
+
+  it("should delegate child IDs to the nearest non-transparent ancestor", () => {
+    let childA: string | undefined;
+    let childB: string | undefined;
+
+    createRoot(
+      () => {
+        createRoot(
+          () => {
+            childA = createMemo(() => getOwner()!.id)();
+            childB = createMemo(() => getOwner()!.id)();
+          },
+          { transparent: true }
+        );
+      },
+      { id: "" }
+    );
+
+    expect(childA).toEqual("0");
+    expect(childB).toEqual("1");
+  });
+
+  it("should handle nested transparent owners delegating to non-transparent ancestor", () => {
+    let childId: string | undefined;
+
+    createRoot(
+      () => {
+        createRoot(
+          () => {
+            createRoot(
+              () => {
+                childId = createMemo(() => getOwner()!.id)();
+              },
+              { transparent: true }
+            );
+          },
+          { transparent: true }
+        );
+      },
+      { id: "" }
+    );
+
+    expect(childId).toEqual("0");
+  });
+
+  it("should not consume _childCount with transparent computed", () => {
+    let siblingId: string | undefined;
+
+    createRoot(
+      () => {
+        const transparentMemo = createMemo(() => {}, undefined, { transparent: true });
+        transparentMemo();
+        siblingId = createMemo(() => getOwner()!.id)();
+      },
+      { id: "" }
+    );
+
+    expect(siblingId).toEqual("0");
+  });
+
+  it("should delegate child IDs through transparent computed", () => {
+    let childA: string | undefined;
+    let childB: string | undefined;
+
+    createRoot(
+      () => {
+        const transparentMemo = createMemo(
+          () => {
+            childA = createMemo(() => getOwner()!.id)();
+            childB = createMemo(() => getOwner()!.id)();
+          },
+          undefined,
+          { transparent: true }
+        );
+        transparentMemo();
+      },
+      { id: "" }
+    );
+
+    expect(childA).toEqual("0");
+    expect(childB).toEqual("1");
+  });
+
+  it("should produce identical IDs with and without a transparent wrapper (devComponent scenario)", () => {
+    const idsWithout: string[] = [];
+    const idsWith: string[] = [];
+
+    createRoot(
+      () => {
+        idsWithout.push(createMemo(() => getOwner()!.id!)());
+        idsWithout.push(createMemo(() => getOwner()!.id!)());
+      },
+      { id: "" }
+    );
+
+    createRoot(
+      () => {
+        createRoot(
+          () => {
+            idsWith.push(createMemo(() => getOwner()!.id!)());
+            idsWith.push(createMemo(() => getOwner()!.id!)());
+          },
+          { transparent: true }
+        );
+      },
+      { id: "" }
+    );
+
+    expect(idsWith).toEqual(idsWithout);
+  });
+
+  it("should inherit parent id on the transparent owner itself", () => {
+    let transparentOwner: Owner | null = null;
+    let parentOwner: Owner | null = null;
+
+    createRoot(
+      () => {
+        parentOwner = getOwner();
+        createRoot(
+          () => {
+            transparentOwner = getOwner();
+          },
+          { transparent: true }
+        );
+      },
+      { id: "" }
+    );
+
+    expect(parentOwner!.id).toEqual("");
+    expect(transparentOwner!.id).toEqual("");
+  });
+});

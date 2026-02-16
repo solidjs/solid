@@ -16,6 +16,7 @@ export interface Link {
 export interface NodeOptions<T> {
   id?: string;
   name?: string;
+  transparent?: boolean;
   equals?: ((prev: T, next: T) => boolean) | false;
   pureWrite?: boolean;
   unobserved?: () => void;
@@ -48,6 +49,7 @@ export interface FirewallSignal<T> extends RawSignal<T> {
 export type Signal<T> = RawSignal<T> | FirewallSignal<T>;
 export interface Owner {
   id?: string;
+  _transparent?: boolean;
   _disposal: Disposable | Disposable[] | null;
   _parent: Owner | null;
   _context: Record<symbol | string, unknown>;
