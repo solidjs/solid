@@ -28,17 +28,7 @@ import {
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
-import {
-  createOwner,
-  createRoot,
-  dispose,
-  disposeChildren,
-  getNextChildId,
-  getObserver,
-  getOwner,
-  markDisposal,
-  onCleanup
-} from "./owner.js";
+import { disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeTransition,
   clock,
@@ -61,12 +51,6 @@ import type {
   Root,
   Signal
 } from "./types.js";
-
-export { handleAsync };
-
-export type { Computed, Disposable, FirewallSignal, Link, Owner, Root, Signal, NodeOptions };
-
-export { createOwner, createRoot, dispose, getNextChildId, getObserver, getOwner, onCleanup };
 
 GlobalQueue._update = recompute;
 GlobalQueue._dispose = disposeChildren;

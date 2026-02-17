@@ -1,4 +1,4 @@
-import { getNextChildId } from "../src/core/index.js";
+import { getNextChildId, peekNextChildId } from "../src/core/index.js";
 import {
   createEffect,
   createMemo,
@@ -358,5 +358,61 @@ describe("transparent owners", () => {
 
     expect(parentOwner!.id).toEqual("");
     expect(transparentOwner!.id).toEqual("");
+  });
+});
+
+describe("peekNextChildId", () => {
+  it("should return the next child id without incrementing the counter", () => {
+    createRoot(
+      () => {
+        const owner = getOwner()!;
+        const first = peekNextChildId(owner);
+        const second = peekNextChildId(owner);
+        const actual = getNextChildId(owner);
+        expect(first).toEqual("0");
+        expect(second).toEqual("0");
+        expect(actual).toEqual("0");
+      },
+      { id: "" }
+    );
+  });
+
+  it("should reflect counter changes from getNextChildId", () => {
+    createRoot(
+      () => {
+        const owner = getOwner()!;
+        expect(peekNextChildId(owner)).toEqual("0");
+        getNextChildId(owner);
+        expect(peekNextChildId(owner)).toEqual("1");
+        getNextChildId(owner);
+        expect(peekNextChildId(owner)).toEqual("2");
+      },
+      { id: "" }
+    );
+  });
+
+  it("should delegate through transparent owners", () => {
+    createRoot(
+      () => {
+        const parent = getOwner()!;
+        createRoot(
+          () => {
+            const transparentOwner = getOwner()!;
+            expect(peekNextChildId(transparentOwner)).toEqual("0");
+            getNextChildId(parent);
+            expect(peekNextChildId(transparentOwner)).toEqual("1");
+          },
+          { transparent: true }
+        );
+      },
+      { id: "" }
+    );
+  });
+
+  it("should throw for owner without id", () => {
+    createRoot(() => {
+      const owner = getOwner()!;
+      expect(() => peekNextChildId(owner)).toThrow("Cannot get child id from owner without an id");
+    });
   });
 });

@@ -80,11 +80,20 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   zombie ? (node._pendingDisposal = null) : (node._disposal = null);
 }
 
-export function getNextChildId(owner: Owner): string {
+function childId(owner: Owner, consume: boolean): string {
   let counter: Owner = owner;
   while (counter._transparent && counter._parent) counter = counter._parent;
-  if (counter.id != null) return formatId(counter.id, counter._childCount++);
+  if (counter.id != null)
+    return formatId(counter.id, consume ? counter._childCount++ : counter._childCount);
   throw new Error("Cannot get child id from owner without an id");
+}
+
+export function getNextChildId(owner: Owner): string {
+  return childId(owner, true);
+}
+
+export function peekNextChildId(owner: Owner): string {
+  return childId(owner, false);
 }
 
 function formatId(prefix: string, id: number) {

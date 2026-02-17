@@ -1,35 +1,38 @@
 export { ContextNotFoundError, NoOwnerError, NotReadyError } from "./error.js";
 export {
+  isEqual,
+  untrack,
+  runWithOwner,
+  computed,
+  signal,
+  read,
+  setSignal,
+  optimisticSignal,
+  optimisticComputed,
+  isPending,
+  pending,
+  refresh,
+  isRefreshing,
+  staleValues
+} from "./core.js";
+export {
+  createOwner,
+  createRoot,
+  dispose,
+  getNextChildId,
+  getObserver,
+  getOwner,
+  onCleanup,
+  peekNextChildId
+} from "./owner.js";
+export {
   createContext,
   getContext,
   setContext,
   type Context,
   type ContextRecord
 } from "./context.js";
-export {
-  getObserver,
-  isEqual,
-  untrack,
-  getOwner,
-  runWithOwner,
-  createOwner,
-  createRoot,
-  computed,
-  dispose,
-  signal,
-  read,
-  setSignal,
-  onCleanup,
-  optimisticSignal,
-  optimisticComputed,
-  getNextChildId,
-  isPending,
-  pending,
-  refresh,
-  isRefreshing,
-  staleValues,
-  handleAsync
-} from "./core.js";
+export { handleAsync } from "./async.js";
 export type {
   Computed,
   Disposable,

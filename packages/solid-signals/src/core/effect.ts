@@ -6,7 +6,8 @@ import {
   STATUS_ERROR,
   STATUS_PENDING
 } from "./constants.js";
-import { computed, onCleanup, recompute, staleValues } from "./core.js";
+import { computed, recompute, staleValues } from "./core.js";
+import { onCleanup } from "./owner.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
 export let leafEffectActive = false;

@@ -1,4 +1,4 @@
-import { getOwner } from "./core.js";
+import { getOwner } from "./owner.js";
 import { ContextNotFoundError, NoOwnerError } from "./error.js";
 import type { Owner } from "./types.js";
 

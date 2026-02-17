@@ -9,6 +9,7 @@ export {
   runWithOwner,
   flush,
   getNextChildId,
+  peekNextChildId,
   getContext,
   setContext,
   getOwner,
