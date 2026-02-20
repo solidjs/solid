@@ -17,17 +17,17 @@ import { createProjectionInternal } from "./projection.js";
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
 /** Base options for store primitives. */
-export type StoreOptions = {
+export interface StoreOptions {
   /** Debug name (dev mode only) */
   name?: string;
-};
+}
 /** Options for derived/projected stores created with `createStore(fn)`, `createProjection`, or `createOptimisticStore(fn)`. */
-export type ProjectionOptions = StoreOptions & {
+export interface ProjectionOptions extends StoreOptions {
   /** Key property name or function for reconciliation identity */
   key?: string | ((item: NonNullable<any>) => any);
   /** When true, reconciles all properties (not just tracked ones) */
   all?: boolean;
-};
+}
 export type NoFn<T> = T extends Function ? never : T;
 
 type DataNode = Signal<any>;
