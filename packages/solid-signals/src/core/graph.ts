@@ -21,6 +21,7 @@ export function unlinkSubs(link: Link): Link | null {
       // No more subscribers, unwatch if computed
       (dep as Computed<any>)._fn &&
         !(dep as any)._preventAutoDisposal &&
+        !((dep as Computed<any>)._flags & REACTIVE_ZOMBIE) &&
         unobserved(dep as Computed<any>);
     }
   }

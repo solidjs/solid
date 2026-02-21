@@ -7,6 +7,7 @@ import {
   createSignal,
   flush,
   isPending,
+  onCleanup,
   pending,
   refresh,
   resolve,
@@ -192,6 +193,73 @@ it("should use fallback if error is thrown during init", () => {
 });
 
 describe("async compute", () => {
+  it("should not auto-dispose zombie computed when it loses subscribers during transition", async () => {
+    const [$route, setRoute] = createSignal("home");
+    const zombieCleanup = vi.fn();
+    let resolveAsync!: () => void;
+    let asyncMemo: (() => string) | undefined;
+
+    createRoot(() => {
+      const parent = createMemo(() => {
+        const child = createMemo(() => {
+          onCleanup(zombieCleanup);
+          return "child";
+        });
+        if ($route() !== "home") {
+          asyncMemo = createMemo(
+            () => new Promise<string>(res => (resolveAsync = () => res("async")))
+          );
+        }
+        return child;
+      });
+
+      // Effect A: reads parent and the async memo — drives the transition.
+      // When the async memo is pending, this effect catches NotReadyError and
+      // propagates STATUS_PENDING to the GlobalQueue, registering the async node.
+      createRenderEffect(
+        () => {
+          parent();
+          if (asyncMemo) asyncMemo();
+          return null;
+        },
+        () => {}
+      );
+
+      // Effect B: always subscribes to parent but conditionally reads the child.
+      // When $route changes, this effect reads parent's pending value (the new child)
+      // but skips calling it — dropping its subscription to the old (zombie) child.
+      createRenderEffect(
+        () => {
+          const component = parent();
+          if ($route() === "home") {
+            return component();
+          }
+          return "fallback";
+        },
+        () => {}
+      );
+    });
+
+    flush();
+    expect(zombieCleanup).not.toHaveBeenCalled();
+
+    setRoute("profile");
+    flush();
+
+    // The old child is a zombie that lost its subscriber (Effect B shifted deps).
+    // Without the fix, unobserved() fires and the zombie is prematurely disposed.
+    expect(zombieCleanup).not.toHaveBeenCalled();
+
+    // Transition still pending — zombie should stay alive.
+    await new Promise(r => setTimeout(r, 10));
+    expect(zombieCleanup).not.toHaveBeenCalled();
+
+    // Resolve async → transition completes → finalizePureQueue disposes zombie children.
+    resolveAsync();
+    await new Promise(r => setTimeout(r, 0));
+    expect(zombieCleanup).toHaveBeenCalledTimes(1);
+  });
+
   it("diamond should not cause waterfalls on read", async () => {
     //
     //     s
