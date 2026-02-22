@@ -6,7 +6,7 @@ import copy from "rollup-plugin-copy";
 import fs from "fs";
 
 const componentsDir = path.resolve("shared/src/components");
-const manifestPath = path.resolve("stream/public/js/asset-manifest.json");
+const manifestPath = path.resolve("string/public/js/asset-manifest.json");
 
 function solidAssetManifest() {
   return {
@@ -28,17 +28,17 @@ function solidAssetManifest() {
         if (chunk.isEntry) entry.isEntry = true;
         if (chunk.isDynamicEntry) entry.isDynamicEntry = true;
         const imports = chunk.imports
-          .filter(imp => chunkKeyByFileName[imp])
-          .map(imp => chunkKeyByFileName[imp]);
+          .filter((imp) => chunkKeyByFileName[imp])
+          .map((imp) => chunkKeyByFileName[imp]);
         if (imports.length) entry.imports = imports;
         manifest[rel] = entry;
       }
       this.emitFile({
         type: "asset",
         fileName: "asset-manifest.json",
-        source: JSON.stringify(manifest, null, 2)
+        source: JSON.stringify(manifest, null, 2),
       });
-    }
+    },
   };
 }
 
@@ -54,7 +54,7 @@ function virtualAssetManifest() {
       if (id !== RESOLVED_VIRTUAL_ID) return;
       const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
       return `export default ${JSON.stringify(manifest, null, 2)}`;
-    }
+    },
   };
 }
 
@@ -64,35 +64,35 @@ export default [
     output: [
       {
         dir: "string/lib",
-        format: "esm"
-      }
+        format: "esm",
+      },
     ],
     external: ["solid-js", "@solidjs/web", "path", "express", "fs", "url"],
     plugins: [
       nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"] }),
       babel({
         babelHelpers: "bundled",
-        presets: [["solid", { generate: "ssr", hydratable: true }]]
+        presets: [["solid", { generate: "ssr", hydratable: true }]],
       }),
       common(),
-      virtualAssetManifest()
+      virtualAssetManifest(),
     ],
-    preserveEntrySignatures: false
+    preserveEntrySignatures: false,
   },
   {
     input: "shared/src/index.js",
     output: [
       {
         dir: "string/public/js",
-        format: "esm"
-      }
+        format: "esm",
+      },
     ],
     preserveEntrySignatures: false,
     plugins: [
       nodeResolve({ exportConditions: ["solid"] }),
       babel({
         babelHelpers: "bundled",
-        presets: [["solid", { generate: "dom", hydratable: true }]]
+        presets: [["solid", { generate: "dom", hydratable: true }]],
       }),
       common(),
       solidAssetManifest(),
@@ -100,10 +100,10 @@ export default [
         targets: [
           {
             src: ["shared/static/*"],
-            dest: "string/public"
-          }
-        ]
-      })
-    ]
-  }
+            dest: "string/public",
+          },
+        ],
+      }),
+    ],
+  },
 ];
