@@ -354,8 +354,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     const pendingComputed = getPendingValueComputed(el);
     const prevPending = pendingReadActive;
     pendingReadActive = false;
-    const value = read(pendingComputed);
-    pendingReadActive = prevPending;
+    let value: T;
+    try {
+      value = read(pendingComputed);
+    } catch (e) {
+      if (!context && e instanceof NotReadyError) return el._value as T;
+      throw e;
+    } finally {
+      pendingReadActive = prevPending;
+    }
     if (pendingComputed._statusFlags & STATUS_PENDING) return el._value as T;
     // Cross-lane stale read: in a child lane reading pending(x) from a parent lane
     // with unresolved async, return committed value (stale) until parent resolves.
@@ -408,24 +415,23 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   const asyncCompute = (el as FirewallSignal<any>)._firewall || el;
-  if (
-    c &&
-    asyncCompute._statusFlags & STATUS_PENDING &&
-    !(stale && asyncCompute._transition && activeTransition !== asyncCompute._transition)
-  ) {
-    if (currentOptimisticLane) {
-      // Per-lane suspension: only throw if in same lane as pending async
-      // AND the node doesn't have an active override (overrides are the visible value,
-      // downstream in the lane should read the override, not throw)
-      const pendingLane = (asyncCompute as any)._optimisticLane;
-      const lane = findLane(currentOptimisticLane);
-      if (pendingLane && findLane(pendingLane) === lane && !hasActiveOverride(asyncCompute)) {
+  if (asyncCompute._statusFlags & STATUS_PENDING) {
+    if (c && !(stale && asyncCompute._transition && activeTransition !== asyncCompute._transition)) {
+      if (currentOptimisticLane) {
+        // Per-lane suspension: only throw if in same lane as pending async
+        // AND the node doesn't have an active override (overrides are the visible value,
+        // downstream in the lane should read the override, not throw)
+        const pendingLane = (asyncCompute as any)._optimisticLane;
+        const lane = findLane(currentOptimisticLane);
+        if (pendingLane && findLane(pendingLane) === lane && !hasActiveOverride(asyncCompute)) {
+          if (!tracking) link(el, c as Computed<any>);
+          throw asyncCompute._error;
+        }
+      } else {
         if (!tracking) link(el, c as Computed<any>);
         throw asyncCompute._error;
       }
-    } else {
-      // Regular (non-optimistic) context: throw for pending async
-      if (!tracking) link(el, c as Computed<any>);
+    } else if (!c && asyncCompute._statusFlags & STATUS_UNINITIALIZED) {
       throw asyncCompute._error;
     }
   }

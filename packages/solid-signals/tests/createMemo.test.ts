@@ -260,6 +260,38 @@ describe("async compute", () => {
     expect(zombieCleanup).toHaveBeenCalledTimes(1);
   });
 
+  it("should throw when reading uninitialized async computed outside reactive scope", async () => {
+    const a = createRoot(() => {
+      const a = createMemo(() => Promise.resolve(42));
+      createRenderEffect(a, () => {});
+      return a;
+    });
+
+    expect(() => a()).toThrow();
+
+    await new Promise(r => setTimeout(r, 0));
+    expect(a()).toBe(42);
+  });
+
+  it("should return stale value when reading re-pending async computed outside reactive scope", async () => {
+    const [s, set] = createSignal(1);
+    const a = createRoot(() => {
+      const a = createMemo(() => Promise.resolve(s()));
+      createRenderEffect(a, () => {});
+      return a;
+    });
+
+    await new Promise(r => setTimeout(r, 0));
+    expect(a()).toBe(1);
+
+    set(2);
+    flush();
+    expect(a()).toBe(1);
+
+    await new Promise(r => setTimeout(r, 0));
+    expect(a()).toBe(2);
+  });
+
   it("diamond should not cause waterfalls on read", async () => {
     //
     //     s

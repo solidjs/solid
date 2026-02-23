@@ -1270,7 +1270,7 @@ describe("createOptimisticStore", () => {
       });
 
       flush();
-      expect(state.length).toBe(0); // Still loading
+      expect(() => state.length).toThrow(); // Unresolved async throws outside reactive scope
 
       await Promise.resolve();
       await Promise.resolve();
