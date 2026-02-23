@@ -21,7 +21,11 @@ export {
   pending,
   isRefreshing,
   refresh,
-  SUPPORTS_PROXY
+  SUPPORTS_PROXY,
+  setSnapshotCapture,
+  markSnapshotScope,
+  releaseSnapshotScope,
+  clearSnapshots
 } from "./core/index.js";
 export type { Owner, Context, ContextRecord, IQueue } from "./core/index.js";
 export * from "./signals.js";

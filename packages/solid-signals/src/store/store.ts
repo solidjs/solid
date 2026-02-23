@@ -2,7 +2,9 @@ import {
   $REFRESH,
   getObserver,
   isEqual,
+  NO_SNAPSHOT,
   NOT_PENDING,
+  STORE_SNAPSHOT_PROPS,
   read,
   setSignal,
   signal,
@@ -11,6 +13,7 @@ import {
   type Computed,
   type Signal
 } from "../core/index.js";
+import { snapshotCaptureActive, snapshotSources } from "../core/core.js";
 import { globalQueue, projectionWriteActive } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
@@ -62,6 +65,7 @@ export type StoreNode = {
   [STORE_LOOKUP]?: WeakMap<any, any>;
   [STORE_FIREWALL]?: Computed<any>;
   [STORE_OPTIMISTIC]?: boolean;
+  [STORE_SNAPSHOT_PROPS]?: Record<PropertyKey, any>;
 };
 
 export namespace SolidStore {
@@ -126,7 +130,8 @@ function getNode<T>(
   value: T,
   firewall?: Computed<T>,
   equals: false | ((a: any, b: any) => boolean) = isEqual,
-  optimistic?: boolean
+  optimistic?: boolean,
+  snapshotProps?: Record<PropertyKey, any>
 ): DataNode {
   if (nodes[property]) return nodes[property]!;
   const s = signal<T>(
@@ -140,6 +145,11 @@ function getNode<T>(
     firewall
   );
   if (optimistic) s._optimistic = true;
+  if (snapshotProps && property in snapshotProps) {
+    const sv = snapshotProps[property];
+    s._snapshotValue = sv === undefined ? NO_SNAPSHOT : sv;
+    snapshotSources?.add(s);
+  }
   return (nodes[property] = s);
 }
 
@@ -252,7 +262,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
             isWrappable(value) ? wrap(value, target) : value,
             target[STORE_FIREWALL],
             isEqual,
-            target[STORE_OPTIMISTIC]
+            target[STORE_OPTIMISTIC],
+            target[STORE_SNAPSHOT_PROPS]
           )
         );
       }
@@ -298,6 +309,15 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       untrack(() => {
         const state = target[STORE_VALUE];
         const base = state[property];
+        if (snapshotCaptureActive && typeof property !== "symbol") {
+          if (!target[STORE_SNAPSHOT_PROPS]) {
+            target[STORE_SNAPSHOT_PROPS] = Object.create(null);
+            snapshotSources?.add(target);
+          }
+          if (!(property in target[STORE_SNAPSHOT_PROPS]!)) {
+            target[STORE_SNAPSHOT_PROPS]![property] = base;
+          }
+        }
         // Choose override target: optimistic overlay for user setter on optimistic stores
         const useOptimistic = target[STORE_OPTIMISTIC] && !projectionWriteActive;
         const overrideKey = useOptimistic ? STORE_OPTIMISTIC_OVERRIDE : STORE_OVERRIDE;

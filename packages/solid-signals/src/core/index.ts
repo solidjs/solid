@@ -13,7 +13,11 @@ export {
   pending,
   refresh,
   isRefreshing,
-  staleValues
+  staleValues,
+  setSnapshotCapture,
+  markSnapshotScope,
+  releaseSnapshotScope,
+  clearSnapshots
 } from "./core.js";
 export {
   createOwner,

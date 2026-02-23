@@ -3,13 +3,16 @@ import {
   $REFRESH,
   defaultContext,
   EFFECT_TRACKED,
+  NO_SNAPSHOT,
   NOT_PENDING,
+  STORE_SNAPSHOT_PROPS,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_NONE,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
+  REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -18,7 +21,7 @@ import {
 import { leafEffectActive } from "./effect.js";
 import { NotReadyError } from "./error.js";
 import { link, unlinkSubs } from "./graph.js";
-import { deleteFromHeap, insertIntoHeapHeight, markHeap, markNode } from "./heap.js";
+import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, markHeap, markNode } from "./heap.js";
 import {
   findLane,
   getOrCreateLane,
@@ -62,6 +65,65 @@ export let foundPending = false;
 export let pendingReadActive = false;
 export let context: Owner | null = null;
 export let currentOptimisticLane: OptimisticLane | null = null;
+
+export let snapshotCaptureActive = false;
+export let snapshotSources: Set<any> | null = null;
+
+function ownerInSnapshotScope(owner: Owner | null): boolean {
+  while (owner) {
+    if (owner._snapshotScope) return true;
+    owner = owner._parent;
+  }
+  return false;
+}
+
+export function setSnapshotCapture(active: boolean): void {
+  snapshotCaptureActive = active;
+  if (active && !snapshotSources) snapshotSources = new Set();
+}
+
+export function markSnapshotScope(owner: Owner): void {
+  owner._snapshotScope = true;
+}
+
+export function releaseSnapshotScope(owner: Owner): void {
+  owner._snapshotScope = false;
+  releaseSubtree(owner);
+  schedule();
+}
+
+function releaseSubtree(owner: Owner): void {
+  let child = owner._firstChild;
+  while (child) {
+    if (child._snapshotScope) {
+      child = child._nextSibling;
+      continue;
+    }
+    if ((child as any)._fn) {
+      const comp = child as Computed<any>;
+      comp._inSnapshotScope = false;
+      if (comp._flags & REACTIVE_SNAPSHOT_STALE) {
+        comp._flags &= ~REACTIVE_SNAPSHOT_STALE;
+        comp._flags |= REACTIVE_DIRTY;
+        if (dirtyQueue._min > comp._height) dirtyQueue._min = comp._height;
+        insertIntoHeap(comp, dirtyQueue);
+      }
+    }
+    releaseSubtree(child);
+    child = child._nextSibling;
+  }
+}
+
+export function clearSnapshots(): void {
+  if (snapshotSources) {
+    for (const source of snapshotSources) {
+      delete source._snapshotValue;
+      delete source[STORE_SNAPSHOT_PROPS];
+    }
+    snapshotSources = null;
+  }
+  snapshotCaptureActive = false;
+}
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
   const isEffect = (el as any)._type;
@@ -278,7 +340,12 @@ export function computed<T>(
     }
   }
   if (parent) self._height = parent._height + 1;
+  if (snapshotCaptureActive && ownerInSnapshotScope(context)) self._inSnapshotScope = true;
   !options?.lazy && recompute(self, true);
+  if (snapshotCaptureActive) {
+    self._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
+    snapshotSources!.add(self);
+  }
 
   return self;
 }
@@ -308,6 +375,10 @@ export function signal<T>(
   };
   if (__DEV__) (s as any)._name = options?.name ?? "signal";
   firewall && (firewall._child = s as FirewallSignal<unknown>);
+  if (snapshotCaptureActive) {
+    (s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
+    snapshotSources!.add(s);
+  }
   return s as Signal<T>;
 }
 
@@ -441,6 +512,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       recompute(el as Computed<unknown>, true);
       return read(el);
     } else throw (el as Computed<any>)._error;
+  }
+
+  if (snapshotCaptureActive && c && (c as Computed<any>)._inSnapshotScope) {
+    const sv = el._snapshotValue;
+    if (sv !== undefined) {
+      const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
+      const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+      if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
+      return snapshot as T;
+    }
   }
 
   // In lane context, always return _value (optimistic overrides and lane member values are there)

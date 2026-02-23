@@ -4,6 +4,7 @@ import {
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_OPTIMISTIC_DIRTY,
+  REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -307,6 +308,11 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   const sourceLane = (node as any)._optimisticLane || currentOptimisticLane;
 
   for (let s = node._subs; s !== null; s = s._nextSub) {
+    if ((s._sub as any)._inSnapshotScope) {
+      s._sub._flags |= REACTIVE_SNAPSHOT_STALE;
+      continue;
+    }
+
     if (optimistic && sourceLane) {
       s._sub._flags |= REACTIVE_OPTIMISTIC_DIRTY;
       assignOrMergeLane(s._sub as any, sourceLane);
