@@ -26,6 +26,7 @@ export {
   getNextChildId,
   getObserver,
   getOwner,
+  isDisposed,
   onCleanup,
   peekNextChildId
 } from "./owner.js";

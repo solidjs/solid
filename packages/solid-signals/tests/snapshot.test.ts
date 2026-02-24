@@ -86,7 +86,7 @@ describe("markSnapshotScope + read-path interception", () => {
     clearSnapshots();
   });
 
-  it("signal created before capture has no snapshot — reads _value at creation, then protected by scope", () => {
+  it("signal created before capture has no snapshot — writes propagate normally", () => {
     let setX!: (v: number) => void;
     let $derived!: () => number;
     let owner!: any;
@@ -105,15 +105,10 @@ describe("markSnapshotScope + read-path interception", () => {
     setX(5);
     flush();
 
-    // $derived is in snapshot scope, so insertSubs skips it — still returns snapshot
-    expect($derived()).toBe(10);
-
-    releaseSnapshotScope(owner);
-    flush();
-
-    // After release, $derived recomputes with current $x._value = 5
+    // $x has no snapshot (created before capture), so writes propagate normally
     expect($derived()).toBe(50);
 
+    releaseSnapshotScope(owner);
     clearSnapshots();
   });
 

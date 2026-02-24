@@ -307,8 +307,10 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   // This is important for isPending signals which need their own lane to flush immediately
   const sourceLane = (node as any)._optimisticLane || currentOptimisticLane;
 
+  const hasSnapshot = (node as any)._snapshotValue !== undefined;
+
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    if ((s._sub as any)._inSnapshotScope) {
+    if (hasSnapshot && (s._sub as any)._inSnapshotScope) {
       s._sub._flags |= REACTIVE_SNAPSHOT_STALE;
       continue;
     }

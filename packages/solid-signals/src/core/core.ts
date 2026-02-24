@@ -190,7 +190,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
   } finally {
     tracking = prevTracking;
-    el._flags = REACTIVE_NONE;
+    el._flags = REACTIVE_NONE | (create ? (el._flags & REACTIVE_SNAPSHOT_STALE) : 0);
     context = oldcontext;
   }
 
@@ -273,7 +273,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
     recompute(el);
   }
 
-  el._flags = REACTIVE_NONE;
+  el._flags = REACTIVE_NONE | (el._flags & REACTIVE_SNAPSHOT_STALE);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
@@ -342,9 +342,11 @@ export function computed<T>(
   if (parent) self._height = parent._height + 1;
   if (snapshotCaptureActive && ownerInSnapshotScope(context)) self._inSnapshotScope = true;
   !options?.lazy && recompute(self, true);
-  if (snapshotCaptureActive) {
-    self._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
-    snapshotSources!.add(self);
+  if (snapshotCaptureActive && !options?.lazy) {
+    if (!(self._statusFlags & STATUS_PENDING)) {
+      self._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
+      snapshotSources!.add(self);
+    }
   }
 
   return self;

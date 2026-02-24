@@ -119,6 +119,10 @@ export function onCleanup(fn: Disposable): Disposable {
   return fn;
 }
 
+export function isDisposed(node: Owner): boolean {
+  return !!((node as any)._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE));
+}
+
 export function createOwner(options?: { id?: string; transparent?: boolean }) {
   const parent = context;
   const transparent = options?.transparent ?? false;

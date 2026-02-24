@@ -14,6 +14,7 @@ export {
   setContext,
   getOwner,
   onCleanup,
+  isDisposed,
   getObserver,
   isEqual,
   untrack,
