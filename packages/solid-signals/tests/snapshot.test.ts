@@ -3,6 +3,7 @@ import {
   createRoot,
   createSignal,
   createStore,
+  createErrorBoundary,
   flush,
   getOwner,
   setSnapshotCapture,
@@ -332,6 +333,82 @@ describe("insertSubs optimization", () => {
     expect(computeCount).toBe(2);
     expect($derived()).toBe(101);
 
+    clearSnapshots();
+  });
+});
+
+describe("pureWrite signals excluded from snapshot capture", () => {
+  it("error boundary functions correctly under active snapshot capture", () => {
+    let result!: () => any;
+    let owner!: any;
+
+    createRoot(() => {
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      result = createErrorBoundary(
+        () => {
+          throw new Error("test error");
+        },
+        (err: any) => `fallback: ${err.message}`
+      );
+    });
+    flush();
+
+    expect(result()).toBe("fallback: test error");
+
+    releaseSnapshotScope(owner);
+    clearSnapshots();
+  });
+
+  it("error boundary reset works under active snapshot capture", () => {
+    let result!: () => any;
+    let resetFn!: () => void;
+    let owner!: any;
+
+    createRoot(() => {
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      result = createErrorBoundary(
+        () => "success",
+        (err: any, reset) => {
+          resetFn = reset;
+          return `fallback: ${err.message}`;
+        }
+      );
+    });
+    flush();
+
+    expect(result()).toBe("success");
+
+    releaseSnapshotScope(owner);
+    clearSnapshots();
+  });
+
+  it("load boundary functions correctly under active snapshot capture", () => {
+    // Ensures pureWrite signals in CollectionQueue._disabled are not
+    // snapshot-captured, which would freeze the boundary in its initial state
+    let result!: () => any;
+    let owner!: any;
+
+    createRoot(() => {
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      result = createErrorBoundary(
+        () => "children content",
+        (err: any) => `fallback: ${err.message}`
+      );
+    });
+    flush();
+
+    expect(result()).toBe("children content");
+
+    releaseSnapshotScope(owner);
     clearSnapshots();
   });
 });

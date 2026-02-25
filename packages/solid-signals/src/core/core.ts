@@ -377,7 +377,7 @@ export function signal<T>(
   };
   if (__DEV__) (s as any)._name = options?.name ?? "signal";
   firewall && (firewall._child = s as FirewallSignal<unknown>);
-  if (snapshotCaptureActive) {
+  if (snapshotCaptureActive && !s._pureWrite) {
     (s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
     snapshotSources!.add(s);
   }
