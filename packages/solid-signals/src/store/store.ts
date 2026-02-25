@@ -13,7 +13,7 @@ import {
   type Computed,
   type Signal
 } from "../core/index.js";
-import { snapshotCaptureActive, snapshotSources } from "../core/core.js";
+import { snapshotCaptureActive, snapshotSources, strictRead, tracking } from "../core/core.js";
 import { globalQueue, projectionWriteActive } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
@@ -268,6 +268,10 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         );
       }
     }
+    if (__DEV__ && strictRead && !tracking && typeof property === "string")
+      console.warn(
+        `Untracked reactive read in ${strictRead}. This value won't update \u2014 use untrack() if intentional.`
+      );
     return isWrappable(value) ? wrap(value, target) : value;
   },
 

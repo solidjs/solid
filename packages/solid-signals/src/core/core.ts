@@ -408,9 +408,26 @@ export function isEqual<T>(a: T, b: T): boolean {
  * Returns the current value stored inside the given compute function without triggering any
  * dependencies. Use `untrack` if you want to also disable owner tracking.
  */
+export let strictRead: string | false = false;
+export function setStrictRead(v: string | false): string | false {
+  const prev = strictRead;
+  strictRead = v;
+  return prev;
+}
+
 export function untrack<T>(fn: () => T): T {
-  if (!tracking) return fn();
+  if (!tracking && (!__DEV__ || !strictRead)) return fn();
   tracking = false;
+  if (__DEV__ && strictRead) {
+    const prev = strictRead;
+    strictRead = false;
+    try {
+      return fn();
+    } finally {
+      tracking = true;
+      strictRead = prev;
+    }
+  }
   try {
     return fn();
   } finally {
@@ -525,6 +542,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       return snapshot as T;
     }
   }
+
+  if (__DEV__ && strictRead && !tracking)
+    console.warn(
+      `Untracked reactive read in ${strictRead}. This value won't update \u2014 use untrack() if intentional.`
+    );
 
   // In lane context, always return _value (optimistic overrides and lane member values are there)
   // Outside lane context: return _pendingValue if set (transitioning value), otherwise _value

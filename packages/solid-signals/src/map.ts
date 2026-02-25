@@ -3,6 +3,7 @@ import {
   read,
   runWithOwner,
   setSignal,
+  setStrictRead,
   signal,
   type Root,
   type Signal
@@ -22,21 +23,33 @@ export type Maybe<T> = T | void | null | undefined | false;
 export function mapArray<Item, MappedItem>(
   list: Accessor<Maybe<readonly Item[]>>,
   map: (value: Accessor<Item>, index: Accessor<number>) => MappedItem,
-  options?: { keyed?: boolean | ((item: Item) => any); fallback?: Accessor<any> }
+  options?: { keyed?: boolean | ((item: Item) => any); fallback?: Accessor<any>; name?: string }
 ): Accessor<MappedItem[]> {
   const keyFn = typeof options?.keyed === "function" ? options.keyed : undefined;
+  const indexes = map.length > 1;
+  const wrappedMap =
+    __DEV__ && options?.name
+      ? ((...args: any[]) => {
+          setStrictRead(options!.name!);
+          try {
+            return (map as any)(...args);
+          } finally {
+            setStrictRead(false);
+          }
+        }) as typeof map
+      : map;
   return createMemo(
     updateKeyedMap.bind({
       _owner: createOwner(),
       _len: 0,
       _list: list,
       _items: [],
-      _map: map,
+      _map: wrappedMap,
       _mappings: [],
       _nodes: [],
       _key: keyFn,
       _rows: keyFn || options?.keyed === false ? [] : undefined,
-      _indexes: map.length > 1 ? [] : undefined,
+      _indexes: indexes ? [] : undefined,
       _fallback: options?.fallback
     })
   );
@@ -210,14 +223,26 @@ export function repeat(
   options?: {
     from?: Accessor<number | undefined>;
     fallback?: Accessor<any>;
+    name?: string;
   }
 ): Accessor<any[]> {
+  const wrappedMap =
+    __DEV__ && options?.name
+      ? (i: number) => {
+          setStrictRead(options!.name!);
+          try {
+            return map(i);
+          } finally {
+            setStrictRead(false);
+          }
+        }
+      : map;
   return updateRepeat.bind({
     _owner: createOwner(),
     _len: 0,
     _offset: 0,
     _count: count,
-    _map: map,
+    _map: wrappedMap,
     _nodes: [],
     _mappings: [],
     _from: options?.from,

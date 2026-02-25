@@ -26,7 +26,8 @@ export {
   setSnapshotCapture,
   markSnapshotScope,
   releaseSnapshotScope,
-  clearSnapshots
+  clearSnapshots,
+  setStrictRead
 } from "./core/index.js";
 export type { Owner, Context, ContextRecord, IQueue } from "./core/index.js";
 export * from "./signals.js";
