@@ -17,4 +17,13 @@ export { createOptimisticStore } from "./optimistic.js";
 
 export { reconcile } from "./reconcile.js";
 
+export { storePath } from "./storePath.js";
+export type {
+  PathSetter,
+  Part,
+  StorePathRange,
+  ArrayFilterFn,
+  CustomPartial
+} from "./storePath.js";
+
 export { snapshot, merge, omit } from "./utils.js";
