@@ -6,7 +6,7 @@ import {
   flush,
   isPending,
   NotReadyError,
-  pending,
+  latest,
   refresh
 } from "../../src/index.js";
 

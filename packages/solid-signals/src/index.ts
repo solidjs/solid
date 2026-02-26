@@ -19,7 +19,7 @@ export {
   isEqual,
   untrack,
   isPending,
-  pending,
+  latest,
   isRefreshing,
   refresh,
   SUPPORTS_PROXY,

@@ -4,7 +4,7 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_ZOMBIE
 } from "./constants.js";
-import { context, pendingCheckActive, pendingReadActive, runWithOwner, tracking } from "./core.js";
+import { context, pendingCheckActive, latestReadActive, runWithOwner, tracking } from "./core.js";
 import { leafEffectActive } from "./effect.js";
 import { unlinkSubs } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap } from "./heap.js";
@@ -103,7 +103,7 @@ function formatId(prefix: string, id: number) {
 }
 
 export function getObserver(): Owner | null {
-  if (pendingCheckActive || pendingReadActive) return PENDING_OWNER;
+  if (pendingCheckActive || latestReadActive) return PENDING_OWNER;
   return tracking ? context : null;
 }
 

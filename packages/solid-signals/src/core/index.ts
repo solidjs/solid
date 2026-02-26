@@ -10,7 +10,7 @@ export {
   optimisticSignal,
   optimisticComputed,
   isPending,
-  pending,
+  latest,
   refresh,
   isRefreshing,
   staleValues,

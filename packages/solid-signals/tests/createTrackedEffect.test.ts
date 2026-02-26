@@ -156,8 +156,31 @@ it("should conditionally observe", () => {
   expect(effect).toHaveBeenCalledTimes(3);
 });
 
+it("should not warn on signal writes inside tracked effect", () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const [$trigger, setTrigger] = createSignal(0);
+  const [$target, setTarget] = createSignal(0);
+
+  createRoot(() =>
+    createTrackedEffect(() => {
+      $trigger();
+      setTarget(n => n + 1);
+    })
+  );
+  flush();
+
+  expect($target()).toBe(1);
+  expect(warn).not.toHaveBeenCalled();
+
+  setTrigger(1);
+  flush();
+  expect($target()).toBe(2);
+  expect(warn).not.toHaveBeenCalled();
+  warn.mockRestore();
+});
+
 it("should apply changes in effect in same flush", async () => {
-  const [$x, setX] = createSignal(0, { pureWrite: true }),
+  const [$x, setX] = createSignal(0),
     [$y, setY] = createSignal(0);
 
   const $a = createMemo(() => {

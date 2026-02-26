@@ -7,7 +7,7 @@ import {
   createSignal,
   flush,
   isPending,
-  pending,
+  latest,
   refresh
 } from "../src/index.js";
 
@@ -701,7 +701,7 @@ describe("createOptimistic", () => {
     });
   });
 
-  describe("isPending and pending() with async optimistic", () => {
+  describe("isPending and latest() with async optimistic", () => {
     it("optimistic value matches computed result", async () => {
       const [$id, setId] = createSignal(1);
       let $data: () => number;
@@ -732,12 +732,12 @@ describe("createOptimistic", () => {
       expect($data!()).toBe(20);
       // isPending - async is in flight
       expect(isPending($data!)).toBe(true);
-      // pending() returns the optimistic value
-      expect(pending($data!)).toBe(20);
+      // latest() returns the optimistic value
+      expect(latest($data!)).toBe(20);
 
       // Source signal is held
       expect($id()).toBe(1); // held during transition
-      expect(pending($id)).toBe(2); // in-flight value
+      expect(latest($id)).toBe(2); // in-flight value
 
       // After async completes
       await new Promise(r => setTimeout(r, 0));
@@ -778,8 +778,8 @@ describe("createOptimistic", () => {
       expect($data!()).toBe(999);
       // isPending - async is in flight
       expect(isPending($data!)).toBe(true);
-      // pending() returns the optimistic value
-      expect(pending($data!)).toBe(999);
+      // latest() returns the optimistic value
+      expect(latest($data!)).toBe(999);
 
       // After async completes
       await new Promise(r => setTimeout(r, 0));
@@ -2782,9 +2782,9 @@ describe("createOptimistic", () => {
     });
   });
 
-  describe("parallel independent optimistic with pending() - checkout pattern", () => {
+  describe("parallel independent optimistic with latest() - checkout pattern", () => {
     // Community scenario: checkout app with two independent async paths that share
-    // a downstream total. Uses pending() to allow each path to display its resolved
+    // a downstream total. Uses latest() to allow each path to display its resolved
     // value independently, while the total progressively updates.
     //
     // Graph:
@@ -2794,11 +2794,11 @@ describe("createOptimistic", () => {
     //   shippingCost + taxRate → orderTotal (sync memo)
     //
     // Display:
-    //   pending(shippingCost) → shippingDisplay    (independent)
-    //   pending(taxRate)      → taxDisplay          (independent)
+    //   latest(shippingCost) → shippingDisplay    (independent)
+    //   latest(taxRate)      → taxDisplay          (independent)
     //   orderTotal()          → totalDisplay         (progressive)
 
-    it("pending() allows independent progressive display for parallel optimistic paths", async () => {
+    it("latest() allows independent progressive display for parallel optimistic paths", async () => {
       const [country, setCountry] = createSignal("US");
 
       // Regional config - async lookup returning IDs for courier and tax
@@ -2841,15 +2841,15 @@ describe("createOptimistic", () => {
       createRoot(() => {
         orderTotal = createMemo(() => shippingCost() + taxRate());
 
-        // Independent displays use pending() to opt into progressive updates
+        // Independent displays use latest() to opt into progressive updates
         createRenderEffect(
-          () => pending(() => shippingCost()),
+          () => latest(() => shippingCost()),
           v => {
             shippingValues.push(v);
           }
         );
         createRenderEffect(
-          () => pending(() => taxRate()),
+          () => latest(() => taxRate()),
           v => {
             taxValues.push(v);
           }
@@ -2905,7 +2905,7 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      // pending() reader: shipping updates independently
+      // latest() reader: shipping updates independently
       expect(shippingValues).toEqual([10, 12]);
       // Tax hasn't resolved - still shows initial value
       expect(taxValues).toEqual([5]);
@@ -2918,7 +2918,7 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      // pending() reader: tax now also updates independently
+      // latest() reader: tax now also updates independently
       expect(taxValues).toEqual([5, 8]);
       // Both resolved: orderTotal updates with final value
       expect(totalValues).toEqual([15, 20]); // 12 + 8
@@ -2984,13 +2984,13 @@ describe("createOptimistic", () => {
         orderTotal = createMemo(() => shippingCost() + taxRate());
 
         createRenderEffect(
-          () => pending(() => shippingCost()),
+          () => latest(() => shippingCost()),
           v => {
             shippingValues.push(v);
           }
         );
         createRenderEffect(
-          () => pending(() => taxRate()),
+          () => latest(() => taxRate()),
           v => {
             taxValues.push(v);
           }
@@ -3084,7 +3084,7 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      // pending() reader: shipping updates independently on second cycle
+      // latest() reader: shipping updates independently on second cycle
       expect(shippingValues.at(-1)).toBe(15);
 
       // Resolve tax (JP rate)
@@ -3092,7 +3092,7 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      // pending() reader: tax updates independently on second cycle
+      // latest() reader: tax updates independently on second cycle
       expect(taxValues.at(-1)).toBe(10);
 
       // Complete action + refresh for cycle 2
@@ -3115,11 +3115,11 @@ describe("createOptimistic", () => {
       expect(totalValues.at(-1)).toBe(25); // 15 + 10
     });
 
-    it("3-optimistic-node checkout: pending() text and isPending opacity update independently", async () => {
+    it("3-optimistic-node checkout: latest() text and isPending opacity update independently", async () => {
       // Matches user's exact app structure:
       //   userCountry (async) → optimisticCountry → regionalConfig (async)
-      //     → optimisticCourier → shippingInfo (async) → pending(shipping) display
-      //     → optimisticTaxScheme → taxInfo (async) → pending(tax) display
+      //     → optimisticCourier → shippingInfo (async) → latest(shipping) display
+      //     → optimisticTaxScheme → taxInfo (async) → latest(tax) display
       //     shippingInfo + taxInfo → orderTotal → total display
       // With isPending for opacity dimming on each section
 
@@ -3187,15 +3187,15 @@ describe("createOptimistic", () => {
           return 100 + 100 * tax.rate + ship.price;
         });
 
-        // pending() for text values (user's pattern)
+        // latest() for text values (user's pattern)
         createRenderEffect(
-          () => pending(() => shippingInfo()).provider,
+          () => latest(() => shippingInfo()).provider,
           v => {
             shippingTexts.push(v);
           }
         );
         createRenderEffect(
-          () => pending(() => taxInfo()).name,
+          () => latest(() => taxInfo()).name,
           v => {
             taxTexts.push(v);
           }
@@ -3578,13 +3578,13 @@ describe("createOptimistic", () => {
         });
 
         createRenderEffect(
-          () => pending(() => shippingInfo()).provider,
+          () => latest(() => shippingInfo()).provider,
           v => {
             shippingTexts.push(v);
           }
         );
         createRenderEffect(
-          () => pending(() => taxInfo()).name,
+          () => latest(() => taxInfo()).name,
           v => {
             taxTexts.push(v);
           }
@@ -3951,13 +3951,13 @@ describe("createOptimistic", () => {
           return 100 + 100 * tax.rate + ship.price;
         });
         createRenderEffect(
-          () => pending(() => shippingInfo()).provider,
+          () => latest(() => shippingInfo()).provider,
           v => {
             shippingTexts.push(v);
           }
         );
         createRenderEffect(
-          () => pending(() => taxInfo()).name,
+          () => latest(() => taxInfo()).name,
           v => {
             taxTexts.push(v);
           }
@@ -4162,7 +4162,7 @@ describe("createOptimistic", () => {
           return 100 + 100 * tax.rate + ship.price;
         });
         createRenderEffect(
-          () => pending(() => taxInfo()).name,
+          () => latest(() => taxInfo()).name,
           v => {
             taxTexts.push(v);
           }

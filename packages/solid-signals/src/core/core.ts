@@ -62,7 +62,7 @@ export let stale = false;
 export let refreshing = false;
 export let pendingCheckActive = false;
 export let foundPending = false;
-export let pendingReadActive = false;
+export let latestReadActive = false;
 export let context: Owner | null = null;
 export let currentOptimisticLane: OptimisticLane | null = null;
 
@@ -436,14 +436,14 @@ export function untrack<T>(fn: () => T): T {
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
-  // Handle pending() mode: read from _pendingValueComputed
-  // Checked before isPending so that isPending(() => pending(x)) checks
-  // the _pendingSignal of _pendingValueComputed (async in flight) rather
+  // Handle latest() mode: read from _latestValueComputed
+  // Checked before isPending so that isPending(() => latest(x)) checks
+  // the _pendingSignal of _latestValueComputed (async in flight) rather
   // than the original node (which stays "pending" while held in a transition).
-  if (pendingReadActive) {
-    const pendingComputed = getPendingValueComputed(el);
-    const prevPending = pendingReadActive;
-    pendingReadActive = false;
+  if (latestReadActive) {
+    const pendingComputed = getLatestValueComputed(el);
+    const prevPending = latestReadActive;
+    latestReadActive = false;
     let value: T;
     try {
       value = read(pendingComputed);
@@ -451,10 +451,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       if (!context && e instanceof NotReadyError) return el._value as T;
       throw e;
     } finally {
-      pendingReadActive = prevPending;
+      latestReadActive = prevPending;
     }
     if (pendingComputed._statusFlags & STATUS_PENDING) return el._value as T;
-    // Cross-lane stale read: in a child lane reading pending(x) from a parent lane
+    // Cross-lane stale read: in a child lane reading latest(x) from a parent lane
     // with unresolved async, return committed value (stale) until parent resolves.
     if (stale && currentOptimisticLane && pendingComputed._optimisticLane) {
       const pcLane = findLane(pendingComputed._optimisticLane);
@@ -560,7 +560,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   // Warn about writing to a signal in an owned scope in development mode.
-  if (__DEV__ && !el._pureWrite && context && (el as FirewallSignal<any>)._firewall !== context)
+  if (
+    __DEV__ &&
+    !el._pureWrite &&
+    !leafEffectActive &&
+    context &&
+    (el as FirewallSignal<any>)._firewall !== context
+  )
     console.warn("A Signal was written to in an owned scope.");
 
   if (el._transition && activeTransition !== el._transition)
@@ -624,9 +630,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // Update pending signal if it exists (for isPending reactivity)
   updatePendingSignal(el);
 
-  // Also write to pending value computed if it exists (for pending())
-  if (el._pendingValueComputed) {
-    setSignal(el._pendingValueComputed, v);
+  // Also write to latest value computed if it exists (for latest())
+  if (el._latestValueComputed) {
+    setSignal(el._latestValueComputed, v);
   }
 
   el._time = clock;
@@ -656,7 +662,7 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
   if (!el._pendingSignal) {
     // Start false, write true if pending - ensures reversion returns to false
     el._pendingSignal = optimisticSignal(false, { pureWrite: true });
-    // Propagate parent-child lane relationship for isPending(() => pending(x))
+    // Propagate parent-child lane relationship for isPending(() => latest(x))
     if (el._parentSource) {
       el._pendingSignal._parentSource = el;
     }
@@ -718,26 +724,26 @@ export function updatePendingSignal(el: Signal<any> | Computed<any>): void {
 }
 
 /**
- * Get or create the pending value computed for a node (lazy).
- * Used by pending() to read the in-flight value during a transition.
+ * Get or create the latest value computed for a node (lazy).
+ * Used by latest() to read the in-flight value during a transition.
  */
-function getPendingValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
-  if (!el._pendingValueComputed) {
-    // Save and restore context flags to prevent leaking isPending/pending
+function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
+  if (!el._latestValueComputed) {
+    // Save and restore context flags to prevent leaking isPending/latest
     // context into the computed's initial recompute.
-    const prevPending = pendingReadActive;
-    pendingReadActive = false;
+    const prevPending = latestReadActive;
+    latestReadActive = false;
     const prevCheck = pendingCheckActive;
     pendingCheckActive = false;
     const prevContext = context;
     context = null; // Detach from owner so it isn't disposed with effects
-    el._pendingValueComputed = optimisticComputed(() => read(el));
-    el._pendingValueComputed._parentSource = el; // Parent-child lane relationship
+    el._latestValueComputed = optimisticComputed(() => read(el));
+    el._latestValueComputed._parentSource = el; // Parent-child lane relationship
     context = prevContext;
     pendingCheckActive = prevCheck;
-    pendingReadActive = prevPending;
+    latestReadActive = prevPending;
   }
-  return el._pendingValueComputed;
+  return el._latestValueComputed;
 }
 
 export function staleValues<T>(fn: () => T, set = true): T {
@@ -750,13 +756,13 @@ export function staleValues<T>(fn: () => T, set = true): T {
   }
 }
 
-export function pending<T>(fn: () => T): T {
-  const prevPending = pendingReadActive;
-  pendingReadActive = true;
+export function latest<T>(fn: () => T): T {
+  const prevLatest = latestReadActive;
+  latestReadActive = true;
   try {
     return fn();
   } finally {
-    pendingReadActive = prevPending;
+    latestReadActive = prevLatest;
   }
 }
 

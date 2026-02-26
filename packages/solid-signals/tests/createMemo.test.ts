@@ -8,7 +8,7 @@ import {
   flush,
   isPending,
   onCleanup,
-  pending,
+  latest,
   refresh,
   resolve,
   untrack
@@ -462,7 +462,7 @@ describe("async compute", () => {
     createRoot(() => {
       const a = createMemo(async1);
       createRenderEffect(
-        () => pending(s),
+        () => latest(s),
         v => {
           res = v;
         }
@@ -485,14 +485,14 @@ describe("async compute", () => {
       const a = createMemo(async1);
       createRenderEffect(a, () => {}); // ensure re-compute
     });
-    expect(pending(s)).toBe(1);
+    expect(latest(s)).toBe(1);
     await new Promise(r => setTimeout(r, 0));
-    expect(pending(s)).toBe(1);
+    expect(latest(s)).toBe(1);
     set(2);
     flush();
-    expect(pending(s)).toBe(2);
+    expect(latest(s)).toBe(2);
     await new Promise(r => setTimeout(r, 0));
-    expect(pending(s)).toBe(2);
+    expect(latest(s)).toBe(2);
   });
 
   it("should track pending value changes for loading indicator pattern", async () => {
@@ -502,16 +502,16 @@ describe("async compute", () => {
 
     createRoot(() => {
       createRenderEffect(data, () => {}); // ensure re-compute
-      // Track pending value - should return new value during transition
+      // Track latest value - should return new value during transition
       createRenderEffect(
-        () => pending(id),
+        () => latest(id),
         pendingVal => {
           effectFn(pendingVal);
         }
       );
     });
 
-    // Initial: pending returns current value
+    // Initial: latest returns current value
     await new Promise(r => setTimeout(r, 0));
     expect(effectFn).toHaveBeenLastCalledWith(0);
 
@@ -519,10 +519,10 @@ describe("async compute", () => {
     setId(1);
     flush();
 
-    // During transition: pending(id) returns new value (1)
+    // During transition: latest(id) returns new value (1)
     expect(effectFn).toHaveBeenLastCalledWith(1);
 
-    // After async resolves: pending(id) still returns 1 (now committed)
+    // After async resolves: latest(id) still returns 1 (now committed)
     await new Promise(r => setTimeout(r, 0));
     expect(effectFn).toHaveBeenLastCalledWith(1);
   });
@@ -736,7 +736,7 @@ describe("async compute", () => {
   //   expect(effect).toHaveBeenCalledTimes(1);
   // });
 
-  it("pending() on upstream vs downstream of async", async () => {
+  it("latest() on upstream vs downstream of async", async () => {
     const [$x, setX] = createSignal(1);
     let syncMemo: () => number;
     let asyncMemo: () => number;
@@ -765,14 +765,14 @@ describe("async compute", () => {
     setX(2);
     flush();
 
-    // Upstream of async: pending() returns in-flight value
-    expect(pending($x)).toBe(2); // signal: in-flight
+    // Upstream of async: latest() returns in-flight value
+    expect(latest($x)).toBe(2); // signal: in-flight
     expect($x()).toBe(1); // signal: committed
-    expect(pending(syncMemo!)).toBe(4); // sync memo: in-flight
+    expect(latest(syncMemo!)).toBe(4); // sync memo: in-flight
     expect(syncMemo!()).toBe(2); // sync memo: committed
 
-    // The async node itself: pending() returns committed (no new value yet)
-    expect(pending(asyncMemo!)).toBe(20); // same as committed
+    // The async node itself: latest() returns committed (no new value yet)
+    expect(latest(asyncMemo!)).toBe(20); // same as committed
     expect(asyncMemo!()).toBe(20);
 
     // After completion
@@ -782,7 +782,7 @@ describe("async compute", () => {
     expect($x()).toBe(2);
   });
 
-  it("pending() on upstream signal during transition", async () => {
+  it("latest() on upstream signal during transition", async () => {
     const [$x, setX] = createSignal(1);
     let a: () => number;
 
@@ -805,16 +805,16 @@ describe("async compute", () => {
     flush();
 
     // Upstream signal is also held in transition
-    expect(pending($x)).toBe(2); // new value
+    expect(latest($x)).toBe(2); // new value
     expect($x()).toBe(1); // committed value
 
     // After completion
     await new Promise(r => setTimeout(r, 0));
     expect($x()).toBe(2);
-    expect(pending($x)).toBe(2);
+    expect(latest($x)).toBe(2);
   });
 
-  it("isPending and pending on upstream signal that triggers async memo", async () => {
+  it("isPending and latest on upstream signal that triggers async memo", async () => {
     const [$x, setX] = createSignal(1);
     let a: () => number;
 
@@ -839,7 +839,7 @@ describe("async compute", () => {
 
     // Upstream signal is pending (value held in transition)
     expect(isPending($x)).toBe(true);
-    expect(pending($x)).toBe(2); // new value
+    expect(latest($x)).toBe(2); // new value
     expect($x()).toBe(1); // old value
 
     // Downstream memo is also pending
@@ -850,7 +850,7 @@ describe("async compute", () => {
     expect(isPending($x)).toBe(false);
     expect(isPending(a!)).toBe(false);
     expect($x()).toBe(2);
-    expect(pending($x)).toBe(2);
+    expect(latest($x)).toBe(2);
   });
 
   it("isPending with chained async memos", async () => {
@@ -1016,7 +1016,7 @@ describe("async compute", () => {
     expect(asyncMemo!()).toBe(20);
   });
 
-  it("pending read inside reactive context (memo)", async () => {
+  it("latest read inside reactive context (memo)", async () => {
     const [$x, setX] = createSignal(1);
     let asyncMemo: () => number;
     let pendingValueMemo: () => number;
@@ -1029,8 +1029,8 @@ describe("async compute", () => {
         return v * 10;
       });
 
-      // Memo that reads pending value
-      pendingValueMemo = createMemo(() => pending(asyncMemo));
+      // Memo that reads latest value
+      pendingValueMemo = createMemo(() => latest(asyncMemo));
 
       createRenderEffect(asyncMemo, () => {});
       createRenderEffect(pendingValueMemo, v => {
@@ -1048,7 +1048,7 @@ describe("async compute", () => {
     setX(2);
     flush();
 
-    // pending() should return committed value (async hasn't completed yet)
+    // latest() should return committed value (async hasn't completed yet)
     expect(pendingValueMemo!()).toBe(10);
 
     // After completion
@@ -1057,7 +1057,7 @@ describe("async compute", () => {
     expect(pendingValueMemo!()).toBe(20);
   });
 
-  it("pending on upstream signal read inside reactive context", async () => {
+  it("latest on upstream signal read inside reactive context", async () => {
     const [$x, setX] = createSignal(1);
     let asyncMemo: () => number;
     let pendingXMemo: () => number;
@@ -1069,8 +1069,8 @@ describe("async compute", () => {
         return v * 10;
       });
 
-      // Memo that reads pending value of upstream signal
-      pendingXMemo = createMemo(() => pending($x));
+      // Memo that reads latest value of upstream signal
+      pendingXMemo = createMemo(() => latest($x));
 
       createRenderEffect(asyncMemo, () => {});
     });
@@ -1085,7 +1085,7 @@ describe("async compute", () => {
     setX(2);
     flush();
 
-    // pending($x) should return in-flight value
+    // latest($x) should return in-flight value
     expect($x()).toBe(1); // committed (held)
     expect(pendingXMemo!()).toBe(2); // in-flight
 
@@ -1096,11 +1096,11 @@ describe("async compute", () => {
   });
 });
 
-describe("isPending and pending with async upstream and downstream", () => {
+describe("isPending and latest with async upstream and downstream", () => {
   afterEach(() => flush());
 
-  // Diagnostic: pending(x) alone in a render effect - same setup as Test 1
-  it("diagnostic: pending(signal) alone in render effect returns in-flight value", async () => {
+  // Diagnostic: latest(x) alone in a render effect - same setup as Test 1
+  it("diagnostic: latest(signal) alone in render effect returns in-flight value", async () => {
     const [$x, setX] = createSignal(1);
     let asyncMemo: () => number;
     const pendingValues: number[] = [];
@@ -1109,7 +1109,7 @@ describe("isPending and pending with async upstream and downstream", () => {
       asyncMemo = createMemo(() => Promise.resolve($x() * 10));
       createRenderEffect(asyncMemo, () => {});
       createRenderEffect(
-        () => pending($x),
+        () => latest($x),
         v => {
           pendingValues.push(v);
         }
@@ -1124,7 +1124,7 @@ describe("isPending and pending with async upstream and downstream", () => {
     setX(2);
     flush();
 
-    // pending(signal) should return the in-flight value (2)
+    // latest(signal) should return the in-flight value (2)
     expect(pendingValues.at(-1)).toBe(2);
 
     // After async resolves and transition commits
@@ -1132,8 +1132,8 @@ describe("isPending and pending with async upstream and downstream", () => {
     expect(pendingValues.at(-1)).toBe(2);
   });
 
-  // Diagnostic: pending(x) + isPending(() => pending(x)) in same render effect
-  it("diagnostic: pending(x) combined with isPending(() => pending(x)) in same effect", async () => {
+  // Diagnostic: latest(x) + isPending(() => latest(x)) in same render effect
+  it("diagnostic: latest(x) combined with isPending(() => latest(x)) in same effect", async () => {
     const [$x, setX] = createSignal(1);
     let asyncMemo: () => number;
     const pairs: [boolean, number][] = [];
@@ -1145,21 +1145,21 @@ describe("isPending and pending with async upstream and downstream", () => {
       createRenderEffect(asyncMemo, () => {});
       // Effect A: combined
       createRenderEffect(
-        () => [isPending(() => pending($x)), pending($x)] as [boolean, number],
+        () => [isPending(() => latest($x)), latest($x)] as [boolean, number],
         ([ip, val]) => {
           pairs.push([ip, val]);
         }
       );
-      // Effect B: pending only (same setup)
+      // Effect B: latest only (same setup)
       createRenderEffect(
-        () => pending($x),
+        () => latest($x),
         v => {
           pendOnly.push(v);
         }
       );
       // Effect C: isPending only (same setup)
       createRenderEffect(
-        () => isPending(() => pending($x)),
+        () => isPending(() => latest($x)),
         v => {
           ipOnly.push(v);
         }
@@ -1176,13 +1176,13 @@ describe("isPending and pending with async upstream and downstream", () => {
     setX(2);
     flush();
 
-    // pending(signal) should return 2 in all contexts
+    // latest(signal) should return 2 in all contexts
     expect(pendOnly.at(-1)).toBe(2);
     expect(pairs.at(-1)?.[1]).toBe(2);
   });
 
-  // Test 1: pending(signal) with sync consumer - no phase 1
-  it("pending(signal) with sync consumer - isPending(() => pending(x)) is false, contrasts with isPending(x)", async () => {
+  // Test 1: latest(signal) with sync consumer - no phase 1
+  it("latest(signal) with sync consumer - isPending(() => latest(x)) is false, contrasts with isPending(x)", async () => {
     const [$x, setX] = createSignal(1);
     let asyncMemo: () => number;
     const pendingPairs: [boolean, number][] = [];
@@ -1192,7 +1192,7 @@ describe("isPending and pending with async upstream and downstream", () => {
       asyncMemo = createMemo(() => Promise.resolve($x() * 10));
       createRenderEffect(asyncMemo, () => {});
       createRenderEffect(
-        () => [isPending(() => pending($x)), pending($x)] as [boolean, number],
+        () => [isPending(() => latest($x)), latest($x)] as [boolean, number],
         ([ip, val]) => {
           pendingPairs.push([ip, val]);
         }
@@ -1216,9 +1216,9 @@ describe("isPending and pending with async upstream and downstream", () => {
 
     // isPending(signal) goes true (held in transition)
     expect(isPendingSignal.at(-1)).toBe(true);
-    // But isPending(() => pending(signal)) stays false - no phase 1,
+    // But isPending(() => latest(signal)) stays false - no phase 1,
     // override present immediately, override lane has no downstream async.
-    // pending(signal) returns the in-flight value (2).
+    // latest(signal) returns the in-flight value (2).
     expect(pendingPairs.at(-1)).toEqual([false, 2]);
 
     // After async resolves and transition commits
@@ -1228,12 +1228,12 @@ describe("isPending and pending with async upstream and downstream", () => {
     expect($x()).toBe(2);
   });
 
-  // Test 2: pending(signal) consumed by async memo - override lane has downstream async
-  // When isPending(() => pending(x)) and pending(x) are in the SAME effect, the effect
+  // Test 2: latest(signal) consumed by async memo - override lane has downstream async
+  // When isPending(() => latest(x)) and latest(x) are in the SAME effect, the effect
   // subscribes to both pendingSignal and pendingComputed, causing lane merging. The merged
   // lane has pending async from the downstream consumer, so the effect is held until that
   // async resolves. To observe isPending independently, use a SEPARATE effect.
-  it("pending(signal) consumed by async memo - isPending(() => pending(x)) true until downstream async resolves", async () => {
+  it("latest(signal) consumed by async memo - isPending(() => latest(x)) true until downstream async resolves", async () => {
     const [$id, setId] = createSignal(1);
     let mainAsync: () => number;
     let details: () => string;
@@ -1242,9 +1242,9 @@ describe("isPending and pending with async upstream and downstream", () => {
     let detailsInput = 0;
     const pendingPairs: [boolean, number][] = [];
     const detailPairs: [boolean, string][] = [];
-    // Separate isPending effect (independent lane, not merged with pending's lane)
+    // Separate isPending effect (independent lane, not merged with latest's lane)
     const isPendingValues: boolean[] = [];
-    // Separate pending effect
+    // Separate latest effect
     const pendingValues: number[] = [];
 
     createRoot(() => {
@@ -1255,9 +1255,9 @@ describe("isPending and pending with async upstream and downstream", () => {
           resolveMain = () => res(v * 10);
         });
       });
-      // Async memo that consumes pending($id) - fetching details for the pending ID
+      // Async memo that consumes latest($id) - fetching details for the pending ID
       details = createMemo(() => {
-        const id = pending($id);
+        const id = latest($id);
         detailsInput = id;
         return new Promise<string>(res => {
           resolveDetails = () => res("details-" + detailsInput);
@@ -1269,21 +1269,21 @@ describe("isPending and pending with async upstream and downstream", () => {
 
       // Combined effect: held by lane merging when downstream has async
       createRenderEffect(
-        () => [isPending(() => pending($id)), pending($id)] as [boolean, number],
+        () => [isPending(() => latest($id)), latest($id)] as [boolean, number],
         ([ip, val]) => {
           pendingPairs.push([ip, val]);
         }
       );
       // Separate isPending effect: its own lane, no pending async, fires immediately
       createRenderEffect(
-        () => isPending(() => pending($id)),
+        () => isPending(() => latest($id)),
         ip => {
           isPendingValues.push(ip);
         }
       );
-      // Separate pending effect: in pendingComputed's lane (which has details' async)
+      // Separate latest effect: in pendingComputed's lane (which has details' async)
       createRenderEffect(
-        () => pending($id),
+        () => latest($id),
         val => {
           pendingValues.push(val);
         }
@@ -1321,7 +1321,7 @@ describe("isPending and pending with async upstream and downstream", () => {
     // So it still shows the previous value
     expect(pendingPairs.at(-1)).toEqual([true, 1]);
 
-    // Resolve details (the async consuming pending($id))
+    // Resolve details (the async consuming latest($id))
     resolveDetails!();
     await Promise.resolve();
     flush();
@@ -1387,8 +1387,8 @@ describe("isPending and pending with async upstream and downstream", () => {
     }
   });
 
-  // Test 4: Single async - [isPending(() => pending(x)), pending(x)] pairs update atomically
-  it("single async - [isPending(() => pending(x)), pending(x)] pairs update atomically", async () => {
+  // Test 4: Single async - [isPending(() => latest(x)), latest(x)] pairs update atomically
+  it("single async - [isPending(() => latest(x)), latest(x)] pairs update atomically", async () => {
     const [$x, setX] = createSignal(1);
     let asyncMemo: () => number;
     let resolveAsync: (() => void) | null = null;
@@ -1403,7 +1403,7 @@ describe("isPending and pending with async upstream and downstream", () => {
       });
       createRenderEffect(asyncMemo, () => {}); // subscribe to drive transition
       createRenderEffect(
-        () => [isPending(() => pending(asyncMemo)), pending(asyncMemo)] as [boolean, number],
+        () => [isPending(() => latest(asyncMemo)), latest(asyncMemo)] as [boolean, number],
         ([ip, val]) => {
           pairs.push([ip, val]);
         }
@@ -1420,7 +1420,7 @@ describe("isPending and pending with async upstream and downstream", () => {
     // Change signal - async in flight
     setX(2);
     flush();
-    // Phase 1: _pendingValueComputed STATUS_PENDING, pending() falls back to stale
+    // Phase 1: _pendingValueComputed STATUS_PENDING, latest() falls back to stale
     expect(pairs.at(-1)).toEqual([true, 10]);
 
     // Resolve async - setSignal gives _pendingValueComputed its override
@@ -1516,8 +1516,8 @@ describe("isPending and pending with async upstream and downstream", () => {
     }
   });
 
-  // Test 6: Chained async - [isPending(() => pending(x)), pending(x)] pairs
-  it("chained async - [isPending(() => pending(x)), pending(x)] pairs track each node's own resolution", async () => {
+  // Test 6: Chained async - [isPending(() => latest(x)), latest(x)] pairs
+  it("chained async - [isPending(() => latest(x)), latest(x)] pairs track each node's own resolution", async () => {
     const [$x, setX] = createSignal(1);
     let asyncA: () => number;
     let asyncB: () => number;
@@ -1541,13 +1541,13 @@ describe("isPending and pending with async upstream and downstream", () => {
       });
       createRenderEffect(asyncB, () => {}); // subscribe to drive transition
       createRenderEffect(
-        () => [isPending(() => pending(asyncA)), pending(asyncA)] as [boolean, number],
+        () => [isPending(() => latest(asyncA)), latest(asyncA)] as [boolean, number],
         ([ip, val]) => {
           pairsA.push([ip, val]);
         }
       );
       createRenderEffect(
-        () => [isPending(() => pending(asyncB)), pending(asyncB)] as [boolean, number],
+        () => [isPending(() => latest(asyncB)), latest(asyncB)] as [boolean, number],
         ([ip, val]) => {
           pairsB.push([ip, val]);
         }
@@ -1673,8 +1673,8 @@ describe("isPending and pending with async upstream and downstream", () => {
     }
   });
 
-  // Test 8: Multiple independent async sources - isPending(() => pending(x)) pairs
-  it("multiple independent async - [isPending(() => pending(x)), pending(x)] pairs with progressive resolution", async () => {
+  // Test 8: Multiple independent async sources - isPending(() => latest(x)) pairs
+  it("multiple independent async - [isPending(() => latest(x)), latest(x)] pairs with progressive resolution", async () => {
     const [$x, setX] = createSignal(1);
     let asyncA: () => number;
     let asyncB: () => number;
@@ -1709,19 +1709,19 @@ describe("isPending and pending with async upstream and downstream", () => {
       createRenderEffect(asyncB, () => {});
       createRenderEffect(asyncC, () => {});
       createRenderEffect(
-        () => [isPending(() => pending(asyncA)), pending(asyncA)] as [boolean, number],
+        () => [isPending(() => latest(asyncA)), latest(asyncA)] as [boolean, number],
         ([ip, val]) => {
           pairsA.push([ip, val]);
         }
       );
       createRenderEffect(
-        () => [isPending(() => pending(asyncB)), pending(asyncB)] as [boolean, number],
+        () => [isPending(() => latest(asyncB)), latest(asyncB)] as [boolean, number],
         ([ip, val]) => {
           pairsB.push([ip, val]);
         }
       );
       createRenderEffect(
-        () => [isPending(() => pending(asyncC)), pending(asyncC)] as [boolean, number],
+        () => [isPending(() => latest(asyncC)), latest(asyncC)] as [boolean, number],
         ([ip, val]) => {
           pairsC.push([ip, val]);
         }

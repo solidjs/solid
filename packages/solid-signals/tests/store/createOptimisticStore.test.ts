@@ -8,7 +8,7 @@ import {
   createStore,
   flush,
   isPending,
-  pending,
+  latest,
   refresh
 } from "../../src/index.js";
 
@@ -1370,7 +1370,7 @@ describe("createOptimisticStore", () => {
     });
   });
 
-  describe("isPending and pending() with async optimistic store", () => {
+  describe("isPending and latest() with async optimistic store", () => {
     it("async store re-runs on dependency change", async () => {
       const [$id, setId] = createSignal(1);
       let state: { data: number };
@@ -1404,7 +1404,7 @@ describe("createOptimisticStore", () => {
       expect(state!.data).toBe(20);
     });
 
-    it("isPending and pending() during async with optimistic write", async () => {
+    it("isPending and latest() during async with optimistic write", async () => {
       const [$id, setId] = createSignal(1);
       let state: { data: number };
       let setState: (fn: (s: { data: number }) => void) => void;
@@ -1442,8 +1442,8 @@ describe("createOptimisticStore", () => {
       expect(state!.data).toBe(999);
       // isPending - async is in flight
       expect(isPending(() => state!.data)).toBe(true);
-      // pending() returns the optimistic value
-      expect(pending(() => state!.data)).toBe(999);
+      // latest() returns the optimistic value
+      expect(latest(() => state!.data)).toBe(999);
     });
 
     it("should preserve array item proxy identity when optimistic push is reconciled with server data", async () => {

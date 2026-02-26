@@ -72,9 +72,9 @@ export function handleAsync<T>(
       if (!equals || !equals(value, prevValue)) {
         el._value = value;
         el._time = clock;
-        // Write to _pendingValueComputed so pending() effects get independent lanes
-        if (el._pendingValueComputed) {
-          setSignal(el._pendingValueComputed, value);
+        // Write to _latestValueComputed so latest() effects get independent lanes
+        if (el._latestValueComputed) {
+          setSignal(el._latestValueComputed, value);
         }
         insertSubs(el, true);
       }

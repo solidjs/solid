@@ -130,7 +130,7 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
       }
     },
     undefined,
-    { ...options, lazy: true, pureWrite: true }
+    { ...options, lazy: true }
   ) as TrackedEffect;
 
   node._cleanup = undefined;
