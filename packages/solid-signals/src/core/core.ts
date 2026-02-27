@@ -12,6 +12,7 @@ import {
   REACTIVE_NONE,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
+  REACTIVE_LAZY,
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -313,7 +314,7 @@ export function computed<T>(
     _parent: context,
     _nextSibling: null,
     _firstChild: null,
-    _flags: REACTIVE_NONE,
+    _flags: options?.lazy ? REACTIVE_LAZY : REACTIVE_NONE,
     _statusFlags: STATUS_UNINITIALIZED,
     _time: clock,
     _pendingValue: NOT_PENDING,
@@ -483,6 +484,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
   if (refreshing && (el as Computed<unknown>)._fn) recompute(el as Computed<unknown>);
+  if ((el as Computed<unknown>)._flags & REACTIVE_LAZY) {
+    (el as Computed<unknown>)._flags &= ~REACTIVE_LAZY;
+    recompute(el as Computed<any>, true);
+  }
   if (c && tracking) {
     if ((el as Computed<unknown>)._fn && (el as Computed<unknown>)._flags & REACTIVE_DISPOSED)
       recompute(el as Computed<any>);

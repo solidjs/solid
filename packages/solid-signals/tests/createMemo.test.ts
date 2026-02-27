@@ -1784,6 +1784,51 @@ describe("isPending and latest with async upstream and downstream", () => {
   });
 });
 
+it("should compute lazy memo when first read inside another computation", () => {
+  const [$x, setX] = createSignal(0);
+  let innerRuns = 0;
+
+  createRoot(() => {
+    const lazy = createMemo(
+      () => {
+        innerRuns++;
+        return $x() + 1;
+      },
+      undefined,
+      { lazy: true }
+    );
+
+    expect(innerRuns).toBe(0);
+
+    const outer = createMemo(() => lazy() * 2);
+
+    expect(innerRuns).toBe(1);
+    expect(outer()).toBe(2);
+
+    setX(5);
+    flush();
+    expect(innerRuns).toBe(2);
+    expect(outer()).toBe(12);
+  });
+});
+
+it("should compute nested lazy memos when first read inside another computation", () => {
+  const [$x, setX] = createSignal(0);
+
+  createRoot(() => {
+    const lazyOuter = createMemo(() => $x() + 1, undefined, { lazy: true });
+    const lazyInner = createMemo(() => lazyOuter() * 10, undefined, { lazy: true });
+
+    const eager = createMemo(() => lazyInner() + 100);
+
+    expect(eager()).toBe(110);
+
+    setX(5);
+    flush();
+    expect(eager()).toBe(160);
+  });
+});
+
 // it("should detect which signal triggered it", () => {
 //   const [$x, setX] = createSignal(0);
 //   const [$y, setY] = createSignal(0);

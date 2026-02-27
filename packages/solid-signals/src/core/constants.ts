@@ -8,6 +8,7 @@ export const REACTIVE_ZOMBIE = 1 << 5;
 export const REACTIVE_DISPOSED = 1 << 6;
 export const REACTIVE_OPTIMISTIC_DIRTY = 1 << 7;
 export const REACTIVE_SNAPSHOT_STALE = 1 << 8;
+export const REACTIVE_LAZY = 1 << 9;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
