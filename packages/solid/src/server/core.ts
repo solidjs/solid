@@ -1,14 +1,5 @@
-import {
-  createMemo,
-  createRoot,
-  createOwner,
-  getOwner,
-  runWithOwner,
-  setContext,
-  getContext,
-  flatten
-} from "./signals.js";
-import type { Accessor, Owner, EffectOptions } from "./signals.js";
+import { createMemo, createRoot, setContext, getContext, flatten } from "./signals.js";
+import type { Accessor, EffectOptions } from "./signals.js";
 import type { JSX } from "../jsx.js";
 import type { FlowComponent, FlowProps } from "./component.js";
 
@@ -83,15 +74,12 @@ export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
 }
 
 /**
- * Runs functions with an isolated owner scope for SSR.
- * Used by dom-expressions to run event handlers and other code in scope.
+ * Pass-through for SSR dynamic expressions.
+ * On the client, insert() render effects are transparent (0 owner slots),
+ * so the server doesn't need to create owners for these either.
  */
 export function ssrRunInScope(fn: () => any): () => any;
 export function ssrRunInScope(array: (() => any)[]): (() => any)[];
 export function ssrRunInScope(fn: (() => any) | (() => any)[]): (() => any) | (() => any)[] {
-  if (Array.isArray(fn)) {
-    const o = createOwner();
-    return fn.map<() => any>(f => runWithOwner.bind(null, o, f));
-  }
-  return runWithOwner.bind(null, createOwner(), fn);
+  return fn;
 }

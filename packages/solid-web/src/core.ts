@@ -1,11 +1,10 @@
 //@ts-nocheck
-import { createMemo } from "solid-js";
+import { createMemo, createRenderEffect } from "solid-js";
 export {
   getOwner,
   runWithOwner,
   createComponent,
   createRoot as root,
-  createRenderEffect as effect,
   sharedConfig,
   untrack,
   merge as mergeProps,
@@ -13,5 +12,8 @@ export {
   ssrHandleError,
   ssrRunInScope
 } from "solid-js";
+
+export const effect = (fn, effectFn, initial) =>
+  createRenderEffect(fn, effectFn, initial, { transparent: true });
 
 export const memo = fn => createMemo(() => fn());

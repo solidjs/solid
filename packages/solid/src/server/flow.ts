@@ -1,8 +1,6 @@
 import { children } from "./core.js";
 import {
   createMemo,
-  createOwner,
-  runWithOwner,
   mapArray,
   repeat,
   createErrorBoundary,
@@ -66,8 +64,7 @@ export function Show<T>(props: {
     getNextChildId(o); // match client's conditionValue memo
     if (!props.keyed) getNextChildId(o); // match client's condition memo (non-keyed only)
   }
-  const valueOwner = createOwner(); // match client's value memo
-  return runWithOwner(valueOwner, () => {
+  return createMemo(() => {
     const when = props.when;
     if (when) {
       const child = props.children;
@@ -77,7 +74,7 @@ export function Show<T>(props: {
       return child as JSX.Element;
     }
     return props.fallback as JSX.Element;
-  }) as JSX.Element;
+  }) as unknown as JSX.Element;
 }
 
 type EvalConditions = readonly [number, unknown, MatchProps<unknown>];

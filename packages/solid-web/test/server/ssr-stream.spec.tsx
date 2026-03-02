@@ -1494,3 +1494,93 @@ describe("SSR — Fragment wrapping props.children", () => {
     expect(html).toContain("0");
   });
 });
+
+// Insert effect alignment — PR #2592 hydration mismatch patterns
+// These test that flow components and spread elements render correctly as
+// template children, validating that owner tree slots align between SSR and client.
+describe("SSR — insert effect alignment (PR #2592)", () => {
+  test("Show as template child with sibling", () => {
+    const html = renderToString(() => (
+      <div>
+        <Show when={true}>
+          <span>Hello</span>
+        </Show>
+        <span>World</span>
+      </div>
+    ));
+    expect(html).toContain("<span>Hello</span>");
+    expect(html).toContain("<span>World</span>");
+  });
+
+  test("multiple Show siblings in template", () => {
+    const [count, setCount] = createSignal(0);
+    const html = renderToString(() => (
+      <div>
+        <div>{count()}</div>
+        <Show when={true}>
+          <button>Click me in first child</button>
+        </Show>
+        <Show when={true}>
+          <button>Click me in second child</button>
+        </Show>
+      </div>
+    ));
+    expect(html).toContain("0");
+    expect(html).toContain("Click me in first child");
+    expect(html).toContain("Click me in second child");
+  });
+
+  test("For as template child with sibling", () => {
+    const html = renderToString(() => (
+      <div>
+        <For each={[1, 2, 3]}>{item => <li>{item()}</li>}</For>
+        <span>after</span>
+      </div>
+    ));
+    expect(html).toContain("<li>1</li>");
+    expect(html).toContain("<li>2</li>");
+    expect(html).toContain("<li>3</li>");
+    expect(html).toContain("<span>after</span>");
+  });
+
+  test("spread element renders correctly — PR #2592 spread pattern", () => {
+    function Link(props: { count: number }) {
+      const linkProps = {
+        href: "/"
+      };
+      return <a {...linkProps}>My Link {props.count}</a>;
+    }
+
+    const html = renderToString(() => (
+      <div>
+        <Link count={1} />
+        <Link count={2} />
+      </div>
+    ));
+    expect(html).toContain("My Link");
+    expect(html).toContain("1");
+    expect(html).toContain("2");
+  });
+
+  test("dynamic expression + Show + spread siblings", () => {
+    const [count] = createSignal(42);
+
+    function Link(props: { label: string }) {
+      const linkProps = { href: "/" };
+      return <a {...linkProps}>{props.label}</a>;
+    }
+
+    const html = renderToString(() => (
+      <div>
+        <span>{count()}</span>
+        <Show when={true}>
+          <p>Visible</p>
+        </Show>
+        <Link label="click" />
+      </div>
+    ));
+    expect(html).toContain("42");
+    expect(html).toContain("<p>Visible</p>");
+    expect(html).toContain("click");
+  });
+});
