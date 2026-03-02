@@ -414,7 +414,48 @@ function processResult<T>(
   comp.value = result;
 }
 
-// === Effects (mostly no-ops on server) ===
+// === Effects ===
+
+function serverEffect<Next, Init>(
+  compute: ComputeFunction<Init | Next, Next>,
+  effectFn: EffectFunction<Next, Next> | undefined,
+  value: Init | undefined,
+  options: EffectOptions | undefined
+): void {
+  const ssrSource = options?.ssrSource;
+  if (ssrSource === "client" || ssrSource === "initial") {
+    createOwner();
+    return;
+  }
+  const ctx = sharedConfig.context;
+  const owner = createOwner();
+  const comp: ServerComputation<Next> = {
+    owner,
+    value: value as any,
+    compute: compute as ComputeFunction<any, Next>,
+    error: undefined,
+    computed: true,
+    disposed: false
+  };
+  if (ssrSource) {
+    runWithOwner(owner, () =>
+      onCleanup(() => {
+        comp.disposed = true;
+      })
+    );
+  }
+  try {
+    const result = runWithOwner(owner, () =>
+      runWithObserver(comp, () => (compute as ComputeFunction<any, Next>)(value as any))
+    );
+    if (ssrSource) {
+      processResult(comp, result, owner, ctx, options?.deferStream, ssrSource);
+    }
+    effectFn?.((ssrSource ? (comp.value ?? result) : result) as any, value as any);
+  } catch (err) {
+    // Swallow errors from effects on server
+  }
+}
 
 export function createEffect<Next>(
   compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
@@ -432,9 +473,7 @@ export function createEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  // No-op on server, but allocate computation ID for hydration tree alignment
-  const o = getOwner();
-  if (o?.id != null) getNextChildId(o);
+  serverEffect(compute, undefined, value, options);
 }
 
 export function createRenderEffect<Next>(
@@ -453,26 +492,7 @@ export function createRenderEffect<Next, Init>(
   value?: Init,
   options?: EffectOptions
 ): void {
-  // Render effects: compute once and run effect once on server
-  const owner = createOwner();
-  try {
-    const result = runWithOwner(owner, () =>
-      runWithObserver(
-        {
-          owner,
-          value: value as any,
-          compute: compute as any,
-          error: undefined,
-          computed: true,
-          disposed: false
-        },
-        () => (compute as ComputeFunction<any, Next>)(value as any)
-      )
-    );
-    effectFn(result as any, value as any);
-  } catch (err) {
-    // Swallow errors from render effects on server
-  }
+  serverEffect(compute, effectFn, value, options);
 }
 
 export function createTrackedEffect(

@@ -159,7 +159,7 @@ describe("Server createMemo", () => {
 
 // === createEffect ===
 describe("Server createEffect", () => {
-  test("is a no-op on the server", () => {
+  test("runs compute but not effectFn on the server", () => {
     const compute = vi.fn(() => 1);
     const effectFn = vi.fn();
     createRoot(
@@ -168,7 +168,46 @@ describe("Server createEffect", () => {
       },
       { id: "test" }
     );
+    expect(compute).toHaveBeenCalledTimes(1);
+    expect(effectFn).not.toHaveBeenCalled();
+  });
+
+  test("ssrSource client skips both compute and effectFn", () => {
+    const compute = vi.fn(() => 1);
+    const effectFn = vi.fn();
+    createRoot(
+      () => {
+        createEffect(compute, effectFn, undefined, { ssrSource: "client" });
+      },
+      { id: "test" }
+    );
     expect(compute).not.toHaveBeenCalled();
+    expect(effectFn).not.toHaveBeenCalled();
+  });
+
+  test("ssrSource initial skips both compute and effectFn", () => {
+    const compute = vi.fn(() => 1);
+    const effectFn = vi.fn();
+    createRoot(
+      () => {
+        createEffect(compute, effectFn, undefined, { ssrSource: "initial" });
+      },
+      { id: "test" }
+    );
+    expect(compute).not.toHaveBeenCalled();
+    expect(effectFn).not.toHaveBeenCalled();
+  });
+
+  test("ssrSource server runs compute and skips effectFn", () => {
+    const compute = vi.fn(() => 42);
+    const effectFn = vi.fn();
+    createRoot(
+      () => {
+        createEffect(compute, effectFn, undefined, { ssrSource: "server" });
+      },
+      { id: "test" }
+    );
+    expect(compute).toHaveBeenCalledTimes(1);
     expect(effectFn).not.toHaveBeenCalled();
   });
 });
@@ -181,6 +220,46 @@ describe("Server createRenderEffect", () => {
     createRoot(
       () => {
         createRenderEffect(compute, effectFn);
+      },
+      { id: "test" }
+    );
+    expect(compute).toHaveBeenCalledTimes(1);
+    expect(effectFn).toHaveBeenCalledTimes(1);
+    expect(effectFn).toHaveBeenCalledWith(42, undefined);
+  });
+
+  test("ssrSource client skips both compute and effectFn", () => {
+    const compute = vi.fn(() => 42);
+    const effectFn = vi.fn();
+    createRoot(
+      () => {
+        createRenderEffect(compute, effectFn, undefined, { ssrSource: "client" });
+      },
+      { id: "test" }
+    );
+    expect(compute).not.toHaveBeenCalled();
+    expect(effectFn).not.toHaveBeenCalled();
+  });
+
+  test("ssrSource initial skips both compute and effectFn", () => {
+    const compute = vi.fn(() => 42);
+    const effectFn = vi.fn();
+    createRoot(
+      () => {
+        createRenderEffect(compute, effectFn, undefined, { ssrSource: "initial" });
+      },
+      { id: "test" }
+    );
+    expect(compute).not.toHaveBeenCalled();
+    expect(effectFn).not.toHaveBeenCalled();
+  });
+
+  test("ssrSource server runs both compute and effectFn", () => {
+    const compute = vi.fn(() => 42);
+    const effectFn = vi.fn();
+    createRoot(
+      () => {
+        createRenderEffect(compute, effectFn, undefined, { ssrSource: "server" });
       },
       { id: "test" }
     );

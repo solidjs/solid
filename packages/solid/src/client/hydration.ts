@@ -14,6 +14,8 @@ import {
   createProjection as coreProjection,
   createStore as coreStore,
   createOptimisticStore as coreOptimisticStore,
+  createRenderEffect as coreRenderEffect,
+  createEffect as coreEffect,
   setSnapshotCapture,
   markSnapshotScope,
   releaseSnapshotScope,
@@ -32,6 +34,10 @@ declare module "@solidjs/signals" {
     ssrSource?: "server" | "hybrid" | "initial" | "client";
   }
   interface SignalOptions<T> {
+    deferStream?: boolean;
+    ssrSource?: "server" | "hybrid" | "initial" | "client";
+  }
+  interface EffectOptions {
     deferStream?: boolean;
     ssrSource?: "server" | "hybrid" | "initial" | "client";
   }
@@ -135,6 +141,8 @@ let _createOptimistic: Function | undefined;
 let _createProjection: Function | undefined;
 let _createStore: Function | undefined;
 let _createOptimisticStore: Function | undefined;
+let _createRenderEffect: Function | undefined;
+let _createEffect: Function | undefined;
 
 // --- Hydration helpers ---
 
@@ -516,6 +524,72 @@ function hydratedCreateProjection(fn: any, initialValue?: any, options?: any) {
   return coreProjection(wrapStoreFn(fn, ssrSource), initialValue, options);
 }
 
+// --- Hydration-aware effect implementations ---
+
+function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: any, options?: any) {
+  if (!sharedConfig.hydrating) return coreFn(compute, effectFn, value, options);
+
+  const ssrSource = options?.ssrSource;
+
+  if (ssrSource === "client") {
+    const [hydrated, setHydrated] = coreSignal(false);
+    let active = false;
+    coreFn(
+      (prev: any) => {
+        if (!hydrated()) return value;
+        active = true;
+        return compute(prev);
+      },
+      (next: any, prev: any) => {
+        if (!active) return;
+        return effectFn(next, prev);
+      },
+      value,
+      options
+    );
+    setHydrated(true);
+    return;
+  }
+
+  if (ssrSource === "initial") {
+    coreFn(
+      (prev: any) => {
+        if (!sharedConfig.hydrating) return compute(prev);
+        subFetch(compute, prev);
+        return prev ?? value;
+      },
+      effectFn,
+      value,
+      options
+    );
+    return;
+  }
+
+  // "server", "hybrid", or undefined — use serialized value from server
+  markTopLevelSnapshotScope();
+  coreFn(
+    (prev: any) => {
+      const o = getOwner()!;
+      if (!sharedConfig.hydrating) return compute(prev);
+      let initP: any;
+      if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
+      const init = initP?.v ?? initP;
+      return init != null ? (subFetch(compute, prev), init) : compute(prev);
+    },
+    effectFn,
+    value,
+    options
+  );
+}
+
+function hydratedCreateRenderEffect(compute: any, effectFn: any, value?: any, options?: any) {
+  return hydratedEffect(coreRenderEffect, compute, effectFn, value, options);
+}
+
+function hydratedCreateEffect(compute: any, effectFn: any, value?: any, options?: any) {
+  return hydratedEffect(coreEffect, compute, effectFn, value, options);
+}
+
 // --- Public API ---
 
 export function enableHydration() {
@@ -526,6 +600,8 @@ export function enableHydration() {
   _createProjection = hydratedCreateProjection;
   _createStore = hydratedCreateStore;
   _createOptimisticStore = hydratedCreateOptimisticStore;
+  _createRenderEffect = hydratedCreateRenderEffect;
+  _createEffect = hydratedCreateEffect;
 
   // Install property interceptors for hydration lifecycle tracking.
   // When dom-expressions' hydrate() sets hydrating = false after the sync walk,
@@ -608,6 +684,12 @@ export const createOptimisticStore: {
     options?: HydrationProjectionOptions
   ): [get: Store<T>, set: StoreSetter<T>];
 } = ((...args: any[]) => (_createOptimisticStore || coreOptimisticStore)(...args)) as any;
+
+export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
+  (_createRenderEffect || coreRenderEffect)(...args)) as typeof coreRenderEffect;
+
+export const createEffect: typeof coreEffect = ((...args: any[]) =>
+  (_createEffect || coreEffect)(...args)) as typeof coreEffect;
 
 // === Module asset loading ===
 

@@ -2,10 +2,8 @@ export {
   $PROXY,
   $TRACK,
   action,
-  createEffect,
   createOwner,
   createReaction,
-  createRenderEffect,
   createRoot,
   createTrackedEffect,
   deep,
@@ -81,7 +79,9 @@ export {
   createStore,
   createProjection,
   createOptimistic,
-  createOptimisticStore
+  createOptimisticStore,
+  createRenderEffect,
+  createEffect
 } from "./client/hydration.js";
 // stub
 export function ssrHandleError() {}
