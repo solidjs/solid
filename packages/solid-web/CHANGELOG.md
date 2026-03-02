@@ -1,5 +1,19 @@
 # @solidjs/web
 
+## 2.0.0-experimental.16
+
+### Patch Changes
+
+- 433eae5: Add `runWithOwner` to rxcore shim to support callback refs from updated dom-expressions runtime
+- Updated dependencies [4cab248]
+- Updated dependencies [1122d74]
+- Updated dependencies [c78ec9f]
+- Updated dependencies [21fff6f]
+- Updated dependencies [433eae5]
+- Updated dependencies [433eae5]
+- Updated dependencies [568ed6f]
+  - solid-js@2.0.0-experimental.16
+
 ## 2.0.0-experimental.15
 
 ### Patch Changes

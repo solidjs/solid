@@ -1,5 +1,12 @@
 # @solidjs/h
 
+## 2.0.0-experimental.16
+
+### Patch Changes
+
+- Updated dependencies [433eae5]
+  - @solidjs/web@2.0.0-experimental.16
+
 ## 2.0.0-experimental.15
 
 ### Patch Changes

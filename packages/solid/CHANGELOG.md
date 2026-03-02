@@ -1,5 +1,17 @@
 # solid-js
 
+## 2.0.0-experimental.16
+
+### Patch Changes
+
+- 4cab248: Fix Dynamic component hydration key misalignment by aligning server-side createDynamic owner tree with client
+- 1122d74: Fix server-side flow component hydration key alignment for Show, Errored, and Repeat
+- c78ec9f: Bump dom-expressions to 0.41.0-next.9 to fix SSR spread element hydration mismatch. Dynamic children of spread elements were incorrectly wrapped in memo() on the server, consuming extra owner slots and causing \_hk value misalignment with the client.
+- 21fff6f: Make insert render effects transparent and align SSR owner tree to fix hydration ID mismatches
+- 433eae5: Make `children` helper lazy to prevent hydration mismatches when resolved children are never inserted into the DOM. Export `storePath` and related types (`StorePathRange`, `ArrayFilterFn`, `CustomPartial`, `Part`, `PathSetter`) from both client and server builds. Bump `@solidjs/signals` to 0.11.1.
+- 433eae5: Rename `pending` API to `latest`. `isPending(() => latest(value))` reads more naturally than the redundant `isPending(() => pending(value))`. Also renames internal `pendingReadActive`, `_pendingValueComputed`, and `getPendingValueComputed` in @solidjs/signals to align with the new name.
+- 568ed6f: Add ssrSource support for createEffect and createRenderEffect; fix server createEffect to run compute function
+
 ## 2.0.0-experimental.15
 
 ### Minor Changes
