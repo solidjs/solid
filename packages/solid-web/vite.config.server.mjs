@@ -7,7 +7,7 @@ import { resolve } from "path";
 const rootDir = resolve(import.meta.dirname);
 
 export default defineConfig({
-  plugins: [solidPlugin({ solid: { generate: "ssr" } })],
+  plugins: [solidPlugin({ solid: { generate: "ssr", hydratable: true } })],
   test: {
     environment: "node",
     include: ["test/server/**/*.spec.tsx"],

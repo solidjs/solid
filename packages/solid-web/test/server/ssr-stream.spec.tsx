@@ -341,9 +341,9 @@ describe("SSR Streaming — Flow Controls", () => {
     }
 
     const html = await renderComplete(() => <App />);
-    expect(html).toContain("<li>A</li>");
-    expect(html).toContain("<li>B</li>");
-    expect(html).toContain("<li>C</li>");
+    expect(html).toMatch(/<li[^>]*>A<\/li>/);
+    expect(html).toMatch(/<li[^>]*>B<\/li>/);
+    expect(html).toMatch(/<li[^>]*>C<\/li>/);
   });
 
   test("Switch/Match with async memo", async () => {
@@ -470,7 +470,7 @@ describe("SSR Streaming — Edge Cases", () => {
     }
 
     const html = await renderComplete(() => <App />);
-    expect(html).toContain("<div>");
+    expect(html).toMatch(/<div[\s>]/);
     expect(html).not.toContain("Loading...");
   });
 
@@ -485,7 +485,7 @@ describe("SSR Streaming — Edge Cases", () => {
     }
 
     const html = await renderComplete(() => <App />);
-    expect(html).toContain("<div>");
+    expect(html).toMatch(/<div[\s>]/);
     expect(html).not.toContain("Loading...");
   });
 
@@ -500,7 +500,7 @@ describe("SSR Streaming — Edge Cases", () => {
     }
 
     const html = await renderComplete(() => <App />);
-    expect(html).toContain("<div>");
+    expect(html).toMatch(/<div[\s>]/);
     expect(html).not.toContain("Loading...");
   });
 });
@@ -1369,9 +1369,9 @@ describe("SSR — Fragment wrapping props.children", () => {
       </div>
     ));
 
-    expect(html).toContain("<h1>Title</h1>");
-    expect(html).toContain("<p>Text</p>");
-    expect(html).toContain("<span>42</span>");
+    expect(html).toMatch(/<h1[^>]*>Title<\/h1>/);
+    expect(html).toMatch(/<p[^>]*>Text<\/p>/);
+    expect(html).toMatch(/<span[^>]*>42<\/span>/);
   });
 
   test("fragment wrapper with dynamic expression renders correctly", () => {
@@ -1390,7 +1390,7 @@ describe("SSR — Fragment wrapping props.children", () => {
       </div>
     ));
 
-    expect(html).toContain("<h1>Title</h1>");
+    expect(html).toMatch(/<h1[^>]*>Title<\/h1>/);
     expect(html).toContain("42");
   });
 
@@ -1508,8 +1508,8 @@ describe("SSR — insert effect alignment (PR #2592)", () => {
         <span>World</span>
       </div>
     ));
-    expect(html).toContain("<span>Hello</span>");
-    expect(html).toContain("<span>World</span>");
+    expect(html).toMatch(/<span[^>]*>Hello<\/span>/);
+    expect(html).toMatch(/<span[^>]*>World<\/span>/);
   });
 
   test("multiple Show siblings in template", () => {
@@ -1537,10 +1537,10 @@ describe("SSR — insert effect alignment (PR #2592)", () => {
         <span>after</span>
       </div>
     ));
-    expect(html).toContain("<li>1</li>");
-    expect(html).toContain("<li>2</li>");
-    expect(html).toContain("<li>3</li>");
-    expect(html).toContain("<span>after</span>");
+    expect(html).toMatch(/<li[^>]*>1<\/li>/);
+    expect(html).toMatch(/<li[^>]*>2<\/li>/);
+    expect(html).toMatch(/<li[^>]*>3<\/li>/);
+    expect(html).toMatch(/<span[^>]*>after<\/span>/);
   });
 
   test("spread element renders correctly — PR #2592 spread pattern", () => {
@@ -1580,7 +1580,7 @@ describe("SSR — insert effect alignment (PR #2592)", () => {
       </div>
     ));
     expect(html).toContain("42");
-    expect(html).toContain("<p>Visible</p>");
+    expect(html).toMatch(/<p[^>]*>Visible<\/p>/);
     expect(html).toContain("click");
   });
 });
