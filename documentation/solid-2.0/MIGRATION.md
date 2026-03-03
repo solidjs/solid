@@ -132,11 +132,8 @@ Writing to signals/stores inside a reactive scope will warn. Usually you want:
 - return cleanup from effect apply functions (instead of writing during tracking)
 
 ```js
-// ❌ warns: writing from inside an effect
-createEffect(
-  () => count(),
-  v => setCount(v + 1)
-);
+// ❌ warns: writing from inside a memo
+createMemo(() => setDoubled(count() * 2));
 
 // ✅ derive instead of writing back
 const doubled = createMemo(() => count() * 2);
