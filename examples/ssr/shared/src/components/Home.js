@@ -1,21 +1,14 @@
-import { createSignal, onSettled } from "solid-js";
+import { createSignal, createMemo } from "solid-js";
 const Home = () => {
-  const [s, set] = createSignal(0);
-  onSettled(() => {
-    const t = setInterval(() => {
-      const newVal = s() + 1;
-      set(newVal);
-    }, 100);
-    return () => {
-      clearInterval(t);
-    };
-  });
+  const [n, setN] = createSignal(0);
+  const doubleQuery = createMemo(() => n() * 2);
+
   return (
-    <>
-      <h1>Welcome to this Simple Routing Example</h1>
-      <p>Click the links in the Navigation above to load different routes.</p>
-      <span>{s()}</span>
-    </>
+    <div>
+      <div>n: {n()}</div>
+      <div>double: {doubleQuery()}</div>
+      <button onClick={() => setN(n() + 1)}>Increase</button>
+    </div>
   );
 };
 
