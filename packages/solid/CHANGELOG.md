@@ -1,21 +1,16 @@
 # solid-js
 
-## 2.0.0-experimental.16
+## 2.0.0-beta.0
 
-### Patch Changes
+### Major Changes
 
-- 4cab248: Fix Dynamic component hydration key misalignment by aligning server-side createDynamic owner tree with client
-- 1122d74: Fix server-side flow component hydration key alignment for Show, Errored, and Repeat
-- c78ec9f: Bump dom-expressions to 0.41.0-next.9 to fix SSR spread element hydration mismatch. Dynamic children of spread elements were incorrectly wrapped in memo() on the server, consuming extra owner slots and causing \_hk value misalignment with the client.
-- 21fff6f: Make insert render effects transparent and align SSR owner tree to fix hydration ID mismatches
-- 433eae5: Make `children` helper lazy to prevent hydration mismatches when resolved children are never inserted into the DOM. Export `storePath` and related types (`StorePathRange`, `ArrayFilterFn`, `CustomPartial`, `Part`, `PathSetter`) from both client and server builds. Bump `@solidjs/signals` to 0.11.1.
-- 433eae5: Rename `pending` API to `latest`. `isPending(() => latest(value))` reads more naturally than the redundant `isPending(() => pending(value))`. Also renames internal `pendingReadActive`, `_pendingValueComputed`, and `getPendingValueComputed` in @solidjs/signals to align with the new name.
-- 568ed6f: Add ssrSource support for createEffect and createRenderEffect; fix server createEffect to run compute function
-
-## 2.0.0-experimental.15
+- c3e5e78: Async everywhere
+- 2645436: Update to R3 based signals
+- a4c833d: Update to new package layout, signals implementation, compiler
 
 ### Minor Changes
 
+- Move pre-release tag from experimental to beta
 - 75eebc2: feat: snapshot-based boundary-local hydration safety (Goal 4)
 
   Signal writes during hydration are now safe by construction. Each Loading boundary gets its own snapshot scope — computations created during hydration read snapshot values (matching server DOM) while writes update only the current value. After a boundary's sync hydration walk completes, its snapshot scope is released and stale computations rerun with current values.
@@ -35,113 +30,44 @@
 
 ### Patch Changes
 
+- 512fd5e: update signals to 0.3.0
+- dea16f3: Add client hydration support with tree-shakeable createMemo/createSignal wrappers, fix SSR context isolation for concurrent requests, align seroval serialization format, update @solidjs/signals to ^0.10.2
+- 15dc3c6: return of useTransition, small API tweaks
+- 874c256: fix input compilation, rebased dom-expressions
+- 4cab248: Fix Dynamic component hydration key misalignment by aligning server-side createDynamic owner tree with client
+- 1122d74: Fix server-side flow component hydration key alignment for Show, Errored, and Repeat
+- c78ec9f: Bump dom-expressions to 0.41.0-next.9 to fix SSR spread element hydration mismatch. Dynamic children of spread elements were incorrectly wrapped in memo() on the server, consuming extra owner slots and causing \_hk value misalignment with the client.
 - 9788bad: Harden SSR async error handling: add try/catch to Loading's async IIFE, serialize errors in createErrorBoundary for client hydration, and fix unhandled promise rejections in processResult
+- 21fff6f: Make insert render effects transparent and align SSR owner tree to fix hydration ID mismatches
 - 60f2922: Add hydration-aware wrappers for createErrorBoundary, createOptimistic, createProjection, createStore(fn), and createOptimisticStore(fn). Server-side createProjection now creates owner for ID alignment and handles async Promise returns. Bump @solidjs/signals to 0.10.4 for peekNextChildId support.
+- 433eae5: Make `children` helper lazy to prevent hydration mismatches when resolved children are never inserted into the DOM. Export `storePath` and related types (`StorePathRange`, `ArrayFilterFn`, `CustomPartial`, `Part`, `PathSetter`) from both client and server builds. Bump `@solidjs/signals` to 0.11.1.
+- b1646a5: update signals
+- e8d8403: add action helper
+- 1a1a5d4: add `from` to repeat
+- 5f29f14: Update signals, dom expressions to default attrs
 - 85aa54f: Refactor SSR stream blocking: delegate deferStream blocking to dom-expressions via serialize instead of imperative ctx.block() calls in processResult. Pass deferStream option through createSignal(fn), createMemo, and createProjection to serialize. Update dom-expressions to 0.41.0-next.3 for structural blocking support.
+- 433eae5: Rename `pending` API to `latest`. `isPending(() => latest(value))` reads more naturally than the redundant `isPending(() => pending(value))`. Also renames internal `pendingReadActive`, `_pendingValueComputed`, and `getPendingValueComputed` in @solidjs/signals to align with the new name.
+- c74106f: fix multi insert/removal, ssr wip, async signal render
 - f4b0956: fix(ssr): lock server-side comp.value to first async iterable value
 
   During SSR, async-iterable-backed computations (createMemo, createProjection) now lock their readable value to the first yield. Subsequent iterations still stream to the client via seroval, but SSR reads always return V1. This prevents hydration mismatches when Loading boundaries retry after the iterator has advanced.
 
   For projections, the SSR-visible store state is deep-cloned at first value resolution, isolating it from subsequent generator mutations (including nested object changes).
 
+- 3e3c875: remove runWithObserver, add back createReaction, createTrackedEffect
+- 568ed6f: Add ssrSource support for createEffect and createRenderEffect; fix server createEffect to run compute function
 - d1e6e29: Add dev-mode warning for untracked reactive reads in component bodies and control flow callbacks. Signals, memos, and store properties read outside a reactive scope now emit a console warning with the component or flow control name. Integrated into devComponent, Show, Match, For, and Repeat. Zero production overhead.
 - 84c80f9: Make devComponent use transparent owner so dev-mode IDs match production for hydration parity. Bump @solidjs/signals to 0.10.3 for transparent owner support.
+- 381d895: update signals to store/projections with returns
 - fbbd7e3: Update dependencies (signals 0.10.5, dom-expressions 0.41.0-next.5) and fix build compatibility with Turbo 2.x and TypeScript 5.9
-
-## 2.0.0-experimental.14
-
-### Patch Changes
-
-- dea16f3: Add client hydration support with tree-shakeable createMemo/createSignal wrappers, fix SSR context isolation for concurrent requests, align seroval serialization format, update @solidjs/signals to ^0.10.2
+- 53dcb14: expose new transition methods
 - dea16f3: Add server-side rendering implementation: pull-based server signals, streaming Loading component, SSR-aware flow controls, and hydration context infrastructure
 
-## 2.0.0-experimental.13
+## 1.9.11
 
 ### Patch Changes
 
-- e8d8403: add action helper
-
-## 2.0.0-experimental.12
-
-### Major Changes
-
-- c3e5e78: Async everywhere
-
-## 2.0.0-experimental.11
-
-### Major Changes
-
-- 2645436: Update to R3 based signals
-
-## 2.0.0-experimental.10
-
-### Patch Changes
-
-- 3e3c875: remove runWithObserver, add back createReaction, createTrackedEffect
-
-## 2.0.0-experimental.9
-
-### Patch Changes
-
-- 15dc3c6: return of useTransition, small API tweaks
-
-## 2.0.0-experimental.8
-
-### Patch Changes
-
-- 381d895: update signals to store/projections with returns
-
-## 2.0.0-experimental.7
-
-### Patch Changes
-
-- 53dcb14: expose new transition methods
-
-## 2.0.0-experimental.6
-
-### Patch Changes
-
-- 5f29f14: Update signals, dom expressions to default attrs
-
-## 2.0.0-experimental.5
-
-### Patch Changes
-
-- 512fd5e: update signals to 0.3.0, boundary component
-
-## 2.0.0-experimental.4
-
-### Patch Changes
-
-- 1a1a5d4: add `from` to repeat
-
-## 2.0.0-experimental.3
-
-### Patch Changes
-
-- c74106f: fix multi insert/removal, ssr wip, async signal render
-
-## 2.0.0-experimental.2
-
-### Patch Changes
-
-- 874c256: fix input compilation, rebased dom-expressions
-
-## 2.0.0-experimental.1
-
-### Patch Changes
-
-- 5c94067: update signals
-
-## 2.0.0-experimental.0
-
-### Major Changes
-
-- 1da85a3: Update to new package layout, signals implementation, compiler
-
-### Patch Changes
-
-- fff8aed: Update typescript to 5.7
+- 6628d9f: Update dom-expressions/seroval to latest
 
 ## 1.9.10
 

@@ -1,6 +1,6 @@
 {
   "mode": "pre",
-  "tag": "experimental",
+  "tag": "beta",
   "initialVersions": {
     "babel-preset-solid": "1.9.3",
     "solid-js": "1.9.4",
@@ -28,6 +28,7 @@
     "lazy-children-storepath",
     "lemon-mails-lick",
     "mean-bats-grin",
+    "move-to-beta",
     "perfect-spies-pretend",
     "purple-mayflies-give",
     "refactor-ssr-stream-blocking",
