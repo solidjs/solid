@@ -23,12 +23,11 @@ Solid 2.0 introduces an `action()` wrapper for async mutations and a pair of opt
 - refresh derived async computations via `refresh()`
 
 ```js
-const [todos] = createStore(() => api.getTodos(), { list: [] });
-const [optimisticTodos, setOptimisticTodos] = createOptimisticStore({ list: [] });
+const [todos, setOptimisticTodos] = createOptimisticStore(() => api.getTodos(), []);
 
 const saveTodo = action(function* (todo) {
   // optimistic write
-  setOptimisticTodos((s) => s.list.push(todo));
+  setOptimisticTodos((todos) => todos.push(todo));
 
   // perform async work
   yield api.addTodo(todo);
@@ -42,7 +41,7 @@ For better TS ergonomics, an async generator form is also viable:
 
 ```js
 const saveTodo = action(async function* (todo) {
-  setOptimisticTodos((s) => s.list.push(todo));
+  setOptimisticTodos((todos) => todos.push(todo));
   const res = await api.addTodo(todo);
   yield; // resume action in the same transition context
   refresh(todos);
@@ -94,8 +93,7 @@ const updateName = action(function* (next) {
 `createOptimisticStore(fnOrValue, initial?, options?)` is the store analogue. A common pattern is to derive from a source getter and then apply optimistic mutations in an action.
 
 ```js
-const [todos] = createStore(() => api.getTodos(), { list: [] });
-const [optimisticTodos, setOptimisticTodos] = createOptimisticStore(() => snapshot(todos), { list: [] });
+const [todos, setOptimisticTodos] = createOptimisticStore(() => api.getTodos(), []);
 
 const addTodo = action(function* (todo) {
   setOptimisticTodos((s) => s.list.push(todo));
