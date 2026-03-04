@@ -27,7 +27,7 @@ const [todos, setOptimisticTodos] = createOptimisticStore(() => api.getTodos(), 
 
 const saveTodo = action(function* (todo) {
   // optimistic write
-  setOptimisticTodos((todos) => todos.push(todo));
+  setOptimisticTodos((todos) => { todos.push(todo); });
 
   // perform async work
   yield api.addTodo(todo);
@@ -41,7 +41,7 @@ For better TS ergonomics, an async generator form is also viable:
 
 ```js
 const saveTodo = action(async function* (todo) {
-  setOptimisticTodos((todos) => todos.push(todo));
+  setOptimisticTodos((todos) => { todos.push(todo); });
   const res = await api.addTodo(todo);
   yield; // resume action in the same transition context
   refresh(todos);
@@ -67,7 +67,7 @@ refresh(() => query.user(id()));
 
 ```js
 // After a server write, refresh derived store reads
-const [todos] = createStore(() => api.getTodos(), { list: [] });
+const [todos] = createStore(() => api.getTodos(), []);
 
 const addTodo = action(function* (todo) {
   yield api.addTodo(todo);
@@ -96,7 +96,7 @@ const updateName = action(function* (next) {
 const [todos, setOptimisticTodos] = createOptimisticStore(() => api.getTodos(), []);
 
 const addTodo = action(function* (todo) {
-  setOptimisticTodos((s) => s.list.push(todo));
+  setOptimisticTodos((todos) => { todos.push(todo); });
   yield api.addTodo(todo);
   // refresh store/projection form (object with [$REFRESH])
   refresh(todos);
