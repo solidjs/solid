@@ -10,7 +10,7 @@ Solid 2.0 tightens the reactivity model: no writes under owned scope (with narro
 
 - **Writes under scope:** Writing to a signal inside a tracked context (e.g. inside an effect or component body) can cause subtle bugs and makes the graph harder to reason about. Split effects make it safe to disallow this by default.
 - **Strict top-level access (new):** Top-level reactive reads in component body can accidentally capture dependencies and re-run in async situations; in 2.0 we warn in dev unless the read is inside createMemo/createEffect or explicit `untrack`.
-- **Batching:** Synchronous batching with `batch()` is replaced by default microtask batching; the graph is immediately “askable” after a set, but DOM updates are deferred until the next microtask (or until `flush()`). This aligns with Vue/Svelte and simplifies the model; `batch` is no longer needed.
+- **Batching:** Synchronous batching with `batch()` is replaced by default microtask batching. Setters queue work; reads (and DOM/effects) reflect the update after the batch flushes (next microtask, or via `flush()`). This aligns with Vue/Svelte and simplifies the model; `batch` is no longer needed.
 - **Split effects:** Running all “tracking” (compute) halves of effects before any “effect” (callback) halves gives a clear dependency picture before side effects run, which is required for async, Loading, and Errored boundaries.
 
 ## Detailed design
@@ -82,7 +82,7 @@ Derived signals should not initiate other signals from reactive values except th
 
 ### `flush` and microtask batching
 
-Updates are applied on the next microtask by default: the graph is readable immediately after a set, but DOM and effect callbacks run later. Use **`flush()`** when you need to read the DOM right after a state change (e.g. focus):
+Updates are applied on the next microtask by default. After calling a setter, reads continue to return the last committed value until the batch is flushed (next microtask, or explicitly via `flush()`). DOM updates and effect callbacks also run after the flush. Use **`flush()`** when you need to read the DOM right after a state change (e.g. focus):
 
 ```js
 function handleSubmit() {
