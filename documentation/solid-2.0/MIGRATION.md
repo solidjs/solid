@@ -4,6 +4,7 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 
 ## Quick checklist (start here)
 
+- **Imports**: some 1.x subpath imports moved to `@solidjs/*` packages (and store helpers moved into `solid-js`).
 - **Batching/reads**: setters don’t immediately change what reads return; values become visible after the microtask batch flushes (or via `flush()`).
 - **Effects**: `createEffect` is split (compute → apply). Cleanup is usually “return a cleanup function”.
 - **Lifecycle**: `onMount` is replaced by `onSettled` (and it can return cleanup).
@@ -15,6 +16,50 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 - **Helpers**: `mergeProps` → `merge`, `splitProps` → `omit`.
 
 ## Core behavior changes
+
+### Imports: where things live now
+
+In Solid 2.0 beta, the DOM/web runtime is its own package, and some “subpath imports” from 1.x are gone.
+
+```ts
+// 1.x (DOM runtime)
+import { render, hydrate } from "solid-js/web";
+
+// 2.0 beta
+import { render, hydrate } from "@solidjs/web";
+```
+
+```ts
+// 1.x (stores)
+import { createStore } from "solid-js/store";
+
+// 2.0 beta (stores are exported from solid-js)
+import { createStore, reconcile, snapshot, storePath } from "solid-js";
+```
+
+```ts
+// 1.x (hyperscript / alternate JSX factory)
+import h from "solid-js/h";
+
+// 2.0 beta
+import h from "@solidjs/h";
+```
+
+```ts
+// 1.x (tagged-template HTML)
+import html from "solid-js/html";
+
+// 2.0 beta
+import html from "@solidjs/html";
+```
+
+```ts
+// 1.x (custom renderers)
+import { createRenderer } from "solid-js/universal";
+
+// 2.0 beta
+import { createRenderer } from "@solidjs/universal";
+```
 
 ### Batching & reads: values update after flush
 
@@ -407,6 +452,11 @@ const Theme = createContext("light");
 
 ## Quick rename / removal map (not exhaustive)
 
+- **`solid-js/web` → `@solidjs/web`**
+- **`solid-js/store` → `solid-js`**
+- **`solid-js/h` → `@solidjs/h`**
+- **`solid-js/html` → `@solidjs/html`**
+- **`solid-js/universal` → `@solidjs/universal`**
 - **`Suspense` → `Loading`**
 - **`ErrorBoundary` → `Errored`**
 - **`mergeProps` → `merge`**
