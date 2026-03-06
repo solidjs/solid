@@ -1,6 +1,7 @@
-import { getOwner, getNextChildId } from "@solidjs/signals";
+import { getOwner, getNextChildId, getContext } from "@solidjs/signals";
+import type { Context } from "@solidjs/signals";
 
-type SSRTemplateObject = { t: string[]; h: Function[]; p: Promise<any>[] };
+export type SSRTemplateObject = { t: string[]; h: Function[]; p: Promise<any>[] };
 
 export type HydrationContext = {
   id: string;
@@ -31,18 +32,23 @@ export type HydrationContext = {
   assets: any[];
   /** True only in renderToStream — enables async data serialization and streaming. */
   async?: boolean;
-  noHydrate: boolean;
+};
+
+export const NoHydrateContext: Context<boolean> = {
+  id: Symbol("NoHydrateContext"),
+  defaultValue: false
 };
 
 type SharedConfig = {
   context?: HydrationContext;
-  getNextContextId(): string;
+  getNextContextId(): string | undefined;
 };
 
 export const sharedConfig: SharedConfig = {
   getNextContextId() {
     const o = getOwner();
     if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+    if (getContext(NoHydrateContext)) return undefined;
     return getNextChildId(o);
   }
 };

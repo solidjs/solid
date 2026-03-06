@@ -5,15 +5,15 @@ import {
   createLoadBoundary,
   NotReadyError,
   ErrorContext,
-  getContext
+  getContext,
+  setContext
 } from "./signals.js";
-import { sharedConfig } from "./shared.js";
+import { sharedConfig, NoHydrateContext } from "./shared.js";
+import type { SSRTemplateObject } from "./shared.js";
 import type { JSX } from "../jsx.js";
 
-export { sharedConfig } from "./shared.js";
-export type { HydrationContext } from "./shared.js";
-
-type SSRTemplateObject = { t: string[]; h: Function[]; p: Promise<any>[] };
+export { sharedConfig, NoHydrateContext } from "./shared.js";
+export type { HydrationContext, SSRTemplateObject } from "./shared.js";
 
 /**
  * Handles errors during SSR rendering.
@@ -131,4 +131,31 @@ export function Loading(props: { fallback?: JSX.Element; children: JSX.Element }
   if (modules) ctx.serialize(id + "_assets", modules);
   ctx.serialize(id, "$$f");
   return runWithOwner(fallbackOwner, () => props.fallback) as unknown as JSX.Element;
+}
+
+/**
+ * Disables hydration for its children during SSR.
+ * Elements inside will not receive hydration keys (`_hk`) and signals will not be serialized.
+ * Use `Hydration` to re-enable hydration within a `NoHydration` zone.
+ */
+export function NoHydration(props: { children: JSX.Element }): JSX.Element {
+  const o = createOwner();
+  return runWithOwner(o, () => {
+    setContext(NoHydrateContext, true);
+    return props.children;
+  }) as unknown as JSX.Element;
+}
+
+/**
+ * Re-enables hydration within a `NoHydration` zone, establishing a new ID namespace.
+ * Pass an `id` prop matching the client's `hydrate({ renderId })` to align hydration keys.
+ * Has no effect when not inside a `NoHydration` zone (passthrough).
+ */
+export function Hydration(props: { id?: string; children: JSX.Element }): JSX.Element {
+  if (!getContext(NoHydrateContext)) return props.children as unknown as JSX.Element;
+  const o = createOwner({ id: props.id ?? "" });
+  return runWithOwner(o, () => {
+    setContext(NoHydrateContext, false);
+    return props.children;
+  }) as unknown as JSX.Element;
 }

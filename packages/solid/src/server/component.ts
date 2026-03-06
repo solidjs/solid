@@ -1,4 +1,11 @@
-import { NotReadyError, createMemo } from "./signals.js";
+import {
+  NotReadyError,
+  createMemo,
+  getNextChildId,
+  getOwner,
+  getContext,
+  NoHydrateContext
+} from "./signals.js";
 import { sharedConfig } from "./shared.js";
 import type { JSX } from "../jsx.js";
 
@@ -77,7 +84,7 @@ export function createComponent<T extends Record<string, any>>(
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
   moduleUrl?: string
-): T & { preload: () => Promise<{ default: T }> } {
+): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string } {
   let p: Promise<{ default: T }> & { v?: T };
   let load = () => {
     if (!p) {
@@ -90,15 +97,17 @@ export function lazy<T extends Component<any>>(
   };
   const wrap: Component<ComponentProps<T>> & {
     preload?: () => Promise<{ default: T }>;
+    moduleUrl?: string;
   } = props => {
-    if (!moduleUrl) {
+    const noHydrate = getContext(NoHydrateContext);
+    if (!noHydrate && !moduleUrl) {
       throw new Error(
         "lazy() used in SSR without a moduleUrl. " +
           "All lazy() components require a moduleUrl for correct hydration. " +
           "This is typically injected by the bundler plugin."
       );
     }
-    if (!sharedConfig.context?.resolveAssets) {
+    if (!noHydrate && !sharedConfig.context?.resolveAssets) {
       throw new Error(
         `lazy() called with moduleUrl "${moduleUrl}" but no asset manifest is set. ` +
           "Pass a manifest option to renderToStream/renderToString."
@@ -106,12 +115,14 @@ export function lazy<T extends Component<any>>(
     }
     load();
     const ctx = sharedConfig.context;
-    if (!ctx?.registerAsset || !ctx.resolveAssets) return;
-    const assets = ctx.resolveAssets(moduleUrl!);
+    if (!ctx?.registerAsset || !ctx.resolveAssets || !moduleUrl) return;
+    const assets = ctx.resolveAssets(moduleUrl);
     if (assets) {
       for (let i = 0; i < assets.css.length; i++) ctx.registerAsset("style", assets.css[i]);
-      for (let i = 0; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i]);
-      ctx.registerModule?.(moduleUrl!, assets.js[0]);
+      if (!noHydrate) {
+        for (let i = 0; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i]);
+        ctx.registerModule?.(moduleUrl, assets.js[0]);
+      }
     }
     if (ctx?.async) {
       ctx.block(
@@ -126,9 +137,12 @@ export function lazy<T extends Component<any>>(
     }) as unknown as JSX.Element;
   };
   wrap.preload = load;
-  return wrap as T & { preload: () => Promise<{ default: T }> };
+  wrap.moduleUrl = moduleUrl;
+  return wrap as T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
 }
 
 export function createUniqueId(): string {
-  return sharedConfig.getNextContextId();
+  const o = getOwner();
+  if (!o) throw new Error(`createUniqueId cannot be used outside of a reactive context`);
+  return getNextChildId(o);
 }

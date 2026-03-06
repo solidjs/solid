@@ -86,7 +86,7 @@ import type {
   Context
 } from "@solidjs/signals";
 
-import { sharedConfig } from "./shared.js";
+import { sharedConfig, NoHydrateContext } from "./shared.js";
 
 // === Observer tracking (for async memo) ===
 
@@ -331,6 +331,7 @@ function processResult<T>(
   if (comp.disposed) return;
   const id = owner.id;
   const uninitialized = comp.value === undefined;
+  const noHydrate = getContext(NoHydrateContext, owner);
 
   if (result instanceof Promise) {
     result.then(
@@ -343,7 +344,7 @@ function processResult<T>(
       },
       () => {}
     );
-    if (ctx?.async && ctx.serialize && id) ctx.serialize(id, result, deferStream);
+    if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, result, deferStream);
     if (uninitialized) {
       comp.error = new NotReadyError(result);
     }
@@ -365,7 +366,7 @@ function processResult<T>(
         },
         () => {}
       );
-      if (ctx?.async && ctx.serialize && id) ctx.serialize(id, promise, deferStream);
+      if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, promise, deferStream);
       if (uninitialized) {
         comp.error = new NotReadyError(promise);
       }
@@ -402,7 +403,7 @@ function processResult<T>(
         })
       };
 
-      if (ctx?.async && ctx.serialize && id) ctx.serialize(id, tapped, deferStream);
+      if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, tapped, deferStream);
       if (uninitialized) {
         comp.error = new NotReadyError(firstReady);
       }
@@ -633,7 +634,7 @@ export function createProjection<T extends object>(
         },
         () => {}
       );
-      if (ctx?.async && !ctx.noHydrate && owner.id)
+      if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
         ctx.serialize(owner.id, promise, options?.deferStream);
       const [pending, markReady] = createPendingProxy(state, promise);
       return pending;
@@ -687,7 +688,7 @@ export function createProjection<T extends object>(
         })
       };
 
-      if (ctx?.async && !ctx.noHydrate && owner.id)
+      if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
         ctx.serialize(owner.id, tapped, options?.deferStream);
       const [pending, markReady] = createPendingProxy(state, firstReady);
       return pending;
@@ -710,7 +711,7 @@ export function createProjection<T extends object>(
       },
       () => {}
     );
-    if (ctx?.async && !ctx.noHydrate && owner.id)
+    if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
       ctx.serialize(owner.id, promise, options?.deferStream);
     const [pending, markReady] = createPendingProxy(state, promise);
     return pending;
@@ -750,24 +751,32 @@ export function mapArray<T, U>(
   mapFn: (v: Accessor<T>, i: Accessor<number>) => U,
   options: { keyed?: boolean | ((item: T) => any); fallback?: Accessor<any> } = {}
 ): () => U[] {
-  const root = getOwner()!;
-  const id = getNextChildId(root);
+  const parent = createOwner();
   return () => {
     const items = list();
     let s: U[] = [];
     if (items && items.length) {
-      for (let i = 0, len = items.length; i < len; i++) {
-        const o = createOwner({ id: id + i });
-        s.push(
-          runWithOwner(o, () =>
-            mapFn(
-              () => items[i],
-              () => i
+      runWithOwner(parent, () => {
+        for (let i = 0, len = items.length; i < len; i++) {
+          const o = createOwner();
+          s.push(
+            runWithOwner(o, () =>
+              mapFn(
+                () => items[i],
+                () => i
+              )
             )
-          )
-        );
-      }
-    } else if (options.fallback) s = [options.fallback()];
+          );
+        }
+      });
+    } else if (options.fallback) {
+      s = [
+        runWithOwner(parent, () => {
+          const fo = createOwner();
+          return runWithOwner(fo, () => options.fallback!()) as U;
+        })
+      ];
+    }
     return s;
   };
 }
@@ -808,6 +817,8 @@ const ErrorContext: Context<((err: any) => void) | null> = {
 
 export { ErrorContext };
 
+export { NoHydrateContext };
+
 export function createErrorBoundary<U>(
   fn: () => any,
   fallback: (error: unknown, reset: () => void) => U
@@ -823,14 +834,14 @@ export function createErrorBoundary<U>(
     let result: any;
 
     setContext(ErrorContext, (err: any) => {
-      if (ctx && !ctx.noHydrate && owner.id) ctx.serialize(owner.id, err);
+      if (ctx && !getContext(NoHydrateContext) && owner.id) ctx.serialize(owner.id, err);
       result = fallback(err, () => {});
     });
 
     try {
       result = fn();
     } catch (err) {
-      if (ctx && !ctx.noHydrate && owner.id) ctx.serialize(owner.id, err);
+      if (ctx && !getContext(NoHydrateContext) && owner.id) ctx.serialize(owner.id, err);
       result = fallback(err, () => {});
     }
     return () => result;

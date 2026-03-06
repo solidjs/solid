@@ -33,7 +33,6 @@ describe("Testing Basics", () => {
   });
 });
 
-// TODO why is this suddenly failing?
 describe("Testing Loading", () => {
   let div = document.createElement("div"),
     disposer: () => void,

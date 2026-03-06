@@ -636,8 +636,8 @@ describe("SSR Streaming — Callbacks", () => {
 describe("SSR Streaming — Asset Discovery", () => {
   test("first-level lazy emits modulepreload link in head", async () => {
     const manifest = {
-      "./Home.tsx": { file: "/assets/Home-abc.js", imports: ["_shared"] },
-      _shared: { file: "/assets/shared-def.js" }
+      "./Home.tsx": { file: "assets/Home-abc.js", imports: ["_shared"] },
+      _shared: { file: "assets/shared-def.js" }
     };
 
     const Home = (props: any) => <div>Home Content</div>;
@@ -690,9 +690,9 @@ describe("SSR Streaming — Asset Discovery", () => {
 
   test("deduplicates modulepreload links across boundaries", async () => {
     const manifest = {
-      "./A.tsx": { file: "/assets/A.js", imports: ["_shared"] },
-      "./B.tsx": { file: "/assets/B.js", imports: ["_shared"] },
-      _shared: { file: "/assets/shared.js" }
+      "./A.tsx": { file: "assets/A.js", imports: ["_shared"] },
+      "./B.tsx": { file: "assets/B.js", imports: ["_shared"] },
+      _shared: { file: "assets/shared.js" }
     };
 
     const CompA = () => <div>A</div>;
@@ -729,7 +729,7 @@ describe("SSR Streaming — Asset Discovery", () => {
 
   test("$df remains pure DOM swap — no asset arguments", async () => {
     const manifest = {
-      "./Lazy.tsx": { file: "/assets/lazy.js" }
+      "./Lazy.tsx": { file: "assets/lazy.js" }
     };
 
     const Comp = () => <div>Streamed</div>;
@@ -762,8 +762,8 @@ describe("SSR Streaming — Asset Discovery", () => {
 
   test("per-boundary module map serialized via seroval", async () => {
     const manifest = {
-      "./Comp.tsx": { file: "/assets/comp.js", imports: ["_dep"] },
-      _dep: { file: "/assets/dep.js" }
+      "./Comp.tsx": { file: "assets/comp.js", imports: ["_dep"] },
+      _dep: { file: "assets/dep.js" }
     };
 
     const Comp = () => <div>Content</div>;
@@ -799,8 +799,8 @@ describe("SSR Streaming — Asset Discovery", () => {
 
   test("nested lazy emits modulepreload before fragment template", async () => {
     const manifest = {
-      "./Outer.tsx": { file: "/assets/outer.js" },
-      "./Inner.tsx": { file: "/assets/inner.js" }
+      "./Outer.tsx": { file: "assets/outer.js" },
+      "./Inner.tsx": { file: "assets/inner.js" }
     };
 
     const InnerComp = () => <span>Inner</span>;
@@ -845,7 +845,7 @@ describe("SSR Streaming — Asset Discovery", () => {
 
   test("nested fragment folding serializes inner boundary module map", async () => {
     const manifest = {
-      "./Inner.tsx": { file: "/assets/inner.js" }
+      "./Inner.tsx": { file: "assets/inner.js" }
     };
 
     const InnerComp = () => <span>InnerContent</span>;
@@ -889,7 +889,7 @@ describe("SSR Streaming — Asset Discovery", () => {
 describe("SSR Streaming — CSS Asset Handling", () => {
   test("REPLACE_SCRIPT includes $dfs and $dfc helper definitions", async () => {
     const manifest = {
-      "./Comp.tsx": { file: "/assets/comp.js" }
+      "./Comp.tsx": { file: "assets/comp.js" }
     };
 
     const Comp = () => <div>Content</div>;
@@ -928,7 +928,7 @@ describe("SSR Streaming — CSS Asset Handling", () => {
 
   test("pre-flush lazy CSS goes to head and uses $df (not $dfs) at fragment resolution", async () => {
     const manifest = {
-      "./Styled.tsx": { file: "/assets/styled.js", css: ["/assets/styled.css"] }
+      "./Styled.tsx": { file: "assets/styled.js", css: ["assets/styled.css"] }
     };
 
     const StyledComp = () => <div>Styled</div>;
@@ -978,8 +978,8 @@ describe("SSR Streaming — CSS Asset Handling", () => {
 
   test("shared CSS between boundaries — only emitted once in head", async () => {
     const manifest = {
-      "./A.tsx": { file: "/assets/a.js", css: ["/assets/shared.css"] },
-      "./B.tsx": { file: "/assets/b.js", css: ["/assets/shared.css"] }
+      "./A.tsx": { file: "assets/a.js", css: ["assets/shared.css"] },
+      "./B.tsx": { file: "assets/b.js", css: ["assets/shared.css"] }
     };
 
     const CompA = () => <div>A</div>;
@@ -1036,8 +1036,8 @@ describe("SSR Streaming — CSS Asset Handling", () => {
 describe("renderToString — Asset Discovery", () => {
   test("lazy emits modulepreload link in head", () => {
     const manifest = {
-      "./Home.tsx": { file: "/assets/Home-abc.js", imports: ["_shared"] },
-      _shared: { file: "/assets/shared-def.js" }
+      "./Home.tsx": { file: "assets/Home-abc.js", imports: ["_shared"] },
+      _shared: { file: "assets/shared-def.js" }
     };
 
     const Home = (props: any) => <div>Home Content</div>;
@@ -1064,8 +1064,8 @@ describe("renderToString — Asset Discovery", () => {
 
   test("serializes module map for boundary", () => {
     const manifest = {
-      "./Comp.tsx": { file: "/assets/comp.js", imports: ["_dep"] },
-      _dep: { file: "/assets/dep.js" }
+      "./Comp.tsx": { file: "assets/comp.js", imports: ["_dep"] },
+      _dep: { file: "assets/dep.js" }
     };
 
     const Comp = () => <div>Content</div>;
@@ -1097,9 +1097,9 @@ describe("renderToString — Asset Discovery", () => {
 
   test("deduplicates modulepreload links across boundaries", () => {
     const manifest = {
-      "./A.tsx": { file: "/assets/A.js", imports: ["_shared"] },
-      "./B.tsx": { file: "/assets/B.js", imports: ["_shared"] },
-      _shared: { file: "/assets/shared.js" }
+      "./A.tsx": { file: "assets/A.js", imports: ["_shared"] },
+      "./B.tsx": { file: "assets/B.js", imports: ["_shared"] },
+      _shared: { file: "assets/shared.js" }
     };
 
     const CompA = () => <div>A</div>;
@@ -1133,7 +1133,7 @@ describe("renderToString — Asset Discovery", () => {
 
   test("serializes $$f marker for deferred boundary", () => {
     const manifest = {
-      "./Home.tsx": { file: "/assets/Home.js" }
+      "./Home.tsx": { file: "assets/Home.js" }
     };
 
     const Home = () => <div>Home</div>;
@@ -1160,7 +1160,7 @@ describe("renderToString — Asset Discovery", () => {
 
   test("does not serialize async data (promises)", () => {
     const manifest = {
-      "./Profile.tsx": { file: "/assets/profile.js" }
+      "./Profile.tsx": { file: "assets/profile.js" }
     };
 
     const Profile = (props: any) => <div>{props.name}</div>;
@@ -1221,8 +1221,8 @@ describe("renderToString — Asset Discovery", () => {
 describe("Entry CSS Auto-Discovery", () => {
   test("entry CSS is injected into head via registerEntryAssets (streaming)", async () => {
     const manifest = {
-      "src/index.tsx": { file: "/assets/index-abc.js", isEntry: true, css: ["/assets/main.css"] },
-      "./Lazy.tsx": { file: "/assets/lazy.js", isDynamicEntry: true }
+      "src/index.tsx": { file: "assets/index-abc.js", isEntry: true, css: ["assets/main.css"] },
+      "./Lazy.tsx": { file: "assets/lazy.js", isDynamicEntry: true }
     };
 
     const Comp = () => <div>Content</div>;
@@ -1251,7 +1251,7 @@ describe("Entry CSS Auto-Discovery", () => {
 
   test("entry CSS is injected into head via registerEntryAssets (renderToString)", () => {
     const manifest = {
-      "src/index.tsx": { file: "/assets/index-abc.js", isEntry: true, css: ["/assets/main.css"] }
+      "src/index.tsx": { file: "assets/index-abc.js", isEntry: true, css: ["assets/main.css"] }
     };
 
     const html = renderToString(
@@ -1272,8 +1272,8 @@ describe("Entry CSS Auto-Discovery", () => {
 
   test("entry CSS from transitive imports is collected", async () => {
     const manifest = {
-      "src/index.tsx": { file: "/assets/index.js", isEntry: true, imports: ["src/shared.tsx"] },
-      "src/shared.tsx": { file: "/assets/shared.js", css: ["/assets/shared.css"] }
+      "src/index.tsx": { file: "assets/index.js", isEntry: true, imports: ["src/shared.tsx"] },
+      "src/shared.tsx": { file: "assets/shared.js", css: ["assets/shared.css"] }
     };
 
     const html = renderToString(
@@ -1294,7 +1294,7 @@ describe("Entry CSS Auto-Discovery", () => {
 
   test("no entry in manifest — no CSS injected, no crash", () => {
     const manifest = {
-      "./Lazy.tsx": { file: "/assets/lazy.js", isDynamicEntry: true }
+      "./Lazy.tsx": { file: "assets/lazy.js", isDynamicEntry: true }
     };
 
     const html = renderToString(
@@ -1315,11 +1315,11 @@ describe("Entry CSS Auto-Discovery", () => {
 
   test("entry CSS deduplicates with lazy component CSS (streaming)", async () => {
     const manifest = {
-      "src/index.tsx": { file: "/assets/index.js", isEntry: true, css: ["/assets/shared.css"] },
+      "src/index.tsx": { file: "assets/index.js", isEntry: true, css: ["assets/shared.css"] },
       "./Styled.tsx": {
-        file: "/assets/styled.js",
+        file: "assets/styled.js",
         isDynamicEntry: true,
-        css: ["/assets/shared.css", "/assets/styled.css"]
+        css: ["assets/shared.css", "assets/styled.css"]
       }
     };
 
@@ -1467,7 +1467,7 @@ describe("SSR — Fragment wrapping props.children", () => {
       "./Home"
     );
 
-    const manifest = { "./Home": { file: "/assets/Home.js" } };
+    const manifest = { "./Home": { file: "assets/Home.js" } };
 
     function App() {
       return (

@@ -14,7 +14,17 @@ import {
 
 export * from "./client.js";
 
-export { For, Show, Switch, Match, Errored, Loading, merge as mergeProps } from "solid-js";
+export {
+  For,
+  Show,
+  Switch,
+  Match,
+  Errored,
+  Loading,
+  NoHydration,
+  Hydration,
+  merge as mergeProps
+} from "solid-js";
 
 export * from "./server-mock.js";
 

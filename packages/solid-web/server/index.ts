@@ -12,7 +12,17 @@ import {
 
 export * from "./server.js";
 
-export { For, Show, Loading, Switch, Match, Repeat, Errored } from "solid-js";
+export {
+  For,
+  Show,
+  Loading,
+  Switch,
+  Match,
+  Repeat,
+  Errored,
+  NoHydration,
+  Hydration
+} from "solid-js";
 
 export const isServer: boolean = true;
 export const isDev: boolean = false;

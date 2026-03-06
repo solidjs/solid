@@ -81,7 +81,10 @@ export {
   createOptimistic,
   createOptimisticStore,
   createRenderEffect,
-  createEffect
+  createEffect,
+  NoHydration,
+  Hydration,
+  NoHydrateContext
 } from "./client/hydration.js";
 // stub
 export function ssrHandleError() {}

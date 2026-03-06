@@ -52,7 +52,7 @@ describe("Strict Read Warning", () => {
     });
 
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/Untracked reactive read/i);
+    expect(warn.mock.calls[0][0]).toMatch(/Reactive value read at the top level/i);
     warn.mockRestore();
   });
 

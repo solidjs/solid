@@ -22,7 +22,7 @@ function solidAssetManifest() {
         if (chunk.type !== "chunk" || !chunk.facadeModuleId) continue;
         const rel = chunkKeyByFileName[fileName];
         if (!rel) continue;
-        const entry = { file: "/js/" + fileName };
+        const entry = { file: "js/" + fileName };
         if (chunk.isEntry) entry.isEntry = true;
         if (chunk.isDynamicEntry) entry.isDynamicEntry = true;
         const imports = chunk.imports

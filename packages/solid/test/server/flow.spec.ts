@@ -9,6 +9,7 @@ import {
   Match,
   Errored,
   getOwner,
+  mapArray,
   ssrRunInScope
 } from "../../src/server/index.js";
 
@@ -397,6 +398,61 @@ describe("Transparent insert effect alignment", () => {
         // Second Show: conditionValue(t3), condition(t4), value memo(t5)
         expect(firstShowChildId).toBe("t2");
         expect(secondShowChildId).toBe("t5");
+      },
+      { id: "t" }
+    );
+  });
+});
+
+describe("Server mapArray ID parity (base-36)", () => {
+  test("item owner IDs use base-36 encoding, not decimal", () => {
+    createRoot(
+      () => {
+        const items = Array.from({ length: 12 }, (_, i) => i);
+        const itemOwnerIds: (string | undefined)[] = [];
+        const read = mapArray(
+          () => items,
+          (item, index) => {
+            itemOwnerIds.push((getOwner() as any)?.id);
+            return `item-${index()}`;
+          }
+        );
+        // Force evaluation
+        read();
+
+        // mapArray creates a parent owner (t0), then createMemo wraps the
+        // closure (t1). Items are children of the parent owner (t0).
+        // Base-36: 0-9 → "0"-"9", 10 → "a", 11 → "b"
+        expect(itemOwnerIds.length).toBe(12);
+        expect(itemOwnerIds[0]).toBe("t00");
+        expect(itemOwnerIds[9]).toBe("t09");
+        expect(itemOwnerIds[10]).toBe("t0a");
+        expect(itemOwnerIds[11]).toBe("t0b");
+      },
+      { id: "t" }
+    );
+  });
+
+  test("For with 11+ items produces base-36 owner IDs", () => {
+    createRoot(
+      () => {
+        const items = Array.from({ length: 11 }, (_, i) => i);
+        const itemOwnerIds: (string | undefined)[] = [];
+        const result = For({
+          each: items as readonly number[],
+          children: (item, index) => {
+            itemOwnerIds.push((getOwner() as any)?.id);
+            return `v-${index()}`;
+          }
+        });
+        // For wraps mapArray in createMemo — evaluate
+        typeof result === "function" ? (result as any)() : result;
+
+        // For → createMemo(t0) wrapping mapArray's closure
+        // mapArray parent owner: t1
+        // Item owners under t1: t10, t11, ..., t19, t1a
+        expect(itemOwnerIds[10]).toMatch(/a$/);
+        expect(itemOwnerIds[10]).not.toMatch(/10$/);
       },
       { id: "t" }
     );

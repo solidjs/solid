@@ -23,7 +23,11 @@ import {
   type Owner,
   type ProjectionOptions,
   type Store,
-  type StoreSetter
+  type StoreSetter,
+  createOwner,
+  getContext,
+  setContext,
+  type Context
 } from "@solidjs/signals";
 import { JSX } from "../jsx.js";
 import { IS_DEV } from "./core.js";
@@ -49,6 +53,11 @@ export type HydrationProjectionOptions = ProjectionOptions & {
 
 export type HydrationContext = {};
 
+export const NoHydrateContext: Context<boolean> = {
+  id: Symbol("NoHydrateContext"),
+  defaultValue: false
+};
+
 type SharedConfig = {
   hydrating: boolean;
   resources?: { [key: string]: any };
@@ -71,6 +80,7 @@ export const sharedConfig: SharedConfig = {
   getNextContextId() {
     const o = getOwner();
     if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+    if (getContext(NoHydrateContext)) return undefined as unknown as string;
     return getNextChildId(o);
   }
 };
@@ -817,4 +827,25 @@ export function Loading(props: { fallback?: JSX.Element; children: JSX.Element }
       () => props.fallback
     );
   }) as unknown as JSX.Element;
+}
+
+/**
+ * Disables hydration for its children on the client.
+ * During hydration, skips the subtree entirely (returns undefined so DOM is left untouched).
+ * After hydration, renders children fresh.
+ */
+export function NoHydration(props: { children: JSX.Element }): JSX.Element {
+  const o = createOwner();
+  return runWithOwner(o, () => {
+    setContext(NoHydrateContext, true);
+    if (sharedConfig.hydrating) return undefined as unknown as JSX.Element;
+    return props.children;
+  }) as unknown as JSX.Element;
+}
+
+/**
+ * Re-enables hydration within a NoHydration zone (passthrough on client).
+ */
+export function Hydration(props: { id?: string; children: JSX.Element }): JSX.Element {
+  return props.children as unknown as JSX.Element;
 }
