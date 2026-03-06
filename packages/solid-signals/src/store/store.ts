@@ -270,7 +270,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     }
     if (__DEV__ && strictRead && !tracking && typeof property === "string")
       console.warn(
-        `Untracked reactive read in ${strictRead}. This value won't update \u2014 use untrack() if intentional.`
+        `Reactive value read at the top level of ${strictRead} will not update. ` +
+          `Move it into a tracking scope (JSX, computations, effects).`
       );
     return isWrappable(value) ? wrap(value, target) : value;
   },

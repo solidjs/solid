@@ -488,12 +488,20 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     (el as Computed<unknown>)._flags &= ~REACTIVE_LAZY;
     recompute(el as Computed<any>, true);
   }
+  const owner = (el as FirewallSignal<any>)._firewall || el;
+
+  if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING) {
+    throw new Error(
+      `Reading a pending async value in ${strictRead}. ` +
+        `Async values must be read within a tracking scope (JSX, computations, effects).`
+    );
+  }
+
   if (c && tracking) {
     if ((el as Computed<unknown>)._fn && (el as Computed<unknown>)._flags & REACTIVE_DISPOSED)
       recompute(el as Computed<any>);
     link(el, c as Computed<any>);
 
-    const owner = (el as FirewallSignal<any>)._firewall || el;
     if ((owner as Computed<unknown>)._fn) {
       const isZombie = (el as Computed<unknown>)._flags & REACTIVE_ZOMBIE;
       if (owner._height >= (isZombie ? zombieQueue._min : dirtyQueue._min)) {
@@ -509,25 +517,24 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
   }
 
-  const asyncCompute = (el as FirewallSignal<any>)._firewall || el;
-  if (asyncCompute._statusFlags & STATUS_PENDING) {
-    if (c && !(stale && asyncCompute._transition && activeTransition !== asyncCompute._transition)) {
+  if (owner._statusFlags & STATUS_PENDING) {
+    if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (currentOptimisticLane) {
         // Per-lane suspension: only throw if in same lane as pending async
         // AND the node doesn't have an active override (overrides are the visible value,
         // downstream in the lane should read the override, not throw)
-        const pendingLane = (asyncCompute as any)._optimisticLane;
+        const pendingLane = (owner as any)._optimisticLane;
         const lane = findLane(currentOptimisticLane);
-        if (pendingLane && findLane(pendingLane) === lane && !hasActiveOverride(asyncCompute)) {
+        if (pendingLane && findLane(pendingLane) === lane && !hasActiveOverride(owner)) {
           if (!tracking) link(el, c as Computed<any>);
-          throw asyncCompute._error;
+          throw owner._error;
         }
       } else {
         if (!tracking) link(el, c as Computed<any>);
-        throw asyncCompute._error;
+        throw owner._error;
       }
-    } else if (!c && asyncCompute._statusFlags & STATUS_UNINITIALIZED) {
-      throw asyncCompute._error;
+    } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
+      throw owner._error;
     }
   }
   if ((el as Computed<any>)._fn && (el as Computed<any>)._statusFlags & STATUS_ERROR) {
@@ -550,7 +557,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (__DEV__ && strictRead && !tracking)
     console.warn(
-      `Untracked reactive read in ${strictRead}. This value won't update \u2014 use untrack() if intentional.`
+      `Reactive value read at the top level of ${strictRead} will not update. ` +
+        `Move it into a tracking scope (JSX, computations, effects).`
     );
 
   // In lane context, always return _value (optimistic overrides and lane member values are there)

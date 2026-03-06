@@ -1,11 +1,13 @@
 import {
   createLoadBoundary,
+  createMemo,
   createProjection,
   createRenderEffect,
   createRoot,
   createSignal,
   flush,
-  NotReadyError
+  NotReadyError,
+  setStrictRead
 } from "../src/index.js";
 
 describe("createLoadBoundary", () => {
@@ -242,5 +244,56 @@ describe("createLoadBoundary", () => {
 
     // Should have latest value
     expect(result).toBe(4);
+  });
+
+  it("throws dev error when pending async memo is read at top level with strictRead", () => {
+    createRoot(() => {
+      const boundary = createLoadBoundary(
+        () => {
+          const data = createMemo(async () => {
+            await Promise.resolve();
+            return "Hello world!";
+          });
+          const prev = setStrictRead("TestComponent");
+          try {
+            data();
+          } finally {
+            setStrictRead(prev);
+          }
+          return "content";
+        },
+        () => "loading"
+      );
+
+      flush();
+      expect(() => boundary()).toThrow(
+        "Reading a pending async value in TestComponent"
+      );
+    });
+  });
+
+  it("throws dev error with strictRead for delayed async memo in boundary children", () => {
+    createRoot(() => {
+      const boundary = createLoadBoundary(
+        () => {
+          const data = createMemo(async () => {
+            return "loaded";
+          });
+          const prev = setStrictRead("App");
+          try {
+            data();
+          } finally {
+            setStrictRead(prev);
+          }
+          return "content";
+        },
+        () => "loading"
+      );
+
+      flush();
+      expect(() => boundary()).toThrow(
+        "Reading a pending async value in App"
+      );
+    });
   });
 });
