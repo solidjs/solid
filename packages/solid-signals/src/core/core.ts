@@ -158,6 +158,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let oldHeight = el._height;
   let prevTracking = tracking;
   let prevLane = currentOptimisticLane;
+  let prevStrictRead: string | false = false;
+  if (__DEV__) { prevStrictRead = strictRead; strictRead = false; }
   tracking = true;
   if (isOptimisticDirty) {
     const lane = resolveLane(el);
@@ -191,6 +193,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
   } finally {
     tracking = prevTracking;
+    if (__DEV__) strictRead = prevStrictRead;
     el._flags = REACTIVE_NONE | (create ? (el._flags & REACTIVE_SNAPSHOT_STALE) : 0);
     context = oldcontext;
   }

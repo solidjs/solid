@@ -246,55 +246,53 @@ describe("createLoadBoundary", () => {
     expect(result).toBe(4);
   });
 
-  it("throws dev error when pending async memo is read at top level with strictRead", () => {
+  it("throws dev error when pending async value is read outside tracking scope with strictRead", () => {
     createRoot(() => {
-      const boundary = createLoadBoundary(
-        () => {
-          const data = createMemo(async () => {
-            await Promise.resolve();
-            return "Hello world!";
-          });
-          const prev = setStrictRead("TestComponent");
-          try {
-            data();
-          } finally {
-            setStrictRead(prev);
-          }
-          return "content";
-        },
-        () => "loading"
-      );
+      const data = createMemo(async () => {
+        await Promise.resolve();
+        return "Hello world!";
+      });
 
       flush();
-      expect(() => boundary()).toThrow(
-        "Reading a pending async value in TestComponent"
-      );
+      const prev = setStrictRead("TestComponent");
+      try {
+        expect(() => data()).toThrow(
+          "Reading a pending async value in TestComponent"
+        );
+      } finally {
+        setStrictRead(prev);
+      }
     });
   });
 
-  it("throws dev error with strictRead for delayed async memo in boundary children", () => {
+  it("does not throw dev error when pending async value is read inside a tracking scope", async () => {
+    let result: any;
     createRoot(() => {
-      const boundary = createLoadBoundary(
-        () => {
-          const data = createMemo(async () => {
-            return "loaded";
-          });
-          const prev = setStrictRead("App");
-          try {
-            data();
-          } finally {
-            setStrictRead(prev);
-          }
-          return "content";
-        },
-        () => "loading"
-      );
+      const data = createMemo(async () => {
+        await Promise.resolve();
+        return "Hello world!";
+      });
 
       flush();
-      expect(() => boundary()).toThrow(
-        "Reading a pending async value in App"
+      const prev = setStrictRead("TestComponent");
+      const boundary = createLoadBoundary(
+        () => data(),
+        () => "loading"
       );
+      createRenderEffect(
+        () => (result = boundary()),
+        () => {}
+      );
+      setStrictRead(prev);
     });
+
+    flush();
+    expect(result).toBe("loading");
+
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(result).toBe("Hello world!");
   });
 
   describe("async memo resolves to same value as initial (solidjs#2604)", () => {
