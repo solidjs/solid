@@ -296,4 +296,100 @@ describe("createLoadBoundary", () => {
       );
     });
   });
+
+  describe("async memo resolves to same value as initial (solidjs#2604)", () => {
+    it("same value resolves through boundary", async () => {
+      let result: any;
+
+      createRoot(() => {
+        const data = createMemo(async () => {
+          await Promise.resolve();
+          return 100;
+        }, 100);
+
+        const boundary = createLoadBoundary(
+          () => data(),
+          () => "loading"
+        );
+
+        createRenderEffect(
+          () => (result = boundary()),
+          () => {}
+        );
+      });
+
+      flush();
+      expect(result).toBe("loading");
+
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(result).toBe(100);
+    });
+
+    it("different value resolves through boundary", async () => {
+      let result: any;
+
+      createRoot(() => {
+        const data = createMemo(async () => {
+          await Promise.resolve();
+          return 101;
+        }, 100);
+
+        const boundary = createLoadBoundary(
+          () => data(),
+          () => "loading"
+        );
+
+        createRenderEffect(
+          () => (result = boundary()),
+          () => {}
+        );
+      });
+
+      flush();
+      expect(result).toBe("loading");
+
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(result).toBe(101);
+    });
+
+    it("does not re-run compute when resolving same value", async () => {
+      let callCount = 0;
+      let result: any;
+
+      createRoot(() => {
+        const data = createMemo(async () => {
+          callCount++;
+          await Promise.resolve();
+          return 100;
+        }, 100);
+
+        const boundary = createLoadBoundary(
+          () => data(),
+          () => "loading"
+        );
+
+        createRenderEffect(
+          () => (result = boundary()),
+          () => {}
+        );
+      });
+
+      flush();
+      expect(callCount).toBe(1);
+      expect(result).toBe("loading");
+
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(result).toBe(100);
+      expect(callCount).toBe(1);
+    });
+  });
 });

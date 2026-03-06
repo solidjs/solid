@@ -360,8 +360,9 @@ export function finalizePureQueue(
         // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
         if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
       }
-      // Clear STATUS_UNINITIALIZED on first value commit (was preserved during clearStatus)
-      (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
+      // Clear STATUS_UNINITIALIZED on first value commit, but only if no longer pending
+      if (!((n as Computed<unknown>)._statusFlags & STATUS_PENDING))
+        (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
       if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
     }
     pendingNodes.length = 0;

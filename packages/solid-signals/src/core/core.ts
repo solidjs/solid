@@ -596,7 +596,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
 
-  const valueChanged = !el._equals || !el._equals(currentValue, v);
+  const valueChanged = !el._equals || !el._equals(currentValue, v) || !!(el._statusFlags & STATUS_UNINITIALIZED);
   if (!valueChanged) {
     // For optimistic computeds with an active override from a previous action,
     // a correction may have updated _value to match the new override value.
