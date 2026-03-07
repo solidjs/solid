@@ -409,8 +409,8 @@ export function isEqual<T>(a: T, b: T): boolean {
 }
 
 /**
- * Returns the current value stored inside the given compute function without triggering any
- * dependencies. Use `untrack` if you want to also disable owner tracking.
+ * When set to a component name string, any reactive read that is not inside a nested tracking
+ * scope will log a dev-mode warning. Managed automatically by `untrack(fn, strictReadLabel)`.
  */
 export let strictRead: string | false = false;
 export function setStrictRead(v: string | false): string | false {
@@ -419,23 +419,23 @@ export function setStrictRead(v: string | false): string | false {
   return prev;
 }
 
-export function untrack<T>(fn: () => T): T {
-  if (!tracking && (!__DEV__ || !strictRead)) return fn();
+/**
+ * Executes `fn` without tracking reactive dependencies.
+ *
+ * Pass a `strictReadLabel` string to enable strict-read warnings: any reactive read inside `fn`
+ * that is not inside a nested tracking scope will log a warning in dev mode.
+ */
+export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
+  if (!tracking && (!__DEV__ || (!strictRead && !strictReadLabel))) return fn();
+  const prevTracking = tracking;
+  const prevStrictRead = strictRead;
   tracking = false;
-  if (__DEV__ && strictRead) {
-    const prev = strictRead;
-    strictRead = false;
-    try {
-      return fn();
-    } finally {
-      tracking = true;
-      strictRead = prev;
-    }
-  }
+  if (__DEV__) strictRead = strictReadLabel || false;
   try {
     return fn();
   } finally {
-    tracking = true;
+    tracking = prevTracking;
+    if (__DEV__) strictRead = prevStrictRead;
   }
 }
 
@@ -558,7 +558,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
   }
 
-  if (__DEV__ && strictRead && !tracking)
+  if (__DEV__ && strictRead)
     console.warn(
       `Reactive value read at the top level of ${strictRead} will not update. ` +
         `Move it into a tracking scope (JSX, computations, effects).`

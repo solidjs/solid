@@ -13,7 +13,7 @@ import {
   type Computed,
   type Signal
 } from "../core/index.js";
-import { snapshotCaptureActive, snapshotSources, strictRead, tracking } from "../core/core.js";
+import { snapshotCaptureActive, snapshotSources, strictRead } from "../core/core.js";
 import { globalQueue, projectionWriteActive } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
@@ -268,7 +268,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         );
       }
     }
-    if (__DEV__ && strictRead && !tracking && typeof property === "string")
+    if (__DEV__ && strictRead && typeof property === "string")
       console.warn(
         `Reactive value read at the top level of ${strictRead} will not update. ` +
           `Move it into a tracking scope (JSX, computations, effects).`

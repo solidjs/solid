@@ -7,7 +7,7 @@ import {
   createSignal,
   flush,
   NotReadyError,
-  setStrictRead
+  untrack
 } from "../src/index.js";
 
 describe("createLoadBoundary", () => {
@@ -254,14 +254,11 @@ describe("createLoadBoundary", () => {
       });
 
       flush();
-      const prev = setStrictRead("TestComponent");
-      try {
+      untrack(() => {
         expect(() => data()).toThrow(
           "Reading a pending async value in TestComponent"
         );
-      } finally {
-        setStrictRead(prev);
-      }
+      }, "TestComponent");
     });
   });
 
@@ -274,16 +271,16 @@ describe("createLoadBoundary", () => {
       });
 
       flush();
-      const prev = setStrictRead("TestComponent");
-      const boundary = createLoadBoundary(
-        () => data(),
-        () => "loading"
-      );
-      createRenderEffect(
-        () => (result = boundary()),
-        () => {}
-      );
-      setStrictRead(prev);
+      untrack(() => {
+        const boundary = createLoadBoundary(
+          () => data(),
+          () => "loading"
+        );
+        createRenderEffect(
+          () => (result = boundary()),
+          () => {}
+        );
+      }, "TestComponent");
     });
 
     flush();

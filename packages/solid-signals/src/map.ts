@@ -3,11 +3,11 @@ import {
   read,
   runWithOwner,
   setSignal,
-  setStrictRead,
   signal,
   type Root,
   type Signal
 } from "./core/index.js";
+import { setStrictRead } from "./core/core.js";
 import { createMemo, type Accessor } from "./signals.js";
 import { $TRACK } from "./store/index.js";
 

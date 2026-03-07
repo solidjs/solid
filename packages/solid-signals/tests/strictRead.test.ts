@@ -5,7 +5,6 @@ import {
   createSignal,
   createStore,
   flush,
-  setStrictRead,
   untrack
 } from "../src/index.js";
 
@@ -19,14 +18,7 @@ describe("strictRead", () => {
     const [$x] = createSignal(10);
 
     createRoot(() => {
-      untrack(() => {
-        setStrictRead(COMP);
-        try {
-          $x();
-        } finally {
-          setStrictRead(false);
-        }
-      });
+      untrack(() => $x(), COMP);
     });
 
     expect(warn).toHaveBeenCalledTimes(1);
@@ -41,14 +33,7 @@ describe("strictRead", () => {
     createRoot(() => {
       const $m = createMemo(() => $x() * 2);
       flush();
-      untrack(() => {
-        setStrictRead(COMP);
-        try {
-          $m();
-        } finally {
-          setStrictRead(false);
-        }
-      });
+      untrack(() => $m(), COMP);
     });
 
     expect(warn).toHaveBeenCalledTimes(1);
@@ -62,13 +47,8 @@ describe("strictRead", () => {
     createRoot(() => {
       const [store] = createStore({ count: 0 });
       untrack(() => {
-        setStrictRead(COMP);
-        try {
-          void store.count;
-        } finally {
-          setStrictRead(false);
-        }
-      });
+        void store.count;
+      }, COMP);
     });
 
     expect(warn).toHaveBeenCalledTimes(1);
@@ -81,9 +61,9 @@ describe("strictRead", () => {
     const [$x] = createSignal(10);
 
     createRoot(() => {
-      setStrictRead(COMP);
-      createMemo(() => $x() * 2);
-      setStrictRead(false);
+      untrack(() => {
+        createMemo(() => $x() * 2);
+      }, COMP);
     });
     flush();
 
@@ -96,12 +76,12 @@ describe("strictRead", () => {
     const [$x] = createSignal(10);
 
     createRoot(() => {
-      setStrictRead(COMP);
-      createEffect(
-        () => $x(),
-        () => {}
-      );
-      setStrictRead(false);
+      untrack(() => {
+        createEffect(
+          () => $x(),
+          () => {}
+        );
+      }, COMP);
     });
     flush();
 
@@ -109,40 +89,33 @@ describe("strictRead", () => {
     warn.mockRestore();
   });
 
-  it("does not warn when explicit untrack clears strictRead", () => {
+  it("does not warn when nested untrack clears strictRead", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const [$x] = createSignal(10);
 
     createRoot(() => {
-      setStrictRead(COMP);
       untrack(() => {
-        $x();
-      });
-      setStrictRead(false);
+        untrack(() => {
+          $x();
+        });
+      }, COMP);
     });
 
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 
-  it("restores strictRead correctly through nested calls", () => {
+  it("restores strictRead correctly through nested untrack calls", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const [$x] = createSignal(10);
 
     createRoot(() => {
       untrack(() => {
-        const prev = setStrictRead(COMP);
-        try {
-          const inner = setStrictRead(false);
-          expect(inner).toBe(COMP);
-          $x(); // strictRead is false, no warn
-          setStrictRead(inner); // restore to COMP
-
-          $x(); // strictRead is COMP again, should warn
-        } finally {
-          setStrictRead(prev);
-        }
-      });
+        untrack(() => {
+          $x(); // inner untrack clears strictRead, no warn
+        });
+        $x(); // strictRead is COMP again after inner restores, should warn
+      }, COMP);
     });
 
     expect(warn).toHaveBeenCalledTimes(1);
