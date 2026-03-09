@@ -3,7 +3,6 @@ import {
   computed,
   getOwner,
   handleAsync,
-  setSignal,
   type Computed
 } from "../core/index.js";
 import { setProjectionWriteActive } from "../core/scheduler.js";
@@ -54,7 +53,6 @@ export function createProjectionInternal<T extends object = {}>(
         value !== s &&
           value !== undefined &&
           storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
-        setSignal(owner, undefined);
       });
       value !== s &&
         value !== undefined &&
