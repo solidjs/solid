@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, expect, test, beforeEach, afterEach } from "vitest";
+import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import {
   createRoot,
   flush,
@@ -998,7 +998,7 @@ describe("Async Iterable Hydration — createMemo", () => {
     expect(result).toBe(42);
   });
 
-  test("server+AI: subsequent sync values consumed immediately, visible after scope release", () => {
+  test("server+AI: subsequent sync values consumed via async, visible after scope release", async () => {
     const ai = createBufferedAsyncIterable([42, 99]);
     startHydration({ t0: ai });
 
@@ -1015,13 +1015,14 @@ describe("Async Iterable Hydration — createMemo", () => {
     expect(result()).toBe(42);
 
     stopHydration();
+    await Promise.resolve();
     flush();
 
-    // After scope release, memo recomputes with current value (99)
+    // After scope release + microtask, second value is consumed
     expect(result()).toBe(99);
   });
 
-  test("server+AI: empty iterator — first value undefined", () => {
+  test("server+AI: empty iterator — computed is pending", () => {
     const ai = createBufferedAsyncIterable([]);
     startHydration({ t0: ai });
 
@@ -1034,7 +1035,7 @@ describe("Async Iterable Hydration — createMemo", () => {
     );
     flush();
 
-    expect(result()).toBeUndefined();
+    expect(() => result()).toThrow();
   });
 
   test("server+AI: pending async value applied after resolution", async () => {
@@ -1120,7 +1121,7 @@ describe("Async Iterable Hydration — createProjection", () => {
     expect(store.count).toBe(42);
   });
 
-  test("server+AI: sync patches consumed immediately and applied to store", () => {
+  test("server+AI: sync patches consumed greedily and applied to store", () => {
     const patches = [[["name"], "Bob"]];
     const ai = createBufferedAsyncIterable([{ name: "Alice", count: 0 }, patches]);
     startHydration({ t0: ai });
@@ -1139,7 +1140,6 @@ describe("Async Iterable Hydration — createProjection", () => {
     );
     flush();
 
-    // Patches consumed immediately — store reflects patched values
     expect(store.name).toBe("Bob");
     expect(store.count).toBe(0);
 
@@ -1168,7 +1168,6 @@ describe("Async Iterable Hydration — createProjection", () => {
     );
     flush();
 
-    // First value used for initial state, patches applied immediately
     expect(store.user.name).toBe("Alice");
     expect(store.user.profile.bio).toBe("Updated");
 
@@ -1202,7 +1201,7 @@ describe("Async Iterable Hydration — createStore(fn)", () => {
     stopHydration();
   });
 
-  test("server+AI: first value used, patches consumed immediately", () => {
+  test("server+AI: first value used, patches consumed greedily", () => {
     const patches = [[["count"], 99]];
     const ai = createBufferedAsyncIterable([{ name: "Alice", count: 0 }, patches]);
     startHydration({ t0: ai });
@@ -1221,7 +1220,6 @@ describe("Async Iterable Hydration — createStore(fn)", () => {
     );
     flush();
 
-    // First value used for hydration, sync patches consumed immediately
     expect(store.name).toBe("Alice");
     expect(store.count).toBe(99);
 
@@ -1650,5 +1648,382 @@ describe("Snapshot Hydration", () => {
 
     expect(callbackFired).toBe(true);
     expect(valueAtCallback).toBe(42);
+  });
+});
+
+// ============================================================================
+// Loading + Async Iterable end-to-end pipeline
+// ============================================================================
+//
+// These tests wire the full hydration pipeline: Loading boundary with a pending
+// promise + inner primitives (createMemo/createProjection) backed by buffered
+// async iterables — the exact path that real SSR produces but existing unit
+// tests skip by calling createMemo/createProjection directly.
+//
+// ID scheme (matching server's fake-depth trick):
+//   root "t"
+//     └─ Loading coreMemo "t0"        (Loading boundary data)
+//         └─ createOwner "t00"         (createCollectionBoundary)
+//             └─ computed(fn) "t000"   (createBoundChildren)
+//                 └─ user's primitive  "t0000"  (async iterable data)
+
+describe("Loading + Async Iterable end-to-end pipeline", () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    stopHydration();
+    delete (globalThis as any)._$HY;
+    warnSpy.mockRestore();
+  });
+
+  function makeLoadingPromise() {
+    let resolve!: () => void;
+    const p: any = new Promise<void>(r => {
+      resolve = () => {
+        p.s = 1;
+        p.v = true;
+        r();
+      };
+    });
+    return { promise: p, resolve };
+  }
+
+  test("Loading + createMemo: first value from async iterable available after resume", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+    const ai = createBufferedAsyncIterable([42]);
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: ai },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: ai });
+
+    let memo: any;
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(() => 0);
+            return memo();
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(typeof result).toBe("function");
+    expect(result()).toBe("loading...");
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    // After resume, the memo should read the first value from the async iterable
+    expect(memo()).toBe(42);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("Loading + createMemo: subsequent async values propagate (JSX-like pattern)", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+    const ai = createBufferedAsyncIterable([42]);
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: ai },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: ai });
+
+    let memo: any;
+    let childrenCallCount = 0;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            childrenCallCount++;
+            memo = createMemo(() => 0);
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    expect(childrenCallCount).toBe(1);
+    expect(memo()).toBe(42);
+
+    // Push a new value — should NOT cause children to re-run
+    ai.push(99);
+    await new Promise<void>(r => setTimeout(r, 20));
+    flush();
+
+    expect(childrenCallCount).toBe(1);
+    expect(memo()).toBe(99);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("Loading + createMemo: multiple sync-buffered values consumed correctly", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+    const ai = createBufferedAsyncIterable([42, 99, 200]);
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: ai },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: ai });
+
+    let memo: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(() => 0);
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    // After snapshot release, the latest sync-consumed value should be visible
+    expect(memo()).toBe(200);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("Loading + createMemo: direct read in children getter still works after fix", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+    const ai = createBufferedAsyncIterable([42]);
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: ai },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: ai });
+
+    let memo: any;
+    let childrenCallCount = 0;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            childrenCallCount++;
+            memo = createMemo(() => 0);
+            return memo();
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    expect(childrenCallCount).toBe(1);
+    expect(memo()).toBe(42);
+
+    ai.push(99);
+    await new Promise<void>(r => setTimeout(r, 20));
+    flush();
+
+    // Direct read causes children to re-evaluate (expected reactive behavior),
+    // but the memo value should reflect the push since flush() is no longer
+    // called synchronously during computation.
+    expect(childrenCallCount).toBe(2);
+    // The new memo is non-hydrated since sharedConfig.hydrating is false
+    expect(memo()).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("Loading + createProjection: first value (full state) hydrates store", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+    const ai = createBufferedAsyncIterable([{ name: "Alice", count: 42 }]);
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: ai },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: ai });
+
+    let store: any;
+    createRoot(
+      () => {
+        const result = Loading({
+          fallback: "loading...",
+          get children() {
+            store = createProjection(
+              (draft: any) => {
+                draft.name = "client";
+              },
+              { name: "", count: 0 }
+            );
+            return store;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    expect(store.name).toBe("Alice");
+    expect(store.count).toBe(42);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("Loading + createProjection: patches streamed after first value", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+    const patches = [[["name"], "Bob"]];
+    const ai = createBufferedAsyncIterable([{ name: "Alice", count: 0 }, patches]);
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: ai },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: ai });
+
+    let store: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            store = createProjection(
+              (draft: any) => {
+                draft.name = "client";
+              },
+              { name: "", count: 0 }
+            );
+            return store;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    expect(store.name).toBe("Bob");
+    expect(store.count).toBe(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Hybrid mode: server serializes { v, s } (resolved promise-like), not
+  // async iterable. Client falls through to the standard memo/store path.
+  // ---------------------------------------------------------------------------
+
+  test("Loading + createMemo (hybrid): first value hydrates from { v, s } data", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: { v: 42, s: 1 } },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: { v: 42, s: 1 } });
+
+    let memo: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(() => 0, undefined, { ssrSource: "hybrid" });
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    expect(memo()).toBe(42);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("Loading + createProjection (hybrid): first value hydrates store from { v, s } data", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+    const serverState = { name: "Alice", count: 42 };
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp, t0000: { v: serverState, s: 1 } },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp, t0000: { v: serverState, s: 1 } });
+
+    let store: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            store = createProjection(
+              (draft: any) => {
+                draft.name = "client";
+              },
+              { name: "", count: 0 },
+              { ssrSource: "hybrid" }
+            );
+            return store;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+
+    expect(store.name).toBe("Alice");
+    expect(store.count).toBe(42);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

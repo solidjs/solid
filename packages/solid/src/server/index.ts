@@ -1,6 +1,7 @@
 // From mock signals (same exports that index.ts pulls from @solidjs/signals)
 export {
   $PROXY,
+  $REFRESH,
   $TRACK,
   action,
   createEffect,
@@ -40,6 +41,7 @@ export {
   snapshot,
   storePath,
   createDeepProxy,
+  setOnUnhandledAsync,
   untrack
 } from "./signals.js";
 

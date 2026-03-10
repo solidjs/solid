@@ -18,11 +18,12 @@ export {
   ContextNotFoundError,
   isEqual,
   isWrappable,
-  SUPPORTS_PROXY
+  SUPPORTS_PROXY,
+  setOnUnhandledAsync
 } from "@solidjs/signals";
 
 export { flatten } from "@solidjs/signals";
-export { snapshot, merge, omit, storePath, $PROXY, $TRACK } from "@solidjs/signals";
+export { snapshot, merge, omit, storePath, $PROXY, $REFRESH, $TRACK } from "@solidjs/signals";
 
 // === Type re-exports ===
 
@@ -129,36 +130,13 @@ export function createSignal<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T>
 ): Signal<T | undefined> {
-  // Function form delegates to createMemo-based writable signal
   if (typeof first === "function") {
-    const ssrSource = third?.ssrSource;
-    if (ssrSource === "initial" || ssrSource === "client") {
-      // Skip computation — allocate owner for ID parity, return simple signal with initialValue
-      createOwner();
-      let value = second as T;
-      return [
-        () => value,
-        v => {
-          return ((value as any) = typeof v === "function" ? (v as (prev: T) => T)(value as T) : v);
-        }
-      ] as Signal<T | undefined>;
-    }
-    const memoOpts =
-      third?.deferStream || ssrSource ? { deferStream: third?.deferStream, ssrSource } : undefined;
-    const memo = createMemo<Signal<T>>(
-      p => {
-        let value = (first as (prev?: T) => T)(p ? p[0]() : (second as T));
-        return [
-          () => value,
-          v => {
-            return ((value as any) = typeof v === "function" ? (v as (prev: T) => T)(value) : v);
-          }
-        ] as Signal<T>;
-      },
-      undefined as any,
-      memoOpts
-    );
-    return [() => memo()[0](), (v => memo()[1](v as any)) as Setter<T | undefined>];
+    const opts =
+      third?.deferStream || third?.ssrSource
+        ? { deferStream: third?.deferStream, ssrSource: third?.ssrSource }
+        : undefined;
+    const memo = createMemo<T>((prev: T) => (first as (prev?: T) => T)(prev), second as T, opts);
+    return [memo, (() => undefined) as Setter<T | undefined>];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations)
   return [
@@ -360,20 +338,18 @@ function processResult<T>(
         (v: IteratorResult<T>) => {
           (promise as any).s = 1;
           (promise as any).v = v.value;
-          if (comp.disposed) return;
+          if (comp.disposed) return v.value;
           comp.value = v.value;
           comp.error = undefined;
+          return v.value;
         },
         () => {}
       );
       if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, promise, deferStream);
-      if (uninitialized) {
-        comp.error = new NotReadyError(promise);
-      }
+      comp.error = new NotReadyError(promise);
     } else {
-      // Full streaming ("server" or default): eagerly start the first iteration
-      // (starts the generator), then provide a tapped wrapper for seroval to
-      // consume all values (first replayed, subsequent lazy).
+      // Full streaming ("server" or default): eagerly start the first iteration.
+      // Tapped wrapper replays first value, then delegates to iter for the rest.
       const firstNext = iter.next();
 
       const firstReady = firstNext.then(
@@ -381,32 +357,32 @@ function processResult<T>(
           if (comp.disposed) return;
           if (!r.done) {
             comp.value = r.value;
-            comp.error = undefined;
           }
+          comp.error = undefined;
+          // Resolve nesting: returning a Promise delays firstReady's settlement
+          // by 1 microtask, giving seroval's push() time to call stream.next()
+          // before the Loading boundary fires done().
+          return Promise.resolve();
         },
         () => {}
       );
 
-      let servedFirst = false;
-      const tapped = {
-        [Symbol.asyncIterator]: () => ({
-          next() {
-            if (!servedFirst) {
-              servedFirst = true;
-              return firstNext.then((r: IteratorResult<T>) => {
-                if (!r.done && !comp.disposed) comp.value = r.value;
-                return r;
-              });
+      if (ctx?.async && ctx.serialize && id && !noHydrate) {
+        let tappedFirst = true;
+        const tapped = {
+          [Symbol.asyncIterator]: () => ({
+            next() {
+              if (tappedFirst) {
+                tappedFirst = false;
+                return firstNext.then((r: IteratorResult<T>) => r);
+              }
+              return iter.next().then((r: IteratorResult<T>) => r);
             }
-            return iter.next().then((r: IteratorResult<T>) => r);
-          }
-        })
-      };
-
-      if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, tapped, deferStream);
-      if (uninitialized) {
-        comp.error = new NotReadyError(firstReady);
+          })
+        };
+        ctx.serialize(id, tapped, deferStream);
       }
+      comp.error = new NotReadyError(firstReady);
     }
     return;
   }
@@ -624,13 +600,14 @@ export function createProjection<T extends object>(
           (promise as any).s = 1;
           if (disposed) {
             (promise as any).v = state;
-            return;
+            return state;
           }
           if (r.value !== undefined && r.value !== state) {
             Object.assign(state, r.value);
           }
           (promise as any).v = state;
           markReady();
+          return state;
         },
         () => {}
       );
@@ -639,9 +616,8 @@ export function createProjection<T extends object>(
       const [pending, markReady] = createPendingProxy(state, promise);
       return pending;
     } else {
-      // Full streaming: eagerly start first iteration, then provide tapped
-      // wrapper for seroval. First yield is the full state snapshot (aligned
-      // with Promise serialization). Subsequent yields are patch batches.
+      // Full streaming: eagerly start first iteration. Tapped wrapper replays
+      // first value as full state snapshot, then yields patch batches.
       const firstNext = iter.next();
 
       const firstReady = firstNext.then(
@@ -656,40 +632,44 @@ export function createProjection<T extends object>(
           // Lock SSR-visible state at V1: subsequent generator mutations update
           // `state` (for draft/patch correctness) but reads go through the frozen copy.
           markReady(JSON.parse(JSON.stringify(state)) as T);
+          // Resolve nesting: delays firstReady's settlement by 1 microtask,
+          // giving seroval's push() time to call stream.next() before the
+          // Loading boundary fires done().
+          return Promise.resolve();
         },
         () => {
           markReady();
         }
       );
 
-      let servedFirst = false;
-      const tapped = {
-        [Symbol.asyncIterator]: () => ({
-          next() {
-            if (!servedFirst) {
-              servedFirst = true;
-              return firstNext.then((r: IteratorResult<void | T>) => {
-                if (!r.done && !disposed) return { done: false, value: state };
-                return { done: r.done, value: undefined };
+      if (ctx?.async && !getContext(NoHydrateContext) && owner.id) {
+        let tappedFirst = true;
+        const tapped = {
+          [Symbol.asyncIterator]: () => ({
+            next() {
+              if (tappedFirst) {
+                tappedFirst = false;
+                return firstNext.then((r: IteratorResult<void | T>) => {
+                  if (r.done) return { done: true as const, value: undefined };
+                  return { done: false as const, value: JSON.parse(JSON.stringify(state)) };
+                });
+              }
+              return iter.next().then((r: IteratorResult<void | T>) => {
+                if (disposed) return { done: true as const, value: undefined };
+                const flushed = patches.splice(0);
+                if (!r.done) {
+                  if (r.value !== undefined && r.value !== draft) {
+                    Object.assign(state, r.value as T);
+                  }
+                  return { done: false as const, value: flushed };
+                }
+                return { done: true as const, value: undefined };
               });
             }
-            return iter.next().then((r: IteratorResult<void | T>) => {
-              if (disposed) return { done: true, value: undefined };
-              const flushed = patches.splice(0);
-              if (!r.done) {
-                if (r.value !== undefined && r.value !== draft) {
-                  Object.assign(state, r.value as T);
-                }
-                return { done: false, value: flushed };
-              }
-              return { done: true, value: undefined };
-            });
-          }
-        })
-      };
-
-      if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
+          })
+        };
         ctx.serialize(owner.id, tapped, options?.deferStream);
+      }
       const [pending, markReady] = createPendingProxy(state, firstReady);
       return pending;
     }

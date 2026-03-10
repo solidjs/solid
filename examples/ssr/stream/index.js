@@ -12,7 +12,13 @@ const manifest = JSON.parse(
 const app = express();
 const port = 3000;
 
-app.use(express.static(url.fileURLToPath(new URL("../public", import.meta.url))));
+app.use(
+  express.static(url.fileURLToPath(new URL("../public", import.meta.url)), {
+    etag: false,
+    lastModified: false,
+    setHeaders: res => res.setHeader("Cache-Control", "no-store")
+  })
+);
 
 app.get("*", (req, res) => {
   res.setHeader("Cache-Control", "no-store");

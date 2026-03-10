@@ -1,5 +1,6 @@
 export {
   $PROXY,
+  $REFRESH,
   $TRACK,
   action,
   createOwner,
@@ -28,6 +29,7 @@ export {
   resolve,
   NotReadyError,
   runWithOwner,
+  setOnUnhandledAsync,
   snapshot,
   storePath,
   untrack

@@ -20,6 +20,7 @@ import {
   markSnapshotScope,
   releaseSnapshotScope,
   clearSnapshots,
+  $REFRESH,
   type Owner,
   type ProjectionOptions,
   type Store,
@@ -203,11 +204,42 @@ function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
   }
 }
 
-function consumeFirstSync(ai: any): [any, AsyncIterator<any>] {
-  const iter = ai[Symbol.asyncIterator]();
-  const r = iter.next();
-  const value = !(r instanceof Promise) && !r.done ? r.value : undefined;
-  return [value, iter];
+function syncThenable(value: any) {
+  return {
+    then(fn: any) {
+      fn(value);
+    }
+  };
+}
+
+function normalizeIterator(it: any) {
+  let first = true;
+  let buffered: any = null;
+  return {
+    next() {
+      if (first) {
+        first = false;
+        const r = it.next();
+        return r && typeof r.then === "function" ? r : syncThenable(r);
+      }
+      if (buffered) {
+        const b = buffered;
+        buffered = null;
+        return b;
+      }
+      let latest = it.next();
+      if (latest && typeof latest.then === "function") return latest;
+      while (!latest.done) {
+        const peek = it.next();
+        if (peek && typeof peek.then === "function") {
+          buffered = peek;
+          break;
+        }
+        latest = peek;
+      }
+      return Promise.resolve(latest);
+    }
+  };
 }
 
 function applyPatches(target: any, patches: any[]) {
@@ -226,25 +258,6 @@ function applyPatches(target: any, patches: any[]) {
   }
 }
 
-function scheduleIteratorConsumption(iter: AsyncIterator<any>, apply: (value: any) => void) {
-  const consume = () => {
-    while (true) {
-      const n: any = iter.next();
-      if (n instanceof Promise) {
-        n.then((r: any) => {
-          if (r.done) return;
-          apply(r.value);
-          consume();
-        });
-        return;
-      }
-      if (n.done) break;
-      apply(n.value);
-    }
-  };
-  consume();
-}
-
 function isAsyncIterable(v: any): boolean {
   return v != null && typeof v[Symbol.asyncIterator] === "function";
 }
@@ -258,40 +271,91 @@ function hydrateSignalFromAsyncIterable(
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
   if (!sharedConfig.has!(expectedId)) return null;
-  const initP = sharedConfig.load!(expectedId);
-  if (!isAsyncIterable(initP)) return null;
+  const loaded = sharedConfig.load!(expectedId);
+  if (!isAsyncIterable(loaded)) return null;
 
-  const [firstValue, iter] = consumeFirstSync(initP);
-  const [get, set] = coreSignal(firstValue);
-  const result = coreFn(() => get(), firstValue, options);
-  scheduleIteratorConsumption(iter, (v: any) => {
-    set(() => v);
-    flush();
-  });
-  return result;
+  const it = normalizeIterator(loaded[Symbol.asyncIterator]());
+  const iterable = {
+    [Symbol.asyncIterator]() {
+      return it;
+    }
+  };
+  return coreFn(() => iterable, value, options);
 }
 
 function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, options: any): any {
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
   if (!sharedConfig.has!(expectedId)) return null;
-  const initP = sharedConfig.load!(expectedId);
-  if (!isAsyncIterable(initP)) return null;
+  const loaded = sharedConfig.load!(expectedId);
+  if (!isAsyncIterable(loaded)) return null;
 
-  const [firstState, iter] = consumeFirstSync(initP);
-  const [store, setStore] = coreFn(() => {}, firstState ?? initialValue, options);
-  scheduleIteratorConsumption(iter, (patches: any) => {
-    setStore((d: any) => {
-      applyPatches(d, patches);
-    });
-  });
-  return [store, setStore];
+  const srcIt = loaded[Symbol.asyncIterator]();
+  let isFirst = true;
+  let buffered: any = null;
+  return coreFn(
+    (draft: any) => {
+      const process = (res: any) => {
+        if (res.done) return { done: true, value: undefined };
+        if (isFirst) {
+          isFirst = false;
+          if (Array.isArray(res.value)) {
+            for (let i = 0; i < res.value.length; i++) draft[i] = res.value[i];
+            draft.length = res.value.length;
+          } else {
+            Object.assign(draft, res.value);
+          }
+        } else {
+          applyPatches(draft, res.value);
+        }
+        return { done: false, value: undefined };
+      };
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              if (isFirst) {
+                const r = srcIt.next();
+                return r && typeof r.then === "function"
+                  ? r.then(process)
+                  : syncThenable(process(r));
+              }
+              if (buffered) {
+                const b = buffered;
+                buffered = null;
+                return b.then(process);
+              }
+              let r = srcIt.next();
+              if (r && typeof r.then === "function") {
+                return r.then(process);
+              }
+              let result = process(r);
+              while (!r.done) {
+                const peek = srcIt.next();
+                if (peek && typeof peek.then === "function") {
+                  buffered = peek;
+                  break;
+                }
+                r = peek;
+                if (!r.done) result = process(r);
+              }
+              return Promise.resolve(result);
+            }
+          };
+        }
+      };
+    },
+    initialValue,
+    options
+  );
 }
 
 // --- Hydration-aware implementations ---
 
 function hydratedCreateMemo(compute: any, value?: any, options?: any) {
-  if (!sharedConfig.hydrating) return coreMemo(compute, value, options);
+  if (!sharedConfig.hydrating) {
+    return coreMemo(compute, value, options);
+  }
   markTopLevelSnapshotScope();
 
   const ssrSource = options?.ssrSource;
@@ -521,15 +585,17 @@ function hydratedCreateOptimisticStore(first?: any, second?: any, third?: any) {
 }
 
 function hydratedCreateProjection(fn: any, initialValue?: any, options?: any) {
-  if (!sharedConfig.hydrating) return coreProjection(fn, initialValue, options);
+  if (!sharedConfig.hydrating) {
+    return coreProjection(fn, initialValue, options);
+  }
   markTopLevelSnapshotScope();
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client" || ssrSource === "initial") {
     return coreProjection((draft: any) => draft, initialValue, options);
   }
 
-  const aiResult = hydrateStoreFromAsyncIterable(coreStore, initialValue, options);
-  if (aiResult !== null) return aiResult[0];
+  const aiResult = hydrateStoreFromAsyncIterable(coreProjection, initialValue, options);
+  if (aiResult !== null) return aiResult;
 
   return coreProjection(wrapStoreFn(fn, ssrSource), initialValue, options);
 }
@@ -673,7 +739,8 @@ export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue?: T,
   options?: HydrationProjectionOptions
-) => Store<T> = ((...args: any[]) => (_createProjection || coreProjection)(...args)) as any;
+) => Store<T> & { [$REFRESH]: any } = ((...args: any[]) =>
+  (_createProjection || coreProjection)(...args)) as any;
 
 type NoFn<T> = T extends Function ? never : T;
 
@@ -683,7 +750,7 @@ export const createStore: {
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     store?: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
-  ): [get: Store<T>, set: StoreSetter<T>];
+  ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 } = ((...args: any[]) => (_createStore || coreStore)(...args)) as any;
 
 export const createOptimisticStore: {
@@ -692,7 +759,7 @@ export const createOptimisticStore: {
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     store?: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
-  ): [get: Store<T>, set: StoreSetter<T>];
+  ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 } = ((...args: any[]) => (_createOptimisticStore || coreOptimisticStore)(...args)) as any;
 
 export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>

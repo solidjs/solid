@@ -9,6 +9,7 @@ import {
   createStore,
   untrack,
   flush,
+  $DEVCOMP,
   JSX
 } from "../src/index.js";
 
@@ -159,6 +160,60 @@ describe("Strict Read Warning", () => {
     });
 
     expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  test("warns when component is wrapped by solid-refresh HMR proxy", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [count] = createSignal(0);
+
+    function MyComponent() {
+      count();
+      return null;
+    }
+
+    // Simulate solid-refresh@next createProxy + $$component
+    let current: any = MyComponent;
+    const [comp] = createSignal(() => current);
+
+    function HMRComp(props: any) {
+      const s = untrack(comp);
+      if (!s || $DEVCOMP in s) {
+        return createMemo(
+          () => {
+            const c = comp();
+            if (c) {
+              return untrack(() => c(props), c[$DEVCOMP] && `<${c.name || "Anonymous"}>`);
+            }
+            return undefined;
+          },
+          undefined,
+          { name: "[solid-refresh]MyComponent", transparent: true }
+        );
+      }
+      return s(props);
+    }
+
+    const proxy = new Proxy(HMRComp, {
+      get(_, property) {
+        if (property === "location" || property === "name")
+          return HMRComp[property as keyof typeof HMRComp];
+        return (comp() as any)[property];
+      },
+      set(_, property, value) {
+        (comp() as any)[property] = value;
+        return true;
+      }
+    });
+
+    createRoot(() => {
+      createComponent(proxy as any, {});
+    });
+
+    const strictReadWarns = warn.mock.calls.filter((c: any) =>
+      String(c[0]).includes("Reactive value read at the top level")
+    );
+    expect(strictReadWarns.length).toBeGreaterThanOrEqual(1);
     warn.mockRestore();
   });
 });

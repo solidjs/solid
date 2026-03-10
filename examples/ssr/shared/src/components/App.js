@@ -5,6 +5,7 @@ import Profile from "./Profile";
 
 const Home = lazy(() => import("./Home"), "./Home");
 const Settings = lazy(() => import("./Settings"), "./Settings");
+const Stream = lazy(() => import("./Stream"), "./Stream");
 
 const App = RouteHOC(() => {
   const [location, { matches }] = useContext(RouterContext);
@@ -29,6 +30,9 @@ const App = RouteHOC(() => {
             <li class={{ selected: matches("settings") }}>
               <Link path="settings">Settings</Link>
             </li>
+            <li class={{ selected: matches("stream") }}>
+              <Link path="stream">Stream</Link>
+            </li>
           </ul>
           <div class={["tab", { pending: isPending(location) }]}>
             <Loading fallback={<span class="loader">Loading...</span>}>
@@ -41,6 +45,9 @@ const App = RouteHOC(() => {
                 </Match>
                 <Match when={matches("settings")}>
                   <Settings />
+                </Match>
+                <Match when={matches("stream")}>
+                  <Stream />
                 </Match>
               </Switch>
             </Loading>

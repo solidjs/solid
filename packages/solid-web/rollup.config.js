@@ -51,7 +51,7 @@ export default [
         format: "es"
       }
     ],
-    external: ["solid-js"],
+    external: ["solid-js", "@solidjs/signals"],
     plugins: [replaceDev(false)].concat(plugins)
   },
   {
@@ -66,7 +66,7 @@ export default [
         format: "es"
       }
     ],
-    external: ["solid-js", "stream", "seroval", "seroval-plugins/web"],
+    external: ["solid-js", "@solidjs/signals", "stream", "seroval", "seroval-plugins/web"],
     plugins
   },
   {
@@ -81,7 +81,7 @@ export default [
         format: "es"
       }
     ],
-    external: ["solid-js"],
+    external: ["solid-js", "@solidjs/signals"],
     plugins: [replaceDev(true)].concat(plugins)
   },
   {

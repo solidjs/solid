@@ -1,5 +1,6 @@
 //@ts-nocheck
 import { createMemo, createRenderEffect } from "solid-js";
+import { createMemo as coreMemo } from "@solidjs/signals";
 export {
   getOwner,
   runWithOwner,
@@ -16,4 +17,9 @@ export {
 export const effect = (fn, effectFn, initial) =>
   createRenderEffect(fn, effectFn, initial, { transparent: true });
 
-export const memo = fn => createMemo(() => fn());
+export const memo = (fn, transparent) =>
+  transparent
+    ? fn.$r
+      ? fn
+      : coreMemo(() => fn(), undefined, { transparent: true })
+    : createMemo(() => fn());

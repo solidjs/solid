@@ -3,7 +3,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, createUniqueId, JSX, children, flush } from "solid-js";
+import { createRoot, createSignal, createUniqueId, JSX, children, Show, flush } from "solid-js";
 
 describe("Basic element attributes", () => {
   test("spread", () => {
@@ -110,5 +110,81 @@ describe("Basic element attributes", () => {
     expect(res.innerHTML).toBe(
       "<div><span>Hello</span></div><div><span>Hello</span></div><div><span>Jake</span></div>"
     );
+  });
+});
+
+describe("Insert caching (issue #2610)", () => {
+  test("Show component does not cause sibling to re-render", () => {
+    let siblingRenderCount = 0;
+    const Sibling = () => {
+      siblingRenderCount++;
+      return <span>sibling</span>;
+    };
+
+    const [show, setShow] = createSignal(true);
+    let div!: HTMLDivElement;
+
+    createRoot(() => {
+      div = (
+        <div>
+          <Show when={show()}>visible</Show>
+          <Sibling />
+        </div>
+      ) as HTMLDivElement;
+    });
+    flush();
+
+    expect(siblingRenderCount).toBe(1);
+    expect(div.innerHTML).toBe("visible<span>sibling</span>");
+
+    setShow(false);
+    flush();
+
+    expect(siblingRenderCount).toBe(1);
+    expect(div.innerHTML).toBe("<span>sibling</span>");
+
+    setShow(true);
+    flush();
+
+    expect(siblingRenderCount).toBe(1);
+    expect(div.innerHTML).toBe("visible<span>sibling</span>");
+  });
+
+  test("multiple Show toggles do not re-render siblings", () => {
+    let siblingRenderCount = 0;
+    const Sibling = () => {
+      siblingRenderCount++;
+      return <span>sibling</span>;
+    };
+
+    const [show, setShow] = createSignal(false);
+    let div!: HTMLDivElement;
+
+    createRoot(() => {
+      div = (
+        <div>
+          <Show when={show()}>
+            <span>content</span>
+          </Show>
+          <Sibling />
+        </div>
+      ) as HTMLDivElement;
+    });
+    flush();
+
+    expect(siblingRenderCount).toBe(1);
+    expect(div.innerHTML).toBe("<span>sibling</span>");
+
+    for (let i = 0; i < 5; i++) {
+      setShow(true);
+      flush();
+      expect(siblingRenderCount).toBe(1);
+      expect(div.innerHTML).toBe("<span>content</span><span>sibling</span>");
+
+      setShow(false);
+      flush();
+      expect(siblingRenderCount).toBe(1);
+      expect(div.innerHTML).toBe("<span>sibling</span>");
+    }
   });
 });

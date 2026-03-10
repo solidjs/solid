@@ -2,6 +2,7 @@ node_modules/
 dist/
 lib/
 .vscode/
+.cursor/
 .idea/
 coverage/
 types/

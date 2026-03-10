@@ -240,6 +240,38 @@ describe("Loading SSR Async", () => {
       expect(resolved).toBe("<div>Hello World</div>");
     });
 
+    test("createSignal(fn) async value triggers Loading fallback (mirrors createMemo)", async () => {
+      const { context, fragmentResults } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+      let result: any;
+
+      createRoot(
+        () => {
+          result = Loading({
+            fallback: "Loading...",
+            get children() {
+              const [data] = createSignal(() => d.promise);
+              return ssr(["<div>", "</div>"], () => data()) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(result.t[0]).toContain("Loading...");
+      expect(result.t[0]).toMatch(/<template id="pl-[^"]+"><\/template>/);
+      expect(result.t[0]).toMatch(/<!--pl-[^-]+-->/);
+
+      d.resolve("Hello World");
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      const resolved = [...fragmentResults.values()][0];
+      expect(resolved).toBe("<div>Hello World</div>");
+    });
+
     test("synchronous children bypass async path entirely", () => {
       const { context, registeredFragments } = createMockSSRContext();
       sharedConfig.context = context;
@@ -1253,7 +1285,7 @@ describe("Stream Blocking / deferStream", () => {
     expect(blocked.size).toBe(0);
   });
 
-  test("createSignal(fn) does not block (wraps result in sync Signal tuple)", () => {
+  test("createSignal(fn) does not block (async handled by processResult, like createMemo)", () => {
     const { context, blocked } = createBlockTrackingContext();
     sharedConfig.context = context;
 
@@ -1422,11 +1454,11 @@ describe("Stream Blocking / deferStream", () => {
   });
 
   // --------------------------------------------------------------------------
-  // 5. createSignal(fn) — deferStream not applicable (sync tuple)
+  // 5. createSignal(fn) — deferStream forwarded to processResult
   // --------------------------------------------------------------------------
 
-  test("createSignal(fn) with deferStream: true does not block (sync Signal tuple)", () => {
-    const { context, blocked } = createBlockTrackingContext();
+  test("createSignal(fn) with deferStream: true does not block (deferStream forwarded to processResult)", () => {
+    const { context, blocked, serializeLog } = createBlockTrackingContext();
     sharedConfig.context = context;
 
     const d = deferred<string>();
@@ -1445,6 +1477,8 @@ describe("Stream Blocking / deferStream", () => {
     );
 
     expect(blocked.size).toBe(0);
+    expect(serializeLog.length).toBe(1);
+    expect(serializeLog[0].deferStream).toBe(true);
   });
 
   // --------------------------------------------------------------------------
@@ -1700,7 +1734,6 @@ describe("Async Iterable — createMemo", () => {
     );
 
     expect(serializeLog.length).toBe(1);
-    // Should be an async iterable (tapped wrapper), not a plain Promise
     const serialized = serializeLog[0].value;
     expect(typeof serialized[Symbol.asyncIterator]).toBe("function");
   });
@@ -1764,11 +1797,11 @@ describe("Async Iterable — createMemo", () => {
     await tick();
     expect(read()).toBe("first");
 
-    // Iterate the tapped wrapper to pull the second value
+    // Iterate the tapped async iterable to pull the second value
     const tapped = serializeLog[0].value;
     const iter = tapped[Symbol.asyncIterator]();
 
-    // First next(): already yielded "first"
+    // First next(): replays "first"
     const r1 = await iter.next();
     expect(r1).toEqual({ done: false, value: "first" });
 
@@ -2012,7 +2045,7 @@ describe("Async Iterable — createMemo", () => {
     expect(read()).toBe("first");
   });
 
-  test("createSignal(fn) wraps async generator as plain value (not streamed)", () => {
+  test("createSignal(fn) async generator is detected and streamed by processResult", () => {
     const { context, serializeLog } = createStreamTrackingContext();
     sharedConfig.context = context;
 
@@ -2030,12 +2063,9 @@ describe("Async Iterable — createMemo", () => {
       { id: "t" }
     );
 
-    // createSignal(fn) wraps fn in an inner memo that returns a Signal tuple.
-    // The async generator is captured as a plain value — NOT detected by processResult.
-    // Use createMemo directly for async generator streaming.
-    expect(serializeLog.length).toBe(0);
-    const val = getter();
-    expect(typeof val[Symbol.asyncIterator]).toBe("function");
+    expect(serializeLog.length).toBe(1);
+    expect(typeof serializeLog[0].value[Symbol.asyncIterator]).toBe("function");
+    expect(() => getter()).toThrow(NotReadyError);
   });
 });
 
@@ -2085,7 +2115,7 @@ describe("Async Iterable — createProjection", () => {
 
     const iter = tapped[Symbol.asyncIterator]();
 
-    // First yield: full state snapshot (aligned with Promise serialization)
+    // First yield: full state snapshot
     const r1 = await iter.next();
     expect(r1.done).toBe(false);
     expect(r1.value).toEqual({ name: "Alice", age: 0 });

@@ -1,5 +1,5 @@
 import { children, IS_DEV } from "../client/core.js";
-import { createMemo, untrack, mapArray, repeat, setStrictRead } from "@solidjs/signals";
+import { createMemo, untrack, mapArray, repeat } from "@solidjs/signals";
 import { createErrorBoundary } from "./hydration.js";
 import type { Accessor } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
@@ -102,17 +102,14 @@ export function Show<T>(props: {
         const child = props.children;
         const fn = typeof child === "function" && child.length > 0;
         return fn
-          ? untrack(() => {
-              if (IS_DEV) setStrictRead("<Show>");
-              try {
-                return (child as any)(() => {
+          ? untrack(
+              () =>
+                (child as any)(() => {
                   if (!untrack(condition)) throw narrowedError("Show");
                   return conditionValue();
-                });
-              } finally {
-                if (IS_DEV) setStrictRead(false);
-              }
-            })
+                }),
+              IS_DEV && "<Show>"
+            )
           : child;
       }
       return props.fallback;
@@ -176,17 +173,14 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
       const child = mp.children;
       const fn = typeof child === "function" && child.length > 0;
       return fn
-        ? untrack(() => {
-            if (IS_DEV) setStrictRead("<Match>");
-            try {
-              return (child as any)(() => {
+        ? untrack(
+            () =>
+              (child as any)(() => {
                 if (untrack(switchFunc)()?.[0] !== index) throw narrowedError("Match");
                 return conditionValue();
-              });
-            } finally {
-              if (IS_DEV) setStrictRead(false);
-            }
-          })
+              }),
+            IS_DEV && "<Match>"
+          )
         : child;
     },
     undefined,
