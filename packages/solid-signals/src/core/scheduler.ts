@@ -86,7 +86,7 @@ export interface Transition {
 export function schedule() {
   if (scheduled) return;
   scheduled = true;
-  if (!globalQueue._running) queueMicrotask(flush);
+  if (!globalQueue._running && !projectionWriteActive) queueMicrotask(flush);
 }
 
 export interface IQueue {

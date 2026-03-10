@@ -474,7 +474,11 @@ describe("Projection isPending behavior", () => {
 
       // Effect subscribes to projection - this enables transitions
       createRenderEffect(
-        () => [isPending(() => proj.value), proj.value] as const,
+        () => {
+          const p = isPending(() => proj.value);
+          const v = proj.value;
+          return [p, v] as const;
+        },
         ([pending, value]) => {
           results.push({ pending, value });
         }
@@ -501,6 +505,9 @@ describe("Projection isPending behavior", () => {
     const pendingResult = results.find(r => r.pending && r.value === 10);
     expect(pendingResult).toBeDefined();
 
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 

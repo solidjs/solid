@@ -121,6 +121,10 @@ export function handleAsync<T>(
             syncResult = r;
             resolved = true;
           } else if (!r.done) asyncWrite(r.value, iterate);
+          else {
+            schedule();
+            flush();
+          }
         },
         e => {
           if (!isSync) handleError(e);

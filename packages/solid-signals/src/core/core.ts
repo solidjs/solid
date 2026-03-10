@@ -273,7 +273,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
     }
   }
 
-  if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY) || (el._error && el._time < clock)) {
+  if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY) || (el._error && el._time < clock && !el._inFlight)) {
     recompute(el);
   }
 
@@ -564,10 +564,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         `Move it into a tracking scope (JSX, computations, effects).`
     );
 
-  // In lane context, always return _value (optimistic overrides and lane member values are there)
-  // Outside lane context: return _pendingValue if set (transitioning value), otherwise _value
+  // In optimistic lane context, return _value for most signals (overrides, lane values,
+  // held transition values). Exception: resolved projection store properties where
+  // _pendingValue is the actual new value — identified by having a firewall (owner !== el)
+  // whose STATUS_PENDING has been cleared.
   return !c ||
-    currentOptimisticLane !== null ||
+    (currentOptimisticLane !== null && (
+      el._optimistic || (el as any)._optimisticLane ||
+      owner === el || !!(owner._statusFlags & STATUS_PENDING)
+    )) ||
     el._pendingValue === NOT_PENDING ||
     (stale && el._transition && activeTransition !== el._transition)
     ? el._value
