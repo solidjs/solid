@@ -1,5 +1,18 @@
 # solid-js
 
+## 2.0.0-beta.2
+
+### Patch Changes
+
+- 8187065: Add dev-mode error when async content is used in JSX without a `<Loading>` boundary during `render()`. In dev, the app is unmounted and an error message is rendered into the container. Re-export `setOnUnhandledAsync` hook from `@solidjs/signals`.
+- 8187065: Refactor async iterable hydration to delegate to signals' handleAsync pipeline:
+  - Replace imperative consumeFirstSync/scheduleIteratorConsumption with normalizeIterator that ensures V1 is sync for snapshot capture and V2+ are greedily batched after a single microtask deferral
+  - createMemo, createProjection, and createStore(fn) hydration now return async iterables that handleAsync processes natively, eliminating manual flush/schedule management
+  - Fix hybrid mode: processResult and createProjection .then() callbacks now return values so serialized promises resolve correctly
+- 8187065: Fix SSR createSignal(fn) with async value showing undefined instead of triggering Loading boundary
+- 8187065: Include `$REFRESH` in the return types of `createStore(fn)`, `createOptimisticStore(fn)`, and `createProjection` to match `@solidjs/signals` upstream types, and re-export `$REFRESH` from `solid-js`
+- 8187065: Use untrack(fn, strictReadLabel) for strict-read warnings instead of separate setStrictRead API
+
 ## 2.0.0-beta.1
 
 ### Patch Changes

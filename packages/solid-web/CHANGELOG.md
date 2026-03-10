@@ -1,5 +1,17 @@
 # @solidjs/web
 
+## 2.0.0-beta.2
+
+### Patch Changes
+
+- 8187065: Fix unnecessary sibling re-rendering when Show/conditional children update by wrapping insert accessor in a transparent memo, with reactive accessor detection to skip redundant memoization
+- Updated dependencies [8187065]
+- Updated dependencies [8187065]
+- Updated dependencies [8187065]
+- Updated dependencies [8187065]
+- Updated dependencies [8187065]
+  - solid-js@2.0.0-beta.2
+
 ## 2.0.0-beta.1
 
 ### Patch Changes
