@@ -1,4 +1,10 @@
-import { createMemo, createRoot, createSignal, flush } from "../src/index.js";
+import {
+  createMemo,
+  createRenderEffect,
+  createRoot,
+  createSignal,
+  flush
+} from "../src/index.js";
 
 afterEach(() => flush());
 
@@ -100,4 +106,102 @@ it("should call unobserved callback when signal is unobserved", () => {
   setX(false);
   flush();
   expect(unobserved).toBeCalledTimes(1);
+});
+
+describe("async computed transition entanglement", () => {
+  it("async computed in an incomplete transition blocks entangled effects", async () => {
+    const values: number[] = [];
+    let setCounter!: (v: number | ((prev: number) => number)) => number;
+
+    const dispose = createRoot(dispose => {
+      const [counter, _setCounter] = createSignal(0);
+      setCounter = _setCounter;
+
+      // Never-resolving async signal read by a render effect.
+      // This adds it to _asyncNodes, creating a permanently incomplete transition.
+      const [os] = createSignal(async () => new Promise<string>(() => {}));
+      createRenderEffect(
+        () => os(),
+        () => {}
+      );
+
+      // Async computed that reads counter and joins the same transition (same tick).
+      // When counter changes, this node's recompute restores the incomplete transition,
+      // causing flush to stash all effects — including counter's render effect.
+      createSignal(async () => counter(), 0);
+
+      createRenderEffect(
+        () => counter(),
+        v => {
+          values.push(v);
+        }
+      );
+
+      return dispose;
+    });
+
+    flush();
+    await new Promise(r => setTimeout(r, 50));
+    // Initial value is captured before the transition blocks
+    expect(values).toContain(0);
+
+    setCounter(1);
+    flush();
+    await new Promise(r => setTimeout(r, 50));
+    // Updates are blocked: the incomplete transition stashes all entangled effects.
+    // This is expected — use a <Loading> boundary to isolate async work.
+    expect(values).not.toContain(1);
+
+    setCounter(2);
+    flush();
+    await new Promise(r => setTimeout(r, 50));
+    expect(values).not.toContain(2);
+
+    dispose();
+  });
+
+  it("without the async computed, the sync effect is not entangled", async () => {
+    const values: number[] = [];
+    let setCounter!: (v: number | ((prev: number) => number)) => number;
+
+    const dispose = createRoot(dispose => {
+      const [counter, _setCounter] = createSignal(0);
+      setCounter = _setCounter;
+
+      // Same never-resolving async signal with render effect
+      const [os] = createSignal(async () => new Promise<string>(() => {}));
+      createRenderEffect(
+        () => os(),
+        () => {}
+      );
+
+      // No async computed bridging counter into the transition
+
+      createRenderEffect(
+        () => counter(),
+        v => {
+          values.push(v);
+        }
+      );
+
+      return dispose;
+    });
+
+    flush();
+    await new Promise(r => setTimeout(r, 50));
+    expect(values).toContain(0);
+
+    setCounter(1);
+    flush();
+    await new Promise(r => setTimeout(r, 50));
+    // Without the async computed, counter's effect is independent and updates normally
+    expect(values).toContain(1);
+
+    setCounter(2);
+    flush();
+    await new Promise(r => setTimeout(r, 50));
+    expect(values).toContain(2);
+
+    dispose();
+  });
 });
