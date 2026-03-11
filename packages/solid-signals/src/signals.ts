@@ -21,6 +21,12 @@ import { globalQueue } from "./core/scheduler.js";
 
 export type Accessor<T> = () => T;
 
+export function accessor<T>(node: any): Accessor<T> {
+  const fn = read.bind(null, node) as Accessor<T>;
+  (fn as any).$r = true;
+  return fn;
+}
+
 export type Setter<in out T> = {
   <U extends T>(
     ...args: undefined extends T ? [] : [value: Exclude<U, Function> | ((prev: T) => U)]
@@ -123,13 +129,13 @@ export function createSignal<T>(
   if (typeof first === "function") {
     const node = computed<T>(first as any, second as any, third);
     return [
-      read.bind(null, node as any) as Accessor<T | undefined>,
+      accessor<T | undefined>(node),
       setSignal.bind(null, node as any) as Setter<T | undefined>
     ];
   }
   const node = signal<T>(first as any, second as SignalOptions<T>);
   return [
-    read.bind(null, node as any) as Accessor<T>,
+    accessor<T>(node),
     setSignal.bind(null, node as any) as Setter<T | undefined>
   ];
 }
@@ -163,7 +169,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
   options?: MemoOptions<Next>
 ): Accessor<Next> {
   let node = computed<Next>(compute as any, value as any, options);
-  return read.bind(null, node as any) as Accessor<Next>;
+  return accessor<Next>(node);
 }
 
 /**
@@ -365,7 +371,7 @@ export function createOptimistic<T>(
       ? optimisticComputed<T>(first as any, second as any, third)
       : optimisticSignal<T>(first as any, second as SignalOptions<T>);
   return [
-    read.bind(null, node as any) as Accessor<T | undefined>,
+    accessor<T | undefined>(node),
     setSignal.bind(null, node as any) as Setter<T | undefined>
   ];
 }

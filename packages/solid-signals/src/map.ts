@@ -1,6 +1,5 @@
 import {
   createOwner,
-  read,
   runWithOwner,
   setSignal,
   signal,
@@ -8,7 +7,7 @@ import {
   type Signal
 } from "./core/index.js";
 import { setStrictRead } from "./core/core.js";
-import { createMemo, type Accessor } from "./signals.js";
+import { accessor, createMemo, type Accessor } from "./signals.js";
 import { $TRACK } from "./store/index.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
@@ -69,8 +68,8 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
             this._rows![j] = signal(newItems[j], pureOptions);
             this._indexes && (this._indexes![j] = signal(j, pureOptions));
             return this._map(
-              read.bind(null, this._rows![j] as any),
-              this._indexes ? read.bind(null, this._indexes![j] as any) : (undefined as any)
+              accessor(this._rows![j]),
+              this._indexes ? accessor(this._indexes![j]) : (undefined as any)
             );
           }
         : this._indexes
@@ -79,7 +78,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
               this._indexes![j] = signal(j, pureOptions);
               return this._map(
                 () => item,
-                read.bind(null, this._indexes![j] as any) as Accessor<number>
+                accessor<number>(this._indexes![j])
               );
             }
           : () => {

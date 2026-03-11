@@ -20,6 +20,7 @@ import {
 } from "./core/index.js";
 import type { IQueue, Signal } from "./core/index.js";
 import { schedule } from "./core/scheduler.js";
+import { accessor } from "./signals.js";
 
 export interface BoundaryComputed<T> extends Computed<T> {
   _propagationMask: number;
@@ -111,7 +112,7 @@ function createCollectionBoundary<T>(
     }
     return fallback(queue);
   });
-  return read.bind(null, decision);
+  return accessor(decision);
 }
 
 export function createLoadingBoundary(fn: () => any, fallback: () => any) {
