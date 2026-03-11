@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { createRoot, createSignal, createUniqueId, JSX, children, Show, flush } from "solid-js";
+import { memo, effect } from "../src/core.js";
 
 describe("Basic element attributes", () => {
   test("spread", () => {
@@ -110,6 +111,59 @@ describe("Basic element attributes", () => {
     expect(res.innerHTML).toBe(
       "<div><span>Hello</span></div><div><span>Hello</span></div><div><span>Jake</span></div>"
     );
+  });
+});
+
+describe("Transparent memo reactivity", () => {
+  test("memo with transparent flag propagates signal updates through effect", () => {
+    const [count, setCount] = createSignal(0);
+    let effectRuns = 0;
+    let lastValue: number | undefined;
+
+    createRoot(() => {
+      // This simulates what insert() does internally:
+      // 1. Wrap the accessor in memo(fn, true) — a transparent memo
+      // 2. Pass the result into effect() — a transparent render effect
+      // If memo uses a transparent computed node, the chain of two transparent
+      // nodes fails to propagate updates to the DOM.
+      const m = memo(() => count(), true);
+      effect(
+        () => m(),
+        (value: number) => {
+          effectRuns++;
+          lastValue = value;
+        },
+        undefined
+      );
+    });
+    flush();
+
+    expect(effectRuns).toBe(1);
+    expect(lastValue).toBe(0);
+
+    setCount(1);
+    flush();
+
+    // This is the critical assertion: the effect must re-run when the
+    // signal updates. With the bug (using coreMemo + { transparent: true }),
+    // effectRuns stays at 1 because the transparent memo doesn't propagate
+    // to the downstream transparent render effect.
+    expect(effectRuns).toBe(2);
+    expect(lastValue).toBe(1);
+  });
+
+  test("dynamic text in JSX updates when signal changes", () => {
+    const [count, setCount] = createSignal(0);
+    const div = createRoot(() => {
+      return (<div>Count: {count()}</div>) as HTMLDivElement;
+    });
+
+    expect(div.innerHTML).toBe("Count: 0");
+
+    setCount(42);
+    flush();
+
+    expect(div.innerHTML).toBe("Count: 42");
   });
 });
 
