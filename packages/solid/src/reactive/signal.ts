@@ -1417,6 +1417,8 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     if (node.updatedAt != null && "observers" in node) {
       writeSignal(node as Memo<any>, nextValue, true);
     } else if (Transition && Transition.running && node.pure) {
+      // On first computation during transition, also set committed value #2046
+      if (!Transition.sources.has(node as Memo<any>)) node.value = nextValue;
       Transition.sources.add(node as Memo<any>);
       (node as Memo<any>).tValue = nextValue;
     } else node.value = nextValue;
