@@ -179,14 +179,14 @@ const filtered = createProjection(
 Intercept async loading and error states in the reactive graph:
 
 ```typescript
-import { createErrorBoundary, createLoadBoundary } from "@solidjs/signals";
+import { createErrorBoundary, createLoadingBoundary } from "@solidjs/signals";
 
 createErrorBoundary(
   () => riskyComputation(),
   (error, reset) => handleError(error)
 );
 
-createLoadBoundary(
+createLoadingBoundary(
   () => asyncContent(),
   () => showFallback()
 );

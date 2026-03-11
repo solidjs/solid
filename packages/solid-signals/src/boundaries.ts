@@ -114,7 +114,7 @@ function createCollectionBoundary<T>(
   return read.bind(null, decision);
 }
 
-export function createLoadBoundary(fn: () => any, fallback: () => any) {
+export function createLoadingBoundary(fn: () => any, fallback: () => any) {
   return createCollectionBoundary(STATUS_PENDING, fn, () => fallback());
 }
 

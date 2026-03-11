@@ -40,7 +40,7 @@ Per-optimistic-signal contexts that allow immediate UI updates while transitions
 
 ## Boundaries
 
-`createLoadBoundary` intercepts `STATUS_PENDING` propagation from async computeds. `createErrorBoundary` intercepts `STATUS_ERROR`. Boundaries use `_propagationMask` to control which status flags propagate up, and manage child queues for effects within their scope.
+`createLoadingBoundary` intercepts `STATUS_PENDING` propagation from async computeds. `createErrorBoundary` intercepts `STATUS_ERROR`. Boundaries use `_propagationMask` to control which status flags propagate up, and manage child queues for effects within their scope.
 
 ## API Layers
 

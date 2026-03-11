@@ -1,6 +1,6 @@
 import {
   createErrorBoundary,
-  createLoadBoundary,
+  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -25,13 +25,13 @@ describe("enforceLoadingBoundary", () => {
     }).toThrow("Loading boundary");
   });
 
-  it("does not throw when createLoadBoundary catches the pending", () => {
+  it("does not throw when createLoadingBoundary catches the pending", () => {
     enforceLoadingBoundary(true);
 
     expect(() => {
       createRoot(() => {
         const value = createMemo(() => new Promise<string>(() => {}));
-        const boundary = createLoadBoundary(value, () => "loading");
+        const boundary = createLoadingBoundary(value, () => "loading");
         createRenderEffect(boundary, () => {});
       });
     }).not.toThrow();

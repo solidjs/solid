@@ -1,5 +1,5 @@
 import {
-  createLoadBoundary,
+  createLoadingBoundary,
   createMemo,
   createProjection,
   createRenderEffect,
@@ -10,7 +10,7 @@ import {
   untrack
 } from "../src/index.js";
 
-describe("createLoadBoundary", () => {
+describe("createLoadingBoundary", () => {
   it("shows fallback while async projection is pending", async () => {
     let result: any;
 
@@ -23,7 +23,7 @@ describe("createLoadBoundary", () => {
         { value: 0 }
       );
 
-      const boundary = createLoadBoundary(
+      const boundary = createLoadingBoundary(
         () => proj.value,
         () => "loading"
       );
@@ -56,7 +56,7 @@ describe("createLoadBoundary", () => {
         { items: [] }
       );
 
-      const boundary = createLoadBoundary(
+      const boundary = createLoadingBoundary(
         () => proj.items.length,
         () => "loading"
       );
@@ -90,11 +90,11 @@ describe("createLoadBoundary", () => {
         { a: 0, b: 0 }
       );
 
-      const boundary1 = createLoadBoundary(
+      const boundary1 = createLoadingBoundary(
         () => proj.a,
         () => "loading"
       );
-      const boundary2 = createLoadBoundary(
+      const boundary2 = createLoadingBoundary(
         () => proj.b,
         () => "loading"
       );
@@ -133,9 +133,9 @@ describe("createLoadBoundary", () => {
         { value: 0 }
       );
 
-      const outer = createLoadBoundary(
+      const outer = createLoadingBoundary(
         () => {
-          const inner = createLoadBoundary(
+          const inner = createLoadingBoundary(
             () => proj.value,
             () => "inner-loading"
           );
@@ -180,7 +180,7 @@ describe("createLoadBoundary", () => {
         { value: 0 }
       );
 
-      const boundary = createLoadBoundary(
+      const boundary = createLoadingBoundary(
         () => proj.value,
         () => "loading"
       );
@@ -219,7 +219,7 @@ describe("createLoadBoundary", () => {
         { value: 0 }
       );
 
-      const boundary = createLoadBoundary(
+      const boundary = createLoadingBoundary(
         () => proj.value,
         () => "loading"
       );
@@ -272,7 +272,7 @@ describe("createLoadBoundary", () => {
 
       flush();
       untrack(() => {
-        const boundary = createLoadBoundary(
+        const boundary = createLoadingBoundary(
           () => data(),
           () => "loading"
         );
@@ -302,7 +302,7 @@ describe("createLoadBoundary", () => {
           return 100;
         }, 100);
 
-        const boundary = createLoadBoundary(
+        const boundary = createLoadingBoundary(
           () => data(),
           () => "loading"
         );
@@ -332,7 +332,7 @@ describe("createLoadBoundary", () => {
           return 101;
         }, 100);
 
-        const boundary = createLoadBoundary(
+        const boundary = createLoadingBoundary(
           () => data(),
           () => "loading"
         );
@@ -364,7 +364,7 @@ describe("createLoadBoundary", () => {
           return 100;
         }, 100);
 
-        const boundary = createLoadBoundary(
+        const boundary = createLoadingBoundary(
           () => data(),
           () => "loading"
         );
