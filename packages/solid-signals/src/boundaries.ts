@@ -56,11 +56,15 @@ function createBoundChildren<T>(
   });
 }
 
+const ON_INIT: unique symbol = Symbol();
+
 export class CollectionQueue extends Queue {
   _collectionType: number;
   _sources: Set<Computed<any>> = new Set();
   _disabled: Signal<boolean> = signal(false, { pureWrite: true });
   _initialized: boolean = false;
+  _onFn: (() => any) | undefined;
+  _prevOn: any = ON_INIT;
   constructor(type: number) {
     super();
     this._collectionType = type;
@@ -70,11 +74,24 @@ export class CollectionQueue extends Queue {
     return super.run(type);
   }
   notify(node: Effect<any>, type: number, flags: number, error?: any) {
-    if (
-      !(type & this._collectionType) ||
-      (this._collectionType & STATUS_PENDING && this._initialized)
-    )
+    if (!(type & this._collectionType))
       return super.notify(node, type, flags, error);
+
+    if (this._initialized && this._onFn) {
+      const currentOn = untrack(() => {
+        try { return this._onFn!(); }
+        catch { return ON_INIT; }
+      });
+      if (currentOn !== this._prevOn) {
+        this._prevOn = currentOn;
+        this._initialized = false;
+        this._sources.clear();
+      }
+    }
+
+    if (this._collectionType & STATUS_PENDING && this._initialized)
+      return super.notify(node, type, flags, error);
+
     if (flags & this._collectionType) {
       const source = (error as any)?.source || (node._error as any)?.source;
       if (source) {
@@ -90,17 +107,25 @@ export class CollectionQueue extends Queue {
     for (const source of this._sources) {
       if (!(source._statusFlags & this._collectionType)) this._sources.delete(source);
     }
-    if (!this._sources.size) setSignal(this._disabled, false);
+    if (!this._sources.size) {
+      setSignal(this._disabled, false);
+      if (this._onFn) {
+        try { this._prevOn = untrack(() => this._onFn!()); }
+        catch { /* value not yet committed — _prevOn stays stale, next notify will reset */ }
+      }
+    }
   }
 }
 
 function createCollectionBoundary<T>(
   type: number,
   fn: () => any,
-  fallback: (queue: CollectionQueue) => any
+  fallback: (queue: CollectionQueue) => any,
+  onFn?: () => any
 ) {
   const owner = createOwner();
   const queue = new CollectionQueue(type);
+  if (onFn) queue._onFn = onFn;
   const tree = createBoundChildren(owner, fn, queue, type);
   const decision = computed(() => {
     if (!read(queue._disabled)) {
@@ -115,8 +140,12 @@ function createCollectionBoundary<T>(
   return accessor(decision);
 }
 
-export function createLoadingBoundary(fn: () => any, fallback: () => any) {
-  return createCollectionBoundary(STATUS_PENDING, fn, () => fallback());
+export function createLoadingBoundary(
+  fn: () => any,
+  fallback: () => any,
+  options?: { on?: () => any }
+) {
+  return createCollectionBoundary(STATUS_PENDING, fn, () => fallback(), options?.on);
 }
 
 export function createErrorBoundary<U>(

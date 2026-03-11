@@ -539,11 +539,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         const pendingLane = (owner as any)._optimisticLane;
         const lane = findLane(currentOptimisticLane);
         if (pendingLane && findLane(pendingLane) === lane && !hasActiveOverride(owner)) {
-          if (!tracking) link(el, c as Computed<any>);
+          if (!tracking && el !== c) link(el, c as Computed<any>);
           throw owner._error;
         }
       } else {
-        if (!tracking) link(el, c as Computed<any>);
+        if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._error;
       }
     } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {

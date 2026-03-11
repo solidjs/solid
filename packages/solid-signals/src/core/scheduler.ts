@@ -349,6 +349,24 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   }
 }
 
+function commitPendingNodes() {
+  const pendingNodes = globalQueue._pendingNodes;
+  for (let i = 0; i < pendingNodes.length; i++) {
+    const n = pendingNodes[i];
+    if (n._pendingValue !== NOT_PENDING) {
+      n._value = n._pendingValue as any;
+      n._pendingValue = NOT_PENDING;
+      // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
+      if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
+    }
+    // Clear STATUS_UNINITIALIZED on first value commit, but only if no longer pending
+    if (!((n as Computed<unknown>)._statusFlags & STATUS_PENDING))
+      (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
+    if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
+  }
+  pendingNodes.length = 0;
+}
+
 export function finalizePureQueue(
   completingTransition: Transition | null = null,
   incomplete: boolean = false
@@ -356,25 +374,11 @@ export function finalizePureQueue(
   // For incomplete transitions, skip pending resolution and optimistic reversion
   // For completing transitions or no-transition, resolve pending and revert optimistic
   let resolvePending = !incomplete;
+  if (resolvePending) commitPendingNodes();
   if (!incomplete) checkBoundaryChildren(globalQueue);
   if (dirtyQueue._max >= dirtyQueue._min) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
-    // Commit pending nodes
-    const pendingNodes = globalQueue._pendingNodes;
-    for (let i = 0; i < pendingNodes.length; i++) {
-      const n = pendingNodes[i];
-      if (n._pendingValue !== NOT_PENDING) {
-        n._value = n._pendingValue as any;
-        n._pendingValue = NOT_PENDING;
-        // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
-        if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
-      }
-      // Clear STATUS_UNINITIALIZED on first value commit, but only if no longer pending
-      if (!((n as Computed<unknown>)._statusFlags & STATUS_PENDING))
-        (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
-      if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
-    }
-    pendingNodes.length = 0;
+    commitPendingNodes();
 
     // Resolve optimistic nodes: commit source value, clear override
     const optimisticNodes = completingTransition
