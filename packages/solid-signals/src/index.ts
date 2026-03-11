@@ -28,7 +28,7 @@ export {
   markSnapshotScope,
   releaseSnapshotScope,
   clearSnapshots,
-  setOnUnhandledAsync,
+  enforceLoadingBoundary,
 } from "./core/index.js";
 export type { Owner, Context, ContextRecord, IQueue } from "./core/index.js";
 export * from "./signals.js";

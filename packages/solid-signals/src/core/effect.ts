@@ -8,6 +8,7 @@ import {
 } from "./constants.js";
 import { computed, recompute, staleValues } from "./core.js";
 import { onCleanup } from "./owner.js";
+import { _hitUnhandledAsync, resetUnhandledAsync } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
 export let leafEffectActive = false;
@@ -72,8 +73,14 @@ export function effect<T>(
         }
       }
       if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw err;
-    } else if (node._type === EFFECT_RENDER)
+    } else if (node._type === EFFECT_RENDER) {
       node._queue.notify(node, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
+      if (__DEV__ && _hitUnhandledAsync) {
+        resetUnhandledAsync();
+        const err = new Error("An async value must be rendered inside a Loading boundary.");
+        if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw err;
+      }
+    }
   };
   recompute(node, true);
   !options?.defer &&

@@ -49,9 +49,13 @@ export let activeTransition: Transition | null = null;
 let scheduled = false;
 export let projectionWriteActive = false;
 
-let _onUnhandledAsync: (() => void) | null = null;
-export function setOnUnhandledAsync(fn: (() => void) | null): void {
-  _onUnhandledAsync = fn;
+let _enforceLoadingBoundary = false;
+export let _hitUnhandledAsync = false;
+export function resetUnhandledAsync(): void {
+  _hitUnhandledAsync = false;
+}
+export function enforceLoadingBoundary(enabled: boolean): void {
+  _enforceLoadingBoundary = enabled;
 }
 
 /**
@@ -232,11 +236,7 @@ export class GlobalQueue extends Queue {
   notify(node: Computed<any>, mask: number, flags: number, error?: any): boolean {
     // Only track async if the boundary is propagating STATUS_PENDING (not caught by boundary)
     if (mask & STATUS_PENDING) {
-      if (__DEV__ && _onUnhandledAsync && (flags & STATUS_PENDING)) {
-        _onUnhandledAsync();
-      }
       if (flags & STATUS_PENDING) {
-        // Use passed error if provided (for blocked notifications), otherwise node's own
         const actualError = error !== undefined ? error : node._error;
         if (
           activeTransition &&
@@ -246,6 +246,7 @@ export class GlobalQueue extends Queue {
           activeTransition._asyncNodes.push((actualError as NotReadyError).source);
           schedule();
         }
+        if (__DEV__ && _enforceLoadingBoundary) _hitUnhandledAsync = true;
       }
       return true;
     }
