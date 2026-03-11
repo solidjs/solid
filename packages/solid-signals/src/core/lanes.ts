@@ -49,8 +49,7 @@ export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
   };
   signalLanes.set(signal, lane);
   activeLanes.add(lane);
-  // Snapshot override version at lane creation for correction gating
-  (signal as any)._laneVersion = (signal as any)._overrideVersion || 0;
+  (signal as any)._overrideSinceLane = false;
   return lane;
 }
 
@@ -91,10 +90,10 @@ export function resolveLane(el: { _optimisticLane?: OptimisticLane }): Optimisti
 }
 
 /**
- * Check if a node has an active optimistic override (pending value differs from base).
+ * Check if a node has an active optimistic override.
  */
-export function hasActiveOverride(el: { _optimistic?: boolean; _pendingValue?: any }): boolean {
-  return !!(el._optimistic && el._pendingValue !== NOT_PENDING);
+export function hasActiveOverride(el: { _overrideValue?: any }): boolean {
+  return !!(el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING);
 }
 
 /**
@@ -102,7 +101,7 @@ export function hasActiveOverride(el: { _optimistic?: boolean; _pendingValue?: a
  * a different active lane), merge unless the node has an active override.
  */
 export function assignOrMergeLane(
-  el: { _optimisticLane?: OptimisticLane; _optimistic?: boolean; _pendingValue?: any },
+  el: { _optimisticLane?: OptimisticLane; _overrideValue?: any },
   sourceLane: OptimisticLane
 ): void {
   const sourceRoot = findLane(sourceLane);

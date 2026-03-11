@@ -35,8 +35,8 @@ export interface RawSignal<T> {
   _time: number;
   _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
-  _optimistic?: boolean;
-  _optimisticLane?: OptimisticLane; // Lane this node is associated with (for optimistic propagation)
+  _overrideValue?: T | typeof NOT_PENDING;
+  _optimisticLane?: OptimisticLane;
   _pendingSignal?: Signal<boolean>; // Lazy signal for isPending()
   _latestValueComputed?: Computed<T>; // Lazy computed for latest()
   _parentSource?: Signal<any> | Computed<any>; // Back-reference for parent-child lane relationship

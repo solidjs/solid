@@ -376,24 +376,21 @@ export function finalizePureQueue(
     }
     pendingNodes.length = 0;
 
-    // Revert optimistic nodes from the completing transition or orphan list
+    // Resolve optimistic nodes: commit source value, clear override
     const optimisticNodes = completingTransition
       ? completingTransition._optimisticNodes
       : globalQueue._optimisticNodes;
     for (let i = 0; i < optimisticNodes.length; i++) {
       const n = optimisticNodes[i];
-      const original = n._pendingValue;
-      // Clear lane association before reversion so effects go to regular queue
       n._optimisticLane = undefined;
-      // Revert to the saved value
-      if (original !== NOT_PENDING && n._value !== original) {
-        n._value = original as any;
-        // Use optimistic=true for immediate effect execution, but lane is cleared
-        // so effects will go to regular queue (no currentOptimisticLane)
-        insertSubs(n, true);
+      if (n._pendingValue !== NOT_PENDING) {
+        n._value = n._pendingValue as any;
+        n._pendingValue = NOT_PENDING;
       }
-      n._pendingValue = NOT_PENDING;
-      n._transition = null; // Clear ownership
+      const prevOverride = n._overrideValue;
+      n._overrideValue = NOT_PENDING;
+      if (prevOverride !== NOT_PENDING && n._value !== prevOverride) insertSubs(n, true);
+      n._transition = null;
     }
     optimisticNodes.length = 0;
 

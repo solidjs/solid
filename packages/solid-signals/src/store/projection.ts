@@ -1,10 +1,4 @@
-import {
-  $REFRESH,
-  computed,
-  getOwner,
-  handleAsync,
-  type Computed
-} from "../core/index.js";
+import { $REFRESH, computed, getOwner, handleAsync, type Computed } from "../core/index.js";
 import { setProjectionWriteActive } from "../core/scheduler.js";
 import { reconcile } from "./reconcile.js";
 import {

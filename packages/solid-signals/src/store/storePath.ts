@@ -164,12 +164,7 @@ export interface storePath {
     setter: PathSetter<W<W<W<W<T>[K1]>[K2]>[K3]>[K4]>
   ): (state: T) => void;
 
-  <
-    T,
-    K1 extends KeyOf<W<T>>,
-    K2 extends KeyOf<W<W<T>[K1]>>,
-    K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>
-  >(
+  <T, K1 extends KeyOf<W<T>>, K2 extends KeyOf<W<W<T>[K1]>>, K3 extends KeyOf<W<W<W<T>[K1]>[K2]>>>(
     k1: Part<W<T>, K1>,
     k2: Part<W<W<T>[K1]>, K2>,
     k3: Part<W<W<W<T>[K1]>[K2]>, K3>,
@@ -182,10 +177,7 @@ export interface storePath {
     setter: PathSetter<W<W<T>[K1]>[K2]>
   ): (state: T) => void;
 
-  <T, K1 extends KeyOf<W<T>>>(
-    k1: Part<W<T>, K1>,
-    setter: PathSetter<W<T>[K1]>
-  ): (state: T) => void;
+  <T, K1 extends KeyOf<W<T>>>(k1: Part<W<T>, K1>, setter: PathSetter<W<T>[K1]>): (state: T) => void;
 
   <T>(setter: PathSetter<T>): (state: T) => void;
 }

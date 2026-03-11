@@ -1,3 +1,4 @@
+import { setStrictRead } from "./core/core.js";
 import {
   createOwner,
   runWithOwner,
@@ -6,7 +7,6 @@ import {
   type Root,
   type Signal
 } from "./core/index.js";
-import { setStrictRead } from "./core/core.js";
 import { accessor, createMemo, type Accessor } from "./signals.js";
 import { $TRACK } from "./store/index.js";
 
@@ -28,14 +28,14 @@ export function mapArray<Item, MappedItem>(
   const indexes = map.length > 1;
   const wrappedMap =
     __DEV__ && options?.name
-      ? ((...args: any[]) => {
+      ? (((...args: any[]) => {
           setStrictRead(options!.name!);
           try {
             return (map as any)(...args);
           } finally {
             setStrictRead(false);
           }
-        }) as typeof map
+        }) as typeof map)
       : map;
   return createMemo(
     updateKeyedMap.bind({
@@ -76,10 +76,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
           ? () => {
               const item = newItems[j];
               this._indexes![j] = signal(j, pureOptions);
-              return this._map(
-                () => item,
-                accessor<number>(this._indexes![j])
-              );
+              return this._map(() => item, accessor<number>(this._indexes![j]));
             }
           : () => {
               const item = newItems[j];

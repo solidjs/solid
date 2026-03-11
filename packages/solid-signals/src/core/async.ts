@@ -57,10 +57,10 @@ export function handleAsync<T>(
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
     if (setter) setter(value);
-    else if (el._optimistic) {
-      const hadOverride = el._pendingValue !== NOT_PENDING;
-      if ((el as Computed<T>)._fn) el._pendingValue = value;
-      if (!hadOverride) {
+    else if (el._overrideValue !== undefined) {
+      if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING)
+        el._pendingValue = value;
+      else {
         el._value = value;
         insertSubs(el);
       }
@@ -174,7 +174,8 @@ export function notifyStatus(
     error = new StatusError(el, error);
 
   const isSource = error instanceof NotReadyError && (error as NotReadyError).source === el;
-  const isOptimisticBoundary = status === STATUS_PENDING && el._optimistic && !isSource;
+  const isOptimisticBoundary =
+    status === STATUS_PENDING && el._overrideValue !== undefined && !isSource;
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {

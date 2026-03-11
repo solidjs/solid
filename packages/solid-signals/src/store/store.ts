@@ -1,19 +1,19 @@
+import { snapshotCaptureActive, snapshotSources, strictRead } from "../core/core.js";
 import {
   $REFRESH,
   getObserver,
   isEqual,
   NO_SNAPSHOT,
   NOT_PENDING,
-  STORE_SNAPSHOT_PROPS,
   read,
   setSignal,
   signal,
+  STORE_SNAPSHOT_PROPS,
   trackOptimisticStore,
   untrack,
   type Computed,
   type Signal
 } from "../core/index.js";
-import { snapshotCaptureActive, snapshotSources, strictRead } from "../core/core.js";
 import { globalQueue, projectionWriteActive } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
@@ -144,7 +144,9 @@ function getNode<T>(
     },
     firewall
   );
-  if (optimistic) s._optimistic = true;
+  if (optimistic) {
+    s._overrideValue = NOT_PENDING;
+  }
   if (snapshotProps && property in snapshotProps) {
     const sv = snapshotProps[property];
     s._snapshotValue = sv === undefined ? NO_SNAPSHOT : sv;
@@ -226,13 +228,11 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     if (writeOnly(receiver)) {
       let value =
         tracked && (overridden || !proxySource)
-          ? tracked._pendingValue !== NOT_PENDING
-            ? // For optimistic signals, _value has current optimistic state, _pendingValue has original for reversion
-              // For regular signals, _pendingValue has the held value during transition
-              tracked._optimistic
-              ? tracked._value
-              : tracked._pendingValue
-            : tracked._value
+          ? tracked._overrideValue !== undefined && tracked._overrideValue !== NOT_PENDING
+            ? tracked._overrideValue
+            : tracked._pendingValue !== NOT_PENDING
+              ? tracked._pendingValue
+              : tracked._value
           : storeValue[property];
       value === $DELETED && (value = undefined);
       if (!isWrappable(value)) return value;

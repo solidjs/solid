@@ -4441,4 +4441,167 @@ describe("createOptimistic", () => {
       expect(flickers).toBe(2); // One per action, no extras
     });
   });
+
+  describe("identity pass-through with async source (no override)", () => {
+    it("should propagate async memo resolution without setOptimistic", async () => {
+      let resolve!: (v: number) => void;
+      const $source = createMemo(
+        () => new Promise<number>(r => { resolve = r; })
+      );
+      const [$opt] = createOptimistic(() => $source());
+      const values: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect($opt, v => { values.push(v); });
+      });
+
+      flush();
+      expect(values).toEqual([]);
+
+      resolve(42);
+      await Promise.resolve();
+      flush();
+
+      expect($opt()).toBe(42);
+      expect(values).toEqual([42]);
+    });
+
+    it("should propagate multiple async memo updates without setOptimistic", async () => {
+      let resolve!: (v: number) => void;
+      const [$trigger, setTrigger] = createSignal(1);
+      const $source = createMemo(() => {
+        const t = $trigger();
+        return new Promise<number>(r => { resolve = r; });
+      });
+      const [$opt] = createOptimistic(() => $source());
+      const values: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect($opt, v => { values.push(v); });
+      });
+
+      flush();
+      expect(values).toEqual([]);
+
+      // First resolution
+      resolve(10);
+      await Promise.resolve();
+      flush();
+      expect($opt()).toBe(10);
+      expect(values).toEqual([10]);
+
+      // Trigger a new async computation
+      setTrigger(2);
+      flush();
+
+      resolve(20);
+      await Promise.resolve();
+      flush();
+
+      expect($opt()).toBe(20);
+      expect(values).toEqual([10, 20]);
+    });
+
+    it("should propagate async iterable memo yields without setOptimistic", async () => {
+      let yieldValue!: (v: number) => void;
+      let done = false;
+
+      const $source = createMemo(
+        () => ({
+          [Symbol.asyncIterator]() {
+            return {
+              next() {
+                return new Promise<IteratorResult<number>>(res => {
+                  yieldValue = v => res({ value: v, done: false });
+                });
+              }
+            };
+          }
+        })
+      );
+
+      const [$opt] = createOptimistic(() => $source());
+      const values: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect($opt, v => { values.push(v); });
+      });
+
+      flush();
+      expect(values).toEqual([]);
+
+      // First yield
+      yieldValue(1);
+      await Promise.resolve();
+      flush();
+      expect($opt()).toBe(1);
+      expect(values).toEqual([1]);
+
+      // Second yield
+      yieldValue(2);
+      await Promise.resolve();
+      flush();
+      expect($opt()).toBe(2);
+      expect(values).toEqual([1, 2]);
+
+      // Third yield
+      yieldValue(3);
+      await Promise.resolve();
+      flush();
+      expect($opt()).toBe(3);
+      expect(values).toEqual([1, 2, 3]);
+    });
+
+    it("should resolve when optimistic computed's own fn is async", async () => {
+      let resolve!: (v: number) => void;
+      const [$opt] = createOptimistic(
+        () => new Promise<number>(r => { resolve = r; })
+      );
+      const values: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect($opt, v => { values.push(v); });
+      });
+
+      flush();
+      expect(values).toEqual([]);
+
+      resolve(99);
+      await Promise.resolve();
+      flush();
+
+      expect($opt()).toBe(99);
+      expect(values).toEqual([99]);
+    });
+
+    it("should still revert overrides when source is async", async () => {
+      let resolve!: (v: number) => void;
+      const $source = createMemo(
+        () => new Promise<number>(r => { resolve = r; })
+      );
+      const [$opt, setOpt] = createOptimistic(() => $source());
+      const values: number[] = [];
+
+      createRoot(() => {
+        createRenderEffect($opt, v => { values.push(v); });
+      });
+
+      flush();
+
+      // Resolve the source
+      resolve(10);
+      await Promise.resolve();
+      flush();
+      expect($opt()).toBe(10);
+      expect(values).toEqual([10]);
+
+      // Write an optimistic override
+      setOpt(999);
+      expect($opt()).toBe(999);
+
+      // On flush, the override reverts to the source value
+      flush();
+      expect($opt()).toBe(10);
+    });
+  });
 });

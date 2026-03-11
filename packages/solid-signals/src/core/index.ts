@@ -17,7 +17,7 @@ export {
   setSnapshotCapture,
   markSnapshotScope,
   releaseSnapshotScope,
-  clearSnapshots,
+  clearSnapshots
 } from "./core.js";
 export {
   createOwner,
