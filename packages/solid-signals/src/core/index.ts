@@ -20,6 +20,13 @@ export {
   clearSnapshots
 } from "./core.js";
 export {
+  enableExternalSource,
+  _resetExternalSourceConfig,
+  type ExternalSourceFactory,
+  type ExternalSource,
+  type ExternalSourceConfig
+} from "./external.js";
+export {
   createOwner,
   createRoot,
   dispose,

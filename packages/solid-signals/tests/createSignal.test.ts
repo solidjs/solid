@@ -1,10 +1,4 @@
-import {
-  createMemo,
-  createRenderEffect,
-  createRoot,
-  createSignal,
-  flush
-} from "../src/index.js";
+import { createMemo, createRenderEffect, createRoot, createSignal, flush } from "../src/index.js";
 
 afterEach(() => flush());
 

@@ -74,13 +74,15 @@ export class CollectionQueue extends Queue {
     return super.run(type);
   }
   notify(node: Effect<any>, type: number, flags: number, error?: any) {
-    if (!(type & this._collectionType))
-      return super.notify(node, type, flags, error);
+    if (!(type & this._collectionType)) return super.notify(node, type, flags, error);
 
     if (this._initialized && this._onFn) {
       const currentOn = untrack(() => {
-        try { return this._onFn!(); }
-        catch { return ON_INIT; }
+        try {
+          return this._onFn!();
+        } catch {
+          return ON_INIT;
+        }
       });
       if (currentOn !== this._prevOn) {
         this._prevOn = currentOn;
@@ -110,8 +112,11 @@ export class CollectionQueue extends Queue {
     if (!this._sources.size) {
       setSignal(this._disabled, false);
       if (this._onFn) {
-        try { this._prevOn = untrack(() => this._onFn!()); }
-        catch { /* value not yet committed — _prevOn stays stale, next notify will reset */ }
+        try {
+          this._prevOn = untrack(() => this._onFn!());
+        } catch {
+          /* value not yet committed — _prevOn stays stale, next notify will reset */
+        }
       }
     }
   }

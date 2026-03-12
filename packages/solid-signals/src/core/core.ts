@@ -21,6 +21,7 @@ import {
 } from "./constants.js";
 import { leafEffectActive } from "./effect.js";
 import { NotReadyError } from "./error.js";
+import { externalSourceConfig } from "./external.js";
 import { link, unlinkSubs } from "./graph.js";
 import {
   deleteFromHeap,
@@ -38,7 +39,7 @@ import {
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
-import { disposeChildren, getNextChildId, markDisposal } from "./owner.js";
+import { disposeChildren, getNextChildId, markDisposal, onCleanup } from "./owner.js";
 import {
   activeTransition,
   clock,
@@ -350,6 +351,17 @@ export function computed<T>(
   }
   if (parent) self._height = parent._height + 1;
   if (snapshotCaptureActive && ownerInSnapshotScope(context)) self._inSnapshotScope = true;
+  if (externalSourceConfig) {
+    const bridgeSignal = signal<undefined>(undefined, { equals: false, pureWrite: true });
+    const source = externalSourceConfig.factory(self._fn as any, () => {
+      setSignal(bridgeSignal, undefined);
+    });
+    onCleanup(() => source.dispose());
+    self._fn = ((prev: any) => {
+      read(bridgeSignal);
+      return source.track(prev);
+    }) as any;
+  }
   !options?.lazy && recompute(self, true);
   if (snapshotCaptureActive && !options?.lazy) {
     if (!(self._statusFlags & STATUS_PENDING)) {
@@ -431,12 +443,14 @@ export function setStrictRead(v: string | false): string | false {
  * that is not inside a nested tracking scope will log a warning in dev mode.
  */
 export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
-  if (!tracking && (!__DEV__ || (!strictRead && !strictReadLabel))) return fn();
+  if (!externalSourceConfig && !tracking && (!__DEV__ || (!strictRead && !strictReadLabel)))
+    return fn();
   const prevTracking = tracking;
   const prevStrictRead = strictRead;
   tracking = false;
   if (__DEV__) strictRead = strictReadLabel || false;
   try {
+    if (externalSourceConfig) return externalSourceConfig.untrack(fn);
     return fn();
   } finally {
     tracking = prevTracking;

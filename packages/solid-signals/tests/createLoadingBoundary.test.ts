@@ -255,9 +255,7 @@ describe("createLoadingBoundary", () => {
 
       flush();
       untrack(() => {
-        expect(() => data()).toThrow(
-          "Reading a pending async value in TestComponent"
-        );
+        expect(() => data()).toThrow("Reading a pending async value in TestComponent");
       }, "TestComponent");
     });
   });

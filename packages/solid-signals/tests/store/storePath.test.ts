@@ -157,7 +157,11 @@ describe("storePath helper", () => {
   test("Filter function receives index", () => {
     const [store, setStore] = createStore({ items: [10, 20, 30, 40, 50] });
     setStore(
-      storePath("items", (_: number, i: number) => i % 2 === 0, (v: number) => v * 10)
+      storePath(
+        "items",
+        (_: number, i: number) => i % 2 === 0,
+        (v: number) => v * 10
+      )
     );
     expect(store.items[0]).toBe(100);
     expect(store.items[1]).toBe(20);
@@ -272,7 +276,7 @@ describe("storePath.DELETE", () => {
   // Valid paths
   setStore(storePath("name", "Jake"));
   setStore(storePath("count", 5));
-  setStore(storePath("count", (prev) => prev + 1));
+  setStore(storePath("count", prev => prev + 1));
   setStore(storePath("user", "age", 31));
   setStore(storePath("user", "address", "city", "Paris"));
   setStore(storePath("todos", 0, "completed", true));

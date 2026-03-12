@@ -48,7 +48,7 @@ describe("enforceLoadingBoundary", () => {
             const value = createMemo(() => new Promise<string>(() => {}));
             createRenderEffect(value, () => {});
           },
-          (err) => {
+          err => {
             caughtError = err;
           }
         );

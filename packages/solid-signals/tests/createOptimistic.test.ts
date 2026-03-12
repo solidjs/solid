@@ -4446,13 +4446,18 @@ describe("createOptimistic", () => {
     it("should propagate async memo resolution without setOptimistic", async () => {
       let resolve!: (v: number) => void;
       const $source = createMemo(
-        () => new Promise<number>(r => { resolve = r; })
+        () =>
+          new Promise<number>(r => {
+            resolve = r;
+          })
       );
       const [$opt] = createOptimistic(() => $source());
       const values: number[] = [];
 
       createRoot(() => {
-        createRenderEffect($opt, v => { values.push(v); });
+        createRenderEffect($opt, v => {
+          values.push(v);
+        });
       });
 
       flush();
@@ -4471,13 +4476,17 @@ describe("createOptimistic", () => {
       const [$trigger, setTrigger] = createSignal(1);
       const $source = createMemo(() => {
         const t = $trigger();
-        return new Promise<number>(r => { resolve = r; });
+        return new Promise<number>(r => {
+          resolve = r;
+        });
       });
       const [$opt] = createOptimistic(() => $source());
       const values: number[] = [];
 
       createRoot(() => {
-        createRenderEffect($opt, v => { values.push(v); });
+        createRenderEffect($opt, v => {
+          values.push(v);
+        });
       });
 
       flush();
@@ -4506,25 +4515,25 @@ describe("createOptimistic", () => {
       let yieldValue!: (v: number) => void;
       let done = false;
 
-      const $source = createMemo(
-        () => ({
-          [Symbol.asyncIterator]() {
-            return {
-              next() {
-                return new Promise<IteratorResult<number>>(res => {
-                  yieldValue = v => res({ value: v, done: false });
-                });
-              }
-            };
-          }
-        })
-      );
+      const $source = createMemo(() => ({
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              return new Promise<IteratorResult<number>>(res => {
+                yieldValue = v => res({ value: v, done: false });
+              });
+            }
+          };
+        }
+      }));
 
       const [$opt] = createOptimistic(() => $source());
       const values: number[] = [];
 
       createRoot(() => {
-        createRenderEffect($opt, v => { values.push(v); });
+        createRenderEffect($opt, v => {
+          values.push(v);
+        });
       });
 
       flush();
@@ -4555,12 +4564,17 @@ describe("createOptimistic", () => {
     it("should resolve when optimistic computed's own fn is async", async () => {
       let resolve!: (v: number) => void;
       const [$opt] = createOptimistic(
-        () => new Promise<number>(r => { resolve = r; })
+        () =>
+          new Promise<number>(r => {
+            resolve = r;
+          })
       );
       const values: number[] = [];
 
       createRoot(() => {
-        createRenderEffect($opt, v => { values.push(v); });
+        createRenderEffect($opt, v => {
+          values.push(v);
+        });
       });
 
       flush();
@@ -4577,13 +4591,18 @@ describe("createOptimistic", () => {
     it("should still revert overrides when source is async", async () => {
       let resolve!: (v: number) => void;
       const $source = createMemo(
-        () => new Promise<number>(r => { resolve = r; })
+        () =>
+          new Promise<number>(r => {
+            resolve = r;
+          })
       );
       const [$opt, setOpt] = createOptimistic(() => $source());
       const values: number[] = [];
 
       createRoot(() => {
-        createRenderEffect($opt, v => { values.push(v); });
+        createRenderEffect($opt, v => {
+          values.push(v);
+        });
       });
 
       flush();

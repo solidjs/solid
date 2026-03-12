@@ -5,8 +5,8 @@ import {
   createSignal,
   flush,
   isPending,
-  NotReadyError,
   latest,
+  NotReadyError,
   refresh
 } from "../../src/index.js";
 

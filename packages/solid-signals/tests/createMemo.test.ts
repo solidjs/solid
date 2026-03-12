@@ -7,8 +7,8 @@ import {
   createSignal,
   flush,
   isPending,
-  onCleanup,
   latest,
+  onCleanup,
   refresh,
   resolve,
   untrack

@@ -28,9 +28,18 @@ export {
   markSnapshotScope,
   releaseSnapshotScope,
   clearSnapshots,
-  enforceLoadingBoundary
+  enforceLoadingBoundary,
+  enableExternalSource
 } from "./core/index.js";
-export type { Owner, Context, ContextRecord, IQueue } from "./core/index.js";
+export type {
+  Owner,
+  Context,
+  ContextRecord,
+  IQueue,
+  ExternalSourceFactory,
+  ExternalSource,
+  ExternalSourceConfig
+} from "./core/index.js";
 export {
   createSignal,
   createMemo,

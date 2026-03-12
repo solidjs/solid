@@ -1,15 +1,15 @@
 import {
+  clearSnapshots,
+  createErrorBoundary,
   createMemo,
   createRoot,
   createSignal,
   createStore,
-  createErrorBoundary,
   flush,
   getOwner,
-  setSnapshotCapture,
   markSnapshotScope,
   releaseSnapshotScope,
-  clearSnapshots
+  setSnapshotCapture
 } from "../src/index.js";
 
 afterEach(() => {
