@@ -2,6 +2,7 @@ import {
   clearSnapshots,
   createErrorBoundary,
   createMemo,
+  createProjection,
   createRoot,
   createSignal,
   createStore,
@@ -466,6 +467,79 @@ describe("store snapshot support", () => {
     flush();
 
     expect($age()).toBe(30);
+    clearSnapshots();
+  });
+});
+
+describe("pending projection skips snapshot capture", () => {
+  it("snapshot is not frozen at the empty pending state", async () => {
+    let proj: any;
+    let $value!: () => number;
+    let owner!: any;
+
+    createRoot(() => {
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      proj = createProjection(
+        async (draft: any) => {
+          await Promise.resolve();
+          draft.value = 42;
+        },
+        { value: 0 }
+      );
+
+      $value = createMemo(() => proj.value);
+    });
+
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Without the fix, the snapshot would have frozen value=0 (the pending
+    // state) and releaseSnapshotScope + flush would still show 0.
+    // With the fix, no snapshot was captured while pending, so the memo
+    // sees the resolved value after release.
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect($value()).toBe(42);
+    clearSnapshots();
+  });
+
+  it("store properties are not snapshot-frozen while projection is pending", async () => {
+    let proj: any;
+    let $name!: () => string;
+    let owner!: any;
+
+    createRoot(() => {
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      proj = createProjection(
+        async (draft: any) => {
+          await Promise.resolve();
+          draft.name = "resolved";
+        },
+        { name: "initial" }
+      );
+
+      $name = createMemo(() => proj.name);
+    });
+
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Without the fix, the store set trap would have captured
+    // STORE_SNAPSHOT_PROPS for "name" = "initial" while the projection
+    // was pending, freezing the snapshot at the pending state.
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect($name()).toBe("resolved");
     clearSnapshots();
   });
 });
