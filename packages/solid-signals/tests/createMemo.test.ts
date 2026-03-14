@@ -1860,3 +1860,75 @@ it("should compute nested lazy memos when first read inside another computation"
 //   flush();
 //   expect($a()).toBe("both");
 // });
+
+it("should dispose all sibling children when async memo resolves to falsy value", async () => {
+  const errors: any[] = [];
+  const onError = (e: any) => errors.push(e?.reason ?? e);
+  process.on("unhandledRejection", onError);
+
+  try {
+    const dispose = createRoot(dispose => {
+      const [$id, setId] = createSignal(1);
+
+      const item = createMemo(() => {
+        const v = $id();
+        if (v === 0) return new Promise<undefined>(r => setTimeout(() => r(undefined), 0));
+        return new Promise<{ id: number }>(r => setTimeout(() => r({ id: v }), 0));
+      });
+
+      const conditionValue = createMemo(() => item());
+
+      const condition = createMemo(conditionValue, undefined, {
+        equals: (a: any, b: any) => !a === !b
+      });
+
+      const outerMemo = createMemo(() => {
+        const c = condition();
+        if (c) {
+          const accessor = () => {
+            if (!untrack(condition)) throw new Error("Stale read");
+            return conditionValue();
+          };
+
+          const m1 = createMemo(() => (accessor() as any)?.id);
+          createRenderEffect(
+            () => m1(),
+            () => {}
+          );
+
+          const m2 = createMemo(() => (accessor() as any)?.id);
+          createRenderEffect(
+            () => m2(),
+            () => {}
+          );
+
+          return "children";
+        }
+        return "fallback";
+      });
+
+      createRenderEffect(
+        () => outerMemo(),
+        () => {}
+      );
+
+      setTimeout(async () => {
+        await Promise.resolve();
+        flush();
+
+        setId(0);
+        flush();
+      }, 10);
+
+      return dispose;
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+    flush();
+
+    expect(errors).toHaveLength(0);
+    dispose();
+  } finally {
+    process.removeListener("unhandledRejection", onError);
+  }
+});
