@@ -29,8 +29,6 @@ export interface StoreOptions {
 export interface ProjectionOptions extends StoreOptions {
   /** Key property name or function for reconciliation identity */
   key?: string | ((item: NonNullable<any>) => any);
-  /** When true, reconciles all properties (not just tracked ones) */
-  all?: boolean;
 }
 export type NoFn<T> = T extends Function ? never : T;
 
@@ -38,12 +36,9 @@ type DataNode = Signal<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
 
 export const $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
-  $DEEP = Symbol(__DEV__ ? "STORE_DEEP" : 0),
   $TARGET = Symbol(__DEV__ ? "STORE_TARGET" : 0),
   $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0),
   $DELETED = Symbol(__DEV__ ? "STORE_DELETED" : 0);
-
-const PARENTS = new WeakMap<object, Set<object>>();
 
 export const STORE_VALUE = "v",
   STORE_OVERRIDE = "o",
@@ -156,7 +151,7 @@ function getNode<T>(
   return (nodes[property] = s);
 }
 
-function trackSelf(target: StoreNode, symbol: symbol = $TRACK) {
+export function trackSelf(target: StoreNode, symbol: symbol = $TRACK) {
   getObserver() &&
     read(
       getNode(
@@ -205,8 +200,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     if (property === $TARGET) return target;
     if (property === $PROXY) return receiver;
     if (property === $REFRESH) return target[STORE_FIREWALL];
-    if (property === $TRACK || property === $DEEP) {
-      trackSelf(target, property);
+    if (property === $TRACK) {
+      trackSelf(target);
       return receiver;
     }
     const nodes = getNodes(target, STORE_NODE);
@@ -271,8 +266,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     }
     if (__DEV__ && strictRead && typeof property === "string")
       console.warn(
-        `Reactive value read at the top level of ${strictRead} will not update. ` +
-          `Move it into a tracking scope (JSX, computations, effects).`
+        `Reactive value read directly in ${strictRead} will not update. ` +
+          `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`
       );
     return isWrappable(value) ? wrap(value, target) : value;
   },
@@ -347,11 +342,6 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         if (value !== undefined && value === base) delete target[overrideKey]![property];
         else (target[overrideKey] || (target[overrideKey] = Object.create(null)))[property] = value;
         const wrappable = isWrappable(value);
-        if (isWrappable(prev)) {
-          const parents = PARENTS.get(prev);
-          parents && (parents instanceof Set ? parents.delete(store) : PARENTS.delete(prev));
-        }
-        if (recursivelyNotify(store, storeLookup) && wrappable) recursivelyAddParent(value, store);
         target[STORE_HAS]?.[property] && setSignal(target[STORE_HAS]![property], true);
         const nodes = getNodes(target, STORE_NODE);
         nodes[property] &&
@@ -397,10 +387,6 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         } else if (target[overrideKey] && property in target[overrideKey]) {
           delete target[overrideKey][property];
         } else return true;
-        if (isWrappable(prev)) {
-          const parents = PARENTS.get(prev);
-          parents && (parents instanceof Set ? parents.delete(target) : PARENTS.delete(prev));
-        }
         if (target[STORE_HAS]?.[property]) setSignal(target[STORE_HAS]![property], false);
         const nodes = getNodes(target, STORE_NODE);
         nodes[property] && setSignal(nodes[property], undefined);
@@ -508,64 +494,4 @@ export function createStore<T extends object = {}>(
     wrappedStore = derived ? createProjectionInternal(first, second, options).store : wrap(first);
 
   return [wrappedStore, (fn: (draft: T) => void): void => storeSetter(wrappedStore, fn)];
-}
-
-function recursivelyNotify(state: object, lookup: WeakMap<any, any>): boolean {
-  let target = state[$TARGET] || (lookup?.get(state)?.[$TARGET] as StoreNode | undefined);
-  let notified = false;
-  if (target) {
-    const deep = getNodes(target, STORE_NODE)[$DEEP];
-    if (deep) {
-      setSignal(deep, undefined);
-      notified = true;
-    }
-    lookup = target[STORE_LOOKUP] || lookup;
-  }
-
-  // trace parents
-  const parents = PARENTS.get(target?.[STORE_VALUE] || state);
-  if (!parents) return notified;
-  if (parents instanceof Set) {
-    for (let parent of parents) notified = recursivelyNotify(parent, lookup) || notified;
-  } else notified = recursivelyNotify(parents, lookup) || notified;
-  return notified;
-}
-
-function recursivelyAddParent(state: any, parent?: any): void {
-  let override: Record<PropertyKey, any> | undefined;
-  const target = state[$TARGET] as StoreNode | undefined;
-  if (target) {
-    override = target[STORE_OVERRIDE];
-    state = target[STORE_VALUE];
-  }
-  if (parent) {
-    let parents = PARENTS.get(state);
-    if (!parents) PARENTS.set(state, parent);
-    else if (parents !== parent) {
-      if (!(parents instanceof Set))
-        PARENTS.set(state, (parents = /* @__PURE__ */ new Set([parents])));
-      else if (parents.has(parent)) return;
-      parents.add(parent);
-    } else return;
-  }
-
-  if (Array.isArray(state)) {
-    const len = override?.length || state.length;
-    for (let i = 0; i < len; i++) {
-      const item = override && i in override ? override[i] : state[i];
-      isWrappable(item) && recursivelyAddParent(item, state);
-    }
-  } else {
-    const keys = getKeys(state, override);
-    for (let i = 0; i < keys.length; i++) {
-      const key = keys[i];
-      const item = override && key in override ? override[key] : state[key];
-      isWrappable(item) && recursivelyAddParent(item, state);
-    }
-  }
-}
-
-export function deep<T extends object>(store: Store<T>): Store<T> {
-  recursivelyAddParent(store);
-  return store[$DEEP];
 }

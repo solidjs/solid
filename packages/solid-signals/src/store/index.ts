@@ -9,7 +9,7 @@ export type {
 } from "./store.js";
 export type { Merge, Omit } from "./utils.js";
 
-export { isWrappable, createStore, deep, $TRACK, $PROXY, $TARGET } from "./store.js";
+export { isWrappable, createStore, $TRACK, $PROXY, $TARGET } from "./store.js";
 
 export { createProjection } from "./projection.js";
 
@@ -26,4 +26,4 @@ export type {
   CustomPartial
 } from "./storePath.js";
 
-export { snapshot, merge, omit } from "./utils.js";
+export { snapshot, deep, merge, omit } from "./utils.js";

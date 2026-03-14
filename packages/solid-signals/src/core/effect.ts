@@ -6,7 +6,7 @@ import {
   STATUS_ERROR,
   STATUS_PENDING
 } from "./constants.js";
-import { computed, recompute, staleValues } from "./core.js";
+import { computed, recompute, setStrictRead, staleValues } from "./core.js";
 import { onCleanup } from "./owner.js";
 import { _hitUnhandledAsync, resetUnhandledAsync } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
@@ -95,6 +95,10 @@ export function effect<T>(
 
 function runEffect(this: Effect<any>) {
   if (!this._modified || this._flags & REACTIVE_DISPOSED) return;
+  let prevStrictRead: string | false = false;
+  if (__DEV__) {
+    prevStrictRead = setStrictRead("an effect callback");
+  }
   this._cleanup?.();
   this._cleanup = undefined;
   try {
@@ -102,6 +106,7 @@ function runEffect(this: Effect<any>) {
   } catch (error) {
     if (!this._queue.notify(this, STATUS_ERROR, STATUS_ERROR)) throw error;
   } finally {
+    if (__DEV__) setStrictRead(prevStrictRead);
     this._prevValue = this._value;
     this._modified = false;
   }

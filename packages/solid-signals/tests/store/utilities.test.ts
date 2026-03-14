@@ -8,6 +8,7 @@ import {
   getOwner,
   merge,
   omit,
+  reconcile,
   snapshot
 } from "../../src/index.js";
 
@@ -468,7 +469,7 @@ describe("omit Props", () => {
 });
 
 describe("deep", () => {
-  test("correct number of subscriptions", () => {
+  test("subscribes to $TRACK at each level", () => {
     const [state, setState] = createStore({ list: [{ a: 1 }, { b: 2 }] });
     let o: any;
     createRoot(() => {
@@ -485,7 +486,8 @@ describe("deep", () => {
     for (let d = o._deps; d !== null; d = d._nextDep) {
       count++;
     }
-    expect(count).toBe(1);
+    // root, list array, {a:1}, {b:2}
+    expect(count).toBe(4);
   });
   test("tests tracks deep updates", () => {
     const effect = vi.fn();
@@ -560,6 +562,47 @@ describe("deep", () => {
     });
     flush();
     expect(effect).toHaveBeenCalledTimes(4);
+  });
+  test("returns plain (non-proxy) data", () => {
+    const [state] = createStore({ a: { b: 1 }, c: [2, 3] });
+    let result: any;
+    createRoot(() => {
+      createEffect(
+        () => deep(state),
+        v => {
+          result = v;
+        }
+      );
+    });
+    flush();
+    expect(result).toEqual({ a: { b: 1 }, c: [2, 3] });
+    expect(result).not.toBe(state);
+    expect(typeof result.a).toBe("object");
+    expect(Array.isArray(result.c)).toBe(true);
+  });
+  test("works with reconcile", () => {
+    const effect = vi.fn();
+    const [state, setState] = createStore<{ list: { id: number; v: number }[] }>({
+      list: [
+        { id: 1, v: 10 },
+        { id: 2, v: 20 }
+      ]
+    });
+    createRoot(() => {
+      createEffect(() => deep(state), effect);
+    });
+    flush();
+    expect(effect).toHaveBeenCalledTimes(1);
+    setState(reconcile({ list: [{ id: 1, v: 99 }, { id: 2, v: 20 }, { id: 3, v: 30 }] }, "id"));
+    flush();
+    expect(effect).toHaveBeenCalledTimes(2);
+    expect(effect.mock.calls[1][0]).toEqual({
+      list: [
+        { id: 1, v: 99 },
+        { id: 2, v: 20 },
+        { id: 3, v: 30 }
+      ]
+    });
   });
 });
 

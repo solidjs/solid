@@ -158,14 +158,14 @@ function createOptimisticProjectionInternal<T extends object = {}>(
             try {
               value !== s &&
                 value !== undefined &&
-                storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
+                storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
             } finally {
               setProjectionWriteActive(false);
             }
           });
           value !== s &&
             value !== undefined &&
-            reconcile(value, options?.key || "id", options?.all)(wrappedStore);
+            reconcile(value, options?.key || "id")(wrappedStore);
         });
       } finally {
         setProjectionWriteActive(false);

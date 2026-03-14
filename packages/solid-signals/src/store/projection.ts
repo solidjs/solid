@@ -46,11 +46,11 @@ export function createProjectionInternal<T extends object = {}>(
       const value = handleAsync(owner, fn(s), value => {
         value !== s &&
           value !== undefined &&
-          storeSetter(wrappedStore, reconcile(value, options?.key || "id", options?.all));
+          storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
       });
       value !== s &&
         value !== undefined &&
-        reconcile(value, options?.key || "id", options?.all)(wrappedStore);
+        reconcile(value, options?.key || "id")(wrappedStore);
     });
   });
   (node as any)._preventAutoDisposal = true;

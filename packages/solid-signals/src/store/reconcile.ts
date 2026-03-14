@@ -30,7 +30,7 @@ function getAllKeys(value, override, next) {
   return Array.from(new Set([...keys, ...nextKeys]));
 }
 
-function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => any, all: boolean) {
+function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => any) {
   const target = state?.[$TARGET];
   if (!target) return;
   const previous = target[STORE_VALUE];
@@ -58,7 +58,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
           (item && next[start] && keyFn(item) === keyFn(next[start])));
         start++
       ) {
-        applyState(next[start], wrap(item, target), keyFn, all);
+        applyState(next[start], wrap(item, target), keyFn);
       }
 
       const temp = new Array(next.length),
@@ -85,7 +85,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
           changed = true;
           const wrapped = wrap(temp[j], target);
           target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrapped);
-          applyState(next[j], wrapped, keyFn, all);
+          applyState(next[j], wrapped, keyFn);
         }
 
         changed && target[STORE_NODE][$TRACK] && setSignal(target[STORE_NODE][$TRACK], void 0);
@@ -121,7 +121,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
         if (j in temp) {
           const wrapped = wrap(temp[j], target);
           target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrapped);
-          applyState(next[j], wrapped, keyFn, all);
+          applyState(next[j], wrapped, keyFn);
         } else target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrap(next[j], target));
       }
       if (start < next.length) changed = true;
@@ -129,7 +129,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
       for (let i = 0, len = next.length; i < len; i++) {
         const item = getOverrideValue(previous, override, nodes, i as any, optOverride);
         isWrappable(item)
-          ? applyState(next[i], wrap(item, target), keyFn, all)
+          ? applyState(next[i], wrap(item, target), keyFn)
           : target[STORE_NODE][i] && setSignal(target[STORE_NODE][i], next[i]);
       }
     }
@@ -145,7 +145,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
   // values
   if (nodes) {
     const tracked = nodes[$TRACK];
-    const keys = tracked || all ? getAllKeys(previous, override, next) : Object.keys(nodes);
+    const keys = tracked ? getAllKeys(previous, override, next) : Object.keys(nodes);
     for (let i = 0, len = keys.length; i < len; i++) {
       const key = keys[i];
       const node = nodes[key];
@@ -160,7 +160,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
       ) {
         tracked && setSignal(tracked, void 0);
         node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
-      } else applyState(nextValue, wrap(previousValue, target), keyFn, all);
+      } else applyState(nextValue, wrap(previousValue, target), keyFn);
     }
   }
 
@@ -176,8 +176,7 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
 
 export function reconcile<T extends U, U>(
   value: T,
-  key: string | ((item: NonNullable<any>) => any),
-  all = false
+  key: string | ((item: NonNullable<any>) => any)
 ) {
   return (state: U) => {
     if (state == null) throw new Error("Cannot reconcile null or undefined state");
@@ -185,6 +184,6 @@ export function reconcile<T extends U, U>(
     const eq = keyFn(state);
     if (eq !== undefined && keyFn(value) !== keyFn(state))
       throw new Error("Cannot reconcile states with different identity");
-    applyState(value, state, keyFn, all);
+    applyState(value, state, keyFn);
   };
 }

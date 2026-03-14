@@ -519,8 +519,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING) {
     throw new Error(
-      `Reading a pending async value in ${strictRead}. ` +
-        `Async values must be read within a tracking scope (JSX, computations, effects).`
+      `Reading a pending async value directly in ${strictRead}. ` +
+        `Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function).`
     );
   }
 
@@ -584,8 +584,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (__DEV__ && strictRead)
     console.warn(
-      `Reactive value read at the top level of ${strictRead} will not update. ` +
-        `Move it into a tracking scope (JSX, computations, effects).`
+      `Reactive value read directly in ${strictRead} will not update. ` +
+        `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`
     );
 
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING)

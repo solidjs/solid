@@ -4,7 +4,9 @@ import {
   createRoot,
   createSignal,
   createStore,
+  deep,
   flush,
+  isPending,
   untrack
 } from "../src/index.js";
 
@@ -13,6 +15,104 @@ const COMP = "TestComponent";
 afterEach(() => flush());
 
 describe("strictRead", () => {
+  describe("effect callback (back half)", () => {
+    it("warns on signal read in effect callback", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const [$x, setX] = createSignal(1);
+      const [$y] = createSignal(2);
+
+      createRoot(() => {
+        createEffect(
+          () => $x(),
+          () => {
+            $y();
+          }
+        );
+      });
+      flush();
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("an effect callback");
+      warn.mockRestore();
+    });
+
+    it("warns on store property read in effect callback", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const [$x] = createSignal(1);
+      const [store] = createStore({ count: 0 });
+
+      createRoot(() => {
+        createEffect(
+          () => $x(),
+          () => {
+            void store.count;
+          }
+        );
+      });
+      flush();
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("an effect callback");
+      warn.mockRestore();
+    });
+
+    it("warns on isPending read in effect callback", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const [$x] = createSignal(1);
+      const [$y] = createSignal(2);
+
+      createRoot(() => {
+        createEffect(
+          () => $x(),
+          () => {
+            isPending(() => $y());
+          }
+        );
+      });
+      flush();
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("an effect callback");
+      warn.mockRestore();
+    });
+
+    it("does not warn when using deep() snapshot data in effect callback", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const [store] = createStore({ a: 1, b: { c: 2 } });
+
+      createRoot(() => {
+        createEffect(
+          () => deep(store),
+          val => {
+            void val.a;
+            void val.b.c;
+          }
+        );
+      });
+      flush();
+
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("does not warn on reads in effect compute function", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const [$x] = createSignal(1);
+      const [$y] = createSignal(2);
+
+      createRoot(() => {
+        createEffect(
+          () => $x() + $y(),
+          () => {}
+        );
+      });
+      flush();
+
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+  });
+
   it("warns on signal read under strict + untracked", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const [$x] = createSignal(10);
