@@ -162,14 +162,14 @@ importers:
         specifier: ^0.41.0-next
         version: 0.41.0-next.9(@babel/core@7.29.0)
       solid-js:
-        specifier: ^2.0.0-beta.1
+        specifier: ^2.0.0-beta.2
         version: 2.0.0-experimental.16
 
   packages/solid:
     dependencies:
       '@solidjs/signals':
-        specifier: ^0.12.0
-        version: 0.12.0
+        specifier: ^0.13.0
+        version: 0.13.0
       csstype:
         specifier: ^3.1.0
         version: 3.2.3
@@ -214,8 +214,8 @@ importers:
   packages/solid-web:
     dependencies:
       '@solidjs/signals':
-        specifier: ^0.12.0
-        version: 0.12.0
+        specifier: ^0.13.0
+        version: 0.13.0
       seroval:
         specifier: ^1.1.0
         version: 1.5.0
@@ -1250,8 +1250,8 @@ packages:
   '@solidjs/signals@0.11.3':
     resolution: {integrity: sha512-udMfutYPOlcxKUmc5+n1QtarsxOiAlC6LJY2TqFyaMwdXgo+reiYUcYGDlOiAPXfCLE0lavZHQ/6GT5pJbXKBA==}
 
-  '@solidjs/signals@0.12.0':
-    resolution: {integrity: sha512-4yeBvMCTCCPZZ1G/x0XUVg82tgC/gLikPhl91cSdGvZXMLQUEHO9Ugbca0MfICcHHJXySieFyZrMNlQ5rWcGyQ==}
+  '@solidjs/signals@0.13.0':
+    resolution: {integrity: sha512-TWqrk4qAJYIWoywqeerihtsJX5HmmBec9iH1jyib++5A2XENaYwy1uYO6FTpV+B1SEGzgyV9pUVfqQ74t1opXA==}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -4627,7 +4627,7 @@ snapshots:
 
   '@solidjs/signals@0.11.3': {}
 
-  '@solidjs/signals@0.12.0': {}
+  '@solidjs/signals@0.13.0': {}
 
   '@types/babel__core@7.20.5':
     dependencies:

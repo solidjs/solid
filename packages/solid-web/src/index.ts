@@ -13,7 +13,7 @@ import {
   JSX,
   sharedConfig,
   enableHydration,
-  setOnUnhandledAsync,
+  enforceLoadingBoundary,
   $DEVCOMP,
   ComponentProps,
   ValidComponent,
@@ -23,35 +23,11 @@ import {
 export * from "./client.js";
 
 export function render(...args: Parameters<typeof renderCore>): ReturnType<typeof renderCore> {
-  let unhandledAsync = false;
   // @ts-ignore — replaced at build time
-  if ("_DX_DEV_") {
-    setOnUnhandledAsync(() => {
-      unhandledAsync = true;
-    });
-  }
+  if ("_DX_DEV_") enforceLoadingBoundary(true);
   const result = renderCore(...args);
   // @ts-ignore — replaced at build time
-  if ("_DX_DEV_") {
-    setOnUnhandledAsync(null);
-    if (unhandledAsync) {
-      const message =
-        "Async content was used in JSX without a <Loading> boundary. " +
-        "Wrap async content in <Loading> to show a fallback while loading.";
-      result();
-      const container = args[1] as Element;
-      container.textContent = "";
-      const msg = document.createElement("pre");
-      msg.style.cssText =
-        "color:#e53e3e;background:#fff5f5;border:2px solid #e53e3e;" +
-        "border-radius:4px;padding:16px;margin:16px;font-family:monospace;" +
-        "white-space:pre-wrap;word-break:break-word;";
-      msg.textContent = message;
-      container.appendChild(msg);
-      console.error(message);
-      return () => {};
-    }
-  }
+  if ("_DX_DEV_") enforceLoadingBoundary(false);
   return result;
 }
 

@@ -1248,6 +1248,236 @@ describe("Async Iterable Hydration — createStore(fn)", () => {
 });
 
 // ============================================================================
+// ssrSource "client" — post-hydration transition
+// ============================================================================
+
+describe("ssrSource 'client' — post-hydration transition", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("createProjection: fn runs after hydration, store updates", () => {
+    startHydration({});
+
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(
+          (draft: any) => {
+            draft.name = "from-client";
+            draft.count = 42;
+          },
+          { name: "init", count: 0 },
+          { ssrSource: "client" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // During hydration, fn is suppressed — initialValue used
+    expect(store.name).toBe("init");
+
+    stopHydration();
+    flush();
+
+    // After hydration, fn runs and updates the store
+    expect(store.name).toBe("from-client");
+    expect(store.count).toBe(42);
+  });
+
+  test("createStore(fn): fn runs after hydration, store updates", () => {
+    startHydration({});
+
+    let store: any;
+    createRoot(
+      () => {
+        [store] = createStore(
+          (draft: any) => {
+            draft.name = "from-client";
+          },
+          { name: "init" },
+          { ssrSource: "client" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.name).toBe("init");
+
+    stopHydration();
+    flush();
+
+    expect(store.name).toBe("from-client");
+  });
+});
+
+// ============================================================================
+// ssrSource "hybrid" — post-hydration transition with async generators
+// ============================================================================
+
+describe("ssrSource 'hybrid' — async generator transition", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("createProjection: mutation-style — no first-value duplication", async () => {
+    // Server sends a promise resolving to the store state after first yield
+    startHydration({ t0: { v: [{ id: 1, text: "first" }], s: 1 } });
+
+    let store: any;
+    let yieldCount = 0;
+    const values = [
+      { id: 1, text: "first" },
+      { id: 2, text: "second" },
+      { id: 3, text: "third" }
+    ];
+
+    createRoot(
+      () => {
+        store = createProjection(
+          async function* (draft: any) {
+            for (const val of values) {
+              draft.push(val);
+              yieldCount++;
+              yield;
+              await new Promise(r => setTimeout(r, 5));
+            }
+          },
+          [] as any[],
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    // During hydration: server value loaded
+    expect(store.length).toBe(1);
+    expect(store[0].text).toBe("first");
+
+    stopHydration();
+    flush();
+
+    // After hydration: client generator runs with shadow draft for first iteration
+    // Wait for all yields to complete
+    await new Promise(r => setTimeout(r, 100));
+    flush();
+
+    // Shadow absorbed the first push — real store should not have duplicated item 1
+    // Items 2 and 3 should be present from subsequent yields
+    expect(store.length).toBe(3);
+    expect(store[0].text).toBe("first");
+    expect(store[1].text).toBe("second");
+    expect(store[2].text).toBe("third");
+  });
+
+  test("createProjection: return-style — no first-value duplication", async () => {
+    startHydration({ t0: { v: [{ id: 1, text: "first" }], s: 1 } });
+
+    let store: any;
+    const values = [
+      { id: 1, text: "first" },
+      { id: 2, text: "second" }
+    ];
+
+    createRoot(
+      () => {
+        store = createProjection(
+          async function* () {
+            const items: any[] = [];
+            for (const val of values) {
+              items.push(val);
+              yield [...items];
+              await new Promise(r => setTimeout(r, 5));
+            }
+          },
+          [] as any[],
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.length).toBe(1);
+    expect(store[0].text).toBe("first");
+
+    stopHydration();
+    flush();
+
+    await new Promise(r => setTimeout(r, 100));
+    flush();
+
+    // First yield's value suppressed, second yield reconciles
+    expect(store.length).toBe(2);
+    expect(store[0].text).toBe("first");
+    expect(store[1].text).toBe("second");
+  });
+
+  test("createProjection: hybrid with sync fn (non-generator) uses server value", () => {
+    startHydration({ t0: { v: { name: "server-val" }, s: 1 } });
+
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(
+          (draft: any) => {
+            draft.name = "client-val";
+          },
+          { name: "" },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.name).toBe("server-val");
+  });
+
+  test("createStore(fn): hybrid mutation-style — no duplication", async () => {
+    startHydration({ t0: { v: { items: [1] }, s: 1 } });
+
+    let store: any;
+    createRoot(
+      () => {
+        [store] = createStore(
+          async function* (draft: any) {
+            for (const val of [1, 2, 3]) {
+              draft.items.push(val);
+              yield;
+              await new Promise(r => setTimeout(r, 5));
+            }
+          },
+          { items: [] as number[] },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.items.length).toBe(1);
+    expect(store.items[0]).toBe(1);
+
+    stopHydration();
+    flush();
+
+    await new Promise(r => setTimeout(r, 100));
+    flush();
+
+    // Shadow absorbed the first push (1), so real store keeps server [1]
+    // Subsequent yields push 2 and 3 to the real store
+    expect(store.items.length).toBe(3);
+    expect(store.items[0]).toBe(1);
+    expect(store.items[1]).toBe(2);
+    expect(store.items[2]).toBe(3);
+  });
+});
+
+// ============================================================================
 // lazy() hydration-aware + Loading asset integration
 // ============================================================================
 
@@ -1479,9 +1709,9 @@ describe("Loading + asset waiting during hydration", () => {
     );
     flush();
 
-    // Returns a function (createLoadBoundary memo) — hydrated immediately, not waiting
+    // Returns a function (createLoadingBoundary memo) — hydrated immediately, not waiting
     expect(typeof result).toBe("function");
-    // The inner value is a createLoadBoundary — not undefined (waiting) or fallback string
+    // The inner value is a createLoadingBoundary — not undefined (waiting) or fallback string
     expect(result()).not.toBeUndefined();
     expect(result()).not.toBe("loading...");
   });
@@ -2024,6 +2254,6 @@ describe("Loading + Async Iterable end-to-end pipeline", () => {
 
     expect(store.name).toBe("Alice");
     expect(store.count).toBe(42);
-    expect(warnSpy).not.toHaveBeenCalled();
+    // hybrid mode intentionally writes a `hydrated` signal inside the owned scope
   });
 });

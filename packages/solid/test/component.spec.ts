@@ -53,7 +53,7 @@ describe("Strict Read Warning", () => {
     });
 
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/Reactive value read at the top level/i);
+    expect(warn.mock.calls[0][0]).toMatch(/Reactive value read directly in/i);
     warn.mockRestore();
   });
 
@@ -211,7 +211,7 @@ describe("Strict Read Warning", () => {
     });
 
     const strictReadWarns = warn.mock.calls.filter((c: any) =>
-      String(c[0]).includes("Reactive value read at the top level")
+      String(c[0]).includes("Reactive value read directly in")
     );
     expect(strictReadWarns.length).toBeGreaterThanOrEqual(1);
     warn.mockRestore();

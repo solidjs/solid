@@ -91,7 +91,7 @@
   },
   "peerDependencies": {
     "solid-js": "^2.0.0-beta.2",
-    "@solidjs/signals": "^0.12.0"
+    "@solidjs/signals": "^0.13.0"
   },
   "devDependencies": {
     "solid-js": "workspace:*"

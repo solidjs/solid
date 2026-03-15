@@ -1,6 +1,6 @@
 import {
   getOwner,
-  createLoadBoundary,
+  createLoadingBoundary,
   createErrorBoundary as coreErrorBoundary,
   flush,
   runWithOwner,
@@ -262,6 +262,66 @@ function isAsyncIterable(v: any): boolean {
   return v != null && typeof v[Symbol.asyncIterator] === "function";
 }
 
+function createShadowDraft(realDraft: any) {
+  const shadow = JSON.parse(JSON.stringify(realDraft));
+  let useShadow = true;
+  return {
+    proxy: new Proxy(shadow, {
+      get(_, prop) {
+        return useShadow ? shadow[prop] : realDraft[prop];
+      },
+      set(_, prop, value) {
+        if (useShadow) {
+          shadow[prop] = value;
+          return true;
+        }
+        return Reflect.set(realDraft, prop, value);
+      },
+      deleteProperty(_, prop) {
+        if (useShadow) {
+          delete shadow[prop];
+          return true;
+        }
+        return Reflect.deleteProperty(realDraft, prop);
+      },
+      has(_, prop) {
+        return prop in (useShadow ? shadow : realDraft);
+      },
+      ownKeys() {
+        return Reflect.ownKeys(useShadow ? shadow : realDraft);
+      },
+      getOwnPropertyDescriptor(_, prop) {
+        return Object.getOwnPropertyDescriptor(useShadow ? shadow : realDraft, prop);
+      }
+    }),
+    activate() {
+      useShadow = false;
+    }
+  };
+}
+
+function wrapFirstYield(iterable: any, activate: () => void) {
+  const srcIt = iterable[Symbol.asyncIterator]();
+  let first = true;
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          const p = srcIt.next();
+          if (first) {
+            first = false;
+            return p.then((r: any) => {
+              activate();
+              return r.done ? r : { done: false, value: undefined };
+            });
+          }
+          return p;
+        }
+      };
+    }
+  };
+}
+
 function hydrateSignalFromAsyncIterable(
   coreFn: Function,
   compute: any,
@@ -317,7 +377,11 @@ function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, opti
               if (isFirst) {
                 const r = srcIt.next();
                 return r && typeof r.then === "function"
-                  ? r.then(process)
+                  ? {
+                      then(fn: any, rej: any) {
+                        r.then((v: any) => fn(process(v)), rej);
+                      }
+                    }
                   : syncThenable(process(r));
               }
               if (buffered) {
@@ -353,7 +417,7 @@ function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, opti
 // --- Hydration-aware implementations ---
 
 function hydratedCreateMemo(compute: any, value?: any, options?: any) {
-  if (!sharedConfig.hydrating) {
+  if (!sharedConfig.hydrating || options?.transparent) {
     return coreMemo(compute, value, options);
   }
   markTopLevelSnapshotScope();
@@ -535,15 +599,7 @@ function hydratedCreateOptimistic(fn?: any, second?: any, third?: any) {
   );
 }
 
-function wrapStoreFn(fn: any, ssrSource?: string) {
-  if (ssrSource === "initial") {
-    return (draft: any) => {
-      if (!sharedConfig.hydrating) return fn(draft);
-      subFetch(fn, draft);
-      return undefined;
-    };
-  }
-  // "server", "hybrid", or undefined
+function wrapStoreFn(fn: any) {
   return (draft: any) => {
     const o = getOwner()!;
     if (!sharedConfig.hydrating) return fn(draft);
@@ -554,19 +610,64 @@ function wrapStoreFn(fn: any, ssrSource?: string) {
   };
 }
 
+function hydrateStoreLikeFn(
+  coreFn: Function,
+  fn: any,
+  initialValue: any,
+  options: any,
+  ssrSource: string | undefined
+): any {
+  if (ssrSource === "client") {
+    const [hydrated, setHydrated] = coreSignal(false);
+    const result = coreFn(
+      (draft: any) => {
+        if (!hydrated()) return;
+        return fn(draft);
+      },
+      initialValue,
+      options
+    );
+    setHydrated(true);
+    return result;
+  }
+  if (ssrSource === "hybrid") {
+    const [hydrated, setHydrated] = coreSignal(false);
+    const result = coreFn(
+      (draft: any) => {
+        const o = getOwner()!;
+        if (!hydrated()) {
+          if (sharedConfig.has!(o.id!)) {
+            const initP = sharedConfig.load!(o.id!);
+            const init = initP?.v ?? initP;
+            if (init != null) {
+              subFetch(fn, draft);
+              return init;
+            }
+          }
+          return fn(draft);
+        }
+        const { proxy, activate } = createShadowDraft(draft);
+        const r = fn(proxy);
+        return isAsyncIterable(r) ? wrapFirstYield(r, activate) : r;
+      },
+      initialValue,
+      options
+    );
+    setHydrated(true);
+    return result;
+  }
+  const aiResult = hydrateStoreFromAsyncIterable(coreFn, initialValue, options);
+  if (aiResult !== null) return aiResult;
+  return coreFn(wrapStoreFn(fn), initialValue, options);
+}
+
 function hydratedCreateStore(first?: any, second?: any, third?: any) {
   if (typeof first !== "function" || !sharedConfig.hydrating)
     return coreStore(first, second, third);
   markTopLevelSnapshotScope();
   const ssrSource = third?.ssrSource;
-  if (ssrSource === "client" || ssrSource === "initial") {
-    return coreStore(second ?? {}, undefined, third);
-  }
-
-  const aiResult = hydrateStoreFromAsyncIterable(coreStore, second ?? {}, third);
-  if (aiResult !== null) return aiResult;
-
-  return coreStore(wrapStoreFn(first, ssrSource), second, third);
+  if (ssrSource === "initial") return coreStore(second ?? {}, undefined, third);
+  return hydrateStoreLikeFn(coreStore, first, second ?? {}, third, ssrSource);
 }
 
 function hydratedCreateOptimisticStore(first?: any, second?: any, third?: any) {
@@ -574,30 +675,16 @@ function hydratedCreateOptimisticStore(first?: any, second?: any, third?: any) {
     return coreOptimisticStore(first, second, third);
   markTopLevelSnapshotScope();
   const ssrSource = third?.ssrSource;
-  if (ssrSource === "client" || ssrSource === "initial") {
-    return coreOptimisticStore(second ?? {}, undefined, third);
-  }
-
-  const aiResult = hydrateStoreFromAsyncIterable(coreOptimisticStore, second ?? {}, third);
-  if (aiResult !== null) return aiResult;
-
-  return coreOptimisticStore(wrapStoreFn(first, ssrSource), second, third);
+  if (ssrSource === "initial") return coreOptimisticStore(second ?? {}, undefined, third);
+  return hydrateStoreLikeFn(coreOptimisticStore, first, second ?? {}, third, ssrSource);
 }
 
 function hydratedCreateProjection(fn: any, initialValue?: any, options?: any) {
-  if (!sharedConfig.hydrating) {
-    return coreProjection(fn, initialValue, options);
-  }
+  if (!sharedConfig.hydrating) return coreProjection(fn, initialValue, options);
   markTopLevelSnapshotScope();
   const ssrSource = options?.ssrSource;
-  if (ssrSource === "client" || ssrSource === "initial") {
-    return coreProjection((draft: any) => draft, initialValue, options);
-  }
-
-  const aiResult = hydrateStoreFromAsyncIterable(coreProjection, initialValue, options);
-  if (aiResult !== null) return aiResult;
-
-  return coreProjection(wrapStoreFn(fn, ssrSource), initialValue, options);
+  if (ssrSource === "initial") return coreProjection((draft: any) => draft, initialValue, options);
+  return hydrateStoreLikeFn(coreProjection, fn, initialValue, options, ssrSource);
 }
 
 // --- Hydration-aware effect implementations ---
@@ -811,9 +898,9 @@ function resumeBoundaryHydration(o: Owner, id: string, set: () => void) {
   set();
   flush();
   _snapshotRootOwner = null;
-  _hydratingValue = false;
   releaseSnapshotScope(o);
   flush();
+  _hydratingValue = false;
   checkHydrationComplete();
 }
 
@@ -828,11 +915,17 @@ function resumeBoundaryHydration(o: Owner, id: string, set: () => void) {
  * ```
  * @description https://docs.solidjs.com/reference/components/suspense
  */
-export function Loading(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
+export function Loading(props: {
+  fallback?: JSX.Element;
+  on?: () => any;
+  children: JSX.Element;
+}): JSX.Element {
+  const onOpt = props.on ? { on: () => props.on!() } : undefined;
   if (!sharedConfig.hydrating)
-    return createLoadBoundary(
+    return createLoadingBoundary(
       () => props.children,
-      () => props.fallback
+      () => props.fallback,
+      onOpt
     ) as unknown as JSX.Element;
 
   return coreMemo(() => {
@@ -889,10 +982,12 @@ export function Loading(props: { fallback?: JSX.Element; children: JSX.Element }
       assetPromise.then(() => resumeBoundaryHydration(o, id, set));
       return undefined;
     }
-    return createLoadBoundary(
+    const boundary = createLoadingBoundary(
       () => props.children,
-      () => props.fallback
+      () => props.fallback,
+      onOpt
     );
+    return boundary;
   }) as unknown as JSX.Element;
 }
 

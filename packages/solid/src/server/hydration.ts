@@ -2,7 +2,7 @@ import {
   createOwner,
   getNextChildId,
   runWithOwner,
-  createLoadBoundary,
+  createLoadingBoundary,
   NotReadyError,
   ErrorContext,
   getContext,
@@ -40,10 +40,14 @@ export function ssrHandleError(err: any) {
  *
  * @description https://docs.solidjs.com/reference/components/suspense
  */
-export function Loading(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
+export function Loading(props: {
+  fallback?: JSX.Element;
+  on?: () => any;
+  children: JSX.Element;
+}): JSX.Element {
   const ctx = sharedConfig.context;
   if (!ctx) {
-    return createLoadBoundary(
+    return createLoadingBoundary(
       () => props.children,
       () => props.fallback
     ) as unknown as JSX.Element;
@@ -51,7 +55,7 @@ export function Loading(props: { fallback?: JSX.Element; children: JSX.Element }
 
   const o = createOwner();
   const id = o.id!;
-  (o as any).id = id + "00"; // fake depth to match client's createLoadBoundary nesting
+  (o as any).id = id + "00"; // fake depth to match client's createLoadingBoundary nesting
 
   let runPromise: Promise<any> | undefined;
   let serializeBuffer: [string, any, boolean?][] = [];

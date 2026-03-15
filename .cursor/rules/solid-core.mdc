@@ -51,7 +51,7 @@ Function children in `Show`/`Match` have stale-read protection — accessing aft
 
 `sharedConfig` coordinates hydration state: `hydrating`, `resources`, `load`, `has`, `gather`, `registry`, `done`, `getNextContextId()`.
 
-`Loading` component uses `createLoadBoundary()` normally. During hydration, it checks resources via `sharedConfig.has(id)` and `sharedConfig.load(id)`, managing promise resolution.
+`Loading` component uses `createLoadingBoundary()` normally. During hydration, it checks resources via `sharedConfig.has(id)` and `sharedConfig.load(id)`, managing promise resolution.
 
 ## Server Stubs
 

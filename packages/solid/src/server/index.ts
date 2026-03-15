@@ -41,7 +41,8 @@ export {
   snapshot,
   storePath,
   createDeepProxy,
-  setOnUnhandledAsync,
+  enableExternalSource,
+  enforceLoadingBoundary,
   untrack
 } from "./signals.js";
 
@@ -51,6 +52,9 @@ export type {
   ComputeFunction,
   EffectFunction,
   EffectOptions,
+  ExternalSource,
+  ExternalSourceConfig,
+  ExternalSourceFactory,
   Merge,
   NoInfer,
   NotWrappable,

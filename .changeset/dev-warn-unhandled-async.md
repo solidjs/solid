@@ -2,4 +2,4 @@
 "solid-js": patch
 ---
 
-Add dev-mode error when async content is used in JSX without a `<Loading>` boundary during `render()`. In dev, the app is unmounted and an error message is rendered into the container. Re-export `setOnUnhandledAsync` hook from `@solidjs/signals`.
+Add dev-mode enforcement of Loading boundaries for async content. During `render()`, async values consumed by JSX without a `<Loading>` boundary now throw an error catchable by `<Errored>` boundaries. Re-export `enforceLoadingBoundary` from `@solidjs/signals`.

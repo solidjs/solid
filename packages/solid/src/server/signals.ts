@@ -19,7 +19,8 @@ export {
   isEqual,
   isWrappable,
   SUPPORTS_PROXY,
-  setOnUnhandledAsync
+  enableExternalSource,
+  enforceLoadingBoundary
 } from "@solidjs/signals";
 
 export { flatten } from "@solidjs/signals";
@@ -33,6 +34,9 @@ export type {
   EffectFunction,
   EffectBundle,
   EffectOptions,
+  ExternalSource,
+  ExternalSourceConfig,
+  ExternalSourceFactory,
   MemoOptions,
   NoInfer,
   SignalOptions,
@@ -828,7 +832,11 @@ export function createErrorBoundary<U>(
   });
 }
 
-export function createLoadBoundary(fn: () => any, fallback: () => any): () => unknown {
+export function createLoadingBoundary(
+  fn: () => any,
+  fallback: () => any,
+  options?: { on?: () => any }
+): () => unknown {
   // On server, try to run fn. If NotReadyError is thrown, return fallback.
   // Full HydrationContext integration happens in the Loading component wrapper.
   try {

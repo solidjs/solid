@@ -37,7 +37,7 @@ import {
 
 import {
   createErrorBoundary,
-  createLoadBoundary,
+  createLoadingBoundary,
   NotReadyError as NotReadyErrorClass
 } from "../../src/server/signals.js";
 
@@ -435,10 +435,10 @@ describe("Server createErrorBoundary", () => {
   });
 });
 
-// === createLoadBoundary ===
-describe("Server createLoadBoundary", () => {
+// === createLoadingBoundary ===
+describe("Server createLoadingBoundary", () => {
   test("returns fn result when no async", () => {
-    const result = createLoadBoundary(
+    const result = createLoadingBoundary(
       () => "content",
       () => "loading"
     );
@@ -446,7 +446,7 @@ describe("Server createLoadBoundary", () => {
   });
 
   test("returns fallback when NotReadyError thrown", () => {
-    const result = createLoadBoundary(
+    const result = createLoadingBoundary(
       () => {
         throw new NotReadyErrorClass(Promise.resolve());
       },

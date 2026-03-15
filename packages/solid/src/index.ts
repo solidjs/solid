@@ -29,7 +29,8 @@ export {
   resolve,
   NotReadyError,
   runWithOwner,
-  setOnUnhandledAsync,
+  enableExternalSource,
+  enforceLoadingBoundary,
   snapshot,
   storePath,
   untrack
@@ -40,6 +41,9 @@ export type {
   ComputeFunction,
   EffectFunction,
   EffectOptions,
+  ExternalSource,
+  ExternalSourceConfig,
+  ExternalSourceFactory,
   Merge,
   NoInfer,
   NotWrappable,
@@ -123,7 +127,6 @@ export {
   createResource, // all computations
   createSelector, // createProjection
   DevHooks,
-  enableExternalSource,
   enableScheduling,
   equalFn, // renamed `isEqual`
   from, // handled by async iterators

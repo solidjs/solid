@@ -55,7 +55,7 @@ All reactivity comes from `@solidjs/signals`:
 
 ## Flow Controls
 
-Built on signals primitives: `For` (mapArray), `Repeat` (repeat), `Show` (createMemo), `Switch/Match` (children + memos), `Errored` (createErrorBoundary), `Boundary` (createBoundary), `Loading` (createLoadBoundary).
+Built on signals primitives: `For` (mapArray), `Repeat` (repeat), `Show` (createMemo), `Switch/Match` (children + memos), `Errored` (createErrorBoundary), `Boundary` (createBoundary), `Loading` (createLoadingBoundary).
 
 All support `keyed` mode (identity comparison) vs non-keyed (truthiness). Function children in `Show`/`Match` receive narrowed accessors with stale-read protection.
 
