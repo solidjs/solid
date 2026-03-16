@@ -3,6 +3,8 @@ export {
   $REFRESH,
   $TRACK,
   action,
+  createErrorBoundary,
+  createLoadingBoundary,
   createOwner,
   createReaction,
   createRoot,

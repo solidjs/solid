@@ -8,6 +8,8 @@ export {
   createMemo,
   createOptimistic,
   createOptimisticStore,
+  createErrorBoundary,
+  createLoadingBoundary,
   createOwner,
   createProjection,
   createReaction,
