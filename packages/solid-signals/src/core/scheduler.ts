@@ -359,9 +359,13 @@ function commitPendingNodes() {
       // Set _modified for effects, but not for tracked effects (they handle their own scheduling)
       if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) (n as any)._modified = true;
     }
-    // Clear STATUS_UNINITIALIZED on first value commit, but only if no longer pending
-    if (!((n as Computed<unknown>)._statusFlags & STATUS_PENDING))
-      (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
+    if ((n as Computed<unknown>)._statusFlags & STATUS_PENDING) {
+      const _src = ((n as Computed<unknown>)._error as NotReadyError)?.source;
+      if (_src && !(_src._statusFlags & STATUS_PENDING)) {
+        (n as Computed<unknown>)._statusFlags &= ~(STATUS_PENDING | STATUS_UNINITIALIZED);
+        (n as Computed<unknown>)._error = null;
+      }
+    } else (n as Computed<unknown>)._statusFlags &= ~STATUS_UNINITIALIZED;
     if ((n as Computed<unknown>)._fn) GlobalQueue._dispose(n as Computed<unknown>, false, true);
   }
   pendingNodes.length = 0;

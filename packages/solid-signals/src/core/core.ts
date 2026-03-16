@@ -545,7 +545,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (owner._statusFlags & STATUS_PENDING) {
-    if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
+    const _errSource = (owner._error as NotReadyError)?.source;
+    if (_errSource && !(_errSource._statusFlags & STATUS_PENDING)) clearStatus(owner);
+    else if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (currentOptimisticLane) {
         // Per-lane suspension: only throw if in same lane as pending async
         // AND the node doesn't have an active override (overrides are the visible value,
