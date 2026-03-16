@@ -5,6 +5,7 @@ import {
   createRoot,
   createSignal,
   flush,
+  latest,
   onCleanup
 } from "../src/index.js";
 
@@ -420,6 +421,45 @@ it("should run render effect before user effects", () => {
   setX(1);
   flush();
   expect(mark).toBe("abab");
+});
+
+it("should see consistent values with latest() and direct read on async resolve", async () => {
+  const logs: [string, any][] = [];
+
+  createRoot(() => {
+    const [get] = createSignal(
+      async () => 1,
+      2,
+      {}
+    );
+
+    createEffect(
+      () => {
+        logs.push(["compute:latest", latest(get)]);
+        logs.push(["compute:direct", get()]);
+        return get();
+      },
+      () => {
+        logs.push(["effect:latest", latest(get)]);
+        logs.push(["effect:direct", get()]);
+      }
+    );
+  });
+
+  flush();
+  await Promise.resolve();
+  flush();
+
+  const computeLatest = logs.find(([k]) => k === "compute:latest")![1];
+  const computeDirect = logs.find(([k]) => k === "compute:direct")![1];
+  expect(computeLatest).toBe(1);
+  expect(computeDirect).toBe(1);
+  expect(computeLatest).toBe(computeDirect);
+
+  const effectLatest = logs.find(([k]) => k === "effect:latest")![1];
+  const effectDirect = logs.find(([k]) => k === "effect:direct")![1];
+  expect(effectLatest).toBe(1);
+  expect(effectDirect).toBe(1);
 });
 
 it("should defer user effects with the defer option", () => {

@@ -593,15 +593,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING)
     return el._overrideValue as T;
 
-  // In optimistic lane context, return _value for most signals (lane values,
-  // held transition values). Exception: resolved projection store properties where
-  // _pendingValue is the actual new value — identified by having a firewall (owner !== el)
-  // whose STATUS_PENDING has been cleared.
+  // In optimistic lane context, return _value for optimistic/lane-assigned signals
+  // and for regular signals in stale mode (render effects). Non-stale readers (user
+  // effects) see _pendingValue so that latest() and direct reads stay consistent.
+  // Exception: resolved projection store properties (firewall, owner !== el) whose
+  // STATUS_PENDING has been cleared always return _pendingValue.
   return !c ||
     (currentOptimisticLane !== null &&
       (el._overrideValue !== undefined ||
         (el as any)._optimisticLane ||
-        owner === el ||
+        (owner === el && stale) ||
         !!(owner._statusFlags & STATUS_PENDING))) ||
     el._pendingValue === NOT_PENDING ||
     (stale && el._transition && activeTransition !== el._transition)
