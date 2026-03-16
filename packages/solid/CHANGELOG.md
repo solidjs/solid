@@ -1,5 +1,20 @@
 # solid-js
 
+## 2.0.0-beta.3
+
+### Patch Changes
+
+- 284738e: Re-export `enableExternalSource` and related types from `@solidjs/signals`. Add `on` prop to `<Loading>` component for declarative boundary reset.
+- 5c961fa: Add regression test for #2620: createProjection + refresh with keyed For/Show tree rendering stale DOM nodes due to uncleared STATUS_PENDING flags (fix in @solidjs/signals)
+- 284738e: Fix ssrSource "client" and "hybrid" mode hydration for projections and stores
+  - "client" mode: use a `hydrated` signal gate so the user's function runs only after hydration completes, instead of returning an identity function that never transitions
+  - "hybrid" mode: use a `hydrated` signal gate to load the server promise during hydration, then transition to the client's async generator post-hydration. A shallow shadow draft absorbs the first iteration's reads/writes (preventing first-value duplication) before switching to the real reactive store
+  - Fix microtask timing in `hydrateStoreFromAsyncIterable` with a custom thenable so `process` and `asyncWrite` execute in the same microtask
+  - Skip hydration wrapper for transparent memos (HMR support)
+
+- 284738e: Rename `createLoadBoundary` to `createLoadingBoundary` for consistency with the `<Loading>` component naming.
+- 26ea296: Suppress dev-mode "owned scope" warnings for internal hydration-gating signals by marking them as pureWrite, and bump @solidjs/signals to 0.13.3 which decouples snapshot exclusion from pureWrite via a new \_noSnapshot flag
+
 ## 2.0.0-beta.2
 
 ### Patch Changes
