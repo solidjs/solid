@@ -425,7 +425,7 @@ function hydratedCreateMemo(compute: any, value?: any, options?: any) {
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false);
+    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
     const memo = coreMemo(
       (prev: any) => {
         if (!hydrated()) return prev ?? value;
@@ -475,7 +475,7 @@ function hydratedCreateSignal(fn?: any, second?: any, third?: any) {
   const ssrSource = third?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false);
+    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
     const sig = coreSignal(
       (prev: any) => {
         if (!hydrated()) return prev ?? second;
@@ -556,7 +556,7 @@ function hydratedCreateOptimistic(fn?: any, second?: any, third?: any) {
   const ssrSource = third?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false);
+    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
     const sig = coreOptimistic(
       (prev: any) => {
         if (!hydrated()) return prev ?? second;
@@ -618,7 +618,7 @@ function hydrateStoreLikeFn(
   ssrSource: string | undefined
 ): any {
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false);
+    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
     const result = coreFn(
       (draft: any) => {
         if (!hydrated()) return;
@@ -631,7 +631,7 @@ function hydrateStoreLikeFn(
     return result;
   }
   if (ssrSource === "hybrid") {
-    const [hydrated, setHydrated] = coreSignal(false);
+    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
     const result = coreFn(
       (draft: any) => {
         const o = getOwner()!;
@@ -695,7 +695,7 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: a
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false);
+    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
     let active = false;
     coreFn(
       (prev: any) => {
