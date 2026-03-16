@@ -1472,11 +1472,14 @@ function createComputation<Next, Init = unknown>(
     const ordinary = ExternalSourceConfig.factory(c.fn, trigger);
     onCleanup(() => ordinary.dispose());
     const triggerInTransition: () => void = () =>
-      startTransition(trigger).then(() => inTransition.dispose());
-    const inTransition = ExternalSourceConfig.factory(c.fn, triggerInTransition);
+      startTransition(trigger).then(() => {
+        inTransition.dispose();
+        inTransition = undefined;
+      });
+    let inTransition = ExternalSourceConfig.factory(c.fn, triggerInTransition);
     c.fn = x => {
       track();
-      return Transition && Transition.running ? inTransition.track(x) : ordinary.track(x);
+      return Transition && Transition.running ? (inTransition || (inTransition = ExternalSourceConfig.factory(c.fn, triggerInTransition))).track(x) : ordinary.track(x);
     };
   }
 

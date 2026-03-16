@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoot, createMemo, untrack, enableExternalSource } from "../src/index.js";
+import { createRoot, createMemo, untrack, enableExternalSource, createSignal } from "../src/index.js";
 
 import "./MessageChannel";
 
@@ -89,5 +89,40 @@ describe("external source", () => {
 
   afterEach(() => {
     vi.resetModules();
+  });
+
+  it("should handle multiple transitions with external sources without errors", () => {
+    // This test verifies the fix for issue #2275
+    // https://github.com/solidjs/solid/issues/2275
+    createRoot(fn => {
+      const e = new ExternalSource(0);
+      const [signal, setSignal] = createSignal(0);
+
+      let memoRuns = 0;
+      const memo = createMemo(() => {
+        memoRuns++;
+        // Access both external source and signal to trigger tracking
+        return e.get() + signal();
+      });
+
+      expect(memo()).toBe(0);
+      expect(memoRuns).toBe(1);
+
+      // Trigger external source update
+      e.update(1);
+      expect(memo()).toBe(1);
+      expect(memoRuns).toBe(2);
+
+      // Update signal
+      setSignal(1);
+      expect(memo()).toBe(2);
+      expect(memoRuns).toBe(3);
+
+      // This should not throw an error
+      e.update(2);
+      expect(memo()).toBe(3);
+
+      fn();
+    });
   });
 });
