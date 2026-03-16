@@ -387,6 +387,7 @@ export function signal<T>(
   const s = {
     _equals: options?.equals != null ? options.equals : isEqual,
     _pureWrite: !!options?.pureWrite,
+    _noSnapshot: !!options?._noSnapshot,
     _unobserved: options?.unobserved,
     _value: v,
     _subs: null,
@@ -398,7 +399,7 @@ export function signal<T>(
   };
   if (__DEV__) (s as any)._name = options?.name ?? "signal";
   firewall && (firewall._child = s as FirewallSignal<unknown>);
-  if (snapshotCaptureActive && !s._pureWrite && !((firewall?._statusFlags ?? 0) & STATUS_PENDING)) {
+  if (snapshotCaptureActive && !s._noSnapshot && !((firewall?._statusFlags ?? 0) & STATUS_PENDING)) {
     (s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
     snapshotSources!.add(s);
   }

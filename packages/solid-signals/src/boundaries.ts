@@ -61,7 +61,7 @@ const ON_INIT: unique symbol = Symbol();
 export class CollectionQueue extends Queue {
   _collectionType: number;
   _sources: Set<Computed<any>> = new Set();
-  _disabled: Signal<boolean> = signal(false, { pureWrite: true });
+  _disabled: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
   _initialized: boolean = false;
   _onFn: (() => any) | undefined;
   _prevOn: any = ON_INIT;

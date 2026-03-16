@@ -19,6 +19,8 @@ export interface NodeOptions<T> {
   transparent?: boolean;
   equals?: ((prev: T, next: T) => boolean) | false;
   pureWrite?: boolean;
+  /** Exclude this signal from snapshot capture (internal — not part of public API) */
+  _noSnapshot?: boolean;
   unobserved?: () => void;
   lazy?: boolean;
 }
@@ -31,6 +33,7 @@ export interface RawSignal<T> {
   _name?: string;
   _equals: false | ((a: T, b: T) => boolean);
   _pureWrite?: boolean;
+  _noSnapshot?: boolean;
   _unobserved?: () => void;
   _time: number;
   _transition: Transition | null;
