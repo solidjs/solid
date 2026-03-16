@@ -408,13 +408,12 @@ describe("Tracking State changes", () => {
     let executionCount = 0;
     createRoot(() => {
       createEffect(
-        () => state.obj,
+        () => snapshot(state.obj),
         v => {
           if (executionCount === 0) expect(v.item).toBeUndefined();
           else if (executionCount === 1) {
             expect(v.item).toBe(5);
           } else {
-            // should never get here
             expect(executionCount).toBe(-1);
           }
           executionCount++;
@@ -898,7 +897,7 @@ describe("arrays", () => {
             () => row.i,
             v => effectC(v)
           );
-          return row;
+          return snapshot(row);
         },
         v => effectB(v.i)
       );

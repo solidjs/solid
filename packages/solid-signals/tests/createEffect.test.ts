@@ -435,13 +435,15 @@ it("should see consistent values with latest() and direct read on async resolve"
 
     createEffect(
       () => {
-        logs.push(["compute:latest", latest(get)]);
-        logs.push(["compute:direct", get()]);
-        return get();
+        const latestVal = latest(get);
+        const directVal = get();
+        logs.push(["compute:latest", latestVal]);
+        logs.push(["compute:direct", directVal]);
+        return { latestVal, directVal };
       },
-      () => {
-        logs.push(["effect:latest", latest(get)]);
-        logs.push(["effect:direct", get()]);
+      ({ latestVal, directVal }) => {
+        logs.push(["effect:latest", latestVal]);
+        logs.push(["effect:direct", directVal]);
       }
     );
   });

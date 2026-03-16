@@ -111,27 +111,28 @@ it("should not track external reads inside untrack", () => {
 it("should work with mixed Solid and external dependencies", () => {
   setupExternalSource();
 
+  const e = new ExternalSource(1);
+  const [$x, setX] = createSignal(10);
+  let $memo: () => number;
+
   createRoot(() => {
-    const e = new ExternalSource(1);
-    const [$x, setX] = createSignal(10);
-
-    const $memo = createMemo(() => $x() + e.get());
-
-    expect($memo()).toBe(11);
-
-    setX(20);
-    flush();
-    expect($memo()).toBe(21);
-
-    e.update(5);
-    flush();
-    expect($memo()).toBe(25);
-
-    setX(100);
-    e.update(50);
-    flush();
-    expect($memo()).toBe(150);
+    $memo = createMemo(() => $x() + e.get());
   });
+
+  expect($memo!()).toBe(11);
+
+  setX(20);
+  flush();
+  expect($memo!()).toBe(21);
+
+  e.update(5);
+  flush();
+  expect($memo!()).toBe(25);
+
+  setX(100);
+  e.update(50);
+  flush();
+  expect($memo!()).toBe(150);
 });
 
 it("should trigger effect on external source change", () => {
@@ -230,29 +231,30 @@ it("should pipe multiple enableExternalSource calls", () => {
 it("should re-track external dependencies on recompute", () => {
   setupExternalSource();
 
+  const a = new ExternalSource(1);
+  const b = new ExternalSource(100);
+  const [$useB, setUseB] = createSignal(false);
+  let $memo: () => number;
+
   createRoot(() => {
-    const a = new ExternalSource(1);
-    const b = new ExternalSource(100);
-    const [$useB, setUseB] = createSignal(false);
-
-    const $memo = createMemo(() => ($useB() ? b.get() : a.get()));
-
-    expect($memo()).toBe(1);
-
-    setUseB(true);
-    flush();
-    expect($memo()).toBe(100);
-
-    // Source A changes should not trigger (not tracked anymore)
-    a.update(999);
-    flush();
-    expect($memo()).toBe(100);
-
-    // Source B changes should trigger
-    b.update(200);
-    flush();
-    expect($memo()).toBe(200);
+    $memo = createMemo(() => ($useB() ? b.get() : a.get()));
   });
+
+  expect($memo!()).toBe(1);
+
+  setUseB(true);
+  flush();
+  expect($memo!()).toBe(100);
+
+  // Source A changes should not trigger (not tracked anymore)
+  a.update(999);
+  flush();
+  expect($memo!()).toBe(100);
+
+  // Source B changes should trigger
+  b.update(200);
+  flush();
+  expect($memo!()).toBe(200);
 });
 
 it("should not affect computeds when not enabled", () => {

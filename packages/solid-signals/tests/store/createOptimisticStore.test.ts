@@ -9,7 +9,8 @@ import {
   flush,
   isPending,
   latest,
-  refresh
+  refresh,
+  untrack
 } from "../../src/index.js";
 
 afterEach(() => flush());
@@ -1469,11 +1470,10 @@ describe("createOptimisticStore", () => {
 
       createRoot(() => {
         createRenderEffect(
-          () => todos.length,
-          () => {
+          () => (todos.length > 0 ? untrack(() => todos[0]) : undefined),
+          current => {
             // Track when item 0 changes identity — simulates what For does
-            if (todos.length > 0) {
-              const current = todos[0];
+            if (current !== undefined) {
               if (trackedRef === undefined) {
                 trackedRef = current;
                 createCount.value++;
