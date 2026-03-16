@@ -1,5 +1,6 @@
 import {
   action,
+  createEffect,
   createErrorBoundary,
   createMemo,
   createRenderEffect,
@@ -268,4 +269,152 @@ it("should hold error boundary during transition when reset is called", async ()
   await Promise.resolve();
   // Transition complete - boundary should now show content
   expect(result).toBe("content");
+});
+
+it("should catch errors thrown in render effect callbacks (back half)", () => {
+  const error = new Error("effect callback error");
+  const handler = vi.fn();
+
+  createRoot(() => {
+    const b = createErrorBoundary(
+      () => {
+        createRenderEffect(
+          () => "value",
+          () => {
+            throw error;
+          }
+        );
+        return "content";
+      },
+      err => {
+        handler(err);
+        return "errored";
+      }
+    );
+    createRenderEffect(b, () => {});
+  });
+
+  flush();
+  expect(handler).toHaveBeenCalledTimes(1);
+  expect(handler).toHaveBeenCalledWith(error);
+});
+
+it("should catch errors thrown in user effect callbacks (back half)", () => {
+  const error = new Error("user effect callback error");
+  const handler = vi.fn();
+  let result: any;
+
+  createRoot(() => {
+    const b = createErrorBoundary(
+      () => {
+        createEffect(
+          () => "value",
+          () => { throw error; }
+        );
+        return "content";
+      },
+      err => {
+        handler(err);
+        return "errored";
+      }
+    );
+    createRenderEffect(
+      () => (result = b()),
+      () => {}
+    );
+  });
+
+  flush();
+  expect(handler).toHaveBeenCalledTimes(1);
+  expect(handler).toHaveBeenCalledWith(error);
+  expect(result).toBe("errored");
+});
+
+it("should catch errors thrown in user effect callbacks with error handler (back half)", () => {
+  const error = new Error("user effect bundle error");
+  const handler = vi.fn();
+  const errorHandler = vi.fn();
+  let result: any;
+
+  createRoot(() => {
+    const b = createErrorBoundary(
+      () => {
+        createEffect(
+          () => "value",
+          {
+            effect: () => { throw error; },
+            error: errorHandler
+          }
+        );
+        return "content";
+      },
+      err => {
+        handler(err);
+        return "errored";
+      }
+    );
+    createRenderEffect(
+      () => (result = b()),
+      () => {}
+    );
+  });
+
+  flush();
+  expect(handler).toHaveBeenCalledTimes(1);
+  expect(handler).toHaveBeenCalledWith(error);
+  expect(result).toBe("errored");
+});
+
+it("should recover from effect callback error after reset", () => {
+  const error = new Error("effect callback error");
+  let shouldThrow = true;
+  let result: any;
+  let resetFn!: () => void;
+
+  createRoot(() => {
+    const b = createErrorBoundary(
+      () => {
+        createRenderEffect(
+          () => "value",
+          () => {
+            if (shouldThrow) throw error;
+          }
+        );
+        return "content";
+      },
+      (err, reset) => {
+        resetFn = reset;
+        return "errored";
+      }
+    );
+    createRenderEffect(
+      () => (result = b()),
+      () => {}
+    );
+  });
+
+  flush();
+  expect(result).toBe("errored");
+  expect(resetFn).toBeDefined();
+
+  shouldThrow = false;
+  resetFn();
+  flush();
+  expect(result).toBe("content");
+});
+
+it("should throw effect callback errors when no boundary exists", () => {
+  const error = new Error("uncaught effect error");
+
+  expect(() => {
+    createRoot(() => {
+      createRenderEffect(
+        () => "value",
+        () => {
+          throw error;
+        }
+      );
+    });
+    flush();
+  }).toThrowError(error);
 });
