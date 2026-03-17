@@ -3,6 +3,7 @@ import type { StatusError } from "./core/error.js";
 import {
   computed,
   createOwner,
+  getOwner,
   NotReadyError,
   onCleanup,
   Queue,
@@ -128,6 +129,8 @@ function createCollectionBoundary<T>(
   fallback: (queue: CollectionQueue) => any,
   onFn?: () => any
 ) {
+  if (__DEV__ && !getOwner())
+    console.warn("Boundaries created outside a reactive context will never be disposed.");
   const owner = createOwner();
   const queue = new CollectionQueue(type);
   if (onFn) queue._onFn = onFn;

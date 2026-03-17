@@ -549,6 +549,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     const _errSource = (owner._error as NotReadyError)?.source;
     if (_errSource && !(_errSource._statusFlags & STATUS_PENDING)) clearStatus(owner);
     else if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
+      if (__DEV__ && leafEffectActive) {
+        console.warn(
+          "Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
+            "Use createEffect instead which supports async-aware reactivity."
+        );
+      }
       if (currentOptimisticLane) {
         // Per-lane suspension: only throw if in same lane as pending async
         // AND the node doesn't have an active override (overrides are the visible value,
@@ -685,6 +691,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 }
 
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
+  if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED)
+    console.warn("runWithOwner called with a disposed owner. Children created inside will never be disposed.");
   const oldContext = context;
   const prevTracking = tracking;
   context = owner;

@@ -128,13 +128,15 @@ it("should throw error if there are no handlers left", () => {
       throw e;
     });
 
-  expect(() => {
-    createErrorBoundary(() => {
+  createRoot(() => {
+    expect(() => {
       createErrorBoundary(() => {
-        throw error;
+        createErrorBoundary(() => {
+          throw error;
+        }, handler)();
       }, handler)();
-    }, handler)();
-  }).toThrow(error);
+    }).toThrow(error);
+  });
 
   expect(handler).toHaveBeenCalledTimes(2);
 });

@@ -111,7 +111,10 @@ export function getOwner(): Owner | null {
 }
 
 export function onCleanup(fn: Disposable): Disposable {
-  if (!context) return fn;
+  if (!context) {
+    if (__DEV__) console.warn("onCleanup called outside a reactive context will never be run");
+    return fn;
+  }
   if (!context._disposal) context._disposal = fn;
   else if (Array.isArray(context._disposal)) context._disposal.push(fn);
   else context._disposal = [context._disposal, fn];

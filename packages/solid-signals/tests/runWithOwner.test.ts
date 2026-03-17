@@ -30,24 +30,26 @@ it("should handle errors", () => {
     handler = vi.fn();
 
   let owner!: Owner | null;
-  const b = createErrorBoundary(
-    () => {
-      owner = getOwner();
-    },
-    err => handler(err)
-  );
-  b();
-
-  runWithOwner(owner, () => {
-    createRenderEffect(
+  createRoot(() => {
+    const b = createErrorBoundary(
       () => {
-        throw error;
+        owner = getOwner();
       },
-      () => {}
+      err => handler(err)
     );
-  });
+    b();
 
-  b();
+    runWithOwner(owner, () => {
+      createRenderEffect(
+        () => {
+          throw error;
+        },
+        () => {}
+      );
+    });
+
+    b();
+  });
   flush();
   expect(handler).toHaveBeenCalledWith(error);
 });
