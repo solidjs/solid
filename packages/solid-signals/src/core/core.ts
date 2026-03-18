@@ -178,7 +178,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
   try {
     value = handleAsync(el, el._fn(value));
-    clearStatus(el);
+    clearStatus(el, create);
     const resolvedLane = resolveLane(el);
     if (resolvedLane) {
       resolvedLane._pendingAsync.delete(el);

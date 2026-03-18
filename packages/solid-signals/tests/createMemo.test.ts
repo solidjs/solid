@@ -853,6 +853,40 @@ describe("async compute", () => {
     expect(latest($x)).toBe(2);
   });
 
+  it("isPending sees the first async update for a writable memo signal", async () => {
+    const [signal, setSignal] = createSignal<string[]>(() => []);
+    let asyncMemo: () => string;
+
+    createRoot(() => {
+      asyncMemo = createMemo(
+        async () =>
+          new Promise<string>(r => {
+            setTimeout(r, 0, `async: ${signal().length}`);
+          })
+      );
+
+      createRenderEffect(asyncMemo, () => {});
+    });
+
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe("async: 0");
+    expect(isPending(() => signal().length)).toBe(false);
+
+    setSignal(x => [...x, "123"]);
+    flush();
+
+    expect(isPending(() => signal().length)).toBe(true);
+
+    await new Promise(r => setTimeout(r, 0));
+    expect(asyncMemo!()).toBe("async: 1");
+    expect(isPending(() => signal().length)).toBe(false);
+
+    setSignal(x => [...x, "456"]);
+    flush();
+    expect(isPending(() => signal().length)).toBe(true);
+  });
+
   it("isPending with chained async memos", async () => {
     const [$x, setX] = createSignal(1);
     let a: () => number;

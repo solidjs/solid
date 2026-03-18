@@ -6,7 +6,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { context, read, setSignal, untrack, updatePendingSignal } from "./core.js";
+import { context, setSignal, untrack, updatePendingSignal } from "./core.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { hasActiveOverride, resolveLane, resolveTransition, type OptimisticLane } from "./lanes.js";
 import {
@@ -149,9 +149,8 @@ export function handleAsync<T>(
   return syncValue!;
 }
 
-export function clearStatus(el: Computed<any>): void {
-  // Preserve STATUS_UNINITIALIZED — it's cleared on first value commit in finalizePureQueue
-  el._statusFlags = el._statusFlags & STATUS_UNINITIALIZED;
+export function clearStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
+  el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
   el._error = null;
   // Update pending signal for isPending() reactivity
   updatePendingSignal(el);
