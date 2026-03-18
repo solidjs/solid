@@ -593,7 +593,18 @@ describe("deep", () => {
     });
     flush();
     expect(effect).toHaveBeenCalledTimes(1);
-    setState(reconcile({ list: [{ id: 1, v: 99 }, { id: 2, v: 20 }, { id: 3, v: 30 }] }, "id"));
+    setState(
+      reconcile(
+        {
+          list: [
+            { id: 1, v: 99 },
+            { id: 2, v: 20 },
+            { id: 3, v: 30 }
+          ]
+        },
+        "id"
+      )
+    );
     flush();
     expect(effect).toHaveBeenCalledTimes(2);
     expect(effect.mock.calls[1][0]).toEqual({

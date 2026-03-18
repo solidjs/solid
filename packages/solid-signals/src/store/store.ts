@@ -1,3 +1,4 @@
+import { STATUS_PENDING } from "../core/constants.js";
 import { snapshotCaptureActive, snapshotSources, strictRead } from "../core/core.js";
 import {
   $REFRESH,
@@ -14,7 +15,6 @@ import {
   type Computed,
   type Signal
 } from "../core/index.js";
-import { STATUS_PENDING } from "../core/constants.js";
 import { globalQueue, projectionWriteActive } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
@@ -310,7 +310,11 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       untrack(() => {
         const state = target[STORE_VALUE];
         const base = state[property];
-        if (snapshotCaptureActive && typeof property !== "symbol" && !((target[STORE_FIREWALL]?._statusFlags ?? 0) & STATUS_PENDING)) {
+        if (
+          snapshotCaptureActive &&
+          typeof property !== "symbol" &&
+          !((target[STORE_FIREWALL]?._statusFlags ?? 0) & STATUS_PENDING)
+        ) {
           if (!target[STORE_SNAPSHOT_PROPS]) {
             target[STORE_SNAPSHOT_PROPS] = Object.create(null);
             snapshotSources?.add(target);

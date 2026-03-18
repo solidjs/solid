@@ -48,9 +48,7 @@ export function createProjectionInternal<T extends object = {}>(
           value !== undefined &&
           storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
       });
-      value !== s &&
-        value !== undefined &&
-        reconcile(value, options?.key || "id")(wrappedStore);
+      value !== s && value !== undefined && reconcile(value, options?.key || "id")(wrappedStore);
     });
   });
   (node as any)._preventAutoDisposal = true;

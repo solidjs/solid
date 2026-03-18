@@ -399,7 +399,11 @@ export function signal<T>(
   };
   if (__DEV__) (s as any)._name = options?.name ?? "signal";
   firewall && (firewall._child = s as FirewallSignal<unknown>);
-  if (snapshotCaptureActive && !s._noSnapshot && !((firewall?._statusFlags ?? 0) & STATUS_PENDING)) {
+  if (
+    snapshotCaptureActive &&
+    !s._noSnapshot &&
+    !((firewall?._statusFlags ?? 0) & STATUS_PENDING)
+  ) {
     (s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
     snapshotSources!.add(s);
   }
@@ -692,7 +696,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED)
-    console.warn("runWithOwner called with a disposed owner. Children created inside will never be disposed.");
+    console.warn(
+      "runWithOwner called with a disposed owner. Children created inside will never be disposed."
+    );
   const oldContext = context;
   const prevTracking = tracking;
   context = owner;

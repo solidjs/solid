@@ -1,4 +1,5 @@
 import {
+  createErrorBoundary,
   createLoadingBoundary,
   createMemo,
   createProjection,
@@ -11,6 +12,16 @@ import {
 } from "../src/index.js";
 
 describe("createLoadingBoundary", () => {
+  function deferred<T = void>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
   it("shows fallback while async projection is pending", async () => {
     let result: any;
 
@@ -165,6 +176,213 @@ describe("createLoadingBoundary", () => {
 
     expect(innerResult).toBe(1);
     expect(outerResult).toBe("outer-content");
+  });
+
+  it("surfaces async rejection consistently for Loading/Errored orderings", async () => {
+    let loadingThenErrored: any;
+    let erroredThenLoading: any;
+    const [$count, setCount] = createSignal(0);
+    let current = deferred<number>();
+
+    createRoot(() => {
+      const source = createMemo(async () => {
+        $count();
+        await current.promise;
+        return 10;
+      });
+
+      const branch1 = createLoadingBoundary(
+        () =>
+          createErrorBoundary(
+            () => ["S: ", source()],
+            () => "error1"
+          )(),
+        () => undefined
+      );
+
+      const branch2 = createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => ["S: ", source()],
+            () => undefined
+          )(),
+        () => "error2"
+      );
+
+      createRenderEffect(
+        () => (loadingThenErrored = branch1()),
+        () => {}
+      );
+      createRenderEffect(
+        () => (erroredThenLoading = branch2()),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(loadingThenErrored).toBeUndefined();
+    expect(erroredThenLoading).toBeUndefined();
+
+    current.reject(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(loadingThenErrored).toBe("error1");
+    expect(erroredThenLoading).toBe("error2");
+
+    current = deferred<number>();
+    setCount(1);
+    flush();
+    expect(loadingThenErrored).toBe("error1");
+    expect(erroredThenLoading).toBe("error2");
+
+    current.reject(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(loadingThenErrored).toBe("error1");
+    expect(erroredThenLoading).toBe("error2");
+  });
+
+  it("nested Loading does not suppress eventual error fallback", async () => {
+    let nestedLoadingBranch: any;
+    let plainBranch: any;
+    const [$count, setCount] = createSignal(0);
+    let current = deferred<number>();
+
+    createRoot(() => {
+      const source = createMemo(async () => {
+        $count();
+        await current.promise;
+        return 10;
+      });
+
+      const branch1 = createLoadingBoundary(
+        () =>
+          createErrorBoundary(
+            () =>
+              createLoadingBoundary(
+                () => ["S: ", source()],
+                () => undefined
+              )(),
+            () => "error1"
+          )(),
+        () => undefined
+      );
+
+      const branch2 = createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => ["S: ", source()],
+            () => undefined
+          )(),
+        () => "error2"
+      );
+
+      createRenderEffect(
+        () => (nestedLoadingBranch = branch1()),
+        () => {}
+      );
+      createRenderEffect(
+        () => (plainBranch = branch2()),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(nestedLoadingBranch).toBeUndefined();
+    expect(plainBranch).toBeUndefined();
+
+    current.reject(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(nestedLoadingBranch).toBe("error1");
+    expect(plainBranch).toBe("error2");
+
+    current = deferred<number>();
+    setCount(1);
+    flush();
+    expect(nestedLoadingBranch).toBe("error1");
+    expect(plainBranch).toBe("error2");
+
+    current.reject(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(nestedLoadingBranch).toBe("error1");
+    expect(plainBranch).toBe("error2");
+  });
+
+  it("clears held errors after a refresh resolves successfully", async () => {
+    let loadingThenErrored: any;
+    let erroredThenLoading: any;
+    const [$count, setCount] = createSignal(0);
+    let current = deferred<number>();
+
+    createRoot(() => {
+      const source = createMemo(async () => {
+        $count();
+        await current.promise;
+        return 10;
+      });
+
+      const branch1 = createLoadingBoundary(
+        () =>
+          createErrorBoundary(
+            () => ["S: ", source()],
+            () => "error1"
+          )(),
+        () => undefined
+      );
+
+      const branch2 = createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => ["S: ", source()],
+            () => undefined
+          )(),
+        () => "error2"
+      );
+
+      createRenderEffect(
+        () => (loadingThenErrored = branch1()),
+        () => {}
+      );
+      createRenderEffect(
+        () => (erroredThenLoading = branch2()),
+        () => {}
+      );
+    });
+
+    flush();
+
+    current.reject(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(loadingThenErrored).toBe("error1");
+    expect(erroredThenLoading).toBe("error2");
+
+    current = deferred<number>();
+    setCount(1);
+    flush();
+
+    expect(loadingThenErrored).toBe("error1");
+    expect(erroredThenLoading).toBe("error2");
+
+    current.resolve(10);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(loadingThenErrored).toEqual(["S: ", 10]);
+    expect(erroredThenLoading).toEqual(["S: ", 10]);
   });
 
   it("side effect only runs when no longer pending", async () => {

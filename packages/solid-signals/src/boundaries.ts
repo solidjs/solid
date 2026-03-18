@@ -95,6 +95,10 @@ export class CollectionQueue extends Queue {
     if (this._collectionType & STATUS_PENDING && this._initialized)
       return super.notify(node, type, flags, error);
 
+    if (this._collectionType & STATUS_PENDING && flags & STATUS_ERROR) {
+      return super.notify(node, STATUS_ERROR, flags, error);
+    }
+
     if (flags & this._collectionType) {
       const source = (error as any)?.source || (node._error as any)?.source;
       if (source) {
@@ -108,7 +112,11 @@ export class CollectionQueue extends Queue {
   }
   checkSources() {
     for (const source of this._sources) {
-      if (!(source._statusFlags & this._collectionType)) this._sources.delete(source);
+      if (
+        !(source._statusFlags & this._collectionType) &&
+        !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING)
+      )
+        this._sources.delete(source);
     }
     if (!this._sources.size) {
       setSignal(this._disabled, false);

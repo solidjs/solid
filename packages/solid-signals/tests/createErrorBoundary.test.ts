@@ -311,7 +311,9 @@ it("should catch errors thrown in user effect callbacks (back half)", () => {
       () => {
         createEffect(
           () => "value",
-          () => { throw error; }
+          () => {
+            throw error;
+          }
         );
         return "content";
       },
@@ -341,13 +343,12 @@ it("should catch errors thrown in user effect callbacks with error handler (back
   createRoot(() => {
     const b = createErrorBoundary(
       () => {
-        createEffect(
-          () => "value",
-          {
-            effect: () => { throw error; },
-            error: errorHandler
-          }
-        );
+        createEffect(() => "value", {
+          effect: () => {
+            throw error;
+          },
+          error: errorHandler
+        });
         return "content";
       },
       err => {
