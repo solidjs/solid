@@ -36,6 +36,7 @@ import {
   hasActiveOverride,
   mergeLanes,
   resolveLane,
+  resolveTransition,
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
@@ -663,7 +664,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 
   if (isOptimistic) {
     const firstOverride = el._overrideValue === NOT_PENDING;
-    if (!firstOverride && el._transition) globalQueue.initTransition(el._transition);
+    if (!firstOverride) globalQueue.initTransition(resolveTransition(el as any));
     if (firstOverride) {
       el._pendingValue = el._value;
       globalQueue._optimisticNodes.push(el);

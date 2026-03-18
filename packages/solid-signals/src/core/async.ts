@@ -8,7 +8,7 @@ import {
 } from "./constants.js";
 import { context, read, setSignal, untrack, updatePendingSignal } from "./core.js";
 import { NotReadyError, StatusError } from "./error.js";
-import { hasActiveOverride, resolveLane, type OptimisticLane } from "./lanes.js";
+import { hasActiveOverride, resolveLane, resolveTransition, type OptimisticLane } from "./lanes.js";
 import {
   activeTransition,
   assignOrMergeLane,
@@ -40,7 +40,7 @@ export function handleAsync<T>(
 
   const handleError = (error: any) => {
     if (el._inFlight !== result) return;
-    globalQueue.initTransition(el._transition);
+    globalQueue.initTransition(resolveTransition(el as any));
     // NotReadyError from rejected promises should be treated as pending, not error
     notifyStatus(el, error instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR, error);
     el._time = clock;
@@ -52,7 +52,7 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
-    globalQueue.initTransition(el._transition);
+    globalQueue.initTransition(resolveTransition(el as any));
     clearStatus(el);
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
@@ -102,7 +102,7 @@ export function handleAsync<T>(
     );
     isSync = false;
     if (!resolved) {
-      globalQueue.initTransition(el._transition);
+      globalQueue.initTransition(resolveTransition(el as any));
       throw new NotReadyError(context!);
     }
   }
@@ -141,7 +141,7 @@ export function handleAsync<T>(
 
     const immediatelyDone = iterate();
     if (!hadSyncValue && !immediatelyDone) {
-      globalQueue.initTransition(el._transition);
+      globalQueue.initTransition(resolveTransition(el as any));
       throw new NotReadyError(context!);
     }
   }

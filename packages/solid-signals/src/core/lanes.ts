@@ -89,6 +89,13 @@ export function resolveLane(el: { _optimisticLane?: OptimisticLane }): Optimisti
   return undefined;
 }
 
+export function resolveTransition(el: {
+  _optimisticLane?: OptimisticLane;
+  _transition?: Transition | null;
+}): Transition | null | undefined {
+  return resolveLane(el)?._transition ?? el._transition;
+}
+
 /**
  * Check if a node has an active optimistic override.
  */

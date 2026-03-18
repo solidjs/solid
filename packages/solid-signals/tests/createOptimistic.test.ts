@@ -1,5 +1,6 @@
 import {
   action,
+  createLoadingBoundary,
   createMemo,
   createOptimistic,
   createRenderEffect,
@@ -263,6 +264,42 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       // Should not trigger again on revert since value is same
       expect(effectRuns).toHaveBeenCalledTimes(1);
+    });
+
+    it("refreshing an optimistic async accessor clears the override when it settles", async () => {
+      let result: any;
+      let sendMessage!: () => Promise<void>;
+
+      createRoot(() => {
+        const [optimistic, setOptimistic] = createOptimistic<string>(async () => "Settled");
+        const boundary = createLoadingBoundary(optimistic, () => "Loading");
+
+        createRenderEffect(
+          () => (result = boundary()),
+          () => {}
+        );
+
+        flush();
+        expect(result).toBe("Loading");
+
+        sendMessage = action(function* () {
+          setOptimistic(() => "Optimistic");
+          refresh(optimistic);
+        });
+      });
+
+      await Promise.resolve();
+      flush();
+      expect(result).toBe("Settled");
+
+      flush();
+      void sendMessage().catch(() => {});
+      flush();
+      expect(result).toBe("Optimistic");
+
+      await Promise.resolve();
+      flush();
+      expect(result).toBe("Settled");
     });
 
     it("should hold regular signal value during transition while showing optimistic", async () => {
@@ -2051,6 +2088,7 @@ describe("createOptimistic", () => {
       const selectedValues: string[] = [];
       const categoryDataValues: string[][] = [];
       const pendingStates: boolean[] = [];
+      const optimisticPendingStates: boolean[] = [];
 
       createRoot(() => {
         // Effect for select value (like the select element binding)
@@ -2068,6 +2106,12 @@ describe("createOptimistic", () => {
             pendingStates.push(v);
           }
         );
+        createRenderEffect(
+          () => isPending(optimisticCategory),
+          v => {
+            optimisticPendingStates.push(v);
+          }
+        );
       });
 
       flush();
@@ -2076,6 +2120,7 @@ describe("createOptimistic", () => {
       expect(selectedValues).toEqual([]);
       expect(categoryDataValues).toEqual([]);
       expect(pendingStates).toEqual([false]); // Initial load, no stale data
+      expect(optimisticPendingStates).toEqual([false]);
 
       // Resolve initial userCategory fetch
       resolveUserCategory!(dbUserCategory); // "News"
@@ -2123,6 +2168,7 @@ describe("createOptimistic", () => {
       // CRITICAL: isPending should fire IMMEDIATELY when categoryData starts loading
       // (isPending has its own lane that can flush without waiting for categoryData)
       expect(pendingStates.at(-1)).toBe(true);
+      expect(optimisticPendingStates.at(-1)).toBe(true);
 
       // categoryData resolves with Finance data (optimistic path)
       resolveCategoryDetails!(categoryItems["Finance"]);
@@ -2168,6 +2214,7 @@ describe("createOptimistic", () => {
       expect(categoryDataValues.at(-1)).toEqual(["Stock Ticker", "Market Analysis"]);
       // Final pending state should be false
       expect(pendingStates.at(-1)).toBe(false);
+      expect(optimisticPendingStates.at(-1)).toBe(false);
     });
 
     it("action pattern with mismatch: server returns different value", async () => {
