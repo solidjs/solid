@@ -179,3 +179,7 @@ type {
   StorePathRange,
 }
 */
+
+export function onMount(fn: () => void) {
+  onSettled(fn);
+}
