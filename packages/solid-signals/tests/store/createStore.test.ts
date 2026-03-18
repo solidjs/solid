@@ -2,10 +2,12 @@ import {
   $TARGET,
   createEffect,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   createStore,
   flush,
+  isPending,
   mapArray,
   snapshot,
   untrack
@@ -145,6 +147,44 @@ describe("Unwrapping Edge Cases", () => {
 });
 
 describe("Tracking State changes", () => {
+  test("isPending sees a derived store update held by async work", async () => {
+    const [store, setStore] = createStore<string[]>(() => []);
+    let asyncMemo: () => string;
+    const results: { pending: boolean; value: string }[] = [];
+
+    createRoot(() => {
+      asyncMemo = createMemo(
+        async () =>
+          new Promise<string>(r => {
+            setTimeout(r, 0, `async: ${store.length}`);
+          })
+      );
+
+      createRenderEffect(
+        () => [isPending(() => store.length), asyncMemo()] as const,
+        ([pending, value]) => {
+          results.push({ pending, value });
+        }
+      );
+    });
+
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+    expect(results[results.length - 1]).toEqual({ pending: false, value: "async: 0" });
+
+    results.length = 0;
+
+    setStore(s => {
+      s.push("123");
+    });
+    flush();
+
+    expect(results.find(r => r.pending && r.value === "async: 0")).toBeDefined();
+
+    await new Promise(r => setTimeout(r, 0));
+    expect(results[results.length - 1]).toEqual({ pending: false, value: "async: 1" });
+  });
+
   test("Track a state change", () => {
     const [state, setState] = createStore({ data: 2 });
     createRoot(() => {

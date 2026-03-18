@@ -502,14 +502,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   // Handle isPending() mode: read from _pendingSignal, set foundPending if true
   if (pendingCheckActive) {
-    // For store properties, check the firewall's (projection's) pending state
-    const target = (el as FirewallSignal<any>)._firewall || el;
-    const pendingSig = getPendingSignal(target);
+    const firewall = (el as FirewallSignal<any>)._firewall;
     const prevCheck = pendingCheckActive;
     pendingCheckActive = false;
-    if (read(pendingSig)) {
-      foundPending = true;
-    }
+    if (read(getPendingSignal(el))) foundPending = true;
+    if (firewall && read(getPendingSignal(firewall))) foundPending = true;
     pendingCheckActive = prevCheck;
     return el._value as T;
   }
@@ -736,6 +733,10 @@ function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
  */
 function computePendingState(el: Signal<any> | Computed<any>): boolean {
   const comp = el as Computed<any>;
+  const firewall = (el as FirewallSignal<any>)._firewall;
+  if (firewall && el._pendingValue !== NOT_PENDING) {
+    return !firewall._inFlight && !(firewall._statusFlags & STATUS_PENDING);
+  }
   // Optimistic nodes with active override:
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
     if (comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED))
