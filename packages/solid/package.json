@@ -91,7 +91,7 @@
     "performance"
   ],
   "dependencies": {
-    "@solidjs/signals": "^0.13.3",
+    "@solidjs/signals": "^0.13.4",
     "csstype": "^3.1.0",
     "seroval": "~1.5.0",
     "seroval-plugins": "~1.5.0"

@@ -60,17 +60,17 @@ importers:
         specifier: ^3.1.0
         version: 3.2.3
       dom-expressions:
-        specifier: 0.41.0-next.12
-        version: 0.41.0-next.12(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2)
+        specifier: 0.41.0-next.13
+        version: 0.41.0-next.13(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2)
       hyper-dom-expressions:
-        specifier: 0.41.0-next.12
-        version: 0.41.0-next.12
+        specifier: 0.41.0-next.13
+        version: 0.41.0-next.13
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
       lit-dom-expressions:
-        specifier: 0.41.0-next.12
-        version: 0.41.0-next.12
+        specifier: 0.41.0-next.13
+        version: 0.41.0-next.13
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -162,14 +162,14 @@ importers:
         specifier: ^0.41.0-next
         version: 0.41.0-next.9(@babel/core@7.29.0)
       solid-js:
-        specifier: ^2.0.0-beta.2
+        specifier: ^2.0.0-beta.3
         version: 2.0.0-experimental.16
 
   packages/solid:
     dependencies:
       '@solidjs/signals':
-        specifier: ^0.13.3
-        version: 0.13.3
+        specifier: ^0.13.4
+        version: 0.13.4
       csstype:
         specifier: ^3.1.0
         version: 3.2.3
@@ -214,8 +214,8 @@ importers:
   packages/solid-web:
     dependencies:
       '@solidjs/signals':
-        specifier: ^0.13.3
-        version: 0.13.3
+        specifier: ^0.13.4
+        version: 0.13.4
       seroval:
         specifier: ^1.1.0
         version: 1.5.0
@@ -1250,8 +1250,8 @@ packages:
   '@solidjs/signals@0.11.3':
     resolution: {integrity: sha512-udMfutYPOlcxKUmc5+n1QtarsxOiAlC6LJY2TqFyaMwdXgo+reiYUcYGDlOiAPXfCLE0lavZHQ/6GT5pJbXKBA==}
 
-  '@solidjs/signals@0.13.3':
-    resolution: {integrity: sha512-Rlq8Kc0WtuhPv8SDNT1ANh45OUIbFKnY7AOiNmCSeOaGKlFaaYPPDxXN8qJtojykwGGwWXV6ZmHwCb1ZeY0b/A==}
+  '@solidjs/signals@0.13.4':
+    resolution: {integrity: sha512-HKdHJjsRlGfxqctcH84DezD/y/TGO9KiDDeV+/aXTbp6mHxyuN/E9A+5kOPadIv1Q5973xpuIb3MOS72UVO7/Q==}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -1710,8 +1710,8 @@ packages:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
 
-  dom-expressions@0.41.0-next.12:
-    resolution: {integrity: sha512-r2RwK7d3LkbDFMi2Mp7L7yVaUIvrtCQks6xx0dP1uoGd0fL1AWM+vLEfo+fkMzbOiMAnIbgZW6HeoBCYDI0oeA==}
+  dom-expressions@0.41.0-next.13:
+    resolution: {integrity: sha512-ZpaHPfOtUr1JMSVv1yBDmU5Q0BFzfejaSTNYskWxrJUpoVjU169161aaS0b2KMnQkYNr8vOoc36rJdpI1JtEwg==}
     peerDependencies:
       csstype: ^3.0
       seroval: ~1.5.0
@@ -2076,8 +2076,8 @@ packages:
     resolution: {integrity: sha512-tsYlhAYpjCKa//8rXZ9DqKEawhPoSytweBC2eNvcaDK+57RZLHGqNs3PZTQO6yekLFSuvA6AlnAfrw1uBvtb+Q==}
     hasBin: true
 
-  hyper-dom-expressions@0.41.0-next.12:
-    resolution: {integrity: sha512-enoKnbwqnVCJfshPiJPMPMJZpfES8Y+WNi7pWPmrBt5SbZqIjhmlayND7bYgbEm7P7oBmPqppsxxAtdqZ+TYrg==}
+  hyper-dom-expressions@0.41.0-next.13:
+    resolution: {integrity: sha512-2qg1NxkdhWDW/aXkSVxn8LWVEFWXx4d7CtMUnaf2f2q8+7Wr2+A5p2seHXB5VAzmTr+hhlYXJeMyjEKL/zrixQ==}
 
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
@@ -2348,8 +2348,8 @@ packages:
     resolution: {integrity: sha512-aprLII/vPzuQvYZnDRU78Fns9I2Ag3gi4Ipga/hxnVMCZC8DnR2nI7XBqrPoywGfxqIx/DgarGvDJZAD3YBTgQ==}
     hasBin: true
 
-  lit-dom-expressions@0.41.0-next.12:
-    resolution: {integrity: sha512-6bLyfSi/lvjd9oVBKqsH1Ey0Hlbc6RO0sAdM725hYP0C1zbsu/ZskKFacWfJ2oWzzi/ky2ag4DS8Jg+6zAe+mg==}
+  lit-dom-expressions@0.41.0-next.13:
+    resolution: {integrity: sha512-WaidaYTfcygE/zX+N/DTZpAGkIZoVo2S970qol0n4idQusv0rIYaGJn4caRE/69bXDulbutPDNEP9vWnr2fLzA==}
 
   load-json-file@4.0.0:
     resolution: {integrity: sha512-Kx8hMakjX03tiGTLAIdJ+lL0htKnXjEZN6hk/tozf/WOuYGdZBJrZ+rCJRbVCugsjB3jMLn9746NsQIf5VjBMw==}
@@ -2873,6 +2873,10 @@ packages:
 
   seroval@1.5.0:
     resolution: {integrity: sha512-OE4cvmJ1uSPrKorFIH9/w/Qwuvi/IMcGbv5RKgcJ/zjA/IohDLU6SVaxFN9FwajbP7nsX0dQqMDes1whk3y+yw==}
+    engines: {node: '>=10'}
+
+  seroval@1.5.1:
+    resolution: {integrity: sha512-OwrZRZAfhHww0WEnKHDY8OM0U/Qs8OTfIDWhUD4BLpNJUfXK4cGmjiagGze086m+mhI+V2nD0gfbHEnJjb9STA==}
     engines: {node: '>=10'}
 
   serve-static@1.16.3:
@@ -4627,7 +4631,7 @@ snapshots:
 
   '@solidjs/signals@0.11.3': {}
 
-  '@solidjs/signals@0.13.3': {}
+  '@solidjs/signals@0.13.4': {}
 
   '@types/babel__core@7.20.5':
     dependencies:
@@ -5133,7 +5137,7 @@ snapshots:
     dependencies:
       path-type: 4.0.0
 
-  dom-expressions@0.41.0-next.12(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2):
+  dom-expressions@0.41.0-next.13(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2):
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.2.3
@@ -5636,7 +5640,7 @@ snapshots:
 
   human-id@4.1.3: {}
 
-  hyper-dom-expressions@0.41.0-next.12: {}
+  hyper-dom-expressions@0.41.0-next.13: {}
 
   iconv-lite@0.4.24:
     dependencies:
@@ -5921,7 +5925,7 @@ snapshots:
 
   lcov-parse@1.0.0: {}
 
-  lit-dom-expressions@0.41.0-next.12: {}
+  lit-dom-expressions@0.41.0-next.13: {}
 
   load-json-file@4.0.0:
     dependencies:
@@ -6458,9 +6462,15 @@ snapshots:
     dependencies:
       seroval: 1.5.0
 
+  seroval-plugins@1.5.0(seroval@1.5.1):
+    dependencies:
+      seroval: 1.5.1
+
   seroval@1.3.2: {}
 
   seroval@1.5.0: {}
+
+  seroval@1.5.1: {}
 
   serve-static@1.16.3:
     dependencies:
@@ -6559,8 +6569,8 @@ snapshots:
     dependencies:
       '@solidjs/signals': 0.11.3
       csstype: 3.2.3
-      seroval: 1.5.0
-      seroval-plugins: 1.5.0(seroval@1.5.0)
+      seroval: 1.5.1
+      seroval-plugins: 1.5.0(seroval@1.5.1)
 
   solid-refresh@0.8.0-next.4(solid-js@2.0.0-experimental.16):
     dependencies:
