@@ -5,7 +5,6 @@ import {
   REACTIVE_ZOMBIE
 } from "./constants.js";
 import { context, latestReadActive, pendingCheckActive, runWithOwner, tracking } from "./core.js";
-import { leafEffectActive } from "./effect.js";
 import { unlinkSubs } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap } from "./heap.js";
 import { dirtyQueue, globalQueue, zombieQueue } from "./scheduler.js";
@@ -115,6 +114,11 @@ export function onCleanup(fn: Disposable): Disposable {
     if (__DEV__) console.warn("onCleanup called outside a reactive context will never be run");
     return fn;
   }
+  if (__DEV__ && context._childrenForbidden) {
+    throw new Error(
+      "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead"
+    );
+  }
   if (!context._disposal) context._disposal = fn;
   else if (Array.isArray(context._disposal)) context._disposal.push(fn);
   else context._disposal = [context._disposal, fn];
@@ -149,8 +153,8 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     }
   } as Root;
 
-  if (__DEV__ && leafEffectActive && parent) {
-    throw new Error("Cannot create reactive primitives inside createTrackedEffect");
+  if (__DEV__ && parent?._childrenForbidden) {
+    throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
   }
   if (parent) {
     const lastChild = parent._firstChild;

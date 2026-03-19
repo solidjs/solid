@@ -54,6 +54,7 @@ export type Signal<T> = RawSignal<T> | FirewallSignal<T>;
 export interface Owner {
   id?: string;
   _transparent?: boolean;
+  _childrenForbidden?: boolean;
   _snapshotScope?: boolean;
   _disposal: Disposable | Disposable[] | null;
   _parent: Owner | null;

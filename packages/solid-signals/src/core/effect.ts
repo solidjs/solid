@@ -12,8 +12,6 @@ import { onCleanup } from "./owner.js";
 import { _hitUnhandledAsync, resetUnhandledAsync } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
-export let leafEffectActive = false;
-
 export interface Effect<T> extends Computed<T>, Owner {
   _effectFn: (val: T, prev: T | undefined) => void | (() => void);
   _errorFn?: (err: unknown, cleanup: () => void) => void;
@@ -124,7 +122,8 @@ export interface TrackedEffect extends Computed<void> {
 
 /**
  * Internal tracked effect - bypasses heap, goes directly to effect queue.
- * Children forbidden (__DEV__ throws). Uses stale reads.
+ * Runs as a leaf owner: child primitives and onCleanup are forbidden (__DEV__ throws).
+ * Uses stale reads.
  */
 export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
   const run = () => {
@@ -135,22 +134,26 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
 
   const node = computed<void>(
     () => {
-      leafEffectActive = true;
-      try {
-        node._cleanup?.();
-        node._cleanup = undefined;
-        node._cleanup = staleValues(fn) || undefined;
-      } finally {
-        leafEffectActive = false;
-      }
+      node._cleanup?.();
+      node._cleanup = undefined;
+      node._cleanup = staleValues(fn) || undefined;
     },
     undefined,
     { ...options, lazy: true }
   ) as TrackedEffect;
 
   node._cleanup = undefined;
+  node._childrenForbidden = true;
   node._modified = true;
   node._type = EFFECT_TRACKED;
+  node._notifyStatus = (status?: number, error?: any) => {
+    const actualStatus = status !== undefined ? status : node._statusFlags;
+    if (actualStatus & STATUS_ERROR) {
+      node._queue.notify(node, STATUS_PENDING, 0);
+      const err = error !== undefined ? error : node._error;
+      if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw err;
+    }
+  };
   node._run = run;
   node._queue.enqueue(EFFECT_USER, run);
 

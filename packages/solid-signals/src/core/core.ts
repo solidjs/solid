@@ -19,7 +19,6 @@ import {
   STATUS_UNINITIALIZED,
   STORE_SNAPSHOT_PROPS
 } from "./constants.js";
-import { leafEffectActive } from "./effect.js";
 import { NotReadyError } from "./error.js";
 import { externalSourceConfig } from "./external.js";
 import { link, unlinkSubs } from "./graph.js";
@@ -340,8 +339,8 @@ export function computed<T>(
   const parent = (context as Root)?._root
     ? (context as Root)._parentComputed
     : (context as Computed<any> | null);
-  if (__DEV__ && leafEffectActive && context) {
-    throw new Error("Cannot create reactive primitives inside createTrackedEffect");
+  if (__DEV__ && context?._childrenForbidden) {
+    throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
   }
   if (context) {
     const lastChild = context._firstChild;
@@ -551,7 +550,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (owner._statusFlags & STATUS_PENDING) {
     if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
-      if (__DEV__ && leafEffectActive) {
+      if (__DEV__ && c?._childrenForbidden) {
         console.warn(
           "Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
             "Use createEffect instead which supports async-aware reactivity."
@@ -626,7 +625,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (
     __DEV__ &&
     !el._pureWrite &&
-    !leafEffectActive &&
+    !context?._childrenForbidden &&
     context &&
     (el as FirewallSignal<any>)._firewall !== context
   )

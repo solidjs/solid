@@ -79,42 +79,27 @@ it("should stop effect", () => {
 
 it("should run all disposals before each new run", () => {
   const effect = vi.fn();
-  const disposeA = vi.fn();
-  const disposeB = vi.fn();
-  const disposeC = vi.fn();
-
-  function fnA() {
-    onCleanup(disposeA);
-  }
-
-  function fnB() {
-    onCleanup(disposeB);
-  }
+  const dispose = vi.fn();
 
   const [$x, setX] = createSignal(0);
 
   createRoot(() =>
     createTrackedEffect(() => {
-      fnA(), fnB();
       $x();
       effect();
-      return disposeC;
+      return dispose;
     })
   );
   flush();
 
   expect(effect).toHaveBeenCalledTimes(1);
-  expect(disposeA).toHaveBeenCalledTimes(0);
-  expect(disposeB).toHaveBeenCalledTimes(0);
-  expect(disposeC).toHaveBeenCalledTimes(0);
+  expect(dispose).toHaveBeenCalledTimes(0);
 
   for (let i = 1; i <= 3; i += 1) {
     setX(i);
     flush();
     expect(effect).toHaveBeenCalledTimes(i + 1);
-    expect(disposeA).toHaveBeenCalledTimes(i);
-    expect(disposeB).toHaveBeenCalledTimes(i);
-    expect(disposeC).toHaveBeenCalledTimes(i);
+    expect(dispose).toHaveBeenCalledTimes(i);
   }
 });
 
@@ -240,18 +225,31 @@ it("should run render effect before user effects", () => {
   expect(mark).toBe("abab");
 });
 
-it("should throw when creating reactive primitives inside (__DEV__ only)", () => {
+it("should throw when creating tracked-effect children inside (__DEV__ only)", () => {
   createRoot(() => {
     createTrackedEffect(() => {
       expect(() => createTrackedEffect(() => {})).toThrow(
-        "Cannot create reactive primitives inside createTrackedEffect"
+        "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
       );
       expect(() => createMemo(() => 1)).toThrow(
-        "Cannot create reactive primitives inside createTrackedEffect"
+        "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
+      );
+      expect(() => onCleanup(() => {})).toThrow(
+        "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead"
       );
     });
   });
   flush();
+});
+
+it("should throw uncaught tracked effect errors during flush", () => {
+  createRoot(() => {
+    createTrackedEffect(() => {
+      throw new Error("tracked boom");
+    });
+  });
+
+  expect(() => flush()).toThrow("tracked boom");
 });
 
 it("should work with dynamic conditional tracking", () => {

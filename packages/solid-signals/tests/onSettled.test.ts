@@ -1,4 +1,4 @@
-import { createMemo, createRoot, createSignal, flush, onSettled } from "../src/index.js";
+import { createMemo, createRoot, createSignal, flush, onCleanup, onSettled } from "../src/index.js";
 
 afterEach(() => flush());
 
@@ -28,6 +28,48 @@ it("should run without owner", () => {
   expect(log).toEqual([]);
   flush();
   expect(log).toEqual(["settled"]);
+});
+
+it("should run nested callbacks without owner", () => {
+  const log: string[] = [];
+
+  onSettled(() => {
+    log.push("outer");
+    onSettled(() => {
+      log.push("inner");
+    });
+  });
+
+  flush();
+  expect(log).toEqual(["outer", "inner"]);
+});
+
+it("should run nested callbacks inside an owner", () => {
+  const log: string[] = [];
+
+  createRoot(() => {
+    onSettled(() => {
+      log.push("outer");
+      onSettled(() => {
+        log.push("inner");
+      });
+    });
+  });
+
+  flush();
+  expect(log).toEqual(["outer", "inner"]);
+});
+
+it("should forbid onCleanup inside owner-backed onSettled", () => {
+  createRoot(() => {
+    onSettled(() => {
+      expect(() => onCleanup(() => {})).toThrow(
+        "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead"
+      );
+    });
+  });
+
+  flush();
 });
 
 it("should call cleanup when disposed", () => {

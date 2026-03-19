@@ -385,7 +385,8 @@ export function createOptimistic<T>(
  * @param callback Function to run, may return a cleanup function
  */
 export function onSettled(callback: () => void | (() => void)): void {
-  getOwner()
+  const owner = getOwner();
+  owner && !owner._childrenForbidden
     ? createTrackedEffect(() => untrack(callback))
     : globalQueue.enqueue(EFFECT_USER, () => {
         const cleanup = callback();
