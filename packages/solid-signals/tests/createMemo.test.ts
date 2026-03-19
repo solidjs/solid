@@ -339,6 +339,93 @@ describe("async compute", () => {
     expect(effect).toHaveBeenCalledWith(2, 2);
   });
 
+  it("keeps shared downstream pending after one async source settles unchanged", async () => {
+    const [triggerA, setTriggerA] = createSignal(0);
+    const [triggerB, setTriggerB] = createSignal(0);
+    const [tick, setTick] = createSignal(0);
+
+    let nextA = 1;
+    let nextB = 1;
+    let resolveA!: () => void;
+    let resolveB!: () => void;
+
+    const a = createMemo(() => {
+      triggerA();
+      const value = nextA;
+      return new Promise<number>(res => {
+        resolveA = () => res(value);
+      });
+    });
+
+    const b = createMemo(() => {
+      triggerB();
+      const value = nextB;
+      return new Promise<number>(res => {
+        resolveB = () => res(value);
+      });
+    });
+
+    const shared = createMemo(() => a() + b());
+    const middle = createMemo(() => shared() * 2);
+    const downstream = createMemo(() => {
+      tick();
+      return middle();
+    });
+
+    const values: number[] = [];
+    const pending: boolean[] = [];
+
+    createRoot(() => {
+      createRenderEffect(downstream, v => {
+        values.push(v);
+      });
+      createRenderEffect(() => isPending(downstream), v => {
+        pending.push(v);
+      });
+    });
+
+    flush();
+    expect(values).toEqual([]);
+    expect(pending).toEqual([false]);
+
+    resolveA();
+    await Promise.resolve();
+    flush();
+    expect(values).toEqual([]);
+    expect(pending).toEqual([false]);
+
+    resolveB();
+    await Promise.resolve();
+    flush();
+    expect(values).toEqual([4]);
+    expect(pending).toEqual([false]);
+
+    nextA = 1;
+    nextB = 3;
+    setTriggerA(1);
+    setTriggerB(1);
+    flush();
+    expect(values).toEqual([4]);
+    expect(pending).toEqual([false, true]);
+
+    resolveA();
+    await Promise.resolve();
+    flush();
+    expect(values).toEqual([4]);
+    expect(pending).toEqual([false, true]);
+
+    setTick(1);
+    flush();
+    expect(values).toEqual([4]);
+    expect(pending).toEqual([false, true]);
+
+    resolveB();
+    await Promise.resolve();
+    flush();
+    expect(values).toEqual([4, 8]);
+    expect(pending).toEqual([false, true, false]);
+  });
+
   it("should waterfall when dependent on another async with shared source", async () => {
     //
     //    s

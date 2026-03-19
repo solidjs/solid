@@ -71,6 +71,9 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _depsTail: Link | null;
   _flags: number;
   _inSnapshotScope?: boolean;
+  _blocked?: boolean;
+  _pendingSource?: Computed<any>;
+  _pendingSources?: Set<Computed<any>>;
   _error?: unknown;
   _statusFlags: number;
   _height: number;

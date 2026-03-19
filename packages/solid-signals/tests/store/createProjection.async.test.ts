@@ -9,6 +9,7 @@ import {
   NotReadyError,
   refresh
 } from "../../src/index.js";
+import { createLoadingBoundary } from "../../src/boundaries.js";
 
 describe("Projection async behavior", () => {
   it("resolves async draft and transforms into new value", async () => {
@@ -615,4 +616,55 @@ describe("Projection isPending behavior", () => {
     const finalResult = results[results.length - 1];
     expect(finalResult?.pending).toBe(false);
   });
+
+  it("nested render effect resumes when async generator projection settles to same array shape", async () => {
+    let result: any;
+    let started = false;
+
+    createRoot(() => {
+      const proj = createProjection(
+        async function* () {
+          await Promise.resolve();
+          yield [];
+        },
+        []
+      );
+      const [text, setText] = createSignal<string | undefined>(undefined);
+
+      const boundary = createLoadingBoundary(
+        () => {
+          if (!started) {
+            started = true;
+            createRenderEffect(
+              () => `typeof: ${typeof proj.length}`,
+              value => {
+                setText(value);
+              }
+            );
+          }
+          const value = text();
+          return value === undefined ? undefined : ["Before ", value, " After"];
+        },
+        () => undefined
+      );
+
+      createRenderEffect(
+        () => (result = boundary()),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toBeUndefined();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(result).toEqual(["Before ", "typeof: number", " After"]);
+  });
+
 });

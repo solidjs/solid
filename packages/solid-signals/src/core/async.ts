@@ -1,24 +1,129 @@
 import {
+  EFFECT_TRACKED,
+  EFFECT_USER,
   NOT_PENDING,
   REACTIVE_DIRTY,
   REACTIVE_OPTIMISTIC_DIRTY,
+  REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { context, setSignal, untrack, updatePendingSignal } from "./core.js";
 import { NotReadyError, StatusError } from "./error.js";
+import { insertIntoHeap } from "./heap.js";
 import { hasActiveOverride, resolveLane, resolveTransition, type OptimisticLane } from "./lanes.js";
 import {
-  activeTransition,
+  addTransitionBlocker,
   assignOrMergeLane,
   clock,
+  dirtyQueue,
   flush,
   globalQueue,
   insertSubs,
-  schedule
+  removeTransitionBlocker,
+  schedule,
+  zombieQueue
 } from "./scheduler.js";
-import type { Computed, FirewallSignal, Signal } from "./types.js";
+import type { Computed, FirewallSignal } from "./types.js";
+
+function addPendingSource(el: Computed<any>, source: Computed<any>): boolean {
+  if (el._pendingSource === source || el._pendingSources?.has(source)) return false;
+  if (!el._pendingSource) {
+    el._pendingSource = source;
+    return true;
+  }
+  if (!el._pendingSources) {
+    el._pendingSources = new Set([el._pendingSource, source]);
+  } else {
+    el._pendingSources.add(source);
+  }
+  el._pendingSource = undefined;
+  return true;
+}
+
+function removePendingSource(el: Computed<any>, source: Computed<any>): boolean {
+  if (el._pendingSource) {
+    if (el._pendingSource !== source) return false;
+    el._pendingSource = undefined;
+    return true;
+  }
+  if (!el._pendingSources?.delete(source)) return false;
+  if (el._pendingSources.size === 1) {
+    el._pendingSource = el._pendingSources.values().next().value;
+    el._pendingSources = undefined;
+  } else if (el._pendingSources.size === 0) {
+    el._pendingSources = undefined;
+  }
+  return true;
+}
+
+function clearPendingSources(el: Computed<any>): void {
+  el._pendingSource = undefined;
+  el._pendingSources?.clear();
+  el._pendingSources = undefined;
+}
+
+function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {
+  if (!source) {
+    el._error = null;
+    return;
+  }
+  if (error instanceof NotReadyError && error.source === source) {
+    el._error = error;
+    return;
+  }
+  const current = el._error;
+  if (!(current instanceof NotReadyError) || current.source !== source) {
+    el._error = new NotReadyError(source);
+  }
+}
+
+function forEachDependent(el: Computed<any>, fn: (node: Computed<any>) => void): void {
+  for (let s = el._subs; s !== null; s = s._nextSub) fn(s._sub);
+  for (let child: FirewallSignal<unknown> | null = el._child; child !== null; child = child._nextChild) {
+    for (let s = child._subs; s !== null; s = s._nextSub) fn(s._sub);
+  }
+}
+
+export function settlePendingSource(el: Computed<any>): void {
+  let scheduled = false;
+  const visited = new Set<Computed<any>>();
+  const settle = (node: Computed<any>) => {
+    if (visited.has(node) || !removePendingSource(node, el)) return;
+    visited.add(node);
+    node._time = clock;
+    const source = node._pendingSource ?? node._pendingSources?.values().next().value;
+    if (source) {
+      setPendingError(node, source);
+      updatePendingSignal(node);
+    } else {
+      node._statusFlags &= ~STATUS_PENDING;
+      setPendingError(node);
+      updatePendingSignal(node);
+      if (node._blocked) {
+        if ((node as any)._type === EFFECT_TRACKED) {
+          const tracked = node as any;
+          if (!tracked._modified) {
+            tracked._modified = true;
+            tracked._queue.enqueue(EFFECT_USER, tracked._run);
+          }
+        } else {
+          const queue = node._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
+          if (queue._min > node._height) queue._min = node._height;
+          insertIntoHeap(node, queue);
+        }
+        scheduled = true;
+      }
+      node._blocked = false;
+    }
+    forEachDependent(node, settle);
+  };
+
+  forEachDependent(el, settle);
+
+  if (scheduled) schedule();
+}
 
 export function handleAsync<T>(
   el: Computed<T>,
@@ -81,6 +186,7 @@ export function handleAsync<T>(
     } else {
       setSignal(el, () => value);
     }
+    settlePendingSource(el);
     schedule();
     flush();
     then?.();
@@ -150,8 +256,11 @@ export function handleAsync<T>(
 }
 
 export function clearStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
+  clearPendingSources(el);
+  removeTransitionBlocker(el);
+  el._blocked = false;
   el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
-  el._error = null;
+  setPendingError(el);
   // Update pending signal for isPending() reactivity
   updatePendingSignal(el);
   el._notifyStatus?.();
@@ -172,30 +281,30 @@ export function notifyStatus(
   )
     error = new StatusError(el, error);
 
-  const isSource = error instanceof NotReadyError && (error as NotReadyError).source === el;
+  const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
+  const isSource = pendingSource === el;
   const isOptimisticBoundary =
     status === STATUS_PENDING && el._overrideValue !== undefined && !isSource;
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {
-    el._statusFlags =
-      status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
-    el._error = error;
+    if (status === STATUS_PENDING && pendingSource) {
+      addPendingSource(el, pendingSource);
+      el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
+      setPendingError(el, el._pendingSource ?? el._pendingSources?.values().next().value, error);
+      if (pendingSource === el) addTransitionBlocker(el);
+    } else {
+      clearPendingSources(el);
+      removeTransitionBlocker(el);
+      el._statusFlags =
+        status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
+      el._error = error;
+    }
     updatePendingSignal(el);
   }
 
   if (lane && !blockStatus) {
     assignOrMergeLane(el, lane);
-  }
-
-  // When an optimistic boundary blocks status propagation, the notification may never
-  // reach a render effect (e.g. isPending only subscribes to _pendingSignal, not the node).
-  // Directly register the async source with the transition so it doesn't complete prematurely.
-  if (startsBlocking && activeTransition && error instanceof NotReadyError) {
-    const source = (error as NotReadyError).source;
-    if (!activeTransition._asyncNodes.includes(source)) {
-      activeTransition._asyncNodes.push(source);
-    }
   }
 
   const downstreamBlockStatus = blockStatus || startsBlocking;
@@ -209,24 +318,17 @@ export function notifyStatus(
     }
     return;
   }
-  for (let s = el._subs; s !== null; s = s._nextSub) {
-    s._sub._time = clock;
-    if (s._sub._error !== error) {
-      !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
-      notifyStatus(s._sub, status, error, downstreamBlockStatus, downstreamLane);
+  forEachDependent(el, sub => {
+    sub._time = clock;
+    if (
+      (status === STATUS_PENDING &&
+        pendingSource &&
+        sub._pendingSource !== pendingSource &&
+        !sub._pendingSources?.has(pendingSource)) ||
+      (status !== STATUS_PENDING && (sub._error !== error || sub._pendingSource || sub._pendingSources))
+    ) {
+      !sub._transition && globalQueue._pendingNodes.push(sub);
+      notifyStatus(sub, status, error, downstreamBlockStatus, downstreamLane);
     }
-  }
-  for (
-    let child: FirewallSignal<unknown> | null = el._child;
-    child !== null;
-    child = child._nextChild
-  ) {
-    for (let s = child._subs; s !== null; s = s._nextSub) {
-      s._sub._time = clock;
-      if (s._sub._error !== error) {
-        !s._sub._transition && globalQueue._pendingNodes.push(s._sub);
-        notifyStatus(s._sub, status, error, downstreamBlockStatus, downstreamLane);
-      }
-    }
-  }
+  });
 }

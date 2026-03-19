@@ -44,9 +44,7 @@ export function createProjectionInternal<T extends object = {}>(
     const owner = getOwner() as Computed<void | T>;
     storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
       const value = handleAsync(owner, fn(s), value => {
-        value !== s &&
-          value !== undefined &&
-          storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
+        value !== s && value !== undefined && storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
       });
       value !== s && value !== undefined && reconcile(value, options?.key || "id")(wrappedStore);
     });

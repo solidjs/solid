@@ -51,6 +51,7 @@ import {
   projectionWriteActive,
   runInTransition,
   schedule,
+  shouldReadStashedOptimisticValue,
   zombieQueue
 } from "./scheduler.js";
 import type {
@@ -195,6 +196,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         updatePendingSignal(lane._source);
       }
     }
+    if (e instanceof NotReadyError) el._blocked = true;
     notifyStatus(
       el,
       e instanceof NotReadyError ? STATUS_PENDING : STATUS_ERROR,
@@ -488,8 +490,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       latestReadActive = prevPending;
     }
     if (pendingComputed._statusFlags & STATUS_PENDING) return visibleValue;
-    // Cross-lane stale read: in a child lane reading latest(x) from a parent lane
-    // with unresolved async, return committed value (stale) until parent resolves.
+  // Cross-lane stale read: a child lane should keep seeing the parent's
+  // committed value until the parent lane resolves.
     if (stale && currentOptimisticLane && pendingComputed._optimisticLane) {
       const pcLane = findLane(pendingComputed._optimisticLane);
       const curLane = findLane(currentOptimisticLane);
@@ -548,9 +550,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (owner._statusFlags & STATUS_PENDING) {
-    const _errSource = (owner._error as NotReadyError)?.source;
-    if (_errSource && !(_errSource._statusFlags & STATUS_PENDING)) clearStatus(owner);
-    else if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
+    if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (__DEV__ && leafEffectActive) {
         console.warn(
           "Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
@@ -599,8 +599,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`
     );
 
-  if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING)
+  if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
+    if (c && stale && shouldReadStashedOptimisticValue(el as Signal<any>)) return el._value as T;
     return el._overrideValue as T;
+  }
 
   // In optimistic lane context, return _value for optimistic/lane-assigned signals
   // and for regular signals in stale mode (render effects). Non-stale readers (user
@@ -741,8 +743,8 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
     if (comp._statusFlags & STATUS_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED))
       return true;
-    // pendingValueComputed (has _parentSource): check lane for downstream async.
-    // User-created optimistic: override existence means pending (bridges corrections).
+    // Internal pending/latest helpers carry `_parentSource`; user-created
+    // optimistic nodes just stay pending while the override is active.
     if (el._parentSource) {
       const lane = el._optimisticLane ? findLane(el._optimisticLane) : null;
       return !!(lane && lane._pendingAsync.size > 0);
