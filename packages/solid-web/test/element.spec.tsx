@@ -2,8 +2,17 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
-import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, createUniqueId, JSX, children, Show, flush } from "solid-js";
+import { describe, expect, test, vi } from "vitest";
+import {
+  createRoot,
+  createSignal,
+  createUniqueId,
+  JSX,
+  children,
+  Show,
+  flush,
+  createMemo
+} from "solid-js";
 
 describe("Basic element attributes", () => {
   test("spread", () => {
@@ -186,5 +195,69 @@ describe("Insert caching (issue #2610)", () => {
       expect(siblingRenderCount).toBe(1);
       expect(div.innerHTML).toBe("<span>sibling</span>");
     }
+  });
+});
+
+describe("Spread children caching", () => {
+  test("spread children preserve isolated slots", () => {
+    let div!: HTMLDivElement;
+    let setShow!: (value: boolean | ((prev: boolean) => boolean)) => boolean;
+    const rendered = vi.fn(() => undefined);
+    let props!: JSX.HTMLAttributes<HTMLDivElement>;
+
+    createRoot(() => {
+      const [show, _setShow] = createSignal(true);
+      setShow = _setShow;
+      const stableRendered = createMemo(() => rendered(), undefined, { lazy: true });
+      props = {
+        get children() {
+          return [
+            <button />,
+            stableRendered,
+            <Show when={show()}>{show() ? "hide" : "show"}</Show>
+          ] as unknown as JSX.Element;
+        },
+        ref(el) {
+          div = el as HTMLDivElement;
+        }
+      };
+      <div {...props} />;
+    });
+    flush();
+
+    expect(rendered).toHaveBeenCalledTimes(1);
+    expect(div.innerHTML).toBe("<button></button>hide");
+
+    setShow(false);
+    flush();
+    expect(rendered).toHaveBeenCalledTimes(1);
+    expect(div.innerHTML).toBe("<button></button>");
+  });
+
+  test("spread children keep reactive arrays live", () => {
+    let div!: HTMLDivElement;
+    let setList!: (value: string[] | ((prev: string[]) => string[])) => string[];
+    let props!: JSX.HTMLAttributes<HTMLDivElement>;
+
+    createRoot(() => {
+      const [list, _setList] = createSignal(["a", "b"]);
+      setList = _setList;
+      props = {
+        get children() {
+          return list();
+        },
+        ref(el) {
+          div = el as HTMLDivElement;
+        }
+      };
+      <div {...props} />;
+    });
+    flush();
+
+    expect(div.innerHTML).toBe("ab");
+
+    setList(["x"]);
+    flush();
+    expect(div.innerHTML).toBe("x");
   });
 });

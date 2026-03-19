@@ -2,8 +2,8 @@
  * @jsxImportSource solid-js
  * @vitest-environment jsdom
  */
-import { describe, expect, test, beforeEach, afterEach } from "vitest";
-import { createRoot, createSignal, Component, JSX, createStore, flush } from "solid-js";
+import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
+import { createRoot, createSignal, Component, JSX, createStore, flush, Show } from "solid-js";
 import { Dynamic } from "../src/index.js";
 
 describe("Testing Dynamic control flow", () => {
@@ -111,5 +111,62 @@ describe("Testing Dynamic with state spread", () => {
     flush();
     expect(div.innerHTML).toBe(`<h1 id="Sunny"></h1>`);
     expect(div.querySelector("h1")).toBeInstanceOf(HTMLElement);
+  });
+});
+
+describe("Dynamic intrinsic child granularity", () => {
+  let disposer!: () => void;
+
+  afterEach(() => disposer());
+
+  test("does not rerun unrelated child slots for intrinsic strings", () => {
+    let div!: HTMLDivElement;
+    let setShow!: (value: boolean | ((prev: boolean) => boolean)) => boolean;
+    const rendered = vi.fn(() => undefined);
+
+    createRoot(dispose => {
+      disposer = dispose;
+      const [show, _setShow] = createSignal(true);
+      setShow = _setShow;
+
+      <div ref={div}>
+        <Dynamic component="div">
+          <button />
+          {rendered()}
+          <Show when={show()}>{show() ? "hide" : "show"}</Show>
+        </Dynamic>
+      </div>;
+    });
+    flush();
+
+    expect(rendered).toHaveBeenCalledTimes(1);
+    expect(div.innerHTML).toBe("<div><button></button>hide</div>");
+
+    setShow(false);
+    flush();
+    expect(rendered).toHaveBeenCalledTimes(1);
+    expect(div.innerHTML).toBe("<div><button></button></div>");
+  });
+
+  test("keeps raw array children reactive", () => {
+    let div!: HTMLDivElement;
+    let setList!: (value: string[] | ((prev: string[]) => string[])) => string[];
+
+    createRoot(dispose => {
+      disposer = dispose;
+      const [list, _setList] = createSignal(["a", "b"]);
+      setList = _setList;
+
+      <div ref={div}>
+        <Dynamic component="div">{list()}</Dynamic>
+      </div>;
+    });
+    flush();
+
+    expect(div.innerHTML).toBe("<div>ab</div>");
+
+    setList(["x"]);
+    flush();
+    expect(div.innerHTML).toBe("<div>x</div>");
   });
 });

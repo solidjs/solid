@@ -234,40 +234,19 @@ export namespace JSX {
     [SERIALIZABLE]: never;
   }
 
+  type RefCallback<T> = (el: T) => void;
+  type Ref<T> = T | RefCallback<T> | (RefCallback<T> | Ref<T>)[];
+
   interface IntrinsicAttributes {
-    ref?: unknown | ((e: unknown) => void) | undefined;
+    ref?: Ref<unknown> | undefined;
   }
   interface CustomAttributes<T> {
-    ref?: T | ((el: T) => void) | undefined;
+    ref?: Ref<T> | undefined;
     children?: FunctionMaybe<Element | undefined>;
     $ServerOnly?: boolean | undefined;
   }
-  type Accessor<T> = () => T;
-  interface Directives {}
-  interface DirectiveFunctions {
-    [x: string]: (el: DOMElement, accessor: Accessor<any>) => void;
-  }
   interface ExplicitProperties {}
   interface CustomEvents {}
-  type DirectiveAttributes = {
-    [Key in keyof Directives as `use:${Key}`]?: Directives[Key];
-  };
-  type DirectiveFunctionAttributes<T> = {
-    [K in keyof DirectiveFunctions as string extends K
-      ? never
-      : `use:${K}`]?: DirectiveFunctions[K] extends (
-      el: infer E, // will be unknown if not provided
-      ...rest: infer R // use rest so that we can check whether it's provided or not
-    ) => void
-      ? T extends E // everything extends unknown if E is unknown
-        ? R extends [infer A] // check if has accessor provided
-          ? A extends Accessor<infer V>
-            ? V // it's an accessor
-            : never // it isn't, type error
-          : true // no accessor provided
-        : never // T is the wrong element
-      : never; // it isn't a function
-  };
   type PropAttributes = {
     [Key in keyof ExplicitProperties as `prop:${Key}`]?: ExplicitProperties[Key];
   };
@@ -1004,7 +983,9 @@ export namespace JSX {
     "on:wheel"?: EventHandlerWithOptionsUnion<T, WheelEvent> | undefined;
   }
 
-  type EventType =
+  // EventName = "click" | "mousedown" ...
+
+  type EventName =
     | (keyof EventHandlersWindow<any> extends infer K
         ? K extends `on:${infer T}`
           ? T
@@ -1021,6 +1002,17 @@ export namespace JSX {
         : never)
     | (string & {});
 
+  type ExtractEventType<T> = {
+    [K in keyof T as K extends `on:${infer Name}`
+      ? Name
+      : never]: T[K] extends EventHandlerWithOptionsUnion<Element, infer E> ? E : never;
+  };
+
+  // EventType["click"] = MouseEvent
+
+  type EventType = ExtractEventType<EventHandlersElement<Element>> &
+    ExtractEventType<EventHandlersWindow<Element>>;
+
   // GLOBAL ATTRIBUTES
 
   /**
@@ -1032,8 +1024,6 @@ export namespace JSX {
   interface ElementAttributes<T>
     extends
       CustomAttributes<T>,
-      DirectiveAttributes,
-      DirectiveFunctionAttributes<T>,
       PropAttributes,
       OnAttributes<T>,
       EventHandlersElement<T>,
@@ -1251,7 +1241,7 @@ export namespace JSX {
     | "worker";
 
   interface AnchorHTMLAttributes<T> extends HTMLAttributes<T> {
-    download?: FunctionMaybe<string | RemoveAttribute>;
+    download?: FunctionMaybe<string | EnumeratedAcceptsEmpty | RemoveAttribute>;
     href?: FunctionMaybe<string | RemoveAttribute>;
     hreflang?: FunctionMaybe<string | RemoveAttribute>;
     ping?: FunctionMaybe<string | RemoveAttribute>;
@@ -1280,7 +1270,7 @@ export namespace JSX {
   interface AreaHTMLAttributes<T> extends HTMLAttributes<T> {
     alt?: FunctionMaybe<string | RemoveAttribute>;
     coords?: FunctionMaybe<string | RemoveAttribute>;
-    download?: FunctionMaybe<string | RemoveAttribute>;
+    download?: FunctionMaybe<string | EnumeratedAcceptsEmpty | RemoveAttribute>;
     href?: FunctionMaybe<string | RemoveAttribute>;
     ping?: FunctionMaybe<string | RemoveAttribute>;
     referrerpolicy?: FunctionMaybe<HTMLReferrerPolicy | RemoveAttribute>;

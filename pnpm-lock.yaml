@@ -60,17 +60,17 @@ importers:
         specifier: ^3.1.0
         version: 3.2.3
       dom-expressions:
-        specifier: 0.41.0-next.13
-        version: 0.41.0-next.13(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2)
+        specifier: 0.41.0-next.14
+        version: 0.41.0-next.14(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2)
       hyper-dom-expressions:
-        specifier: 0.41.0-next.13
-        version: 0.41.0-next.13
+        specifier: 0.41.0-next.14
+        version: 0.41.0-next.14
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
       lit-dom-expressions:
-        specifier: 0.41.0-next.13
-        version: 0.41.0-next.13
+        specifier: 0.41.0-next.14
+        version: 0.41.0-next.14
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -1710,8 +1710,8 @@ packages:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
 
-  dom-expressions@0.41.0-next.13:
-    resolution: {integrity: sha512-ZpaHPfOtUr1JMSVv1yBDmU5Q0BFzfejaSTNYskWxrJUpoVjU169161aaS0b2KMnQkYNr8vOoc36rJdpI1JtEwg==}
+  dom-expressions@0.41.0-next.14:
+    resolution: {integrity: sha512-fjsSx6m51eBbu13pmWzwR9cyNcAbcUD8KnKYIl2xxahh18OqlRnenI5cDkoAdIhRvWkxfb8mP+stMEp8rYsg8w==}
     peerDependencies:
       csstype: ^3.0
       seroval: ~1.5.0
@@ -2076,8 +2076,8 @@ packages:
     resolution: {integrity: sha512-tsYlhAYpjCKa//8rXZ9DqKEawhPoSytweBC2eNvcaDK+57RZLHGqNs3PZTQO6yekLFSuvA6AlnAfrw1uBvtb+Q==}
     hasBin: true
 
-  hyper-dom-expressions@0.41.0-next.13:
-    resolution: {integrity: sha512-2qg1NxkdhWDW/aXkSVxn8LWVEFWXx4d7CtMUnaf2f2q8+7Wr2+A5p2seHXB5VAzmTr+hhlYXJeMyjEKL/zrixQ==}
+  hyper-dom-expressions@0.41.0-next.14:
+    resolution: {integrity: sha512-DagRMuxQbKd8a6fGax9gA2bagkoHFKuEvdzlIIbV8y39FuD+NUDXWNT2ZyWz/7+qbA0TH/D7jz/7Uq4KW9ZZ8g==}
 
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
@@ -2348,8 +2348,8 @@ packages:
     resolution: {integrity: sha512-aprLII/vPzuQvYZnDRU78Fns9I2Ag3gi4Ipga/hxnVMCZC8DnR2nI7XBqrPoywGfxqIx/DgarGvDJZAD3YBTgQ==}
     hasBin: true
 
-  lit-dom-expressions@0.41.0-next.13:
-    resolution: {integrity: sha512-WaidaYTfcygE/zX+N/DTZpAGkIZoVo2S970qol0n4idQusv0rIYaGJn4caRE/69bXDulbutPDNEP9vWnr2fLzA==}
+  lit-dom-expressions@0.41.0-next.14:
+    resolution: {integrity: sha512-Fhj68l9HVbXJvYETByyFIMVvuRdQWQUjAWcnNIMujB1IXoLp+TrlXpVDryk3GURYU3C+A01+5rWfwOuJwvRkFQ==}
 
   load-json-file@4.0.0:
     resolution: {integrity: sha512-Kx8hMakjX03tiGTLAIdJ+lL0htKnXjEZN6hk/tozf/WOuYGdZBJrZ+rCJRbVCugsjB3jMLn9746NsQIf5VjBMw==}
@@ -5137,7 +5137,7 @@ snapshots:
     dependencies:
       path-type: 4.0.0
 
-  dom-expressions@0.41.0-next.13(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2):
+  dom-expressions@0.41.0-next.14(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.3.2))(seroval@1.3.2):
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.2.3
@@ -5640,7 +5640,7 @@ snapshots:
 
   human-id@4.1.3: {}
 
-  hyper-dom-expressions@0.41.0-next.13: {}
+  hyper-dom-expressions@0.41.0-next.14: {}
 
   iconv-lite@0.4.24:
     dependencies:
@@ -5925,7 +5925,7 @@ snapshots:
 
   lcov-parse@1.0.0: {}
 
-  lit-dom-expressions@0.41.0-next.13: {}
+  lit-dom-expressions@0.41.0-next.14: {}
 
   load-json-file@4.0.0:
     dependencies:
