@@ -7,9 +7,9 @@ import {
   isPending,
   latest,
   NotReadyError,
-  refresh
+  refresh,
+  createLoadingBoundary
 } from "../../src/index.js";
-import { createLoadingBoundary } from "../../src/boundaries.js";
 
 describe("Projection async behavior", () => {
   it("resolves async draft and transforms into new value", async () => {
