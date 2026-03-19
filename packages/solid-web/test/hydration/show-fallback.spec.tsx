@@ -122,4 +122,40 @@ describe("Show fallback hydration toggle", () => {
     expect(container.textContent).toContain("show branch");
     expect(container.textContent).toContain("click me");
   });
+
+  test("Show inserts before following sibling after hydration", async () => {
+    let setToggle!: (v: number | ((p: number) => number)) => void;
+
+    container.innerHTML =
+      '<div _hk="0"><!--$--><!--/--><button>Toggle: <!--$-->0<!--/--></button></div>';
+
+    dispose = hydrate(() => {
+      const [toggle, _setToggle] = createSignal(0);
+      setToggle = _setToggle;
+
+      return (
+        <div>
+          <Show when={toggle()}>
+            <div>TEXT</div>
+          </Show>
+          <button onClick={() => setToggle(v => v ^ 1)}>Toggle: {toggle()}</button>
+        </div>
+      );
+    }, container);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(container.innerHTML).toBe(
+      '<div _hk="0"><!--$--><!--/--><button>Toggle: <!--$-->0<!--/--></button></div>'
+    );
+
+    setToggle(1);
+    flush();
+    expect(container.innerHTML).toBe(
+      '<div _hk="0"><!--$--><div>TEXT</div><!--/--><button>Toggle: <!--$-->1<!--/--></button></div>'
+    );
+    expect(container.textContent).toBe("TEXTToggle: 1");
+    expect(container.querySelector("button")?.previousSibling?.previousSibling?.textContent).toBe(
+      "TEXT"
+    );
+  });
 });
