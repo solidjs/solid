@@ -1,6 +1,7 @@
 import {
   action,
   createMemo,
+  createProjection,
   createOptimisticStore,
   createRenderEffect,
   createRoot,
@@ -1445,6 +1446,118 @@ describe("createOptimisticStore", () => {
       expect(isPending(() => state!.data)).toBe(true);
       // latest() returns the optimistic value
       expect(latest(() => state!.data)).toBe(999);
+    });
+
+    it("isPending stays true for generator-backed optimistic stores while override is visible", async () => {
+      let state: { data: number };
+      let setState: (fn: (s: { data: number }) => void) => void;
+      let resolveAsync!: () => void;
+      let resolveAction!: () => void;
+      let holdOptimistic!: () => void;
+
+      createRoot(() => {
+        [state, setState] = createOptimisticStore(
+          async function* (s: { data: number }) {
+            s.data = 10;
+            yield;
+            await new Promise<void>(r => (resolveAsync = r));
+            s.data = 20;
+            yield;
+          },
+          { data: 0 }
+        );
+
+        createRenderEffect(
+          () => state.data,
+          () => {}
+        );
+
+        holdOptimistic = action(function* () {
+          setState(s => {
+            s.data = 999;
+          });
+          yield new Promise<void>(r => (resolveAction = r));
+        });
+      });
+
+      flush();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state!.data).toBe(10);
+      expect(isPending(() => state!.data)).toBe(false);
+
+      holdOptimistic();
+      flush();
+
+      expect(state!.data).toBe(999);
+      expect(isPending(() => state!.data)).toBe(true);
+
+      resolveAsync();
+      resolveAction();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state!.data).toBe(20);
+      expect(isPending(() => state!.data)).toBe(false);
+    });
+
+    it("isPending clears after an optimistic override settles on top of an async projection", async () => {
+      let resolveProjection!: () => void;
+      let resolveAction!: () => void;
+      let state: { data: number };
+      let setState: (fn: (s: { data: number }) => void) => void;
+      let holdOptimistic!: () => void;
+
+      createRoot(() => {
+        const projection = createProjection(
+          async function* (draft: { data: number }) {
+            draft.data = 10;
+            yield;
+            await new Promise<void>(r => (resolveProjection = r));
+            draft.data = 20;
+            yield;
+          },
+          { data: 0 }
+        );
+
+        [state, setState] = createOptimisticStore(projection);
+
+        createRenderEffect(
+          () => state.data,
+          () => {}
+        );
+
+        holdOptimistic = action(function* () {
+          setState(s => {
+            s.data = 999;
+          });
+          yield new Promise<void>(r => (resolveAction = r));
+        });
+      });
+
+      flush();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state!.data).toBe(10);
+      expect(isPending(() => state!.data)).toBe(false);
+
+      holdOptimistic();
+      flush();
+
+      expect(state!.data).toBe(999);
+      expect(isPending(() => state!.data)).toBe(true);
+
+      resolveProjection();
+      resolveAction();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(state!.data).toBe(20);
+      expect(isPending(() => state!.data)).toBe(false);
     });
 
     it("should preserve array item proxy identity when optimistic push is reconciled with server data", async () => {

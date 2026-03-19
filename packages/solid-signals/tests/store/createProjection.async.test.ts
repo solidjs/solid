@@ -426,6 +426,51 @@ describe("Projection async behavior", () => {
 
     expect(proj.value).toBe("start");
   });
+
+  it("refresh() ignores stale draft writes that happen before the next yield", async () => {
+    let proj;
+    const resolves: Array<() => void> = [];
+
+    createRoot(() => {
+      proj = createProjection(
+        async function* (draft) {
+          yield;
+          await new Promise<void>(r => resolves.push(r));
+          draft.items.push(resolves.length);
+          yield;
+        },
+        { items: [] as number[] }
+      );
+    });
+
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resolves.length).toBe(1);
+    expect(proj.items).toEqual([]);
+
+    refresh(proj);
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resolves.length).toBe(2);
+
+    resolves[0]!();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(proj.items).toEqual([]);
+
+    resolves[1]!();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(proj.items).toEqual([2]);
+  });
 });
 
 describe("Projection isPending behavior", () => {

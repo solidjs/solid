@@ -42,8 +42,16 @@ export function createProjectionInternal<T extends object = {}>(
 
   node = computed(() => {
     const owner = getOwner() as Computed<void | T>;
-    storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
-      const value = handleAsync(owner, fn(s), value => {
+    let settled = false;
+    let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
+    const draft = new Proxy(
+      wrappedStore,
+      createWriteTraps(() => !settled || owner._inFlight === result)
+    );
+    storeSetter<T>(draft, s => {
+      result = fn(s);
+      settled = true;
+      const value = handleAsync(owner, result, value => {
         value !== s &&
           value !== undefined &&
           storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
@@ -80,39 +88,46 @@ export function createProjection<T extends object = {}>(
   return createProjectionInternal(fn, initialValue, options).store;
 }
 
-export const writeTraps: ProxyHandler<any> = {
-  get(_, prop) {
-    let value;
-    setWriteOverride(true);
-    setProjectionWriteActive(true);
-    try {
-      value = _[prop];
-    } finally {
-      setWriteOverride(false);
-      setProjectionWriteActive(false);
+export function createWriteTraps(isActive?: () => boolean): ProxyHandler<any> {
+  const traps: ProxyHandler<any> = {
+    get(_, prop) {
+      let value;
+      setWriteOverride(true);
+      setProjectionWriteActive(true);
+      try {
+        value = _[prop];
+      } finally {
+        setWriteOverride(false);
+        setProjectionWriteActive(false);
+      }
+      return typeof value === "object" && value !== null ? new Proxy(value, traps) : value;
+    },
+    set(_, prop, value) {
+      if (isActive && !isActive()) return true;
+      setWriteOverride(true);
+      setProjectionWriteActive(true);
+      try {
+        _[prop] = value;
+      } finally {
+        setWriteOverride(false);
+        setProjectionWriteActive(false);
+      }
+      return true;
+    },
+    deleteProperty(_, prop) {
+      if (isActive && !isActive()) return true;
+      setWriteOverride(true);
+      setProjectionWriteActive(true);
+      try {
+        delete _[prop];
+      } finally {
+        setWriteOverride(false);
+        setProjectionWriteActive(false);
+      }
+      return true;
     }
-    return typeof value === "object" && value !== null ? new Proxy(value, writeTraps) : value;
-  },
-  set(_, prop, value) {
-    setWriteOverride(true);
-    setProjectionWriteActive(true);
-    try {
-      _[prop] = value;
-    } finally {
-      setWriteOverride(false);
-      setProjectionWriteActive(false);
-    }
-    return true;
-  },
-  deleteProperty(_, prop) {
-    setWriteOverride(true);
-    setProjectionWriteActive(true);
-    try {
-      delete _[prop];
-    } finally {
-      setWriteOverride(false);
-      setProjectionWriteActive(false);
-    }
-    return true;
-  }
-};
+  };
+  return traps;
+}
+
+export const writeTraps: ProxyHandler<any> = createWriteTraps();

@@ -508,8 +508,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     const firewall = (el as FirewallSignal<any>)._firewall;
     const prevCheck = pendingCheckActive;
     pendingCheckActive = false;
-    if (read(getPendingSignal(el))) foundPending = true;
-    if (firewall && read(getPendingSignal(firewall))) foundPending = true;
+    if (firewall && el._overrideValue !== undefined) {
+      if (
+        el._overrideValue !== NOT_PENDING &&
+        (firewall._inFlight || !!(firewall._statusFlags & STATUS_PENDING))
+      ) {
+        foundPending = true;
+      }
+    } else {
+      if (read(getPendingSignal(el))) foundPending = true;
+      if (firewall && read(getPendingSignal(firewall))) foundPending = true;
+    }
     pendingCheckActive = prevCheck;
     return el._value as T;
   }
@@ -751,6 +760,9 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
       return !!(lane && lane._pendingAsync.size > 0);
     }
     return true;
+  }
+  if (el._overrideValue !== undefined && el._overrideValue === NOT_PENDING && !el._parentSource) {
+    return false;
   }
   // Upstream: value held in transition (not during initial load)
   if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) return true;

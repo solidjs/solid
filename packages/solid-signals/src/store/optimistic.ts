@@ -7,7 +7,7 @@ import {
   type Computed
 } from "../core/index.js";
 import { GlobalQueue, setProjectionWriteActive } from "../core/scheduler.js";
-import { writeTraps } from "./projection.js";
+import { createWriteTraps } from "./projection.js";
 import { reconcile } from "./reconcile.js";
 import {
   $DELETED,
@@ -148,11 +148,19 @@ function createOptimisticProjectionInternal<T extends object = {}>(
   if (fn) {
     node = computed(() => {
       const owner = getOwner() as Computed<void | T>;
+      let settled = false;
+      let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
+      const draft = new Proxy(
+        wrappedStore,
+        createWriteTraps(() => !settled || owner._inFlight === result)
+      );
       // All writes inside firewall recompute go to STORE_OVERRIDE (base), not STORE_OPTIMISTIC_OVERRIDE
       setProjectionWriteActive(true);
       try {
-        storeSetter<T>(new Proxy(wrappedStore, writeTraps), s => {
-          const value = handleAsync(owner, fn(s), value => {
+        storeSetter<T>(draft, s => {
+          result = fn(s);
+          settled = true;
+          const value = handleAsync(owner, result, value => {
             // Async callback still needs projectionWriteActive for reconcile
             setProjectionWriteActive(true);
             try {
