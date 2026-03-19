@@ -8,7 +8,7 @@ import {
 } from "./constants.js";
 import { computed, recompute, setStrictRead, staleValues } from "./core.js";
 import { StatusError } from "./error.js";
-import { onCleanup } from "./owner.js";
+import { cleanup } from "./owner.js";
 import { _hitUnhandledAsync, resetUnhandledAsync } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -87,7 +87,7 @@ export function effect<T>(
       ? node._queue.enqueue(node._type, runEffect.bind(node))
       : runEffect.call(node));
   initialized = true;
-  onCleanup(() => node._cleanup?.());
+  cleanup(() => node._cleanup?.());
   if (__DEV__ && !node._parent)
     console.warn("Effects created outside a reactive context will never be disposed");
 }
@@ -157,7 +157,7 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   node._run = run;
   node._queue.enqueue(EFFECT_USER, run);
 
-  onCleanup(() => node._cleanup?.());
+  cleanup(() => node._cleanup?.());
 
   if (__DEV__ && !node._parent)
     console.warn("Effects created outside a reactive context will never be disposed");

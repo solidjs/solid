@@ -1,11 +1,11 @@
 import { recompute } from "./core/core.js";
 import type { StatusError } from "./core/error.js";
 import {
+  cleanup,
   computed,
   createOwner,
   getOwner,
   NotReadyError,
-  onCleanup,
   Queue,
   read,
   runWithOwner,
@@ -50,7 +50,7 @@ function createBoundChildren<T>(
 ): Computed<T> {
   const parentQueue = owner._queue;
   parentQueue.addChild((owner._queue = queue));
-  onCleanup(() => parentQueue.removeChild(owner._queue!));
+  cleanup(() => parentQueue.removeChild(owner._queue!));
   return runWithOwner(owner, () => {
     const c = computed(fn);
     return boundaryComputed(() => staleValues(() => flatten(read(c))), mask);

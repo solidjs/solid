@@ -109,16 +109,8 @@ export function getOwner(): Owner | null {
   return context;
 }
 
-export function onCleanup(fn: Disposable): Disposable {
-  if (!context) {
-    if (__DEV__) console.warn("onCleanup called outside a reactive context will never be run");
-    return fn;
-  }
-  if (__DEV__ && context._childrenForbidden) {
-    throw new Error(
-      "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead"
-    );
-  }
+export function cleanup(fn: Disposable): Disposable {
+  if (!context) return fn;
   if (!context._disposal) context._disposal = fn;
   else if (Array.isArray(context._disposal)) context._disposal.push(fn);
   else context._disposal = [context._disposal, fn];
@@ -154,7 +146,9 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
   } as Root;
 
   if (__DEV__ && parent?._childrenForbidden) {
-    throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
+    throw new Error(
+      "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
+    );
   }
   if (parent) {
     const lastChild = parent._firstChild;

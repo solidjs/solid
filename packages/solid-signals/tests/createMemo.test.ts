@@ -379,9 +379,12 @@ describe("async compute", () => {
       createRenderEffect(downstream, v => {
         values.push(v);
       });
-      createRenderEffect(() => isPending(downstream), v => {
-        pending.push(v);
-      });
+      createRenderEffect(
+        () => isPending(downstream),
+        v => {
+          pending.push(v);
+        }
+      );
     });
 
     flush();

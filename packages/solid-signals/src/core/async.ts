@@ -81,7 +81,11 @@ function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any)
 
 function forEachDependent(el: Computed<any>, fn: (node: Computed<any>) => void): void {
   for (let s = el._subs; s !== null; s = s._nextSub) fn(s._sub);
-  for (let child: FirewallSignal<unknown> | null = el._child; child !== null; child = child._nextChild) {
+  for (
+    let child: FirewallSignal<unknown> | null = el._child;
+    child !== null;
+    child = child._nextChild
+  ) {
     for (let s = child._subs; s !== null; s = s._nextSub) fn(s._sub);
   }
 }
@@ -281,7 +285,8 @@ export function notifyStatus(
   )
     error = new StatusError(el, error);
 
-  const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
+  const pendingSource =
+    status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
   const isSource = pendingSource === el;
   const isOptimisticBoundary =
     status === STATUS_PENDING && el._overrideValue !== undefined && !isSource;
@@ -325,7 +330,8 @@ export function notifyStatus(
         pendingSource &&
         sub._pendingSource !== pendingSource &&
         !sub._pendingSources?.has(pendingSource)) ||
-      (status !== STATUS_PENDING && (sub._error !== error || sub._pendingSource || sub._pendingSources))
+      (status !== STATUS_PENDING &&
+        (sub._error !== error || sub._pendingSource || sub._pendingSources))
     ) {
       !sub._transition && globalQueue._pendingNodes.push(sub);
       notifyStatus(sub, status, error, downstreamBlockStatus, downstreamLane);

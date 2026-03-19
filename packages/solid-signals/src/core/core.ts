@@ -39,7 +39,7 @@ import {
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
-import { disposeChildren, getNextChildId, markDisposal, onCleanup } from "./owner.js";
+import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeTransition,
   clock,
@@ -340,7 +340,9 @@ export function computed<T>(
     ? (context as Root)._parentComputed
     : (context as Computed<any> | null);
   if (__DEV__ && context?._childrenForbidden) {
-    throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
+    throw new Error(
+      "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
+    );
   }
   if (context) {
     const lastChild = context._firstChild;
@@ -358,7 +360,7 @@ export function computed<T>(
     const source = externalSourceConfig.factory(self._fn as any, () => {
       setSignal(bridgeSignal, undefined);
     });
-    onCleanup(() => source.dispose());
+    cleanup(() => source.dispose());
     self._fn = ((prev: any) => {
       read(bridgeSignal);
       return source.track(prev);
@@ -489,8 +491,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       latestReadActive = prevPending;
     }
     if (pendingComputed._statusFlags & STATUS_PENDING) return visibleValue;
-  // Cross-lane stale read: a child lane should keep seeing the parent's
-  // committed value until the parent lane resolves.
+    // Cross-lane stale read: a child lane should keep seeing the parent's
+    // committed value until the parent lane resolves.
     if (stale && currentOptimisticLane && pendingComputed._optimisticLane) {
       const pcLane = findLane(pendingComputed._optimisticLane);
       const curLane = findLane(currentOptimisticLane);

@@ -34,7 +34,7 @@ export {
   getObserver,
   getOwner,
   isDisposed,
-  onCleanup,
+  cleanup,
   peekNextChildId
 } from "./owner.js";
 export {

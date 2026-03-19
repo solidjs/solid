@@ -1,4 +1,5 @@
 import {
+  createLoadingBoundary,
   createProjection,
   createRenderEffect,
   createRoot,
@@ -7,8 +8,7 @@ import {
   isPending,
   latest,
   NotReadyError,
-  refresh,
-  createLoadingBoundary
+  refresh
 } from "../../src/index.js";
 
 describe("Projection async behavior", () => {
@@ -622,13 +622,10 @@ describe("Projection isPending behavior", () => {
     let started = false;
 
     createRoot(() => {
-      const proj = createProjection(
-        async function* () {
-          await Promise.resolve();
-          yield [];
-        },
-        []
-      );
+      const proj = createProjection(async function* () {
+        await Promise.resolve();
+        yield [];
+      }, []);
       const [text, setText] = createSignal<string | undefined>(undefined);
 
       const boundary = createLoadingBoundary(
@@ -666,5 +663,4 @@ describe("Projection isPending behavior", () => {
 
     expect(result).toEqual(["Before ", "typeof: number", " After"]);
   });
-
 });

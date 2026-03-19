@@ -1,5 +1,6 @@
-import type { Computed } from "./core/index.js";
+import type { Disposable } from "./core/index.js";
 import {
+  cleanup,
   computed,
   createRoot,
   dispose,
@@ -8,7 +9,6 @@ import {
   getObserver,
   getOwner,
   NotReadyError,
-  onCleanup,
   optimisticComputed,
   optimisticSignal,
   read,
@@ -19,6 +19,18 @@ import {
   untrack
 } from "./core/index.js";
 import { globalQueue } from "./core/scheduler.js";
+
+export function onCleanup(fn: Disposable): Disposable {
+  if (__DEV__) {
+    const owner = getOwner();
+    if (!owner) console.warn("onCleanup called outside a reactive context will never be run");
+    else if (owner._childrenForbidden)
+      throw new Error(
+        "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead"
+      );
+  }
+  return cleanup(fn);
+}
 
 export type Accessor<T> = () => T;
 
@@ -286,16 +298,16 @@ export function createReaction(
   effectFn: EffectFunction<undefined> | EffectBundle<undefined>,
   options?: EffectOptions
 ) {
-  let cleanup: (() => void) | undefined = undefined;
-  onCleanup(() => cleanup?.());
+  let cl: (() => void) | undefined = undefined;
+  cleanup(() => cl?.());
   const owner = getOwner();
   return (tracking: () => void) => {
     runWithOwner(owner!, () => {
       effect(
         () => (tracking(), getOwner()!),
         node => {
-          cleanup?.();
-          cleanup = ((effectFn as any).effect || effectFn)?.();
+          cl?.();
+          cl = ((effectFn as any).effect || effectFn)?.();
           dispose(node as any);
         },
         (effectFn as any).error,

@@ -14,7 +14,6 @@ export {
   getContext,
   setContext,
   getOwner,
-  onCleanup,
   isDisposed,
   getObserver,
   isEqual,
@@ -49,7 +48,8 @@ export {
   createReaction,
   createOptimistic,
   resolve,
-  onSettled
+  onSettled,
+  onCleanup
 } from "./signals.js";
 export type {
   Accessor,
