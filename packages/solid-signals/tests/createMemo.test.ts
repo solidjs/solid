@@ -641,6 +641,17 @@ describe("async compute", () => {
     expect(value).toBe(1);
   });
 
+  it("should throw when resolve is used in a tracking scope", () => {
+    createRoot(() => {
+      const a = createMemo(() => Promise.resolve(42));
+      const invalid = createMemo(() => resolve(a));
+
+      expect(() => invalid()).toThrow(
+        "Cannot call resolve inside a reactive scope; it only resolves the current value and does not track updates."
+      );
+    });
+  });
+
   it("should handle streams", async () => {
     const effect = vi.fn();
     createRoot(() => {

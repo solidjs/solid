@@ -5,6 +5,7 @@ import {
   dispose,
   effect,
   EFFECT_USER,
+  getObserver,
   getOwner,
   NotReadyError,
   onCleanup,
@@ -313,6 +314,11 @@ export function createReaction(
  * @param fn a reactive expression to resolve
  */
 export function resolve<T>(fn: () => T): Promise<T> {
+  if (__DEV__ && getObserver()) {
+    throw new Error(
+      "Cannot call resolve inside a reactive scope; it only resolves the current value and does not track updates."
+    );
+  }
   return new Promise((res, rej) => {
     createRoot(dispose => {
       computed(() => {
