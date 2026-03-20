@@ -47,6 +47,7 @@ export let clock = 0;
 export let activeTransition: Transition | null = null;
 let scheduled = false;
 export let projectionWriteActive = false;
+let inTrackedQueueCallback = false;
 
 let _enforceLoadingBoundary = false;
 export let _hitUnhandledAsync = false;
@@ -97,6 +98,10 @@ function queueStashedOptimisticEffects(node: Signal<any>): void {
 
 export function setProjectionWriteActive(value: boolean) {
   projectionWriteActive = value;
+}
+
+export function setTrackedQueueCallback(value: boolean) {
+  if (__DEV__) inTrackedQueueCallback = value;
 }
 
 export type QueueCallback = (type: number) => void;
@@ -495,6 +500,14 @@ export const globalQueue = new GlobalQueue();
  * the queue synchronously to get the latest updates by calling `flush()`.
  */
 export function flush(): void {
+  if (globalQueue._running) {
+    if (__DEV__ && inTrackedQueueCallback) {
+      throw new Error(
+        "Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there."
+      );
+    }
+    return;
+  }
   let count = 0;
   // `flush()` is an explicit drain point, so it must also process an active
   // transition even if no microtask was scheduled for it yet.

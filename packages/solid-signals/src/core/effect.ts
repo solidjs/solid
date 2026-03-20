@@ -9,7 +9,7 @@ import {
 import { computed, recompute, setStrictRead, staleValues } from "./core.js";
 import { StatusError } from "./error.js";
 import { cleanup } from "./owner.js";
-import { _hitUnhandledAsync, resetUnhandledAsync } from "./scheduler.js";
+import { _hitUnhandledAsync, resetUnhandledAsync, setTrackedQueueCallback } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
 export interface Effect<T> extends Computed<T>, Owner {
@@ -128,8 +128,13 @@ export interface TrackedEffect extends Computed<void> {
 export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
   const run = () => {
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
-    node._modified = false;
-    recompute(node);
+    if (__DEV__) setTrackedQueueCallback(true);
+    try {
+      node._modified = false;
+      recompute(node);
+    } finally {
+      if (__DEV__) setTrackedQueueCallback(false);
+    }
   };
 
   const node = computed<void>(

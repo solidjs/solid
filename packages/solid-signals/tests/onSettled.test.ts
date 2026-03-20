@@ -1,4 +1,12 @@
-import { createMemo, createRoot, createSignal, flush, onCleanup, onSettled } from "../src/index.js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  onCleanup,
+  onSettled
+} from "../src/index.js";
 
 afterEach(() => flush());
 
@@ -58,6 +66,40 @@ it("should run nested callbacks inside an owner", () => {
 
   flush();
   expect(log).toEqual(["outer", "inner"]);
+});
+
+it("should throw when owner-backed onSettled calls flush reentrantly", () => {
+  const log: string[] = [];
+  const values: number[] = [];
+
+  createRoot(() => {
+    const [count, setCount] = createSignal(0);
+
+    createEffect(
+      () => count(),
+      v => {
+        values.push(v);
+      }
+    );
+
+    onSettled(() => {
+      log.push("outer");
+      onSettled(() => {
+        log.push("inner");
+      });
+      setCount(v => v + 5);
+      flush();
+      setCount(v => v + 5);
+      setCount(v => v + 5);
+    });
+  });
+
+  expect(() => flush()).toThrow(
+    "Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there."
+  );
+  expect(log).toEqual(["outer"]);
+  expect(values[0]).toBe(0);
+  expect(values.at(-1)).toBe(0);
 });
 
 it("should forbid onCleanup inside owner-backed onSettled", () => {

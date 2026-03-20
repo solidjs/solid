@@ -1503,6 +1503,55 @@ describe("createOptimisticStore", () => {
       expect(isPending(() => state!.data)).toBe(false);
     });
 
+    it("isPending stays true when the same render reads generator-backed store length", async () => {
+      let state: readonly number[];
+      let setState: (fn: (s: number[]) => void) => void;
+      let resolveAction!: () => void;
+      let holdOptimistic!: () => Promise<void>;
+      const seen: Array<readonly [number, boolean]> = [];
+
+      createRoot(() => {
+        [state, setState] = createOptimisticStore<number[]>(
+          async function* () {
+            yield [];
+          },
+          []
+        );
+
+        createRenderEffect(
+          () => [state.length, isPending(() => state.length)] as const,
+          v => {
+            seen.push(v);
+          }
+        );
+
+        holdOptimistic = action(function* () {
+          setState(draft => {
+            draft.push(0);
+          });
+          yield new Promise<void>(r => (resolveAction = r));
+        });
+      });
+
+      flush();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(seen.at(-1)).toEqual([0, false]);
+
+      const actionPromise = holdOptimistic();
+      flush();
+
+      expect(seen.at(-1)).toEqual([1, true]);
+
+      resolveAction();
+      await actionPromise;
+      await Promise.resolve();
+      flush();
+
+      expect(seen.at(-1)).toEqual([0, false]);
+    });
+
     it("isPending clears after an optimistic override settles on top of an async projection", async () => {
       let resolveProjection!: () => void;
       let resolveAction!: () => void;
