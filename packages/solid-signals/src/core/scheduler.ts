@@ -10,14 +10,14 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { currentOptimisticLane } from "./core.js";
-import type { NotReadyError } from "./error.js";
+import { NotReadyError } from "./error.js";
 import { insertIntoHeap, runHeap, type Heap } from "./heap.js";
 import {
   activeLanes,
   assignOrMergeLane,
   findLane,
+  hasActiveOverride,
   signalLanes,
-  type OptimisticLane
 } from "./lanes.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -26,8 +26,7 @@ export {
   getOrCreateLane,
   hasActiveOverride,
   mergeLanes,
-  resolveLane,
-  type OptimisticLane
+  resolveLane
 } from "./lanes.js";
 
 const transitions = new Set<Transition>();
@@ -105,11 +104,12 @@ type QueueStub = {
   _queues: [QueueCallback[], QueueCallback[]];
   _children: QueueStub[];
 };
+type OptimisticNode = Signal<any> | Computed<any>;
 export interface Transition {
   _time: number;
   _asyncNodes: Computed<any>[];
   _pendingNodes: Signal<any>[];
-  _optimisticNodes: Signal<any>[]; // Signals with optimistic overrides (for value reversion)
+  _optimisticNodes: OptimisticNode[]; // Optimistic signals/computeds pending transition reversion
   _optimisticStores: Set<any>;
   _actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
   _queueStash: QueueStub;
@@ -129,7 +129,7 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   }
 }
 
-function resolveOptimisticNodes(nodes: Signal<any>[]): void {
+function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     node._optimisticLane = undefined;
@@ -168,22 +168,6 @@ export function schedule() {
   if (scheduled) return;
   scheduled = true;
   if (!globalQueue._running && !projectionWriteActive) queueMicrotask(flush);
-}
-
-export function addTransitionBlocker(node: Computed<any>): void {
-  if (activeTransition && !activeTransition._asyncNodes.includes(node)) {
-    activeTransition._asyncNodes.push(node);
-  }
-}
-
-export function removeTransitionBlocker(node: Computed<any>): void {
-  const remove = (list?: Computed<any>[]) => {
-    if (!list) return;
-    const index = list.indexOf(node);
-    if (index >= 0) list.splice(index, 1);
-  };
-  remove(node._transition?._asyncNodes);
-  remove(activeTransition?._asyncNodes);
 }
 
 export interface IQueue {
@@ -266,7 +250,7 @@ export class Queue implements IQueue {
 export class GlobalQueue extends Queue {
   _running: boolean = false;
   _pendingNodes: Signal<any>[] = [];
-  _optimisticNodes: Signal<any>[] = [];
+  _optimisticNodes: OptimisticNode[] = [];
   _optimisticStores: Set<any> = new Set();
   static _update: (el: Computed<unknown>) => void;
   static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
@@ -533,6 +517,21 @@ function transitionComplete(transition: Transition): boolean {
     if (node._statusFlags & STATUS_PENDING && (node._error as NotReadyError)?.source === node) {
       done = false;
       break;
+    }
+  }
+  if (done) {
+    for (let i = 0; i < transition._optimisticNodes.length; i++) {
+      const node = transition._optimisticNodes[i];
+      if (
+        hasActiveOverride(node) &&
+        "_statusFlags" in node &&
+        node._statusFlags & STATUS_PENDING &&
+        node._error instanceof NotReadyError &&
+        node._error.source !== node
+      ) {
+        done = false;
+        break;
+      }
     }
   }
   done && (transition._done = true);

@@ -14,14 +14,12 @@ import { NotReadyError, StatusError } from "./error.js";
 import { insertIntoHeap } from "./heap.js";
 import { hasActiveOverride, resolveLane, resolveTransition, type OptimisticLane } from "./lanes.js";
 import {
-  addTransitionBlocker,
   assignOrMergeLane,
   clock,
   dirtyQueue,
   flush,
   globalQueue,
   insertSubs,
-  removeTransitionBlocker,
   schedule,
   zombieQueue
 } from "./scheduler.js";
@@ -261,7 +259,6 @@ export function handleAsync<T>(
 
 export function clearStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
   clearPendingSources(el);
-  removeTransitionBlocker(el);
   el._blocked = false;
   el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
   setPendingError(el);
@@ -296,11 +293,11 @@ export function notifyStatus(
     if (status === STATUS_PENDING && pendingSource) {
       addPendingSource(el, pendingSource);
       el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
-      setPendingError(el, el._pendingSource ?? el._pendingSources?.values().next().value, error);
-      if (pendingSource === el) addTransitionBlocker(el);
+      // Preserve the current source on this propagation so render-effect notification
+      // can register every distinct pending source with the transition.
+      setPendingError(el, pendingSource, error);
     } else {
       clearPendingSources(el);
-      removeTransitionBlocker(el);
       el._statusFlags =
         status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
       el._error = error;
@@ -316,6 +313,9 @@ export function notifyStatus(
   const downstreamLane = blockStatus || isOptimisticBoundary ? undefined : lane;
 
   if (el._notifyStatus) {
+    if (blockStatus && status === STATUS_PENDING) {
+      return;
+    }
     if (downstreamBlockStatus) {
       el._notifyStatus(status, error);
     } else {
@@ -333,7 +333,7 @@ export function notifyStatus(
       (status !== STATUS_PENDING &&
         (sub._error !== error || sub._pendingSource || sub._pendingSources))
     ) {
-      !sub._transition && globalQueue._pendingNodes.push(sub);
+      if (!downstreamBlockStatus && !sub._transition) globalQueue._pendingNodes.push(sub);
       notifyStatus(sub, status, error, downstreamBlockStatus, downstreamLane);
     }
   });

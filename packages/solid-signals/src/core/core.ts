@@ -581,6 +581,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._error;
       }
+    } else if (c && owner !== el && owner._statusFlags & STATUS_UNINITIALIZED) {
+      if (!tracking && el !== c) link(el, c as Computed<any>);
+      throw owner._error;
     } else if (!c && owner._statusFlags & STATUS_UNINITIALIZED) {
       throw owner._error;
     }
