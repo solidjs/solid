@@ -24,9 +24,11 @@
     "fix-async-signal-ssr-loading",
     "fix-dynamic-hydration-key-alignment",
     "fix-flow-hydration-key-alignment",
+    "fix-hydration-and-signals-baseline",
     "fix-insert-sibling-rerender",
     "fix-projection-refresh-stale-pending",
     "fix-refresh-type-in-store-overloads",
+    "fix-show-ssr-hydration-placement",
     "fix-spread-hydration-mismatch",
     "fix-ssr-async-error-handling",
     "fix-ssrsource-client-hybrid-hydration",
@@ -56,7 +58,9 @@
     "transparent-devcomponent",
     "two-weeks-smell",
     "update-deps-and-build-compat",
+    "update-dom-runtime-baseline",
     "update-refs-dom-expressions",
+    "update-signals-bugfix-baseline",
     "violet-stingrays-end",
     "warm-doors-flow"
   ]

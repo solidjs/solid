@@ -1,5 +1,15 @@
 # @solidjs/web
 
+## 2.0.0-beta.4
+
+### Patch Changes
+
+- 2922dbb: Add regression coverage for SSR Show hydration placement so Show content hydrates before its following sibling once the dom-expressions runtime fix is published.
+- 8d3e093: Update the bundled `dom-expressions`, `hyper-dom-expressions`, and `lit-dom-expressions` baseline to pick up the spread children caching fix, and add regression coverage for intrinsic spread children and `Dynamic component="div"` granularity.
+- Updated dependencies [681d6a5]
+- Updated dependencies [2922dbb]
+  - solid-js@2.0.0-beta.4
+
 ## 2.0.0-beta.3
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # solid-js
 
+## 2.0.0-beta.4
+
+### Patch Changes
+
+- 681d6a5: Update the bundled `@solidjs/signals` baseline to `0.13.6` and fix boundary hydration so `ssrSource: "client"` children resume after hydration mode turns off.
+- 2922dbb: Update the bundled `@solidjs/signals` baseline to pick up the recent beta bug fixes from #2628, #2631, #2633, #2634, #2635, #2636, #2619, #2637, #2638, and #2639, covering loading and error boundaries, pending state propagation, tracked effect semantics, `resolve()` behavior, and async generator projection and optimistic-store fixes.
+
 ## 2.0.0-beta.3
 
 ### Patch Changes
