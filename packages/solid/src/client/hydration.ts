@@ -898,9 +898,9 @@ function resumeBoundaryHydration(o: Owner, id: string, set: () => void) {
   set();
   flush();
   _snapshotRootOwner = null;
+  _hydratingValue = false;
   releaseSnapshotScope(o);
   flush();
-  _hydratingValue = false;
   checkHydrationComplete();
 }
 

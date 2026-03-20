@@ -1922,6 +1922,51 @@ describe("Loading + Async Iterable end-to-end pipeline", () => {
     return { promise: p, resolve };
   }
 
+  test("Loading resumes ssrSource 'client' children after hydration mode turns off", async () => {
+    const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: { t0: lp },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({ t0: lp });
+
+    let memo: any;
+    const hydratingStates: boolean[] = [];
+
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(
+              () => {
+                hydratingStates.push(sharedConfig.hydrating);
+                return 123;
+              },
+              0,
+              { ssrSource: "client" }
+            );
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+    flush();
+
+    expect(memo()).toBe(123);
+    expect(hydratingStates).toEqual([false]);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   test("Loading + createMemo: first value from async iterable available after resume", async () => {
     const { promise: lp, resolve: resolveLoading } = makeLoadingPromise();
     const ai = createBufferedAsyncIterable([42]);
