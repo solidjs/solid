@@ -81,6 +81,110 @@ describe("Testing Loading", () => {
     expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
   });
 
+  test("on prop treats component value as the boundary key", async () => {
+    let setId!: (value: string) => void;
+    const localDiv = document.createElement("div");
+    let localDispose!: () => void;
+    const resolvers: Record<string, (value: string) => void> = {};
+
+    localDispose = render(() => {
+      const [id, _setId] = createSignal("a");
+      setId = _setId;
+      const data = createMemo(async () => {
+        const current = id();
+        return await new Promise<string>(r => (resolvers[current] = r));
+      });
+
+      return Loading({
+        fallback: "loading",
+        get on() {
+          return id();
+        },
+        get children() {
+          return data();
+        }
+      }) as any;
+    }, localDiv);
+
+    flush();
+    expect(localDiv.innerHTML).toBe("loading");
+
+    resolvers.a("data-a");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("data-a");
+
+    setId("b");
+    flush();
+    expect(localDiv.innerHTML).toBe("loading");
+
+    resolvers.b("data-b");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("data-b");
+    localDispose();
+  });
+
+  test("on prop keeps stale content when the keyed value is unchanged", async () => {
+    let setId!: (value: string) => void;
+    let setExtra!: (value: number) => void;
+    const localDiv = document.createElement("div");
+    let localDispose!: () => void;
+    const resolvers: Record<string, (value: string) => void> = {};
+
+    localDispose = render(() => {
+      const [id, _setId] = createSignal("a");
+      const [extra, _setExtra] = createSignal(0);
+      setId = _setId;
+      setExtra = _setExtra;
+      const data = createMemo(async () => {
+        const current = id();
+        const next = extra();
+        return await new Promise<string>(r => (resolvers[`${current}-${next}`] = r));
+      });
+
+      return Loading({
+        fallback: "loading",
+        get on() {
+          return id();
+        },
+        get children() {
+          return data();
+        }
+      }) as any;
+    }, localDiv);
+
+    flush();
+    resolvers["a-0"]("data-a-0");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("data-a-0");
+
+    setExtra(1);
+    flush();
+    expect(localDiv.innerHTML).toBe("data-a-0");
+
+    resolvers["a-1"]("data-a-1");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("data-a-1");
+
+    setId("b");
+    flush();
+    expect(localDiv.innerHTML).toBe("loading");
+
+    resolvers["b-1"]("data-b-1");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("data-b-1");
+    localDispose();
+  });
+
   // test("Toggle with refresh transition", async () => {
   //   const [pending, start] = useTransition();
   //   let finished = false;

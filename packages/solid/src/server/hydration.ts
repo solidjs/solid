@@ -42,7 +42,7 @@ export function ssrHandleError(err: any) {
  */
 export function Loading(props: {
   fallback?: JSX.Element;
-  on?: () => any;
+  on?: any;
   children: JSX.Element;
 }): JSX.Element {
   const ctx = sharedConfig.context;

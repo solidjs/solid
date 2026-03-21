@@ -917,10 +917,10 @@ function resumeBoundaryHydration(o: Owner, id: string, set: () => void) {
  */
 export function Loading(props: {
   fallback?: JSX.Element;
-  on?: () => any;
+  on?: any;
   children: JSX.Element;
 }): JSX.Element {
-  const onOpt = props.on ? { on: () => props.on!() } : undefined;
+  const onOpt = "on" in props ? { on: () => props.on } : undefined;
   if (!sharedConfig.hydrating)
     return createLoadingBoundary(
       () => props.children,
