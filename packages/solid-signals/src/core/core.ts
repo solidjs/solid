@@ -515,6 +515,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       ) {
         foundPending = true;
       }
+      let c = context;
+      if ((c as Root)?._root) c = (c as Root)._parentComputed;
+      if (c && tracking) link(el, c as Computed<any>);
+      read(getPendingSignal(el));
+      read(getPendingSignal(firewall));
     } else {
       if (read(getPendingSignal(el))) foundPending = true;
       if (firewall && read(getPendingSignal(firewall))) foundPending = true;
