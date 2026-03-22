@@ -91,7 +91,7 @@ export function snapshot<T>(item: any, map?: Map<unknown, unknown>, lookup?: Wea
  * and returns plain (non-proxy) data. Works correctly with `reconcile()`.
  * @param store store proxy object
  */
-export function deep<T extends object>(store: Store<T>): T {
+export function deep<T extends object>(store: T): T {
   return snapshotImpl(store, true) as T;
 }
 
