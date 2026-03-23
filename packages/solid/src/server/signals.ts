@@ -342,6 +342,7 @@ function processResult<T>(
         (v: IteratorResult<T>) => {
           (promise as any).s = 1;
           (promise as any).v = v.value;
+          if (!v.done) closeAsyncIterator(iter);
           if (comp.disposed) return v.value;
           comp.value = v.value;
           comp.error = undefined;
@@ -381,6 +382,9 @@ function processResult<T>(
                 return firstNext.then((r: IteratorResult<T>) => r);
               }
               return iter.next().then((r: IteratorResult<T>) => r);
+            },
+            return(value?: any) {
+              return iter.return?.(value);
             }
           })
         };
@@ -393,6 +397,13 @@ function processResult<T>(
 
   // Synchronous value
   comp.value = result;
+}
+
+function closeAsyncIterator(iter: any, value?: any) {
+  const returned = iter.return?.(value);
+  if (returned && typeof returned.then === "function") {
+    returned.then(undefined, () => {});
+  }
 }
 
 // === Effects ===
@@ -602,6 +613,7 @@ export function createProjection<T extends object>(
       const promise = iter.next().then(
         (r: IteratorResult<void | T>) => {
           (promise as any).s = 1;
+          if (!r.done) closeAsyncIterator(iter);
           if (disposed) {
             (promise as any).v = state;
             return state;
@@ -669,6 +681,9 @@ export function createProjection<T extends object>(
                 }
                 return { done: true as const, value: undefined };
               });
+            },
+            return(value?: any) {
+              return iter.return?.(value);
             }
           })
         };

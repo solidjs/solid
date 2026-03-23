@@ -1867,6 +1867,50 @@ describe("Async Iterable — createMemo", () => {
     expect(read()).toBe("first");
   });
 
+  test("hybrid mode: closes iterator after capturing first value", async () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    let read: any;
+    let returnCalls = 0;
+
+    createRoot(
+      () => {
+        read = createMemo(
+          () =>
+            ({
+              [Symbol.asyncIterator]() {
+                let step = 0;
+                return {
+                  next() {
+                    step++;
+                    return Promise.resolve(
+                      step === 1
+                        ? { done: false as const, value: "first" }
+                        : { done: false as const, value: "second" }
+                    );
+                  },
+                  return(value?: any) {
+                    returnCalls++;
+                    return Promise.resolve({ done: true as const, value });
+                  }
+                };
+              }
+            }) as any,
+          undefined,
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+
+    expect(() => read()).toThrow(NotReadyError);
+    await tick();
+
+    expect(read()).toBe("first");
+    expect(returnCalls).toBe(1);
+  });
+
   test("no ssrSource: defaults to full streaming (same as 'server')", () => {
     const { context, serializeLog } = createStreamTrackingContext();
     sharedConfig.context = context;
@@ -1883,6 +1927,50 @@ describe("Async Iterable — createMemo", () => {
     expect(serializeLog.length).toBe(1);
     const serialized = serializeLog[0].value;
     expect(typeof serialized[Symbol.asyncIterator]).toBe("function");
+  });
+
+  test("server mode: tapped async iterable forwards return", async () => {
+    const { context, serializeLog } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    let returnCalls = 0;
+
+    createRoot(
+      () => {
+        createMemo(
+          () =>
+            ({
+              [Symbol.asyncIterator]() {
+                let step = 0;
+                return {
+                  next() {
+                    step++;
+                    return Promise.resolve(
+                      step === 1
+                        ? { done: false as const, value: "first" }
+                        : new Promise<IteratorResult<string>>(() => {})
+                    );
+                  },
+                  return(value?: any) {
+                    returnCalls++;
+                    return Promise.resolve({ done: true as const, value });
+                  }
+                };
+              }
+            }) as any
+        );
+      },
+      { id: "t" }
+    );
+
+    const tapped = serializeLog[0].value;
+    const iter = tapped[Symbol.asyncIterator]();
+    const r1 = await iter.next();
+    expect(r1).toEqual({ done: false, value: "first" });
+
+    await iter.return?.();
+
+    expect(returnCalls).toBe(1);
   });
 
   test("async generator in Loading: first yield unblocks boundary", async () => {
@@ -2681,6 +2769,49 @@ describe("Async Iterable — createProjection", () => {
 
     // State should have first yield mutations
     expect(store.name).toBe("Alice");
+  });
+
+  test("hybrid mode: closes projection iterator after first yield", async () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    let store: any;
+    let returnCalls = 0;
+
+    createRoot(
+      () => {
+        store = createProjection(
+          () =>
+            ({
+              [Symbol.asyncIterator]() {
+                let step = 0;
+                return {
+                  next() {
+                    step++;
+                    return Promise.resolve(
+                      step === 1
+                        ? { done: false as const, value: { name: "Alice" } }
+                        : { done: false as const, value: { name: "Bob" } }
+                    );
+                  },
+                  return(value?: any) {
+                    returnCalls++;
+                    return Promise.resolve({ done: true as const, value });
+                  }
+                };
+              }
+            }) as any,
+          { name: "" },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+
+    await tick();
+
+    expect(store.name).toBe("Alice");
+    expect(returnCalls).toBe(1);
   });
 
   test("createStore(fn) with async generator delegates to createProjection", async () => {

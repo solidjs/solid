@@ -212,6 +212,13 @@ function syncThenable(value: any) {
   };
 }
 
+function forwardIteratorReturn(it: any, value?: any) {
+  const returned = it.return?.(value);
+  return returned && typeof returned.then === "function"
+    ? returned
+    : syncThenable(returned ?? { done: true, value });
+}
+
 function normalizeIterator(it: any) {
   let first = true;
   let buffered: any = null;
@@ -238,6 +245,10 @@ function normalizeIterator(it: any) {
         latest = peek;
       }
       return Promise.resolve(latest);
+    },
+    return(value?: any) {
+      buffered = null;
+      return forwardIteratorReturn(it, value);
     }
   };
 }
@@ -316,6 +327,9 @@ function wrapFirstYield(iterable: any, activate: () => void) {
             });
           }
           return p;
+        },
+        return(value?: any) {
+          return forwardIteratorReturn(srcIt, value);
         }
       };
     }
@@ -404,6 +418,10 @@ function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, opti
                 if (!r.done) result = process(r);
               }
               return Promise.resolve(result);
+            },
+            return(value?: any) {
+              buffered = null;
+              return forwardIteratorReturn(srcIt, value);
             }
           };
         }

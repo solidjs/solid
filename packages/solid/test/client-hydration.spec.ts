@@ -948,12 +948,18 @@ describe("ssrSource client modes — createStore(fn)", () => {
 function createBufferedAsyncIterable(values: any[]) {
   let idx = 0;
   let pending: { resolve: (v: any) => void } | null = null;
+  let returnCalls = 0;
   const iter = {
     next(): any {
       if (idx < values.length) {
         return { done: false, value: values[idx++] };
       }
       return new Promise(r => (pending = { resolve: r }));
+    },
+    return(value?: any) {
+      returnCalls++;
+      pending = null;
+      return Promise.resolve({ done: true, value });
     }
   };
   return {
@@ -973,6 +979,9 @@ function createBufferedAsyncIterable(values: any[]) {
         pending = null;
         p.resolve({ done: true, value: undefined });
       }
+    },
+    get returnCalls() {
+      return returnCalls;
     }
   };
 }
@@ -1061,6 +1070,28 @@ describe("Async Iterable Hydration — createMemo", () => {
     flush();
 
     expect(result()).toBe(100);
+  });
+
+  test("server+AI: disposal forwards iterator return for createMemo hydration", () => {
+    const ai = createBufferedAsyncIterable([42]);
+    startHydration({ t0: ai });
+
+    let dispose!: () => void;
+    let result: any;
+    createRoot(
+      disposer => {
+        dispose = disposer;
+        result = createMemo(() => 0);
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe(42);
+
+    dispose();
+
+    expect(ai.returnCalls).toBe(1);
   });
 
   test("Promise data still works (no regression)", () => {
@@ -1174,6 +1205,33 @@ describe("Async Iterable Hydration — createProjection", () => {
     stopHydration();
   });
 
+  test("server+AI: disposal forwards iterator return for createProjection hydration", () => {
+    const ai = createBufferedAsyncIterable([{ name: "Alice", count: 42 }]);
+    startHydration({ t0: ai });
+
+    let dispose!: () => void;
+    let store: any;
+    createRoot(
+      disposer => {
+        dispose = disposer;
+        store = createProjection(
+          (draft: any) => {
+            draft.name = "client";
+          },
+          { name: "", count: 0 }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.name).toBe("Alice");
+
+    dispose();
+
+    expect(ai.returnCalls).toBe(1);
+  });
+
   test("Promise data still works for projection (no regression)", () => {
     startHydration({ t0: { v: { name: "server", count: 42 }, s: 1 } });
 
@@ -1244,6 +1302,33 @@ describe("Async Iterable Hydration — createStore(fn)", () => {
     flush();
 
     expect(store.name).toBe("server");
+  });
+
+  test("server+AI: disposal forwards iterator return for createStore hydration", () => {
+    const ai = createBufferedAsyncIterable([{ name: "Alice", count: 0 }]);
+    startHydration({ t0: ai });
+
+    let dispose!: () => void;
+    let store: any;
+    createRoot(
+      disposer => {
+        dispose = disposer;
+        [store] = createStore(
+          (draft: any) => {
+            draft.name = "client";
+          },
+          { name: "", count: 0 }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.name).toBe("Alice");
+
+    dispose();
+
+    expect(ai.returnCalls).toBe(1);
   });
 });
 
@@ -1474,6 +1559,53 @@ describe("ssrSource 'hybrid' — async generator transition", () => {
     expect(store.items[0]).toBe(1);
     expect(store.items[1]).toBe(2);
     expect(store.items[2]).toBe(3);
+  });
+
+  test("createStore(fn): hybrid async iterable disposal forwards iterator return", () => {
+    startHydration({ t0: { v: { count: 1 }, s: 1 } });
+
+    let returnCalls = 0;
+    let dispose!: () => void;
+    let store: any;
+    createRoot(
+      disposer => {
+        dispose = disposer;
+        [store] = createStore(
+          (draft: any) => {
+            draft.count = 1;
+            return {
+              [Symbol.asyncIterator]() {
+                let step = 0;
+                return {
+                  next() {
+                    step++;
+                    if (step === 1) return Promise.resolve({ done: false, value: undefined });
+                    return new Promise(() => {});
+                  },
+                  return(value?: any) {
+                    returnCalls++;
+                    return Promise.resolve({ done: true, value });
+                  }
+                };
+              }
+            };
+          },
+          { count: 0 },
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.count).toBe(1);
+
+    stopHydration();
+    flush();
+
+    dispose();
+
+    expect(returnCalls).toBe(1);
   });
 });
 
