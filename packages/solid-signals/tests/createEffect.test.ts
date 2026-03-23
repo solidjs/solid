@@ -151,6 +151,19 @@ it("should stop effect", () => {
   expect(effect).toHaveBeenCalledTimes(0);
 });
 
+it("should throw on invalid cleanup values", () => {
+  createRoot(() => {
+    createEffect(
+      () => 1,
+      () => 123 as any
+    );
+  });
+
+  expect(() => flush()).toThrow(
+    "effect callback returned an invalid cleanup value. Return a cleanup function or undefined."
+  );
+});
+
 it("should run all disposals before each new run", () => {
   const effect = vi.fn();
   const disposeA = vi.fn();

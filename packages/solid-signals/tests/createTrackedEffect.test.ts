@@ -252,6 +252,16 @@ it("should throw uncaught tracked effect errors during flush", () => {
   expect(() => flush()).toThrow("tracked boom");
 });
 
+it("should throw on invalid cleanup values", () => {
+  createRoot(() => {
+    createTrackedEffect(() => ({}) as any);
+  });
+
+  expect(() => flush()).toThrow(
+    "trackedEffect callback returned an invalid cleanup value. Return a cleanup function or undefined."
+  );
+});
+
 it("should work with dynamic conditional tracking", () => {
   const [$type, setType] = createSignal<"a" | "b">("a");
   const [$valueA, setValueA] = createSignal("Alice");

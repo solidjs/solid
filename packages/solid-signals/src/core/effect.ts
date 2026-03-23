@@ -101,7 +101,13 @@ function runEffect(this: Effect<any>) {
   this._cleanup?.();
   this._cleanup = undefined;
   try {
-    this._cleanup = this._effectFn(this._value, this._prevValue) as any;
+    const cleanup = this._effectFn(this._value, this._prevValue);
+    if (__DEV__ && cleanup !== undefined && typeof cleanup !== "function") {
+      throw new Error(
+        `${this._name || "effect"} callback returned an invalid cleanup value. Return a cleanup function or undefined.`
+      );
+    }
+    this._cleanup = cleanup as (() => void) | undefined;
   } catch (error) {
     this._error = new StatusError(this, error);
     this._statusFlags |= STATUS_ERROR;
@@ -141,7 +147,13 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     () => {
       node._cleanup?.();
       node._cleanup = undefined;
-      node._cleanup = staleValues(fn) || undefined;
+      const cleanup = staleValues(fn);
+      if (__DEV__ && cleanup !== undefined && typeof cleanup !== "function") {
+        throw new Error(
+          `${node._name || "trackedEffect"} callback returned an invalid cleanup value. Return a cleanup function or undefined.`
+        );
+      }
+      node._cleanup = cleanup as (() => void) | undefined;
     },
     undefined,
     { ...options, lazy: true }

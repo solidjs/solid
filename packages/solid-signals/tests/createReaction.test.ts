@@ -26,4 +26,19 @@ describe("createReaction", () => {
     flush();
     expect(count).toBe(2);
   });
+
+  test("throws on invalid cleanup values", () => {
+    const [sign, setSign] = createSignal("thoughts");
+    const track = createRoot(() =>
+      createReaction(() => {
+        return 123 as any;
+      })
+    );
+
+    track(sign);
+    setSign("mind");
+    expect(() => flush()).toThrow(
+      "Reaction callback returned an invalid cleanup value. Return a cleanup function or undefined."
+    );
+  });
 });

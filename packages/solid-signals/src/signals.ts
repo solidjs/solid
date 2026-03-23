@@ -307,7 +307,13 @@ export function createReaction(
         () => (tracking(), getOwner()!),
         node => {
           cl?.();
-          cl = ((effectFn as any).effect || effectFn)?.();
+          const cleanup = ((effectFn as any).effect || effectFn)?.();
+          if (__DEV__ && cleanup !== undefined && typeof cleanup !== "function") {
+            throw new Error(
+              "Reaction callback returned an invalid cleanup value. Return a cleanup function or undefined."
+            );
+          }
+          cl = cleanup as (() => void) | undefined;
           dispose(node as any);
         },
         (effectFn as any).error,
@@ -405,9 +411,17 @@ export function createOptimistic<T>(
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
   owner && !owner._childrenForbidden
-    ? createTrackedEffect(() => untrack(callback))
+    ? createTrackedEffect(
+        () => untrack(callback),
+        __DEV__ ? { name: "onSettled" } : undefined
+      )
     : globalQueue.enqueue(EFFECT_USER, () => {
         const cleanup = callback();
+        if (__DEV__ && cleanup !== undefined && typeof cleanup !== "function") {
+          throw new Error(
+            "onSettled callback returned an invalid cleanup value. Return a cleanup function or undefined."
+          );
+        }
         cleanup?.();
       });
 }

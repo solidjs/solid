@@ -139,6 +139,16 @@ it("should call cleanup immediately when no owner", () => {
   expect(cleanup).toHaveBeenCalledTimes(1);
 });
 
+it("should throw on invalid cleanup values", () => {
+  createRoot(() => {
+    onSettled(async () => {});
+  });
+
+  expect(() => flush()).toThrow(
+    "onSettled callback returned an invalid cleanup value. Return a cleanup function or undefined."
+  );
+});
+
 it("should wait for async to settle before running", async () => {
   const log: string[] = [];
   let resolve: (v: string) => void;
