@@ -42,6 +42,10 @@ function controlledThenable<T>() {
   } satisfies PromiseLike<T> & { resolve(value: T): void; reject(reason: any): void };
 }
 
+function doneResult<T>(): IteratorResult<T> {
+  return { done: true, value: undefined } as IteratorResult<T>;
+}
+
 describe("sync thenable support", () => {
   it("should resolve sync thenable immediately without NotReadyError", () => {
     const value = createMemo(() => syncThenable(42));
@@ -190,12 +194,15 @@ describe("sync async iterator support", () => {
       },
       return() {
         returnCalls++;
-        return syncThenable({ value: undefined as number, done: true });
+        return syncThenable(doneResult<number>());
       },
       [Symbol.asyncIterator]() {
         return this as any;
       }
-    } as AsyncIterable<number> & { nextCalls: number; return(): PromiseLike<IteratorResult<number>> };
+    } as AsyncIterable<number> & {
+      nextCalls: number;
+      return(): PromiseLike<IteratorResult<number>>;
+    };
 
     const secondIterator = {
       nextCalls: 0,
@@ -203,7 +210,7 @@ describe("sync async iterator support", () => {
         this.nextCalls++;
         return this.nextCalls === 1
           ? syncThenable({ value: 2, done: false })
-          : syncThenable({ value: undefined as number, done: true });
+          : syncThenable(doneResult<number>());
       },
       [Symbol.asyncIterator]() {
         return this as any;
@@ -237,12 +244,15 @@ describe("sync async iterator support", () => {
       },
       return() {
         returnCalls++;
-        return syncThenable({ value: undefined as number, done: true });
+        return syncThenable(doneResult<number>());
       },
       [Symbol.asyncIterator]() {
         return this as any;
       }
-    } as AsyncIterable<number> & { nextCalls: number; return(): PromiseLike<IteratorResult<number>> };
+    } as AsyncIterable<number> & {
+      nextCalls: number;
+      return(): PromiseLike<IteratorResult<number>>;
+    };
 
     let dispose!: () => void;
     let value!: () => number;
@@ -276,7 +286,7 @@ describe("sync async iterator support", () => {
       return() {
         returnCalls++;
         pending.resolve({ value: 999, done: false });
-        return syncThenable({ value: undefined as number, done: true });
+        return syncThenable(doneResult<number>());
       },
       [Symbol.asyncIterator]() {
         return this as any;
@@ -289,7 +299,7 @@ describe("sync async iterator support", () => {
         this.nextCalls++;
         return this.nextCalls === 1
           ? syncThenable({ value: 2, done: false })
-          : syncThenable({ value: undefined as number, done: true });
+          : syncThenable(doneResult<number>());
       },
       [Symbol.asyncIterator]() {
         return this as any;

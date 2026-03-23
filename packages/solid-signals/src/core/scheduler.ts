@@ -17,17 +17,12 @@ import {
   assignOrMergeLane,
   findLane,
   hasActiveOverride,
-  signalLanes,
+  signalLanes
 } from "./lanes.js";
 import type { Computed, Signal } from "./types.js";
 
 export { activeLanes, assignOrMergeLane, findLane };
-export {
-  getOrCreateLane,
-  hasActiveOverride,
-  mergeLanes,
-  resolveLane
-} from "./lanes.js";
+export { getOrCreateLane, hasActiveOverride, mergeLanes, resolveLane } from "./lanes.js";
 
 const transitions = new Set<Transition>();
 export const dirtyQueue: Heap = {

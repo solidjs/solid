@@ -411,10 +411,7 @@ export function createOptimistic<T>(
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
   owner && !owner._childrenForbidden
-    ? createTrackedEffect(
-        () => untrack(callback),
-        __DEV__ ? { name: "onSettled" } : undefined
-      )
+    ? createTrackedEffect(() => untrack(callback), __DEV__ ? { name: "onSettled" } : undefined)
     : globalQueue.enqueue(EFFECT_USER, () => {
         const cleanup = callback();
         if (__DEV__ && cleanup !== undefined && typeof cleanup !== "function") {

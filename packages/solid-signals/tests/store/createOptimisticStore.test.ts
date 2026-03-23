@@ -1,8 +1,8 @@
 import {
   action,
   createMemo,
-  createProjection,
   createOptimisticStore,
+  createProjection,
   createRenderEffect,
   createRoot,
   createSignal,
@@ -1511,12 +1511,9 @@ describe("createOptimisticStore", () => {
       const seen: Array<readonly [number, boolean]> = [];
 
       createRoot(() => {
-        [state, setState] = createOptimisticStore<number[]>(
-          async function* () {
-            yield [];
-          },
-          []
-        );
+        [state, setState] = createOptimisticStore<number[]>(async function* () {
+          yield [];
+        }, []);
 
         createRenderEffect(
           () => [state.length, isPending(() => state.length)] as const,
@@ -1561,12 +1558,9 @@ describe("createOptimisticStore", () => {
       const pendingStates: boolean[] = [];
 
       createRoot(() => {
-        [state, setState] = createOptimisticStore<number[]>(
-          async function* () {
-            yield [];
-          },
-          []
-        );
+        [state, setState] = createOptimisticStore<number[]>(async function* () {
+          yield [];
+        }, []);
 
         createRenderEffect(
           () => state.length,
