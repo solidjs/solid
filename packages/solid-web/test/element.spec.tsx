@@ -11,7 +11,9 @@ import {
   children,
   Show,
   flush,
-  createMemo
+  createMemo,
+  getOwner,
+  onCleanup
 } from "solid-js";
 
 describe("Basic element attributes", () => {
@@ -73,6 +75,64 @@ describe("Basic element attributes", () => {
       <div ref={[getRef, (r: HTMLDivElement) => (el = r)]} />;
     });
     expect(el).toBeInstanceOf(HTMLDivElement);
+  });
+
+  test("signal setter ref does not warn", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [el, setEl] = createSignal<HTMLDivElement>();
+    createRoot(() => {
+      <div ref={setEl} />;
+    });
+    flush();
+    expect(el()).toBeInstanceOf(HTMLDivElement);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  test("callback ref is ownerless", () => {
+    let owner;
+    createRoot(() => {
+      <div ref={() => (owner = getOwner())} />;
+    });
+    expect(owner).toBe(null);
+  });
+
+  test("onCleanup warns in callback ref", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    createRoot(() => {
+      <div
+        ref={() => {
+          onCleanup(() => {});
+        }}
+      />;
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test("onCleanup warns for callback ref inside Show", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [toggle, setToggle] = createSignal(0);
+
+    createRoot(() => {
+      return (
+        <Show when={toggle()}>
+          <div
+            ref={() => {
+              onCleanup(() => {});
+            }}
+          >
+            TEXT
+          </div>
+        </Show>
+      );
+    });
+
+    expect(warn).not.toHaveBeenCalled();
+    setToggle(v => v ^ 1);
+    flush();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   test("uniqueId", () => {
