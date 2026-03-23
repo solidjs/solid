@@ -140,6 +140,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
     deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+    el._inFlight = null;
     // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
     if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
     else {

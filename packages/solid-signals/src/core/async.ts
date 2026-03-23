@@ -13,6 +13,7 @@ import { context, setSignal, untrack, updatePendingSignal } from "./core.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { insertIntoHeap } from "./heap.js";
 import { hasActiveOverride, resolveLane, resolveTransition, type OptimisticLane } from "./lanes.js";
+import { cleanup } from "./owner.js";
 import {
   assignOrMergeLane,
   clock,
@@ -218,6 +219,18 @@ export function handleAsync<T>(
   if (iterator) {
     const it = (result as AsyncIterable<T>)[Symbol.asyncIterator]();
     let hadSyncValue = false;
+    let completed = false;
+
+    cleanup(() => {
+      if (completed) return;
+      completed = true;
+      try {
+        const returned = it.return?.();
+        if (returned && typeof (returned as PromiseLike<IteratorResult<T>>).then === "function") {
+          (returned as PromiseLike<IteratorResult<T>>).then(undefined, () => {});
+        }
+      } catch {}
+    });
 
     const iterate = (): boolean => {
       let syncResult: IteratorResult<T>,
@@ -228,14 +241,21 @@ export function handleAsync<T>(
           if (isSync) {
             syncResult = r;
             resolved = true;
+            if (r.done) completed = true;
+          } else if (el._inFlight !== result) {
+            return;
           } else if (!r.done) asyncWrite(r.value, iterate);
           else {
+            completed = true;
             schedule();
             flush();
           }
         },
         e => {
-          if (!isSync) handleError(e);
+          if (!isSync && el._inFlight === result) {
+            completed = true;
+            handleError(e);
+          }
         }
       );
       isSync = false;

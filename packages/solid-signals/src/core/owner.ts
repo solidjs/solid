@@ -38,6 +38,7 @@ export function dispose(node: Computed<unknown>): void {
 export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
   if ((node as any)._flags & REACTIVE_DISPOSED) return;
   if (self) (node as any)._flags = REACTIVE_DISPOSED;
+  if (self && (node as any)._fn) (node as Computed<unknown>)._inFlight = null;
   let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
   while (child) {
     const nextChild = child._nextSibling;

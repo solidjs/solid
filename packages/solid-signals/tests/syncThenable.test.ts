@@ -4,7 +4,8 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flush
+  flush,
+  onCleanup
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -18,6 +19,27 @@ function syncThenable<T>(value: T): PromiseLike<T> {
       return syncThenable(onfulfilled ? onfulfilled(value) : (value as any));
     }
   };
+}
+
+function controlledThenable<T>() {
+  let onfulfilled: ((value: T) => void) | undefined;
+  let onrejected: ((reason: any) => void) | undefined;
+  return {
+    then<R1 = T, R2 = never>(
+      fulfilled?: ((value: T) => R1 | PromiseLike<R1>) | null,
+      rejected?: ((reason: any) => R2 | PromiseLike<R2>) | null
+    ): PromiseLike<R1 | R2> {
+      onfulfilled = fulfilled ? (value: T) => void fulfilled(value) : undefined;
+      onrejected = rejected ? (reason: any) => void rejected(reason) : undefined;
+      return syncThenable(undefined as R1 | R2);
+    },
+    resolve(value: T) {
+      onfulfilled?.(value);
+    },
+    reject(reason: any) {
+      onrejected?.(reason);
+    }
+  } satisfies PromiseLike<T> & { resolve(value: T): void; reject(reason: any): void };
 }
 
 describe("sync thenable support", () => {
@@ -60,6 +82,32 @@ describe("sync thenable support", () => {
   it("should handle sync thenable returning undefined", () => {
     const value = createMemo(() => syncThenable(undefined));
     expect(value()).toBe(undefined);
+  });
+
+  it("should ignore stale thenable resolution during invalidation cleanup", () => {
+    const pending = controlledThenable<number>();
+    const [$source, setSource] = createSignal(0);
+    const seen: number[] = [];
+    let value!: () => number;
+
+    createRoot(() => {
+      value = createMemo(() => {
+        if ($source() === 0) {
+          onCleanup(() => pending.resolve(999));
+          return pending;
+        }
+        return 2;
+      });
+      createRenderEffect(value, v => {
+        seen.push(v);
+      });
+    });
+
+    setSource(1);
+    flush();
+
+    expect(value()).toBe(2);
+    expect(seen).toEqual([2]);
   });
 });
 
@@ -127,6 +175,142 @@ describe("sync async iterator support", () => {
     await Promise.resolve();
     flush();
     expect(value!()).toBe(3); // Async value arrived
+  });
+
+  it("should call async iterator return when invalidated", () => {
+    let returnCalls = 0;
+    const [$source, setSource] = createSignal(0);
+
+    const firstIterator = {
+      nextCalls: 0,
+      next() {
+        this.nextCalls++;
+        if (this.nextCalls === 1) return syncThenable({ value: 1, done: false });
+        return new Promise<IteratorResult<number>>(() => {});
+      },
+      return() {
+        returnCalls++;
+        return syncThenable({ value: undefined as number, done: true });
+      },
+      [Symbol.asyncIterator]() {
+        return this as any;
+      }
+    } as AsyncIterable<number> & { nextCalls: number; return(): PromiseLike<IteratorResult<number>> };
+
+    const secondIterator = {
+      nextCalls: 0,
+      next() {
+        this.nextCalls++;
+        return this.nextCalls === 1
+          ? syncThenable({ value: 2, done: false })
+          : syncThenable({ value: undefined as number, done: true });
+      },
+      [Symbol.asyncIterator]() {
+        return this as any;
+      }
+    } as AsyncIterable<number> & { nextCalls: number };
+
+    let value!: () => number;
+    createRoot(() => {
+      value = createMemo(() => ($source() === 0 ? firstIterator : secondIterator));
+      createRenderEffect(value, () => {});
+    });
+
+    expect(value()).toBe(1);
+    expect(firstIterator.nextCalls).toBe(2);
+
+    setSource(1);
+    flush();
+
+    expect(returnCalls).toBe(1);
+    expect(value()).toBe(2);
+  });
+
+  it("should call async iterator return when disposed", () => {
+    let returnCalls = 0;
+    const iterator = {
+      nextCalls: 0,
+      next() {
+        this.nextCalls++;
+        if (this.nextCalls === 1) return syncThenable({ value: 1, done: false });
+        return new Promise<IteratorResult<number>>(() => {});
+      },
+      return() {
+        returnCalls++;
+        return syncThenable({ value: undefined as number, done: true });
+      },
+      [Symbol.asyncIterator]() {
+        return this as any;
+      }
+    } as AsyncIterable<number> & { nextCalls: number; return(): PromiseLike<IteratorResult<number>> };
+
+    let dispose!: () => void;
+    let value!: () => number;
+    createRoot(disposer => {
+      dispose = disposer;
+      value = createMemo(() => iterator);
+      createRenderEffect(value, () => {});
+    });
+
+    expect(value()).toBe(1);
+    expect(iterator.nextCalls).toBe(2);
+
+    dispose();
+
+    expect(returnCalls).toBe(1);
+  });
+
+  it("should stop stale iteration immediately during invalidation cleanup", () => {
+    const pending = controlledThenable<IteratorResult<number>>();
+    const [$source, setSource] = createSignal(0);
+    let returnCalls = 0;
+    let oldNextCalls = 0;
+
+    const firstIterator = {
+      next() {
+        oldNextCalls++;
+        if (oldNextCalls === 1) return syncThenable({ value: 1, done: false });
+        if (oldNextCalls === 2) return pending;
+        return syncThenable({ value: 999, done: false });
+      },
+      return() {
+        returnCalls++;
+        pending.resolve({ value: 999, done: false });
+        return syncThenable({ value: undefined as number, done: true });
+      },
+      [Symbol.asyncIterator]() {
+        return this as any;
+      }
+    } as AsyncIterable<number> & { return(): PromiseLike<IteratorResult<number>> };
+
+    const secondIterator = {
+      nextCalls: 0,
+      next() {
+        this.nextCalls++;
+        return this.nextCalls === 1
+          ? syncThenable({ value: 2, done: false })
+          : syncThenable({ value: undefined as number, done: true });
+      },
+      [Symbol.asyncIterator]() {
+        return this as any;
+      }
+    } as AsyncIterable<number> & { nextCalls: number };
+
+    let value!: () => number;
+    createRoot(() => {
+      value = createMemo(() => ($source() === 0 ? firstIterator : secondIterator));
+      createRenderEffect(value, () => {});
+    });
+
+    expect(value()).toBe(1);
+    expect(oldNextCalls).toBe(2);
+
+    setSource(1);
+    flush();
+
+    expect(returnCalls).toBe(1);
+    expect(oldNextCalls).toBe(2);
+    expect(value()).toBe(2);
   });
 });
 
