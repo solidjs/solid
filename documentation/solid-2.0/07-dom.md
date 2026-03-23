@@ -118,8 +118,6 @@ Used as:
 | `oncapture:` | Removed (replacement pattern TBD / use native event options where applicable) |
 | `attr:` / `bool:` namespaces | Single attribute/property model above |
 | `use:` directives | Use `ref` callbacks / directive factories (`ref={directive(opts)}`); arrays compose (`ref={[a, b]}`) |
-| `createMutable` (from Solid primitives) | Moved to / available from `@solidjs/signals` or primitives layer |
-| `scheduler` / `createDeferred` | Moved to primitives; use primitives API |
 
 `@solidjs/legacy` can provide compatibility for deprecated DOM APIs where feasible.
 
