@@ -18,8 +18,9 @@ DOM behavior in Solid 2.0 follows HTML standards by default: attributes over pro
 - **Attributes over properties:** Prefer setting attributes rather than properties in almost all cases. Aligns with web components and SSR.
 - **Lowercasing:** Use HTML lowercase for built-in attribute names (no camelCase for attributes). Exceptions:
   - **Event handlers** remain camelCase (e.g. `onClick`) to keep the `on` modifier clear.
-  - **Default attributes** such as `value`, `selected`, `checked`, `muted` continue to be handled as props where that avoids confusion.
+  - **Default to properties** such as `input.value`, `input.checked`, `select.value`, `option.value`, `option.selected`, `video/audio.muted` continue to be handled as props where that avoids confusion. However, attribute/property can still be used as `<input value="default value" prop:value={dynamic()}/>`
 - **Namespaces:** `attr:` and `bool:` namespaces are removed; the single standard behavior makes the model consistent.
+- **XML Namespaces:** `svg` and `math` work as expected, however when using XML partials, an `xmlns` attribute is required for the browser to create the elements with the correct namespace.
 
 ### Enhanced class prop
 
@@ -129,4 +130,4 @@ Used as:
 
 ## Open questions
 
-- Exact list of "default" props that stay as props (`value`, `selected`, `checked`, `muted`, …).
+- Exact list of "default" props that stay as props (`input.value`, `input.checked`, `select.value`, `option.value`, `option.selected`, `video/audio.muted`, …). Generally, stateful DOM properties should be considered on this list.
