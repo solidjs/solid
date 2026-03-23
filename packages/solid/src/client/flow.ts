@@ -4,6 +4,15 @@ import { createErrorBoundary } from "./hydration.js";
 import type { Accessor } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
 
+type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
+  ? never
+  : T;
+type ConditionalRenderCallback<T> = (item: Accessor<NonNullable<T>>) => JSX.Element;
+type ConditionalRenderChildren<
+  T,
+  F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>
+> = JSX.Element | NonZeroParams<F>;
+
 const narrowedError = (name: string) =>
   IS_DEV
     ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
@@ -71,11 +80,11 @@ export function Repeat<T extends JSX.Element>(props: {
  * Conditionally render its children or an optional fallback component
  * @description https://docs.solidjs.com/reference/components/show
  */
-export function Show<T>(props: {
+export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: JSX.Element;
-  children: JSX.Element | ((item: Accessor<NonNullable<T>>) => JSX.Element);
+  children: ConditionalRenderChildren<T, F>;
 }): JSX.Element {
   const keyed = props.keyed;
   const conditionValue = createMemo<T | undefined | null | boolean>(
@@ -188,10 +197,10 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
   ) as unknown as JSX.Element;
 }
 
-export type MatchProps<T> = {
+export type MatchProps<T, F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>> = {
   when: T | undefined | null | false;
   keyed?: boolean;
-  children: JSX.Element | ((item: Accessor<NonNullable<T>>) => JSX.Element);
+  children: ConditionalRenderChildren<T, F>;
 };
 /**
  * Selects a content based on condition when inside a `<Switch>` control flow
@@ -202,7 +211,7 @@ export type MatchProps<T> = {
  * ```
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
-export function Match<T>(props: MatchProps<T>) {
+export function Match<T, F extends ConditionalRenderCallback<T>>(props: MatchProps<T, F>) {
   return props as unknown as JSX.Element;
 }
 

@@ -10,6 +10,15 @@ import {
 import type { Accessor } from "./signals.js";
 import type { JSX } from "../jsx.js";
 
+type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
+  ? never
+  : T;
+type ConditionalRenderCallback<T> = (item: Accessor<NonNullable<T>>) => JSX.Element;
+type ConditionalRenderChildren<
+  T,
+  F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>
+> = JSX.Element | NonZeroParams<F>;
+
 /**
  * Creates a list of elements from a list
  *
@@ -53,11 +62,11 @@ export function Repeat<T extends JSX.Element>(props: {
  * Conditionally render its children or an optional fallback component
  * @description https://docs.solidjs.com/reference/components/show
  */
-export function Show<T>(props: {
+export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
   fallback?: JSX.Element;
-  children: JSX.Element | ((item: Accessor<NonNullable<T>>) => JSX.Element);
+  children: ConditionalRenderChildren<T, F>;
 }): JSX.Element {
   const o = getOwner();
   if (o?.id != null) {
@@ -103,17 +112,17 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
   }) as unknown as JSX.Element;
 }
 
-export type MatchProps<T> = {
+export type MatchProps<T, F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>> = {
   when: T | undefined | null | false;
   keyed?: boolean;
-  children: JSX.Element | ((item: Accessor<NonNullable<T>>) => JSX.Element);
+  children: ConditionalRenderChildren<T, F>;
 };
 
 /**
  * Selects a content based on condition when inside a `<Switch>` control flow
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
-export function Match<T>(props: MatchProps<T>) {
+export function Match<T, F extends ConditionalRenderCallback<T>>(props: MatchProps<T, F>) {
   return props as unknown as JSX.Element;
 }
 
