@@ -141,6 +141,7 @@ it("should call cleanup immediately when no owner", () => {
 
 it("should throw on invalid cleanup values", () => {
   createRoot(() => {
+    // @ts-ignore intentionally invalid to exercise the dev runtime error path
     onSettled(async () => {});
   });
 
