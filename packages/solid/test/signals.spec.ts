@@ -6,6 +6,7 @@ import {
   createEffect,
   createRenderEffect,
   createMemo,
+  createErrorBoundary,
   untrack,
   onCleanup,
   createContext,
@@ -468,5 +469,55 @@ describe("runWithOwner", () => {
     expect(cleanupRun).toBe(false);
     dispose();
     expect(cleanupRun).toBe(true);
+  });
+
+  test("Nested onSettled executes inside a root", () => {
+    const order: string[] = [];
+
+    createRoot(() => {
+      onSettled(() => {
+        order.push("outer");
+        onSettled(() => {
+          order.push("inner");
+        });
+      });
+    });
+
+    flush();
+    expect(order).toEqual(["outer", "inner"]);
+  });
+
+  test("flush throws inside onSettled in a root", () => {
+    createRoot(() => {
+      onSettled(() => {
+        flush();
+      });
+    });
+
+    expect(() => flush()).toThrow(
+      "Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there."
+    );
+  });
+
+  test("ErrorBoundary catches flush error from onSettled", () => {
+    let read!: () => any;
+
+    createRoot(() => {
+      read = createErrorBoundary(
+        () => {
+          onSettled(() => {
+            flush();
+          });
+          return "content";
+        },
+        (err: any) => `fallback: ${err.message}`
+      );
+    });
+
+    expect(read()).toBe("content");
+    expect(() => flush()).not.toThrow();
+    expect(read()).toBe(
+      "fallback: Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there."
+    );
   });
 });
