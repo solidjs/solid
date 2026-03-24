@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoot, createMemo, untrack, enableExternalSource } from "../src/index.js";
+import {
+  createRoot,
+  createMemo,
+  createSignal,
+  untrack,
+  enableExternalSource,
+  startTransition
+} from "../src/index.js";
+import { getSuspenseContext } from "../src/reactive/signal.js";
 
 import "./MessageChannel";
 
@@ -56,7 +64,9 @@ describe("external source", () => {
           }
         },
         dispose: () => {
-          sources.get(trigger)!.forEach(x => x.removeListener(trigger));
+          const trackedSources = sources.get(trigger);
+          if (!trackedSources) return;
+          trackedSources.forEach(x => x.removeListener(trigger));
           sources.delete(trigger);
         }
       };
@@ -84,6 +94,37 @@ describe("external source", () => {
       expect(memo()).toBe(1);
       expect(memo2()).toBe(0);
       fn();
+    });
+  });
+
+  it("should not throw when rerunning external source in a new transition after disposal", async () => {
+    // Initialize SuspenseContext so startTransition creates a real Transition
+    getSuspenseContext();
+
+    await createRoot(async dispose => {
+      const e = new ExternalSource(0);
+      const [signal, setSignal] = createSignal(0);
+      const memo = createMemo(() => {
+        return e.get() + signal();
+      });
+      expect(memo()).toBe(0);
+
+      // First transition: triggers inTransition creation and subsequent disposal
+      await startTransition(() => {
+        setSignal(1);
+      });
+
+      // Allow the transition-scoped external source to dispose itself.
+      await Promise.resolve();
+
+      // Second transition: should lazily recreate inTransition, not throw on disposed one
+      await expect(
+        startTransition(() => {
+          setSignal(2);
+        })
+      ).resolves.not.toThrow();
+
+      dispose();
     });
   });
 

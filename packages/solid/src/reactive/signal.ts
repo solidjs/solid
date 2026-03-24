@@ -1470,15 +1470,26 @@ function createComputation<Next, Init = unknown>(
   if (IS_DEV && options && options.name) c.name = options.name;
 
   if (ExternalSourceConfig && c.fn) {
+    const sourceFn = c.fn;
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
-    const ordinary = ExternalSourceConfig.factory(c.fn, trigger);
+    const ordinary = ExternalSourceConfig.factory(sourceFn, trigger);
     onCleanup(() => ordinary.dispose());
+    let inTransition: ExternalSource | undefined;
     const triggerInTransition: () => void = () =>
-      startTransition(trigger).then(() => inTransition.dispose());
-    const inTransition = ExternalSourceConfig.factory(c.fn, triggerInTransition);
+      startTransition(trigger).then(() => {
+        if (inTransition) {
+          inTransition.dispose();
+          inTransition = undefined;
+        }
+      });
     c.fn = x => {
       track();
-      return Transition && Transition.running ? inTransition.track(x) : ordinary.track(x);
+      if (Transition && Transition.running) {
+        if (!inTransition)
+          inTransition = ExternalSourceConfig!.factory(sourceFn, triggerInTransition);
+        return inTransition.track(x);
+      }
+      return ordinary.track(x);
     };
   }
 
