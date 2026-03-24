@@ -57,7 +57,9 @@ describe("external source", () => {
           }
         },
         dispose: () => {
-          sources.get(trigger)!.forEach(x => x.removeListener(trigger));
+          const trackedSources = sources.get(trigger);
+          if (!trackedSources) return;
+          trackedSources.forEach(x => x.removeListener(trigger));
           sources.delete(trigger);
         }
       };
@@ -106,8 +108,8 @@ describe("external source", () => {
         setSignal(1);
       });
 
-      // Wait for transition to complete and inTransition to be disposed
-      await new Promise(r => setTimeout(r, 50));
+      // Allow the transition-scoped external source to dispose itself.
+      await Promise.resolve();
 
       // Second transition: should lazily recreate inTransition, not throw on disposed one
       await expect(

@@ -1468,8 +1468,9 @@ function createComputation<Next, Init = unknown>(
   if (IS_DEV && options && options.name) c.name = options.name;
 
   if (ExternalSourceConfig && c.fn) {
+    const sourceFn = c.fn;
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
-    const ordinary = ExternalSourceConfig.factory(c.fn, trigger);
+    const ordinary = ExternalSourceConfig.factory(sourceFn, trigger);
     onCleanup(() => ordinary.dispose());
     let inTransition: ExternalSource | undefined;
     const triggerInTransition: () => void = () =>
@@ -1482,7 +1483,7 @@ function createComputation<Next, Init = unknown>(
     c.fn = x => {
       track();
       if (Transition && Transition.running) {
-        if (!inTransition) inTransition = ExternalSourceConfig!.factory(c.fn!, triggerInTransition);
+        if (!inTransition) inTransition = ExternalSourceConfig!.factory(sourceFn, triggerInTransition);
         return inTransition.track(x);
       }
       return ordinary.track(x);
