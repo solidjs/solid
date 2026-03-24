@@ -18,7 +18,7 @@ DOM behavior in Solid 2.0 follows HTML standards by default: attributes over pro
 - **Attributes over properties:** Prefer setting attributes rather than properties in almost all cases. Aligns with web components and SSR.
 - **Lowercasing:** Use HTML lowercase for built-in attribute names (no camelCase for attributes). Exceptions:
   - **Event handlers** remain camelCase (e.g. `onClick`) to keep the `on` modifier clear.
-  - **Default to properties** such as `input.value`, `input.checked`, `select.value`, `option.value`, `option.selected`, `video/audio.muted` continue to be handled as props where that avoids confusion. However, attribute/property can still be used as `<input value="default value" prop:value={dynamic()}/>`
+  - **Default to attributes** But attributes such as `input.value`, `input.checked`, `select.value`, `option.value`, `option.selected`, `video/audio.muted` continue to be handled as props where that avoids confusion. However, attribute/property can still be used as `<input value="default value" prop:value={dynamic()}/>`
 - **Namespaces:** `attr:` and `bool:` namespaces are removed; the single standard behavior makes the model consistent.
 - **XML Namespaces:** `svg` and `math` work as expected, however when using XML partials, an `xmlns` attribute is required for the browser to create the elements with the correct namespace. Solid adds these automatically to the tags that can recognize as SVG/MathML. For example an `a` tag returned from a partial to be used in XML need `xmlns` added by the user.
  
