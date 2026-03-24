@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoot, createMemo, createSignal, untrack, enableExternalSource, startTransition } from "../src/index.js";
+import {
+  createRoot,
+  createMemo,
+  createSignal,
+  untrack,
+  enableExternalSource,
+  startTransition
+} from "../src/index.js";
 import { getSuspenseContext } from "../src/reactive/signal.js";
 
 import "./MessageChannel";
@@ -89,7 +96,6 @@ describe("external source", () => {
       fn();
     });
   });
-
 
   it("should not throw when rerunning external source in a new transition after disposal", async () => {
     // Initialize SuspenseContext so startTransition creates a real Transition

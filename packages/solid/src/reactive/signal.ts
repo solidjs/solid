@@ -1483,7 +1483,8 @@ function createComputation<Next, Init = unknown>(
     c.fn = x => {
       track();
       if (Transition && Transition.running) {
-        if (!inTransition) inTransition = ExternalSourceConfig!.factory(sourceFn, triggerInTransition);
+        if (!inTransition)
+          inTransition = ExternalSourceConfig!.factory(sourceFn, triggerInTransition);
         return inTransition.track(x);
       }
       return ordinary.track(x);
