@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   createRoot,
+  createRenderEffect,
   createSignal,
   enableExternalSource,
   flush,
@@ -267,4 +268,49 @@ it("should not affect computeds when not enabled", () => {
   setX(5);
   flush();
   expect($memo()).toBe(15);
+});
+
+it("should keep external source tracking across multiple async transitions", async () => {
+  setupExternalSource();
+
+  const e = new ExternalSource(1);
+  let $async: () => number;
+  let resolveAsync: (() => void) | null = null;
+
+  createRoot(() => {
+    const $memo = createMemo(() => e.get());
+    $async = createMemo(() => {
+      const value = $memo();
+      return new Promise<number>(resolve => {
+        resolveAsync = () => resolve(value * 10);
+      });
+    });
+
+    // Subscribe so async recomputes create real transitions.
+    createRenderEffect($async, () => {});
+  });
+
+  flush();
+  resolveAsync!();
+  await Promise.resolve();
+  flush();
+  expect($async!()).toBe(10);
+
+  expect(() => {
+    e.update(2);
+    flush();
+  }).not.toThrow();
+  resolveAsync!();
+  await Promise.resolve();
+  flush();
+  expect($async!()).toBe(20);
+
+  expect(() => {
+    e.update(3);
+    flush();
+  }).not.toThrow();
+  resolveAsync!();
+  await Promise.resolve();
+  flush();
+  expect($async!()).toBe(30);
 });
