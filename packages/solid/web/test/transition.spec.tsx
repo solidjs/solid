@@ -5,30 +5,23 @@
 
 import { describe, expect, test } from "vitest";
 import { createSignal, createMemo, createResource, useTransition } from "../../src/index.js";
+import { getSuspenseContext } from "../../src/reactive/signal.js";
 import { render, Suspense } from "../src/index.js";
 
 describe("Transition memo stale read (#2046)", () => {
   test("memo created during transition should not return undefined in committed state", async () => {
     const div = document.createElement("div");
-    const [route, setRoute] = createSignal("home");
+    const [showDetail, setShowDetail] = createSignal(false);
+    const [resourceKey, setResourceKey] = createSignal("home");
     const [dbVersion, setDbVersion] = createSignal(1);
     const [pending, start] = useTransition();
     let dataRef: (() => { q: number }) | null = null;
     let resolveResource: (v: string) => void;
 
-    function RouteComponent() {
-      // Always returns {q:42}. Never undefined.
-      const data = createMemo(() => ({ q: 42 }));
-      // Reads both dbVersion (external signal) and data
-      const label = createMemo(() => dbVersion() + ": " + data()!.q);
-      dataRef = data;
-      return <p>{label()}</p>;
-    }
-
     let fetchCount = 0;
     const dispose = render(() => {
       const [resource] = createResource(
-        () => route(),
+        () => resourceKey(),
         r => {
           fetchCount++;
           // First fetch resolves immediately
@@ -39,10 +32,22 @@ describe("Transition memo stale read (#2046)", () => {
           });
         }
       );
+      function RouteComponent() {
+        // Always returns {q:42}. Never undefined.
+        const data = createMemo(() => ({ q: 42 }));
+        // Reads both dbVersion (external signal) and data
+        const label = createMemo(() => dbVersion() + ": " + data()!.q);
+        dataRef = data;
+        return (
+          <>
+            <p>{label()}</p>
+            <p>{resource()!}</p>
+          </>
+        );
+      }
       return (
         <Suspense fallback="loading">
-          <p>{resource()}</p>
-          {route() === "detail" && <RouteComponent />}
+          {showDetail() && <RouteComponent />}
         </Suspense>
       );
     }, div);
@@ -51,11 +56,18 @@ describe("Transition memo stale read (#2046)", () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    // Ensure startTransition creates a real transition in this test environment.
+    getSuspenseContext();
+
     // Navigate via transition — resource refetches, keeps transition pending
-    start(() => setRoute("detail"));
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    const transition = start(() => {
+      setShowDetail(true);
+      setResourceKey("detail");
+    });
+    for (let i = 0; i < 10 && (!dataRef || !pending()); i++) {
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
 
     // RouteComponent mounted during transition, transition is pending
     expect(dataRef).not.toBeNull();
@@ -67,6 +79,8 @@ describe("Transition memo stale read (#2046)", () => {
     expect(dataRef!()).toEqual({ q: 42 });
 
     resolveResource!("done");
+    await transition;
+    await Promise.resolve();
     dispose();
   });
 });
