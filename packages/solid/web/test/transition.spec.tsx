@@ -45,11 +45,7 @@ describe("Transition memo stale read (#2046)", () => {
           </>
         );
       }
-      return (
-        <Suspense fallback="loading">
-          {showDetail() && <RouteComponent />}
-        </Suspense>
-      );
+      return <Suspense fallback="loading">{showDetail() && <RouteComponent />}</Suspense>;
     }, div);
 
     // Wait for initial resource to resolve
