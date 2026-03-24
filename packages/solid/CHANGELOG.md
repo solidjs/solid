@@ -114,6 +114,15 @@
 - 53dcb14: expose new transition methods
 - dea16f3: Add server-side rendering implementation: pull-based server signals, streaming Loading component, SSR-aware flow controls, and hydration context infrastructure
 
+## 1.9.12
+
+### Patch Changes
+
+- 51b0797: fix: prevent createDeferred from keeping Node.js process alive
+- 6b0c4ee: fix: lazily create inTransition external source to prevent use-after-dispose
+- 51cce75: Set committed value for computations created during transition
+- c58983d: fix SSR output including `bool:` attribute serialization and escaping for logical and child expressions
+
 ## 1.9.11
 
 ### Patch Changes

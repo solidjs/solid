@@ -84,6 +84,17 @@
 - Updated dependencies [dea16f3]
   - solid-js@2.0.0-beta.0
 
+## 1.9.12
+
+### Patch Changes
+
+- c58983d: fix SSR output including `bool:` attribute serialization and escaping for logical and child expressions
+- Updated dependencies [51b0797]
+- Updated dependencies [6b0c4ee]
+- Updated dependencies [51cce75]
+- Updated dependencies [c58983d]
+  - solid-js@1.9.12
+
 ## 1.9.10
 
 ### Patch Changes

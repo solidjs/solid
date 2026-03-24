@@ -160,7 +160,7 @@ importers:
         version: 7.29.0
       babel-plugin-jsx-dom-expressions:
         specifier: ^0.41.0-next
-        version: 0.41.0-next.9(@babel/core@7.29.0)
+        version: 0.41.0-next.11(@babel/core@7.29.0)
       solid-js:
         specifier: ^2.0.0-beta.4
         version: 2.0.0-experimental.16
@@ -1428,11 +1428,6 @@ packages:
 
   babel-plugin-jsx-dom-expressions@0.41.0-next.11:
     resolution: {integrity: sha512-m0yus4+XLNENjhpJNtZtjHXQLPepT3y0bmgAeceoSOgKGKeGfE8A6fOoObUHpz+mRd25dn4wJHa6wqO4JvQMWQ==}
-    peerDependencies:
-      '@babel/core': ^7.20.12
-
-  babel-plugin-jsx-dom-expressions@0.41.0-next.9:
-    resolution: {integrity: sha512-6EZcgFC8AM2lM2jSe7W/5fuREMC/PErTUD2O5YNuV267p8xaLFpoJPlM8PL0NY2Pu0a49gb3JbYvt5/yv2Z7Ww==}
     peerDependencies:
       '@babel/core': ^7.20.12
 
@@ -4836,16 +4831,6 @@ snapshots:
       - debug
 
   babel-plugin-jsx-dom-expressions@0.41.0-next.11(@babel/core@7.29.0):
-    dependencies:
-      '@babel/core': 7.29.0
-      '@babel/helper-module-imports': 7.18.6
-      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0)
-      '@babel/types': 7.29.0
-      html-entities: 2.3.3
-      parse5: 7.3.0
-      validate-html-nesting: 1.2.4
-
-  babel-plugin-jsx-dom-expressions@0.41.0-next.9(@babel/core@7.29.0):
     dependencies:
       '@babel/core': 7.29.0
       '@babel/helper-module-imports': 7.18.6
