@@ -213,9 +213,6 @@ importers:
 
   packages/solid-web:
     dependencies:
-      '@solidjs/signals':
-        specifier: ^0.13.6
-        version: 0.13.6
       seroval:
         specifier: ^1.1.0
         version: 1.5.0
@@ -223,6 +220,9 @@ importers:
         specifier: ^1.1.0
         version: 1.5.0(seroval@1.5.0)
     devDependencies:
+      '@solidjs/signals':
+        specifier: ^0.13.7
+        version: 0.13.7
       solid-js:
         specifier: workspace:*
         version: link:../solid
@@ -1249,9 +1249,6 @@ packages:
 
   '@solidjs/signals@0.11.3':
     resolution: {integrity: sha512-udMfutYPOlcxKUmc5+n1QtarsxOiAlC6LJY2TqFyaMwdXgo+reiYUcYGDlOiAPXfCLE0lavZHQ/6GT5pJbXKBA==}
-
-  '@solidjs/signals@0.13.6':
-    resolution: {integrity: sha512-KdnfY9Xtq8lwmouePO/ixuQCEG2MXrUbx8FnqE/p3LhRFZpPTALypvWe2rExe3x5oTYmxQXiYqLvM2LGqHwKPA==}
 
   '@solidjs/signals@0.13.7':
     resolution: {integrity: sha512-ZORm/iJl3GrdXUpgzl11U69wG58TlElUpuvXxeuI1a3B4DmehLh7jnpVISddMwXPnOdHHoKro1BA5sjIzz91kg==}
@@ -4628,8 +4625,6 @@ snapshots:
     optional: true
 
   '@solidjs/signals@0.11.3': {}
-
-  '@solidjs/signals@0.13.6': {}
 
   '@solidjs/signals@0.13.7': {}
 
