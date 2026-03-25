@@ -1,10 +1,12 @@
 import path from "path";
+import fs from "fs";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import common from "@rollup/plugin-commonjs";
 import babel from "@rollup/plugin-babel";
 import copy from "rollup-plugin-copy";
 
 const componentsDir = path.resolve("shared/src/components");
+const manifestPath = path.resolve("stream/public/js/asset-manifest.json");
 
 function solidAssetManifest() {
   return {
@@ -40,34 +42,26 @@ function solidAssetManifest() {
   };
 }
 
+function virtualAssetManifest() {
+  const VIRTUAL_ID = "virtual:asset-manifest";
+  const RESOLVED_VIRTUAL_ID = "\0" + VIRTUAL_ID;
+  return {
+    name: "virtual-asset-manifest",
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_VIRTUAL_ID;
+    },
+    load(id) {
+      if (id !== RESOLVED_VIRTUAL_ID) return;
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+      return `export default ${JSON.stringify(manifest, null, 2)}`;
+    }
+  };
+}
+
 export default [
   {
-    input: "./stream/index.js",
-    preserveEntrySignatures: false,
-    output: [
-      {
-        dir: "stream/lib",
-        format: "esm"
-      }
-    ],
-    external: ["solid-js", "@solidjs/web", "path", "express", "fs", "url"],
-    plugins: [
-      nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"] }),
-      babel({
-        babelHelpers: "bundled",
-        presets: [["solid", { generate: "ssr", hydratable: true }]]
-      }),
-      common()
-    ]
-  },
-  {
     input: "shared/src/index.js",
-    output: [
-      {
-        dir: "stream/public/js",
-        format: "esm"
-      }
-    ],
+    output: [{ dir: "stream/public/js", format: "esm" }],
     preserveEntrySignatures: false,
     plugins: [
       nodeResolve({ exportConditions: ["solid", "development"] }),
@@ -77,14 +71,22 @@ export default [
       }),
       common(),
       solidAssetManifest(),
-      copy({
-        targets: [
-          {
-            src: ["shared/static/*"],
-            dest: "stream/public"
-          }
-        ]
-      })
+      copy({ targets: [{ src: ["shared/static/*"], dest: "stream/public" }] })
+    ]
+  },
+  {
+    input: "./stream/index.js",
+    preserveEntrySignatures: false,
+    output: [{ dir: "stream/lib", format: "esm" }],
+    external: ["solid-js", "@solidjs/web", "path", "express", "fs", "url"],
+    plugins: [
+      virtualAssetManifest(),
+      nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"] }),
+      babel({
+        babelHelpers: "bundled",
+        presets: [["solid", { generate: "ssr", hydratable: true }]]
+      }),
+      common()
     ]
   }
 ];

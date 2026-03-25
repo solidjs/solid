@@ -4,11 +4,7 @@ import { readFileSync } from "fs";
 
 import { renderToStream } from "@solidjs/web";
 import App from "../shared/src/components/App";
-
-const manifest = JSON.parse(
-  readFileSync(new URL("../public/js/asset-manifest.json", import.meta.url), "utf-8")
-);
-
+import manifest from "virtual:asset-manifest";
 const app = express();
 const port = 3000;
 
