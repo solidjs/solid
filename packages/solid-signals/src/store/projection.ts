@@ -102,6 +102,18 @@ export function createWriteTraps(isActive?: () => boolean): ProxyHandler<any> {
       }
       return typeof value === "object" && value !== null ? new Proxy(value, traps) : value;
     },
+    has(_, prop) {
+      let value;
+      setWriteOverride(true);
+      setProjectionWriteActive(true);
+      try {
+        value = prop in _;
+      } finally {
+        setWriteOverride(false);
+        setProjectionWriteActive(false);
+      }
+      return value;
+    },
     set(_, prop, value) {
       if (isActive && !isActive()) return true;
       setWriteOverride(true);

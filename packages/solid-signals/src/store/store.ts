@@ -282,17 +282,19 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           ? target[STORE_OVERRIDE][property] !== $DELETED
           : property in target[STORE_VALUE];
 
-    getObserver() &&
-      read(
-        getNode(
-          getNodes(target, STORE_HAS),
-          property,
-          has,
-          target[STORE_FIREWALL],
-          isEqual,
-          target[STORE_OPTIMISTIC]
-        )
-      );
+    if (!writeOnly(target[$PROXY])) {
+      getObserver() &&
+        read(
+          getNode(
+            getNodes(target, STORE_HAS),
+            property,
+            has,
+            target[STORE_FIREWALL],
+            isEqual,
+            target[STORE_OPTIMISTIC]
+          )
+        );
+    }
     return has;
   },
 

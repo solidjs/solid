@@ -1,4 +1,5 @@
 import {
+  createMemo,
   createLoadingBoundary,
   createProjection,
   createRenderEffect,
@@ -41,6 +42,57 @@ describe("Projection async behavior", () => {
 
     await Promise.resolve();
     expect(proj.value).toBe(4);
+    expect(runs).toBe(2);
+  });
+
+  it("does not self-track through array splice has checks", async () => {
+    const mockedItems = [
+      { id: "some-id-1", value: "Sample text 1", timestamp: 100 },
+      { id: "some-id-2", value: "Sample text 2", timestamp: 100 },
+      { id: "some-id-3", value: "Sample text 3", timestamp: 100 },
+      { id: "some-id-4", value: "Sample text 4", timestamp: 200 },
+      { id: "some-id-5", value: "Sample text 5", timestamp: 250 },
+      { id: "some-id-6", value: "Sample text 6", timestamp: 200 },
+      { id: "some-id-7", value: "Sample text 7", timestamp: 300 },
+      { id: "some-id-8", value: "Sample text 8", timestamp: 300 }
+    ];
+
+    function insertValueByTimestamp<M extends { timestamp: number; id: string }>(arr: M[], el: M) {
+      let left = 0;
+      let right = arr.length;
+
+      while (left < right) {
+        const mid = (left + right) >>> 1;
+        if (arr[mid].timestamp <= el.timestamp) left = mid + 1;
+        else right = mid;
+      }
+
+      arr.splice(left, 0, el);
+    }
+
+    const retrieveItems = () =>
+      new Promise<typeof mockedItems>(resolve => {
+        setTimeout(() => resolve([...mockedItems]), 0);
+      });
+
+    let runs = 0;
+
+    createRoot(() => {
+      const items = createMemo(() => retrieveItems());
+      const proj = createProjection(store => {
+        if (++runs > 20) throw new Error("Projection self-tracked through splice");
+
+        for (const item of items()) {
+          insertValueByTimestamp(store, item);
+        }
+      }, [] as typeof mockedItems);
+
+      createRenderEffect(() => proj.length, () => {});
+    });
+
+    flush();
+    await new Promise(resolve => setTimeout(resolve, 20));
+
     expect(runs).toBe(2);
   });
 
