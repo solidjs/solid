@@ -603,4 +603,42 @@ describe("createLoadingBoundary", () => {
       expect(callCount).toBe(1);
     });
   });
+
+  it("stops loading when a pending child is disposed before its promise settles", () => {
+    let result: any;
+    const [$showAsync, setShowAsync] = createSignal(true);
+    let resolve!: () => void;
+    const promise = new Promise<void>(r => {
+      resolve = r;
+    });
+
+    function Child() {
+      const data = createMemo(async () => {
+        await promise;
+        return "async";
+      });
+      return () => data();
+    }
+
+    createRoot(() => {
+      const boundary = createLoadingBoundary(
+        () => ($showAsync() ? Child()() : "sync"),
+        () => "loading"
+      );
+
+      createRenderEffect(
+        () => (result = boundary()),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toBe("loading");
+
+    resolve();
+    setShowAsync(false);
+    flush();
+
+    expect(result).toBe("sync");
+  });
 });

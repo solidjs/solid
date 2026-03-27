@@ -8,6 +8,7 @@ import {
   NotReadyError,
   Queue,
   read,
+  REACTIVE_DISPOSED,
   runWithOwner,
   setSignal,
   signal,
@@ -113,6 +114,7 @@ export class CollectionQueue extends Queue {
   checkSources() {
     for (const source of this._sources) {
       if (
+        source._flags & REACTIVE_DISPOSED ||
         !(source._statusFlags & this._collectionType) &&
         !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING)
       )
