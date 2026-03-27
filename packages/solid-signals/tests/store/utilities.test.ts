@@ -9,7 +9,8 @@ import {
   merge,
   omit,
   reconcile,
-  snapshot
+  snapshot,
+  type Store
 } from "../../src/index.js";
 
 type SimplePropTypes = {
@@ -23,6 +24,18 @@ const Comp2 = (props: { greeting: string; name: string; optional?: string }) => 
   const q = omit(props, "greeting", "optional");
   expect((q as any).greeting).toBeUndefined();
   return `${props.greeting} ${q.name}`;
+};
+
+() => {
+  type A = { name: string };
+  type B = { id: number };
+  type QueryResult = Store<A | B>;
+
+  const [state] = createStore<A | B>({ name: "solid" });
+  const result = deep(state as QueryResult);
+
+  const sameType: QueryResult = result;
+  void sameType;
 };
 
 describe("merge", () => {
