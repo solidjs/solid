@@ -338,15 +338,25 @@ export const storeTraps: ProxyHandler<StoreNode> = {
               ? target[STORE_OVERRIDE][property]
               : base;
         const value = rawValue?.[$TARGET]?.[STORE_VALUE] ?? rawValue;
-
-        if (prev === value) return true;
+        const isArrayIndexWrite = Array.isArray(state) && property !== "length";
+        const nextIndex = isArrayIndexWrite ? parseInt(property as string) + 1 : 0;
         const len =
-          target[STORE_OPTIMISTIC_OVERRIDE]?.length ||
-          target[STORE_OVERRIDE]?.length ||
-          state.length;
+          isArrayIndexWrite &&
+          (target[STORE_OPTIMISTIC_OVERRIDE] && "length" in target[STORE_OPTIMISTIC_OVERRIDE]
+            ? target[STORE_OPTIMISTIC_OVERRIDE].length
+            : target[STORE_OVERRIDE] && "length" in target[STORE_OVERRIDE]
+              ? target[STORE_OVERRIDE].length
+              : state.length);
+        const nextLength = isArrayIndexWrite && nextIndex > len ? nextIndex : undefined;
 
-        if (value !== undefined && value === base) delete target[overrideKey]![property];
-        else (target[overrideKey] || (target[overrideKey] = Object.create(null)))[property] = value;
+        if (prev === value && nextLength === undefined) return true;
+        if (value !== undefined && value === base && nextLength === undefined)
+          delete target[overrideKey]?.[property];
+        else {
+          const override = target[overrideKey] || (target[overrideKey] = Object.create(null));
+          override[property] = value;
+          if (nextLength !== undefined) override.length = nextLength;
+        }
         const wrappable = isWrappable(value);
         target[STORE_HAS]?.[property] && setSignal(target[STORE_HAS]![property], true);
         const nodes = getNodes(target, STORE_NODE);
@@ -354,13 +364,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           setSignal(nodes[property], () => (wrappable ? wrap(value, target) : value));
         // notify length change
         if (Array.isArray(state)) {
-          if (property === "length") {
-            // Direct length change (e.g., for array truncation)
-            nodes.length && setSignal(nodes.length, value);
-          } else {
-            const index = parseInt(property as string) + 1;
-            if (index > len) nodes.length && setSignal(nodes.length, index);
-          }
+          const lengthValue = property === "length" ? value : nextLength;
+          lengthValue !== undefined && nodes.length && setSignal(nodes.length, lengthValue);
         }
         // notify self
         nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);

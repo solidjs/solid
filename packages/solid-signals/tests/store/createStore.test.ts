@@ -376,7 +376,7 @@ describe("Tracking State changes", () => {
     // delete
     setState(s => [s[0]]);
     flush();
-    expect.assertions(15);
+    expect.assertions(18);
   });
 
   test("Tracking iteration Object key addition/removal", () => {
@@ -662,6 +662,46 @@ describe("Array length", () => {
     });
     flush();
     expect(length).toBe(1);
+  });
+
+  test("direct array index extension updates length immediately", () => {
+    const [state, setState] = createStore([10, 11, 12]);
+
+    setState(s => {
+      expect(s.length).toBe(3);
+      s[3] = 20;
+      expect(s.length).toBe(4);
+      expect(s[3]).toBe(20);
+    });
+
+    expect(state.length).toBe(4);
+    expect(state[3]).toBe(20);
+
+    flush();
+
+    expect(state.length).toBe(4);
+    expect(state[3]).toBe(20);
+  });
+
+  test("direct array index extension to undefined still updates length", () => {
+    const [state, setState] = createStore([10, 11, 12]);
+
+    setState(s => {
+      expect(s.length).toBe(3);
+      s[s.length] = undefined;
+      expect(s.length).toBe(4);
+      expect("3" in s).toBe(true);
+      expect(s[3]).toBeUndefined();
+    });
+
+    expect(state.length).toBe(4);
+    expect("3" in state).toBe(true);
+    expect(state[3]).toBeUndefined();
+
+    flush();
+
+    expect(state.length).toBe(4);
+    expect(state[3]).toBeUndefined();
   });
 });
 
