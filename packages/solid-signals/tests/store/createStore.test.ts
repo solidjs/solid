@@ -791,6 +791,35 @@ describe("Nested Classes", () => {
     flush();
     expect(sum).toBe(15);
   });
+
+  test("does not wrap Node instances", () => {
+    class NodeMock {}
+    const prevNode = globalThis.Node;
+    Object.defineProperty(globalThis, "Node", {
+      value: NodeMock,
+      configurable: true,
+      writable: true
+    });
+
+    try {
+      const node = new NodeMock();
+      const [store, setStore] = createStore<{ inner?: NodeMock }>({});
+
+      setStore(s => {
+        s.inner = node;
+      });
+
+      expect(store.inner).toBe(node);
+    } finally {
+      if (prevNode === undefined) delete (globalThis as any).Node;
+      else
+        Object.defineProperty(globalThis, "Node", {
+          value: prevNode,
+          configurable: true,
+          writable: true
+        });
+    }
+  });
 });
 
 describe("In Operator", () => {

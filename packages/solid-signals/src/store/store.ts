@@ -103,7 +103,12 @@ export function wrap<T extends Record<PropertyKey, any>>(value: T, target?: Stor
 
 export function isWrappable<T>(obj: T | NotWrappable): obj is T;
 export function isWrappable(obj: any) {
-  return obj != null && typeof obj === "object" && !Object.isFrozen(obj);
+  return (
+    obj != null &&
+    typeof obj === "object" &&
+    !Object.isFrozen(obj) &&
+    !(typeof Node !== "undefined" && obj instanceof Node)
+  );
 }
 let writeOverride = false;
 export function setWriteOverride(value: boolean) {
