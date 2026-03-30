@@ -60,7 +60,8 @@ describe("Transition memo stale read (#2046)", () => {
       setShowDetail(true);
       setResourceKey("detail");
     });
-    for (let i = 0; i < 10 && (!dataRef || !pending()); i++) {
+    // Coverage can slow the mount path down enough that a short fixed loop flakes in CI.
+    for (let i = 0; i < 100 && (!dataRef || !pending()); i++) {
       await Promise.resolve();
       await new Promise(resolve => setTimeout(resolve, 0));
     }
