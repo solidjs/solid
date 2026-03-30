@@ -9,7 +9,6 @@ export {
   createOptimistic,
   createOptimisticStore,
   createErrorBoundary,
-  createLoadingBoundary,
   createOwner,
   createProjection,
   createReaction,
@@ -96,7 +95,7 @@ export * from "./flow.js";
 // SSR coordination
 export {
   sharedConfig,
-  Loading,
+  createLoadingBoundary,
   ssrHandleError,
   NoHydration,
   Hydration,

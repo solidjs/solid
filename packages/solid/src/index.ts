@@ -3,8 +3,6 @@ export {
   $REFRESH,
   $TRACK,
   action,
-  createErrorBoundary,
-  createLoadingBoundary,
   createOwner,
   createReaction,
   createRoot,
@@ -80,8 +78,9 @@ export * from "./client/component.js";
 export * from "./client/flow.js";
 export {
   sharedConfig,
-  Loading,
   enableHydration,
+  createErrorBoundary,
+  createLoadingBoundary,
   createMemo,
   createSignal,
   createStore,

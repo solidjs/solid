@@ -2,7 +2,7 @@ import {
   createOwner,
   getNextChildId,
   runWithOwner,
-  createLoadingBoundary,
+  createLoadingBoundary as coreLoadingBoundary,
   NotReadyError,
   ErrorContext,
   getContext,
@@ -40,17 +40,10 @@ export function ssrHandleError(err: any) {
  *
  * @description https://docs.solidjs.com/reference/components/suspense
  */
-export function Loading(props: {
-  fallback?: JSX.Element;
-  on?: any;
-  children: JSX.Element;
-}): JSX.Element {
+export function createLoadingBoundary(fn: () => any, fallback: () => any): () => unknown {
   const ctx = sharedConfig.context;
   if (!ctx) {
-    return createLoadingBoundary(
-      () => props.children,
-      () => props.fallback
-    ) as unknown as JSX.Element;
+    return coreLoadingBoundary(fn, fallback);
   }
 
   const o = createOwner();
@@ -75,7 +68,7 @@ export function Loading(props: {
     ctx!._currentBoundaryId = id;
     const result = runWithOwner(o, () => {
       try {
-        return ctx!.resolve(props.children);
+        return ctx!.resolve(fn());
       } catch (err) {
         runPromise = ssrHandleError(err);
       }
@@ -92,7 +85,7 @@ export function Loading(props: {
     serializeBuffer = [];
     const modules = ctx.getBoundaryModules?.(id);
     if (modules) ctx.serialize(id + "_assets", modules);
-    return ret as unknown as JSX.Element;
+    return () => ret;
   }
 
   const fallbackOwner = createOwner({ id });
@@ -120,12 +113,10 @@ export function Loading(props: {
       }
     })();
 
-    return runWithOwner(fallbackOwner, () =>
-      ctx.ssr(
-        [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`],
-        ctx.escape(props.fallback)
-      )
-    ) as unknown as JSX.Element;
+    const result = runWithOwner(fallbackOwner, () =>
+      ctx.ssr([`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`], ctx.escape(fallback()))
+    );
+    return () => result;
   }
 
   // Non-async fallback: flush buffered serializations
@@ -134,7 +125,8 @@ export function Loading(props: {
   const modules = ctx.getBoundaryModules?.(id);
   if (modules) ctx.serialize(id + "_assets", modules);
   ctx.serialize(id, "$$f");
-  return runWithOwner(fallbackOwner, () => props.fallback) as unknown as JSX.Element;
+  const result = runWithOwner(fallbackOwner, fallback);
+  return () => result;
 }
 
 /**

@@ -1,6 +1,6 @@
 import {
   getOwner,
-  createLoadingBoundary,
+  createLoadingBoundary as coreLoadingBoundary,
   createErrorBoundary as coreErrorBoundary,
   flush,
   runWithOwner,
@@ -933,18 +933,12 @@ function resumeBoundaryHydration(o: Owner, id: string, set: () => void) {
  * ```
  * @description https://docs.solidjs.com/reference/components/suspense
  */
-export function Loading(props: {
-  fallback?: JSX.Element;
-  on?: any;
-  children: JSX.Element;
-}): JSX.Element {
-  const onOpt = "on" in props ? { on: () => props.on } : undefined;
-  if (!sharedConfig.hydrating)
-    return createLoadingBoundary(
-      () => props.children,
-      () => props.fallback,
-      onOpt
-    ) as unknown as JSX.Element;
+export function createLoadingBoundary(
+  fn: () => any,
+  fallback: () => any,
+  options?: { on?: () => any }
+): () => unknown {
+  if (!sharedConfig.hydrating) return coreLoadingBoundary(fn, fallback, options);
 
   return coreMemo(() => {
     const o = getOwner()!;
@@ -991,7 +985,7 @@ export function Loading(props: {
           if (assetPromise) assetPromise.then(() => queueMicrotask(afterAssets));
           else queueMicrotask(afterAssets);
         }
-        return props.fallback;
+        return fallback();
       }
     }
     if (assetPromise) {
@@ -1000,13 +994,8 @@ export function Loading(props: {
       assetPromise.then(() => resumeBoundaryHydration(o, id, set));
       return undefined;
     }
-    const boundary = createLoadingBoundary(
-      () => props.children,
-      () => props.fallback,
-      onOpt
-    );
-    return boundary;
-  }) as unknown as JSX.Element;
+    return coreLoadingBoundary(fn, fallback, options);
+  }) as unknown as () => unknown;
 }
 
 /**

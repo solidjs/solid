@@ -1,6 +1,6 @@
 import { children, IS_DEV } from "../client/core.js";
 import { createMemo, untrack, mapArray, repeat } from "@solidjs/signals";
-import { createErrorBoundary } from "./hydration.js";
+import { createErrorBoundary, createLoadingBoundary } from "./hydration.js";
 import type { Accessor } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
 
@@ -241,5 +241,29 @@ export function Errored(props: {
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err);
       return typeof f === "function" && f.length ? f(err, reset) : f;
     }
+  ) as unknown as JSX.Element;
+}
+
+/**
+ * Tracks all resources inside a component and renders a fallback until they are all resolved
+ * ```typescript
+ * const AsyncComponent = lazy(() => import('./component'));
+ *
+ * <Loading fallback={<LoadingIndicator />}>
+ *   <AsyncComponent />
+ * </Loading>
+ * ```
+ * @description https://docs.solidjs.com/reference/components/suspense
+ */
+export function Loading(props: {
+  fallback?: JSX.Element;
+  on?: any;
+  children: JSX.Element;
+}): JSX.Element {
+  const onOpt = "on" in props ? { on: () => props.on } : undefined;
+  return createLoadingBoundary(
+    () => props.children,
+    () => props.fallback,
+    onOpt
   ) as unknown as JSX.Element;
 }

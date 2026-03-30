@@ -7,6 +7,7 @@ import {
   getOwner,
   getNextChildId
 } from "./signals.js";
+import { createLoadingBoundary } from "./hydration.js";
 import type { Accessor } from "./signals.js";
 import type { JSX } from "../jsx.js";
 
@@ -140,5 +141,20 @@ export function Errored(props: {
       const f = props.fallback;
       return typeof f === "function" && f.length ? f(err, reset) : f;
     }
+  ) as unknown as JSX.Element;
+}
+
+/**
+ * Tracks all resources inside a component and renders a fallback until they are all resolved
+ * @description https://docs.solidjs.com/reference/components/suspense
+ */
+export function Loading(props: {
+  fallback?: JSX.Element;
+  on?: any;
+  children: JSX.Element;
+}): JSX.Element {
+  return createLoadingBoundary(
+    () => props.children,
+    () => props.fallback
   ) as unknown as JSX.Element;
 }
