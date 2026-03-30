@@ -190,7 +190,7 @@ Now that [Solid Dev Tools](https://github.com/thetarnav/solid-devtools) have bee
 
 ### Others
 
-- Smaller compiled output, remove auxilary closing tags
+- Smaller compiled output, remove auxiliary closing tags
 - Support for `prop:` and `attr:` in Spreads
 - Don't apply special props (like `readonly`) to custom elements
 - Introduced improved serializer, [seroval](https://github.com/lxsmnsyc/seroval)
@@ -227,7 +227,7 @@ The power here is static markup can interview dynamic components.
 
 Keep in mind Server rendered content like this can only be rendered on the server so to maintain a client navigation with this paradigm requires a special router that handles HTML partials.
 
-Similarly we want the trees to talk to each other so `hydrate` calls now have been expanded to accept a parent `Owner` this will allow Islands to communicate through Contex without shipping the whole tree to browser.
+Similarly we want the trees to talk to each other so `hydrate` calls now have been expanded to accept a parent `Owner` this will allow Islands to communicate through Context without shipping the whole tree to browser.
 
 ```js
 <h1>Server Rendered Header</h1>
@@ -300,7 +300,7 @@ After a bunch of careful thought and auditting we decided that Solid's `batch` f
 
 Resources continue to get improvements. A common pattern in Islands frameworks like Astro is to fetch the data from the out side and pass it in. In this case you wouldn't want Solid to do the fetching on initial render or the serialization, but you still may want to pass it to a resource so it updates on any change. For that to work reactivity needs to run in the browser. The whole thing has been awkward to wire up but no longer.
 
-`ssrLoadFrom` field lets you specify where the value comes from during ssr. The default is `server` which fetches on the server and serializes it for client hydration. But `initial` will use the `initialValue` instead and not do any fetching or addtional serialization.
+`ssrLoadFrom` field lets you specify where the value comes from during ssr. The default is `server` which fetches on the server and serializes it for client hydration. But `initial` will use the `initialValue` instead and not do any fetching or additional serialization.
 
 ```js
 const [user] = createResource(fetchUser, {
@@ -344,7 +344,7 @@ const [resource] = createResource(fetcher, {
 
 #### Consolidated SSR
 
-This release marks the end of years long effort to merge async and streaming mechanism. Since pre 1.0 these were seperate. Solid's original SSR efforts used reactivity on the server with different compilation. It was easiest to migrate synchronous and streaming rendering and for a time async had a different compilation. We got them on the same compilation 2 years ago but runtimes were different. Piece by piece things have progressed until finally async is now just streaming if flushed at the end.
+This release marks the end of years long effort to merge async and streaming mechanism. Since pre 1.0 these were separate. Solid's original SSR efforts used reactivity on the server with different compilation. It was easiest to migrate synchronous and streaming rendering and for a time async had a different compilation. We got them on the same compilation 2 years ago but runtimes were different. Piece by piece things have progressed until finally async is now just streaming if flushed at the end.
 
 This means some things have improved across the board. Async triggered Error Boundaries previously were only ever client rendered (throwing an error across the network), but now if they happen any time before sending to the browser they are server rendered. `onCleanup` now runs on the server if a branch changes. Keep in mind this is for rendering effects (like setting a status code) and not true side effects as not all rendering cleans up.
 
@@ -435,7 +435,7 @@ setTodos([...todos, { id: 3, title: "New Todo", done: false }])
 
 Through this change we also stopped over execution when listening to specific properties. To support iteration Solid previously would notify the owning object of any array when an was index added/removed or object new property created or deleted on any object.
 
-The one caveat is downstream optimized control flow that untrack index reads on arrays will now need to track the iterated object explicity. Solid exports a `$TRACK` symbol used to subscribe to the object and all its properties.
+The one caveat is downstream optimized control flow that untrack index reads on arrays will now need to track the iterated object explicitly. Solid exports a `$TRACK` symbol used to subscribe to the object and all its properties.
 
 #### Stale Resource Reads
 
@@ -457,7 +457,7 @@ Example: https://codesandbox.io/s/solid-stale-resource-y3fy4l
 
 #### Combining multiple Custom Renderers
 
-The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is reponsible for. It will try to resolve them in order.
+The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is responsible for. It will try to resolve them in order.
 
 ```js
 import { HTMLElements, SVGElements } from "solid-js/web";
@@ -559,7 +559,7 @@ const stream = renderToStream(() => <App />).pipeTo(writable);
 
 #### Error Boundaries on the Server
 
-We've added support for Error Boundaries on the Server for all rendering methods(`renderToString`, `renderToStringAsync`, `renderToStream`). Errors can be caught both from synchronous rendering and from errors that happen in Resource resolution. However, Our approach doesn't guarentee all errors are handled on the server as with streaming it is possible that the Error Boundary has already made it to the browser while a nested Suspense component hasn't settled. If an Error is hit it will propagate up to the top most Suspense Boundary that hasn't been flushed yet. If it is not handled by an Error Boundary before that it will abort rendering, and send the Error to the browser to propagate up to the nearest Error Boundary.
+We've added support for Error Boundaries on the Server for all rendering methods(`renderToString`, `renderToStringAsync`, `renderToStream`). Errors can be caught both from synchronous rendering and from errors that happen in Resource resolution. However, Our approach doesn't guarantee all errors are handled on the server as with streaming it is possible that the Error Boundary has already made it to the browser while a nested Suspense component hasn't settled. If an Error is hit it will propagate up to the top most Suspense Boundary that hasn't been flushed yet. If it is not handled by an Error Boundary before that it will abort rendering, and send the Error to the browser to propagate up to the nearest Error Boundary.
 
 This works now but there is more to explore here in improving Error handling in general with SSR. So look forward to feedback on the feature.
 
@@ -594,7 +594,7 @@ set("end"); // "something"
 set("final"); // no-op as reaction only runs on first update, need to call track again.
 ```
 
-This primitive is niche for certain use cases but where it is useful it is indispensible (like the next feature which uses a similar API).
+This primitive is niche for certain use cases but where it is useful it is indispensable (like the next feature which uses a similar API).
 
 #### External Sources (experimental)
 
@@ -927,7 +927,7 @@ export function createResource<T, U>(
 ): ResourceReturn<T>;
 ```
 
-3rd argument is now an options object instead of just the initial value. This breaking. But this also allows the first argument to be optional for the non-tracking case. Need a promise that only loads once? Don't have need to re-use the fetcher. Do this:
+3rd argument is now an options object instead of just the initial value. This breaking. But this also allows the first argument to be optional for the non-tracking case. Need a promise that only loads once? Don't have need to reuse the fetcher. Do this:
 
 ```js
 const [data] = createResource(async () => (await fetch(`https://someapi.com/info`)).json());
@@ -977,7 +977,7 @@ declare module "solid-js" {
 
 #### Lazy component preload
 
-Lazy components now have a preload function so you can pre-emptively load them.
+Lazy components now have a preload function so you can preemptively load them.
 
 ```js
 const LazyComp = lazy(() => import("./some-comp"));
@@ -1086,7 +1086,7 @@ Or mixing and matching? You can set JSX types per file using the pragma at the t
 /* @jsxImportSource solid-js */
 ```
 
-You can now import `JSX` types directly from Solid as neccessary:
+You can now import `JSX` types directly from Solid as necessary:
 
 ```js
 import { JSX } from "solid-js";
@@ -1331,11 +1331,11 @@ Breaking Changes:
 A lot of consolidation in preparation for release candidate
 
 - Big refactor of core reactive system and render list reconciler
-  - Significantly smaller reducing core by atleast 3kb minified
+  - Significantly smaller reducing core by at least 3kb minified
 - Better handling of nested reactive nodes in Fragments
 - Update SSR mechanisms, added progressive event hydration, created repo for SSR environment (`solid-ssr`)
 - `@once` compiler hint to statically bind values
-- Better wrapping hueristics for booleans and ternaries in JSX
+- Better wrapping heuristics for booleans and ternaries in JSX
 
 Breaking Changes
 
@@ -1409,7 +1409,7 @@ v0.11.0 continues to add updates to the reactive system as well as some new feat
 - Add experimental Server Side Rendering and Client Side Hydration capabilities
 - Add Suspense aware control flow transformation (`awaitSuspense`)
 - Allow state objects to track functions
-- More TypeScript definition improvments and fixes
+- More TypeScript definition improvements and fixes
 
 ## 0.10.0 - 2019-08-11
 
@@ -1423,7 +1423,7 @@ v0.10.0 makes significant changes to the reactive system. Key updates:
 
 ## 0.9.0 - 2019-07-20
 
-v0.9.0 makes signifigant changes to underlying reconciler.
+v0.9.0 makes significant changes to underlying reconciler.
 
 - New Control Flow
 - Removes Custom Directives
@@ -1466,7 +1466,7 @@ import html from "solid-js/html";
 ## 0.4.2 - 2019-03-18
 
 - Add fallbacks for control flow
-- Add new Portal Control Flow - This allows nodes to be rendered outside of the component tree with support for satelite ShadowRoots.
+- Add new Portal Control Flow - This allows nodes to be rendered outside of the component tree with support for satellite ShadowRoots.
 - Add new Suspend Control Flow - This renders content to a isolated document and display fallback content in its place until ready. Good for nested Async Data Fetching.
 - Default node placeholders to comments (improved text interpolation)
 - Added events binding for irregular event names
@@ -1497,7 +1497,7 @@ import html from "solid-js/html";
 
 ## 0.3.1 - 2018-12-29
 
-- Remove operators from core package since are auxilliary with new API.
+- Remove operators from core package since are auxiliary with new API.
 - Updated JSX Dom Expressions to use new control flow JSX and JSX Fragment support.
 
 ## 0.3.0 - 2018-12-25

@@ -150,7 +150,7 @@
 ### Patch Changes
 
 - f8ae663c: Fix broken links in Readme
-- 19d0295f: fix stranded effects during hydration cancelation
+- 19d0295f: fix stranded effects during hydration cancellation
 - 26128ec0: fix #2259 attr: in ssr, updates some types
 
 ## 1.8.21
@@ -163,7 +163,7 @@
 
 ### Patch Changes
 
-- c8fe58e9: fix #2250 hydration error, fix lazy component loading, better hydration cancelation
+- c8fe58e9: fix #2250 hydration error, fix lazy component loading, better hydration cancellation
 - 80dd2769: fix #2236 improper shortcircuit in resource hydration
 
 ## 1.8.19
@@ -251,7 +251,7 @@
 ### Patch Changes
 
 - 40b5d78d: chore(types): return mapped type for splitProps excluded `other` value
-- 968e2cc9: update seroval, fix #1972, fix #1980, fix #2002, support partial ALS
+- 968e2cc9: update seroval, fix #1972, fix #1980, fix #2002, support partial ALSO
 - 292aba41: fix #1982 ErrorBoundary with ExternalSource
 - 7e5667ab: fix #1998 Switch relying on order
 - 8d2de12f: fix #1850 untrack in external source
@@ -473,7 +473,7 @@
 - 940e5745: change to seroval serializer, better ssr fragment fixes
 - 608b3c3a: Add catchError/deprecate onError
 - 2b80f706: Reduce DOM compiler output size
-  Remove auxilary closing tags and lazy evaluate templates
+  Remove auxiliary closing tags and lazy evaluate templates
 - 8d0877e4: fix #1562 cleanup order
 - 74f00e15: Support prop/attr directives in spreads, apply prop aliases only to specific elements
 
@@ -485,7 +485,7 @@
 - cb6a383d: ensure narrowed values are non-null
 - 3de9432c: Better Input Event Types, Template Pruning, Universal Renderer Fixes
 - 2cb6f3d6: fix treeshaking in rollup 3
-- 24469762: Add a reference to the component funciton to DevComponent owner.
+- 24469762: Add a reference to the component function to DevComponent owner.
   Rename DevComponent's property from `componentName` to `name`.
 - 5545d3ee: Type narrowed flow on the server, add stale warning
 - 0dc8e365: Make non-null control flow assertion stricter by throwing
@@ -528,14 +528,14 @@
 
 - 608b3c3a: Add catchError/deprecate onError
 - 2b80f706: Reduce DOM compiler output size
-  Remove auxilary closing tags and lazy evaluate templates
+  Remove auxiliary closing tags and lazy evaluate templates
 - 8d0877e4: fix #1562 cleanup order
 - 74f00e15: Support prop/attr directives in spreads, apply prop aliases only to specific elements
 
 ### Patch Changes
 
 - 6b77d9ed: Better types on function callback control flow
-- 24469762: Add a reference to the component funciton to DevComponent owner.
+- 24469762: Add a reference to the component function to DevComponent owner.
   Rename DevComponent's property from `componentName` to `name`.
 - 5545d3ee: Type narrowed flow on the server, add stale warning
 
