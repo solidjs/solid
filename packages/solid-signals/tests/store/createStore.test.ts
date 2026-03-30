@@ -665,7 +665,7 @@ describe("Array length", () => {
   });
 
   test("direct array index extension updates length immediately", () => {
-    const [state, setState] = createStore([10, 11, 12]);
+    const [state, setState] = createStore<number[]>([10, 11, 12]);
 
     setState(s => {
       expect(s.length).toBe(3);
@@ -684,7 +684,7 @@ describe("Array length", () => {
   });
 
   test("direct array index extension to undefined still updates length", () => {
-    const [state, setState] = createStore([10, 11, 12]);
+    const [state, setState] = createStore<Array<number | undefined>>([10, 11, 12]);
 
     setState(s => {
       expect(s.length).toBe(3);
