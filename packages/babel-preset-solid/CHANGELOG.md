@@ -138,7 +138,7 @@
 
 ### Patch Changes
 
-- 968e2cc9: update seroval, fix #1972, fix #1980, fix #2002, support partial ALS
+- 968e2cc9: update seroval, fix #1972, fix #1980, fix #2002, support partial ALSO
 
 ## 1.8.6
 
@@ -238,7 +238,7 @@
 - f7dc355f: Remove FunctionElement from JSX.Element types
 - 940e5745: change to seroval serializer, better ssr fragment fixes
 - 2b80f706: Reduce DOM compiler output size
-  Remove auxilary closing tags and lazy evaluate templates
+  Remove auxiliary closing tags and lazy evaluate templates
 - 74f00e15: Support prop/attr directives in spreads, apply prop aliases only to specific elements
 
 ### Patch Changes
@@ -277,7 +277,7 @@
 ### Minor Changes
 
 - 2b80f706: Reduce DOM compiler output size
-  Remove auxilary closing tags and lazy evaluate templates
+  Remove auxiliary closing tags and lazy evaluate templates
 - 74f00e15: Support prop/attr directives in spreads, apply prop aliases only to specific elements
 
 ## 1.7.0-beta.0
