@@ -22,6 +22,16 @@ function asyncValue<T>(value: T, ms = 10): Promise<T> {
   return new Promise(r => setTimeout(() => r(value), ms));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: any) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function renderComplete(code: () => any, options: any = {}): Promise<string> {
   return new Promise(resolve => {
     renderToStream(code, options).then(resolve);
@@ -40,6 +50,7 @@ function collectChunks(
       ...options,
       onCompleteShell() {
         shellDone = true;
+        options.onCompleteShell?.();
       }
     }).pipe({
       write(chunk: string) {
@@ -893,13 +904,12 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     };
 
     const Comp = () => <div>Content</div>;
-    const LazyComp = lazy(
-      () => new Promise<{ default: typeof Comp }>(r => setTimeout(() => r({ default: Comp }), 10)),
-      "./Comp.tsx"
-    );
+    const LazyComp = lazy(() => Promise.resolve({ default: Comp }), "./Comp.tsx");
+    await LazyComp.preload!();
+    const gate = deferred<string>();
 
     function AsyncGate() {
-      const data = createMemo(async () => asyncValue("gate", 30));
+      const data = createMemo(async () => gate.promise);
       return <span>{data()}</span>;
     }
 
@@ -919,7 +929,12 @@ describe("SSR Streaming — CSS Asset Handling", () => {
       );
     }
 
-    const { chunks } = await collectChunks(() => <App />, { manifest });
+    const { chunks } = await collectChunks(() => <App />, {
+      manifest,
+      onCompleteShell() {
+        queueMicrotask(() => gate.resolve("gate"));
+      }
+    });
     const streamOutput = chunks.slice(1).join("");
     expect(streamOutput).toContain("function $dfs(");
     expect(streamOutput).toContain("function $dfc(");
@@ -932,16 +947,12 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     };
 
     const StyledComp = () => <div>Styled</div>;
-    const LazyStyled = lazy(
-      () =>
-        new Promise<{ default: typeof StyledComp }>(r =>
-          setTimeout(() => r({ default: StyledComp }), 10)
-        ),
-      "./Styled.tsx"
-    );
+    const LazyStyled = lazy(() => Promise.resolve({ default: StyledComp }), "./Styled.tsx");
+    await LazyStyled.preload!();
+    const gate = deferred<string>();
 
     function AsyncGate() {
-      const data = createMemo(async () => asyncValue("gate", 30));
+      const data = createMemo(async () => gate.promise);
       return <span>{data()}</span>;
     }
 
@@ -961,7 +972,12 @@ describe("SSR Streaming — CSS Asset Handling", () => {
       );
     }
 
-    const { shell, chunks } = await collectChunks(() => <App />, { manifest });
+    const { shell, chunks } = await collectChunks(() => <App />, {
+      manifest,
+      onCompleteShell() {
+        queueMicrotask(() => gate.resolve("gate"));
+      }
+    });
     expect(shell).toContain('<link rel="stylesheet" href="/assets/styled.css">');
 
     const streamOutput = chunks.slice(1).join("");
@@ -987,14 +1003,12 @@ describe("SSR Streaming — CSS Asset Handling", () => {
     await LazyA.preload!();
 
     const CompB = () => <div>B</div>;
-    const LazyB = lazy(
-      () =>
-        new Promise<{ default: typeof CompB }>(r => setTimeout(() => r({ default: CompB }), 10)),
-      "./B.tsx"
-    );
+    const LazyB = lazy(() => Promise.resolve({ default: CompB }), "./B.tsx");
+    await LazyB.preload!();
+    const gate = deferred<string>();
 
     function AsyncGate() {
-      const data = createMemo(async () => asyncValue("gate", 30));
+      const data = createMemo(async () => gate.promise);
       return <span>{data()}</span>;
     }
 
@@ -1017,7 +1031,12 @@ describe("SSR Streaming — CSS Asset Handling", () => {
       );
     }
 
-    const { shell, chunks } = await collectChunks(() => <App />, { manifest });
+    const { shell, chunks } = await collectChunks(() => <App />, {
+      manifest,
+      onCompleteShell() {
+        queueMicrotask(() => gate.resolve("gate"));
+      }
+    });
     const headCssCount = (shell.match(/stylesheet" href="\/assets\/shared\.css"/g) || []).length;
     expect(headCssCount).toBe(1);
 

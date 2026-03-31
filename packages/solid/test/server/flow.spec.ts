@@ -8,6 +8,7 @@ import {
   Switch,
   Match,
   Errored,
+  Loading,
   getOwner,
   mapArray,
   ssrRunInScope
@@ -211,10 +212,59 @@ describe("Hydration key alignment", () => {
             return "ok";
           }
         });
-        // Client createCollectionBoundary: createOwner(t0) → computed(fn)(t00)
-        // Plus decision computed at t1. Children run under t00.
-        expect(childOwnerId).toBe("t00");
+        // Without SSR hydration context, Errored only creates the boundary owner.
+        // Children run directly under that owner.
+        expect(childOwnerId).toBe("t0");
         expect(typeof result === "function" ? (result as any)() : result).toBe("ok");
+      },
+      { id: "t" }
+    );
+  });
+
+  test("Loading children run directly without SSR context", () => {
+    createRoot(
+      () => {
+        let childOwnerId: string | undefined;
+        const read = (value: any): any => {
+          while (typeof value === "function") value = value();
+          return value;
+        };
+        const result = Loading({
+          fallback: "loading",
+          get children() {
+            childOwnerId = (getOwner() as any)?.id;
+            return "ok";
+          }
+        });
+        expect(childOwnerId).toBe("t");
+        expect(typeof result === "function" ? (result as any)() : result).toBe("ok");
+      },
+      { id: "t" }
+    );
+  });
+
+  test("Errored inside Loading only adds Errored depth without SSR context", () => {
+    createRoot(
+      () => {
+        let childOwnerId: string | undefined;
+        const read = (value: any): any => {
+          while (typeof value === "function") value = value();
+          return value;
+        };
+        const result = Loading({
+          fallback: "loading",
+          get children() {
+            return Errored({
+              fallback: "error",
+              get children() {
+                childOwnerId = (getOwner() as any)?.id;
+                return "ok";
+              }
+            }) as any;
+          }
+        });
+        expect(childOwnerId).toBe("t0");
+        expect(read(result)).toBe("ok");
       },
       { id: "t" }
     );

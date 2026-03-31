@@ -212,6 +212,15 @@ function syncThenable(value: any) {
   };
 }
 
+const NO_HYDRATED_VALUE = Symbol("NO_HYDRATED_VALUE");
+
+function readHydratedValue(initP: any, refresh: () => void) {
+  if (initP == null) return NO_HYDRATED_VALUE;
+  refresh();
+  if (typeof initP === "object" && initP.s === 2) throw initP.v;
+  return initP?.v ?? initP;
+}
+
 function forwardIteratorReturn(it: any, value?: any) {
   const returned = it.return?.(value);
   return returned && typeof returned.then === "function"
@@ -314,6 +323,9 @@ function createShadowDraft(realDraft: any) {
 function wrapFirstYield(iterable: any, activate: () => void) {
   const srcIt = iterable[Symbol.asyncIterator]();
   let first = true;
+  onCleanup(() => {
+    forwardIteratorReturn(srcIt);
+  });
   return {
     [Symbol.asyncIterator]() {
       return {
@@ -349,6 +361,9 @@ function hydrateSignalFromAsyncIterable(
   if (!isAsyncIterable(loaded)) return null;
 
   const it = normalizeIterator(loaded[Symbol.asyncIterator]());
+  onCleanup(() => {
+    forwardIteratorReturn(it);
+  });
   const iterable = {
     [Symbol.asyncIterator]() {
       return it;
@@ -367,6 +382,10 @@ function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, opti
   const srcIt = loaded[Symbol.asyncIterator]();
   let isFirst = true;
   let buffered: any = null;
+  onCleanup(() => {
+    buffered = null;
+    forwardIteratorReturn(srcIt);
+  });
   return coreFn(
     (draft: any) => {
       const process = (res: any) => {
@@ -478,8 +497,8 @@ function hydratedCreateMemo(compute: any, value?: any, options?: any) {
       if (!sharedConfig.hydrating) return compute(prev);
       let initP: any;
       if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = initP?.v ?? initP;
-      return init != null ? (subFetch(compute, prev), init) : compute(prev);
+      const init = readHydratedValue(initP, () => subFetch(compute, prev));
+      return init !== NO_HYDRATED_VALUE ? init : compute(prev);
     },
     value,
     options
@@ -528,8 +547,8 @@ function hydratedCreateSignal(fn?: any, second?: any, third?: any) {
       const o = getOwner()!;
       let initP: any;
       if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = initP?.v ?? initP;
-      return init != null ? (subFetch(fn, prev), init) : fn(prev);
+      const init = readHydratedValue(initP, () => subFetch(fn, prev));
+      return init !== NO_HYDRATED_VALUE ? init : fn(prev);
     },
     second,
     third
@@ -609,8 +628,8 @@ function hydratedCreateOptimistic(fn?: any, second?: any, third?: any) {
       if (!sharedConfig.hydrating) return fn(prev);
       let initP: any;
       if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = initP?.v ?? initP;
-      return init != null ? (subFetch(fn, prev), init) : fn(prev);
+      const init = readHydratedValue(initP, () => subFetch(fn, prev));
+      return init !== NO_HYDRATED_VALUE ? init : fn(prev);
     },
     second,
     third
@@ -623,8 +642,8 @@ function wrapStoreFn(fn: any) {
     if (!sharedConfig.hydrating) return fn(draft);
     let initP: any;
     if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-    const init = initP?.v ?? initP;
-    return init != null ? (subFetch(fn, draft), init) : fn(draft);
+    const init = readHydratedValue(initP, () => subFetch(fn, draft));
+    return init !== NO_HYDRATED_VALUE ? init : fn(draft);
   };
 }
 
@@ -656,11 +675,8 @@ function hydrateStoreLikeFn(
         if (!hydrated()) {
           if (sharedConfig.has!(o.id!)) {
             const initP = sharedConfig.load!(o.id!);
-            const init = initP?.v ?? initP;
-            if (init != null) {
-              subFetch(fn, draft);
-              return init;
-            }
+            const init = readHydratedValue(initP, () => subFetch(fn, draft));
+            if (init !== NO_HYDRATED_VALUE) return init;
           }
           return fn(draft);
         }
@@ -754,8 +770,8 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: a
       if (!sharedConfig.hydrating) return compute(prev);
       let initP: any;
       if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = initP?.v ?? initP;
-      return init != null ? (subFetch(compute, prev), init) : compute(prev);
+      const init = readHydratedValue(initP, () => subFetch(compute, prev));
+      return init !== NO_HYDRATED_VALUE ? init : compute(prev);
     },
     effectFn,
     value,
@@ -954,8 +970,8 @@ export function createLoadingBoundary(
       let ref = sharedConfig.load!(id);
       let p: Promise<any> | any;
       if (ref) {
-        if (typeof ref !== "object" || ref.s !== 1) p = ref;
-        else sharedConfig.gather!(id);
+        if (typeof ref !== "object" || ref.s == null) p = ref;
+        else if (ref.s === 1 || ref.s === 2) sharedConfig.gather!(id);
       }
       if (p) {
         _pendingBoundaries++;
@@ -967,13 +983,18 @@ export function createLoadingBoundary(
         if (p !== "$$f") {
           const waitFor = assetPromise ? Promise.all([p, assetPromise]) : p;
           waitFor.then(
-            () => resumeBoundaryHydration(o, id, set),
+            () => {
+              if (p && typeof p === "object") {
+                p.s = 1;
+              }
+              resumeBoundaryHydration(o, id, set);
+            },
             (err: any) => {
-              _pendingBoundaries--;
-              checkHydrationComplete();
-              runWithOwner(o as Owner, () => {
-                throw err;
-              });
+              if (p && typeof p === "object") {
+                p.s = 2;
+                p.v = err;
+              }
+              resumeBoundaryHydration(o, id, set);
             }
           );
         } else {

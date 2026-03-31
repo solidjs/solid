@@ -54,7 +54,14 @@ export function createLoadingBoundary(fn: () => any, fallback: () => any): () =>
   let serializeBuffer: [string, any, boolean?][] = [];
   const origSerialize = ctx.serialize;
 
+  function flushSerializeBuffer() {
+    for (const args of serializeBuffer) origSerialize(args[0], args[1], args[2]);
+    serializeBuffer = [];
+  }
+
   function runInitially(): SSRTemplateObject {
+    const prevCtx = sharedConfig.context;
+    sharedConfig.context = ctx;
     // Dispose children from previous attempt — signals now resets _childCount on dispose
     // so IDs are stable across re-render attempts.
     o.dispose(false);
@@ -66,16 +73,20 @@ export function createLoadingBoundary(fn: () => any, fallback: () => any): () =>
     };
     const prevBoundary = ctx!._currentBoundaryId;
     ctx!._currentBoundaryId = id;
-    const result = runWithOwner(o, () => {
-      try {
-        return ctx!.resolve(fn());
-      } catch (err) {
-        runPromise = ssrHandleError(err);
-      }
-    }) as any;
-    ctx!._currentBoundaryId = prevBoundary;
-    ctx!.serialize = origSerialize;
-    return result;
+    try {
+      const result = runWithOwner(o, () => {
+        try {
+          return ctx!.resolve(fn());
+        } catch (err) {
+          runPromise = ssrHandleError(err);
+        }
+      }) as any;
+      return result;
+    } finally {
+      ctx!._currentBoundaryId = prevBoundary;
+      ctx!.serialize = origSerialize;
+      sharedConfig.context = prevCtx;
+    }
   }
 
   let ret = runInitially();
@@ -89,7 +100,6 @@ export function createLoadingBoundary(fn: () => any, fallback: () => any): () =>
   }
 
   const fallbackOwner = createOwner({ id });
-  getNextChildId(fallbackOwner); // move counter forward
 
   if (ctx.async) {
     const done = ctx.registerFragment(id);
@@ -97,16 +107,23 @@ export function createLoadingBoundary(fn: () => any, fallback: () => any): () =>
       try {
         while (runPromise) {
           o.dispose(false);
-          await runPromise;
+          try {
+            await runPromise;
+          } catch {}
           runPromise = undefined;
           ret = runInitially();
         }
-        for (const args of serializeBuffer) origSerialize(args[0], args[1], args[2]);
-        serializeBuffer = [];
+        flushSerializeBuffer();
         while (ret.p.length) {
-          await Promise.all(ret.p);
-          ret = runWithOwner(o, () => ctx.ssr(ret.t, ...ret.h)) as any;
+          let rejected = false;
+          try {
+            await Promise.all(ret.p);
+          } catch {
+            rejected = true;
+          }
+          ret = rejected ? runInitially() : ((runWithOwner(o, () => ctx.ssr(ret.t, ...ret.h)) as any));
         }
+        flushSerializeBuffer();
         done!(ret.t[0]);
       } catch (err) {
         done!(undefined, err);
@@ -120,8 +137,7 @@ export function createLoadingBoundary(fn: () => any, fallback: () => any): () =>
   }
 
   // Non-async fallback: flush buffered serializations
-  for (const args of serializeBuffer) origSerialize(args[0], args[1], args[2]);
-  serializeBuffer = [];
+  flushSerializeBuffer();
   const modules = ctx.getBoundaryModules?.(id);
   if (modules) ctx.serialize(id + "_assets", modules);
   ctx.serialize(id, "$$f");

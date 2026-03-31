@@ -195,7 +195,10 @@ export function createMemo<Next extends Prev, Init, Prev>(
       processResult(comp, result, owner, ctx, options?.deferStream, options?.ssrSource);
     } catch (err) {
       if (err instanceof NotReadyError) {
-        (err as any).source?.then(() => update());
+        (err as any).source?.then(
+          () => update(),
+          () => update()
+        );
       }
       comp.error = err;
       comp.computed = true;
@@ -316,6 +319,15 @@ function processResult<T>(
   const noHydrate = getContext(NoHydrateContext, owner);
 
   if (result instanceof Promise) {
+    if ((result as any).s === 1) {
+      comp.value = (result as any).v;
+      comp.error = undefined;
+      return;
+    }
+    if ((result as any).s === 2) {
+      comp.error = (result as any).v;
+      return;
+    }
     result.then(
       (v: T) => {
         (result as any).s = 1;
@@ -324,7 +336,12 @@ function processResult<T>(
         comp.value = v;
         comp.error = undefined;
       },
-      () => {}
+      (err: any) => {
+        (result as any).s = 2;
+        (result as any).v = err;
+        if (comp.disposed) return;
+        comp.error = err;
+      }
     );
     if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, result, deferStream);
     if (uninitialized) {
@@ -823,25 +840,35 @@ export function createErrorBoundary<U>(
   fallback: (error: unknown, reset: () => void) => U
 ): () => unknown {
   const ctx = sharedConfig.context;
-  const owner = createOwner();
-  // Match client's decision computed (sibling of owner in parent scope)
   const parent = getOwner();
-  if (parent?.id != null) getNextChildId(parent);
-  // Match client's computed(fn) depth inside the boundary owner
-  (owner as any).id = owner.id + "0";
+  const owner = createOwner();
   return runWithOwner(owner, () => {
     let result: any;
+    let handled = false;
+    const renderFallback = (err: any) =>
+      ctx
+        ? runWithOwner(parent!, () => {
+            const fallbackOwner = createOwner();
+            return runWithOwner(fallbackOwner, () => fallback(err, () => {}));
+          })
+        : fallback(err, () => {});
 
     setContext(ErrorContext, (err: any) => {
       if (ctx && !getContext(NoHydrateContext) && owner.id) ctx.serialize(owner.id, err);
-      result = fallback(err, () => {});
+      result = renderFallback(err);
+      handled = true;
+      throw err;
     });
 
     try {
-      result = fn();
+      if (ctx) {
+        const childOwner = createOwner();
+        result = ctx.resolve(runWithOwner(childOwner, fn));
+      } else result = fn();
     } catch (err) {
-      if (ctx && !getContext(NoHydrateContext) && owner.id) ctx.serialize(owner.id, err);
-      result = fallback(err, () => {});
+      if (!handled && ctx && !getContext(NoHydrateContext) && owner.id)
+        ctx.serialize(owner.id, err);
+      if (!handled) result = renderFallback(err);
     }
     return () => result;
   });

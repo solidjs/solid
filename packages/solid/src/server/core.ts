@@ -1,4 +1,4 @@
-import { createMemo, createRoot, setContext, getContext, flatten } from "./signals.js";
+import { createMemo, createRoot, setContext, getContext, flatten, getOwner, runWithOwner } from "./signals.js";
 import type { Accessor, EffectOptions } from "./signals.js";
 import type { JSX } from "../jsx.js";
 import type { FlowComponent, FlowProps } from "./component.js";
@@ -81,5 +81,9 @@ export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
 export function ssrRunInScope(fn: () => any): () => any;
 export function ssrRunInScope(array: (() => any)[]): (() => any)[];
 export function ssrRunInScope(fn: (() => any) | (() => any)[]): (() => any) | (() => any)[] {
-  return fn;
+  const owner = getOwner();
+  if (!owner) return fn;
+  return Array.isArray(fn)
+    ? fn.map(hole => () => runWithOwner(owner, hole))
+    : () => runWithOwner(owner, fn);
 }

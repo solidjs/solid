@@ -6,6 +6,7 @@ import Profile from "./Profile";
 const Home = lazy(() => import("./Home"), "./Home");
 const Settings = lazy(() => import("./Settings"), "./Settings");
 const Stream = lazy(() => import("./Stream"), "./Stream");
+const ErrorStream = lazy(() => import("./ErrorStream"), "./ErrorStream");
 
 const App = RouteHOC(() => {
   const [location, { matches }] = useContext(RouterContext);
@@ -33,6 +34,9 @@ const App = RouteHOC(() => {
             <li class={{ selected: matches("stream") }}>
               <Link path="stream">Stream</Link>
             </li>
+            <li class={{ selected: matches("error-stream") }}>
+              <Link path="error-stream">Error Stream</Link>
+            </li>
           </ul>
           <div class={["tab", { pending: isPending(location) }]}>
             <Loading fallback={<span class="loader">Loading...</span>}>
@@ -48,6 +52,9 @@ const App = RouteHOC(() => {
                 </Match>
                 <Match when={matches("stream")}>
                   <Stream />
+                </Match>
+                <Match when={matches("error-stream")}>
+                  <ErrorStream />
                 </Match>
               </Switch>
             </Loading>

@@ -1,6 +1,5 @@
 import express from "express";
 import url from "url";
-import { readFileSync } from "fs";
 
 import { renderToStream } from "@solidjs/web";
 import App from "../shared/src/components/App";

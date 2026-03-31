@@ -9,9 +9,11 @@ import {
   getOwner,
   For,
   Show,
-  Errored
+  Errored,
+  ssrRunInScope
 } from "../../src/server/index.js";
-import { Loading, ssrHandleError } from "../../src/server/hydration.js";
+import { ssrHandleError } from "../../src/server/hydration.js";
+import { Loading } from "../../src/server/flow.js";
 import { sharedConfig } from "../../src/server/shared.js";
 import { createErrorBoundary } from "../../src/server/signals.js";
 
@@ -226,9 +228,10 @@ describe("Loading SSR Async", () => {
       );
 
       // Should return fallback with placeholder markers
-      expect(result.t[0]).toContain("Loading...");
-      expect(result.t[0]).toMatch(/<template id="pl-[^"]+"><\/template>/);
-      expect(result.t[0]).toMatch(/<!--pl-[^-]+-->/);
+      const html = result().t[0];
+      expect(html).toContain("Loading...");
+      expect(html).toMatch(/<template id="pl-[^"]+"><\/template>/);
+      expect(html).toMatch(/<!--pl-[^-]+-->/);
 
       // Resolve the async value
       d.resolve("Hello World");
@@ -260,9 +263,10 @@ describe("Loading SSR Async", () => {
         { id: "t" }
       );
 
-      expect(result.t[0]).toContain("Loading...");
-      expect(result.t[0]).toMatch(/<template id="pl-[^"]+"><\/template>/);
-      expect(result.t[0]).toMatch(/<!--pl-[^-]+-->/);
+      const html = result().t[0];
+      expect(html).toContain("Loading...");
+      expect(html).toMatch(/<template id="pl-[^"]+"><\/template>/);
+      expect(html).toMatch(/<!--pl-[^-]+-->/);
 
       d.resolve("Hello World");
       await tick();
@@ -293,8 +297,9 @@ describe("Loading SSR Async", () => {
       // No fragments registered — sync path
       expect(registeredFragments.size).toBe(0);
       // Result should contain the children, not the fallback
-      expect(result.t[0]).toBe("<div>Hello</div>");
-      expect(result.t[0]).not.toContain("Loading...");
+      const html = result().t[0];
+      expect(html).toBe("<div>Hello</div>");
+      expect(html).not.toContain("Loading...");
     });
 
     test("done callback receives the fully resolved HTML", async () => {
@@ -362,7 +367,7 @@ describe("Loading SSR Async", () => {
       );
 
       // Should be in async/fallback mode
-      expect(result.t[0]).toContain("Loading...");
+      expect(result().t[0]).toContain("Loading...");
 
       // Resolve both
       dA.resolve("Alpha");
@@ -449,7 +454,7 @@ describe("Loading SSR Async", () => {
       expect(registeredFragments.size).toBe(1);
 
       // Outer boundary passes through — result is inner's fallback (not outer's)
-      const html = result.t[0];
+      const html = result().t[0];
       expect(html).toContain("Inner loading");
       expect(html).not.toContain("Outer loading");
       expect(html).toMatch(/pl-/); // inner's placeholder markers
@@ -560,7 +565,7 @@ describe("Loading SSR Async", () => {
 
       // Show returns fallback (sync) — no async detected
       expect(registeredFragments.size).toBe(0);
-      expect(result.t[0]).toBe("<span>No data</span>");
+      expect(result().t[0]).toBe("<span>No data</span>");
     });
   });
 
@@ -799,7 +804,7 @@ describe("Loading SSR Async", () => {
       // Should have rendered once (and thrown)
       expect(renderCount).toBe(1);
       // Should return fallback
-      expect(result.t[0]).toContain("Loading...");
+      expect(result().t[0]).toContain("Loading...");
 
       d.resolve("Hello World");
       await tick();
@@ -902,8 +907,9 @@ describe("Loading SSR Async", () => {
 
       // Errored catches sync error → renders fallback → Loading sees sync content
       expect(registeredFragments.size).toBe(0);
-      expect(result.t[0]).toContain("Error caught!");
-      expect(result.t[0]).not.toContain("Loading...");
+      const html = result().t[0];
+      expect(html).toContain("Error caught!");
+      expect(html).not.toContain("Loading...");
 
       // Error should be serialized via ctx.serialize for client hydration
       const serializedValues = [...serialized.values()];
@@ -911,8 +917,8 @@ describe("Loading SSR Async", () => {
       expect(hasError).toBe(true);
     });
 
-    test("Errored inside Loading — async rejection serialized via done", async () => {
-      const { context, registeredFragments, fragmentResults, fragmentErrors } =
+    test("Errored inside Loading — async rejection resolves to error fallback HTML", async () => {
+      const { context, registeredFragments, fragmentResults, fragmentErrors, serialized } =
         createMockSSRContext();
       sharedConfig.context = context;
 
@@ -927,7 +933,10 @@ describe("Loading SSR Async", () => {
                 fallback: "Error caught!",
                 get children() {
                   const data = createMemo(() => d.promise);
-                  return ssr(["<div>", "</div>"], () => data()) as any;
+                  return ssr(
+                    ["<div>", "</div>"],
+                    ssrRunInScope(() => data())
+                  ) as any;
                 }
               }) as any;
             }
@@ -942,12 +951,62 @@ describe("Loading SSR Async", () => {
       d.reject(fetchError);
       await tick();
 
-      // ErrorContext is NOT active during IIFE hole re-execution.
-      // IIFE catch fires → done(undefined, err) → error serialized.
       expect(fragmentResults.size).toBe(1);
-      expect([...fragmentResults.values()][0]).toBeUndefined();
-      expect(fragmentErrors.size).toBe(1);
-      expect([...fragmentErrors.values()][0]).toBe(fetchError);
+      expect([...fragmentResults.values()][0]).toBe("Error caught!");
+      expect(fragmentErrors.size).toBe(0);
+      expect([...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")).toBe(
+        true
+      );
+    });
+
+
+    test("Loading with nested Errored resolves mixed success and error content", async () => {
+      const { context, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext();
+      sharedConfig.context = context;
+
+      const good = deferred<{ title: string }>();
+      const bad = deferred<{ title: string }>();
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              const Item = (props: { value: Promise<{ title: string }> }) => {
+                const item = createMemo(() => props.value);
+                return Errored({
+                  fallback: (e: any) => `ItemError: ${String(e.message || e)}`,
+                  get children() {
+                    return ssr(
+                      ["<div>", "</div>"],
+                      ssrRunInScope(() => item().title)
+                    ) as any;
+                  }
+                }) as any;
+              };
+
+              return ssr(
+                ["<section>", "", "</section>"],
+                [Item({ value: good.promise }), Item({ value: bad.promise })]
+              ) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(1);
+
+      good.resolve({ title: "Test Item" });
+      bad.reject(new Error("Item bad-item not found"));
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBe(
+        "<section><div>Test Item</div><!--!$-->ItemError: Item bad-item not found</section>"
+      );
+      expect(fragmentErrors.size).toBe(0);
     });
 
     test("No Errored — sync error during initial render propagates up", () => {
@@ -1096,6 +1155,39 @@ describe("Loading SSR Async", () => {
   // --------------------------------------------------------------------------
 
   describe("ID Stability", () => {
+    test("SSR context: Loading -> Errored children match hydrated owner depth", () => {
+      const { context } = createMockSSRContext({ async: false });
+      sharedConfig.context = context;
+
+      let childOwnerId: string | undefined;
+      let memoOwnerId: string | undefined;
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              return Errored({
+                fallback: "error",
+                get children() {
+                  childOwnerId = getOwner()!.id!;
+                  const item = createMemo(() => {
+                    memoOwnerId = getOwner()!.id!;
+                    return "resolved";
+                  });
+                  return item() as any;
+                }
+              }) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(childOwnerId).toBe("t00000");
+      expect(memoOwnerId).toBe("t000000");
+    });
+
     test("hole path: memo owners persist across re-execution (IDs inherently stable)", async () => {
       const { context, serialized, fragmentResults } = createMockSSRContext();
       sharedConfig.context = context;
@@ -1222,7 +1314,7 @@ describe("Loading SSR Async", () => {
       const serializedValues = [...serialized.values()];
       expect(serializedValues).toContain("$$f");
       // Result should be the fallback content
-      expect(result).toBe("Fallback");
+      expect(result()).toBe("Fallback");
     });
   });
 });
@@ -3450,7 +3542,7 @@ describe("lazy() single-render in Loading", () => {
       { id: "t" }
     );
 
-    expect(result.t[0]).toContain("Loading...");
+    expect(result().t[0]).toContain("Loading...");
     expect(componentRunCount).toBe(0);
 
     dModule.resolve({ default: Comp });
@@ -3537,7 +3629,7 @@ describe("lazy() single-render in Loading", () => {
       { id: "t" }
     );
 
-    expect(result.t[0]).toContain("Loading...");
+    expect(result().t[0]).toContain("Loading...");
     expect(dataComputeCount).toBe(1);
 
     dModule.resolve({ default: View });
@@ -3608,7 +3700,7 @@ describe("lazy() single-render in Loading", () => {
       { id: "t" }
     );
 
-    expect(result.t[0]).toContain("Loading...");
+    expect(result().t[0]).toContain("Loading...");
     expect(userComputeCount).toBe(1);
     // info's compute calls user() which throws NotReadyError before incrementing
     expect(infoComputeCount).toBe(0);

@@ -5,6 +5,7 @@ import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import {
   createRoot,
   flush,
+  getOwner,
   createSignal as coreSignal,
   createMemo as coreMemo
 } from "@solidjs/signals";
@@ -17,11 +18,10 @@ import {
   createProjection,
   createStore,
   createOptimisticStore,
-  onHydrationEnd,
-  Loading
+  onHydrationEnd
 } from "../src/client/hydration.js";
 import { lazy } from "../src/client/component.js";
-import { Errored } from "../src/client/flow.js";
+import { Errored, Loading } from "../src/client/flow.js";
 
 // Enable the hydration-aware wrappers
 enableHydration();
@@ -93,10 +93,11 @@ describe("Error Boundary Hydration", () => {
     startHydration({ t0: new Error("server error") });
 
     let result: any;
+    let read!: () => unknown;
     let resetFn: (() => void) | undefined;
     createRoot(
       () => {
-        const read = createErrorBoundary(
+        read = createErrorBoundary(
           () => "recovered content",
           (err: any, reset) => {
             resetFn = reset;
@@ -117,11 +118,7 @@ describe("Error Boundary Hydration", () => {
     stopHydration();
     resetFn!();
     flush();
-
-    // Re-read the boundary output
-    // The boundary should have recomputed to show children
-    // Note: result variable won't auto-update since it's not reactive.
-    // We need to check the boundary's output via its accessor.
+    expect(read()).toBe("recovered content");
   });
 
   test("createErrorBoundary handles non-Error serialized values", () => {
@@ -274,6 +271,202 @@ describe("Error Boundary Hydration", () => {
     expect(memoResult).toBe(42);
     // Boundary should have loaded serialized error
     expect(boundaryResult).toBe("fallback: boundary error");
+  });
+
+  test("Errored shows async rejection fallback after Loading resolves during hydration", async () => {
+    startHydration({});
+    const read = (value: any): any => {
+      while (typeof value === "function") value = value();
+      return value;
+    };
+
+    const resolved = Promise.resolve({ title: "Test Item" });
+    const rejected = Promise.reject(new Error("Item bad-item not found"));
+    rejected.catch(() => {});
+
+    let result: any;
+    createRoot(
+      () => {
+        function Item(props: { value: Promise<{ title: string }> }) {
+          const item = createMemo(() => props.value);
+
+          return Loading({
+            fallback: "Item Loading..." as any,
+            get children() {
+              return Errored({
+                fallback: (e: any) => `ItemError: ${String(e.message || e)}`,
+                get children() {
+                  return item().title as any;
+                }
+              }) as any;
+            }
+          }) as any;
+        }
+
+        result = [Item({ value: resolved }), Item({ value: rejected })];
+      },
+      { id: "t" }
+    );
+
+    flush();
+    expect(read(result[0])).toBe("Item Loading...");
+    expect(read(result[1])).toBe("Item Loading...");
+
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(read(result[0])).toBe("Test Item");
+    expect(read(result[1])).toBe("ItemError: Item bad-item not found");
+  });
+
+  test("outer Errored catches late Loading rejection during hydration", async () => {
+    const rejected: any = new Promise((_, reject) => {
+      queueMicrotask(() => reject(new Error("Item bad-item not found")));
+    });
+    rejected.catch(() => {});
+    startHydration({ t100: rejected });
+
+    const read = (value: any): any => {
+      while (typeof value === "function") value = value();
+      return value;
+    };
+
+    let result: any;
+    createRoot(
+      () => {
+        const item = createMemo(() => rejected);
+
+        result = Errored({
+          fallback: (e: any) => `ItemError: ${String(e.message || e)}`,
+          get children() {
+            return Loading({
+              fallback: "Item Loading..." as any,
+              get children() {
+                return item().title as any;
+              }
+            }) as any;
+          }
+        }) as any;
+      },
+      { id: "t" }
+    );
+
+    flush();
+    expect(read(result)).toBe("Item Loading...");
+
+    await Promise.resolve();
+    rejected.s = 2;
+    rejected.v = new Error("Item bad-item not found");
+    hydrationData.t1 = rejected.v;
+    await Promise.resolve();
+    flush();
+
+    expect(read(result)).toBe("ItemError: Item bad-item not found");
+  });
+
+  test("Loading resumes inner Errored under server-aligned owner IDs", async () => {
+    let resolveLoading!: () => void;
+    const loading = new Promise<void>(r => {
+      resolveLoading = r;
+    });
+    startHydration({ t0: loading });
+
+    const read = (value: any): any => {
+      while (typeof value === "function") value = value();
+      return value;
+    };
+
+    let result: any;
+    let childOwnerId: string | undefined;
+    let memoOwnerId: string | undefined;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "Item Loading..." as any,
+          get children() {
+            return Errored({
+              fallback: () => "ItemError" as any,
+              get children() {
+                childOwnerId = getOwner()!.id!;
+                const item = createMemo(() => {
+                  memoOwnerId = getOwner()!.id!;
+                  return "Test Item";
+                });
+                return item() as any;
+              }
+            }) as any;
+          }
+        }) as any;
+      },
+      { id: "t" }
+    );
+
+    flush();
+    expect(read(result)).toBe("Item Loading...");
+
+    resolveLoading();
+    await new Promise<void>(r => setTimeout(r, 20));
+    flush();
+
+    expect(childOwnerId).toBe("t00000");
+    expect(memoOwnerId).toBe("t000000");
+    expect(read(result)).toBe("Test Item");
+  });
+
+  test("Loading inner Errored reset recovers after hydrated server error", async () => {
+    let resolveLoading!: () => void;
+    const loading = new Promise<void>(r => {
+      resolveLoading = r;
+    });
+    startHydration({ t0: loading, t0000: new Error("Item bad-item not found") });
+
+    const read = (value: any): any => {
+      while (typeof value === "function") value = value();
+      return value;
+    };
+
+    let result: any;
+    let resetFn: (() => void) | undefined;
+    let setId!: (value: string) => void;
+    createRoot(
+      () => {
+        const [id, _setId] = coreSignal("bad-item");
+        setId = _setId;
+
+        result = Loading({
+          fallback: "Item Loading..." as any,
+          get children() {
+            return Errored({
+              fallback: (e: any, reset) => {
+                resetFn = reset;
+                return `ItemError: ${String(e.message || e)}` as any;
+              },
+              get children() {
+                return (id() === "1" ? "Test Item" : "Bad Item") as any;
+              }
+            }) as any;
+          }
+        }) as any;
+      },
+      { id: "t" }
+    );
+
+    flush();
+    expect(read(result)).toBe("Item Loading...");
+
+    resolveLoading();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(read(result)).toBe("ItemError: Item bad-item not found");
+
+    setId("1");
+    resetFn!();
+    flush();
+
+    expect(read(result)).toBe("Test Item");
   });
 });
 
