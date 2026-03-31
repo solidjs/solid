@@ -121,7 +121,9 @@ export function createLoadingBoundary(fn: () => any, fallback: () => any): () =>
           } catch {
             rejected = true;
           }
-          ret = rejected ? runInitially() : ((runWithOwner(o, () => ctx.ssr(ret.t, ...ret.h)) as any));
+          ret = rejected
+            ? runInitially()
+            : (runWithOwner(o, () => ctx.ssr(ret.t, ...ret.h)) as any);
         }
         flushSerializeBuffer();
         done!(ret.t[0]);

@@ -954,11 +954,10 @@ describe("Loading SSR Async", () => {
       expect(fragmentResults.size).toBe(1);
       expect([...fragmentResults.values()][0]).toBe("Error caught!");
       expect(fragmentErrors.size).toBe(0);
-      expect([...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")).toBe(
-        true
-      );
+      expect(
+        [...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")
+      ).toBe(true);
     });
-
 
     test("Loading with nested Errored resolves mixed success and error content", async () => {
       const { context, registeredFragments, fragmentResults, fragmentErrors } =
