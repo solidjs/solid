@@ -323,9 +323,6 @@ function createShadowDraft(realDraft: any) {
 function wrapFirstYield(iterable: any, activate: () => void) {
   const srcIt = iterable[Symbol.asyncIterator]();
   let first = true;
-  onCleanup(() => {
-    forwardIteratorReturn(srcIt);
-  });
   return {
     [Symbol.asyncIterator]() {
       return {
@@ -361,9 +358,6 @@ function hydrateSignalFromAsyncIterable(
   if (!isAsyncIterable(loaded)) return null;
 
   const it = normalizeIterator(loaded[Symbol.asyncIterator]());
-  onCleanup(() => {
-    forwardIteratorReturn(it);
-  });
   const iterable = {
     [Symbol.asyncIterator]() {
       return it;
@@ -382,10 +376,6 @@ function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, opti
   const srcIt = loaded[Symbol.asyncIterator]();
   let isFirst = true;
   let buffered: any = null;
-  onCleanup(() => {
-    buffered = null;
-    forwardIteratorReturn(srcIt);
-  });
   return coreFn(
     (draft: any) => {
       const process = (res: any) => {
