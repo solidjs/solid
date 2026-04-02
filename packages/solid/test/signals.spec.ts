@@ -605,6 +605,25 @@ describe("catchError", () => {
     expect(errored).toBe(true);
   });
 
+  describe("Repeatedly read the signal", () => {
+  test("Signal repeated read in for loop", () => {
+    const a = createSignal(0);
+    const dispose = createRoot(dispose => {
+      createEffect(() => {
+        for (let i = 0; i < 1000; i++) {
+          a[0]();
+        }
+      });
+      return dispose;
+    });
+    expect((a as any).state.observers.length).toBe(1);
+    expect((a as any).state.observerSlots.length).toBe(1);
+    expect((a as any).state.observers[0].sources.length).toBe(1);
+    expect((a as any).state.observers[0].sourceSlots.length).toBe(1);
+    dispose();
+  });
+});
+
   test("In nested memo", () => {
     let errored = false;
     expect(() =>

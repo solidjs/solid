@@ -86,6 +86,7 @@ export interface SignalState<T> extends SourceMapValue {
   value: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
+  lastObserver: Computation<any> | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
   // development-only
@@ -157,17 +158,17 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
         ? { owned: null, cleanups: null, context: null, owner: null }
         : UNOWNED
       : {
-          owned: null,
-          cleanups: null,
-          context: current ? current.context : null,
-          owner: current
-        },
+        owned: null,
+        cleanups: null,
+        context: current ? current.context : null,
+        owner: current
+      },
     updateFn = unowned
       ? IS_DEV
         ? () =>
-            fn(() => {
-              throw new Error("Dispose method must be an explicit argument to createRoot function");
-            })
+          fn(() => {
+            throw new Error("Dispose method must be an explicit argument to createRoot function");
+          })
         : fn
       : () => fn(() => untrack(() => cleanNode(root)));
 
@@ -236,6 +237,7 @@ export function createSignal<T>(
     value,
     observers: null,
     observerSlots: null,
+    lastObserver: null,
     comparator: options.equals || undefined
   };
 
@@ -257,7 +259,10 @@ export function createSignal<T>(
     return writeSignal(s, value);
   };
 
-  return [readSignal.bind(s), setter];
+  const result = [readSignal.bind(s), setter] as Signal<T | undefined>;
+  if (IS_DEV) (result as any).state = s;
+
+  return result;
 }
 
 export interface BaseOptions {
@@ -269,7 +274,7 @@ export interface BaseOptions {
 // TypeScript Discord conversation: https://discord.com/channels/508357248330760243/508357248330760249/911266491024949328
 export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 
-export interface EffectOptions extends BaseOptions {}
+export interface EffectOptions extends BaseOptions { }
 
 // Also similar to OnEffectFunction
 export type EffectFunction<Prev, Next extends Prev = Prev> = (v: Prev) => Next;
@@ -386,15 +391,15 @@ export function createEffect<Next, Init>(
 export function createReaction(onInvalidate: () => void, options?: EffectOptions) {
   let fn: (() => void) | undefined;
   const c = createComputation(
-      () => {
-        fn ? fn() : untrack(onInvalidate);
-        fn = undefined;
-      },
-      undefined,
-      false,
-      0,
-      IS_DEV ? options : undefined
-    ),
+    () => {
+      fn ? fn() : untrack(onInvalidate);
+      fn = undefined;
+    },
+    undefined,
+    false,
+    0,
+    IS_DEV ? options : undefined
+  ),
     s = SuspenseContext && useContext(SuspenseContext);
   if (s) c.suspense = s;
   c.user = true;
@@ -700,15 +705,15 @@ export function createResource<T, S, R>(
       initP !== NO_INIT
         ? (initP as T | Promise<T>)
         : untrack(() => {
-            try {
-              return fetcher(lookup, {
-                value: value(),
-                refetching
-              });
-            } catch (fetcherError) {
-              error = fetcherError;
-            }
-          });
+          try {
+            return fetcher(lookup, {
+              value: value(),
+              refetching
+            });
+          } catch (fetcherError) {
+            error = fetcherError;
+          }
+        });
     if (error !== undefined) {
       loadEnd(pr, undefined, castError(error), lookup);
       return;
@@ -909,8 +914,8 @@ export function untrack<T>(fn: Accessor<T>): T {
 export type ReturnTypes<T> = T extends readonly Accessor<unknown>[]
   ? { [K in keyof T]: T[K] extends Accessor<infer I> ? I : never }
   : T extends Accessor<infer I>
-    ? I
-    : never;
+  ? I
+  : never;
 
 // transforms a tuple to a tuple of accessors in a way that allows generics to be inferred
 export type AccessorArray<T> = [...Extract<{ [K in keyof T]: Accessor<T[K]> }, readonly unknown[]>];
@@ -1305,7 +1310,8 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
       Updates = updates;
     }
   }
-  if (Listener) {
+  if (Listener && this.lastObserver !== Listener) {
+    this.lastObserver = Listener;
     const sSlot = this.observers ? this.observers.length : 0;
     if (!Listener.sources) {
       Listener.sources = [this];
@@ -1691,6 +1697,7 @@ function cleanNode(node: Owner) {
           source.observerSlots![index] = s;
         }
       }
+      source.lastObserver = null;
     }
   }
 
@@ -1771,10 +1778,10 @@ function createProvider(id: symbol, options?: EffectOptions) {
     let res;
     createRenderEffect(
       () =>
-        (res = untrack(() => {
-          Owner!.context = { ...Owner!.context, [id]: props.value };
-          return children(() => props.children);
-        })),
+      (res = untrack(() => {
+        Owner!.context = { ...Owner!.context, [id]: props.value };
+        return children(() => props.children);
+      })),
       undefined,
       options
     );
