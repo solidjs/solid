@@ -42,6 +42,7 @@ function stopHydration() {
   (sharedConfig as any).has = undefined;
   (sharedConfig as any).load = undefined;
   (sharedConfig as any).gather = undefined;
+  (sharedConfig as any).cleanupFragment = undefined;
 }
 
 describe("Error Boundary Hydration", () => {
@@ -320,7 +321,7 @@ describe("Error Boundary Hydration", () => {
     expect(read(result[1])).toBe("ItemError: Item bad-item not found");
   });
 
-  test("outer Errored catches late Loading rejection during hydration", async () => {
+  test("outer Errored catches late Loading rejection without serialized outer error", async () => {
     const rejected: any = new Promise((_, reject) => {
       queueMicrotask(() => reject(new Error("Item bad-item not found")));
     });
@@ -356,12 +357,10 @@ describe("Error Boundary Hydration", () => {
     expect(read(result)).toBe("Item Loading...");
 
     await Promise.resolve();
-    rejected.s = 2;
-    rejected.v = new Error("Item bad-item not found");
-    hydrationData.t1 = rejected.v;
     await Promise.resolve();
     flush();
 
+    expect(hydrationData.t1).toBeUndefined();
     expect(read(result)).toBe("ItemError: Item bad-item not found");
   });
 

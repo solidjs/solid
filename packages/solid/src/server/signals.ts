@@ -803,25 +803,25 @@ export function repeat<T>(
   options: { fallback?: Accessor<any>; from?: Accessor<number | undefined> } = {}
 ): () => T[] {
   const owner = createOwner(); // match client's createOwner inside repeat
-  const len = count();
-  const offset = options.from?.() || 0;
-  let s: T[] = [];
-  if (len) {
-    runWithOwner(owner, () => {
-      for (let i = 0; i < len; i++) {
+  return () => {
+    const len = count();
+    const offset = options.from?.() || 0;
+    if (!len) {
+      if (!options.fallback) return [];
+      return [
+        runWithOwner(owner, () => {
+          const fallbackOwner = createOwner();
+          return runWithOwner(fallbackOwner, () => options.fallback!()) as T;
+        }) as T
+      ];
+    }
+    return runWithOwner(owner, () =>
+      Array.from({ length: len }, (_, i) => {
         const itemOwner = createOwner();
-        s.push(runWithOwner(itemOwner, () => mapFn(i + offset)) as T);
-      }
-    });
-  } else if (options.fallback) {
-    s = [
-      runWithOwner(owner, () => {
-        const fo = createOwner();
-        return runWithOwner(fo, () => options.fallback!()) as T;
-      }) as T
-    ];
-  }
-  return () => s;
+        return runWithOwner(itemOwner, () => mapFn(i + offset)) as T;
+      })
+    );
+  };
 }
 
 // === Boundary primitives ===
@@ -832,6 +832,32 @@ const ErrorContext: Context<((err: any) => void) | null> = {
 };
 
 export { ErrorContext };
+export function runWithBoundaryErrorContext<T>(
+  owner: Owner,
+  render: () => T,
+  onError: (err: any, parentHandler: ((err: any) => void) | null) => void,
+  context?: NonNullable<typeof sharedConfig.context>,
+  boundaryId?: string
+): T {
+  const prevCtx = sharedConfig.context;
+  const prevBoundary = context?._currentBoundaryId;
+  if (context) {
+    sharedConfig.context = context;
+    if (boundaryId !== undefined) context._currentBoundaryId = boundaryId;
+  }
+  try {
+    return runWithOwner(owner, () => {
+      const parentHandler = getContext(ErrorContext);
+      setContext(ErrorContext, err => onError(err, parentHandler));
+      return render();
+    }) as T;
+  } finally {
+    if (context) {
+      if (boundaryId !== undefined) context._currentBoundaryId = prevBoundary;
+      sharedConfig.context = prevCtx;
+    }
+  }
+}
 
 export { NoHydrateContext };
 
@@ -842,36 +868,46 @@ export function createErrorBoundary<U>(
   const ctx = sharedConfig.context;
   const parent = getOwner();
   const owner = createOwner();
-  return runWithOwner(owner, () => {
+  const resolve = () => {
+    const resolved = ctx!.resolve(runWithOwner(createOwner(), fn));
+    if (resolved?.p?.length) throw new NotReadyError(Promise.all(resolved.p));
+    return resolved;
+  };
+  const renderFallback = (err: any) =>
+    ctx
+      ? runWithOwner(parent!, () => {
+          const fallbackOwner = createOwner();
+          return runWithOwner(fallbackOwner, () => fallback(err, () => {}));
+        })
+      : fallback(err, () => {});
+  const serializeError = (err: any) => {
+    if (ctx && owner.id && !runWithOwner(owner, () => getContext(NoHydrateContext))) {
+      ctx.serialize(owner.id, err);
+    }
+  };
+  const handleError = (err: any) => {
+    serializeError(err);
+    return renderFallback(err);
+  };
+  return () => {
     let result: any;
     let handled = false;
-    const renderFallback = (err: any) =>
-      ctx
-        ? runWithOwner(parent!, () => {
-            const fallbackOwner = createOwner();
-            return runWithOwner(fallbackOwner, () => fallback(err, () => {}));
-          })
-        : fallback(err, () => {});
-
-    setContext(ErrorContext, (err: any) => {
-      if (ctx && !getContext(NoHydrateContext) && owner.id) ctx.serialize(owner.id, err);
-      result = renderFallback(err);
-      handled = true;
-      throw err;
-    });
-
+    if (ctx) owner.dispose(false);
     try {
-      if (ctx) {
-        const childOwner = createOwner();
-        result = ctx.resolve(runWithOwner(childOwner, fn));
-      } else result = fn();
+      result = ctx
+        ? runWithBoundaryErrorContext(owner, resolve, err => {
+            if (err instanceof NotReadyError) throw err;
+            handled = true;
+            result = handleError(err);
+            throw err;
+          })
+        : runWithOwner(owner, fn);
     } catch (err) {
-      if (!handled && ctx && !getContext(NoHydrateContext) && owner.id)
-        ctx.serialize(owner.id, err);
-      if (!handled) result = renderFallback(err);
+      if (err instanceof NotReadyError) throw err;
+      result = handled ? result : handleError(err);
     }
-    return () => result;
-  });
+    return result;
+  };
 }
 
 export function createLoadingBoundary(

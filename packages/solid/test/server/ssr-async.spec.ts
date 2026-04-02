@@ -8,6 +8,7 @@ import {
   NotReadyError,
   getOwner,
   For,
+  Repeat,
   Show,
   Errored,
   ssrRunInScope
@@ -150,11 +151,12 @@ function deferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-function createMockSSRContext(options: { async?: boolean } = {}) {
+function createMockSSRContext(options: { async?: boolean; fragmentFlushed?: boolean } = {}) {
   const serialized = new Map<string, any>();
   const registeredFragments = new Set<string>();
   const fragmentResults = new Map<string, string | undefined>();
   const fragmentErrors = new Map<string, any>();
+  const fragmentFlushed = options.fragmentFlushed ?? true;
 
   const context: any = {
     async: options.async !== false,
@@ -172,9 +174,11 @@ function createMockSSRContext(options: { async?: boolean } = {}) {
     registerFragment(key: string) {
       registeredFragments.add(key);
       return (value?: string, error?: any) => {
-        fragmentResults.set(key, value);
-        if (error !== undefined) fragmentErrors.set(key, error);
-        return true;
+        if (fragmentFlushed) {
+          fragmentResults.set(key, value);
+          if (error !== undefined) fragmentErrors.set(key, error);
+        }
+        return fragmentFlushed;
       };
     }
   };
@@ -765,59 +769,6 @@ describe("Loading SSR Async", () => {
   });
 
   // --------------------------------------------------------------------------
-  // 6. Throw Path (boundary re-render)
-  // --------------------------------------------------------------------------
-
-  describe("Throw Path (boundary re-render)", () => {
-    test("direct memo read in component body triggers full re-render", async () => {
-      const { context, fragmentResults } = createMockSSRContext();
-      sharedConfig.context = context;
-
-      const d = deferred<string>();
-      let resolved = false;
-      d.promise.then(() => {
-        resolved = true;
-      });
-
-      let renderCount = 0;
-      let result: any;
-
-      createRoot(
-        () => {
-          result = Loading({
-            fallback: "Loading...",
-            get children() {
-              renderCount++;
-              const data = createMemo(() => {
-                if (resolved) return "Hello World";
-                return d.promise;
-              });
-              // Direct read in component body — NOT wrapped in template hole
-              const val = data();
-              return ssr(["<div>", "</div>"], val) as any;
-            }
-          });
-        },
-        { id: "t" }
-      );
-
-      // Should have rendered once (and thrown)
-      expect(renderCount).toBe(1);
-      // Should return fallback
-      expect(result().t[0]).toContain("Loading...");
-
-      d.resolve("Hello World");
-      await tick();
-
-      // Should have re-rendered (throw path calls runInitially again)
-      expect(renderCount).toBe(2);
-      // Fragment should resolve with correct content
-      expect(fragmentResults.size).toBe(1);
-      expect([...fragmentResults.values()][0]).toBe("<div>Hello World</div>");
-    });
-  });
-
-  // --------------------------------------------------------------------------
   // 7. Error Handling
   // --------------------------------------------------------------------------
 
@@ -959,6 +910,149 @@ describe("Loading SSR Async", () => {
       ).toBe(true);
     });
 
+    test("outer Errored claims late Loading rejection before flush", async () => {
+      const { context, fragmentResults, fragmentErrors, serialized } = createMockSSRContext({
+        fragmentFlushed: false
+      });
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+      let fallbackCalls = 0;
+      let result: any;
+      const read = (value: any): any => {
+        while (typeof value === "function") value = value();
+        return value;
+      };
+
+      createRoot(
+        () => {
+          result = Errored({
+            fallback: (e: any) => {
+              fallbackCalls++;
+              return `OuterError: ${String(e.message || e)}`;
+            },
+            get children() {
+              return Loading({
+                fallback: "Loading..." as any,
+                get children() {
+                  const data = createMemo(() => d.promise);
+                  return ssr(
+                    ["<div>", "</div>"],
+                    ssrRunInScope(() => data())
+                  ) as any;
+                }
+              }) as any;
+            }
+          }) as any;
+        },
+        { id: "t" }
+      );
+
+      expect(read(result).t[0]).toContain("Loading...");
+
+      const fetchError = new Error("Async fetch failed");
+      d.reject(fetchError);
+      await tick();
+
+      expect(fallbackCalls).toBe(1);
+      expect(read(result)).toBe("OuterError: Async fetch failed");
+      expect(fragmentResults.size).toBe(0);
+      expect(fragmentErrors.size).toBe(0);
+      expect(
+        [...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")
+      ).toBe(true);
+    });
+
+    test("outer Errored stays out of post-flush Loading rejection ownership", async () => {
+      const { context, fragmentResults, fragmentErrors, serialized } = createMockSSRContext({
+        fragmentFlushed: true
+      });
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+      let fallbackCalls = 0;
+      let result: any;
+      const read = (value: any): any => {
+        while (typeof value === "function") value = value();
+        return value;
+      };
+
+      createRoot(
+        () => {
+          result = Errored({
+            fallback: (e: any) => {
+              fallbackCalls++;
+              return `OuterError: ${String(e.message || e)}`;
+            },
+            get children() {
+              return Loading({
+                fallback: "Loading..." as any,
+                get children() {
+                  const data = createMemo(() => d.promise);
+                  return ssr(
+                    ["<div>", "</div>"],
+                    ssrRunInScope(() => data())
+                  ) as any;
+                }
+              }) as any;
+            }
+          }) as any;
+        },
+        { id: "t" }
+      );
+
+      expect(read(result).t[0]).toContain("Loading...");
+
+      const fetchError = new Error("Async fetch failed");
+      d.reject(fetchError);
+      await tick();
+
+      expect(fallbackCalls).toBe(0);
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBeUndefined();
+      expect(fragmentErrors.size).toBe(1);
+      expect([...fragmentErrors.values()][0]).toBe(fetchError);
+      expect(
+        [...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")
+      ).toBe(false);
+    });
+
+    test("outer Errored catches invalid top-level async read during Loading discovery", () => {
+      const { context, registeredFragments } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+      let result: any;
+      const read = (value: any): any => {
+        while (typeof value === "function") value = value();
+        return value;
+      };
+
+      createRoot(
+        () => {
+          result = Errored({
+            fallback: (e: any) => `OuterError: ${String(e.message || e)}`,
+            get children() {
+              return Loading({
+                fallback: "Loading..." as any,
+                get children() {
+                  const data = createMemo(() => d.promise);
+                  const value = data();
+                  return ssr(["<div>", "</div>"], value) as any;
+                }
+              }) as any;
+            }
+          }) as any;
+        },
+        { id: "t" }
+      );
+
+      expect(read(result)).toBe(
+        "OuterError: Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
+      );
+      expect(registeredFragments.size).toBe(0);
+    });
+
     test("Loading with nested Errored resolves mixed success and error content", async () => {
       const { context, registeredFragments, fragmentResults, fragmentErrors } =
         createMockSSRContext();
@@ -1008,6 +1102,55 @@ describe("Loading SSR Async", () => {
       expect(fragmentErrors.size).toBe(0);
     });
 
+    test("Loading with createProjection and Repeat count resolves async iterable content", async () => {
+      const { context, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext();
+      sharedConfig.context = context;
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              const items = createProjection(
+                async function* (s) {
+                  s.push({ id: 1, text: "First item" });
+                  yield;
+                  s.push({ id: 2, text: "Second item" });
+                  yield;
+                },
+                [] as { id: number; text: string }[]
+              );
+
+              return ssr(
+                ["<ul>", "</ul>"],
+                Repeat({
+                  get count() {
+                    return items.length;
+                  },
+                  children: i =>
+                    ssr(
+                      ["<li>", ": ", "</li>"],
+                      () => items[i].id,
+                      () => items[i].text
+                    ) as any
+                })
+              ) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(1);
+      await tick();
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBe("<ul><li>1: First item</li></ul>");
+      expect(fragmentErrors.size).toBe(0);
+    });
+
     test("No Errored — sync error during initial render propagates up", () => {
       const { context } = createMockSSRContext();
       sharedConfig.context = context;
@@ -1026,48 +1169,6 @@ describe("Loading SSR Async", () => {
           { id: "t" }
         );
       }).toThrow("Unhandled sync error");
-    });
-
-    test("Throw path — error during re-render after async resolution", async () => {
-      const { context, fragmentResults, fragmentErrors } = createMockSSRContext();
-      sharedConfig.context = context;
-
-      const d = deferred<string>();
-      let resolved = false;
-      d.promise.then(() => {
-        resolved = true;
-      });
-
-      createRoot(
-        () => {
-          Loading({
-            fallback: "Loading...",
-            get children() {
-              const data = createMemo(() => {
-                if (resolved) return "resolved";
-                return d.promise;
-              });
-              // Direct read — throw path
-              const val = data();
-              if (resolved) {
-                // On re-render after resolution, throw a regular error
-                throw new Error("Re-render explosion");
-              }
-              return ssr(["<div>", "</div>"], val) as any;
-            }
-          });
-        },
-        { id: "t" }
-      );
-
-      d.resolve("resolved");
-      await tick();
-
-      // IIFE catch fires → done(undefined, err) → error serialized
-      expect(fragmentResults.size).toBe(1);
-      expect([...fragmentResults.values()][0]).toBeUndefined();
-      expect(fragmentErrors.size).toBe(1);
-      expect(([...fragmentErrors.values()][0] as Error).message).toBe("Re-render explosion");
     });
 
     test("Mixed: some holes resolve, then one errors", async () => {
@@ -1226,57 +1327,6 @@ describe("Loading SSR Async", () => {
 
       // Verify serialized IDs are consistent
       expect(serialized.size).toBeGreaterThan(0);
-    });
-
-    test("throw path: IDs are stable across boundary re-renders", async () => {
-      const { context, fragmentResults } = createMockSSRContext();
-      sharedConfig.context = context;
-
-      const d = deferred<string>();
-      let resolved = false;
-      d.promise.then(() => {
-        resolved = true;
-      });
-
-      const allMemoIds: string[][] = [];
-
-      createRoot(
-        () => {
-          Loading({
-            fallback: "Loading...",
-            get children() {
-              const memoIds: string[] = [];
-
-              const a = createMemo(() => {
-                memoIds.push(getOwner()!.id!);
-                return "static";
-              });
-
-              const b = createMemo(() => {
-                memoIds.push(getOwner()!.id!);
-                if (resolved) return "resolved";
-                return d.promise;
-              });
-
-              allMemoIds.push(memoIds);
-
-              // Direct read — throw path
-              const val = b();
-              return ssr(["<div>", "-", "</div>"], () => a(), val) as any;
-            }
-          });
-        },
-        { id: "t" }
-      );
-
-      d.resolve("resolved");
-      await tick();
-
-      // Should have been called twice (initial throw + successful re-render)
-      expect(allMemoIds.length).toBe(2);
-      // IDs should be identical — dispose resets _childCount so sequential
-      // IDs are regenerated in the same order
-      expect(allMemoIds[0]).toEqual(allMemoIds[1]);
     });
   });
 

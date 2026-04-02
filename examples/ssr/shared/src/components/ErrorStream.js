@@ -21,7 +21,7 @@ function InnerBoundaryItem(props) {
             <button
               onClick={() => {
                 setId("1");
-                reset();
+                queueMicrotask(reset);
               }}
             >
               Reset to valid item

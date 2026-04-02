@@ -129,6 +129,7 @@ function drainHydrationCallbacks() {
   setTimeout(() => {
     if (IS_DEV && sharedConfig.verifyHydration) sharedConfig.verifyHydration();
     if ((globalThis as any)._$HY) (globalThis as any)._$HY.done = true;
+    sharedConfig.registry?.clear();
   });
 }
 

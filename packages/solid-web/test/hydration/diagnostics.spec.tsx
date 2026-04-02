@@ -3,11 +3,33 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
-import { sharedConfig, createSignal } from "solid-js";
+import { sharedConfig, createMemo, createSignal, flush, Errored, Loading } from "solid-js";
 import { hydrate, insert } from "@solidjs/web";
 
 function setupHydration() {
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
+}
+
+async function renderStreamHtml(code: () => any): Promise<string> {
+  const { renderToStream } = await import("../../dist/server.js");
+  return new Promise(resolve => {
+    const chunks: string[] = [];
+    renderToStream(code).pipe({
+      write(chunk: string) {
+        chunks.push(String(chunk));
+      },
+      end() {
+        resolve(chunks.join(""));
+      }
+    });
+  });
+}
+
+function mountStreamHtml(container: HTMLDivElement, html: string) {
+  const scriptRe = /<script(?:[^>]*)>([\s\S]*?)<\/script>/g;
+  const scripts = [...html.matchAll(scriptRe)].map(match => match[1]);
+  container.innerHTML = html.replace(scriptRe, "");
+  for (const script of scripts) (0, eval)(script);
 }
 
 describe("Phase 1: Hydration error diagnostics", () => {
@@ -69,6 +91,46 @@ describe("Phase 1: Hydration error diagnostics", () => {
     );
     expect(orphanWarns.length).toBeGreaterThanOrEqual(1);
     expect(orphanWarns[0][0]).toContain("<span");
+    warn.mockRestore();
+  });
+
+  test("late Loading rejection hydrates without orphan warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const rejected = Promise.reject(new Error("Item bad-item not found"));
+    rejected.catch(() => {});
+    const html = await renderStreamHtml(() => {
+      const item = createMemo(() => rejected);
+      return (
+        <Errored fallback={(e: any) => `ItemError: ${String(e.message || e)}`}>
+          <Loading fallback={"Item Loading..."}>{item().title as any}</Loading>
+        </Errored>
+      );
+    });
+
+    setupHydration();
+    mountStreamHtml(container, html);
+
+    dispose = hydrate(() => {
+      const item = createMemo(() => rejected);
+      return (
+        <Errored fallback={(e: any) => `ItemError: ${String(e.message || e)}`}>
+          <Loading fallback={"Item Loading..."}>{item().title as any}</Loading>
+        </Errored>
+      );
+    }, container);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(container.textContent).toBe("ItemError: Item bad-item not found");
+    expect(container.innerHTML).not.toContain('id="pl-0"');
+
+    const orphanWarns = warn.mock.calls.filter(
+      c => typeof c[0] === "string" && c[0].includes("unclaimed server-rendered node")
+    );
+    expect(orphanWarns).toHaveLength(0);
     warn.mockRestore();
   });
 });

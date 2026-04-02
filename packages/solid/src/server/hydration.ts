@@ -1,12 +1,13 @@
 import {
   createOwner,
-  getNextChildId,
+  getOwner,
   runWithOwner,
   createLoadingBoundary as coreLoadingBoundary,
   NotReadyError,
   ErrorContext,
   getContext,
-  setContext
+  setContext,
+  runWithBoundaryErrorContext
 } from "./signals.js";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
 import type { SSRTemplateObject } from "./shared.js";
@@ -32,6 +33,15 @@ export function ssrHandleError(err: any) {
   throw err;
 }
 
+class InvalidTopLevelAsyncReadError extends Error {
+  constructor() {
+    super(
+      "Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
+    );
+    this.name = "InvalidTopLevelAsyncReadError";
+  }
+}
+
 /**
  * Tracks all resources inside a component and renders a fallback until they are all resolved
  *
@@ -41,110 +51,117 @@ export function ssrHandleError(err: any) {
  * @description https://docs.solidjs.com/reference/components/suspense
  */
 export function createLoadingBoundary(fn: () => any, fallback: () => any): () => unknown {
-  const ctx = sharedConfig.context;
-  if (!ctx) {
+  const currentCtx = sharedConfig.context;
+  if (!currentCtx) {
     return coreLoadingBoundary(fn, fallback);
   }
-
+  const ctx = currentCtx;
+  const parent = getOwner();
+  const parentHandler = parent && runWithOwner(parent, () => getContext(ErrorContext));
   const o = createOwner();
   const id = o.id!;
   (o as any).id = id + "00"; // fake depth to match client's createLoadingBoundary nesting
 
-  let runPromise: Promise<any> | undefined;
+  let done: ((value?: string, error?: any) => boolean) | undefined;
+  let handledRenderError: any;
   let serializeBuffer: [string, any, boolean?][] = [];
-  const origSerialize = ctx.serialize;
+  const bufferedCtx = Object.create(ctx) as typeof ctx;
+  bufferedCtx.serialize = (id: string, value: any, deferStream?: boolean) => {
+    serializeBuffer.push([id, value, deferStream]);
+  };
+  bufferedCtx._currentBoundaryId = id;
 
   function flushSerializeBuffer() {
-    for (const args of serializeBuffer) origSerialize(args[0], args[1], args[2]);
+    for (const args of serializeBuffer) ctx.serialize(args[0], args[1], args[2]);
     serializeBuffer = [];
   }
 
-  function runInitially(): SSRTemplateObject {
-    const prevCtx = sharedConfig.context;
-    sharedConfig.context = ctx;
-    // Dispose children from previous attempt — signals now resets _childCount on dispose
-    // so IDs are stable across re-render attempts.
-    o.dispose(false);
-    // Buffer serialization so only the final attempt's writes are committed.
-    // Previous buffers are discarded implicitly when runInitially re-runs.
-    serializeBuffer = [];
-    ctx!.serialize = (id: string, p: any, deferStream?: boolean) => {
-      serializeBuffer.push([id, p, deferStream]);
-    };
-    const prevBoundary = ctx!._currentBoundaryId;
-    ctx!._currentBoundaryId = id;
-    try {
-      const result = runWithOwner(o, () => {
-        try {
-          return ctx!.resolve(fn());
-        } catch (err) {
-          runPromise = ssrHandleError(err);
+  function commitBoundaryState() {
+    flushSerializeBuffer();
+    const modules = ctx.getBoundaryModules?.(id);
+    if (modules) ctx.serialize(id + "_assets", modules);
+  }
+
+  function runLoadingPhase<T>(render: () => T): T {
+    handledRenderError = undefined;
+    return runWithBoundaryErrorContext(
+      o,
+      render,
+      (err: any, parentHandler) => {
+        handledRenderError = err;
+        if (done?.(undefined, err)) throw err;
+        if (parentHandler) {
+          parentHandler(err);
+          return;
         }
-      }) as any;
-      return result;
-    } finally {
-      ctx!._currentBoundaryId = prevBoundary;
-      ctx!.serialize = origSerialize;
-      sharedConfig.context = prevCtx;
+        throw err;
+      },
+      bufferedCtx,
+      id
+    );
+  }
+
+  function finalizeError(err: any) {
+    if (handledRenderError === err) {
+      handledRenderError = undefined;
+      return;
+    }
+    if (done?.(undefined, err)) return;
+    if (!parentHandler) throw err;
+    try {
+      runWithOwner(parent!, () => parentHandler(err));
+    } catch (caught) {
+      if (caught !== err) throw caught;
     }
   }
 
-  let ret = runInitially();
-  // never suspended — flush buffer and return directly
-  if (!(runPromise || ret?.p?.length)) {
-    for (const args of serializeBuffer) origSerialize(args[0], args[1], args[2]);
+  function runDiscovery(): SSRTemplateObject {
+    o.dispose(false);
     serializeBuffer = [];
-    const modules = ctx.getBoundaryModules?.(id);
-    if (modules) ctx.serialize(id + "_assets", modules);
+    return runLoadingPhase(() => {
+      try {
+        return ctx.resolve(fn());
+      } catch (err) {
+        if (err instanceof NotReadyError) throw new InvalidTopLevelAsyncReadError();
+        throw err;
+      }
+    }) as any;
+  }
+
+  let ret = runDiscovery();
+  if (!ret?.p?.length) {
+    commitBoundaryState();
     return () => ret;
   }
 
   const fallbackOwner = createOwner({ id });
+  const fallbackResult = runWithOwner(fallbackOwner, () =>
+    ctx.async
+      ? ctx.ssr([`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`], ctx.escape(fallback()))
+      : fallback()
+  );
 
   if (ctx.async) {
-    const done = ctx.registerFragment(id);
+    done = ctx.registerFragment(id);
     (async () => {
       try {
-        while (runPromise) {
-          o.dispose(false);
-          try {
-            await runPromise;
-          } catch {}
-          runPromise = undefined;
-          ret = runInitially();
-        }
-        flushSerializeBuffer();
+        commitBoundaryState();
         while (ret.p.length) {
-          let rejected = false;
-          try {
-            await Promise.all(ret.p);
-          } catch {
-            rejected = true;
-          }
-          ret = rejected
-            ? runInitially()
-            : (runWithOwner(o, () => ctx.ssr(ret.t, ...ret.h)) as any);
+          await Promise.all(ret.p).catch(() => {});
+          ret = runLoadingPhase(() => ctx.ssr(ret.t, ...ret.h)) as any;
         }
         flushSerializeBuffer();
         done!(ret.t[0]);
       } catch (err) {
-        done!(undefined, err);
+        finalizeError(err);
       }
     })();
-
-    const result = runWithOwner(fallbackOwner, () =>
-      ctx.ssr([`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`], ctx.escape(fallback()))
-    );
-    return () => result;
+    return () => fallbackResult;
   }
 
-  // Non-async fallback: flush buffered serializations
-  flushSerializeBuffer();
-  const modules = ctx.getBoundaryModules?.(id);
-  if (modules) ctx.serialize(id + "_assets", modules);
+  commitBoundaryState();
   ctx.serialize(id, "$$f");
-  const result = runWithOwner(fallbackOwner, fallback);
-  return () => result;
+  return () => fallbackResult;
 }
 
 /**
