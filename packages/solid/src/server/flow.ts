@@ -35,7 +35,7 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
     "fallback" in props
       ? { keyed: props.keyed, fallback: () => props.fallback }
       : { keyed: props.keyed };
-  return createMemo(mapArray(() => props.each, props.children, options)) as unknown as JSX.Element;
+  return mapArray(() => props.each, props.children, options) as unknown as JSX.Element;
 }
 
 /**

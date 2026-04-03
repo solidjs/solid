@@ -326,7 +326,7 @@ describe("Error Boundary Hydration", () => {
       queueMicrotask(() => reject(new Error("Item bad-item not found")));
     });
     rejected.catch(() => {});
-    startHydration({ t100: rejected });
+    startHydration({ t000000: rejected }); // memo id for Errored → Loading → memo
 
     const read = (value: any): any => {
       while (typeof value === "function") value = value();
@@ -2038,6 +2038,98 @@ describe("Loading + asset waiting during hydration", () => {
     // The inner value is a createLoadingBoundary — not undefined (waiting) or fallback string
     expect(result()).not.toBeUndefined();
     expect(result()).not.toBe("loading...");
+  });
+});
+
+describe("Loading boundary: already-serialized settled ref", () => {
+  afterEach(() => {
+    stopHydration();
+    delete (globalThis as any)._$HY;
+  });
+
+  test("inner createMemo hydrates after microtask resume (t0 already { s: 1 })", async () => {
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: {
+        t0: { s: 1, v: true },
+        t0000: { s: 1, v: 42 }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      t0: { s: 1, v: true },
+      t0000: { s: 1, v: 42 }
+    });
+
+    let memo: any;
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(() => 0);
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe("loading...");
+
+    await new Promise<void>(r => queueMicrotask(r));
+    flush();
+
+    expect(memo()).toBe(42);
+  });
+
+  test("inner createProjection hydrates store after microtask resume (t0 already { s: 1 })", async () => {
+    const serverState = { name: "Alice", count: 42 };
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: {
+        t0: { s: 1, v: true },
+        t0000: { v: serverState, s: 1 }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      t0: { s: 1, v: true },
+      t0000: { v: serverState, s: 1 }
+    });
+
+    let store: any;
+    createRoot(
+      () => {
+        Loading({
+          fallback: "loading...",
+          get children() {
+            store = createProjection(
+              (draft: any) => {
+                draft.name = "client";
+              },
+              { name: "", count: 0 }
+            );
+            return store;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    await new Promise<void>(r => queueMicrotask(r));
+    flush();
+
+    expect(store.name).toBe("Alice");
+    expect(store.count).toBe(42);
   });
 });
 

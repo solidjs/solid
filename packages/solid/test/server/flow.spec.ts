@@ -22,7 +22,7 @@ describe("Server For", () => {
           each: [1, 2, 3] as const,
           children: (item, index) => `${item()}-${index()}`
         });
-        // For wraps mapArray in createMemo, so result is an accessor
+        // mapArray wraps its read in createMemo (same shape as client signals)
         expect(typeof result === "function" ? (result as any)() : result).toEqual([
           "1-0",
           "2-1",
@@ -54,7 +54,7 @@ describe("Server Repeat", () => {
       count: 3,
       children: (i: number) => `item-${i}`
     });
-    // Repeat returns an accessor from repeat()
+    // repeat() returns a memo-backed accessor like mapArray()
     const val = typeof result === "function" ? (result as any)() : result;
     expect(val).toEqual(["item-0", "item-1", "item-2"]);
   });
@@ -212,10 +212,10 @@ describe("Hydration key alignment", () => {
             return "ok";
           }
         });
-        // Without SSR hydration context, Errored only creates the boundary owner.
-        // Children run directly under that owner.
+        const out = typeof result === "function" ? (result as any)() : result;
+        // Without SSR context, createErrorBoundary returns a thunk; children run on read.
         expect(childOwnerId).toBe("t0");
-        expect(typeof result === "function" ? (result as any)() : result).toBe("ok");
+        expect(out).toBe("ok");
       },
       { id: "t" }
     );
@@ -263,8 +263,8 @@ describe("Hydration key alignment", () => {
             }) as any;
           }
         });
-        expect(childOwnerId).toBe("t0");
         expect(read(result)).toBe("ok");
+        expect(childOwnerId).toBe("t0");
       },
       { id: "t" }
     );
@@ -281,10 +281,9 @@ describe("Hydration key alignment", () => {
             return `item-${i}`;
           }
         });
-        // Client repeat: createOwner(t0) → per-item owners under t0
-        // item 0 → t00, item 1 → t01, item 2 → t02
-        expect(itemOwnerIds).toEqual(["t00", "t01", "t02"]);
         const val = typeof result === "function" ? (result as any)() : result;
+        // count / mapFn run when the accessor is read (correct tracking for async SSR).
+        expect(itemOwnerIds).toEqual(["t00", "t01", "t02"]);
         expect(val).toEqual(["item-0", "item-1", "item-2"]);
       },
       { id: "t" }
@@ -470,8 +469,8 @@ describe("Server mapArray ID parity (base-36)", () => {
         // Force evaluation
         read();
 
-        // mapArray creates a parent owner (t0), then createMemo wraps the
-        // closure (t1). Items are children of the parent owner (t0).
+        // mapArray: parent owner, then createMemo around the read; items are
+        // children of the parent owner.
         // Base-36: 0-9 → "0"-"9", 10 → "a", 11 → "b"
         expect(itemOwnerIds.length).toBe(12);
         expect(itemOwnerIds[0]).toBe("t00");
@@ -495,11 +494,9 @@ describe("Server mapArray ID parity (base-36)", () => {
             return `v-${index()}`;
           }
         });
-        // For wraps mapArray in createMemo — evaluate
         typeof result === "function" ? (result as any)() : result;
 
-        // For → createMemo(t0) wrapping mapArray's closure
-        // mapArray parent owner: t1
+        // For → mapArray (memo + parent owner); item owners under mapArray parent
         // Item owners under t1: t10, t11, ..., t19, t1a
         expect(itemOwnerIds[10]).toMatch(/a$/);
         expect(itemOwnerIds[10]).not.toMatch(/10$/);

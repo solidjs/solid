@@ -50,7 +50,11 @@ class InvalidTopLevelAsyncReadError extends Error {
  *
  * @description https://docs.solidjs.com/reference/components/suspense
  */
-export function createLoadingBoundary(fn: () => any, fallback: () => any): () => unknown {
+export function createLoadingBoundary(
+  fn: () => any,
+  fallback: () => any,
+  options?: { on?: () => any }
+): () => unknown {
   const currentCtx = sharedConfig.context;
   if (!currentCtx) {
     return coreLoadingBoundary(fn, fallback);

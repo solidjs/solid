@@ -33,19 +33,14 @@ import {
 import { JSX } from "../jsx.js";
 import { IS_DEV } from "./core.js";
 
+type HydrationSsrFields = {
+  deferStream?: boolean;
+  ssrSource?: "server" | "hybrid" | "initial" | "client";
+};
 declare module "@solidjs/signals" {
-  interface MemoOptions<T> {
-    deferStream?: boolean;
-    ssrSource?: "server" | "hybrid" | "initial" | "client";
-  }
-  interface SignalOptions<T> {
-    deferStream?: boolean;
-    ssrSource?: "server" | "hybrid" | "initial" | "client";
-  }
-  interface EffectOptions {
-    deferStream?: boolean;
-    ssrSource?: "server" | "hybrid" | "initial" | "client";
-  }
+  interface MemoOptions<T> extends HydrationSsrFields {}
+  interface SignalOptions<T> extends HydrationSsrFields {}
+  interface EffectOptions extends HydrationSsrFields {}
 }
 
 export type HydrationProjectionOptions = ProjectionOptions & {
@@ -159,23 +154,10 @@ let _createEffect: Function | undefined;
 // --- Hydration helpers ---
 
 class MockPromise {
-  static all() {
-    return new MockPromise();
-  }
-  static allSettled() {
-    return new MockPromise();
-  }
-  static any() {
-    return new MockPromise();
-  }
-  static race() {
-    return new MockPromise();
-  }
-  static reject() {
-    return new MockPromise();
-  }
-  static resolve() {
-    return new MockPromise();
+  static {
+    for (const k of ["all", "allSettled", "any", "race", "reject", "resolve"] as const) {
+      (MockPromise as any)[k] = () => new MockPromise();
+    }
   }
   catch() {
     return new MockPromise();
@@ -220,6 +202,16 @@ function readHydratedValue(initP: any, refresh: () => void) {
   refresh();
   if (typeof initP === "object" && initP.s === 2) throw initP.v;
   return initP?.v ?? initP;
+}
+
+/** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration. */
+function readSerializedOrCompute(compute: (prev: any) => any, prev: any) {
+  if (!sharedConfig.hydrating) return compute(prev);
+  const o = getOwner()!;
+  let initP: any;
+  if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
+  const init = readHydratedValue(initP, () => subFetch(compute, prev));
+  return init !== NO_HYDRATED_VALUE ? init : compute(prev);
 }
 
 function forwardIteratorReturn(it: any, value?: any) {
@@ -482,18 +474,7 @@ function hydratedCreateMemo(compute: any, value?: any, options?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreMemo, compute, value, options);
   if (aiResult !== null) return aiResult;
 
-  return coreMemo(
-    (prev: any) => {
-      const o = getOwner()!;
-      if (!sharedConfig.hydrating) return compute(prev);
-      let initP: any;
-      if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = readHydratedValue(initP, () => subFetch(compute, prev));
-      return init !== NO_HYDRATED_VALUE ? init : compute(prev);
-    },
-    value,
-    options
-  );
+  return coreMemo((prev: any) => readSerializedOrCompute(compute, prev), value, options);
 }
 
 function hydratedCreateSignal(fn?: any, second?: any, third?: any) {
@@ -532,18 +513,7 @@ function hydratedCreateSignal(fn?: any, second?: any, third?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreSignal, fn, second, third);
   if (aiResult !== null) return aiResult;
 
-  return coreSignal(
-    (prev: any) => {
-      if (!sharedConfig.hydrating) return fn(prev);
-      const o = getOwner()!;
-      let initP: any;
-      if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = readHydratedValue(initP, () => subFetch(fn, prev));
-      return init !== NO_HYDRATED_VALUE ? init : fn(prev);
-    },
-    second,
-    third
-  );
+  return coreSignal((prev: any) => readSerializedOrCompute(fn, prev), second, third);
 }
 
 function hydratedCreateErrorBoundary<U>(
@@ -552,18 +522,11 @@ function hydratedCreateErrorBoundary<U>(
 ): () => unknown {
   if (!sharedConfig.hydrating) return coreErrorBoundary(fn, fallback);
   markTopLevelSnapshotScope();
-  // The server's createErrorBoundary creates an owner via createOwner() and
-  // serializes caught errors at that owner's ID. Peek at what ID the boundary
-  // owner will get (without consuming the counter slot), then check sharedConfig.
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
   if (sharedConfig.has!(expectedId)) {
     const err = sharedConfig.load!(expectedId);
     if (err !== undefined) {
-      // Server had an error — use throw-once pattern so reset() can recover.
-      // First call throws the serialized error (matching server state).
-      // On reset, recompute runs the wrapper again with hydrated=false,
-      // so the real fn() executes and children render fresh.
       let hydrated = true;
       return coreErrorBoundary(() => {
         if (hydrated) {
@@ -613,29 +576,11 @@ function hydratedCreateOptimistic(fn?: any, second?: any, third?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreOptimistic, fn, second, third);
   if (aiResult !== null) return aiResult;
 
-  return coreOptimistic(
-    (prev: any) => {
-      const o = getOwner()!;
-      if (!sharedConfig.hydrating) return fn(prev);
-      let initP: any;
-      if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = readHydratedValue(initP, () => subFetch(fn, prev));
-      return init !== NO_HYDRATED_VALUE ? init : fn(prev);
-    },
-    second,
-    third
-  );
+  return coreOptimistic((prev: any) => readSerializedOrCompute(fn, prev), second, third);
 }
 
 function wrapStoreFn(fn: any) {
-  return (draft: any) => {
-    const o = getOwner()!;
-    if (!sharedConfig.hydrating) return fn(draft);
-    let initP: any;
-    if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-    const init = readHydratedValue(initP, () => subFetch(fn, draft));
-    return init !== NO_HYDRATED_VALUE ? init : fn(draft);
-  };
+  return (draft: any) => readSerializedOrCompute(() => fn(draft), draft);
 }
 
 function hydrateStoreLikeFn(
@@ -755,19 +700,7 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: a
 
   // "server", "hybrid", or undefined — use serialized value from server
   markTopLevelSnapshotScope();
-  coreFn(
-    (prev: any) => {
-      const o = getOwner()!;
-      if (!sharedConfig.hydrating) return compute(prev);
-      let initP: any;
-      if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
-      const init = readHydratedValue(initP, () => subFetch(compute, prev));
-      return init !== NO_HYDRATED_VALUE ? init : compute(prev);
-    },
-    effectFn,
-    value,
-    options
-  );
+  coreFn((prev: any) => readSerializedOrCompute(compute, prev), effectFn, value, options);
 }
 
 function hydratedCreateRenderEffect(compute: any, effectFn: any, value?: any, options?: any) {
@@ -791,10 +724,6 @@ export function enableHydration() {
   _createRenderEffect = hydratedCreateRenderEffect;
   _createEffect = hydratedCreateEffect;
 
-  // Install property interceptors for hydration lifecycle tracking.
-  // When dom-expressions' hydrate() sets hydrating = false after the sync walk,
-  // or when event-handler cancellation sets done = true, we detect it and
-  // drain onHydrationEnd callbacks at the right time.
   _hydratingValue = sharedConfig.hydrating;
   _doneValue = sharedConfig.done;
   Object.defineProperty(sharedConfig, "hydrating", {
@@ -916,7 +845,7 @@ function resumeBoundaryHydration(o: Owner, id: string, set: () => void) {
     checkHydrationComplete();
     return;
   }
-  sharedConfig.gather!(id);
+  sharedConfig.gather?.(id);
   _hydratingValue = true;
   markSnapshotScope(o);
   _snapshotRootOwner = o;
@@ -947,6 +876,8 @@ export function createLoadingBoundary(
 ): () => unknown {
   if (!sharedConfig.hydrating) return coreLoadingBoundary(fn, fallback, options);
 
+  let settledSerializationResumeQueued = false;
+
   return coreMemo(() => {
     const o = getOwner()!;
     const id = o.id!;
@@ -958,11 +889,34 @@ export function createLoadingBoundary(
     }
 
     if (sharedConfig.hydrating && sharedConfig.has!(id)) {
-      let ref = sharedConfig.load!(id);
+      const ref = sharedConfig.load!(id);
       let p: Promise<any> | any;
       if (ref) {
         if (typeof ref !== "object" || ref.s == null) p = ref;
-        else if (ref.s === 1 || ref.s === 2) sharedConfig.gather!(id);
+        else if (ref.s === 1 || ref.s === 2) sharedConfig.gather?.(id);
+        else p = ref;
+      }
+      if (
+        ref &&
+        typeof ref === "object" &&
+        ref.s === 1 &&
+        p == null &&
+        !settledSerializationResumeQueued
+      ) {
+        settledSerializationResumeQueued = true;
+        _pendingBoundaries++;
+        onCleanup(() => {
+          if (!isDisposed(o as Owner)) return;
+          sharedConfig.cleanupFragment?.(id);
+        });
+        const set = createBoundaryTrigger();
+        const scheduleResume = () => queueMicrotask(() => resumeBoundaryHydration(o, id, set));
+        if (assetPromise) {
+          assetPromise.then(scheduleResume);
+          return undefined;
+        }
+        scheduleResume();
+        return fallback();
       }
       if (p) {
         _pendingBoundaries++;
@@ -1000,7 +954,7 @@ export function createLoadingBoundary(
         return fallback();
       }
     }
-    if (assetPromise) {
+    if (assetPromise && !sharedConfig.has!(id)) {
       _pendingBoundaries++;
       const set = createBoundaryTrigger();
       assetPromise.then(() => resumeBoundaryHydration(o, id, set));

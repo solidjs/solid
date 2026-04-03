@@ -140,6 +140,18 @@ describe("Server createMemo", () => {
     );
   });
 
+  test("memo throws NotReadyError for unresolved async even with non-undefined initial", async () => {
+    let resolve!: (v: string[]) => void;
+    const p = new Promise<string[]>(r => (resolve = r));
+    createRoot(
+      () => {
+        const memo = createMemo(() => p, []);
+        expect(() => memo()).toThrow(NotReadyError);
+      },
+      { id: "test" }
+    );
+  });
+
   test("memo resolves async value", async () => {
     let resolve!: (v: string) => void;
     const p = new Promise<string>(r => (resolve = r));

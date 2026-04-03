@@ -315,7 +315,6 @@ function processResult<T>(
 ) {
   if (comp.disposed) return;
   const id = owner.id;
-  const uninitialized = comp.value === undefined;
   const noHydrate = getContext(NoHydrateContext, owner);
 
   if (result instanceof Promise) {
@@ -344,9 +343,7 @@ function processResult<T>(
       }
     );
     if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, result, deferStream);
-    if (uninitialized) {
-      comp.error = new NotReadyError(result);
-    }
+    comp.error = new NotReadyError(result);
     return;
   }
 
@@ -768,7 +765,7 @@ export function mapArray<T, U>(
   options: { keyed?: boolean | ((item: T) => any); fallback?: Accessor<any> } = {}
 ): () => U[] {
   const parent = createOwner();
-  return () => {
+  return createMemo(() => {
     const items = list();
     let s: U[] = [];
     if (items && items.length) {
@@ -794,7 +791,7 @@ export function mapArray<T, U>(
       ];
     }
     return s;
-  };
+  });
 }
 
 export function repeat<T>(
@@ -802,8 +799,8 @@ export function repeat<T>(
   mapFn: (i: number) => T,
   options: { fallback?: Accessor<any>; from?: Accessor<number | undefined> } = {}
 ): () => T[] {
-  const owner = createOwner(); // match client's createOwner inside repeat
-  return () => {
+  const owner = createOwner();
+  return createMemo(() => {
     const len = count();
     const offset = options.from?.() || 0;
     if (!len) {
@@ -821,7 +818,7 @@ export function repeat<T>(
         return runWithOwner(itemOwner, () => mapFn(i + offset)) as T;
       })
     );
-  };
+  });
 }
 
 // === Boundary primitives ===
