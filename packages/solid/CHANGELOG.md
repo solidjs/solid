@@ -1,5 +1,20 @@
 # solid-js
 
+## 2.0.0-beta.5
+
+### Patch Changes
+
+- 03e2cca: Forward async iterator cancellation through hydration and SSR wrappers so generators close when hydration adapters or SSR serializers stop consuming them.
+- 8ef7ece: **Loading hydration (client):** Serialized boundary refs that are already settled (`{ s: 1, v }`) still run one deferred `resumeBoundaryHydration` (with optional lazy-asset wait) so inner memos/projections match SSR; a per-boundary closure flag prevents double-scheduling—no global `WeakSet`/`Map`. Terminal serialized states `{ s: 1 }` and `{ s: 2 }` stay gather-only so a promise that later gets `p.s = 2` does not keep re-entering the pending branch and trapping the UI on the fallback. Standalone asset loading only runs when `!sharedConfig.has(id)` so it does not duplicate work when the boundary ref path handles assets. `gather` is optional for test hosts.
+- 8db4de8: Treat Loading on as a value prop so keyed loading boundaries work with normal component usage.
+- e6177b4: Fix streamed SSR `Loading` and `Errored` hydration so async memo rejections render the expected fallback and recover correctly after reset.
+- 8ef7ece: Align server `createMemo` Promise handling with `@solidjs/signals`: pending promises now always attach `NotReadyError` regardless of initial value, so seeds like `[]` no longer skip Loading/async boundaries.
+- 009d3de: Apply the remaining formatting updates for the streamed SSR hydration fixes and their regression coverage.
+- 3bd00d2: Move `Loading` into the flow exports while keeping hydration-aware behavior in `createLoadingBoundary`.
+- 3eed9c1: Refine server Loading and Errored settlement and update dom runtime dependencies.
+- d037842: Tighten Show and Match JSX typings to reject ambiguous zero-argument function children.
+- 6b4af47: Update to `@solidjs/signals` 0.13.8 and drop redundant hydrated async-iterable cleanup now handled by the signals core.
+
 ## 2.0.0-beta.4
 
 ### Patch Changes
