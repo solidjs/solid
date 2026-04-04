@@ -2,6 +2,7 @@ import {
   action,
   createEffect,
   createErrorBoundary,
+  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -420,4 +421,137 @@ it("should throw effect callback errors when no boundary exists", () => {
     });
     flush();
   }).toThrowError(error);
+});
+
+it("should recover when async memo errors then dependency changes and boundary resets", async () => {
+  const [$id, setId] = createSignal("bad");
+  let result: any;
+  let resetFn!: () => void;
+
+  createRoot(() => {
+    const data = createMemo(async () => {
+      const id = $id();
+      await Promise.resolve();
+      if (id !== "1") throw new Error(`Item ${id} not found`);
+      return { title: "Test Item" };
+    });
+
+    const boundary = createErrorBoundary(
+      () =>
+        createLoadingBoundary(
+          () => data().title,
+          () => "loading"
+        )(),
+      (err, reset) => {
+        resetFn = reset;
+        return "error: " + (err as Error).message;
+      }
+    );
+
+    createRenderEffect(
+      () => (result = boundary()),
+      () => {}
+    );
+  });
+
+  flush();
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
+  expect(result).toBe("error: Item bad not found");
+
+  setId("1");
+  resetFn();
+  flush();
+
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
+  expect(result).toBe("Test Item");
+});
+
+it("should recover when sync memo errors then dependency changes and boundary resets", () => {
+  const [$id, setId] = createSignal("bad");
+  let result: any;
+  let resetFn!: () => void;
+
+  createRoot(() => {
+    const data = createMemo(() => {
+      const id = $id();
+      if (id !== "1") throw new Error(`Item ${id} not found`);
+      return "ok";
+    });
+
+    const boundary = createErrorBoundary(
+      () => data(),
+      (err, reset) => {
+        resetFn = reset;
+        return "error";
+      }
+    );
+
+    createRenderEffect(
+      () => (result = boundary()),
+      () => {}
+    );
+  });
+
+  flush();
+  expect(result).toBe("error");
+
+  setId("1");
+  resetFn();
+  flush();
+  expect(result).toBe("ok");
+});
+
+it("should not infinite loop when errored async memo is heap-queued and then re-read", async () => {
+  const [$id, setId] = createSignal("bad");
+  let result: any;
+  let resetFn!: () => void;
+
+  createRoot(() => {
+    const data = createMemo(async () => {
+      const id = $id();
+      await Promise.resolve();
+      if (id !== "1") throw new Error("not found");
+      return "resolved";
+    });
+
+    const boundary = createErrorBoundary(
+      () =>
+        createLoadingBoundary(
+          () => data(),
+          () => "loading"
+        )(),
+      (err, reset) => {
+        resetFn = reset;
+        return "error";
+      }
+    );
+
+    createRenderEffect(
+      () => (result = boundary()),
+      () => {}
+    );
+  });
+
+  flush();
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
+  expect(result).toBe("error");
+
+  // Signal change queues the memo in the dirty heap, then reset triggers re-read.
+  // Before the fix, this caused an infinite loop in runHeap because the memo's
+  // IN_HEAP flag was cleared by updateIfNecessary but the node was still in the
+  // physical heap, and recompute(el, true) skipped deleteFromHeap.
+  setId("1");
+  resetFn();
+  flush();
+
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
+  expect(result).toBe("resolved");
 });

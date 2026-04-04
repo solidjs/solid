@@ -8,6 +8,8 @@ import {
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
+  REACTIVE_IN_HEAP,
+  REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_LAZY,
   REACTIVE_NONE,
   REACTIVE_OPTIMISTIC_DIRTY,
@@ -286,7 +288,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
     recompute(el);
   }
 
-  el._flags = REACTIVE_NONE | (el._flags & REACTIVE_SNAPSHOT_STALE);
+  el._flags = el._flags & (REACTIVE_SNAPSHOT_STALE | REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
@@ -596,8 +598,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
   if ((el as Computed<any>)._fn && (el as Computed<any>)._statusFlags & STATUS_ERROR) {
     if (el._time < clock) {
-      // treat error reset like create
-      recompute(el as Computed<unknown>, true);
+      recompute(el as Computed<unknown>);
       return read(el);
     } else throw (el as Computed<any>)._error;
   }
