@@ -1151,6 +1151,44 @@ describe("Loading SSR Async", () => {
       expect(fragmentErrors.size).toBe(0);
     });
 
+    test("Loading + createProjection(async fn, []) serializes resolved projection value for hydration", async () => {
+      const { context, serialized, registeredFragments, fragmentResults, fragmentErrors } =
+        createMockSSRContext();
+      sharedConfig.context = context;
+
+      async function getTodos() {
+        return ["test1", "test2"];
+      }
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              const todos = createProjection(() => getTodos(), [] as string[]);
+              return ssr(["<pre>", "</pre>"], () => JSON.stringify(todos)) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(1);
+      await tick();
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBe('<pre>["test1","test2"]</pre>');
+      expect(fragmentErrors.size).toBe(0);
+
+      const projectionSerialized: any = serialized.get("t0000");
+      expect(projectionSerialized).toBeDefined();
+      expect(typeof projectionSerialized.then).toBe("function");
+      expect(projectionSerialized.s).toBe(1);
+      expect(projectionSerialized.v).toEqual(["test1", "test2"]);
+      await expect(projectionSerialized).resolves.toEqual(["test1", "test2"]);
+    });
+
     test("No Errored — sync error during initial render propagates up", () => {
       const { context } = createMockSSRContext();
       sharedConfig.context = context;

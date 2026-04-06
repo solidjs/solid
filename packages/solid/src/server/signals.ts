@@ -714,13 +714,14 @@ export function createProjection<T extends object>(
         (promise as any).s = 1;
         if (disposed) {
           (promise as any).v = state;
-          return;
+          return state as T;
         }
         if (v !== undefined && v !== state) {
           Object.assign(state, v);
         }
         (promise as any).v = state;
         markReady();
+        return state as T;
       },
       () => {}
     );
