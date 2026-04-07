@@ -14,11 +14,11 @@ import {
   setAttribute,
   setAttributeNS,
   addEventListener,
-  Properties,
   ChildProperties,
   DelegatedEvents,
   SVGElements,
-  SVGNamespace
+  MathMLElements,
+  Namespaces,
 } from "@solidjs/web";
 
 const html: HTMLTag = createHTML({
@@ -35,11 +35,11 @@ const html: HTMLTag = createHTML({
   setAttribute,
   setAttributeNS,
   addEventListener,
-  Properties,
   ChildProperties,
   DelegatedEvents,
   SVGElements,
-  SVGNamespace
+  MathMLElements,
+  Namespaces,
 });
 
 export default html;

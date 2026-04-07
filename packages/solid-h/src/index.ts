@@ -6,7 +6,9 @@ import {
   insert,
   createComponent,
   dynamicProperty,
-  SVGElements
+  SVGElements,
+  MathMLElements,
+  Namespaces
 } from "@solidjs/web";
 
 const h: HyperScript = createHyperScript({
@@ -15,7 +17,9 @@ const h: HyperScript = createHyperScript({
   insert,
   createComponent,
   dynamicProperty,
-  SVGElements
+  SVGElements,
+  MathMLElements,
+  Namespaces
 });
 
 export default h;
