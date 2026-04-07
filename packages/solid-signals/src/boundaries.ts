@@ -3,12 +3,15 @@ import type { StatusError } from "./core/error.js";
 import {
   cleanup,
   computed,
+  createContext,
   createOwner,
+  getContext,
   getOwner,
   NotReadyError,
   Queue,
   read,
   REACTIVE_DISPOSED,
+  setContext,
   runWithOwner,
   setSignal,
   signal,
@@ -59,11 +62,117 @@ function createBoundChildren<T>(
 }
 
 const ON_INIT: unique symbol = Symbol();
+const RevealControllerContext = createContext<RevealController | null>(null);
+let _revealUsed = false;
+
+type RevealSlot = CollectionQueue | RevealController;
+type BoolAccessor = () => boolean;
+const FALSE_ACCESSOR: BoolAccessor = () => false;
+
+function isRevealController(slot: RevealSlot): slot is RevealController {
+  return slot instanceof RevealController;
+}
+
+function isSlotReady(slot: RevealSlot): boolean {
+  return isRevealController(slot) ? slot.isReady() : slot._sources.size === 0 && !slot._pending;
+}
+
+function setSlotState(
+  slot: RevealSlot,
+  controller: RevealController,
+  disabled: boolean,
+  collapsed: boolean
+): void {
+  setSignal(slot._disabled, disabled);
+  setSignal(slot._collapsed, collapsed);
+  if (isRevealController(slot)) {
+    if (!disabled && slot._parentController === controller) slot._parentController = undefined;
+    return slot.evaluate(disabled, collapsed);
+  }
+  if (!disabled && slot._revealController === controller && slot._initialized)
+    slot._revealController = undefined;
+}
+
+export class RevealController {
+  _togetherAccessor: BoolAccessor;
+  _collapsedAccessor: BoolAccessor;
+  _slots: RevealSlot[] = [];
+  _parentController?: RevealController;
+  _disabled: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
+  _collapsed: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
+  _ready = true;
+  _evaluating = false;
+
+  constructor(together: BoolAccessor, collapsed: BoolAccessor) {
+    this._togetherAccessor = together;
+    this._collapsedAccessor = collapsed;
+  }
+
+  _forEachOwnedSlot(fn: (slot: RevealSlot) => boolean | void): boolean {
+    for (let i = 0; i < this._slots.length; i++) {
+      const slot = this._slots[i];
+      if ((isRevealController(slot) ? slot._parentController : slot._revealController) !== this) continue;
+      if (fn(slot) === false) return false;
+    }
+    return true;
+  }
+
+  isReady(): boolean {
+    return this._forEachOwnedSlot(isSlotReady);
+  }
+
+  register(slot: RevealSlot): void {
+    if (this._slots.includes(slot)) return;
+    this._slots.push(slot);
+    const together = !!untrack(this._togetherAccessor);
+    setSignal(slot._disabled, true),
+      setSignal(slot._collapsed, together ? false : !!untrack(this._collapsedAccessor));
+    untrack(() => this.evaluate());
+  }
+
+  unregister(slot: RevealSlot): void {
+    const index = this._slots.indexOf(slot);
+    if (index >= 0) this._slots.splice(index, 1);
+    untrack(() => this.evaluate());
+  }
+
+  evaluate(disabledOverride?: boolean, collapsedOverride?: boolean): void {
+    if (this._evaluating) return;
+    this._evaluating = true;
+    const wasReady = this._ready;
+    try {
+      const disabled = disabledOverride ?? read(this._disabled),
+        collapseTail = !!untrack(this._collapsedAccessor),
+        collapsed = collapsedOverride ?? collapseTail;
+      if (disabled && collapsed) this._forEachOwnedSlot(slot => setSlotState(slot, this, true, true));
+      else if (!!untrack(this._togetherAccessor)) {
+        const ready = this.isReady();
+        this._forEachOwnedSlot(slot => setSlotState(slot, this, !ready, false));
+      } else {
+        let pendingSeen = false;
+        this._forEachOwnedSlot(slot => {
+          if (pendingSeen) return setSlotState(slot, this, true, collapseTail);
+          if (isSlotReady(slot)) return setSlotState(slot, this, false, false);
+          pendingSeen = true;
+          setSlotState(slot, this, true, false);
+        });
+      }
+    } finally {
+      this._ready = this.isReady();
+      this._evaluating = false;
+    }
+    if (this._parentController && wasReady !== this._ready) this._parentController.evaluate();
+  }
+}
 
 export class CollectionQueue extends Queue {
   _collectionType: number;
   _sources: Set<Computed<any>> = new Set();
+  _tree?: BoundaryComputed<any>;
+  _pending = true;
   _disabled: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
+  _collapsed: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
+  _revealController?: RevealController;
   _initialized: boolean = false;
   _onFn: (() => any) | undefined;
   _prevOn: any = ON_INIT;
@@ -72,7 +181,7 @@ export class CollectionQueue extends Queue {
     this._collectionType = type;
   }
   run(type: number) {
-    if (!type || read(this._disabled)) return;
+    if (!type || (read(this._disabled) && (!_revealUsed || read(this._collapsed)))) return;
     return super.run(type);
   }
   notify(node: Effect<any>, type: number, flags: number, error?: any) {
@@ -101,6 +210,7 @@ export class CollectionQueue extends Queue {
     }
 
     if (flags & this._collectionType) {
+      this._pending = true;
       const source = (error as any)?.source || (node._error as any)?.source;
       if (source) {
         const wasEmpty = this._sources.size === 0;
@@ -121,15 +231,23 @@ export class CollectionQueue extends Queue {
         this._sources.delete(source);
     }
     if (!this._sources.size) {
-      setSignal(this._disabled, false);
-      if (this._onFn) {
-        try {
-          this._prevOn = untrack(() => this._onFn!());
-        } catch {
-          /* value not yet committed — _prevOn stays stale, next notify will reset */
+      if (this._collectionType & STATUS_PENDING && this._pending && !this._initialized && this._tree) {
+        this._pending = !!(this._tree._statusFlags & this._collectionType);
+      } else {
+        this._pending = false;
+      }
+      if (!this._pending) {
+        setSignal(this._disabled, false);
+        if (this._onFn) {
+          try {
+            this._prevOn = untrack(() => this._onFn!());
+          } catch {
+            /* value not yet committed — _prevOn stays stale, next notify will reset */
+          }
         }
       }
     }
+    if (_revealUsed) this._revealController?.evaluate();
   }
 }
 
@@ -142,17 +260,34 @@ function createCollectionBoundary<T>(
   if (__DEV__ && !getOwner())
     console.warn("Boundaries created outside a reactive context will never be disposed.");
   const owner = createOwner();
+  if (_revealUsed) setContext(RevealControllerContext, null, owner);
   const queue = new CollectionQueue(type);
   if (onFn) queue._onFn = onFn;
-  const tree = createBoundChildren(owner, fn, queue, type);
+  const tree = (queue._tree = createBoundChildren(owner, fn, queue, type) as BoundaryComputed<any>);
+  // Prime source tracking so reveal registration sees pending sources.
+  untrack(() => {
+    let pending = false;
+    try {
+      read(tree);
+    } catch (e) {
+      if (e instanceof NotReadyError) pending = true;
+      else throw e;
+    }
+    queue._pending = pending || !!(tree._statusFlags & type) || tree._error instanceof NotReadyError;
+  });
+  const controller =
+    _revealUsed && type === STATUS_PENDING ? getContext(RevealControllerContext) : null;
+  if (controller) {
+    queue._revealController = controller;
+    controller.register(queue);
+    cleanup(() => controller.unregister(queue));
+  }
   const decision = computed(() => {
     if (!read(queue._disabled)) {
       const resolved = read(tree);
-      if (!untrack(() => read(queue._disabled))) {
-        queue._initialized = true;
-        return resolved;
-      }
+      if (!untrack(() => read(queue._disabled))) return ((queue._initialized = true), resolved);
     }
+    if (_revealUsed && read(queue._collapsed)) return undefined;
     return fallback(queue);
   });
   return accessor(decision);
@@ -178,6 +313,33 @@ export function createErrorBoundary<U>(
       for (const source of queue._sources) recompute(source);
       schedule();
     });
+  });
+}
+
+export function createRevealOrder<T>(
+  fn: () => T,
+  options?: { together?: BoolAccessor; collapsed?: BoolAccessor }
+): T {
+  _revealUsed = true;
+  const owner = createOwner();
+  const parentController = getContext(RevealControllerContext);
+  const together = options?.together || FALSE_ACCESSOR,
+    collapsed = options?.collapsed || FALSE_ACCESSOR;
+  const controller = new RevealController(together, collapsed);
+  setContext(RevealControllerContext, controller, owner);
+  return runWithOwner(owner, () => {
+    const value = fn();
+    computed(() => {
+      together();
+      collapsed();
+      controller.evaluate();
+    });
+    if (parentController) {
+      controller._parentController = parentController;
+      parentController.register(controller);
+      cleanup(() => parentController.unregister(controller));
+    }
+    return value;
   });
 }
 
