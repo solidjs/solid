@@ -13,6 +13,7 @@ export {
   createProjection,
   createReaction,
   createRenderEffect,
+  createRevealOrder,
   createRoot,
   createSignal,
   createStore,

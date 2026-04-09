@@ -926,6 +926,14 @@ export function createLoadingBoundary(
   }
 }
 
+export function createRevealOrder<T>(
+  fn: () => T,
+  _options?: { together?: () => boolean; collapsed?: () => boolean }
+): T {
+  const o = createOwner();
+  return runWithOwner(o, fn);
+}
+
 // === Utilities ===
 
 export function untrack<T>(fn: () => T): T {

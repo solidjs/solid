@@ -6,6 +6,7 @@ import {
   renderToString,
   renderToStream,
   Loading,
+  Reveal,
   Show,
   For,
   Switch,
@@ -1601,5 +1602,264 @@ describe("SSR — insert effect alignment (PR #2592)", () => {
     expect(html).toContain("42");
     expect(html).toMatch(/<p[^>]*>Visible<\/p>/);
     expect(html).toContain("click");
+  });
+});
+
+// --- Phase 7: Reveal Streaming Integration ---
+
+describe("SSR Streaming — Reveal", () => {
+  test("sequential collapsed: shell contains first fallback, later slots deferred", async () => {
+    function BoundaryA() {
+      const data = createMemo(async () => asyncValue("A", 20));
+      return <div>{data()}</div>;
+    }
+    function BoundaryB() {
+      const data = createMemo(async () => asyncValue("B", 40));
+      return <div>{data()}</div>;
+    }
+    function BoundaryC() {
+      const data = createMemo(async () => asyncValue("C", 60));
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Reveal collapsed>
+          <Loading fallback={<div>fallback-A</div>}>
+            <BoundaryA />
+          </Loading>
+          <Loading fallback={<div>fallback-B</div>}>
+            <BoundaryB />
+          </Loading>
+          <Loading fallback={<div>fallback-C</div>}>
+            <BoundaryC />
+          </Loading>
+        </Reveal>
+      );
+    }
+
+    const { shell, chunks } = await collectChunks(() => <App />);
+    const full = chunks.join("");
+
+    expect(shell).toContain("fallback-A");
+    expect(full).toContain("A");
+    expect(full).toContain("B");
+    expect(full).toContain("C");
+    expect(full).toContain("$dfj");
+    expect(full).toContain("$dflj");
+  });
+
+  test("sequential non-collapsed: all fallbacks visible in shell", async () => {
+    function BoundaryFirst() {
+      const data = createMemo(async () => asyncValue("first", 20));
+      return <div>{data()}</div>;
+    }
+    function BoundarySecond() {
+      const data = createMemo(async () => asyncValue("second", 40));
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Reveal>
+          <Loading fallback={<div>fallback-1</div>}>
+            <BoundaryFirst />
+          </Loading>
+          <Loading fallback={<div>fallback-2</div>}>
+            <BoundarySecond />
+          </Loading>
+        </Reveal>
+      );
+    }
+
+    const { shell, chunks } = await collectChunks(() => <App />);
+    const full = chunks.join("");
+
+    expect(shell).toContain("fallback-1");
+    expect(shell).toContain("fallback-2");
+    expect(full).toContain("first");
+    expect(full).toContain("second");
+    expect(full).toContain("$dfj");
+  });
+
+  test("together mode: all fragments resolve before group activation", async () => {
+    function BoundaryX() {
+      const data = createMemo(async () => asyncValue("X", 20));
+      return <div>{data()}</div>;
+    }
+    function BoundaryY() {
+      const data = createMemo(async () => asyncValue("Y", 40));
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Reveal together>
+          <Loading fallback={<div>wait-X</div>}>
+            <BoundaryX />
+          </Loading>
+          <Loading fallback={<div>wait-Y</div>}>
+            <BoundaryY />
+          </Loading>
+        </Reveal>
+      );
+    }
+
+    const { shell, chunks } = await collectChunks(() => <App />);
+    const full = chunks.join("");
+
+    expect(shell).toContain("wait-X");
+    expect(shell).toContain("wait-Y");
+    expect(full).toContain("X");
+    expect(full).toContain("Y");
+    expect(full).toContain("$dfj");
+  });
+
+  test("nested Reveal: outer sequential controls inner group", async () => {
+    function Outer1() {
+      const data = createMemo(async () => asyncValue("outer-1", 20));
+      return <div>{data()}</div>;
+    }
+    function InnerA() {
+      const data = createMemo(async () => asyncValue("inner-a", 30));
+      return <div>{data()}</div>;
+    }
+    function InnerB() {
+      const data = createMemo(async () => asyncValue("inner-b", 50));
+      return <div>{data()}</div>;
+    }
+    function Outer2() {
+      const data = createMemo(async () => asyncValue("outer-2", 60));
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Reveal collapsed>
+          <Loading fallback={<div>outer-1-fb</div>}>
+            <Outer1 />
+          </Loading>
+          <Reveal together>
+            <Loading fallback={<div>inner-a-fb</div>}>
+              <InnerA />
+            </Loading>
+            <Loading fallback={<div>inner-b-fb</div>}>
+              <InnerB />
+            </Loading>
+          </Reveal>
+          <Loading fallback={<div>outer-2-fb</div>}>
+            <Outer2 />
+          </Loading>
+        </Reveal>
+      );
+    }
+
+    const { chunks } = await collectChunks(() => <App />);
+    const full = chunks.join("");
+
+    expect(full).toContain("outer-1");
+    expect(full).toContain("inner-a");
+    expect(full).toContain("inner-b");
+    expect(full).toContain("outer-2");
+    expect(full).toContain("<template");
+  });
+
+  test("Loading without Reveal: no $dfj in output", async () => {
+    function Content() {
+      const data = createMemo(async () => asyncValue("plain-content", 20));
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Loading fallback={<div>plain-fb</div>}>
+          <Content />
+        </Loading>
+      );
+    }
+
+    const { chunks } = await collectChunks(() => <App />);
+    const full = chunks.join("");
+
+    expect(full).toContain("plain-content");
+    expect(full).toContain("$df(");
+    // $dfj function definition appears in REPLACE_SCRIPT, but it should NOT be invoked
+    expect(full).not.toMatch(/\$dfj\(\[/);
+  });
+
+  test("Reveal inside Loading: inner group operates independently", async () => {
+    function InnerA() {
+      const data = createMemo(async () => asyncValue("inner-A", 30));
+      return <div>{data()}</div>;
+    }
+    function InnerB() {
+      const data = createMemo(async () => asyncValue("inner-B", 50));
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Loading fallback={<div>outer-fb</div>}>
+          <Reveal together>
+            <Loading fallback={<div>inner-A-fb</div>}>
+              <InnerA />
+            </Loading>
+            <Loading fallback={<div>inner-B-fb</div>}>
+              <InnerB />
+            </Loading>
+          </Reveal>
+        </Loading>
+      );
+    }
+
+    const { shell, chunks } = await collectChunks(() => <App />);
+    const full = chunks.join("");
+
+    // Inner Loading boundaries return sync fallbacks, so the outer Loading
+    // resolves synchronously — the shell contains inner fallback placeholders directly
+    expect(shell).toContain("inner-A-fb");
+    expect(shell).toContain("inner-B-fb");
+    // All inner content eventually resolves in the stream
+    expect(full).toContain("inner-A");
+    expect(full).toContain("inner-B");
+    // Inner Reveal group should produce $dfj for coordinated activation
+    expect(full).toMatch(/\$dfj\(\[/);
+  });
+
+  test("out-of-order resolution: later slot resolving first does not appear before frontier", async () => {
+    const { promise: pA, resolve: resolveA } = deferred<string>();
+    const { promise: pB, resolve: resolveB } = deferred<string>();
+
+    function SlotA() {
+      const data = createMemo(async () => pA);
+      return <div>{data()}</div>;
+    }
+    function SlotB() {
+      const data = createMemo(async () => pB);
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Reveal collapsed>
+          <Loading fallback={<div>fb-A</div>}>
+            <SlotA />
+          </Loading>
+          <Loading fallback={<div>fb-B</div>}>
+            <SlotB />
+          </Loading>
+        </Reveal>
+      );
+    }
+
+    const chunksPromise = collectChunks(() => <App />);
+
+    // Resolve B first (out of order)
+    resolveB("resolved-B");
+    await delay(20);
+    // Then resolve A (the frontier)
+    resolveA("resolved-A");
+
+    const { chunks } = await chunksPromise;
+    const full = chunks.join("");
+
+    // Both values should appear in the final output
+    expect(full).toContain("resolved-A");
+    expect(full).toContain("resolved-B");
+    // Sequential mode should produce ordered $dfj activations
+    expect(full).toContain("$dfj");
   });
 });

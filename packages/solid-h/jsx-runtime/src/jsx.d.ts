@@ -280,11 +280,15 @@ export namespace JSX {
 
   type BooleanAttribute = true | false | "";
 
+  type BooleanProperty = true | false;
+
   type EnumeratedPseudoBoolean = "false" | "true";
 
   type EnumeratedAcceptsEmpty = "" | true;
 
   type RemoveAttribute = undefined | false;
+
+  type RemoveProperty = undefined;
 
   // ARIA
 
@@ -1523,6 +1527,7 @@ export namespace JSX {
     autocomplete?: FunctionMaybe<HTMLAutocomplete | RemoveAttribute>;
     capture?: FunctionMaybe<"user" | "environment" | RemoveAttribute>;
     checked?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    "prop:checked"?: FunctionMaybe<BooleanProperty | RemoveProperty>;
     colorspace?: FunctionMaybe<string | RemoveAttribute>;
     dirname?: FunctionMaybe<string | RemoveAttribute>;
     disabled?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
@@ -1578,6 +1583,7 @@ export namespace JSX {
       | RemoveAttribute
     >;
     value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
+    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
     width?: FunctionMaybe<number | string | RemoveAttribute>;
 
     /** @non-standard */
@@ -1658,6 +1664,7 @@ export namespace JSX {
     disableremoteplayback?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     loop?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     muted?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    "prop:muted"?: FunctionMaybe<BooleanProperty | RemoveProperty>;
     preload?: FunctionMaybe<
       "none" | "metadata" | "auto" | EnumeratedAcceptsEmpty | RemoveAttribute
     >;
@@ -1764,7 +1771,9 @@ export namespace JSX {
     disabled?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     label?: FunctionMaybe<string | RemoveAttribute>;
     selected?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
+    "prop:selected"?: FunctionMaybe<BooleanProperty | RemoveProperty>;
     value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
+    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
   }
   interface OutputHTMLAttributes<T> extends HTMLAttributes<T> {
     for?: FunctionMaybe<string | RemoveAttribute>;
@@ -1819,6 +1828,7 @@ export namespace JSX {
     required?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     size?: FunctionMaybe<number | string | RemoveAttribute>;
     value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
+    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
   }
   interface HTMLSlotElementAttributes<T> extends HTMLAttributes<T> {
     name?: FunctionMaybe<string | RemoveAttribute>;
@@ -1893,6 +1903,7 @@ export namespace JSX {
     required?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     rows?: FunctionMaybe<number | string | RemoveAttribute>;
     value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
+    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
     wrap?: FunctionMaybe<"hard" | "soft" | "off" | RemoveAttribute>;
   }
   interface ThHTMLAttributes<T> extends HTMLAttributes<T> {

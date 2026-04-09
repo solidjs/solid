@@ -56,3 +56,21 @@ a.link {
   font-size: 16px;
   font-weight: 600;
 }
+.reveal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.reveal-card {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 1rem;
+  transition: opacity 0.3s ease;
+}
+.reveal-card strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #337ab7;
+}

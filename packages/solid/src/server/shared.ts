@@ -18,7 +18,12 @@ export type HydrationContext = {
   escape(value: any): string;
   replace: (id: string, replacement: () => any) => void;
   block: (p: Promise<any>) => void;
-  registerFragment: (v: string) => (v?: string, err?: any) => boolean;
+  registerFragment: (
+    v: string,
+    options?: { revealGroup?: string }
+  ) => (v?: string, err?: any) => boolean;
+  revealFragments?: (groupOrKeys: string | string[]) => void;
+  revealFallbacks?: (groupOrKeys: string | string[]) => void;
   /** Register a client-side asset URL discovered during SSR (e.g. from lazy()). */
   registerAsset?: (type: "module" | "style", url: string) => void;
   /** Register a moduleUrl-to-entryUrl mapping for the current boundary. */

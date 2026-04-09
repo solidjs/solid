@@ -7,6 +7,7 @@ const Home = lazy(() => import("./Home"), "./Home");
 const Settings = lazy(() => import("./Settings"), "./Settings");
 const Stream = lazy(() => import("./Stream"), "./Stream");
 const ErrorStream = lazy(() => import("./ErrorStream"), "./ErrorStream");
+const RevealPage = lazy(() => import("./Reveal"), "./Reveal");
 
 const App = RouteHOC(() => {
   const [location, { matches }] = useContext(RouterContext);
@@ -37,6 +38,9 @@ const App = RouteHOC(() => {
             <li class={{ selected: matches("error-stream") }}>
               <Link path="error-stream">Error Stream</Link>
             </li>
+            <li class={{ selected: matches("reveal") }}>
+              <Link path="reveal">Reveal</Link>
+            </li>
           </ul>
           <div class={["tab", { pending: isPending(location) }]}>
             <Loading fallback={<span class="loader">Loading...</span>}>
@@ -55,6 +59,9 @@ const App = RouteHOC(() => {
                 </Match>
                 <Match when={matches("error-stream")}>
                   <ErrorStream />
+                </Match>
+                <Match when={matches("reveal")}>
+                  <RevealPage />
                 </Match>
               </Switch>
             </Loading>

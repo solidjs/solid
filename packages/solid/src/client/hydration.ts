@@ -858,6 +858,48 @@ function resumeBoundaryHydration(o: Owner, id: string, set: () => void) {
   checkHydrationComplete();
 }
 
+function initBoundaryResume(o: Owner, id: string): [trigger: () => void, resume: () => void] {
+  _pendingBoundaries++;
+  onCleanup(() => {
+    if (!isDisposed(o as Owner)) return;
+    sharedConfig.cleanupFragment?.(id);
+  });
+  const set = createBoundaryTrigger();
+  return [set, () => resumeBoundaryHydration(o, id, set)];
+}
+
+function waitAndResume(p: any, resume: () => void, assetPromise?: Promise<void>) {
+  const waitFor = assetPromise ? Promise.all([p, assetPromise]) : p;
+  waitFor.then(
+    () => {
+      if (p && typeof p === "object") p.s = 1;
+      resume();
+    },
+    (err: any) => {
+      if (p && typeof p === "object") {
+        p.s = 2;
+        p.v = err;
+      }
+      resume();
+    }
+  );
+}
+
+function scheduleResumeAfterAssets(
+  id: string,
+  resume: () => void,
+  assetPromise?: Promise<void>
+): boolean {
+  sharedConfig.gather?.(id);
+  const doResume = () => queueMicrotask(resume);
+  if (assetPromise) {
+    assetPromise.then(doResume);
+    return true;
+  }
+  doResume();
+  return false;
+}
+
 /**
  * Tracks all resources inside a component and renders a fallback until they are all resolved
  * ```typescript
@@ -888,6 +930,7 @@ export function createLoadingBoundary(
       if (mapping && typeof mapping === "object") assetPromise = loadModuleAssets(mapping);
     }
 
+    // Check boundary serialization key (sync SSR path: ctx.serialize(id, ...))
     if (sharedConfig.hydrating && sharedConfig.has!(id)) {
       const ref = sharedConfig.load!(id);
       let p: Promise<any> | any;
@@ -904,44 +947,14 @@ export function createLoadingBoundary(
         !settledSerializationResumeQueued
       ) {
         settledSerializationResumeQueued = true;
-        _pendingBoundaries++;
-        onCleanup(() => {
-          if (!isDisposed(o as Owner)) return;
-          sharedConfig.cleanupFragment?.(id);
-        });
-        const set = createBoundaryTrigger();
-        const scheduleResume = () => queueMicrotask(() => resumeBoundaryHydration(o, id, set));
-        if (assetPromise) {
-          assetPromise.then(scheduleResume);
-          return undefined;
-        }
-        scheduleResume();
+        const [, resume] = initBoundaryResume(o, id);
+        if (scheduleResumeAfterAssets(id, resume, assetPromise)) return undefined;
         return fallback();
       }
       if (p) {
-        _pendingBoundaries++;
-        onCleanup(() => {
-          if (!isDisposed(o as Owner)) return;
-          sharedConfig.cleanupFragment?.(id);
-        });
-        const set = createBoundaryTrigger();
+        const [set, resume] = initBoundaryResume(o, id);
         if (p !== "$$f") {
-          const waitFor = assetPromise ? Promise.all([p, assetPromise]) : p;
-          waitFor.then(
-            () => {
-              if (p && typeof p === "object") {
-                p.s = 1;
-              }
-              resumeBoundaryHydration(o, id, set);
-            },
-            (err: any) => {
-              if (p && typeof p === "object") {
-                p.s = 2;
-                p.v = err;
-              }
-              resumeBoundaryHydration(o, id, set);
-            }
-          );
+          waitAndResume(p, resume, assetPromise);
         } else {
           const afterAssets = () => {
             _pendingBoundaries--;
@@ -954,10 +967,29 @@ export function createLoadingBoundary(
         return fallback();
       }
     }
+
+    // Check fragment registration key (streaming SSR path: registerFragment sets id + "_fr")
+    if (
+      sharedConfig.hydrating &&
+      sharedConfig.has!(id + "_fr") &&
+      !settledSerializationResumeQueued
+    ) {
+      settledSerializationResumeQueued = true;
+      const fr = sharedConfig.load!(id + "_fr");
+      const [, resume] = initBoundaryResume(o, id);
+
+      if (fr && typeof fr === "object" && (fr.s === 1 || fr.s === 2)) {
+        if (scheduleResumeAfterAssets(id, resume, assetPromise)) return undefined;
+        return fallback();
+      }
+
+      waitAndResume(fr, resume, assetPromise);
+      return fallback();
+    }
+
     if (assetPromise && !sharedConfig.has!(id)) {
-      _pendingBoundaries++;
-      const set = createBoundaryTrigger();
-      assetPromise.then(() => resumeBoundaryHydration(o, id, set));
+      const [, resume] = initBoundaryResume(o, id);
+      assetPromise.then(resume);
       return undefined;
     }
     return coreLoadingBoundary(fn, fallback, options);

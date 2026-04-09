@@ -5,6 +5,7 @@ export {
   action,
   createOwner,
   createReaction,
+  createRevealOrder,
   createRoot,
   createTrackedEffect,
   deep,
@@ -141,7 +142,7 @@ export {
   resetErrorBoundaries, // no longer needed with healing
   startTransition,
   Suspense, // Loading
-  SuspenseList, // was experimental, do we keep it?
+  SuspenseList, // replaced by Reveal + createRevealOrder
   useTransition,
   writeSignal, // handled by underlying Node class, should have never been external
 

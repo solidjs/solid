@@ -1,13 +1,19 @@
 import { children } from "./core.js";
 import {
   createMemo,
+  createOwner,
+  createRevealOrder,
   mapArray,
   repeat,
   createErrorBoundary,
+  getContext,
   getOwner,
-  getNextChildId
+  getNextChildId,
+  runWithOwner,
+  setContext
 } from "./signals.js";
-import { createLoadingBoundary } from "./hydration.js";
+import { createLoadingBoundary, RevealGroupContext } from "./hydration.js";
+import { sharedConfig } from "./shared.js";
 import type { Accessor } from "./signals.js";
 import type { JSX } from "../jsx.js";
 
@@ -157,4 +163,91 @@ export function Loading(props: {
     () => props.children,
     () => props.fallback
   ) as unknown as JSX.Element;
+}
+
+/**
+ * Coordinates the reveal timing of sibling `<Loading>` boundaries during SSR.
+ * @description https://docs.solidjs.com/reference/components/reveal
+ */
+export function Reveal(props: {
+  together?: boolean;
+  collapsed?: boolean;
+  children: JSX.Element;
+}): JSX.Element {
+  if (!sharedConfig.context?.async) {
+    return createRevealOrder(() => props.children) as unknown as JSX.Element;
+  }
+  const ctx = sharedConfig.context;
+  const o = createOwner();
+  const id = o.id!;
+  const together = !!props.together;
+  const collapsed = !!props.collapsed;
+  const keys: string[] = [];
+  const resolved = new Set<string>();
+  const composites = new Map<string, () => void>();
+  let frontier = 0;
+
+  const parent = getOwner();
+  const parentGroup = parent ? runWithOwner(parent, () => getContext(RevealGroupContext)) : null;
+  let collapsedByParent = false;
+
+  if (parentGroup) {
+    collapsedByParent = parentGroup.register(id, {
+      onActivate: () => {
+        collapsedByParent = false;
+        advanceFrontier();
+      }
+    });
+  }
+
+  function notifyParentIfDone() {
+    if (parentGroup && resolved.size === keys.length) {
+      parentGroup.onResolved(id);
+    }
+  }
+
+  function advanceFrontier() {
+    while (frontier < keys.length && resolved.has(keys[frontier])) {
+      if (!composites.has(keys[frontier])) ctx.revealFragments?.([keys[frontier]]);
+      frontier++;
+    }
+    if (frontier < keys.length) {
+      const activate = composites.get(keys[frontier]);
+      if (activate) activate();
+      else if (!together && collapsed) ctx.revealFallbacks?.(keys.slice(frontier));
+    }
+    notifyParentIfDone();
+  }
+
+  return runWithOwner(o, () => {
+    setContext(RevealGroupContext, {
+      id,
+      register(key: string, options?: { onActivate?: () => void }) {
+        keys.push(key);
+        if (options?.onActivate) composites.set(key, options.onActivate);
+        if (collapsedByParent) return true;
+        return !together && collapsed && keys.length > 1;
+      },
+      onResolved(key: string) {
+        resolved.add(key);
+        if (collapsedByParent) {
+          notifyParentIfDone();
+          return;
+        }
+        if (together) {
+          if (resolved.size === keys.length) {
+            ctx.revealFragments?.(id);
+            notifyParentIfDone();
+          }
+        } else {
+          advanceFrontier();
+        }
+      }
+    });
+    const result = props.children;
+    if (parentGroup && keys.length === 0) {
+      parentGroup.onResolved(id);
+    }
+    return result;
+  }) as unknown as JSX.Element;
 }

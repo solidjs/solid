@@ -2718,3 +2718,288 @@ describe("Loading + Async Iterable end-to-end pipeline", () => {
     // hybrid mode intentionally writes a `hydrated` signal inside the owned scope
   });
 });
+
+describe("Loading boundary: fragment registration channel (_fr)", () => {
+  afterEach(() => {
+    stopHydration();
+    delete (globalThis as any)._$HY;
+  });
+
+  test("already-resolved _fr triggers hydration resume with inner memo", async () => {
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: {
+        t0_fr: { s: 1, v: true },
+        t0000: { s: 1, v: 42 }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      t0_fr: { s: 1, v: true },
+      t0000: { s: 1, v: 42 }
+    });
+
+    let memo: any;
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(() => 0);
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe("loading...");
+
+    await new Promise<void>(r => queueMicrotask(r));
+    flush();
+
+    expect(memo()).toBe(42);
+  });
+
+  test("pending _fr waits then resumes hydration on resolve", async () => {
+    let resolveFr!: (v: boolean) => void;
+    const frPromise: any = new Promise<boolean>(r => (resolveFr = r));
+    frPromise.s = 0;
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: {
+        t0_fr: frPromise,
+        t0000: { s: 1, v: 99 }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      t0_fr: frPromise,
+      t0000: { s: 1, v: 99 }
+    });
+
+    let memo: any;
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(() => 0);
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe("loading...");
+
+    resolveFr(true);
+    await new Promise<void>(r => setTimeout(r, 50));
+    flush();
+
+    expect(memo()).toBe(99);
+  });
+
+  test("rejected _fr still resumes hydration", async () => {
+    let rejectFr!: (e: any) => void;
+    const frPromise: any = new Promise<boolean>((_, rej) => (rejectFr = rej));
+    frPromise.s = 0;
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: {
+        t0_fr: frPromise,
+        t0000: { s: 1, v: 7 }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      t0_fr: frPromise,
+      t0000: { s: 1, v: 7 }
+    });
+
+    let memo: any;
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "loading...",
+          get children() {
+            memo = createMemo(() => 0);
+            return (() => memo()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(result()).toBe("loading...");
+
+    rejectFr(new Error("stream error"));
+    await new Promise<void>(r => setTimeout(r, 50));
+    flush();
+
+    expect(memo()).toBe(7);
+  });
+
+  test("_fr with assets waits for both fragment and assets", async () => {
+    let resolveAsset!: () => void;
+    const assetPromise = new Promise<void>(r => (resolveAsset = r));
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: { "./Comp": assetPromise },
+      r: {
+        t0_fr: { s: 1, v: true },
+        t0_assets: { "./Comp": "/assets/comp.js" }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      t0_fr: { s: 1, v: true },
+      t0_assets: { "./Comp": "/assets/comp.js" }
+    });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "loading...",
+          get children() {
+            return "loaded content";
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(typeof result).toBe("function");
+    const initial = result();
+    expect(initial).toBeUndefined();
+  });
+
+  test("plain id check takes precedence over _fr when both exist", () => {
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: {
+        t0: "$$f",
+        t0_fr: { s: 1, v: true }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      t0: "$$f",
+      t0_fr: { s: 1, v: true }
+    });
+
+    let result: any;
+    createRoot(
+      () => {
+        result = Loading({
+          fallback: "fallback-sync",
+          get children() {
+            return "content";
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(typeof result).toBe("function");
+    expect(result()).toBe("fallback-sync");
+  });
+
+  test("_fr channel isolation: sibling boundaries with distinct root IDs", async () => {
+    let resolveA!: (v: boolean) => void;
+    const frA: any = new Promise<boolean>(r => (resolveA = r));
+    frA.s = 0;
+
+    let resolveB!: (v: boolean) => void;
+    const frB: any = new Promise<boolean>(r => (resolveB = r));
+    frB.s = 0;
+
+    (globalThis as any)._$HY = {
+      modules: {},
+      loading: {},
+      r: {
+        a0_fr: frA,
+        a0000: { s: 1, v: "val-A" },
+        b0_fr: frB,
+        b0000: { s: 1, v: "val-B" }
+      },
+      events: [],
+      completed: new WeakSet()
+    };
+    startHydration({
+      a0_fr: frA,
+      a0000: { s: 1, v: "val-A" },
+      b0_fr: frB,
+      b0000: { s: 1, v: "val-B" }
+    });
+
+    let memoA: any, memoB: any;
+    let resultA: any, resultB: any;
+
+    createRoot(
+      () => {
+        resultA = Loading({
+          fallback: "fb-A",
+          get children() {
+            memoA = createMemo(() => 0);
+            return (() => memoA()) as any;
+          }
+        });
+      },
+      { id: "a" }
+    );
+
+    createRoot(
+      () => {
+        resultB = Loading({
+          fallback: "fb-B",
+          get children() {
+            memoB = createMemo(() => 0);
+            return (() => memoB()) as any;
+          }
+        });
+      },
+      { id: "b" }
+    );
+    flush();
+
+    expect(resultA()).toBe("fb-A");
+    expect(resultB()).toBe("fb-B");
+
+    resolveA(true);
+    await new Promise<void>(r => setTimeout(r, 50));
+    flush();
+
+    expect(memoA()).toBe("val-A");
+    // B's children haven't been evaluated yet — boundary still showing fallback
+    expect(memoB).toBeUndefined();
+
+    resolveB(true);
+    await new Promise<void>(r => setTimeout(r, 50));
+    flush();
+
+    expect(memoB()).toBe("val-B");
+  });
+});

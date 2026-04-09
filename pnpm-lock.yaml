@@ -162,7 +162,7 @@ importers:
         specifier: 0.41.0-next.17
         version: 0.41.0-next.17(@babel/core@7.29.0)
       solid-js:
-        specifier: ^2.0.0-beta.4
+        specifier: ^2.0.0-beta.5
         version: 2.0.0-experimental.16
 
   packages/solid:

@@ -16,6 +16,7 @@ export {
   For,
   Show,
   Loading,
+  Reveal,
   Switch,
   Match,
   Repeat,

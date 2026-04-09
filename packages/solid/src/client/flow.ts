@@ -1,5 +1,5 @@
 import { children, IS_DEV } from "../client/core.js";
-import { createMemo, untrack, mapArray, repeat } from "@solidjs/signals";
+import { createMemo, untrack, mapArray, repeat, createRevealOrder } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary } from "./hydration.js";
 import type { Accessor } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
@@ -266,4 +266,32 @@ export function Loading(props: {
     () => props.fallback,
     onOpt
   ) as unknown as JSX.Element;
+}
+
+/**
+ * Coordinates the reveal timing of sibling `<Loading>` boundaries.
+ *
+ * - **Sequential** (default): boundaries reveal in DOM order as each resolves.
+ * - **Together** (`together`): all boundaries wait until the group is ready, then reveal at once.
+ * - **Collapsed** (`collapsed`, sequential only): only the frontier boundary shows its fallback;
+ *   later boundaries produce nothing until their turn.
+ *
+ * ```typescript
+ * <Reveal>
+ *   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+ *   <Loading fallback={<Skeleton />}><Posts /></Loading>
+ * </Reveal>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/reveal
+ */
+export function Reveal(props: {
+  together?: boolean;
+  collapsed?: boolean;
+  children: JSX.Element;
+}): JSX.Element {
+  return createRevealOrder(() => props.children, {
+    together: () => !!props.together,
+    collapsed: () => !!props.collapsed
+  }) as unknown as JSX.Element;
 }

@@ -38,6 +38,7 @@ export {
   Match,
   Errored,
   Loading,
+  Reveal,
   NoHydration,
   Hydration,
   merge as mergeProps

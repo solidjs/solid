@@ -10,11 +10,25 @@ import {
   runWithBoundaryErrorContext
 } from "./signals.js";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
-import type { SSRTemplateObject } from "./shared.js";
+import type { SSRTemplateObject, HydrationContext } from "./shared.js";
+import type { Context } from "./signals.js";
 import type { JSX } from "../jsx.js";
 
 export { sharedConfig, NoHydrateContext } from "./shared.js";
 export type { HydrationContext, SSRTemplateObject } from "./shared.js";
+
+// --- Reveal SSR coordination ---
+
+export type ServerRevealGroup = {
+  id: string;
+  register(key: string, options?: { onActivate?: () => void }): boolean;
+  onResolved(key: string): void;
+};
+
+export const RevealGroupContext: Context<ServerRevealGroup | null> = {
+  id: Symbol("RevealGroupContext"),
+  defaultValue: null
+};
 
 /**
  * Handles errors during SSR rendering.
@@ -62,6 +76,7 @@ export function createLoadingBoundary(
   const ctx = currentCtx;
   const parent = getOwner();
   const parentHandler = parent && runWithOwner(parent, () => getContext(ErrorContext));
+  const revealGroup = parent && runWithOwner(parent, () => getContext(RevealGroupContext));
   const o = createOwner();
   const id = o.id!;
   (o as any).id = id + "00"; // fake depth to match client's createLoadingBoundary nesting
@@ -138,15 +153,20 @@ export function createLoadingBoundary(
     return () => ret;
   }
 
+  const collapseFallback = revealGroup ? revealGroup.register(id) : false;
+
   const fallbackOwner = createOwner({ id });
-  const fallbackResult = runWithOwner(fallbackOwner, () =>
-    ctx.async
-      ? ctx.ssr([`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`], ctx.escape(fallback()))
-      : fallback()
-  );
+  const fallbackResult = runWithOwner(fallbackOwner, () => {
+    if (!ctx.async) return fallback();
+    const tpl = collapseFallback
+      ? [`<template id="pl-${id}">`, `</template><!--pl-${id}-->`]
+      : [`<template id="pl-${id}"></template>`, `<!--pl-${id}-->`];
+    return ctx.ssr(tpl, ctx.escape(fallback()));
+  });
 
   if (ctx.async) {
-    done = ctx.registerFragment(id);
+    const regOpts = revealGroup ? { revealGroup: revealGroup.id } : undefined;
+    done = ctx.registerFragment(id, regOpts);
     (async () => {
       try {
         commitBoundaryState();
@@ -156,6 +176,7 @@ export function createLoadingBoundary(
         }
         flushSerializeBuffer();
         done!(ret.t[0]);
+        if (revealGroup) revealGroup.onResolved(id);
       } catch (err) {
         finalizeError(err);
       }

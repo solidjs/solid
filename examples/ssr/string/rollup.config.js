@@ -89,10 +89,10 @@ export default [
     ],
     preserveEntrySignatures: false,
     plugins: [
-      nodeResolve({ exportConditions: ["solid"] }),
+      nodeResolve({ exportConditions: ["solid", "development"] }),
       babel({
         babelHelpers: "bundled",
-        presets: [["solid", { generate: "dom", hydratable: true }]]
+        presets: [["solid", { generate: "dom", hydratable: true, dev: true }]]
       }),
       common(),
       solidAssetManifest(),
