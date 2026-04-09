@@ -1,223 +1,106 @@
-<p>
-  <img src="https://assets.solidjs.com/banner?project=Library&type=core" alt="SolidJS" />
-</p>
+<div align="center">
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/solidjs/solid/main-ci.yml?branch=main&logo=github&style=for-the-badge)](https://github.com/solidjs/solid/actions/workflows/main-ci.yml)
-[![Coverage Status](https://img.shields.io/coveralls/github/solidjs/solid.svg?style=for-the-badge)](https://coveralls.io/github/solidjs/solid?branch=main)
+[![Banner](https://assets.solidjs.com/banner?project=library&type=core)](https://github.com/solidjs)
 
-[![NPM Version](https://img.shields.io/npm/v/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
-[![](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
-[![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
-[![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
+[![Version](https://img.shields.io/npm/v/solid-js.svg?style=for-the-badge&color=blue&logo=npm)](https://npmjs.com/package/solid-js)
+[![Downloads](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge&color=green&logo=npm)](https://npmjs.com/package/solid-js)
+[![Stars](https://img.shields.io/github/stars/solidjs/solid?style=for-the-badge&color=yellow&logo=github)](https://github.com/solidjs/solid)
+[![Discord](https://img.shields.io/discord/722131463138705510?label=join&style=for-the-badge&color=5865F2&logo=discord&logoColor=white)](https://discord.com/invite/solidjs)
+[![Reddit](https://img.shields.io/reddit/subreddit-subscribers/solidjs?label=join&style=for-the-badge&color=FF4500&logo=reddit&logoColor=white)](https://reddit.com/r/solidjs)
 
-**[Website](https://www.solidjs.com/) • [API Docs](https://docs.solidjs.com/) • [Features Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Playground](https://playground.solidjs.com/?version=1.3.13#NobwRAdghgtgpmAXGGUCWEwBowBcCeADgsrgM4Ae2YZA9gK4BOAxiWGjIbY7gAQi9GcCABM4jXgF9eAM0a0YvADo1aAGzQiAtACsyAegDucAEYqA3EogcuPfr2ZCouOAGU0Ac2hqps+YpU6DW09CysrGXoIZlw0WgheAGEGCBdGAAoASn4rXgd4sj5gZhTcLF4yOFxkqNwAXV4AXgcnF3cvKDV0gAZMywT8iELeDEc4eFSm3iymgD4KqprU9JLamYBqXgBGPvCBoVwmBPTcvN4AHhN6XFx43gJiRpUrm-iVXnjEjWYAa0aQUZCCa4SSzU5nfirZaZSTgi76F63CBgga7CCwiBWISicTpGaNebnJZpXj6WblES0Zj0YEAOg8VQAompxsJcAAhfAASREJzAUEIhBUmTRYEkdSAA) • [Discord](https://discord.com/invite/solidjs)**
+</div>
 
-Solid is a declarative JavaScript library for creating user interfaces. Instead of using a Virtual DOM, it compiles its templates to real DOM nodes and updates them with fine-grained reactions. Declare your state and use it throughout your app, and when a piece of state changes, only the code that depends on it will rerun. Check out our [intro video](https://www.youtube.com/watch?v=cELFZQAMdhQ) or read on!
+**Solid** is a declarative JavaScript library for building fast, reactive user interfaces. Instead of relying on a Virtual DOM, Solid compiles your components directly into real DOM nodes and updates them with fine-grained reactions.
 
-## Key Features
+Explore the official [documentation](https://docs.solidjs.com) for detailed guides and examples.
 
-- Fine-grained updates to the real DOM
-- Declarative data: model your state as a system with reactive primitives
-- Render-once mental model: your components are regular JavaScript functions that run once to set up your view
-- Automatic dependency tracking: accessing your reactive state subscribes to it
-- [Small](https://dev.to/this-is-learning/javascript-framework-todomvc-size-comparison-504f) and [fast](https://krausest.github.io/js-framework-benchmark/current.html)
-- Simple: learn a few powerful concepts that can be reused, combined, and built on top of
-- Provides modern framework features like JSX, fragments, Context, Portals, Suspense, streaming SSR, progressive hydration, Error Boundaries and concurrent rendering.
-- Naturally debuggable: A `<div>` is a real div, so you can use your browser's devtools to inspect the rendering
-- [Web component friendly](https://github.com/solidjs/solid/tree/main/packages/solid-element#readme) and can author custom elements
-- Isomorphic: render your components on the client and the server
-- Universal: write [custom renderers](https://github.com/solidjs/solid/releases/tag/v1.2.0) to use Solid anywhere
-- A growing community and ecosystem with active core team support
+## At a Glance
 
-<details>
-
-<summary>Quick Start</summary>
-
-You can get started with a simple app by running the following in your terminal:
-
-```sh
-> npx degit solidjs/templates/js my-app
-> cd my-app
-> npm i # or yarn or pnpm
-> npm run dev # or yarn or pnpm
-```
-
-Or for TypeScript:
-
-```sh
-> npx degit solidjs/templates/ts my-app
-> cd my-app
-> npm i # or yarn or pnpm
-> npm run dev # or yarn or pnpm
-```
-
-This will create a minimal, client-rendered application powered by [Vite](https://vitejs.dev/).
-
-Or you can install the dependencies in your own setup. To use Solid with JSX (_recommended_), run:
-
-```sh
-> npm i -D babel-preset-solid
-> npm i solid-js
-```
-
-The easiest way to get set up is to add `babel-preset-solid` to your `.babelrc`, babel config for webpack, or rollup configuration:
-
-```js
-"presets": ["solid"]
-```
-
-For TypeScript to work, remember to set your `.tsconfig` to handle Solid's JSX:
-
-```js
-"compilerOptions": {
-  "jsx": "preserve",
-  "jsxImportSource": "solid-js",
-}
-```
-
-</details>
-
-## Why Solid?
-
-### Performant
-
-Meticulously engineered for performance and with half a decade of research behind it, Solid's performance is almost indistinguishable from optimized vanilla JavaScript (See Solid on the [JS Framework Benchmark](https://krausest.github.io/js-framework-benchmark/current.html)). Solid is [small](https://bundlephobia.com/package/solid-js@1.3.15) and completely tree-shakable, and [fast](https://levelup.gitconnected.com/how-we-wrote-the-fastest-javascript-ui-framework-again-db097ddd99b6) when rendering on the server, too. Whether you're writing a fully client-rendered SPA or a server-rendered app, your users see it faster than ever. ([Read more about Solid's performance](https://dev.to/ryansolid/thinking-granular-how-is-solidjs-so-performant-4g37) from the library's creator.)
-
-### Powerful
-
-Solid is fully-featured with everything you can expect from a modern framework. Performant state management is built-in with Context and Stores: you don't have to reach for a third party library to manage global state (if you don't want to). With Resources, you can use data loaded from the server like any other piece of state and build a responsive UI for it thanks to Suspense and concurrent rendering. And when you're ready to move to the server, Solid has full SSR and serverless support, with streaming and progressive hydration to get to interactive as quickly as possible. (Check out our full [interactive features walkthrough](https://www.solidjs.com/tutorial/introduction_basics).)
-
-### Pragmatic
-
-Do more with less: use simple, composable primitives without hidden rules and gotchas. In Solid, components are just functions - rendering is determined purely by how your state is used - so you're free to organize your code how you like and you don't have to learn a new rendering system. Solid encourages patterns like declarative code and read-write segregation that help keep your project maintainable, but isn't opinionated enough to get in your way.
-
-### Productive
-
-Solid is built on established tools like JSX and TypeScript and integrates with the Vite ecosystem. Solid's bare-metal, minimal abstractions give you direct access to the DOM, making it easy to use your favorite native JavaScript libraries like D3. And the Solid ecosystem is growing fast, with [custom primitives](https://github.com/solidjs-community/solid-primitives), [component libraries](https://github.com/hope-ui/hope-ui), and build-time utilities that let you [write Solid code in new ways](https://github.com/LXSMNSYC/solid-labels).
-
-<details>
-<summary>Show Me!</summary>
+Run this code snippet in our [playground](https://playground.solidjs.com/anonymous/c90f7c00-9b86-451f-8e18-81d202089c19) and watch our [introduction video](https://youtube.com/watch?v=cELFZQAMdhQ)
 
 ```jsx
-import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
+import { render } from "solid-js/web";
 
-// A component is just a function that (optionally) accepts properties and returns a DOM node
-const Counter = props => {
-  // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
-  const [count, setCount] = createSignal(props.startingCount || 1);
+function Counter() {
+  const [count, setCount] = createSignal(0);
 
-  // The increment function calls the setter
-  const increment = () => setCount(count() + 1);
+  const doubleCount = () => count() * 2;
 
-  console.log(
-    "The body of the function runs once, like you'd expect from calling any other function, so you only ever see this console log once."
-  );
+  console.log("The body of the function runs once");
 
-  // JSX allows us to write HTML within our JavaScript function and include dynamic expressions using the { } syntax
-  // The only part of this that will ever rerender is the count() text.
   return (
-    <button type="button" onClick={increment}>
-      Increment {count()}
+    <button onClick={() => setCount((c) => c + 1)}>
+      Increment: {doubleCount()}
     </button>
   );
-};
+}
 
-// The render function mounts a component onto your page
-render(() => <Counter startingCount={2} />, document.getElementById("app"));
+render(Counter, document.getElementById("app"));
 ```
 
-See it in action in our interactive [Playground](https://playground.solidjs.com/?hash=-894962706&version=1.3.13)!
+## Core Features
 
-Solid compiles our JSX down to efficient real DOM expressions updates, still using the same reactive primitives (`createSignal`) at runtime but making sure there's as little rerendering as possible. Here's what that looks like in this example:
+- **Fine-grained reactivity:** updates propagate directly to DOM nodes, not component trees, making Solid nearly identical in performance to vanilla JS ([see benchmark](https://krausest.github.io/js-framework-benchmark/current.html))
+- **Render-once components:** component functions execute once to set up the reactive graph
+- **Automatic dependency tracking:** accessing a reactive value inside an effect or computation automatically subscribes to it
+- **Composable reactive primitives:** primitives like [`createSignal`](https://docs.solidjs.com/reference/basic-reactivity/create-signal), [`createEffect`](https://docs.solidjs.com/reference/basic-reactivity/create-effect), and [`createMemo`](https://docs.solidjs.com/reference/basic-reactivity/create-memo) are simple building blocks that combine naturally for any data flow
+- **First-class async & data fetching:** [`createResource`](https://docs.solidjs.com/reference/basic-reactivity/create-resource) models async data as reactive state and pairs seamlessly with `<Suspense>` for fluid loading experiences
+- **Full SSR & streaming:** server-side rendering with streaming and progressive hydration gets users to interactive faster, whether you're building a classic SSR app or going serverless
+- **Modern DX:** JSX, TypeScript, Vite integration, and direct DOM access mean your favorite libraries and devtools just work
+- **Small bundle:** tree-shakable and bundle-friendly, Solid adds [minimal](https://bundlephobia.com/package/solid-js) overhead to your shipped code
+- **Batteries included:** [Context](https://docs.solidjs.com/reference/component-apis/create-context), [Portals](https://docs.solidjs.com/reference/components/portal), [lazy loading](https://docs.solidjs.com/reference/component-apis/lazy), Web Component authoring, and custom renderers all ship in the box
 
-```js
-import { render, createComponent, delegateEvents, insert, template } from "solid-js/web";
-import { createSignal } from "solid-js";
+## Quick Start
 
-const _tmpl$ = /*#__PURE__*/ template(`<button type="button">Increment </button>`, 2);
+Create a template project with your preferred package manager
 
-const Counter = props => {
-  const [count, setCount] = createSignal(props.startingCount || 1);
-  const increment = () => setCount(count() + 1);
-
-  console.log("The body of the function runs once . . .");
-
-  return (() => {
-    //_el$ is a real DOM node!
-    const _el$ = _tmpl$.cloneNode(true);
-    _el$.firstChild;
-
-    _el$.$$click = increment;
-
-    //This inserts the count as a child of the button in a way that allows count to update without rerendering the whole button
-    insert(_el$, count, null);
-
-    return _el$;
-  })();
-};
-
-render(
-  () =>
-    createComponent(Counter, {
-      startingCount: 2
-    }),
-  document.getElementById("app")
-);
-
-delegateEvents(["click"]);
+```bash
+# using npm
+npm create solid@latest
 ```
 
-</details>
+```bash
+# using pnpm
+pnpm create solid@latest
+```
 
-## More
+```bash
+# using bun
+bun create solid@latest
+```
 
-Check out our official [documentation](https://www.solidjs.com/guide) or browse some [examples](https://github.com/solidjs/solid/blob/main/documentation/resources/examples.md)
+Select the _SolidJS + Vite_ option, or choose _SolidStart_ for a full-stack setup.
 
-## Browser Support
+## Ecosystem
 
-SolidJS Core is committed to supporting the last 2 years of modern browsers including Firefox, Safari, Chrome and Edge (for desktop and mobile devices). We do not support IE or similar sunset browsers. For server environments, we support Node LTS and the latest Deno and Cloudflare Worker runtimes.
+Solid has a growing ecosystem of first-party and community packages covering routing, UI components, state management, and more.
 
-<img src="https://saucelabs.github.io/images/opensauce/powered-by-saucelabs-badge-gray.svg?sanitize=true" alt="Testing Powered By SauceLabs" width="300"/>
+**Featured**
 
-## Community
+| Package                                                                       | Description                                                                                   |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [**Solid Start**](https://github.com/solidjs/solid-start)                     | Full-stack meta-framework with file-based routing, SSR, streaming, and serverless support     |
+| [**Solid Router**](https://github.com/solidjs/solid-router)                   | Universal router for client and server with nested routes, data preloading, and lazy loading  |
+| [**Solid Meta**](https://github.com/solidjs/solid-meta)                       | Async, SSR-ready head management for Solid apps, anywhere in the component tree               |
+| [**Solid Primitives**](https://github.com/solidjs-community/solid-primitives) | 70+ high-quality, composable reactive utilities — timers, sensors, network, storage, and more |
+| [**Kobalte**](https://kobalte.dev)                                            | Accessible, unstyled UI component library built for Solid, inspired by Radix UI               |
 
-Come chat with us on [Discord](https://discord.com/invite/solidjs)! Solid's creator and the rest of the core team are active there, and we're always looking for contributions.
+Browse the full ecosystem at [ecosystem.solidjs.com](https://solidjs.com/ecosystem)
 
-### Contributors
+---
 
-<a href="https://github.com/solidjs/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
+## Contributing
 
-### Open Collective
+Contributions are always welcome! Check out [CONTRIBUTING.md](../../CONTRIBUTING.md) to get started and join the conversation on [Discord](https://discord.com/invite/solidjs).
 
-Support us with a donation and help us continue our activities. [[Contribute](https://opencollective.com/solid)]
+If Solid has helped you, consider supporting the project on [OpenCollective](https://opencollective.com/solid).
+Sponsorship helps sustain core development and the ecosystem.
 
-<a href="https://opencollective.com/solid/backer/0/website" target="_blank"><img src="https://opencollective.com/solid/backer/0/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/1/website" target="_blank"><img src="https://opencollective.com/solid/backer/1/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/2/website" target="_blank"><img src="https://opencollective.com/solid/backer/2/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/3/website" target="_blank"><img src="https://opencollective.com/solid/backer/3/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/4/website" target="_blank"><img src="https://opencollective.com/solid/backer/4/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/5/website" target="_blank"><img src="https://opencollective.com/solid/backer/5/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/6/website" target="_blank"><img src="https://opencollective.com/solid/backer/6/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/7/website" target="_blank"><img src="https://opencollective.com/solid/backer/7/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/8/website" target="_blank"><img src="https://opencollective.com/solid/backer/8/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/9/website" target="_blank"><img src="https://opencollective.com/solid/backer/9/avatar.svg"></a>
-<a href="https://opencollective.com/solid/backer/10/website" target="_blank"><img src="https://opencollective.com/solid/backer/10/avatar.svg"></a>
+**Organizations**
 
-### Sponsors
+[![organizations](https://opencollective.com/solid/organizations.svg?width=1000&button=false&avatarHeight=60)](https://opencollective.com/solid)
 
-Become a sponsor and get your logo on our README on GitHub with a link to your site. [[Become a sponsor](https://opencollective.com/solid#sponsor)]
+**Individuals — Top 20**
 
-<a href="https://opencollective.com/solid/sponsor/0/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/0/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/1/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/1/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/2/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/2/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/3/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/3/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/4/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/4/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/5/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/5/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/6/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/6/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/7/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/7/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/8/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/8/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/9/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/9/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/10/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/10/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/11/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/11/avatar.svg"></a>
-<a href="https://opencollective.com/solid/sponsor/12/website" target="_blank"><img src="https://opencollective.com/solid/sponsor/12/avatar.svg"></a>
+[![individuals](https://opencollective.com/solid/individuals.svg?width=1000&limit=20&button=false&avatarHeight=60)](https://opencollective.com/solid)
