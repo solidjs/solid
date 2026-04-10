@@ -81,9 +81,11 @@ describe("Phase 1a: Signal-to-owner tracking", () => {
   });
 
   it("clears signal list when owner re-runs", () => {
+    let setCount: (v: number) => void;
+    let memoOwner: Owner | null = null;
     createRoot(() => {
-      const [count, setCount] = createSignal(0);
-      let memoOwner: Owner | null = null;
+      const [count, _setCount] = createSignal(0);
+      setCount = _setCount;
       const m = createMemo(() => {
         memoOwner = getOwner();
         createSignal(count(), { name: "inner" });
@@ -92,12 +94,11 @@ describe("Phase 1a: Signal-to-owner tracking", () => {
       m();
       flush();
       expect(getSignals(memoOwner!).length).toBe(1);
-
-      setCount(1);
-      flush();
-      // After re-run, the old signal list is cleared and new signals are tracked
-      expect(getSignals(memoOwner!).length).toBe(1);
     });
+
+    setCount!(1);
+    flush();
+    expect(getSignals(memoOwner!).length).toBe(1);
   });
 
   it("clears signal list on disposal", () => {
@@ -187,39 +188,45 @@ describe("Phase 1b: Notification hooks", () => {
     it("fires once per flush", () => {
       const calls: number[] = [];
       DEV.hooks.onUpdate = () => calls.push(1);
+      let setCount: (v: number) => void;
       createRoot(() => {
-        const [count, setCount] = createSignal(0);
+        const [count, _setCount] = createSignal(0);
+        setCount = _setCount;
         createEffect(
           () => count(),
           () => {}
         );
         flush();
         expect(calls.length).toBe(1);
-
-        setCount(1);
-        flush();
-        expect(calls.length).toBe(2);
       });
+
+      setCount!(1);
+      flush();
+      expect(calls.length).toBe(2);
     });
 
     it("fires once even with multiple signal writes", () => {
       const calls: number[] = [];
       DEV.hooks.onUpdate = () => calls.push(1);
+      let setA: (v: number) => void;
+      let setB: (v: number) => void;
       createRoot(() => {
-        const [a, setA] = createSignal(0);
-        const [b, setB] = createSignal(0);
+        const [a, _setA] = createSignal(0);
+        const [b, _setB] = createSignal(0);
+        setA = _setA;
+        setB = _setB;
         createEffect(
           () => a() + b(),
           () => {}
         );
         flush();
-        const before = calls.length;
-
-        setA(1);
-        setB(2);
-        flush();
-        expect(calls.length - before).toBe(1);
       });
+      const before = calls.length;
+
+      setA!(1);
+      setB!(2);
+      flush();
+      expect(calls.length - before).toBe(1);
     });
   });
 
