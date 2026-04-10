@@ -3,6 +3,8 @@ import {
   insert,
   spread,
   SVGElements,
+  MathMLElements,
+  Namespaces,
   hydrate as hydrateCore,
   render as renderCore
 } from "./client.js";
@@ -48,12 +50,14 @@ export * from "./server-mock.js";
 
 export const isServer: boolean = false;
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-
-function createElement(tagName: string, isSVG = false, is = undefined): HTMLElement | SVGElement {
-  return isSVG
-    ? document.createElementNS(SVG_NAMESPACE, tagName)
-    : document.createElement(tagName, { is });
+function createElement(tagName: string, is = undefined): HTMLElement | SVGElement | MathMLElement {
+  return (
+    SVGElements.has(tagName)
+      ? document.createElementNS(Namespaces.svg, tagName)
+      : MathMLElements.has(tagName)
+        ? document.createElementNS(Namespaces.mathml, tagName)
+        : document.createElement(tagName, { is })
+  ) as HTMLElement | SVGElement | MathMLElement;
 }
 
 export const hydrate: typeof hydrateCore = (...args) => {
@@ -145,15 +149,13 @@ export function createDynamic<T extends ValidComponent>(
         return untrack(() => component(props));
 
       case "string":
-        const isSvg = SVGElements.has(component);
         const el = sharedConfig.hydrating
           ? getNextElement()
           : createElement(
               component,
-              isSvg,
               untrack(() => props.is)
             );
-        spread(el, props, isSvg);
+        spread(el, props);
         return el;
 
       default:

@@ -460,7 +460,7 @@ Example: https://codesandbox.io/s/solid-stale-resource-y3fy4l
 The Babel plugin now allows configuring multiple custom renderers at the same time. The primary case it is so a developer can still lever Solid's optimized DOM compilation while using their custom renderer. To make this work specify the tags each renderer is reponsible for. It will try to resolve them in order.
 
 ```js
-import { HTMLElements, SVGElements } from "solid-js/web";
+import { HTMLElements, SVGElements, MathMLElements } from "solid-js/web";
 let solidConfig = {
   moduleName: "solid-js/web",
   // @ts-ignore
@@ -469,7 +469,7 @@ let solidConfig = {
     {
       name: "dom",
       moduleName: "solid-js/web",
-      elements: [...HTMLElements, ...SVGElements]
+      elements: [...HTMLElements, ...SVGElements, ...MathMLElements]
     },
     {
       name: "universal",
