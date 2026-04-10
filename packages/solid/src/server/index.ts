@@ -24,6 +24,7 @@ export {
   getNextChildId,
   getObserver,
   getOwner,
+  isDisposed,
   isEqual,
   isRefreshing,
   isPending,

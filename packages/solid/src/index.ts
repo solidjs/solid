@@ -14,6 +14,7 @@ export {
   getNextChildId,
   getObserver,
   getOwner,
+  isDisposed,
   isEqual,
   isRefreshing,
   isPending,
@@ -103,9 +104,9 @@ type JSXElement = JSX.Element;
 export type { JSXElement, JSX };
 
 // dev
-import { registerGraph, IS_DEV } from "./client/core.js";
-const DevHooks = {}; // until implemented
-export const DEV = IS_DEV ? ({ hooks: DevHooks, registerGraph } as const) : undefined;
+import { IS_DEV } from "./client/core.js";
+import { DEV as _DEV, type Dev } from "@solidjs/signals";
+export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
 
 // handle multiple instance check
 declare global {

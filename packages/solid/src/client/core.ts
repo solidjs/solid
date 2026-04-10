@@ -2,13 +2,12 @@ import {
   createMemo,
   createRoot,
   getOwner,
-  runWithOwner,
   untrack,
   setContext,
   getContext,
   flatten
 } from "@solidjs/signals";
-import type { Accessor, Owner, EffectOptions } from "@solidjs/signals";
+import type { Accessor, EffectOptions } from "@solidjs/signals";
 import type { JSX } from "../jsx.js";
 import { FlowComponent, FlowProps } from "./component.js";
 
@@ -112,25 +111,14 @@ export function devComponent<P, V>(Comp: (props: P) => V, props: P): V {
   return createRoot(
     () => {
       const owner: any = getOwner();
-      owner._props = props;
-      owner._name = Comp.name;
-      owner._component = Comp;
+      owner._component = {
+        fn: Comp,
+        props,
+        name: Comp.name
+      };
       Object.assign(Comp, { [$DEVCOMP]: true });
       return untrack(() => Comp(props), IS_DEV && `<${Comp.name || "Anonymous"}>`);
     },
     { transparent: true }
   );
-}
-
-interface SourceMapValue {
-  value: unknown;
-  name?: string;
-  graph?: Owner;
-}
-export function registerGraph(value: SourceMapValue): void {
-  const owner: any = getOwner();
-  if (!owner) return;
-  if (owner.sourceMap) owner.sourceMap.push(value);
-  else owner.sourceMap = [value];
-  value.graph = owner;
 }

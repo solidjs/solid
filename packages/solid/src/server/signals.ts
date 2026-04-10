@@ -8,6 +8,7 @@ export {
   createOwner,
   runWithOwner,
   getOwner,
+  isDisposed,
   onCleanup,
   getNextChildId,
   createContext,
