@@ -1,8 +1,10 @@
 import { STATUS_PENDING } from "../core/constants.js";
 import { snapshotCaptureActive, snapshotSources, strictRead } from "../core/core.js";
+import { DEV, registerGraph } from "../core/dev.js";
 import {
   $REFRESH,
   getObserver,
+  getOwner,
   isEqual,
   NO_SNAPSHOT,
   NOT_PENDING,
@@ -374,6 +376,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         }
         // notify self
         nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
+        if (__DEV__) DEV.hooks.onStoreNodeUpdate?.(target[$PROXY], property, value, prev);
       });
     }
     return true;
@@ -508,6 +511,8 @@ export function createStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function",
     wrappedStore = derived ? createProjectionInternal(first, second, options).store : wrap(first);
+
+  if (__DEV__) registerGraph(wrappedStore, getOwner());
 
   return [wrappedStore, (fn: (draft: T) => void): void => storeSetter(wrappedStore, fn)];
 }

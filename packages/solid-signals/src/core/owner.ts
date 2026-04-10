@@ -5,6 +5,7 @@ import {
   REACTIVE_ZOMBIE
 } from "./constants.js";
 import { context, latestReadActive, pendingCheckActive, runWithOwner, tracking } from "./core.js";
+import { clearSignals, DEV } from "./dev.js";
 import { unlinkSubs } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap } from "./heap.js";
 import { dirtyQueue, globalQueue, zombieQueue } from "./scheduler.js";
@@ -38,6 +39,7 @@ export function dispose(node: Computed<unknown>): void {
 export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
   if ((node as any)._flags & REACTIVE_DISPOSED) return;
   if (self) (node as any)._flags = REACTIVE_DISPOSED;
+  if (self && __DEV__) clearSignals(node);
   if (self && (node as any)._fn) (node as Computed<unknown>)._inFlight = null;
   let child = zombie ? (node._pendingFirstChild as Owner) : node._firstChild;
   while (child) {
@@ -160,6 +162,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
       parent._firstChild = owner;
     }
   }
+  if (__DEV__) DEV.hooks.onOwner?.(owner);
   return owner;
 }
 

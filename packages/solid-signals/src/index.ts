@@ -28,7 +28,8 @@ export {
   releaseSnapshotScope,
   clearSnapshots,
   enforceLoadingBoundary,
-  enableExternalSource
+  enableExternalSource,
+  DEV
 } from "./core/index.js";
 export type {
   Owner,
@@ -37,7 +38,8 @@ export type {
   IQueue,
   ExternalSourceFactory,
   ExternalSource,
-  ExternalSourceConfig
+  ExternalSourceConfig,
+  DevHooks
 } from "./core/index.js";
 export {
   createSignal,

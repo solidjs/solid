@@ -10,6 +10,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { currentOptimisticLane } from "./core.js";
+import { DEV } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { insertIntoHeap, runHeap, type Heap } from "./heap.js";
 import {
@@ -314,6 +315,7 @@ export class GlobalQueue extends Queue {
       this.run(EFFECT_RENDER);
       runLaneEffects(EFFECT_USER);
       this.run(EFFECT_USER);
+      if (__DEV__) DEV.hooks.onUpdate?.();
     } finally {
       this._running = false;
     }

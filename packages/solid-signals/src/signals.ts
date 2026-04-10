@@ -18,6 +18,7 @@ import {
   trackedEffect,
   untrack
 } from "./core/index.js";
+import { registerGraph } from "./core/dev.js";
 import { globalQueue } from "./core/scheduler.js";
 
 export function onCleanup(fn: Disposable): Disposable {
@@ -147,6 +148,7 @@ export function createSignal<T>(
     ];
   }
   const node = signal<T>(first as any, second as SignalOptions<T>);
+  if (__DEV__) registerGraph(node, getOwner());
   return [accessor<T>(node), setSignal.bind(null, node as any) as Setter<T | undefined>];
 }
 
@@ -387,10 +389,15 @@ export function createOptimistic<T>(
   second?: T | SignalOptions<T>,
   third?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
-  const node =
-    typeof first === "function"
-      ? optimisticComputed<T>(first as any, second as any, third)
-      : optimisticSignal<T>(first as any, second as SignalOptions<T>);
+  if (typeof first === "function") {
+    const node = optimisticComputed<T>(first as any, second as any, third);
+    return [
+      accessor<T | undefined>(node),
+      setSignal.bind(null, node as any) as Setter<T | undefined>
+    ];
+  }
+  const node = optimisticSignal<T>(first as any, second as SignalOptions<T>);
+  if (__DEV__) registerGraph(node, getOwner());
   return [
     accessor<T | undefined>(node),
     setSignal.bind(null, node as any) as Setter<T | undefined>

@@ -41,6 +41,7 @@ import {
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
+import { clearSignals, DEV, registerGraph } from "./dev.js";
 import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeTransition,
@@ -152,6 +153,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._disposal = null;
       el._firstChild = null;
       el._childCount = 0;
+      if (__DEV__) clearSignals(el);
     }
   }
 
@@ -356,6 +358,7 @@ export function computed<T>(
       context._firstChild = self;
     }
   }
+  if (__DEV__) DEV.hooks.onOwner?.(self);
   if (parent) self._height = parent._height + 1;
   if (snapshotCaptureActive && ownerInSnapshotScope(context)) self._inSnapshotScope = true;
   if (externalSourceConfig) {
@@ -404,7 +407,10 @@ export function signal<T>(
     _nextChild: firewall?._child || null,
     _pendingValue: NOT_PENDING
   };
-  if (__DEV__) (s as any)._name = options?.name ?? "signal";
+  if (__DEV__) {
+    (s as any)._name = options?.name ?? "signal";
+    (s as any)._internal = !!firewall;
+  }
   firewall && (firewall._child = s as FirewallSignal<unknown>);
   if (
     snapshotCaptureActive &&
