@@ -2,7 +2,6 @@ import { children } from "./core.js";
 import {
   createMemo,
   createOwner,
-  createRevealOrder,
   mapArray,
   repeat,
   createErrorBoundary,
@@ -174,14 +173,38 @@ export function Reveal(props: {
   collapsed?: boolean;
   children: JSX.Element;
 }): JSX.Element {
-  if (!sharedConfig.context?.async) {
-    return createRevealOrder(() => props.children) as unknown as JSX.Element;
-  }
-  const ctx = sharedConfig.context;
   const o = createOwner();
   const id = o.id!;
   const together = !!props.together;
   const collapsed = !!props.collapsed;
+
+  if (!sharedConfig.context?.async) {
+    const parent = getOwner();
+    const parentGroup = parent ? runWithOwner(parent, () => getContext(RevealGroupContext)) : null;
+    let collapsedByParent = false;
+    if (parentGroup) {
+      collapsedByParent = parentGroup.register(id);
+      if (collapsed || together)
+        console.warn(
+          "Nested <Reveal> with collapsed/together won't coordinate correctly with renderToString. Use renderToStream for full support."
+        );
+    }
+    let count = 0;
+    return runWithOwner(o, () => {
+      setContext(RevealGroupContext, {
+        id,
+        register(_key: string) {
+          count++;
+          if (collapsedByParent) return true;
+          return !together && collapsed && count > 1;
+        },
+        onResolved() {}
+      });
+      return props.children;
+    }) as unknown as JSX.Element;
+  }
+
+  const ctx = sharedConfig.context;
   const keys: string[] = [];
   const resolved = new Set<string>();
   const composites = new Map<string, () => void>();

@@ -155,6 +155,12 @@ export function createLoadingBoundary(
 
   const collapseFallback = revealGroup ? revealGroup.register(id) : false;
 
+  if (collapseFallback && !ctx.async) {
+    commitBoundaryState();
+    ctx.serialize(id, "$$f");
+    return () => undefined;
+  }
+
   const fallbackOwner = createOwner({ id });
   const fallbackResult = runWithOwner(fallbackOwner, () => {
     if (!ctx.async) return fallback();
