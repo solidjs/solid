@@ -39,6 +39,7 @@ export type {
   ExternalSourceFactory,
   ExternalSource,
   ExternalSourceConfig,
+  Dev,
   DevHooks
 } from "./core/index.js";
 export {

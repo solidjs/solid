@@ -66,5 +66,5 @@ export {
   type IQueue,
   type QueueCallback
 } from "./scheduler.js";
-export { DEV, type DevHooks } from "./dev.js";
+export { DEV, type Dev, type DevHooks } from "./dev.js";
 export * from "./constants.js";

@@ -7,9 +7,18 @@ export interface DevHooks {
   onStoreNodeUpdate?: (state: any, property: PropertyKey, value: any, prev: any) => void;
 }
 
+export interface Dev {
+  hooks: DevHooks;
+  getChildren: typeof getChildren;
+  getSignals: typeof getSignals;
+  getParent: typeof getParent;
+  getSources: typeof getSources;
+  getObservers: typeof getObservers;
+}
+
 const hooks: DevHooks = {};
 
-export const DEV = {
+export const DEV: Dev = {
   hooks,
   getChildren,
   getSignals,
