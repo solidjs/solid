@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/web",
   "description": "Solid's web runtime for the browser and the server",
-  "version": "2.0.0-beta.5",
+  "version": "2.0.0-beta.6",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -91,7 +91,7 @@
   },
   "peerDependencies": {
     "@solidjs/signals": "^0.13.11",
-    "solid-js": "^2.0.0-beta.5"
+    "solid-js": "^2.0.0-beta.6"
   },
   "devDependencies": {
     "@solidjs/signals": "^0.13.11",

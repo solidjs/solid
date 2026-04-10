@@ -1,5 +1,15 @@
 # solid-js
 
+## 2.0.0-beta.6
+
+### Patch Changes
+
+- 159d204: Add Reveal component SSR support with streaming fragment coordination, collapsed fallback mode, and nested composite slots
+- df3f514: Align with dom-expressions: add MathML support to Dynamic/createElement, consolidate namespaces, remove deprecated isSvg/Properties/SVGNamespace
+- 74ea248: Dev tooling 2.0 surface: remove registerGraph/sourceMap, consolidate devComponent metadata into single \_component object, wire DEV.hooks to @solidjs/signals hook registration (onOwner, onGraph, onUpdate, onStoreNodeUpdate), expose graph traversal helpers (getChildren, getSignals, getParent, getSources, getObservers) through DEV, export isDisposed
+- 4a954e7: Fix server-side `createProjection` promise serialization to resolve with the projected state so hydration receives the correct value.
+- 6a87fb2: Support Reveal collapsed mode in string (non-async) SSR by providing RevealGroupContext and collapsing non-frontier fallbacks server-side. Warn for nested Reveal in renderToString where client coordination is limited.
+
 ## 2.0.0-beta.5
 
 ### Patch Changes
