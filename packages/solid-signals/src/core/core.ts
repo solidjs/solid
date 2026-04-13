@@ -648,7 +648,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 }
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
-  // Warn about writing to a signal in an owned scope in development mode.
   if (
     __DEV__ &&
     !el._pureWrite &&
@@ -656,7 +655,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     context &&
     (el as FirewallSignal<any>)._firewall !== context
   )
-    console.warn("A Signal was written to in an owned scope.");
+    throw new Error(
+      "Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
+        "Move the write outside or set the `pureWrite` option if this is intentional."
+    );
 
   if (el._transition && activeTransition !== el._transition)
     globalQueue.initTransition(el._transition);
