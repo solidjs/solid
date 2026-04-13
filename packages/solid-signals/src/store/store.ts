@@ -1,6 +1,6 @@
 import { STATUS_PENDING } from "../core/constants.js";
 import { snapshotCaptureActive, snapshotSources, strictRead } from "../core/core.js";
-import { DEV, registerGraph } from "../core/dev.js";
+import { DEV, emitDiagnostic, registerGraph } from "../core/dev.js";
 import {
   $REFRESH,
   getObserver,
@@ -271,11 +271,20 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         );
       }
     }
-    if (__DEV__ && strictRead && typeof property === "string")
-      console.warn(
+    if (__DEV__ && strictRead && typeof property === "string") {
+      const message =
         `Reactive value read directly in ${strictRead} will not update. ` +
-          `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`
-      );
+        `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
+      emitDiagnostic({
+        code: "STRICT_READ_UNTRACKED",
+        kind: "strict-read",
+        severity: "warn",
+        message,
+        nodeName: String(property),
+        data: { strictRead, property: String(property), source: "store" }
+      });
+      console.warn(message);
+    }
     return isWrappable(value) ? wrap(value, target) : value;
   },
 

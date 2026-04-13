@@ -13,13 +13,13 @@ import {
   type Owner
 } from "../src/index.js";
 
-const { getChildren, getSignals, getParent, getSources, getObservers } = DEV;
+const { getChildren, getSignals, getParent, getSources, getObservers } = DEV!;
 
 afterEach(() => {
-  DEV.hooks.onOwner = undefined;
-  DEV.hooks.onGraph = undefined;
-  DEV.hooks.onUpdate = undefined;
-  DEV.hooks.onStoreNodeUpdate = undefined;
+  DEV!.hooks.onOwner = undefined;
+  DEV!.hooks.onGraph = undefined;
+  DEV!.hooks.onUpdate = undefined;
+  DEV!.hooks.onStoreNodeUpdate = undefined;
 });
 
 describe("Phase 1a: Signal-to-owner tracking", () => {
@@ -127,14 +127,14 @@ describe("Phase 1b: Notification hooks", () => {
   describe("onOwner", () => {
     it("fires when createRoot creates an owner", () => {
       const owners: Owner[] = [];
-      DEV.hooks.onOwner = o => owners.push(o);
+      DEV!.hooks.onOwner = o => owners.push(o);
       createRoot(() => {});
       expect(owners.length).toBe(1);
     });
 
     it("fires when createMemo creates a computed owner", () => {
       const owners: Owner[] = [];
-      DEV.hooks.onOwner = o => owners.push(o);
+      DEV!.hooks.onOwner = o => owners.push(o);
       createRoot(() => {
         createMemo(() => 42);
       });
@@ -144,7 +144,7 @@ describe("Phase 1b: Notification hooks", () => {
 
     it("fires for transparent owners", () => {
       const owners: Owner[] = [];
-      DEV.hooks.onOwner = o => owners.push(o);
+      DEV!.hooks.onOwner = o => owners.push(o);
       createRoot(
         () => {},
         { transparent: true }
@@ -157,7 +157,7 @@ describe("Phase 1b: Notification hooks", () => {
   describe("onGraph", () => {
     it("fires when a signal is created with an owner", () => {
       const entries: any[] = [];
-      DEV.hooks.onGraph = (value, owner) => entries.push({ value, owner });
+      DEV!.hooks.onGraph = (value, owner) => entries.push({ value, owner });
       createRoot(() => {
         createSignal(0, { name: "test" });
       });
@@ -168,7 +168,7 @@ describe("Phase 1b: Notification hooks", () => {
 
     it("fires for unowned signals with owner=null", () => {
       const entries: any[] = [];
-      DEV.hooks.onGraph = (value, owner) => entries.push({ value, owner });
+      DEV!.hooks.onGraph = (value, owner) => entries.push({ value, owner });
       createSignal(0, { name: "unowned" });
       expect(entries.length).toBe(1);
       expect(entries[0].owner).toBeNull();
@@ -176,7 +176,7 @@ describe("Phase 1b: Notification hooks", () => {
 
     it("fires for stores", () => {
       const entries: any[] = [];
-      DEV.hooks.onGraph = (value, owner) => entries.push({ value, owner });
+      DEV!.hooks.onGraph = (value, owner) => entries.push({ value, owner });
       createRoot(() => {
         createStore({ count: 0 });
       });
@@ -187,7 +187,7 @@ describe("Phase 1b: Notification hooks", () => {
   describe("onUpdate", () => {
     it("fires once per flush", () => {
       const calls: number[] = [];
-      DEV.hooks.onUpdate = () => calls.push(1);
+      DEV!.hooks.onUpdate = () => calls.push(1);
       let setCount: (v: number) => void;
       createRoot(() => {
         const [count, _setCount] = createSignal(0);
@@ -207,7 +207,7 @@ describe("Phase 1b: Notification hooks", () => {
 
     it("fires once even with multiple signal writes", () => {
       const calls: number[] = [];
-      DEV.hooks.onUpdate = () => calls.push(1);
+      DEV!.hooks.onUpdate = () => calls.push(1);
       let setA: (v: number) => void;
       let setB: (v: number) => void;
       createRoot(() => {
@@ -233,7 +233,7 @@ describe("Phase 1b: Notification hooks", () => {
   describe("onStoreNodeUpdate", () => {
     it("fires on store property mutation with old and new values", () => {
       const updates: any[] = [];
-      DEV.hooks.onStoreNodeUpdate = (state, property, value, prev) =>
+      DEV!.hooks.onStoreNodeUpdate = (state, property, value, prev) =>
         updates.push({ state, property, value, prev });
 
       createRoot(() => {

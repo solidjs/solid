@@ -66,5 +66,15 @@ export {
   type IQueue,
   type QueueCallback
 } from "./scheduler.js";
-export { DEV, type Dev, type DevHooks } from "./dev.js";
+export {
+  DEV,
+  type Dev,
+  type DevHooks,
+  type DiagnosticCapture,
+  type DiagnosticCode,
+  type DiagnosticEvent,
+  type DiagnosticKind,
+  type Diagnostics,
+  type DiagnosticSeverity
+} from "./dev.js";
 export * from "./constants.js";

@@ -41,7 +41,7 @@ import {
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
-import { clearSignals, DEV, registerGraph } from "./dev.js";
+import { clearSignals, DEV, emitDiagnostic, registerGraph } from "./dev.js";
 import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeTransition,
@@ -547,10 +547,20 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   const owner = (el as FirewallSignal<any>)._firewall || el;
 
   if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING) {
-    throw new Error(
+    const message =
       `Reading a pending async value directly in ${strictRead}. ` +
-        `Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function).`
-    );
+      `Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function).`;
+    emitDiagnostic({
+      code: "PENDING_ASYNC_UNTRACKED_READ",
+      kind: "async",
+      severity: "error",
+      message,
+      ownerId: c?.id,
+      ownerName: (c as any)?._name,
+      nodeName: (owner as any)?._name,
+      data: { strictRead }
+    });
+    throw new Error(message);
   }
 
   if (c && tracking) {
@@ -576,10 +586,19 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (owner._statusFlags & STATUS_PENDING) {
     if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (__DEV__ && c?._childrenForbidden) {
-        console.warn(
+        const message =
           "Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
-            "Use createEffect instead which supports async-aware reactivity."
-        );
+          "Use createEffect instead which supports async-aware reactivity.";
+        emitDiagnostic({
+          code: "PENDING_ASYNC_FORBIDDEN_SCOPE",
+          kind: "async",
+          severity: "warn",
+          message,
+          ownerId: c.id,
+          ownerName: (c as any)._name,
+          nodeName: (owner as any)?._name
+        });
+        console.warn(message);
       }
       if (currentOptimisticLane) {
         // Per-lane suspension: only throw if in same lane as pending async
@@ -619,11 +638,22 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
   }
 
-  if (__DEV__ && strictRead)
-    console.warn(
+  if (__DEV__ && strictRead) {
+    const message =
       `Reactive value read directly in ${strictRead} will not update. ` +
-        `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`
-    );
+      `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
+    emitDiagnostic({
+      code: "STRICT_READ_UNTRACKED",
+      kind: "strict-read",
+      severity: "warn",
+      message,
+      ownerId: c?.id,
+      ownerName: (c as any)?._name,
+      nodeName: (owner as any)?._name,
+      data: { strictRead }
+    });
+    console.warn(message);
+  }
 
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
     if (c && stale && shouldReadStashedOptimisticValue(el as Signal<any>)) return el._value as T;
@@ -655,10 +685,21 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     context &&
     (el as FirewallSignal<any>)._firewall !== context
   )
-    throw new Error(
-      "Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
-        "Move the write outside or set the `pureWrite` option if this is intentional."
-    );
+    {
+      const message =
+        "Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
+        "Move the write outside or set the `pureWrite` option if this is intentional.";
+      emitDiagnostic({
+        code: "SIGNAL_WRITE_IN_OWNED_SCOPE",
+        kind: "write",
+        severity: "error",
+        message,
+        ownerId: context.id,
+        ownerName: (context as any)._name,
+        nodeName: (el as any)._name
+      });
+      throw new Error(message);
+    }
 
   if (el._transition && activeTransition !== el._transition)
     globalQueue.initTransition(el._transition);
@@ -723,10 +764,19 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 }
 
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
-  if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED)
-    console.warn(
-      "runWithOwner called with a disposed owner. Children created inside will never be disposed."
-    );
+  if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED) {
+    const message =
+      "runWithOwner called with a disposed owner. Children created inside will never be disposed.";
+    emitDiagnostic({
+      code: "RUN_WITH_DISPOSED_OWNER",
+      kind: "owner",
+      severity: "warn",
+      message,
+      ownerId: owner.id,
+      ownerName: (owner as any)._name
+    });
+    console.warn(message);
+  }
   const oldContext = context;
   const prevTracking = tracking;
   context = owner;

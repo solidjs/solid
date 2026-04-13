@@ -28,9 +28,10 @@ export {
   releaseSnapshotScope,
   clearSnapshots,
   enforceLoadingBoundary,
-  enableExternalSource,
-  DEV
+  enableExternalSource
 } from "./core/index.js";
+import { DEV as _DEV, type Dev } from "./core/index.js";
+export const DEV: Dev | undefined = __DEV__ ? _DEV : undefined;
 export type {
   Owner,
   Context,
@@ -40,7 +41,13 @@ export type {
   ExternalSource,
   ExternalSourceConfig,
   Dev,
-  DevHooks
+  DevHooks,
+  DiagnosticCapture,
+  DiagnosticCode,
+  DiagnosticEvent,
+  DiagnosticKind,
+  Diagnostics,
+  DiagnosticSeverity
 } from "./core/index.js";
 export {
   createSignal,

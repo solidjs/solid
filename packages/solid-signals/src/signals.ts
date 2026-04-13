@@ -18,17 +18,34 @@ import {
   trackedEffect,
   untrack
 } from "./core/index.js";
-import { registerGraph } from "./core/dev.js";
+import { emitDiagnostic, registerGraph } from "./core/dev.js";
 import { globalQueue } from "./core/scheduler.js";
 
 export function onCleanup(fn: Disposable): Disposable {
   if (__DEV__) {
     const owner = getOwner();
-    if (!owner) console.warn("onCleanup called outside a reactive context will never be run");
-    else if (owner._childrenForbidden)
-      throw new Error(
-        "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead"
-      );
+    if (!owner) {
+      const message = "onCleanup called outside a reactive context will never be run";
+      emitDiagnostic({
+        code: "NO_OWNER_CLEANUP",
+        kind: "lifecycle",
+        severity: "warn",
+        message
+      });
+      console.warn(message);
+    } else if (owner._childrenForbidden) {
+      const message =
+        "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
+      emitDiagnostic({
+        code: "CLEANUP_IN_FORBIDDEN_SCOPE",
+        kind: "lifecycle",
+        severity: "error",
+        message,
+        ownerId: owner.id,
+        ownerName: (owner as any)._name
+      });
+      throw new Error(message);
+    }
   }
   return cleanup(fn);
 }

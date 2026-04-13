@@ -7,6 +7,7 @@ import {
   STATUS_PENDING
 } from "./constants.js";
 import { computed, recompute, setStrictRead, staleValues } from "./core.js";
+import { emitDiagnostic } from "./dev.js";
 import { StatusError } from "./error.js";
 import { cleanup } from "./owner.js";
 import { _hitUnhandledAsync, resetUnhandledAsync, setTrackedQueueCallback } from "./scheduler.js";
@@ -77,6 +78,14 @@ export function effect<T>(
       if (__DEV__ && _hitUnhandledAsync) {
         resetUnhandledAsync();
         const err = new Error("An async value must be rendered inside a Loading boundary.");
+        emitDiagnostic({
+          code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+          kind: "async",
+          severity: "error",
+          message: err.message,
+          ownerId: node.id,
+          ownerName: node._name
+        });
         if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw err;
       }
     }
@@ -88,8 +97,19 @@ export function effect<T>(
       : runEffect.call(node));
   initialized = true;
   cleanup(() => node._cleanup?.());
-  if (__DEV__ && !node._parent)
-    console.warn("Effects created outside a reactive context will never be disposed");
+  if (__DEV__ && !node._parent) {
+    const message = "Effects created outside a reactive context will never be disposed";
+    emitDiagnostic({
+      code: "NO_OWNER_EFFECT",
+      kind: "lifecycle",
+      severity: "warn",
+      message,
+      ownerId: node.id,
+      ownerName: node._name,
+      data: { effectType: "effect" }
+    });
+    console.warn(message);
+  }
 }
 
 function runEffect(this: Effect<any>) {
@@ -176,6 +196,17 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
 
   cleanup(() => node._cleanup?.());
 
-  if (__DEV__ && !node._parent)
-    console.warn("Effects created outside a reactive context will never be disposed");
+  if (__DEV__ && !node._parent) {
+    const message = "Effects created outside a reactive context will never be disposed";
+    emitDiagnostic({
+      code: "NO_OWNER_EFFECT",
+      kind: "lifecycle",
+      severity: "warn",
+      message,
+      ownerId: node.id,
+      ownerName: node._name,
+      data: { effectType: "trackedEffect" }
+    });
+    console.warn(message);
+  }
 }
