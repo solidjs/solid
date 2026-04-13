@@ -142,21 +142,23 @@ describe("DEV.hooks", () => {
 
   test("onUpdate fires after flush", () => {
     const calls: number[] = [];
+    let setCount!: (value: number) => number;
     DEV!.hooks.onUpdate = () => calls.push(1);
 
     createRoot(() => {
-      const [count, setCount] = createSignal(0);
+      const [count, _setCount] = createSignal(0);
+      setCount = _setCount;
       createEffect(
         () => count(),
         () => {}
       );
       flush();
-      const initial = calls.length;
-
-      setCount(1);
-      flush();
-      expect(calls.length).toBe(initial + 1);
     });
+
+    const initial = calls.length;
+    setCount(1);
+    flush();
+    expect(calls.length).toBe(initial + 1);
   });
 
   test("onStoreNodeUpdate fires on store mutation with old/new values", () => {

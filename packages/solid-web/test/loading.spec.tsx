@@ -5,7 +5,7 @@
 
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import "./MessageChannel.js";
-import { lazy, createSignal, createMemo, Loading, createStore, flush } from "solid-js";
+import { lazy, createSignal, createMemo, Loading, createStore, Show, flush } from "solid-js";
 import { render } from "../src/index.js";
 
 // enableScheduling();
@@ -182,6 +182,62 @@ describe("Testing Loading", () => {
     await Promise.resolve();
     flush();
     expect(localDiv.innerHTML).toBe("data-b-1");
+    localDispose();
+  });
+
+  test("new keyed Loading boundary shows fallback for previously resolved async value while it refreshes", async () => {
+    let setPage!: (value: "a" | "b") => void;
+    const localDiv = document.createElement("div");
+    let localDispose!: () => void;
+    let current!: { promise: Promise<void>; resolve: () => void };
+
+    const nextDeferred = () => {
+      let resolve!: () => void;
+      current = {
+        promise: new Promise<void>(r => (resolve = r)),
+        resolve
+      };
+    };
+
+    nextDeferred();
+
+    localDispose = render(() => {
+      const [page, _setPage] = createSignal<"a" | "b">("a");
+      setPage = _setPage;
+      const source = createMemo(async () => {
+        const value = page();
+        await current.promise;
+        return `value-${value}`;
+      });
+
+      return (
+        <Show when={page()} keyed>
+          {currentPage => (
+            <Loading fallback="loading">{`Page ${currentPage()}: ${source()}`}</Loading>
+          )}
+        </Show>
+      );
+    }, localDiv);
+
+    flush();
+    expect(localDiv.innerHTML).toBe("loading");
+
+    current.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("Page a: value-a");
+
+    nextDeferred();
+    setPage("b");
+    flush();
+    expect(localDiv.innerHTML).toBe("loading");
+
+    current.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("Page b: value-b");
     localDispose();
   });
 

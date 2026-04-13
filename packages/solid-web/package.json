@@ -90,11 +90,11 @@
     "seroval-plugins": "^1.1.0"
   },
   "peerDependencies": {
-    "@solidjs/signals": "^0.13.11",
+    "@solidjs/signals": "^0.13.12",
     "solid-js": "^2.0.0-beta.6"
   },
   "devDependencies": {
-    "@solidjs/signals": "^0.13.11",
+    "@solidjs/signals": "^0.13.12",
     "solid-js": "workspace:*"
   }
 }
