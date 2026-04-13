@@ -3,6 +3,7 @@ import {
   EFFECT_TRACKED,
   EFFECT_USER,
   NOT_PENDING,
+  REACTIVE_DISPOSED,
   REACTIVE_OPTIMISTIC_DIRTY,
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
@@ -108,7 +109,7 @@ type QueueStub = {
 type OptimisticNode = Signal<any> | Computed<any>;
 export interface Transition {
   _time: number;
-  _asyncNodes: Computed<any>[];
+  _asyncReporters: Map<Computed<any>, Set<Computed<any>>>;
   _pendingNodes: Signal<any>[];
   _optimisticNodes: OptimisticNode[]; // Optimistic signals/computeds pending transition reversion
   _optimisticStores: Set<any>;
@@ -120,13 +121,13 @@ export interface Transition {
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
-  for (const lane of activeLanes) {
-    if (lane._transition === outgoing) lane._transition = target;
-  }
+  for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
   target._optimisticNodes.push(...outgoing._optimisticNodes);
   for (const store of outgoing._optimisticStores) target._optimisticStores.add(store);
-  for (const node of outgoing._asyncNodes) {
-    if (!target._asyncNodes.includes(node)) target._asyncNodes.push(node);
+  for (const [source, reporters] of outgoing._asyncReporters) {
+    let targetReporters = target._asyncReporters.get(source);
+    if (!targetReporters) target._asyncReporters.set(source, (targetReporters = new Set()));
+    for (const reporter of reporters) targetReporters.add(reporter);
   }
 }
 
@@ -327,10 +328,11 @@ export class GlobalQueue extends Queue {
         const actualError = error !== undefined ? error : node._error;
         if (activeTransition && actualError) {
           const source = (actualError as NotReadyError).source;
-          if (!activeTransition._asyncNodes.includes(source)) {
-            activeTransition._asyncNodes.push(source);
-            schedule();
-          }
+          let reporters = activeTransition._asyncReporters.get(source);
+          if (!reporters) activeTransition._asyncReporters.set(source, (reporters = new Set()));
+          const prevSize = reporters.size;
+          reporters.add(node);
+          if (reporters.size !== prevSize) schedule();
         }
         if (__DEV__ && _enforceLoadingBoundary) _hitUnhandledAsync = true;
       }
@@ -346,7 +348,7 @@ export class GlobalQueue extends Queue {
       activeTransition = transition ?? {
         _time: clock,
         _pendingNodes: [],
-        _asyncNodes: [],
+        _asyncReporters: new Map(),
         _optimisticNodes: [],
         _optimisticStores: new Set(),
         _actions: [],
@@ -518,13 +520,38 @@ function runQueue(queue: QueueCallback[], type: number): void {
   for (let i = 0; i < queue.length; i++) queue[i](type);
 }
 
+function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): boolean {
+  if (reporter._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) return false;
+  if (reporter._pendingSource === source || reporter._pendingSources?.has(source)) return true;
+  for (let dep = reporter._deps; dep; dep = dep._nextDep) {
+    let current = dep._dep as Signal<any> | Computed<any> | undefined;
+    while (current) {
+      if (current === source || (current as any)._firewall === source) return true;
+      current = current._parentSource;
+    }
+  }
+  return !!(
+    (reporter._statusFlags & STATUS_PENDING) &&
+    reporter._error instanceof NotReadyError &&
+    reporter._error.source === source
+  );
+}
+
 function transitionComplete(transition: Transition): boolean {
   if (transition._done) return true;
   if (transition._actions.length) return false;
   let done = true;
-  for (let i = 0; i < transition._asyncNodes.length; i++) {
-    const node = transition._asyncNodes[i];
-    if (node._statusFlags & STATUS_PENDING && (node._error as NotReadyError)?.source === node) {
+  for (const [source, reporters] of transition._asyncReporters) {
+    let hasLive = false;
+    for (const reporter of reporters) {
+      if (reporterBlocksSource(reporter, source)) {
+        hasLive = true;
+        break;
+      }
+      reporters.delete(reporter);
+    }
+    if (!hasLive) transition._asyncReporters.delete(source);
+    else if (source._statusFlags & STATUS_PENDING && (source._error as NotReadyError)?.source === source) {
       done = false;
       break;
     }

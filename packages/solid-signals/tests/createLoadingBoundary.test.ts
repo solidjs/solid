@@ -6,6 +6,7 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
+  flatten,
   flush,
   NotReadyError,
   untrack
@@ -601,6 +602,227 @@ describe("createLoadingBoundary", () => {
 
       expect(result).toBe(100);
       expect(callCount).toBe(1);
+    });
+  });
+
+  describe("fresh boundary around updating async source", () => {
+    function mountLike(
+      accessor: () => any,
+      write: (value: any) => void,
+      onCompute?: () => void,
+      onFirstUnwrap?: (value: any) => void
+    ) {
+      const normalized = createMemo(() => accessor(), undefined, { transparent: true });
+      createRenderEffect(
+        prev => {
+          onCompute?.();
+          const first = normalized();
+          onFirstUnwrap?.(first);
+          return flatten(first, { skipNonRendered: true });
+        },
+        value => write(value),
+        undefined
+      );
+    }
+
+    it("shows fallback when a keyed subtree directly inserts an external pending async source", async () => {
+      let result: any;
+      const [$page, setPage] = createSignal("a");
+      let current = deferred<void>();
+
+      createRoot(() => {
+        const source = createMemo(async () => {
+          const page = $page();
+          await current.promise;
+          return `value-${page}`;
+        });
+        const shown = createMemo(() => {
+          const page = $page();
+          return createLoadingBoundary(
+            () => ["Page ", page, ": ", source],
+            () => "loading"
+          );
+        }, undefined, { transparent: true });
+
+        mountLike(shown, value => {
+          result = value;
+        });
+      });
+
+      flush();
+      expect(result).toBe("loading");
+
+      current.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "a", ": ", "value-a"]);
+
+      current = deferred<void>();
+      setPage("b");
+      flush();
+      expect(result).toBe("loading");
+
+      current.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "b", ": ", "value-b"]);
+    });
+
+    it("shows fallback when a keyed subtree mounts a nested insert over an external pending async source", async () => {
+      let result: any;
+      const [$page, setPage] = createSignal("a");
+      let current = deferred<void>();
+
+      createRoot(() => {
+        const source = createMemo(async () => {
+          const page = $page();
+          await current.promise;
+          return `value-${page}`;
+        });
+        const shown = createMemo(() => {
+          const page = $page();
+          let started = false;
+          return createLoadingBoundary(
+            () => {
+              if (!started) {
+                started = true;
+                mountLike(source, () => {});
+              }
+              return ["Page ", page, ": ", "<span />"];
+            },
+            () => "loading"
+          );
+        }, undefined, { transparent: true });
+
+        mountLike(shown, value => {
+          result = value;
+        });
+      });
+
+      flush();
+      expect(result).toBe("loading");
+
+      current.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "a", ": ", "<span />"]);
+
+      current = deferred<void>();
+      setPage("b");
+      flush();
+      expect(result).toBe("loading");
+
+      current.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "b", ": ", "<span />"]);
+    });
+
+    it("shows fallback when each keyed branch reads its own external async source", async () => {
+      let result: any;
+      const [$page, setPage] = createSignal<"a" | "b">("a");
+      let currentA = deferred<void>();
+      let currentB = deferred<void>();
+
+      createRoot(() => {
+        const sourceA = createMemo(async () => {
+          await currentA.promise;
+          return "value-a";
+        });
+        const sourceB = createMemo(async () => {
+          await currentB.promise;
+          return "value-b";
+        });
+        const shown = createMemo(() => {
+          const page = $page();
+          return createLoadingBoundary(
+            () => ["Page ", page, ": ", page === "a" ? sourceA : sourceB],
+            () => "loading"
+          );
+        }, undefined, { transparent: true });
+
+        mountLike(shown, value => {
+          result = value;
+        });
+      });
+
+      flush();
+      expect(result).toBe("loading");
+
+      currentA.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "a", ": ", "value-a"]);
+
+      setPage("b");
+      flush();
+      expect(result).toBe("loading");
+
+      currentB.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "b", ": ", "value-b"]);
+    });
+
+    it("shows fallback for nested insert when each keyed branch reads its own external async source", async () => {
+      let result: any;
+      const [$page, setPage] = createSignal<"a" | "b">("a");
+      let currentA = deferred<void>();
+      let currentB = deferred<void>();
+
+      createRoot(() => {
+        const sourceA = createMemo(async () => {
+          await currentA.promise;
+          return "value-a";
+        });
+        const sourceB = createMemo(async () => {
+          await currentB.promise;
+          return "value-b";
+        });
+        const shown = createMemo(() => {
+          const page = $page();
+          let started = false;
+          return createLoadingBoundary(
+            () => {
+              if (!started) {
+                started = true;
+                mountLike(page === "a" ? sourceA : sourceB, () => {});
+              }
+              return ["Page ", page, ": ", "<span />"];
+            },
+            () => "loading"
+          );
+        }, undefined, { transparent: true });
+
+        mountLike(shown, value => {
+          result = value;
+        });
+      });
+
+      flush();
+      expect(result).toBe("loading");
+
+      currentA.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "a", ": ", "<span />"]);
+
+      setPage("b");
+      flush();
+      expect(result).toBe("loading");
+
+      currentB.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(result).toEqual(["Page ", "b", ": ", "<span />"]);
     });
   });
 
