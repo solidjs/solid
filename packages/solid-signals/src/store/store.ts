@@ -193,12 +193,61 @@ export function getPropertyDescriptor(
   override: Record<PropertyKey, any> | undefined,
   property: PropertyKey
 ): PropertyDescriptor | undefined {
-  let value = source;
   if (override && property in override) {
-    if (value[property] === $DELETED) return void 0;
-    if (!(property in value)) value = override;
+    if (override[property] === $DELETED) return void 0;
+    const overrideDesc = Reflect.getOwnPropertyDescriptor(override, property);
+    if (overrideDesc?.get || overrideDesc?.set || !(property in source)) return overrideDesc;
   }
-  return Reflect.getOwnPropertyDescriptor(value, property);
+  return Reflect.getOwnPropertyDescriptor(source, property);
+}
+
+function prepareStoreWrite(target: StoreNode, store: any, property: PropertyKey) {
+  if (target[STORE_OPTIMISTIC]) {
+    const firewall = target[STORE_FIREWALL];
+    if (firewall?._transition) {
+      globalQueue.initTransition(firewall._transition);
+    }
+  }
+  const state = target[STORE_VALUE];
+  const base = state[property];
+  if (
+    snapshotCaptureActive &&
+    typeof property !== "symbol" &&
+    !((target[STORE_FIREWALL]?._statusFlags ?? 0) & STATUS_PENDING)
+  ) {
+    if (!target[STORE_SNAPSHOT_PROPS]) {
+      target[STORE_SNAPSHOT_PROPS] = Object.create(null);
+      snapshotSources?.add(target);
+    }
+    if (!(property in target[STORE_SNAPSHOT_PROPS]!)) {
+      target[STORE_SNAPSHOT_PROPS]![property] = base;
+    }
+  }
+  const useOptimistic = target[STORE_OPTIMISTIC] && !projectionWriteActive;
+  const overrideKey = useOptimistic ? STORE_OPTIMISTIC_OVERRIDE : STORE_OVERRIDE;
+  if (useOptimistic) trackOptimisticStore(store);
+  return { base, overrideKey, state };
+}
+
+function notifyStoreProperty(
+  target: StoreNode,
+  property: PropertyKey,
+  mode: "set" | "invalidate" | "delete",
+  value?: any
+) {
+  if (target[STORE_HAS]?.[property]) setSignal(target[STORE_HAS]![property], mode !== "delete");
+  const nodes = getNodes(target, STORE_NODE);
+  if (mode === "set") {
+    nodes[property] && setSignal(nodes[property], () => (isWrappable(value) ? wrap(value, target) : value));
+  } else if (mode === "invalidate") {
+    if (nodes[property]) {
+      setSignal(nodes[property], {} as any);
+      delete nodes[property];
+    }
+  } else {
+    nodes[property] && setSignal(nodes[property], undefined);
+  }
+  nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
 }
 
 let Writing: Set<Object> | null = null;
@@ -317,35 +366,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   set(target, property, rawValue) {
     const store = target[$PROXY];
     if (writeOnly(store)) {
-      // For optimistic stores, restore firewall's transition for async writes
-      // This ensures async writes complete in the correct transition context
-      if (target[STORE_OPTIMISTIC]) {
-        const firewall = target[STORE_FIREWALL];
-        if (firewall?._transition) {
-          globalQueue.initTransition(firewall._transition);
-        }
-      }
       untrack(() => {
-        const state = target[STORE_VALUE];
-        const base = state[property];
-        if (
-          snapshotCaptureActive &&
-          typeof property !== "symbol" &&
-          !((target[STORE_FIREWALL]?._statusFlags ?? 0) & STATUS_PENDING)
-        ) {
-          if (!target[STORE_SNAPSHOT_PROPS]) {
-            target[STORE_SNAPSHOT_PROPS] = Object.create(null);
-            snapshotSources?.add(target);
-          }
-          if (!(property in target[STORE_SNAPSHOT_PROPS]!)) {
-            target[STORE_SNAPSHOT_PROPS]![property] = base;
-          }
-        }
-        // Choose override target: optimistic overlay for user setter on optimistic stores
-        const useOptimistic = target[STORE_OPTIMISTIC] && !projectionWriteActive;
-        const overrideKey = useOptimistic ? STORE_OPTIMISTIC_OVERRIDE : STORE_OVERRIDE;
-        // Track store for reversion when writing optimistically
-        if (useOptimistic) trackOptimisticStore(store);
+        const { base, overrideKey, state } = prepareStoreWrite(target, store, property);
         // Get prev from optimistic -> regular -> base
         const prev =
           target[STORE_OPTIMISTIC_OVERRIDE] && property in target[STORE_OPTIMISTIC_OVERRIDE]
@@ -373,19 +395,46 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           override[property] = value;
           if (nextLength !== undefined) override.length = nextLength;
         }
-        const wrappable = isWrappable(value);
-        target[STORE_HAS]?.[property] && setSignal(target[STORE_HAS]![property], true);
-        const nodes = getNodes(target, STORE_NODE);
-        nodes[property] &&
-          setSignal(nodes[property], () => (wrappable ? wrap(value, target) : value));
+        notifyStoreProperty(target, property, "set", value);
         // notify length change
         if (Array.isArray(state)) {
+          const nodes = getNodes(target, STORE_NODE);
           const lengthValue = property === "length" ? value : nextLength;
           lengthValue !== undefined && nodes.length && setSignal(nodes.length, lengthValue);
         }
-        // notify self
-        nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
         if (__DEV__) DEV.hooks.onStoreNodeUpdate?.(target[$PROXY], property, value, prev);
+      });
+    }
+    return true;
+  },
+
+  defineProperty(target, property, descriptor) {
+    const store = target[$PROXY];
+    if (writeOnly(store)) {
+      untrack(() => {
+        const { base, overrideKey } = prepareStoreWrite(target, store, property);
+        const normalizedDescriptor =
+          "value" in descriptor
+            ? {
+                ...descriptor,
+                value: descriptor.value?.[$TARGET]?.[STORE_VALUE] ?? descriptor.value
+              }
+            : descriptor;
+        Object.defineProperty(
+          target[overrideKey] || (target[overrideKey] = Object.create(null)),
+          property,
+          normalizedDescriptor
+        );
+
+        notifyStoreProperty(target, property, "invalidate");
+
+        if (__DEV__) {
+          const next =
+            "value" in normalizedDescriptor
+              ? normalizedDescriptor.value
+              : normalizedDescriptor.get?.call(store);
+          DEV.hooks.onStoreNodeUpdate?.(target[$PROXY], property, next, base);
+        }
       });
     }
     return true;
@@ -415,10 +464,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         } else if (target[overrideKey] && property in target[overrideKey]) {
           delete target[overrideKey][property];
         } else return true;
-        if (target[STORE_HAS]?.[property]) setSignal(target[STORE_HAS]![property], false);
-        const nodes = getNodes(target, STORE_NODE);
-        nodes[property] && setSignal(nodes[property], undefined);
-        nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
+        notifyStoreProperty(target, property, "delete");
       });
     }
     return true;
@@ -444,6 +490,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     // Check optimistic override first, but use base descriptor structure for compatibility
     if (target[STORE_OPTIMISTIC_OVERRIDE] && property in target[STORE_OPTIMISTIC_OVERRIDE]) {
       if (target[STORE_OPTIMISTIC_OVERRIDE][property] === $DELETED) return undefined;
+      const optDesc = Reflect.getOwnPropertyDescriptor(target[STORE_OPTIMISTIC_OVERRIDE], property);
+      if (optDesc?.get || optDesc?.set || !(property in target[STORE_VALUE])) return optDesc;
       // Get base descriptor structure, override just the value
       const baseDesc = getPropertyDescriptor(target[STORE_VALUE], target[STORE_OVERRIDE], property);
       if (baseDesc) {

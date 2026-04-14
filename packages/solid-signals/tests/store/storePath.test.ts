@@ -130,6 +130,59 @@ describe("storePath helper", () => {
     expect(store.age).toBe(30);
   });
 
+  test("Root-level merge preserves getter descriptors", () => {
+    const [store, setStore] = createStore<{ value: number; existing: number; added?: number }>({
+      value: 0,
+      existing: 0
+    });
+    let existing: number | undefined;
+    let added: number | undefined;
+
+    createRoot(() => {
+      createEffect(
+        () => store.existing,
+        v => {
+          existing = v;
+        }
+      );
+      createEffect(
+        () => store.added,
+        v => {
+          added = v;
+        }
+      );
+    });
+
+    flush();
+    expect(existing).toBe(0);
+    expect(added).toBeUndefined();
+
+    setStore(
+      storePath({
+        get existing() {
+          return store.value;
+        },
+        get added() {
+          return store.value;
+        }
+      } as any)
+    );
+    flush();
+
+    expect(store.existing).toBe(0);
+    expect(store.added).toBe(0);
+    expect(existing).toBe(0);
+    expect(added).toBe(0);
+
+    setStore(storePath("value", 1));
+    flush();
+
+    expect(store.existing).toBe(1);
+    expect(store.added).toBe(1);
+    expect(existing).toBe(1);
+    expect(added).toBe(1);
+  });
+
   test("Nested object merge (wrappable value)", () => {
     const [store, setStore] = createStore({
       user: { name: "John", age: 30, city: "London" }
@@ -206,6 +259,61 @@ describe("storePath helper", () => {
     setStore(storePath("a", "b", "c", "d", 99));
     flush();
     expect(observed).toBe(99);
+  });
+
+  test("Preserves getter descriptors when replacing an existing key", () => {
+    const [store, setStore] = createStore<{ value: number; alreadyDefinedKey: { get?: number }; newKey?: { get: number } }>({
+      value: 0,
+      alreadyDefinedKey: {}
+    });
+    let existing: number | undefined;
+    let added: number | undefined;
+
+    createRoot(() => {
+      createEffect(
+        () => store.alreadyDefinedKey.get,
+        v => {
+          existing = v;
+        }
+      );
+      createEffect(
+        () => store.newKey?.get,
+        v => {
+          added = v;
+        }
+      );
+    });
+
+    flush();
+    expect(existing).toBeUndefined();
+    expect(added).toBeUndefined();
+
+    setStore(
+      storePath("alreadyDefinedKey", {
+        get get() {
+          return store.value;
+        }
+      })
+    );
+    setStore(
+      storePath("newKey", {
+        get get() {
+          return store.value;
+        }
+      })
+    );
+    flush();
+
+    expect(store.alreadyDefinedKey.get).toBe(0);
+    expect(store.newKey?.get).toBe(0);
+
+    setStore(storePath("value", 1));
+    flush();
+
+    expect(store.alreadyDefinedKey.get).toBe(1);
+    expect(store.newKey?.get).toBe(1);
+    expect(existing).toBe(1);
+    expect(added).toBe(1);
   });
 });
 

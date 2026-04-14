@@ -87,7 +87,12 @@ function updatePath(current: any, args: any[], i = 0) {
   ) {
     const target = part !== undefined ? current[part] : current;
     const keys = Object.keys(value);
-    for (let i = 0; i < keys.length; i++) target[keys[i]] = value[keys[i]];
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const desc = Object.getOwnPropertyDescriptor(value, key)!;
+      if (desc.get || desc.set) Object.defineProperty(target, key, desc);
+      else target[key] = desc.value;
+    }
   } else {
     current[part] = value;
   }

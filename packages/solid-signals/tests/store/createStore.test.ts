@@ -887,6 +887,67 @@ describe("getters", () => {
 
     expect(() => store.foo).not.toThrow();
   });
+
+  it("supports Object.defineProperty inside a setter", () => {
+    const [store, setStore] = createStore<{ value: number; existing: number; added?: number }>({
+      value: 0,
+      existing: 0
+    });
+    let existing: number | undefined;
+    let added: number | undefined;
+
+    createRoot(() => {
+      createEffect(
+        () => store.existing,
+        v => {
+          existing = v;
+        }
+      );
+      createEffect(
+        () => store.added,
+        v => {
+          added = v;
+        }
+      );
+    });
+
+    flush();
+    expect(existing).toBe(0);
+    expect(added).toBeUndefined();
+
+    setStore(s => {
+      Object.defineProperty(s, "existing", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          return store.value;
+        }
+      });
+      Object.defineProperty(s, "added", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          return store.value;
+        }
+      });
+    });
+    flush();
+
+    expect(store.existing).toBe(0);
+    expect(store.added).toBe(0);
+    expect(existing).toBe(0);
+    expect(added).toBe(0);
+
+    setStore(s => {
+      s.value = 1;
+    });
+    flush();
+
+    expect(store.existing).toBe(1);
+    expect(store.added).toBe(1);
+    expect(existing).toBe(1);
+    expect(added).toBe(1);
+  });
 });
 
 describe("objects", () => {
