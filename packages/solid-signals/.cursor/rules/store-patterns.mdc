@@ -1,0 +1,55 @@
+---
+description: Store system internals -- proxy-based deep reactivity
+globs: src/store/**, tests/store/**
+alwaysApply: false
+---
+
+# Store Patterns
+
+## Overview
+
+`createStore()` returns `[store, setStore]` where the store is a deeply reactive Proxy. Property access is tracked at fine granularity via lazily-created signal nodes per property.
+
+## Internal Symbols and Keys
+
+Public symbols (exported from `store/index.ts`):
+- `$TRACK`: track all property access on a store node
+- `$PROXY`: access the proxy from a raw object
+- `$TARGET`: access the raw target from a proxy
+
+Internal store node keys (short strings for compactness):
+- `v` (STORE_VALUE): the underlying data object
+- `o` (STORE_OVERRIDE): override values (projections)
+- `x` (STORE_OPTIMISTIC_OVERRIDE): optimistic override values
+- `n` (STORE_NODE): signal nodes per property (for tracking reads)
+- `h` (STORE_HAS): signal nodes for `has` checks
+- `w` (STORE_WRAP): custom wrap function
+- `l` (STORE_LOOKUP): WeakMap for child lookups
+- `f` (STORE_FIREWALL): computed firewall node
+- `p` (STORE_OPTIMISTIC): boolean flag for optimistic stores
+
+## Setter Pattern
+
+Store setters accept mutating callbacks -- mutations are intercepted by the proxy:
+
+```typescript
+const [store, setStore] = createStore({ count: 0, items: [] });
+setStore(s => { s.count = 1; });
+setStore(s => { s.items.push("new"); });
+```
+
+## Proxy Traps
+
+`storeTraps` handles `get`, `set`, `has`, `deleteProperty`, `ownKeys`. On read, signals are created lazily via `getNode()`. On write, the corresponding signal is updated via `setSignal()`. Nested objects are automatically wrapped in proxies via `wrap()`.
+
+## Store Modules
+
+- `store.ts`: core proxy creation, traps, `createStore`, `deep()`
+- `optimistic.ts`: `createOptimisticStore` -- stores tracked in `_optimisticStores` on transitions, reverted during `finalizePureQueue`
+- `projection.ts`: `createProjection` -- derived stores with override layers
+- `reconcile.ts`: `reconcile()` -- diffing utility for updating stores from new data
+- `utils.ts`: `snapshot`, `merge`, `omit` helpers
+
+## Optimistic Stores
+
+`createOptimisticStore` creates stores that participate in the optimistic lane system. Writes go to `STORE_OPTIMISTIC_OVERRIDE` and the firewall computed restores the transition context for async writes. Tracked via `trackOptimisticStore()` on the global queue.

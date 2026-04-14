@@ -1,0 +1,189 @@
+import { read, setSignal } from "../core/index.js";
+import {
+  $PROXY,
+  $TARGET,
+  $TRACK,
+  getKeys,
+  isWrappable,
+  STORE_HAS,
+  STORE_LOOKUP,
+  STORE_NODE,
+  STORE_OPTIMISTIC_OVERRIDE,
+  STORE_OVERRIDE,
+  STORE_VALUE,
+  storeLookup,
+  wrap
+} from "./store.js";
+
+function unwrap(value: any) {
+  return value?.[$TARGET]?.[STORE_NODE] ?? value;
+}
+
+function getOverrideValue(value: any, override: any, nodes: any, key: string, optOverride?: any) {
+  if (optOverride && key in optOverride) return optOverride[key];
+  return override && key in override ? override[key] : value[key];
+}
+
+function getAllKeys(value, override, next) {
+  const keys = getKeys(value, override) as string[];
+  const nextKeys = Object.keys(next);
+  return Array.from(new Set([...keys, ...nextKeys]));
+}
+
+function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => any) {
+  const target = state?.[$TARGET];
+  if (!target) return;
+  const previous = target[STORE_VALUE];
+  const override = target[STORE_OVERRIDE];
+  const optOverride = target[STORE_OPTIMISTIC_OVERRIDE];
+  let nodes = target[STORE_NODE];
+  if (next === previous && !override && !optOverride) return;
+
+  // swap
+  (target[STORE_LOOKUP] || storeLookup).set(next, target[$PROXY]);
+  target[STORE_VALUE] = next;
+  target[STORE_OVERRIDE] = undefined;
+
+  // merge
+  if (Array.isArray(previous)) {
+    let changed = false;
+    const prevLength = getOverrideValue(previous, override, nodes, "length", optOverride);
+    if (next.length && prevLength && next[0] && keyFn(next[0]) != null) {
+      let i, j, start, end, newEnd, item, newIndicesNext, keyVal; // common prefix
+
+      for (
+        start = 0, end = Math.min(prevLength, next.length);
+        start < end &&
+        ((item = getOverrideValue(previous, override, nodes, start, optOverride)) === next[start] ||
+          (item && next[start] && keyFn(item) === keyFn(next[start])));
+        start++
+      ) {
+        applyState(next[start], wrap(item, target), keyFn);
+      }
+
+      const temp = new Array(next.length),
+        newIndices = new Map();
+
+      for (
+        end = prevLength - 1, newEnd = next.length - 1;
+        end >= start &&
+        newEnd >= start &&
+        ((item = getOverrideValue(previous, override, nodes, end, optOverride)) === next[newEnd] ||
+          (item && next[newEnd] && keyFn(item) === keyFn(next[newEnd])));
+        end--, newEnd--
+      ) {
+        temp[newEnd] = item;
+      }
+
+      if (start > newEnd || start > end) {
+        for (j = start; j <= newEnd; j++) {
+          changed = true;
+          target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrap(next[j], target));
+        }
+
+        for (; j < next.length; j++) {
+          changed = true;
+          const wrapped = wrap(temp[j], target);
+          target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrapped);
+          applyState(next[j], wrapped, keyFn);
+        }
+
+        changed && target[STORE_NODE][$TRACK] && setSignal(target[STORE_NODE][$TRACK], void 0);
+        prevLength !== next.length &&
+          target[STORE_NODE].length &&
+          setSignal(target[STORE_NODE].length, next.length);
+        return;
+      }
+
+      newIndicesNext = new Array(newEnd + 1);
+
+      for (j = newEnd; j >= start; j--) {
+        item = next[j];
+        keyVal = item ? keyFn(item) : item;
+        i = newIndices.get(keyVal);
+        newIndicesNext[j] = i === undefined ? -1 : i;
+        newIndices.set(keyVal, j);
+      }
+
+      for (i = start; i <= end; i++) {
+        item = getOverrideValue(previous, override, nodes, i, optOverride);
+        keyVal = item ? keyFn(item) : item;
+        j = newIndices.get(keyVal);
+
+        if (j !== undefined && j !== -1) {
+          temp[j] = item;
+          j = newIndicesNext[j];
+          newIndices.set(keyVal, j);
+        }
+      }
+
+      for (j = start; j < next.length; j++) {
+        if (j in temp) {
+          const wrapped = wrap(temp[j], target);
+          target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrapped);
+          applyState(next[j], wrapped, keyFn);
+        } else target[STORE_NODE][j] && setSignal(target[STORE_NODE][j], wrap(next[j], target));
+      }
+      if (start < next.length) changed = true;
+    } else if (next.length) {
+      for (let i = 0, len = next.length; i < len; i++) {
+        const item = getOverrideValue(previous, override, nodes, i as any, optOverride);
+        isWrappable(item)
+          ? applyState(next[i], wrap(item, target), keyFn)
+          : target[STORE_NODE][i] && setSignal(target[STORE_NODE][i], next[i]);
+      }
+    }
+
+    if (prevLength !== next.length) {
+      changed = true;
+      target[STORE_NODE].length && setSignal(target[STORE_NODE].length, next.length);
+    }
+    changed && target[STORE_NODE][$TRACK] && setSignal(target[STORE_NODE][$TRACK], void 0);
+    return;
+  }
+
+  // values
+  if (nodes) {
+    const tracked = nodes[$TRACK];
+    const keys = tracked ? getAllKeys(previous, override, next) : Object.keys(nodes);
+    for (let i = 0, len = keys.length; i < len; i++) {
+      const key = keys[i];
+      const node = nodes[key];
+      const previousValue = unwrap(getOverrideValue(previous, override, nodes, key, optOverride));
+      let nextValue = unwrap(next[key]);
+      if (previousValue === nextValue) continue;
+      if (
+        !previousValue ||
+        !isWrappable(previousValue) ||
+        !isWrappable(nextValue) ||
+        (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
+      ) {
+        tracked && setSignal(tracked, void 0);
+        node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
+      } else applyState(nextValue, wrap(previousValue, target), keyFn);
+    }
+  }
+
+  // has
+  if ((nodes = target[STORE_HAS])) {
+    const keys = Object.keys(nodes);
+    for (let i = 0, len = keys.length; i < len; i++) {
+      const key = keys[i];
+      setSignal(nodes[key], key in next);
+    }
+  }
+}
+
+export function reconcile<T extends U, U>(
+  value: T,
+  key: string | ((item: NonNullable<any>) => any)
+) {
+  return (state: U) => {
+    if (state == null) throw new Error("Cannot reconcile null or undefined state");
+    const keyFn = typeof key === "string" ? item => item[key] : key;
+    const eq = keyFn(state);
+    if (eq !== undefined && keyFn(value) !== keyFn(state))
+      throw new Error("Cannot reconcile states with different identity");
+    applyState(value, state, keyFn);
+  };
+}

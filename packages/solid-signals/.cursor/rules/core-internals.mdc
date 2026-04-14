@@ -1,0 +1,67 @@
+---
+description: Internal conventions and data structures for the core reactive engine
+globs: src/core/**
+alwaysApply: false
+---
+
+# Core Internals
+
+## Naming
+
+All internal properties use `_` prefix: `_value`, `_subs`, `_deps`, `_flags`, `_statusFlags`, `_pendingValue`, `_transition`, `_type`.
+
+## Bitwise Flags (`constants.ts`)
+
+Reactive flags (`_flags`):
+- `REACTIVE_CHECK` (1): needs dependency check
+- `REACTIVE_DIRTY` (2): needs recomputation
+- `REACTIVE_RECOMPUTING_DEPS` (4): mid-recompute
+- `REACTIVE_IN_HEAP` (8): in dirty/zombie heap
+- `REACTIVE_IN_HEAP_HEIGHT` (16): in height heap
+- `REACTIVE_ZOMBIE` (32): marked for disposal
+- `REACTIVE_DISPOSED` (64): fully disposed
+- `REACTIVE_OPTIMISTIC_DIRTY` (128): optimistic recompute needed
+
+Status flags (`_statusFlags`):
+- `STATUS_PENDING` (1): async not yet resolved
+- `STATUS_ERROR` (2): error state
+- `STATUS_UNINITIALIZED` (4): never completed
+
+Effect types (`_type`):
+- `EFFECT_PURE` (0): computeds, not effects
+- `EFFECT_RENDER` (1): render-phase effects, run first
+- `EFFECT_USER` (2): user effects, run after render
+- `EFFECT_TRACKED` (3): same-scope tracking, bypasses heap
+
+## Data Structures
+
+`Link` objects form doubly-linked lists connecting `_dep` <-> `_sub` with `_nextDep`, `_prevSub`, `_nextSub` pointers.
+
+`Owner` tree: `_parent`, `_firstChild`, `_nextSibling`, `_disposal`, `_context`, `_queue`. Disposal is hierarchical -- children dispose with parents.
+
+Height-based heap (`heap.ts`) orders execution: higher height = runs later. Both `dirtyQueue` and `zombieQueue` use this.
+
+## Flush Cycle (`scheduler.ts`)
+
+1. `runHeap(dirtyQueue)` -- recompute dirty nodes in height order
+2. Transition check -- if incomplete: stash queues, run ready lane effects, return early
+3. `finalizePureQueue` -- commit `_pendingValue` to `_value`, revert optimistic nodes
+4. `runLaneEffects(RENDER)` -- render effects from ready optimistic lanes
+5. `run(RENDER)` -- global + child queue render effects
+6. `runLaneEffects(USER)` -- user effects from ready optimistic lanes
+7. `run(USER)` -- global + child queue user effects
+
+## Queue Hierarchy
+
+`IQueue` interface with `GlobalQueue` at root. Child queues are created by boundaries. `enqueue` routes to optimistic lane queues when `currentOptimisticLane` is set. Queues run children after their own effects.
+
+## Pending Values
+
+`_pendingValue` / `NOT_PENDING` sentinel:
+- **Non-optimistic signals** during transition: new value stored in `_pendingValue`, committed on transition completion
+- **Optimistic signals**: previous value stored in `_pendingValue` for revert; current value goes directly to `_value`
+
+## Key Types
+
+- `Transition`: `_asyncNodes`, `_pendingNodes`, `_optimisticNodes`, `_actions` (generators), `_queueStash`, `_done`
+- `OptimisticLane`: `_source` (owning signal), `_pendingAsync`, `_effectQueues` ([render, user]), `_mergedInto` (union-find), `_transition`

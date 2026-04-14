@@ -1,0 +1,69 @@
+---
+description: Test conventions and patterns for @solidjs/signals
+globs: tests/**
+alwaysApply: false
+---
+
+# Testing Patterns
+
+## Setup
+
+Vitest with globals enabled -- `describe`, `it`, `expect`, `vi` are available without imports.
+
+Import from the source entry point:
+
+```typescript
+import { createSignal, createMemo, createEffect, createRoot, flush } from "../src/index.js";
+```
+
+Always clean up pending updates:
+
+```typescript
+afterEach(() => flush());
+```
+
+## Flush After Writes
+
+Updates are batched. Signal writes do NOT take effect until `flush()`:
+
+```typescript
+const [$x, setX] = createSignal(0);
+setX(1);
+expect($x()).toBe(0); // Not flushed yet
+flush();
+expect($x()).toBe(1); // Now updated
+```
+
+## Ownership
+
+Effects and computations that depend on the `Owner` tree need `createRoot`:
+
+```typescript
+createRoot(() => {
+  createEffect(compute, effect);
+});
+flush();
+```
+
+Effects require ownership -- creating them outside a root will fail.
+
+## Effect Testing
+
+Effects separate compute and effect functions. Compute runs synchronously on creation; the effect callback runs after flush:
+
+```typescript
+const compute = vi.fn($x);
+const effect = vi.fn();
+createRoot(() => createEffect(compute, effect));
+expect(compute).toHaveBeenCalledTimes(1); // Compute ran
+expect(effect).toHaveBeenCalledTimes(0);  // Effect not yet
+flush();
+expect(effect).toHaveBeenCalledTimes(1);  // Now ran
+```
+
+## Commands
+
+- `pnpm test`: single run
+- `pnpm test:watch`: watch mode
+- `pnpm test:gc`: with `--expose-gc` (runs `tests/gc.test.ts`)
+- `pnpm bench`: benchmarks

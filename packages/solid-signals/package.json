@@ -1,0 +1,58 @@
+{
+  "name": "@solidjs/signals",
+  "version": "0.13.13",
+  "description": "SolidJS' standalone reactivity implementation",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solidjs/signals"
+  },
+  "type": "module",
+  "main": "dist/node.cjs",
+  "module": "dist/prod.js",
+  "types": "dist/types/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rimraf dist && rollup -c && pnpm types",
+    "types": "tsc -p tsconfig.build.json",
+    "format": "prettier src tests --write --log-level warn",
+    "sandbox": "node ./.sandbox/launch.js",
+    "test": "vitest run",
+    "test:watch": "vitest watch tests",
+    "test:gc": "node --expose-gc ./vitest.js",
+    "test:gc:watch": "node --expose-gc ./vitest.js --watch",
+    "test:coverage": "vitest run --coverage",
+    "bench": "vitest bench --run"
+  },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.1.1",
+    "@rollup/plugin-replace": "^6.0.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@types/node": "^25.0.8",
+    "rimraf": "^5.0.1",
+    "rollup": "^4.53.4",
+    "rollup-plugin-prettier": "^4.1.2",
+    "tslib": "^2.8.1",
+    "typescript": "5.9.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": {
+        "test": "./dist/dev.js",
+        "development": "./dist/dev.js",
+        "default": "./dist/prod.js"
+      },
+      "require": "./dist/node.cjs"
+    }
+  }
+}
