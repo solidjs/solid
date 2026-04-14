@@ -1,6 +1,7 @@
 import {
   createEffect,
   createErrorBoundary,
+  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -176,6 +177,16 @@ it("should accept equals option", () => {
   expect(effectA).toHaveBeenCalledTimes(2);
 });
 
+it("should ignore equals before memo initialization", () => {
+  const [$x] = createSignal(1);
+
+  const $a = createMemo(() => $x(), 0, {
+    equals: () => true
+  });
+
+  expect($a()).toBe(1);
+});
+
 it("should use fallback if error is thrown during init", () => {
   createRoot(() => {
     createErrorBoundary(
@@ -193,6 +204,40 @@ it("should use fallback if error is thrown during init", () => {
 });
 
 describe("async compute", () => {
+  it("should ignore equals on first async resolution with an initial value", async () => {
+    let resolveAsync!: () => void;
+    let result: string | number | undefined;
+
+    createRoot(() => {
+      const a = createMemo(
+        () =>
+          new Promise<number>(res => {
+            resolveAsync = () => res(1);
+          }),
+        0,
+        { equals: () => true }
+      );
+      const boundary = createLoadingBoundary(
+        () => a(),
+        () => "loading"
+      );
+      createRenderEffect(
+        () => (result = boundary()),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toBe("loading");
+
+    resolveAsync();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(result).toBe(1);
+  });
+
   it("should not auto-dispose zombie computed when it loses subscribers during transition", async () => {
     const [$route, setRoute] = createSignal("home");
     const zombieCleanup = vi.fn();

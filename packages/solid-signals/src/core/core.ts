@@ -161,6 +161,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const hasOverride = el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING;
   // Track if node was pending (for detecting async resolution)
   const wasPending = !!(el._statusFlags & STATUS_PENDING);
+  const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
 
   const oldcontext = context;
   context = el;
@@ -230,7 +231,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       : el._pendingValue === NOT_PENDING
         ? el._value
         : el._pendingValue;
-    const valueChanged = !el._equals || !el._equals(compareValue, value);
+    const valueChanged =
+      (!isEffect && wasUninitialized) ||
+      !el._equals ||
+      !el._equals(compareValue, value);
 
     if (valueChanged) {
       const prevVisible = hasOverride ? el._overrideValue : undefined;

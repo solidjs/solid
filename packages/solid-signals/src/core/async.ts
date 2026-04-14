@@ -161,6 +161,7 @@ export function handleAsync<T>(
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
     globalQueue.initTransition(resolveTransition(el as any));
+    const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     clearStatus(el);
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
@@ -175,9 +176,14 @@ export function handleAsync<T>(
       el._time = clock;
     } else if (lane) {
       // Route through lane's effect queue for independent flushing
+      const isEffect = (el as any)._type;
       const prevValue = el._value;
       const equals = el._equals;
-      if (!equals || !equals(value, prevValue)) {
+      if (
+        (!isEffect && wasUninitialized) ||
+        !equals ||
+        !equals(value, prevValue)
+      ) {
         el._value = value;
         el._time = clock;
         // Write to _latestValueComputed so latest() effects get independent lanes
