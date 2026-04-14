@@ -206,7 +206,7 @@ it("should use fallback if error is thrown during init", () => {
 describe("async compute", () => {
   it("should ignore equals on first async resolution with an initial value", async () => {
     let resolveAsync!: () => void;
-    let result: string | number | undefined;
+    let result: unknown;
 
     createRoot(() => {
       const a = createMemo(
