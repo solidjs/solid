@@ -9,6 +9,7 @@ import {
   Reveal,
   Show,
   For,
+  Repeat,
   Switch,
   Match,
   Errored
@@ -66,6 +67,11 @@ function collectChunks(
       }
     });
   });
+}
+
+function extractHydrationKeys(html: string): string[] {
+  const matches = [...html.matchAll(/_hk=([^\s>]+)/g)];
+  return matches.map(m => m[1]);
 }
 
 // --- Tests ---
@@ -1561,6 +1567,21 @@ describe("SSR — insert effect alignment (PR #2592)", () => {
     expect(html).toMatch(/<li[^>]*>2<\/li>/);
     expect(html).toMatch(/<li[^>]*>3<\/li>/);
     expect(html).toMatch(/<span[^>]*>after<\/span>/);
+  });
+
+  test("Repeat as template child nests hydration keys before following sibling", () => {
+    const html = renderToString(() => (
+      <div>
+        <Repeat count={3}>{i => <span>{i}</span>}</Repeat>
+        <p>after</p>
+      </div>
+    ));
+    const keys = extractHydrationKeys(html);
+
+    // The outer <div> gets slot 0. Repeat consumes its own owner slot (t1),
+    // then each item owner nests beneath it (t10, t11, t12), and each <span>
+    // is rendered under that item scope.
+    expect(keys).toEqual(["0", "100", "110", "120"]);
   });
 
   test("spread element renders correctly — PR #2592 spread pattern", () => {

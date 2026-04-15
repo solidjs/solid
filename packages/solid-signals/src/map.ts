@@ -1,5 +1,6 @@
 import { setStrictRead } from "./core/core.js";
 import {
+  computed,
   createOwner,
   runWithOwner,
   setSignal,
@@ -7,7 +8,7 @@ import {
   type Root,
   type Signal
 } from "./core/index.js";
-import { accessor, createMemo, type Accessor } from "./signals.js";
+import { accessor, type Accessor } from "./signals.js";
 import { $TRACK } from "./store/index.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
@@ -37,7 +38,7 @@ export function mapArray<Item, MappedItem>(
           }
         }) as typeof map)
       : map;
-  return createMemo(
+  const node = computed(
     updateKeyedMap.bind({
       _owner: createOwner(),
       _len: 0,
@@ -52,6 +53,8 @@ export function mapArray<Item, MappedItem>(
       _fallback: options?.fallback
     })
   );
+  (node as any)._preventAutoDisposal = true;
+  return accessor(node);
 }
 
 const pureOptions = { pureWrite: true };
@@ -233,17 +236,21 @@ export function repeat(
           }
         }
       : map;
-  return updateRepeat.bind({
-    _owner: createOwner(),
-    _len: 0,
-    _offset: 0,
-    _count: count,
-    _map: wrappedMap,
-    _nodes: [],
-    _mappings: [],
-    _from: options?.from,
-    _fallback: options?.fallback
-  });
+  const node = computed(
+    updateRepeat.bind({
+      _owner: createOwner(),
+      _len: 0,
+      _offset: 0,
+      _count: count,
+      _map: wrappedMap,
+      _nodes: [],
+      _mappings: [],
+      _from: options?.from,
+      _fallback: options?.fallback
+    })
+  );
+  (node as any)._preventAutoDisposal = true;
+  return accessor(node);
 }
 
 function updateRepeat<MappedItem>(this: RepeatData<MappedItem>): any[] {

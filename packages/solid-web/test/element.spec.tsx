@@ -13,7 +13,8 @@ import {
   flush,
   createMemo,
   getOwner,
-  onCleanup
+  onCleanup,
+  DEV
 } from "solid-js";
 
 describe("Basic element attributes", () => {
@@ -95,6 +96,40 @@ describe("Basic element attributes", () => {
       <div ref={() => (owner = getOwner())} />;
     });
     expect(owner).toBe(null);
+  });
+
+  test("conditional callback prop read does not linger outside owner", () => {
+    let owner;
+    let callback!: () => number | false;
+    let setEnabled!: (value: boolean) => boolean;
+
+    const Child = (props: { onHit: false | (() => number) }) => {
+      callback = () => props.onHit && props.onHit();
+      return null;
+    };
+
+    createRoot(() => {
+      owner = getOwner();
+      const [enabled, _setEnabled] = createSignal(true);
+      setEnabled = _setEnabled;
+      <Child onHit={enabled() && (() => 1)} />;
+    });
+
+    const signal = DEV!.getSignals(owner!)[0];
+
+    expect(DEV!.getObservers(signal)).toHaveLength(0);
+    expect(callback()).toBe(1);
+    expect(DEV!.getObservers(signal)).toHaveLength(0);
+
+    setEnabled(false);
+    flush();
+    expect(callback()).toBe(false);
+    expect(DEV!.getObservers(signal)).toHaveLength(0);
+
+    setEnabled(true);
+    flush();
+    expect(callback()).toBe(1);
+    expect(DEV!.getObservers(signal)).toHaveLength(0);
   });
 
   test("onCleanup warns in callback ref", () => {

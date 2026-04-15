@@ -23,7 +23,7 @@ import {
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import { externalSourceConfig } from "./external.js";
-import { link, unlinkSubs } from "./graph.js";
+import { link, unobserved, unlinkSubs } from "./graph.js";
 import {
   deleteFromHeap,
   insertIntoHeap,
@@ -541,10 +541,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  if (refreshing && (el as Computed<unknown>)._fn) recompute(el as Computed<unknown>);
-  if ((el as Computed<unknown>)._flags & REACTIVE_LAZY) {
-    (el as Computed<unknown>)._flags &= ~REACTIVE_LAZY;
-    recompute(el as Computed<any>, true);
+  const computed = el as Partial<Computed<unknown>>;
+  if (typeof computed._fn === "function") {
+    const comp = el as Computed<unknown>;
+    if (refreshing && !(comp._flags & REACTIVE_DISPOSED)) recompute(comp);
+    if (comp._flags & REACTIVE_LAZY) {
+      comp._flags &= ~REACTIVE_LAZY;
+      recompute(comp as Computed<any>, true);
+    } else if (comp._flags & REACTIVE_DISPOSED) {
+      recompute(comp as Computed<any>, true);
+    }
   }
   const owner = (el as FirewallSignal<any>)._firewall || el;
 
@@ -566,8 +572,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (c && tracking) {
-    if ((el as Computed<unknown>)._fn && (el as Computed<unknown>)._flags & REACTIVE_DISPOSED)
-      recompute(el as Computed<any>);
     link(el, c as Computed<any>);
 
     if ((owner as Computed<unknown>)._fn) {
@@ -667,7 +671,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // effects) see _pendingValue so that latest() and direct reads stay consistent.
   // Exception: resolved projection store properties (firewall, owner !== el) whose
   // STATUS_PENDING has been cleared always return _pendingValue.
-  return !c ||
+  const value =
+    !c ||
     (currentOptimisticLane !== null &&
       (el._overrideValue !== undefined ||
         (el as any)._optimisticLane ||
@@ -675,8 +680,20 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         !!(owner._statusFlags & STATUS_PENDING))) ||
     el._pendingValue === NOT_PENDING ||
     (stale && el._transition && activeTransition !== el._transition)
-    ? el._value
-    : (el._pendingValue as T);
+      ? el._value
+      : (el._pendingValue as T);
+  if (
+    !c &&
+    owner === el &&
+    typeof computed._fn === "function" &&
+    !(computed as any)._preventAutoDisposal &&
+    !(owner._statusFlags & STATUS_PENDING) &&
+    !computed._parent &&
+    !el._subs
+  ) {
+    unobserved(el as Computed<unknown>);
+  }
+  return value;
 }
 
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {

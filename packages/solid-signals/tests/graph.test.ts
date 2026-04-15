@@ -1,6 +1,6 @@
 // https://github.com/preactjs/signals/blob/17c0155997f47f4bb81e5715b46a55d1fafa22a2/packages/core/test/signal.test.tsx#L1383
 
-import { createMemo, createSignal, flush } from "../src/index.js";
+import { createMemo, createRoot, createSignal, flush } from "../src/index.js";
 
 it("should drop X->B->X updates", () => {
   //     X
@@ -11,13 +11,14 @@ it("should drop X->B->X updates", () => {
   //     |
   //     C
 
-  const [$x, setX] = createSignal(2);
-
-  const $a = createMemo(() => $x() - 1);
-  const $b = createMemo(() => $x() + $a());
-
-  const compute = vi.fn(() => "c: " + $b());
-  const $c = createMemo(compute);
+  const [setX, $c, compute] = createRoot(() => {
+    const [$x, setX] = createSignal(2);
+    const $a = createMemo(() => $x() - 1);
+    const $b = createMemo(() => $x() + $a());
+    const compute = vi.fn(() => "c: " + $b());
+    const $c = createMemo(compute);
+    return [setX, $c, compute] as const;
+  });
 
   expect($c()).toBe("c: 3");
   expect(compute).toHaveBeenCalledTimes(1);
@@ -85,15 +86,16 @@ it("should bail out if result is the same", () => {
   // Bail out if value of "A" never changes
   // X->A->B
 
-  const [$x, setX] = createSignal("a");
-
-  const $a = createMemo(() => {
-    $x();
-    return "foo";
+  const [setX, $b, spy] = createRoot(() => {
+    const [$x, setX] = createSignal("a");
+    const $a = createMemo(() => {
+      $x();
+      return "foo";
+    });
+    const spy = vi.fn(() => $a());
+    const $b = createMemo(spy);
+    return [setX, $b, spy] as const;
   });
-
-  const spy = vi.fn(() => $a());
-  const $b = createMemo(spy);
 
   expect($b()).toBe("foo");
   expect(spy).toHaveBeenCalledTimes(1);
@@ -116,19 +118,19 @@ it("should only update every signal once (jagged diamond graph + tails)", () => 
   //   /   \
   //  E     F
 
-  const [$x, setX] = createSignal("a");
-
-  const $a = createMemo(() => $x());
-  const $b = createMemo(() => $x());
-  const $c = createMemo(() => $b());
-
-  const dSpy = vi.fn(() => $a() + " " + $c());
-  const $d = createMemo(dSpy);
-
-  const eSpy = vi.fn(() => $d());
-  const $e = createMemo(eSpy);
-  const fSpy = vi.fn(() => $d());
-  const $f = createMemo(fSpy);
+  const [setX, $d, dSpy, $e, eSpy, $f, fSpy] = createRoot(() => {
+    const [$x, setX] = createSignal("a");
+    const $a = createMemo(() => $x());
+    const $b = createMemo(() => $x());
+    const $c = createMemo(() => $b());
+    const dSpy = vi.fn(() => $a() + " " + $c());
+    const $d = createMemo(dSpy);
+    const eSpy = vi.fn(() => $d());
+    const $e = createMemo(eSpy);
+    const fSpy = vi.fn(() => $d());
+    const $f = createMemo(fSpy);
+    return [setX, $d, dSpy, $e, eSpy, $f, fSpy] as const;
+  });
 
   expect($e()).toBe("a a");
   expect(eSpy).toHaveBeenCalledTimes(1);
@@ -380,31 +382,34 @@ it("applies updates to changed dependees in same order as createMemo", () => {
 });
 
 it("updates downstream pending computations", () => {
-  const [s1, set] = createSignal(0);
-  const [s2] = createSignal(0);
-  let order = "";
-  const t1 = createMemo(() => {
-    order += "t1";
-    return s1() === 0;
-  });
-  const t2 = createMemo(() => {
-    order += "c1";
-    return s1();
-  });
-  const t3 = createMemo(() => {
-    order += "c2";
-    t1();
-    return createMemo(() => {
-      order += "c2_1";
-      return s2();
+  const [set, t2, t3, readOrder] = createRoot(() => {
+    const [s1, set] = createSignal(0);
+    const [s2] = createSignal(0);
+    let order = "";
+    const t1 = createMemo(() => {
+      order += "t1";
+      return s1() === 0;
     });
+    const t2 = createMemo(() => {
+      order += "c1";
+      return s1();
+    });
+    const t3 = createMemo(() => {
+      order += "c2";
+      t1();
+      return createMemo(() => {
+        order += "c2_1";
+        return s2();
+      });
+    });
+    order = "";
+    return [set, t2, t3, () => order] as const;
   });
-  order = "";
   set(1);
   flush();
   t2();
   t3()();
-  expect(order).toBe("t1c1c2c2_1");
+  expect(readOrder()).toBe("t1c1c2c2_1");
 });
 
 describe("with changing dependencies", () => {
@@ -415,16 +420,18 @@ describe("with changing dependencies", () => {
   let f: () => number;
 
   function init() {
-    [i, setI] = createSignal<boolean>(true);
-    [t, setT] = createSignal(1);
-    [e, setE] = createSignal(2);
-    fevals = 0;
-    f = createMemo(() => {
-      fevals++;
-      return i() ? t() : e();
+    createRoot(() => {
+      [i, setI] = createSignal<boolean>(true);
+      [t, setT] = createSignal(1);
+      [e, setE] = createSignal(2);
+      fevals = 0;
+      f = createMemo(() => {
+        fevals++;
+        return i() ? t() : e();
+      });
+      f();
+      fevals = 0;
     });
-    f();
-    fevals = 0;
   }
 
   it("updates on active dependencies", () => {
@@ -464,41 +471,44 @@ describe("with changing dependencies", () => {
   });
 
   it("ensures that new dependencies are updated before dependee", () => {
-    var order = "",
-      [a, setA] = createSignal(0),
-      b = createMemo(() => {
-        order += "b";
-        return a() + 1;
-      }),
-      c = createMemo(() => {
-        order += "c";
-        const check = b();
-        if (check) {
-          return check;
-        }
-        return e();
-      }),
-      d = createMemo(() => {
-        return a();
-      }),
-      e = createMemo(() => {
-        order += "d";
-        return d() + 10;
-      });
+    const [setA, c, readOrder, resetOrder] = createRoot(() => {
+      var order = "",
+        [a, setA] = createSignal(0),
+        b = createMemo(() => {
+          order += "b";
+          return a() + 1;
+        }),
+        c = createMemo(() => {
+          order += "c";
+          const check = b();
+          if (check) {
+            return check;
+          }
+          return e();
+        }),
+        d = createMemo(() => {
+          return a();
+        }),
+        e = createMemo(() => {
+          order += "d";
+          return d() + 10;
+        });
 
-    expect(order).toBe("bcd");
+      expect(order).toBe("bcd");
 
-    order = "";
+      order = "";
+      return [setA, c, () => order, () => (order = "")] as const;
+    });
     setA(-1);
     flush();
 
-    expect(order).toBe("bcd");
+    expect(readOrder()).toBe("bcd");
     expect(c()).toBe(9);
 
-    order = "";
+    resetOrder();
     setA(0);
     flush();
-    expect(order).toBe("bdc");
+    expect(readOrder()).toBe("bdc");
     expect(c()).toBe(1);
   });
 });

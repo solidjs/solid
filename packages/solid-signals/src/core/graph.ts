@@ -28,13 +28,14 @@ export function unlinkSubs(link: Link): Link | null {
   return nextDep;
 }
 
-function unobserved(el: Computed<unknown>) {
+export function unobserved(el: Computed<unknown>) {
   deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
   let dep = el._deps;
   while (dep !== null) {
     dep = unlinkSubs(dep);
   }
   el._deps = null;
+  el._depsTail = null;
   disposeChildren(el, true);
 }
 

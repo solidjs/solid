@@ -1526,8 +1526,7 @@ export namespace JSX {
     alt?: FunctionMaybe<string | RemoveAttribute>;
     autocomplete?: FunctionMaybe<HTMLAutocomplete | RemoveAttribute>;
     capture?: FunctionMaybe<"user" | "environment" | RemoveAttribute>;
-    checked?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    "prop:checked"?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+
     colorspace?: FunctionMaybe<string | RemoveAttribute>;
     dirname?: FunctionMaybe<string | RemoveAttribute>;
     disabled?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
@@ -1582,8 +1581,6 @@ export namespace JSX {
       | (string & {})
       | RemoveAttribute
     >;
-    value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
-    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
     width?: FunctionMaybe<number | string | RemoveAttribute>;
 
     /** @non-standard */
@@ -1593,6 +1590,24 @@ export namespace JSX {
     align?: FunctionMaybe<string | RemoveAttribute>;
     /** @deprecated */
     usemap?: FunctionMaybe<string | RemoveAttribute>;
+
+    // special cases locked to properties
+
+    checked?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+    /** @error use `<input checked={..}/>` instead */
+    "prop:checked"?: never;
+
+    defaultChecked?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+    /** @error use `<input defaultChecked={..}/>` instead */
+    "prop:defaultChecked"?: never;
+
+    value?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+    /** @error use `<input value={..}/>` instead */
+    "prop:value"?: never;
+
+    defaultValue?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+    /** @error use `<input defaultValue={..}/>` instead */
+    "prop:defaultValue"?: never;
   }
   interface ModHTMLAttributes<T> extends HTMLAttributes<T> {
     cite?: FunctionMaybe<string | RemoveAttribute>;
@@ -1663,8 +1678,7 @@ export namespace JSX {
     crossorigin?: FunctionMaybe<HTMLCrossorigin | RemoveAttribute>;
     disableremoteplayback?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     loop?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    muted?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    "prop:muted"?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+
     preload?: FunctionMaybe<
       "none" | "metadata" | "auto" | EnumeratedAcceptsEmpty | RemoveAttribute
     >;
@@ -1678,6 +1692,16 @@ export namespace JSX {
 
     /** @deprecated */
     mediagroup?: FunctionMaybe<string | RemoveAttribute>;
+
+    // special cases locked to properties
+
+    muted?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+    /** @error use `<video/audio muted={..}/>` instead */
+    "prop:muted"?: never;
+
+    defaultMuted?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+    /** @error use `<video/audio defaultMuted={..}/>` instead */
+    "prop:defaultMuted"?: never;
   }
   interface MenuHTMLAttributes<T> extends HTMLAttributes<T> {
     /** @deprecated */
@@ -1770,10 +1794,27 @@ export namespace JSX {
   interface OptionHTMLAttributes<T> extends HTMLAttributes<T> {
     disabled?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     label?: FunctionMaybe<string | RemoveAttribute>;
-    selected?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    "prop:selected"?: FunctionMaybe<BooleanProperty | RemoveProperty>;
-    value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
-    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+
+    // special cases locked to properties
+
+    selected?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+    /** @error use `<option selected={..}/>` instead */
+    "prop:selected"?: never;
+
+    defaultSelected?: FunctionMaybe<BooleanProperty | RemoveProperty>;
+    /** @error use `<option defaultSelected={..}/>` instead */
+    "prop:defaultSelected"?: never;
+
+    value?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+    /** @error use `<option value={..}/>` instead */
+    "prop:value"?: never;
+
+    // for sanity
+
+    /** @error This doesn't exists for `<option/>` */
+    "prop:defaultValue"?: never;
+    /** @error This doesn't exists for `<option/>` */
+    defaultValue?: never;
   }
   interface OutputHTMLAttributes<T> extends HTMLAttributes<T> {
     for?: FunctionMaybe<string | RemoveAttribute>;
@@ -1827,8 +1868,24 @@ export namespace JSX {
     name?: FunctionMaybe<string | RemoveAttribute>;
     required?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     size?: FunctionMaybe<number | string | RemoveAttribute>;
-    value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
-    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+
+    // special cases locked to properties
+
+    value?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+    /** @error use `<select value={..}/>` instead */
+    "prop:value"?: never;
+
+    // for sanity
+
+    /** @error use `<option defaultSelected={..}/>` instead */
+    defaultSelected?: never;
+    /** @error use `<option defaultSelected={..}/>` instead */
+    "prop:defaultSelected"?: never;
+
+    /** @error use `<option defaultSelected={..}/>` instead */
+    selected?: never;
+    /** @error use `<option defaultSelected={..}/>` instead */
+    "prop:selected"?: never;
   }
   interface HTMLSlotElementAttributes<T> extends HTMLAttributes<T> {
     name?: FunctionMaybe<string | RemoveAttribute>;
@@ -1902,9 +1959,17 @@ export namespace JSX {
     readonly?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     required?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     rows?: FunctionMaybe<number | string | RemoveAttribute>;
-    value?: FunctionMaybe<string | string[] | number | RemoveAttribute>;
-    "prop:value"?: FunctionMaybe<string | string[] | number | RemoveProperty>;
     wrap?: FunctionMaybe<"hard" | "soft" | "off" | RemoveAttribute>;
+
+    // special cases locked to properties
+
+    value?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+    /** @error use `<textarea value={..}/>` instead */
+    "prop:value"?: never;
+
+    defaultValue?: FunctionMaybe<string | string[] | number | RemoveProperty>;
+    /** @error use `<textarea defaultValue={..}/>` instead */
+    "prop:defaultValue"?: never;
   }
   interface ThHTMLAttributes<T> extends HTMLAttributes<T> {
     abbr?: FunctionMaybe<string | RemoveAttribute>;

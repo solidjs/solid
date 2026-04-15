@@ -87,17 +87,38 @@ it("should only re-compute when needed", () => {
   setX(20);
   expect(computed).toHaveBeenCalledTimes(1);
   flush();
+  expect(computed).toHaveBeenCalledTimes(1);
+  $a();
   expect(computed).toHaveBeenCalledTimes(2);
 
   setY(20);
   flush();
-  expect(computed).toHaveBeenCalledTimes(3);
-
+  expect(computed).toHaveBeenCalledTimes(2);
   $a();
   expect(computed).toHaveBeenCalledTimes(3);
 });
 
-it("should only re-compute whats needed", () => {
+it("should release ownerless memos after an untracked read", () => {
+  const computed = vi.fn((v: number) => v);
+  const [$x, setX] = createSignal(0);
+  const $a = createMemo(() => computed($x()));
+
+  expect($a()).toBe(0);
+  expect(computed).toHaveBeenCalledTimes(1);
+  expect($a()).toBe(0);
+  expect(computed).toHaveBeenCalledTimes(2);
+
+  setX(1);
+  flush();
+  expect(computed).toHaveBeenCalledTimes(2);
+
+  expect($a()).toBe(1);
+  expect(computed).toHaveBeenCalledTimes(3);
+  expect($a()).toBe(1);
+  expect(computed).toHaveBeenCalledTimes(4);
+});
+
+it("should recompute ownerless chains on direct read after suspension", () => {
   const memoA = vi.fn(n => n);
   const memoB = vi.fn(n => n);
 
@@ -115,9 +136,11 @@ it("should only re-compute whats needed", () => {
   setX(20);
   flush();
 
-  expect(memoA).toHaveBeenCalledTimes(2);
+  expect(memoA).toHaveBeenCalledTimes(1);
   expect(memoB).toHaveBeenCalledTimes(1);
   expect($c()).toBe(30);
+  expect(memoA).toHaveBeenCalledTimes(2);
+  expect(memoB).toHaveBeenCalledTimes(2);
 
   setY(20);
   flush();
@@ -125,6 +148,43 @@ it("should only re-compute whats needed", () => {
   expect(memoA).toHaveBeenCalledTimes(2);
   expect(memoB).toHaveBeenCalledTimes(2);
   expect($c()).toBe(40);
+  expect(memoA).toHaveBeenCalledTimes(3);
+  expect(memoB).toHaveBeenCalledTimes(3);
+});
+
+it("should keep observed ownerless memos subscribed", () => {
+  const memoA = vi.fn(n => n);
+  const memoB = vi.fn(n => n);
+  const [$x, setX] = createSignal(10);
+  const [$y, setY] = createSignal(10);
+  let value: number | undefined;
+
+  createRoot(() => {
+    const $a = createMemo(() => memoA($x()));
+    const $b = createMemo(() => memoB($y()));
+    const $c = createMemo(() => $a() + $b());
+    createRenderEffect(
+      () => (value = $c()),
+      () => {}
+    );
+  });
+
+  flush();
+  expect(value).toBe(20);
+  expect(memoA).toHaveBeenCalledTimes(1);
+  expect(memoB).toHaveBeenCalledTimes(1);
+
+  setX(20);
+  flush();
+  expect(value).toBe(30);
+  expect(memoA).toHaveBeenCalledTimes(2);
+  expect(memoB).toHaveBeenCalledTimes(1);
+
+  setY(20);
+  flush();
+  expect(value).toBe(40);
+  expect(memoA).toHaveBeenCalledTimes(2);
+  expect(memoB).toHaveBeenCalledTimes(2);
 });
 
 it("should discover new dependencies", () => {

@@ -13,6 +13,7 @@ module.exports = function (context, options = {}) {
             "Switch",
             "Match",
             "Loading",
+            "Reveal",
             "Portal",
             "Repeat",
             "Dynamic",

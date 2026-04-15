@@ -4,7 +4,11 @@
  */
 import { describe, expect, test } from "vitest";
 import { createRoot, createSignal, Repeat, flush } from "solid-js";
-import { insert } from "../src/index.js";
+import { insert, Repeat as WebRepeat } from "../src/index.js";
+
+test("solid-js/web re-exports Repeat", () => {
+  expect(WebRepeat).toBe(Repeat);
+});
 
 describe("Testing an only child each control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;

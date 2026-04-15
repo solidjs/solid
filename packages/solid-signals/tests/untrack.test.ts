@@ -82,14 +82,14 @@ it("should not affect deep dependency being created", () => {
   setY(20);
   flush();
   expect(effect).toHaveBeenCalledTimes(1);
-  expect($a()).toBe(50);
-  expect(memo).toHaveBeenCalledTimes(2);
+  expect($a()).toBe(60);
+  expect(memo).toHaveBeenCalledTimes(3);
 
   setZ(20);
   flush();
   expect(effect).toHaveBeenCalledTimes(1);
-  expect($a()).toBe(50);
-  expect(memo).toHaveBeenCalledTimes(2);
+  expect($a()).toBe(70);
+  expect(memo).toHaveBeenCalledTimes(4);
 });
 
 it("should track owner across peeks", () => {

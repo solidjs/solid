@@ -40,6 +40,7 @@ export {
   Match,
   Errored,
   Loading,
+  Repeat,
   Reveal,
   NoHydration,
   Hydration,

@@ -159,6 +159,7 @@ export function createSignal<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = computed<T>(first as any, second as any, third);
+    (node as any)._preventAutoDisposal = true;
     return [
       accessor<T | undefined>(node),
       setSignal.bind(null, node as any) as Setter<T | undefined>
@@ -408,6 +409,7 @@ export function createOptimistic<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = optimisticComputed<T>(first as any, second as any, third);
+    (node as any)._preventAutoDisposal = true;
     return [
       accessor<T | undefined>(node),
       setSignal.bind(null, node as any) as Setter<T | undefined>
