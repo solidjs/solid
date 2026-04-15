@@ -1,131 +1,104 @@
 # Queue System: Notification System
 
 ## Overview
-The queue notification system manages how state changes propagate through the reactive system. It's responsible for coordinating the flow of information about loading states, errors, and other state changes between different parts of the application.
+The notification side of the queue system is about status propagation, not normal recomputation scheduling.
 
-## Key Components
+In the current implementation, notifications are mainly used to move `STATUS_PENDING` and `STATUS_ERROR` information through boundary queues and, at the root, into transition bookkeeping.
 
-### 1. Base Queue
-The base `Queue` class handles basic notification propagation:
-- Receives notifications about state changes
-- Propagates notifications to parent queues
-- Forms the foundation for specialized notification handling
+## The Main Participants
 
-### 2. Specialized Queues
+### `Queue`
+The base queue does almost nothing by itself:
 
-#### ConditionalQueue
-Manages notifications in boundary contexts:
-- Can be enabled/disabled based on conditions
-- Stores notifications when disabled
-- Releases stored notifications when enabled
-- Used for implementing features like suspense boundaries
-
-Example:
 ```typescript
-class ConditionalQueue extends Queue {
-  notify(node: Effect, type: number, flags: number) {
-    if (this._disabled.read()) {
-      // Store notifications when disabled
-      if (type === LOADING_BIT) {
-        flags & LOADING_BIT ? this._pendingNodes.add(node) : this._pendingNodes.delete(node);
-      }
-      if (type === ERROR_BIT) {
-        flags & ERROR_BIT ? this._errorNodes.add(node) : this._errorNodes.delete(node);
-      }
-      return true;
-    }
-    return super.notify(node, type, flags);
-  }
+notify(node, mask, flags, error?) {
+  if (this._parent) return this._parent.notify(node, mask, flags, error);
+  return false;
 }
 ```
 
-#### CollectionQueue
-Manages collections of effects in specific states:
-- Tracks effects in loading or error states
-- Controls notification propagation based on collection state
-- Used for implementing features like error boundaries
+Its job is just to forward notifications upward through the queue tree.
 
-Example:
+### `GlobalQueue`
+The root queue handles uncaught pending propagation:
+
 ```typescript
-class CollectionQueue extends Queue {
-  notify(node: Effect, type: number, flags: number) {
-    if (!(type & this._collectionType)) return super.notify(node, type, flags);
-    if (flags & this._collectionType) {
-      this._nodes.add(node);
-      if (this._nodes.size === 1) this._disabled.write(true);
-    } else {
-      this._nodes.delete(node);
-      if (this._nodes.size === 0) this._disabled.write(false);
-    }
-    type &= ~this._collectionType;
-    return type ? super.notify(node, type, flags) : true;
+if (mask & STATUS_PENDING) {
+  if (flags & STATUS_PENDING) {
+    // record async reporters for the active transition
   }
+  return true;
 }
 ```
+
+This is where the scheduler tracks async reporters during transitions and where dev-only "unhandled async" detection is triggered.
+
+### `CollectionQueue`
+This is the important specialized queue for boundaries. It is used by:
+
+- `createLoadingBoundary()`
+- `createErrorBoundary()`
+- reveal-order coordination around loading boundaries
+
+`CollectionQueue` watches one status family through `_collectionType`, usually `STATUS_PENDING` or `STATUS_ERROR`.
+
+## How Boundary Notification Works
+
+Boundary trees are wrapped in a computed whose `_notifyStatus()` forwards only the statuses that should still propagate:
+
+```typescript
+node._statusFlags &= ~node._propagationMask;
+node._queue.notify(node, node._propagationMask, flags, actualError);
+```
+
+That means a boundary can observe a status, keep it local, and optionally let other statuses continue upward.
+
+## What `CollectionQueue.notify()` Does
+
+`CollectionQueue.notify()` intercepts statuses that match `_collectionType`.
+
+For loading boundaries, that means:
+
+- track pending sources in `_sources`
+- mark the boundary as pending
+- disable the boundary queue when the first pending source appears
+- re-enable it once the tracked sources are gone
+
+For error boundaries, the same mechanism is used for `STATUS_ERROR`, with special handling so pending+error situations can still forward error information appropriately.
+
+Important current behaviors:
+
+- there is no `ConditionalQueue` in the code anymore
+- the queue stores sources, not just raw effect nodes
+- `on` conditions can reset initialization state and source tracking
+- reveal-order state can further affect whether the boundary is disabled or collapsed
 
 ## Notification Flow
 
-1. **State Change**
-   - An effect's state changes (loading, error, etc.)
-   - It notifies its queue about the change
+1. A computation or effect changes status.
+2. A boundary-wrapped computed decides which statuses should propagate.
+3. The owning queue receives `notify(node, mask, flags, error?)`.
+4. Boundary queues may:
+   - capture the source
+   - disable descendant effect execution
+   - strip a handled status from further propagation
+5. Unhandled pending propagation eventually reaches `GlobalQueue`, which records transition async reporters.
 
-2. **Notification Processing**
-   - The queue receives the notification
-   - Handles its specific responsibilities
-   - May store the notification if disabled
-   - May propagate the notification to parent queues
+## Source Tracking
 
-3. **State Propagation**
-   - Notifications flow up the queue hierarchy
-   - Each queue can modify or filter notifications
-   - State changes are properly propagated through the system
+`CollectionQueue` does not just remember "something is pending". It tracks the actual source computations in `_sources`.
 
-## Common Use Cases
+Later, `checkSources()` removes entries that are disposed or no longer carry the tracked status. Once `_sources` becomes empty, the boundary can clear its disabled state and stop showing fallback.
 
-### Loading States
-- Effects can enter loading states
-- Queues track and propagate loading states
-- Loading boundaries can show fallback content
+That source-based model is what lets loading and error boundaries settle correctly as upstream async work resolves.
 
-### Error Handling
-- Effects can enter error states
-- Error boundaries catch and handle errors
-- Error states can be reset and retried
+## Practical Consequences
 
-### Boundary Conditions
-- Queues can be temporarily disabled
-- Notifications are stored during disabled state
-- Stored notifications are released when enabled
-
-## Best Practices
-
-1. **Queue Hierarchy**
-   - Create appropriate queue hierarchies
-   - Use specialized queues for specific needs
-   - Ensure proper cleanup of queues
-
-2. **State Management**
-   - Handle loading and error states properly
-   - Implement proper fallback behavior
-   - Handle state resets appropriately
-
-## Example Usage
-
-```typescript
-// Create a boundary queue
-const queue = new ConditionalQueue(disabledComputation);
-
-// Create an effect that uses the queue
-const effect = new Effect(initialValue, compute, effectFn, {
-  queue: queue
-});
-
-// The effect will notify the queue of state changes
-effect.write(newValue, flags);
-```
+- Boundary queues are about propagation control, not general scheduling.
+- Root queue notification is primarily about uncaught async and transitions.
+- Loading and error handling are implemented by the same queue type with different status masks.
 
 ## Related Documentation
-- See [EXECUTION_CONTROL.md](./EXECUTION_CONTROL.md) for details on how effects are executed
-- See [BITWISE_OPERATIONS.md](./BITWISE_OPERATIONS.md) for details on the flag system
-- See [EFFECTS.md](./EFFECTS.md) for details on effect implementation
-- See [BOUNDARIES.md](./BOUNDARIES.md) for details on boundary implementation 
+
+- See [QUEUE_EXECUTION_CONTROL.md](./QUEUE_EXECUTION_CONTROL.md) for how queues, heaps, and lanes are drained.
+- See [BITWISE_OPERATIONS.md](./BITWISE_OPERATIONS.md) for the current `STATUS_*` and `REACTIVE_*` masks involved in propagation.

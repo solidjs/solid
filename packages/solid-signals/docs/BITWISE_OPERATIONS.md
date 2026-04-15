@@ -1,146 +1,127 @@
 # Bitwise Operations in the Reactive System
 
 ## Overview
-The reactive system uses bitwise operations to efficiently track and manage various states of effects and computations. This document explains how these operations work and their purpose in the system.
+`@solidjs/signals` uses bitmasks in a few different places:
 
-## Flag Definitions
+- reactive node dirtiness and lifecycle flags
+- async/error status flags
+- status propagation masks for boundaries
 
-The system uses several flags to represent different states:
+The definitions live in `src/core/constants.ts`. The old `ERROR_BIT` / `LOADING_BIT` names are no longer used in the codebase; the current names are `STATUS_*` and `REACTIVE_*`.
+
+## Current Flag Groups
+
+### Reactive flags
+These track scheduler and node lifecycle state:
 
 ```typescript
-// Error state flag
-const ERROR_BIT = 1 << 0;      // Binary: 0001
-
-// Loading state flag
-const LOADING_BIT = 1 << 1;    // Binary: 0010
-
-// Uninitialized state flag
-const UNINITIALIZED_BIT = 1 << 2; // Binary: 0100
+export const REACTIVE_CHECK = 1 << 0;
+export const REACTIVE_DIRTY = 1 << 1;
+export const REACTIVE_RECOMPUTING_DEPS = 1 << 2;
+export const REACTIVE_IN_HEAP = 1 << 3;
+export const REACTIVE_IN_HEAP_HEIGHT = 1 << 4;
+export const REACTIVE_ZOMBIE = 1 << 5;
+export const REACTIVE_DISPOSED = 1 << 6;
+export const REACTIVE_OPTIMISTIC_DIRTY = 1 << 7;
+export const REACTIVE_SNAPSHOT_STALE = 1 << 8;
+export const REACTIVE_LAZY = 1 << 9;
 ```
+
+These flags are mostly used by the scheduler and heap-driven recomputation logic.
+
+### Status flags
+These track async and error state on computations:
+
+```typescript
+export const STATUS_NONE = 0;
+export const STATUS_PENDING = 1 << 0;
+export const STATUS_ERROR = 1 << 1;
+export const STATUS_UNINITIALIZED = 1 << 2;
+```
+
+These are the flags boundary queues and async propagation care about.
+
+### Effect kinds
+These are numeric tags, not bitmasks:
+
+```typescript
+export const EFFECT_PURE = 0;
+export const EFFECT_RENDER = 1;
+export const EFFECT_USER = 2;
+export const EFFECT_TRACKED = 3;
+```
+
+They are used for scheduling order and queue selection rather than bitwise masking.
 
 ## Common Operations
 
-### 1. Setting Flags
-To set multiple flags:
+### Combine flags
 
 ```typescript
-// Set error and loading flags
-let flags = ERROR_BIT | LOADING_BIT; // Binary: 0011
+const mask = STATUS_PENDING | STATUS_ERROR;
 ```
 
-### 2. Checking Flags
-To check if a flag is set:
+### Check a flag
 
 ```typescript
-// Check if error flag is set
-if (flags & ERROR_BIT) {
-  // Handle error state
-}
-
-// Check if either error or loading flag is set
-if (flags & (ERROR_BIT | LOADING_BIT)) {
-  // Handle error or loading state
-}
-```
-
-### 3. Removing Flags
-To remove a flag:
-
-```typescript
-// Remove loading flag
-flags &= ~LOADING_BIT;
-```
-
-## Usage in the System
-
-### 1. Effect States
-Effects use flags to track their current state:
-
-```typescript
-// Notify queue about loading and error states
-this._queue.notify(this, LOADING_BIT | ERROR_BIT, flags);
-```
-
-### 2. Boundary Conditions
-Boundaries use flags to control propagation:
-
-```typescript
-// Set propagation mask for boundary
-this._propagationMask = disabled ? ERROR_BIT | LOADING_BIT : 0;
-```
-
-### 3. State Management
-Computations use flags to manage their state:
-
-```typescript
-// Check loading state
-if (this._stateFlags & LOADING_BIT) {
+if (node._statusFlags & STATUS_PENDING) {
   throw new NotReadyError();
 }
 ```
 
-## Benefits of Bitwise Operations
-
-1. **Efficiency**
-   - Single number can represent multiple states
-   - Bitwise operations are very fast
-   - Uses minimal memory
-
-2. **Flexibility**
-   - Easy to combine states
-   - Easy to check multiple states
-   - Easy to modify states
-
-3. **Type Safety**
-   - TypeScript can type-check the flags
-   - Prevents invalid state combinations
-   - Makes state management more predictable
-
-## Common Flag Combinations
-
-| Combination | Description |
-|------------|-------------|
-| `ERROR_BIT` | Error state only |
-| `LOADING_BIT` | Loading state only |
-| `ERROR_BIT | LOADING_BIT` | Both error and loading states |
-| `LOADING_BIT | UNINITIALIZED_BIT` | Loading and uninitialized states |
-
-## Best Practices
-
-1. **Flag Definition**
-   - Use powers of 2 for flag values
-   - Document flag purposes
-   - Keep flag names descriptive
-
-2. **Flag Operations**
-   - Use bitwise OR (`|`) to combine flags
-   - Use bitwise AND (`&`) to check flags
-   - Use bitwise NOT (`~`) to remove flags
-
-3. **State Management**
-   - Clear flags when no longer needed
-   - Check flags before operations
-   - Handle all possible flag combinations
-
-## Example Usage
+### Clear a flag
 
 ```typescript
-// Create an effect with initial flags
-const effect = new Effect(initialValue, compute, effectFn);
-
-// Set multiple flags
-effect.write(newValue, ERROR_BIT | LOADING_BIT);
-
-// Check flags
-if (effect._stateFlags & LOADING_BIT) {
-  // Handle loading state
-}
-
-// Remove flag
-effect._stateFlags &= ~ERROR_BIT;
+node._statusFlags &= ~STATUS_UNINITIALIZED;
 ```
 
+## Where Status Masks Are Used
+
+### Boundary propagation
+Boundary-wrapped computeds remember which statuses should continue propagating upward:
+
+```typescript
+node._statusFlags &= ~node._propagationMask;
+node._queue.notify(node, node._propagationMask, flags, actualError);
+```
+
+For example, loading boundaries are built around `STATUS_PENDING`, while error boundaries are built around `STATUS_ERROR`.
+
+### Queue notification
+Queue notification takes both:
+
+- `mask`: which statuses this queue cares about
+- `flags`: the node's actual current status flags
+
+```typescript
+notify(node, mask, flags, error?)
+```
+
+That allows a boundary queue to intercept one status, strip it from further propagation, and optionally forward the remaining ones.
+
+### Reactive scheduling
+Reactive flags are used to decide whether a node goes into the dirty heap, zombie heap, or needs optimistic-lane handling:
+
+```typescript
+const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
+```
+
+## Typical Combinations
+
+| Combination | Meaning |
+| --- | --- |
+| `STATUS_PENDING` | async work is still unresolved |
+| `STATUS_ERROR` | computation is in an error state |
+| `STATUS_PENDING | STATUS_ERROR` | queue code is examining both async and error propagation |
+| `REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY` | node needs recomputation and carries optimistic-lane semantics |
+
+## Notes
+
+- `STATUS_*` flags describe externally visible async/error state.
+- `REACTIVE_*` flags describe internal scheduler state.
+- Effect kinds such as `EFFECT_RENDER` are not bitmasks and should not be combined with `|`.
+
 ## Related Documentation
-- See [QUEUE_NOTIFICATION_SYSTEM.md](./QUEUE_NOTIFICATION_SYSTEM.md) for details on how flags are used in the queue system
-- See [EFFECTS.md](./EFFECTS.md) for details on effect implementation
-- See [BOUNDARIES.md](./BOUNDARIES.md) for details on boundary implementation 
+
+- See [QUEUE_NOTIFICATION_SYSTEM.md](./QUEUE_NOTIFICATION_SYSTEM.md) for how status masks move through queues.
+- See [QUEUE_EXECUTION_CONTROL.md](./QUEUE_EXECUTION_CONTROL.md) for how dirty heaps, lanes, and effect queues are drained.

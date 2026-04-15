@@ -1,167 +1,133 @@
 # Queue System: Execution Control
 
 ## Overview
-The queue system is primarily responsible for managing the execution of effects in the reactive system. While it also handles state notifications (see [QUEUE_NOTIFICATION_SYSTEM.md](./QUEUE_NOTIFICATION_SYSTEM.md)), its core purpose is to ensure effects run in the correct order, handle batching of updates, and coordinate execution across different parts of the application.
+The current scheduler is split across several layers:
 
-## Core Concepts
+- dirty and zombie heaps for recomputation work
+- queue objects for render and user effect callbacks
+- optimistic lanes for transition-scoped effects
+- the global flush loop that coordinates all of the above
 
-### 1. Effect Types
-The system distinguishes between different types of effects:
+This means the queue system is no longer just "three effect queues". Pure recomputation primarily happens through heaps, while queue objects mostly hold render and user callbacks.
 
-- **Pure Effects**: Computations that derive values
-- **Render Effects**: Effects that update the UI
-- **User Effects**: Custom effects created by the user
+## The Main Pieces
 
-### 2. Execution Queues
-Each queue maintains three separate queues for different effect types:
+### Dirty and zombie heaps
+Recomputations are driven by two heaps in `src/core/scheduler.ts`:
+
+- `dirtyQueue` for normal invalidation work
+- `zombieQueue` for work that must survive disposal boundaries until cleanup settles
+
+These heaps are drained before normal effect queues.
+
+### Queue and GlobalQueue
+`Queue` stores two callback arrays:
 
 ```typescript
-_queues: [Computation[], Effect[], Effect[]] = [[], [], []];
+_queues: [QueueCallback[], QueueCallback[]] = [[], []];
 ```
 
-This separation ensures:
-- Pure computations run before effects
-- Render effects run before user effects
-- Effects of the same type run in the order they were created
+Index `0` is render effects, index `1` is user effects. `Queue.run(type)` drains one queue and then recursively runs child queues.
 
-## Execution Flow
+`GlobalQueue` extends `Queue` and owns the full flush loop. It is responsible for:
 
-### 1. Enqueuing Effects
-When an effect needs to run:
+- draining dirty work
+- handling transition completion or stashing
+- running ready lane effects
+- running regular render effects
+- running regular user effects
+
+### Lanes
+When an effect is enqueued while `currentOptimisticLane` is active, it does not go into the queue's local arrays. Instead it is routed to the lane's effect queues:
 
 ```typescript
-enqueue<T extends Computation | Effect>(type: number, node: T): void {
-  this._queues[0].push(node as any);
-  if (type) this._queues[type].push(node as any);
+if (currentOptimisticLane) {
+  const lane = findLane(currentOptimisticLane);
+  lane._effectQueues[type - 1].push(fn);
+}
+```
+
+That is how optimistic transitions keep their render/user effects isolated until the lane is ready.
+
+## Flush Order
+
+At a high level, `flush()` works like this:
+
+1. Drain the dirty heap.
+2. If a transition is active, either:
+   - stash queue work and continue partial processing, or
+   - restore stashed work and finish the transition.
+3. Finalize pure work with `finalizePureQueue()`.
+4. Increment the scheduler clock.
+5. Run ready lane render effects.
+6. Run regular render effects.
+7. Run ready lane user effects.
+8. Run regular user effects.
+
+That ordering is important:
+
+- recomputation happens before effects
+- ready transition lanes get a chance to publish effects before the regular queues
+- render effects always run before user effects
+
+## What `Queue.enqueue()` Actually Does
+
+For render and user effects:
+
+```typescript
+enqueue(type: number, fn: QueueCallback): void {
+  if (type) {
+    if (currentOptimisticLane) {
+      const lane = findLane(currentOptimisticLane);
+      lane._effectQueues[type - 1].push(fn);
+    } else {
+      this._queues[type - 1].push(fn);
+    }
+  }
   schedule();
 }
 ```
 
-This:
-- Adds the effect to the general queue
-- Adds it to its specific type queue
-- Schedules execution
+Notes:
 
-### 2. Execution Scheduling
-Effects are executed in batches:
+- `EFFECT_PURE` is not stored in these queue arrays.
+- tracked effects (`EFFECT_TRACKED`) bypass the dirty heap and enqueue a user callback directly.
+- `schedule()` posts a microtask unless the global queue is already running or projection writes are active.
 
-```typescript
-flush() {
-  if (this._running) return;
-  this._running = true;
-  try {
-    while (this.run(EFFECT_PURE)) {}
-    incrementClock();
-    scheduled = false;
-    this.run(EFFECT_RENDER);
-    this.run(EFFECT_USER);
-  } finally {
-    this._running = false;
-  }
-}
-```
+## Boundary Queues and Execution Gating
 
-The order is important:
-1. Pure computations run first (may repeat if new computations are added)
-2. Clock is incremented to mark the batch
-3. Render effects run
-4. User effects run
+The specialized execution control in the current code lives in `CollectionQueue`, not `ConditionalQueue`.
 
-### 3. Effect Execution
-Each effect type has its own execution strategy:
+`CollectionQueue.run(type)` can suppress child effect execution when a boundary is disabled:
 
 ```typescript
-run(type: number) {
-  if (this._queues[type].length) {
-    if (type === EFFECT_PURE) {
-      runPureQueue(this._queues[type]);
-      this._queues[type] = [];
-    } else {
-      const effects = this._queues[type] as Effect[];
-      this._queues[type] = [];
-      runEffectQueue(effects);
-    }
-  }
-  // ... handle child queues
-}
+if (!type || (read(this._disabled) && (!_revealUsed || read(this._collapsed)))) return;
+return super.run(type);
 ```
 
-## Specialized Execution Control
+This is how loading/error boundaries and reveal-order coordination keep effects from running for content that is currently hidden behind fallback behavior.
 
-### 1. Conditional Execution
-Some queues can conditionally execute effects:
+## Transition Stashing
 
-```typescript
-class ConditionalQueue extends Queue {
-  run(type: number) {
-    if (type && this._disabled.read()) return;
-    return super.run(type);
-  }
-}
-```
+One of the biggest current behaviors that older docs missed is queue stashing during incomplete transitions.
 
-This allows:
-- Pausing effect execution based on conditions
-- Resuming execution when conditions change
-- Managing execution in boundary contexts
+When a transition is not complete, the global queue:
 
-### 2. Collection-based Execution
-Queues can manage execution based on collections:
+- runs effects for lanes that are already ready
+- stashes regular queue callbacks into `transition._queueStash`
+- clears active queues
+- continues processing so committed, non-transition work can still advance
 
-```typescript
-class CollectionQueue extends Queue {
-  _disabled: Computation<boolean> = new Computation(false, null);
-  
-  run(type: number) {
-    if (this._disabled.read()) return;
-    return super.run(type);
-  }
-}
-```
+When the transition completes, the stashed queues are restored and flushed.
 
-This enables:
-- Group-based execution control
-- Automatic enabling/disabling based on collection state
-- Coordinated execution of related effects
+## Practical Takeaways
 
-## Best Practices
-
-### 1. Effect Creation
-- Use appropriate effect types
-- Consider execution order requirements
-- Handle cleanup properly
-
-### 2. Queue Management
-- Create appropriate queue hierarchies
-- Use specialized queues when needed
-- Ensure proper cleanup
-
-### 3. Execution Control
-- Batch related updates
-- Handle edge cases (errors, loading states)
-- Consider performance implications
-
-## Example Usage
-
-```typescript
-// Create a queue with execution control
-const queue = new Queue();
-
-// Create different types of effects
-const pureEffect = new Computation(initialValue, compute);
-const renderEffect = new Effect(initialValue, compute, effectFn, { render: true });
-const userEffect = new Effect(initialValue, compute, effectFn);
-
-// Effects will be executed in the correct order
-queue.enqueue(EFFECT_PURE, pureEffect);
-queue.enqueue(EFFECT_RENDER, renderEffect);
-queue.enqueue(EFFECT_USER, userEffect);
-
-// Execute all effects
-queue.flush();
-```
+- Pure work is heap-driven, not queue-array-driven.
+- Queue arrays are mainly for render/user callbacks.
+- Lanes are the execution boundary for optimistic transitions.
+- Boundary queues can block effect execution without blocking the entire scheduler.
 
 ## Related Documentation
-- See [QUEUE_NOTIFICATION_SYSTEM.md](./QUEUE_NOTIFICATION_SYSTEM.md) for details on the secondary notification system
-- See [BITWISE_OPERATIONS.md](./BITWISE_OPERATIONS.md) for details on state management
-- See [EFFECTS.md](./EFFECTS.md) for details on effect implementation 
+
+- See [QUEUE_NOTIFICATION_SYSTEM.md](./QUEUE_NOTIFICATION_SYSTEM.md) for how status changes move through queue parents and boundary queues.
+- See [BITWISE_OPERATIONS.md](./BITWISE_OPERATIONS.md) for the `STATUS_*` and `REACTIVE_*` masks used by the scheduler.
