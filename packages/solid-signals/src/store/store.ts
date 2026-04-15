@@ -238,7 +238,8 @@ function notifyStoreProperty(
   if (target[STORE_HAS]?.[property]) setSignal(target[STORE_HAS]![property], mode !== "delete");
   const nodes = getNodes(target, STORE_NODE);
   if (mode === "set") {
-    nodes[property] && setSignal(nodes[property], () => (isWrappable(value) ? wrap(value, target) : value));
+    nodes[property] &&
+      setSignal(nodes[property], () => (isWrappable(value) ? wrap(value, target) : value));
   } else if (mode === "invalidate") {
     if (nodes[property]) {
       setSignal(nodes[property], {} as any);

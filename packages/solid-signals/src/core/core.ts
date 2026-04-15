@@ -232,9 +232,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         ? el._value
         : el._pendingValue;
     const valueChanged =
-      (!isEffect && wasUninitialized) ||
-      !el._equals ||
-      !el._equals(compareValue, value);
+      (!isEffect && wasUninitialized) || !el._equals || !el._equals(compareValue, value);
 
     if (valueChanged) {
       const prevVisible = hasOverride ? el._overrideValue : undefined;
@@ -688,22 +686,21 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     !context?._childrenForbidden &&
     context &&
     (el as FirewallSignal<any>)._firewall !== context
-  )
-    {
-      const message =
-        "Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
-        "Move the write outside or set the `pureWrite` option if this is intentional.";
-      emitDiagnostic({
-        code: "SIGNAL_WRITE_IN_OWNED_SCOPE",
-        kind: "write",
-        severity: "error",
-        message,
-        ownerId: context.id,
-        ownerName: (context as any)._name,
-        nodeName: (el as any)._name
-      });
-      throw new Error(message);
-    }
+  ) {
+    const message =
+      "Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
+      "Move the write outside or set the `pureWrite` option if this is intentional.";
+    emitDiagnostic({
+      code: "SIGNAL_WRITE_IN_OWNED_SCOPE",
+      kind: "write",
+      severity: "error",
+      message,
+      ownerId: context.id,
+      ownerName: (context as any)._name,
+      nodeName: (el as any)._name
+    });
+    throw new Error(message);
+  }
 
   if (el._transition && activeTransition !== el._transition)
     globalQueue.initTransition(el._transition);

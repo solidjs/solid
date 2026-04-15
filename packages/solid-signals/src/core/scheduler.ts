@@ -531,7 +531,7 @@ function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): b
     }
   }
   return !!(
-    (reporter._statusFlags & STATUS_PENDING) &&
+    reporter._statusFlags & STATUS_PENDING &&
     reporter._error instanceof NotReadyError &&
     reporter._error.source === source
   );
@@ -551,7 +551,10 @@ function transitionComplete(transition: Transition): boolean {
       reporters.delete(reporter);
     }
     if (!hasLive) transition._asyncReporters.delete(source);
-    else if (source._statusFlags & STATUS_PENDING && (source._error as NotReadyError)?.source === source) {
+    else if (
+      source._statusFlags & STATUS_PENDING &&
+      (source._error as NotReadyError)?.source === source
+    ) {
       done = false;
       break;
     }

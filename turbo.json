@@ -5,8 +5,19 @@
       "dependsOn": ["^build", "^types"],
       "outputLogs": "new-only"
     },
+    "@solidjs/signals#build": {
+      "outputs": ["dist/**"]
+    },
+    "@solidjs/signals#types": {
+      "outputs": ["dist/types/**"]
+    },
     "solid-js#build": {
+      "dependsOn": ["@solidjs/signals#build", "@solidjs/signals#types"],
       "outputs": ["dist/**", "**/dist/**"]
+    },
+    "solid-js#types": {
+      "dependsOn": ["@solidjs/signals#types"],
+      "outputs": ["types/**", "**/types/**"]
     },
     "@solidjs/web#link": {
       "dependsOn": ["solid-js#build"],
@@ -39,6 +50,10 @@
       "outputs": ["coverage/**"]
     },
     "test": {
+      "outputs": []
+    },
+    "solid-js#test": {
+      "dependsOn": ["@solidjs/signals#build"],
       "outputs": []
     },
     "@solidjs/web#test": {

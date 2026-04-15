@@ -262,7 +262,11 @@ describe("storePath helper", () => {
   });
 
   test("Preserves getter descriptors when replacing an existing key", () => {
-    const [store, setStore] = createStore<{ value: number; alreadyDefinedKey: { get?: number }; newKey?: { get: number } }>({
+    const [store, setStore] = createStore<{
+      value: number;
+      alreadyDefinedKey: { get?: number };
+      newKey?: { get: number };
+    }>({
       value: 0,
       alreadyDefinedKey: {}
     });

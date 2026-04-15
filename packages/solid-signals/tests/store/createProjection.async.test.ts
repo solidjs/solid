@@ -79,15 +79,21 @@ describe("Projection async behavior", () => {
 
     createRoot(() => {
       const items = createMemo(() => retrieveItems());
-      const proj = createProjection(store => {
-        if (++runs > 20) throw new Error("Projection self-tracked through splice");
+      const proj = createProjection(
+        store => {
+          if (++runs > 20) throw new Error("Projection self-tracked through splice");
 
-        for (const item of items()) {
-          insertValueByTimestamp(store, item);
-        }
-      }, [] as typeof mockedItems);
+          for (const item of items()) {
+            insertValueByTimestamp(store, item);
+          }
+        },
+        [] as typeof mockedItems
+      );
 
-      createRenderEffect(() => proj.length, () => {});
+      createRenderEffect(
+        () => proj.length,
+        () => {}
+      );
     });
 
     flush();

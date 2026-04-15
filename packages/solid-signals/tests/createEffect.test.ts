@@ -183,7 +183,7 @@ it("should run all disposals before each new run", () => {
   createRoot(() =>
     createEffect(
       () => {
-        fnA(), fnB();
+        (fnA(), fnB());
         return $x();
       },
       () => {

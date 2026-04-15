@@ -75,4 +75,9 @@ export type {
 } from "./signals.js";
 export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./store/index.js";
-export { createLoadingBoundary, createErrorBoundary, createRevealOrder, flatten } from "./boundaries.js";
+export {
+  createLoadingBoundary,
+  createErrorBoundary,
+  createRevealOrder,
+  flatten
+} from "./boundaries.js";

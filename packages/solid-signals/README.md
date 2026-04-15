@@ -1,6 +1,6 @@
 # @solidjs/signals
 
-The reactive core that powers [SolidJS 2.0](https://github.com/solidjs/solid). This is a standalone signals library designed for rendering — it includes first-class support for async, transitions, optimistic updates, and deeply reactive stores that go beyond what general-purpose signals libraries offer.
+The reactive core that powers [SolidJS 2.0](https://github.com/solidjs/solid). It is developed in the Solid monorepo and includes first-class support for async, transitions, optimistic updates, and deeply reactive stores that go beyond what general-purpose signals libraries offer.
 
 > **Status:** Beta — this package is the reactive foundation of SolidJS 2.0 Beta. The API is stabilizing but may still have breaking changes before a final release.
 
@@ -240,14 +240,15 @@ createRoot(dispose => {
 
 ## Development
 
+From the monorepo root:
+
 ```bash
 pnpm install
-pnpm build          # Rollup build (dev/prod/node outputs)
-pnpm test           # Run tests
-pnpm test:watch     # Watch mode
-pnpm test:gc        # Tests with GC exposed
-pnpm bench          # Benchmarks
-pnpm format         # Prettier + import sorting
+pnpm --filter @solidjs/signals build
+pnpm --filter @solidjs/signals test
+pnpm --filter @solidjs/signals test:watch
+pnpm --filter @solidjs/signals test:gc
+pnpm --filter @solidjs/signals bench
 ```
 
 ## License

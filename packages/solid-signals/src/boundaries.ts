@@ -112,7 +112,8 @@ export class RevealController {
   _forEachOwnedSlot(fn: (slot: RevealSlot) => boolean | void): boolean {
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
-      if ((isRevealController(slot) ? slot._parentController : slot._revealController) !== this) continue;
+      if ((isRevealController(slot) ? slot._parentController : slot._revealController) !== this)
+        continue;
       if (fn(slot) === false) return false;
     }
     return true;
@@ -126,8 +127,8 @@ export class RevealController {
     if (this._slots.includes(slot)) return;
     this._slots.push(slot);
     const together = !!untrack(this._togetherAccessor);
-    setSignal(slot._disabled, true),
-      setSignal(slot._collapsed, together ? false : !!untrack(this._collapsedAccessor));
+    (setSignal(slot._disabled, true),
+      setSignal(slot._collapsed, together ? false : !!untrack(this._collapsedAccessor)));
     untrack(() => this.evaluate());
   }
 
@@ -145,7 +146,8 @@ export class RevealController {
       const disabled = disabledOverride ?? read(this._disabled),
         collapseTail = !!untrack(this._collapsedAccessor),
         collapsed = collapsedOverride ?? collapseTail;
-      if (disabled && collapsed) this._forEachOwnedSlot(slot => setSlotState(slot, this, true, true));
+      if (disabled && collapsed)
+        this._forEachOwnedSlot(slot => setSlotState(slot, this, true, true));
       else if (!!untrack(this._togetherAccessor)) {
         const ready = this.isReady();
         this._forEachOwnedSlot(slot => setSlotState(slot, this, !ready, false));
@@ -226,13 +228,18 @@ export class CollectionQueue extends Queue {
     for (const source of this._sources) {
       if (
         source._flags & REACTIVE_DISPOSED ||
-        !(source._statusFlags & this._collectionType) &&
-        !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING)
+        (!(source._statusFlags & this._collectionType) &&
+          !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING))
       )
         this._sources.delete(source);
     }
     if (!this._sources.size) {
-      if (this._collectionType & STATUS_PENDING && this._pending && !this._initialized && this._tree) {
+      if (
+        this._collectionType & STATUS_PENDING &&
+        this._pending &&
+        !this._initialized &&
+        this._tree
+      ) {
         this._pending = !!(this._tree._statusFlags & this._collectionType);
       } else {
         this._pending = false;
@@ -283,7 +290,8 @@ function createCollectionBoundary<T>(
       if (e instanceof NotReadyError) pending = true;
       else throw e;
     }
-    queue._pending = pending || !!(tree._statusFlags & type) || tree._error instanceof NotReadyError;
+    queue._pending =
+      pending || !!(tree._statusFlags & type) || tree._error instanceof NotReadyError;
   });
   const controller =
     _revealUsed && type === STATUS_PENDING ? getContext(RevealControllerContext) : null;

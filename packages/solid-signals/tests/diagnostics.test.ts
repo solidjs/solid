@@ -96,7 +96,10 @@ describe("diagnostics", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const capture = DEV!.diagnostics.capture();
 
-    const read = createLoadingBoundary(() => "ready", () => "fallback");
+    const read = createLoadingBoundary(
+      () => "ready",
+      () => "fallback"
+    );
     expect(read()).toBe("ready");
 
     const events = capture.stop();

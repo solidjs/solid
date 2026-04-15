@@ -145,10 +145,7 @@ describe("Phase 1b: Notification hooks", () => {
     it("fires for transparent owners", () => {
       const owners: Owner[] = [];
       DEV!.hooks.onOwner = o => owners.push(o);
-      createRoot(
-        () => {},
-        { transparent: true }
-      );
+      createRoot(() => {}, { transparent: true });
       expect(owners.length).toBe(1);
       expect(owners[0]._transparent).toBe(true);
     });

@@ -63,7 +63,8 @@
   },
   "pnpm": {
     "overrides": {
-      "babel-preset-solid": "workspace:*"
+      "babel-preset-solid": "workspace:*",
+      "@solidjs/signals": "workspace:*"
     }
   },
   "engines": {

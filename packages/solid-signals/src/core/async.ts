@@ -179,11 +179,7 @@ export function handleAsync<T>(
       const isEffect = (el as any)._type;
       const prevValue = el._value;
       const equals = el._equals;
-      if (
-        (!isEffect && wasUninitialized) ||
-        !equals ||
-        !equals(value, prevValue)
-      ) {
+      if ((!isEffect && wasUninitialized) || !equals || !equals(value, prevValue)) {
         el._value = value;
         el._time = clock;
         // Write to _latestValueComputed so latest() effects get independent lanes

@@ -251,7 +251,7 @@ it("propagates in topological order", () => {
     ),
     c1 = createMemo(
       () => {
-        b1(), b2();
+        (b1(), b2());
         seq += "c1";
       },
       undefined,

@@ -58,7 +58,7 @@ export default [
         mangle: {
           keep_classnames: true,
           keep_fnames: true,
-           module: false,
+          module: false,
           properties: {
             regex: /^_/
           }

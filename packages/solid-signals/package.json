@@ -1,33 +1,49 @@
 {
   "name": "@solidjs/signals",
-  "version": "0.13.13",
-  "description": "SolidJS' standalone reactivity implementation",
+  "version": "2.0.0-beta.6",
+  "description": "SolidJS' reactive core implementation",
   "author": "Ryan Carniato",
   "license": "MIT",
+  "homepage": "https://solidjs.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/solidjs/signals"
+    "url": "https://github.com/solidjs/solid"
   },
-  "type": "module",
-  "main": "dist/node.cjs",
-  "module": "dist/prod.js",
-  "types": "dist/types/index.d.ts",
   "publishConfig": {
     "access": "public"
   },
+  "main": "./dist/node.cjs",
+  "module": "./dist/prod.js",
+  "types": "./dist/types/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
   "files": [
-    "dist"
+    "dist",
+    "package.json"
   ],
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": {
+        "test": "./dist/dev.js",
+        "development": "./dist/dev.js",
+        "default": "./dist/prod.js"
+      },
+      "require": "./dist/node.cjs"
+    },
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
   "scripts": {
-    "build": "rimraf dist && rollup -c && pnpm types",
+    "build": "npm-run-all -nl build:* && pnpm types",
+    "build:clean": "rimraf dist/",
+    "build:js": "rollup -c",
     "types": "tsc -p tsconfig.build.json",
-    "format": "prettier src tests --write --log-level warn",
-    "sandbox": "node ./.sandbox/launch.js",
     "test": "vitest run",
     "test:watch": "vitest watch tests",
     "test:gc": "node --expose-gc ./vitest.js",
     "test:gc:watch": "node --expose-gc ./vitest.js --watch",
-    "test:coverage": "vitest run --coverage",
+    "coverage": "vitest run --coverage",
     "bench": "vitest bench --run"
   },
   "devDependencies": {
@@ -43,16 +59,5 @@
     "typescript": "5.9.3",
     "vite": "^5.4.10",
     "vitest": "^2.0.0"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/types/index.d.ts",
-      "import": {
-        "test": "./dist/dev.js",
-        "development": "./dist/dev.js",
-        "default": "./dist/prod.js"
-      },
-      "require": "./dist/node.cjs"
-    }
   }
 }

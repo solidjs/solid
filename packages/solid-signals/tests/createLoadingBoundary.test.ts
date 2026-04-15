@@ -636,13 +636,17 @@ describe("createLoadingBoundary", () => {
           await current.promise;
           return `value-${page}`;
         });
-        const shown = createMemo(() => {
-          const page = $page();
-          return createLoadingBoundary(
-            () => ["Page ", page, ": ", source],
-            () => "loading"
-          );
-        }, undefined, { transparent: true });
+        const shown = createMemo(
+          () => {
+            const page = $page();
+            return createLoadingBoundary(
+              () => ["Page ", page, ": ", source],
+              () => "loading"
+            );
+          },
+          undefined,
+          { transparent: true }
+        );
 
         mountLike(shown, value => {
           result = value;
@@ -681,20 +685,24 @@ describe("createLoadingBoundary", () => {
           await current.promise;
           return `value-${page}`;
         });
-        const shown = createMemo(() => {
-          const page = $page();
-          let started = false;
-          return createLoadingBoundary(
-            () => {
-              if (!started) {
-                started = true;
-                mountLike(source, () => {});
-              }
-              return ["Page ", page, ": ", "<span />"];
-            },
-            () => "loading"
-          );
-        }, undefined, { transparent: true });
+        const shown = createMemo(
+          () => {
+            const page = $page();
+            let started = false;
+            return createLoadingBoundary(
+              () => {
+                if (!started) {
+                  started = true;
+                  mountLike(source, () => {});
+                }
+                return ["Page ", page, ": ", "<span />"];
+              },
+              () => "loading"
+            );
+          },
+          undefined,
+          { transparent: true }
+        );
 
         mountLike(shown, value => {
           result = value;
@@ -737,13 +745,17 @@ describe("createLoadingBoundary", () => {
           await currentB.promise;
           return "value-b";
         });
-        const shown = createMemo(() => {
-          const page = $page();
-          return createLoadingBoundary(
-            () => ["Page ", page, ": ", page === "a" ? sourceA : sourceB],
-            () => "loading"
-          );
-        }, undefined, { transparent: true });
+        const shown = createMemo(
+          () => {
+            const page = $page();
+            return createLoadingBoundary(
+              () => ["Page ", page, ": ", page === "a" ? sourceA : sourceB],
+              () => "loading"
+            );
+          },
+          undefined,
+          { transparent: true }
+        );
 
         mountLike(shown, value => {
           result = value;
@@ -785,20 +797,24 @@ describe("createLoadingBoundary", () => {
           await currentB.promise;
           return "value-b";
         });
-        const shown = createMemo(() => {
-          const page = $page();
-          let started = false;
-          return createLoadingBoundary(
-            () => {
-              if (!started) {
-                started = true;
-                mountLike(page === "a" ? sourceA : sourceB, () => {});
-              }
-              return ["Page ", page, ": ", "<span />"];
-            },
-            () => "loading"
-          );
-        }, undefined, { transparent: true });
+        const shown = createMemo(
+          () => {
+            const page = $page();
+            let started = false;
+            return createLoadingBoundary(
+              () => {
+                if (!started) {
+                  started = true;
+                  mountLike(page === "a" ? sourceA : sourceB, () => {});
+                }
+                return ["Page ", page, ": ", "<span />"];
+              },
+              () => "loading"
+            );
+          },
+          undefined,
+          { transparent: true }
+        );
 
         mountLike(shown, value => {
           result = value;
