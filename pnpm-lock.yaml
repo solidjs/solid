@@ -269,6 +269,21 @@ importers:
 
   packages/test-integration:
     dependencies:
+      '@solidjs/h':
+        specifier: workspace:*
+        version: link:../solid-h
+      '@solidjs/html':
+        specifier: workspace:*
+        version: link:../solid-html
+      '@solidjs/signals':
+        specifier: workspace:*
+        version: link:../solid-signals
+      '@solidjs/universal':
+        specifier: workspace:*
+        version: link:../solid-universal
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../solid-web
       babel-preset-solid:
         specifier: workspace:*
         version: link:../babel-preset-solid

@@ -18,54 +18,101 @@
   "files": [
     "dist",
     "types",
+    "types-cjs",
     "jsx-runtime.d.ts",
     "package.json"
   ],
   "exports": {
     ".": {
       "worker": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/server.cjs"
+        }
       },
       "browser": {
         "development": {
-          "types": "./types/index.d.ts",
-          "import": "./dist/dev.js",
-          "require": "./dist/dev.cjs"
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/dev.cjs"
+          }
         },
-        "types": "./types/index.d.ts",
-        "import": "./dist/solid.js",
-        "require": "./dist/solid.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/solid.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/solid.cjs"
+        }
       },
       "deno": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/server.cjs"
+        }
       },
       "node": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/server.cjs"
+        }
       },
       "development": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/dev.js",
-        "require": "./dist/dev.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/dev.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/dev.cjs"
+        }
       },
-      "types": "./types/index.d.ts",
-      "import": "./dist/solid.js",
-      "require": "./dist/solid.cjs"
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/solid.js"
+      },
+      "require": {
+        "types": "./types-cjs/index.d.cts",
+        "default": "./dist/solid.cjs"
+      }
     },
-    "./dist/*": "./dist/*",
     "./types/*": "./types/*",
     "./jsx-runtime": {
-      "types": "./types/jsx.d.ts",
-      "default": "./dist/solid.js"
+      "import": {
+        "types": "./types/jsx.d.ts",
+        "default": "./dist/solid.js"
+      },
+      "require": {
+        "types": "./types-cjs/jsx.d.cts",
+        "default": "./dist/solid.cjs"
+      }
     },
     "./jsx-dev-runtime": {
-      "types": "./types/jsx.d.ts",
-      "default": "./dist/solid.js"
+      "import": {
+        "types": "./types/jsx.d.ts",
+        "default": "./dist/solid.js"
+      },
+      "require": {
+        "types": "./types-cjs/jsx.d.cts",
+        "default": "./dist/solid.cjs"
+      }
     },
     "./package.json": "./package.json"
   },
@@ -73,10 +120,11 @@
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:*",
-    "types:clean": "rimraf types/",
+    "types": "npm-run-all -nl types:clean types:copy types:src types:cjs",
+    "types:clean": "rimraf types/ types-cjs/",
     "types:copy": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts",
     "types:src": "tsc --project ./tsconfig.build.json && ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./types/jsx.d.ts",
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "test-types": "tsc --project tsconfig.test.json"

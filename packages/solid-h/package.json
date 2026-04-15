@@ -20,40 +20,57 @@
   "files": [
     "dist",
     "types",
+    "types-cjs",
     "package.json",
     "jsx-runtime/dist",
     "jsx-runtime/types",
+    "jsx-runtime/types-cjs",
     "jsx-runtime/package.json",
     "jsx-dev-runtime/package.json"
   ],
   "exports": {
     ".": {
-      "types": "./types/index.d.ts",
-      "import": "./dist/h.js",
-      "require": "./dist/h.cjs"
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/h.js"
+      },
+      "require": {
+        "types": "./types-cjs/index.d.cts",
+        "default": "./dist/h.cjs"
+      }
     },
     "./jsx-runtime": {
-      "types": "./jsx-runtime/types/index.d.ts",
-      "import": "./jsx-runtime/dist/jsx.js",
-      "require": "./jsx-runtime/dist/jsx.cjs"
+      "import": {
+        "types": "./jsx-runtime/types/index.d.ts",
+        "default": "./jsx-runtime/dist/jsx.js"
+      },
+      "require": {
+        "types": "./jsx-runtime/types-cjs/index.d.cts",
+        "default": "./jsx-runtime/dist/jsx.cjs"
+      }
     },
     "./jsx-dev-runtime": {
-      "types": "./jsx-runtime/types/index.d.ts",
-      "import": "./jsx-runtime/dist/jsx.js",
-      "require": "./jsx-runtime/dist/jsx.cjs"
+      "import": {
+        "types": "./jsx-runtime/types/index.d.ts",
+        "default": "./jsx-runtime/dist/jsx.js"
+      },
+      "require": {
+        "types": "./jsx-runtime/types-cjs/index.d.cts",
+        "default": "./jsx-runtime/dist/jsx.cjs"
+      }
     },
-    "./dist/*": "./dist/*",
     "./types/*": "./types/*"
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/ /jsx-runtime/dist",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:*",
-    "types:clean": "rimraf types/",
+    "types": "npm-run-all -nl types:clean types:copy types:h types:jsx types:cjs",
+    "types:clean": "rimraf types/ types-cjs/ jsx-runtime/types-cjs/",
     "types:copy": "ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/src/jsx.d.ts",
     "types:h": "tsc --project ./tsconfig.json && ncp ../../node_modules/hyper-dom-expressions/types/index.d.ts ./types/hyperscript.d.ts",
     "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/types/jsx.d.ts",
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./jsx-runtime/types ./jsx-runtime/types-cjs",
     "link": "symlink-dir . node_modules/@solidjs/h"
   },
   "peerDependencies": {

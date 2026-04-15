@@ -21,53 +21,94 @@
   "files": [
     "dist",
     "types",
+    "types-cjs",
     "package.json",
     "storage/dist",
     "storage/types",
+    "storage/types-cjs",
     "storage/package.json"
   ],
   "exports": {
     ".": {
       "worker": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/server.cjs"
+        }
       },
       "browser": {
         "development": {
-          "types": "./types/index.d.ts",
-          "import": "./dist/dev.js",
-          "require": "./dist/dev.cjs"
+          "import": {
+            "types": "./types/index.d.ts",
+            "default": "./dist/dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/index.d.cts",
+            "default": "./dist/dev.cjs"
+          }
         },
-        "types": "./types/index.d.ts",
-        "import": "./dist/web.js",
-        "require": "./dist/web.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/web.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/web.cjs"
+        }
       },
       "deno": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/server.cjs"
+        }
       },
       "node": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/server.js",
-        "require": "./dist/server.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/server.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/server.cjs"
+        }
       },
       "development": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/dev.js",
-        "require": "./dist/dev.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/dev.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/dev.cjs"
+        }
       },
-      "types": "./types/index.d.ts",
-      "import": "./dist/web.js",
-      "require": "./dist/web.cjs"
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/web.js"
+      },
+      "require": {
+        "types": "./types-cjs/index.d.cts",
+        "default": "./dist/web.cjs"
+      }
     },
     "./storage": {
-      "types": "./storage/types/index.d.ts",
-      "import": "./storage/dist/storage.js",
-      "require": "./storage/dist/storage.cjs"
+      "import": {
+        "types": "./storage/types/index.d.ts",
+        "default": "./storage/dist/storage.js"
+      },
+      "require": {
+        "types": "./storage/types-cjs/index.d.cts",
+        "default": "./storage/dist/storage.cjs"
+      }
     },
-    "./dist/*": "./dist/*",
     "./types/*": "./types/*"
   },
   "scripts": {
@@ -75,11 +116,12 @@
     "build:clean": "rimraf dist/",
     "build:js": "rollup -c",
     "link": "symlink-dir . node_modules/@solidjs/web",
-    "types": "npm-run-all -nl types:*",
-    "types:clean": "rimraf types/",
+    "types": "npm-run-all -nl types:clean types:web types:copy-web types:web-storage types:cjs",
+    "types:clean": "rimraf types/ types-cjs/ storage/types-cjs/",
     "types:web": "tsc --project ./tsconfig.build.json",
     "types:copy-web": "ncp ../../node_modules/dom-expressions/src/client.d.ts ./types/client.d.ts && ncp ../../node_modules/dom-expressions/src/server.d.ts ./types/server.d.ts",
     "types:web-storage": "tsc --project ./storage/tsconfig.build.json",
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./storage/types ./storage/types-cjs",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",
     "test:server": "vitest run --config vite.config.server.mjs",
     "coverage": "vitest run --coverage",

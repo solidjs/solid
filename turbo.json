@@ -9,15 +9,15 @@
       "outputs": ["dist/**"]
     },
     "@solidjs/signals#types": {
-      "outputs": ["dist/types/**"]
+      "outputs": ["dist/types/**", "dist/types-cjs/**"]
     },
     "solid-js#build": {
       "dependsOn": ["@solidjs/signals#build", "@solidjs/signals#types"],
       "outputs": ["dist/**", "**/dist/**"]
     },
     "solid-js#types": {
-      "dependsOn": ["@solidjs/signals#types"],
-      "outputs": ["types/**", "**/types/**"]
+      "dependsOn": ["@solidjs/signals#types", "@solidjs/signals#build"],
+      "outputs": ["types/**", "types-cjs/**", "**/types/**", "**/types-cjs/**"]
     },
     "@solidjs/web#link": {
       "dependsOn": ["solid-js#build"],
@@ -40,11 +40,11 @@
     },
     "types": {
       "dependsOn": ["^types"],
-      "outputs": ["types/**", "**/types/**"]
+      "outputs": ["types/**", "types-cjs/**", "dist/types-cjs/**", "**/types/**", "**/types-cjs/**", "**/dist/types-cjs/**"]
     },
     "@solidjs/web#types": {
       "dependsOn": ["^types"],
-      "outputs": ["types/**", "**/types/**"]
+      "outputs": ["types/**", "types-cjs/**", "**/types/**", "**/types-cjs/**"]
     },
     "coverage": {
       "outputs": ["coverage/**"]
@@ -57,11 +57,18 @@
       "outputs": []
     },
     "@solidjs/web#test": {
-      "dependsOn": ["solid-js#build"],
+      "dependsOn": ["solid-js#build", "@solidjs/web#build"],
       "outputs": []
     },
     "test-integration#test": {
-      "dependsOn": ["solid-js#build"]
+      "dependsOn": [
+        "@solidjs/signals#build",
+        "solid-js#build",
+        "@solidjs/web#build",
+        "@solidjs/h#build",
+        "@solidjs/html#build",
+        "@solidjs/universal#build"
+      ]
     },
     "solid-js#test-types": {
       "outputs": [],

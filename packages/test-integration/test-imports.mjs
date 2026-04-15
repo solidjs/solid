@@ -26,17 +26,18 @@ function checkError(error) {
 
 Promise.all([
   import("solid-js").catch(checkError),
-  import("solid-js/dist/solid.js").catch(checkError),
+  import("solid-js/jsx-runtime").catch(checkError),
+  import("solid-js/jsx-dev-runtime").catch(checkError),
 
-  // import("solid-js/web").catch(checkError),
-  // import("solid-js/web/dist/web.js").catch(checkError),
-  // import("solid-js/web/dist/server.js").catch(checkError),
+  import("@solidjs/signals").catch(checkError),
+  import("@solidjs/web").catch(checkError),
+  import("@solidjs/web/storage").catch(checkError),
 
-  // import("solid-js/h").catch(checkError),
-  // import("solid-js/h/dist/h.js").catch(checkError),
-
-  // import("solid-js/html").catch(checkError),
-  // import("solid-js/html/dist/html.js").catch(checkError)
+  import("@solidjs/h").catch(checkError),
+  import("@solidjs/h/jsx-runtime").catch(checkError),
+  import("@solidjs/h/jsx-dev-runtime").catch(checkError),
+  import("@solidjs/html").catch(checkError),
+  import("@solidjs/universal").catch(checkError)
 ])
   .then(() => {
     console.log("ES Module import test passed.");

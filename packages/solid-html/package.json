@@ -20,23 +20,30 @@
   "files": [
     "dist",
     "types",
+    "types-cjs",
     "package.json"
   ],
   "exports": {
     ".": {
-      "types": "./types/index.d.ts",
-      "import": "./dist/html.js",
-      "require": "./dist/html.cjs"
-    },
-    "./dist/*": "./dist/*"
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/html.js"
+      },
+      "require": {
+        "types": "./types-cjs/index.d.cts",
+        "default": "./dist/html.cjs"
+      }
+    }
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:*",
-    "types:clean": "rimraf types/",
+    "types": "npm-run-all -nl types:clean types:html types:cjs",
+    "types:clean": "rimraf types/ types-cjs/",
     "types:html": "tsc --project ./tsconfig.json && ncp ../../node_modules/lit-dom-expressions/types/index.d.ts ./types/lit.d.ts"
+    ,
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs"
   },
   "peerDependencies": {
     "@solidjs/web": "^2.0.0-beta.6"

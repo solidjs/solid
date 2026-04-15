@@ -2,11 +2,17 @@
   "name": "test-integration",
   "private": true,
   "scripts": {
-    "test": "npm run test:imports",
+    "test": "npm run test:imports && npm run test:packaged-types",
     "test:integrations": "vitest run",
-    "test:imports": "node test-imports.mjs"
+    "test:imports": "node test-imports.mjs",
+    "test:packaged-types": "vitest run tests/packaged-types.spec.ts"
   },
   "dependencies": {
+    "@solidjs/h": "workspace:*",
+    "@solidjs/html": "workspace:*",
+    "@solidjs/signals": "workspace:*",
+    "@solidjs/universal": "workspace:*",
+    "@solidjs/web": "workspace:*",
     "babel-preset-solid": "workspace:*",
     "solid-js": "workspace:*"
   },

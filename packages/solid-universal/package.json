@@ -20,29 +20,40 @@
   "files": [
     "dist",
     "types",
+    "types-cjs",
     "package.json"
   ],
   "exports": {
     ".": {
       "development": {
-        "types": "./types/index.d.ts",
-        "import": "./dist/dev.js",
-        "require": "./dist/dev.cjs"
+        "import": {
+          "types": "./types/index.d.ts",
+          "default": "./dist/dev.js"
+        },
+        "require": {
+          "types": "./types-cjs/index.d.cts",
+          "default": "./dist/dev.cjs"
+        }
       },
-      "types": "./types/index.d.ts",
-      "import": "./dist/universal.js",
-      "require": "./dist/universal.cjs"
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/universal.js"
+      },
+      "require": {
+        "types": "./types-cjs/index.d.cts",
+        "default": "./dist/universal.cjs"
+      }
     },
-    "./dist/*": "./dist/*",
     "./types/*": "./types/*"
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:*",
-    "types:clean": "rimraf types/",
-    "types:universal": "tsc --project ./tsconfig.json && ncp ../../node_modules/dom-expressions/src/universal.d.ts ./types/index.d.ts"
+    "types": "npm-run-all -nl types:clean types:universal types:cjs",
+    "types:clean": "rimraf types/ types-cjs/",
+    "types:universal": "tsc --project ./tsconfig.json && ncp ../../node_modules/dom-expressions/src/universal.d.ts ./types/index.d.ts",
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs"
   },
   "peerDependencies": {
     "solid-js": "^2.0.0-beta.6"

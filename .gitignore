@@ -6,6 +6,7 @@ lib/
 .idea/
 coverage/
 types/
+types-cjs/
 .DS_Store
 .turbo/
 .pnpm-store/
