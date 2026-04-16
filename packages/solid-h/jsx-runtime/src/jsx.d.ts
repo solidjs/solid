@@ -1,4 +1,5 @@
 import * as csstype from "csstype";
+import type { PropKey, WidenPropValue } from "./jsx-properties.js";
 
 /**
  * Originally based on JSX types for Surplus and Inferno and adapted for `dom-expressions`.
@@ -108,6 +109,19 @@ import * as csstype from "csstype";
  */
 
 type DOMElement = Element;
+
+/**
+ * Fallback declarations for event types that are not yet defined in older TypeScript
+ * `lib.dom.d.ts` versions. When the user's TS lib defines these, declaration merging
+ * yields the full specialized type; otherwise these serve as a bare `Event` fallback.
+ */
+declare global {
+  interface CommandEvent extends Event {}
+  interface PageRevealEvent extends Event {}
+  interface PageSwapEvent extends Event {}
+  interface SnapEvent extends Event {}
+  interface TimeEvent extends Event {}
+}
 
 export namespace JSX {
   // START - difference between `jsx.d.ts` and `jsx-h.d.ts`
@@ -252,6 +266,16 @@ export namespace JSX {
   };
   type OnAttributes<T> = {
     [Key in keyof CustomEvents as `on:${Key}`]?: EventHandlerWithOptionsUnion<T, CustomEvents[Key]>;
+  };
+
+  /**
+   * Writable, element-specific DOM properties exposed as `prop:*` attributes, auto-derived
+   * from the element interface `T`. See `./jsx-properties.d.ts` for the filtering rules.
+   * Existing element interfaces can locally disable an auto-derived key with
+   * `"prop:foo"?: never;` to redirect users to a plain attribute form.
+   */
+  type Properties<T> = {
+    [K in keyof T as PropKey<T, K>]?: FunctionMaybe<WidenPropValue<T[K]>>;
   };
 
   // CSS
@@ -683,6 +707,9 @@ export namespace JSX {
     onAfterPrint?: EventHandlerUnion<T, Event> | undefined;
     onBeforePrint?: EventHandlerUnion<T, Event> | undefined;
     onBeforeUnload?: EventHandlerUnion<T, BeforeUnloadEvent> | undefined;
+    onDeviceMotion?: EventHandlerUnion<T, DeviceMotionEvent> | undefined;
+    onDeviceOrientation?: EventHandlerUnion<T, DeviceOrientationEvent> | undefined;
+    onDeviceOrientationAbsolute?: EventHandlerUnion<T, DeviceOrientationEvent> | undefined;
     onGamepadConnected?: EventHandlerUnion<T, GamepadEvent> | undefined;
     onGamepadDisconnected?: EventHandlerUnion<T, GamepadEvent> | undefined;
     onHashchange?: EventHandlerUnion<T, HashChangeEvent> | undefined;
@@ -691,12 +718,12 @@ export namespace JSX {
     onMessageError?: EventHandlerUnion<T, MessageEvent> | undefined;
     onOffline?: EventHandlerUnion<T, Event> | undefined;
     onOnline?: EventHandlerUnion<T, Event> | undefined;
+    /** @deprecated Use `screen.orientation` (`ScreenOrientation.change`) instead. */
+    onOrientationChange?: EventHandlerUnion<T, Event> | undefined;
     onPageHide?: EventHandlerUnion<T, PageTransitionEvent> | undefined;
-    // TODO `PageRevealEvent` is currently undefined on TS
-    onPageReveal?: EventHandlerUnion<T, Event> | undefined;
+    onPageReveal?: EventHandlerUnion<T, PageRevealEvent> | undefined;
     onPageShow?: EventHandlerUnion<T, PageTransitionEvent> | undefined;
-    // TODO `PageSwapEvent` is currently undefined on TS
-    onPageSwap?: EventHandlerUnion<T, Event> | undefined;
+    onPageSwap?: EventHandlerUnion<T, PageSwapEvent> | undefined;
     onPopstate?: EventHandlerUnion<T, PopStateEvent> | undefined;
     onRejectionHandled?: EventHandlerUnion<T, PromiseRejectionEvent> | undefined;
     onStorage?: EventHandlerUnion<T, StorageEvent> | undefined;
@@ -706,6 +733,11 @@ export namespace JSX {
     "on:afterprint"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
     "on:beforeprint"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
     "on:beforeunload"?: EventHandlerWithOptionsUnion<T, BeforeUnloadEvent> | undefined;
+    "on:devicemotion"?: EventHandlerWithOptionsUnion<T, DeviceMotionEvent> | undefined;
+    "on:deviceorientation"?: EventHandlerWithOptionsUnion<T, DeviceOrientationEvent> | undefined;
+    "on:deviceorientationabsolute"?:
+      | EventHandlerWithOptionsUnion<T, DeviceOrientationEvent>
+      | undefined;
     "on:gamepadconnected"?: EventHandlerWithOptionsUnion<T, GamepadEvent> | undefined;
     "on:gamepaddisconnected"?: EventHandlerWithOptionsUnion<T, GamepadEvent> | undefined;
     "on:hashchange"?: EventHandlerWithOptionsUnion<T, HashChangeEvent> | undefined;
@@ -714,12 +746,12 @@ export namespace JSX {
     "on:messageerror"?: EventHandlerWithOptionsUnion<T, MessageEvent> | undefined;
     "on:offline"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
     "on:online"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    /** @deprecated Use `screen.orientation` (`ScreenOrientation.change`) instead. */
+    "on:orientationchange"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
     "on:pagehide"?: EventHandlerWithOptionsUnion<T, PageTransitionEvent> | undefined;
-    // TODO `PageRevealEvent` is currently undefined in TS
-    "on:pagereveal"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    "on:pagereveal"?: EventHandlerWithOptionsUnion<T, PageRevealEvent> | undefined;
     "on:pageshow"?: EventHandlerWithOptionsUnion<T, PageTransitionEvent> | undefined;
-    // TODO `PageSwapEvent` is currently undefined in TS
-    "on:pageswap"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    "on:pageswap"?: EventHandlerWithOptionsUnion<T, PageSwapEvent> | undefined;
     "on:popstate"?: EventHandlerWithOptionsUnion<T, PopStateEvent> | undefined;
     "on:rejectionhandled"?: EventHandlerWithOptionsUnion<T, PromiseRejectionEvent> | undefined;
     "on:storage"?: EventHandlerWithOptionsUnion<T, StorageEvent> | undefined;
@@ -756,8 +788,7 @@ export namespace JSX {
     onChange?: ChangeEventHandlerUnion<T, Event> | undefined;
     onClick?: EventHandlerUnion<T, MouseEvent> | undefined;
     onClose?: EventHandlerUnion<T, Event> | undefined;
-    // TODO `CommandEvent` is currently undefined in TS
-    onCommand?: EventHandlerUnion<T, Event> | undefined;
+    onCommand?: EventHandlerUnion<T, CommandEvent> | undefined;
     onCompositionEnd?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onCompositionStart?: EventHandlerUnion<T, CompositionEvent> | undefined;
     onCompositionUpdate?: EventHandlerUnion<T, CompositionEvent> | undefined;
@@ -826,10 +857,8 @@ export namespace JSX {
     onResize?: EventHandlerUnion<T, UIEvent> | undefined;
     onScroll?: EventHandlerUnion<T, Event> | undefined;
     onScrollEnd?: EventHandlerUnion<T, Event> | undefined;
-    // todo `SnapEvent` is currently undefined in TS
-    onScrollSnapChange?: EventHandlerUnion<T, Event> | undefined;
-    // todo `SnapEvent` is currently undefined in TS
-    onScrollSnapChanging?: EventHandlerUnion<T, Event> | undefined;
+    onScrollSnapChange?: EventHandlerUnion<T, SnapEvent> | undefined;
+    onScrollSnapChanging?: EventHandlerUnion<T, SnapEvent> | undefined;
     onSecurityPolicyViolation?: EventHandlerUnion<T, SecurityPolicyViolationEvent> | undefined;
     onSeeked?: EventHandlerUnion<T, Event> | undefined;
     onSeeking?: EventHandlerUnion<T, Event> | undefined;
@@ -878,8 +907,7 @@ export namespace JSX {
     "on:change"?: EventHandlerWithOptionsUnion<T, Event, ChangeEventHandler<T, Event>> | undefined;
     "on:click"?: EventHandlerWithOptionsUnion<T, MouseEvent> | undefined;
     "on:close"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
-    // TODO `CommandEvent` is currently undefined in TS
-    "on:command"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    "on:command"?: EventHandlerWithOptionsUnion<T, CommandEvent> | undefined;
     "on:compositionend"?: EventHandlerWithOptionsUnion<T, CompositionEvent> | undefined;
     "on:compositionstart"?: EventHandlerWithOptionsUnion<T, CompositionEvent> | undefined;
     "on:compositionupdate"?: EventHandlerWithOptionsUnion<T, CompositionEvent> | undefined;
@@ -956,10 +984,8 @@ export namespace JSX {
     "on:resize"?: EventHandlerWithOptionsUnion<T, UIEvent> | undefined;
     "on:scroll"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
     "on:scrollend"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
-    // todo `SnapEvent` is currently undefined in TS
-    "on:scrollsnapchange"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
-    // todo `SnapEvent` is currently undefined in TS
-    "on:scrollsnapchanging"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    "on:scrollsnapchange"?: EventHandlerWithOptionsUnion<T, SnapEvent> | undefined;
+    "on:scrollsnapchanging"?: EventHandlerWithOptionsUnion<T, SnapEvent> | undefined;
     "on:securitypolicyviolation"?:
       | EventHandlerWithOptionsUnion<T, SecurityPolicyViolationEvent>
       | undefined;
@@ -1101,7 +1127,7 @@ export namespace JSX {
     >;
     is?: FunctionMaybe<string | RemoveAttribute>;
     lang?: FunctionMaybe<string | RemoveAttribute>;
-    popover?: FunctionMaybe<EnumeratedAcceptsEmpty | "manual" | "auto" | RemoveAttribute>;
+    popover?: FunctionMaybe<EnumeratedAcceptsEmpty | "manual" | "auto" | "hint" | RemoveAttribute>;
     spellcheck?: FunctionMaybe<EnumeratedPseudoBoolean | EnumeratedAcceptsEmpty | RemoveAttribute>;
     title?: FunctionMaybe<string | RemoveAttribute>;
     translate?: FunctionMaybe<"yes" | "no" | RemoveAttribute>;
@@ -1395,6 +1421,7 @@ export namespace JSX {
      * @see https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog#usage_notes
      */
     tabindex?: never;
+    "prop:tabIndex"?: never;
 
     /** @experimental */
     closedby?: FunctionMaybe<"any" | "closerequest" | "none" | RemoveAttribute>;
@@ -1582,6 +1609,7 @@ export namespace JSX {
       | RemoveAttribute
     >;
     width?: FunctionMaybe<number | string | RemoveAttribute>;
+    webkitdirectory?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
 
     /** @non-standard */
     incremental?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
@@ -2300,17 +2328,14 @@ export namespace JSX {
   }
   interface AnimationElementSVGAttributes<T>
     extends SVGAttributes<T>, ExternalResourceSVGAttributes, ConditionalProcessingSVGAttributes {
-    // TODO TimeEvent is currently undefined on TS
-    onBegin?: EventHandlerUnion<T, Event> | undefined;
-    "on:begin"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    onBegin?: EventHandlerUnion<T, TimeEvent> | undefined;
+    "on:begin"?: EventHandlerWithOptionsUnion<T, TimeEvent> | undefined;
 
-    // TODO TimeEvent is currently undefined on TS
-    onEnd?: EventHandlerUnion<T, Event> | undefined;
-    "on:end"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    onEnd?: EventHandlerUnion<T, TimeEvent> | undefined;
+    "on:end"?: EventHandlerWithOptionsUnion<T, TimeEvent> | undefined;
 
-    // TODO TimeEvent is currently undefined on TS
-    onRepeat?: EventHandlerUnion<T, Event> | undefined;
-    "on:repeat"?: EventHandlerWithOptionsUnion<T, Event> | undefined;
+    onRepeat?: EventHandlerUnion<T, TimeEvent> | undefined;
+    "on:repeat"?: EventHandlerWithOptionsUnion<T, TimeEvent> | undefined;
   }
   interface ContainerElementSVGAttributes<T>
     extends
@@ -3206,564 +3231,564 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/a
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLAnchorElement
      */
-    a: AnchorHTMLAttributes<HTMLAnchorElement>;
+    a: AnchorHTMLAttributes<HTMLAnchorElement> & Properties<HTMLAnchorElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/abbr
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    abbr: HTMLAttributes<HTMLElement>;
+    abbr: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/address
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    address: HTMLAttributes<HTMLElement>;
+    address: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/area
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLAreaElement
      */
-    area: AreaHTMLAttributes<HTMLAreaElement>;
+    area: AreaHTMLAttributes<HTMLAreaElement> & Properties<HTMLAreaElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/article
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    article: HTMLAttributes<HTMLElement>;
+    article: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/aside
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    aside: HTMLAttributes<HTMLElement>;
+    aside: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLAudioElement
      */
-    audio: AudioHTMLAttributes<HTMLAudioElement>;
+    audio: AudioHTMLAttributes<HTMLAudioElement> & Properties<HTMLAudioElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/b
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    b: HTMLAttributes<HTMLElement>;
+    b: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLBaseElement
      */
-    base: BaseHTMLAttributes<HTMLBaseElement>;
+    base: BaseHTMLAttributes<HTMLBaseElement> & Properties<HTMLBaseElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/bdi
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    bdi: HTMLAttributes<HTMLElement>;
+    bdi: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/bdo
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    bdo: BdoHTMLAttributes<HTMLElement>;
+    bdo: BdoHTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/blockquote
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLQuoteElement
      */
-    blockquote: BlockquoteHTMLAttributes<HTMLQuoteElement>;
+    blockquote: BlockquoteHTMLAttributes<HTMLQuoteElement> & Properties<HTMLQuoteElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/body
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLBodyElement
      */
-    body: BodyHTMLAttributes<HTMLBodyElement>;
+    body: BodyHTMLAttributes<HTMLBodyElement> & Properties<HTMLBodyElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/br
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLBRElement
      */
-    br: HTMLAttributes<HTMLBRElement>;
+    br: HTMLAttributes<HTMLBRElement> & Properties<HTMLBRElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLButtonElement
      */
-    button: ButtonHTMLAttributes<HTMLButtonElement>;
+    button: ButtonHTMLAttributes<HTMLButtonElement> & Properties<HTMLButtonElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/canvas
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement
      */
-    canvas: CanvasHTMLAttributes<HTMLCanvasElement>;
+    canvas: CanvasHTMLAttributes<HTMLCanvasElement> & Properties<HTMLCanvasElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/caption
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableCaptionElement
      */
-    caption: CaptionHTMLAttributes<HTMLTableCaptionElement>;
+    caption: CaptionHTMLAttributes<HTMLTableCaptionElement> & Properties<HTMLTableCaptionElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/cite
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    cite: HTMLAttributes<HTMLElement>;
+    cite: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/code
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    code: HTMLAttributes<HTMLElement>;
+    code: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/col
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableColElement
      */
-    col: ColHTMLAttributes<HTMLTableColElement>;
+    col: ColHTMLAttributes<HTMLTableColElement> & Properties<HTMLTableColElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/colgroup
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableColElement
      */
-    colgroup: ColgroupHTMLAttributes<HTMLTableColElement>;
+    colgroup: ColgroupHTMLAttributes<HTMLTableColElement> & Properties<HTMLTableColElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/data
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLDataElement
      */
-    data: DataHTMLAttributes<HTMLDataElement>;
+    data: DataHTMLAttributes<HTMLDataElement> & Properties<HTMLDataElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/datalist
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLDataListElement
      */
-    datalist: HTMLAttributes<HTMLDataListElement>;
+    datalist: HTMLAttributes<HTMLDataListElement> & Properties<HTMLDataListElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dd
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    dd: HTMLAttributes<HTMLElement>;
+    dd: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/del
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLModElement
      */
-    del: ModHTMLAttributes<HTMLModElement>;
+    del: ModHTMLAttributes<HTMLModElement> & Properties<HTMLModElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/details
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLDetailsElement
      */
-    details: DetailsHtmlAttributes<HTMLDetailsElement>;
+    details: DetailsHtmlAttributes<HTMLDetailsElement> & Properties<HTMLDetailsElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dfn
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    dfn: HTMLAttributes<HTMLElement>;
+    dfn: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dialog
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLDialogElement
      */
-    dialog: DialogHtmlAttributes<HTMLDialogElement>;
+    dialog: DialogHtmlAttributes<HTMLDialogElement> & Properties<HTMLDialogElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/div
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLDivElement
      */
-    div: HTMLAttributes<HTMLDivElement>;
+    div: HTMLAttributes<HTMLDivElement> & Properties<HTMLDivElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dl
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLDListElement
      */
-    dl: HTMLAttributes<HTMLDListElement>;
+    dl: HTMLAttributes<HTMLDListElement> & Properties<HTMLDListElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dt
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    dt: HTMLAttributes<HTMLElement>;
+    dt: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/em
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    em: HTMLAttributes<HTMLElement>;
+    em: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/embed
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLEmbedElement
      */
-    embed: EmbedHTMLAttributes<HTMLEmbedElement>;
+    embed: EmbedHTMLAttributes<HTMLEmbedElement> & Properties<HTMLEmbedElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/fieldset
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLFieldSetElement
      */
-    fieldset: FieldsetHTMLAttributes<HTMLFieldSetElement>;
+    fieldset: FieldsetHTMLAttributes<HTMLFieldSetElement> & Properties<HTMLFieldSetElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/figcaption
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    figcaption: HTMLAttributes<HTMLElement>;
+    figcaption: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/figure
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    figure: HTMLAttributes<HTMLElement>;
+    figure: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/footer
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    footer: HTMLAttributes<HTMLElement>;
+    footer: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/form
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLFormElement
      */
-    form: FormHTMLAttributes<HTMLFormElement>;
+    form: FormHTMLAttributes<HTMLFormElement> & Properties<HTMLFormElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/h1
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHeadingElement
      */
-    h1: HTMLAttributes<HTMLHeadingElement>;
+    h1: HTMLAttributes<HTMLHeadingElement> & Properties<HTMLHeadingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/h2
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHeadingElement
      */
-    h2: HTMLAttributes<HTMLHeadingElement>;
+    h2: HTMLAttributes<HTMLHeadingElement> & Properties<HTMLHeadingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/h3
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHeadingElement
      */
-    h3: HTMLAttributes<HTMLHeadingElement>;
+    h3: HTMLAttributes<HTMLHeadingElement> & Properties<HTMLHeadingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/h4
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHeadingElement
      */
-    h4: HTMLAttributes<HTMLHeadingElement>;
+    h4: HTMLAttributes<HTMLHeadingElement> & Properties<HTMLHeadingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/h5
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHeadingElement
      */
-    h5: HTMLAttributes<HTMLHeadingElement>;
+    h5: HTMLAttributes<HTMLHeadingElement> & Properties<HTMLHeadingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/h6
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHeadingElement
      */
-    h6: HTMLAttributes<HTMLHeadingElement>;
+    h6: HTMLAttributes<HTMLHeadingElement> & Properties<HTMLHeadingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/head
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHeadElement
      */
-    head: HTMLAttributes<HTMLHeadElement>;
+    head: HTMLAttributes<HTMLHeadElement> & Properties<HTMLHeadElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/header
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    header: HTMLAttributes<HTMLElement>;
+    header: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/hgroup
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    hgroup: HTMLAttributes<HTMLElement>;
+    hgroup: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/hr
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHRElement
      */
-    hr: HTMLAttributes<HTMLHRElement>;
+    hr: HTMLAttributes<HTMLHRElement> & Properties<HTMLHRElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/html
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLHtmlElement
      */
-    html: HTMLAttributes<HTMLHtmlElement>;
+    html: HTMLAttributes<HTMLHtmlElement> & Properties<HTMLHtmlElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/i
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    i: HTMLAttributes<HTMLElement>;
+    i: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement
      */
-    iframe: IframeHTMLAttributes<HTMLIFrameElement>;
+    iframe: IframeHTMLAttributes<HTMLIFrameElement> & Properties<HTMLIFrameElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/img
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLImageElement
      */
-    img: ImgHTMLAttributes<HTMLImageElement>;
+    img: ImgHTMLAttributes<HTMLImageElement> & Properties<HTMLImageElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement
      */
-    input: InputHTMLAttributes<HTMLInputElement>;
+    input: InputHTMLAttributes<HTMLInputElement> & Properties<HTMLInputElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/ins
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLModElement
      */
-    ins: ModHTMLAttributes<HTMLModElement>;
+    ins: ModHTMLAttributes<HTMLModElement> & Properties<HTMLModElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/kbd
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    kbd: HTMLAttributes<HTMLElement>;
+    kbd: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/label
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement
      */
-    label: LabelHTMLAttributes<HTMLLabelElement>;
+    label: LabelHTMLAttributes<HTMLLabelElement> & Properties<HTMLLabelElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/legend
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLLegendElement
      */
-    legend: HTMLAttributes<HTMLLegendElement>;
+    legend: HTMLAttributes<HTMLLegendElement> & Properties<HTMLLegendElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/li
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLLIElement
      */
-    li: LiHTMLAttributes<HTMLLIElement>;
+    li: LiHTMLAttributes<HTMLLIElement> & Properties<HTMLLIElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/link
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLLinkElement
      */
-    link: LinkHTMLAttributes<HTMLLinkElement>;
+    link: LinkHTMLAttributes<HTMLLinkElement> & Properties<HTMLLinkElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/main
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    main: HTMLAttributes<HTMLElement>;
+    main: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/map
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLMapElement
      */
-    map: MapHTMLAttributes<HTMLMapElement>;
+    map: MapHTMLAttributes<HTMLMapElement> & Properties<HTMLMapElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/mark
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    mark: HTMLAttributes<HTMLElement>;
+    mark: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/menu
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLMenuElement
      */
-    menu: MenuHTMLAttributes<HTMLMenuElement>;
+    menu: MenuHTMLAttributes<HTMLMenuElement> & Properties<HTMLMenuElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLMetaElement
      */
-    meta: MetaHTMLAttributes<HTMLMetaElement>;
+    meta: MetaHTMLAttributes<HTMLMetaElement> & Properties<HTMLMetaElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meter
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLMeterElement
      */
-    meter: MeterHTMLAttributes<HTMLMeterElement>;
+    meter: MeterHTMLAttributes<HTMLMeterElement> & Properties<HTMLMeterElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/nav
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    nav: HTMLAttributes<HTMLElement>;
+    nav: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/noscript
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    noscript: HTMLAttributes<HTMLElement>;
+    noscript: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/object
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLObjectElement
      */
-    object: ObjectHTMLAttributes<HTMLObjectElement>;
+    object: ObjectHTMLAttributes<HTMLObjectElement> & Properties<HTMLObjectElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/ol
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLOListElement
      */
-    ol: OlHTMLAttributes<HTMLOListElement>;
+    ol: OlHTMLAttributes<HTMLOListElement> & Properties<HTMLOListElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/optgroup
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLOptGroupElement
      */
-    optgroup: OptgroupHTMLAttributes<HTMLOptGroupElement>;
+    optgroup: OptgroupHTMLAttributes<HTMLOptGroupElement> & Properties<HTMLOptGroupElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/option
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLOptionElement
      */
-    option: OptionHTMLAttributes<HTMLOptionElement>;
+    option: OptionHTMLAttributes<HTMLOptionElement> & Properties<HTMLOptionElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/output
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLOutputElement
      */
-    output: OutputHTMLAttributes<HTMLOutputElement>;
+    output: OutputHTMLAttributes<HTMLOutputElement> & Properties<HTMLOutputElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/p
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLParagraphElement
      */
-    p: HTMLAttributes<HTMLParagraphElement>;
+    p: HTMLAttributes<HTMLParagraphElement> & Properties<HTMLParagraphElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/picture
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLPictureElement
      */
-    picture: HTMLAttributes<HTMLPictureElement>;
+    picture: HTMLAttributes<HTMLPictureElement> & Properties<HTMLPictureElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/pre
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLPreElement
      */
-    pre: HTMLAttributes<HTMLPreElement>;
+    pre: HTMLAttributes<HTMLPreElement> & Properties<HTMLPreElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/progress
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLProgressElement
      */
-    progress: ProgressHTMLAttributes<HTMLProgressElement>;
+    progress: ProgressHTMLAttributes<HTMLProgressElement> & Properties<HTMLProgressElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/q
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLQuoteElement
      */
-    q: QuoteHTMLAttributes<HTMLQuoteElement>;
+    q: QuoteHTMLAttributes<HTMLQuoteElement> & Properties<HTMLQuoteElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/rp
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    rp: HTMLAttributes<HTMLElement>;
+    rp: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/rt
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    rt: HTMLAttributes<HTMLElement>;
+    rt: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/ruby
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    ruby: HTMLAttributes<HTMLElement>;
+    ruby: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/s
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    s: HTMLAttributes<HTMLElement>;
+    s: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/samp
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    samp: HTMLAttributes<HTMLElement>;
+    samp: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLScriptElement
      */
-    script: ScriptHTMLAttributes<HTMLScriptElement>;
+    script: ScriptHTMLAttributes<HTMLScriptElement> & Properties<HTMLScriptElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/search
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    search: HTMLAttributes<HTMLElement>;
+    search: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/section
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    section: HTMLAttributes<HTMLElement>;
+    section: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/select
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSelectElement
      */
-    select: SelectHTMLAttributes<HTMLSelectElement>;
+    select: SelectHTMLAttributes<HTMLSelectElement> & Properties<HTMLSelectElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/slot
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSlotElement
      */
-    slot: HTMLSlotElementAttributes<HTMLSlotElement>;
+    slot: HTMLSlotElementAttributes<HTMLSlotElement> & Properties<HTMLSlotElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/small
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    small: HTMLAttributes<HTMLElement>;
+    small: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/source
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSourceElement
      */
-    source: SourceHTMLAttributes<HTMLSourceElement>;
+    source: SourceHTMLAttributes<HTMLSourceElement> & Properties<HTMLSourceElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/span
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLSpanElement
      */
-    span: HTMLAttributes<HTMLSpanElement>;
+    span: HTMLAttributes<HTMLSpanElement> & Properties<HTMLSpanElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/strong
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    strong: HTMLAttributes<HTMLElement>;
+    strong: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/style
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLStyleElement
      */
-    style: StyleHTMLAttributes<HTMLStyleElement>;
+    style: StyleHTMLAttributes<HTMLStyleElement> & Properties<HTMLStyleElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/sub
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    sub: HTMLAttributes<HTMLElement>;
+    sub: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/summary
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    summary: HTMLAttributes<HTMLElement>;
+    summary: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/sup
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    sup: HTMLAttributes<HTMLElement>;
+    sup: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/table
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableElement
      */
-    table: HTMLAttributes<HTMLTableElement>;
+    table: HTMLAttributes<HTMLTableElement> & Properties<HTMLTableElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/tbody
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableSectionElement
      */
-    tbody: HTMLAttributes<HTMLTableSectionElement>;
+    tbody: HTMLAttributes<HTMLTableSectionElement> & Properties<HTMLTableSectionElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/td
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableCellElement
      */
-    td: TdHTMLAttributes<HTMLTableCellElement>;
+    td: TdHTMLAttributes<HTMLTableCellElement> & Properties<HTMLTableCellElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTemplateElement
      */
-    template: TemplateHTMLAttributes<HTMLTemplateElement>;
+    template: TemplateHTMLAttributes<HTMLTemplateElement> & Properties<HTMLTemplateElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/textarea
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTextAreaElement
      */
-    textarea: TextareaHTMLAttributes<HTMLTextAreaElement>;
+    textarea: TextareaHTMLAttributes<HTMLTextAreaElement> & Properties<HTMLTextAreaElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/tfoot
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableSectionElement
      */
-    tfoot: HTMLAttributes<HTMLTableSectionElement>;
+    tfoot: HTMLAttributes<HTMLTableSectionElement> & Properties<HTMLTableSectionElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/th
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableCellElement
      */
-    th: ThHTMLAttributes<HTMLTableCellElement>;
+    th: ThHTMLAttributes<HTMLTableCellElement> & Properties<HTMLTableCellElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/thead
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableSectionElement
      */
-    thead: HTMLAttributes<HTMLTableSectionElement>;
+    thead: HTMLAttributes<HTMLTableSectionElement> & Properties<HTMLTableSectionElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/time
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTimeElement
      */
-    time: TimeHTMLAttributes<HTMLTimeElement>;
+    time: TimeHTMLAttributes<HTMLTimeElement> & Properties<HTMLTimeElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/title
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTitleElement
      */
-    title: HTMLAttributes<HTMLTitleElement>;
+    title: HTMLAttributes<HTMLTitleElement> & Properties<HTMLTitleElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/tr
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTableRowElement
      */
-    tr: HTMLAttributes<HTMLTableRowElement>;
+    tr: HTMLAttributes<HTMLTableRowElement> & Properties<HTMLTableRowElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/track
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLTrackElement
      */
-    track: TrackHTMLAttributes<HTMLTrackElement>;
+    track: TrackHTMLAttributes<HTMLTrackElement> & Properties<HTMLTrackElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/u
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    u: HTMLAttributes<HTMLElement>;
+    u: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/ul
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLUListElement
      */
-    ul: HTMLAttributes<HTMLUListElement>;
+    ul: HTMLAttributes<HTMLUListElement> & Properties<HTMLUListElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/var
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    var: HTMLAttributes<HTMLElement>;
+    var: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement
      */
-    video: VideoHTMLAttributes<HTMLVideoElement>;
+    video: VideoHTMLAttributes<HTMLVideoElement> & Properties<HTMLVideoElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/wbr
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    wbr: HTMLAttributes<HTMLElement>;
+    wbr: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /** @url https://www.electronjs.org/docs/latest/api/webview-tag */
-    webview: WebViewHTMLAttributes<HTMLElement>;
+    webview: WebViewHTMLAttributes<HTMLElement> & Properties<HTMLElement>;
   }
   /** @type {HTMLElementDeprecatedTagNameMap} */
   interface HTMLElementDeprecatedTags {
@@ -3772,25 +3797,25 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/big
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement
      */
-    big: HTMLAttributes<HTMLElement>;
+    big: HTMLAttributes<HTMLElement> & Properties<HTMLElement>;
     /**
      * @deprecated
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/keygen
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLUnknownElement
      */
-    keygen: KeygenHTMLAttributes<HTMLUnknownElement>;
+    keygen: KeygenHTMLAttributes<HTMLUnknownElement> & Properties<HTMLUnknownElement>;
     /**
      * @deprecated
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/menuitem
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLUnknownElement
      */
-    menuitem: HTMLAttributes<HTMLUnknownElement>;
+    menuitem: HTMLAttributes<HTMLUnknownElement> & Properties<HTMLUnknownElement>;
     /**
      * @deprecated
      * @url https://developer.mozilla.org/en-US/docs/Web/HTML/Element/param
      * @url https://developer.mozilla.org/en-US/docs/Web/API/HTMLParamElement
      */
-    param: ParamHTMLAttributes<HTMLParamElement>;
+    param: ParamHTMLAttributes<HTMLParamElement> & Properties<HTMLParamElement>;
   }
   /** @type {SVGElementTagNameMap} */
   interface SVGElementTags {
@@ -3798,297 +3823,317 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/animate
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGAnimateElement
      */
-    animate: AnimateSVGAttributes<SVGAnimateElement>;
+    animate: AnimateSVGAttributes<SVGAnimateElement> & Properties<SVGAnimateElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/animateMotion
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGAnimateMotionElement
      */
-    animateMotion: AnimateMotionSVGAttributes<SVGAnimateMotionElement>;
+    animateMotion: AnimateMotionSVGAttributes<SVGAnimateMotionElement> &
+      Properties<SVGAnimateMotionElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/animateTransform
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGAnimateTransformElement
      */
-    animateTransform: AnimateTransformSVGAttributes<SVGAnimateTransformElement>;
+    animateTransform: AnimateTransformSVGAttributes<SVGAnimateTransformElement> &
+      Properties<SVGAnimateTransformElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/circle
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGCircleElement
      */
-    circle: CircleSVGAttributes<SVGCircleElement>;
+    circle: CircleSVGAttributes<SVGCircleElement> & Properties<SVGCircleElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/clipPath
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGClipPathElement
      */
-    clipPath: ClipPathSVGAttributes<SVGClipPathElement>;
+    clipPath: ClipPathSVGAttributes<SVGClipPathElement> & Properties<SVGClipPathElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/defs
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGDefsElement
      */
-    defs: DefsSVGAttributes<SVGDefsElement>;
+    defs: DefsSVGAttributes<SVGDefsElement> & Properties<SVGDefsElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/desc
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGDescElement
      */
-    desc: DescSVGAttributes<SVGDescElement>;
+    desc: DescSVGAttributes<SVGDescElement> & Properties<SVGDescElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/ellipse
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGEllipseElement
      */
-    ellipse: EllipseSVGAttributes<SVGEllipseElement>;
+    ellipse: EllipseSVGAttributes<SVGEllipseElement> & Properties<SVGEllipseElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feBlend
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEBlendElement
      */
-    feBlend: FeBlendSVGAttributes<SVGFEBlendElement>;
+    feBlend: FeBlendSVGAttributes<SVGFEBlendElement> & Properties<SVGFEBlendElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feColorMatrix
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEColorMatrixElement
      */
-    feColorMatrix: FeColorMatrixSVGAttributes<SVGFEColorMatrixElement>;
+    feColorMatrix: FeColorMatrixSVGAttributes<SVGFEColorMatrixElement> &
+      Properties<SVGFEColorMatrixElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feComponentTransfer
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEComponentTransferElemen
      */
-    feComponentTransfer: FeComponentTransferSVGAttributes<SVGFEComponentTransferElement>;
+    feComponentTransfer: FeComponentTransferSVGAttributes<SVGFEComponentTransferElement> &
+      Properties<SVGFEComponentTransferElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feComposite
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFECompositeElement
      */
-    feComposite: FeCompositeSVGAttributes<SVGFECompositeElement>;
+    feComposite: FeCompositeSVGAttributes<SVGFECompositeElement> &
+      Properties<SVGFECompositeElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feConvolveMatrix
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEConvolveMatrixElement
      */
-    feConvolveMatrix: FeConvolveMatrixSVGAttributes<SVGFEConvolveMatrixElement>;
+    feConvolveMatrix: FeConvolveMatrixSVGAttributes<SVGFEConvolveMatrixElement> &
+      Properties<SVGFEConvolveMatrixElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feDiffuseLighting
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEDiffuseLightingElement
      */
-    feDiffuseLighting: FeDiffuseLightingSVGAttributes<SVGFEDiffuseLightingElement>;
+    feDiffuseLighting: FeDiffuseLightingSVGAttributes<SVGFEDiffuseLightingElement> &
+      Properties<SVGFEDiffuseLightingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feDisplacementMap
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEDisplacementMapElement
      */
-    feDisplacementMap: FeDisplacementMapSVGAttributes<SVGFEDisplacementMapElement>;
+    feDisplacementMap: FeDisplacementMapSVGAttributes<SVGFEDisplacementMapElement> &
+      Properties<SVGFEDisplacementMapElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feDistantLight
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEDistantLightElement
      */
-    feDistantLight: FeDistantLightSVGAttributes<SVGFEDistantLightElement>;
+    feDistantLight: FeDistantLightSVGAttributes<SVGFEDistantLightElement> &
+      Properties<SVGFEDistantLightElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feDropShadow
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEDropShadowElement
      */
-    feDropShadow: FeDropShadowSVGAttributes<SVGFEDropShadowElement>;
+    feDropShadow: FeDropShadowSVGAttributes<SVGFEDropShadowElement> &
+      Properties<SVGFEDropShadowElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feFlood
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEFloodElement
      */
-    feFlood: FeFloodSVGAttributes<SVGFEFloodElement>;
+    feFlood: FeFloodSVGAttributes<SVGFEFloodElement> & Properties<SVGFEFloodElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feFuncA
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEFuncAElement
      */
-    feFuncA: FeFuncSVGAttributes<SVGFEFuncAElement>;
+    feFuncA: FeFuncSVGAttributes<SVGFEFuncAElement> & Properties<SVGFEFuncAElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feFuncB
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEFuncBElement
      */
-    feFuncB: FeFuncSVGAttributes<SVGFEFuncBElement>;
+    feFuncB: FeFuncSVGAttributes<SVGFEFuncBElement> & Properties<SVGFEFuncBElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feFuncG
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEFuncGElement
      */
-    feFuncG: FeFuncSVGAttributes<SVGFEFuncGElement>;
+    feFuncG: FeFuncSVGAttributes<SVGFEFuncGElement> & Properties<SVGFEFuncGElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feFuncR
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEFuncRElement
      */
-    feFuncR: FeFuncSVGAttributes<SVGFEFuncRElement>;
+    feFuncR: FeFuncSVGAttributes<SVGFEFuncRElement> & Properties<SVGFEFuncRElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feGaussianBlur
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEGaussianBlurElement
      */
-    feGaussianBlur: FeGaussianBlurSVGAttributes<SVGFEGaussianBlurElement>;
+    feGaussianBlur: FeGaussianBlurSVGAttributes<SVGFEGaussianBlurElement> &
+      Properties<SVGFEGaussianBlurElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feImage
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEImageElement
      */
-    feImage: FeImageSVGAttributes<SVGFEImageElement>;
+    feImage: FeImageSVGAttributes<SVGFEImageElement> & Properties<SVGFEImageElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feMerge
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEMergeElement
      */
-    feMerge: FeMergeSVGAttributes<SVGFEMergeElement>;
+    feMerge: FeMergeSVGAttributes<SVGFEMergeElement> & Properties<SVGFEMergeElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feMergeNode
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEMergeNodeElement
      */
-    feMergeNode: FeMergeNodeSVGAttributes<SVGFEMergeNodeElement>;
+    feMergeNode: FeMergeNodeSVGAttributes<SVGFEMergeNodeElement> &
+      Properties<SVGFEMergeNodeElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feMorphology
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEMorphologyElement
      */
-    feMorphology: FeMorphologySVGAttributes<SVGFEMorphologyElement>;
+    feMorphology: FeMorphologySVGAttributes<SVGFEMorphologyElement> &
+      Properties<SVGFEMorphologyElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feOffset
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEOffsetElement
      */
-    feOffset: FeOffsetSVGAttributes<SVGFEOffsetElement>;
+    feOffset: FeOffsetSVGAttributes<SVGFEOffsetElement> & Properties<SVGFEOffsetElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/fePointLight
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFEPointLightElement
      */
-    fePointLight: FePointLightSVGAttributes<SVGFEPointLightElement>;
+    fePointLight: FePointLightSVGAttributes<SVGFEPointLightElement> &
+      Properties<SVGFEPointLightElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feSpecularLighting
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFESpecularLightingElement
      */
-    feSpecularLighting: FeSpecularLightingSVGAttributes<SVGFESpecularLightingElement>;
+    feSpecularLighting: FeSpecularLightingSVGAttributes<SVGFESpecularLightingElement> &
+      Properties<SVGFESpecularLightingElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feSpotLight
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFESpotLightElement
      */
-    feSpotLight: FeSpotLightSVGAttributes<SVGFESpotLightElement>;
+    feSpotLight: FeSpotLightSVGAttributes<SVGFESpotLightElement> &
+      Properties<SVGFESpotLightElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feTile
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFETileElement
      */
-    feTile: FeTileSVGAttributes<SVGFETileElement>;
+    feTile: FeTileSVGAttributes<SVGFETileElement> & Properties<SVGFETileElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feTurbulence
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFETurbulenceElement
      */
-    feTurbulence: FeTurbulanceSVGAttributes<SVGFETurbulenceElement>;
+    feTurbulence: FeTurbulanceSVGAttributes<SVGFETurbulenceElement> &
+      Properties<SVGFETurbulenceElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/filter
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGFilterElement
      */
-    filter: FilterSVGAttributes<SVGFilterElement>;
+    filter: FilterSVGAttributes<SVGFilterElement> & Properties<SVGFilterElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/foreignObject
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGForeignObjectElement
      */
-    foreignObject: ForeignObjectSVGAttributes<SVGForeignObjectElement>;
+    foreignObject: ForeignObjectSVGAttributes<SVGForeignObjectElement> &
+      Properties<SVGForeignObjectElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/g
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGGElement
      */
-    g: GSVGAttributes<SVGGElement>;
+    g: GSVGAttributes<SVGGElement> & Properties<SVGGElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/image
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGImageElement
      */
-    image: ImageSVGAttributes<SVGImageElement>;
+    image: ImageSVGAttributes<SVGImageElement> & Properties<SVGImageElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/line
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGLineElement
      */
-    line: LineSVGAttributes<SVGLineElement>;
+    line: LineSVGAttributes<SVGLineElement> & Properties<SVGLineElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/linearGradient
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGLinearGradientElement
      */
-    linearGradient: LinearGradientSVGAttributes<SVGLinearGradientElement>;
+    linearGradient: LinearGradientSVGAttributes<SVGLinearGradientElement> &
+      Properties<SVGLinearGradientElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/marker
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGMarkerElement
      */
-    marker: MarkerSVGAttributes<SVGMarkerElement>;
+    marker: MarkerSVGAttributes<SVGMarkerElement> & Properties<SVGMarkerElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/mask
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGMaskElement
      */
-    mask: MaskSVGAttributes<SVGMaskElement>;
+    mask: MaskSVGAttributes<SVGMaskElement> & Properties<SVGMaskElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/metadata
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGMetadataElement
      */
-    metadata: MetadataSVGAttributes<SVGMetadataElement>;
+    metadata: MetadataSVGAttributes<SVGMetadataElement> & Properties<SVGMetadataElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/mpath
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGMPathElement
      */
-    mpath: MPathSVGAttributes<SVGMPathElement>;
+    mpath: MPathSVGAttributes<SVGMPathElement> & Properties<SVGMPathElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/path
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGPathElement
      */
-    path: PathSVGAttributes<SVGPathElement>;
+    path: PathSVGAttributes<SVGPathElement> & Properties<SVGPathElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/pattern
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGPatternElement
      */
-    pattern: PatternSVGAttributes<SVGPatternElement>;
+    pattern: PatternSVGAttributes<SVGPatternElement> & Properties<SVGPatternElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/polygon
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGPolygonElement
      */
-    polygon: PolygonSVGAttributes<SVGPolygonElement>;
+    polygon: PolygonSVGAttributes<SVGPolygonElement> & Properties<SVGPolygonElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/polyline
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGPolylineElement
      */
-    polyline: PolylineSVGAttributes<SVGPolylineElement>;
+    polyline: PolylineSVGAttributes<SVGPolylineElement> & Properties<SVGPolylineElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/radialGradient
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGRadialGradientElement
      */
-    radialGradient: RadialGradientSVGAttributes<SVGRadialGradientElement>;
+    radialGradient: RadialGradientSVGAttributes<SVGRadialGradientElement> &
+      Properties<SVGRadialGradientElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/rect
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGRectElement
      */
-    rect: RectSVGAttributes<SVGRectElement>;
+    rect: RectSVGAttributes<SVGRectElement> & Properties<SVGRectElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/set
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGSetElement
      */
-    set: SetSVGAttributes<SVGSetElement>;
+    set: SetSVGAttributes<SVGSetElement> & Properties<SVGSetElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/stop
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGStopElement
      */
-    stop: StopSVGAttributes<SVGStopElement>;
+    stop: StopSVGAttributes<SVGStopElement> & Properties<SVGStopElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/svg
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGSVGElement
      */
-    svg: SvgSVGAttributes<SVGSVGElement>;
+    svg: SvgSVGAttributes<SVGSVGElement> & Properties<SVGSVGElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/switch
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGSwitchElement
      */
-    switch: SwitchSVGAttributes<SVGSwitchElement>;
+    switch: SwitchSVGAttributes<SVGSwitchElement> & Properties<SVGSwitchElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/symbol
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGSymbolElement
      */
-    symbol: SymbolSVGAttributes<SVGSymbolElement>;
+    symbol: SymbolSVGAttributes<SVGSymbolElement> & Properties<SVGSymbolElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/text
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGTextElement
      */
-    text: TextSVGAttributes<SVGTextElement>;
+    text: TextSVGAttributes<SVGTextElement> & Properties<SVGTextElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/textPath
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGTextPathElement
      */
-    textPath: TextPathSVGAttributes<SVGTextPathElement>;
+    textPath: TextPathSVGAttributes<SVGTextPathElement> & Properties<SVGTextPathElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/tspan
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGTSpanElement
      */
-    tspan: TSpanSVGAttributes<SVGTSpanElement>;
+    tspan: TSpanSVGAttributes<SVGTSpanElement> & Properties<SVGTSpanElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/use
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGUseElement
      */
-    use: UseSVGAttributes<SVGUseElement>;
+    use: UseSVGAttributes<SVGUseElement> & Properties<SVGUseElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/SVG/Element/view
      * @url https://developer.mozilla.org/en-US/docs/Web/API/SVGViewElement
      */
-    view: ViewSVGAttributes<SVGViewElement>;
+    view: ViewSVGAttributes<SVGViewElement> & Properties<SVGViewElement>;
   }
 
   interface MathMLElementTags {
@@ -4096,7 +4141,7 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/annotation
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    annotation: MathMLAnnotationElementAttributes<MathMLElement>;
+    annotation: MathMLAnnotationElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/annotation-xml
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
@@ -4106,156 +4151,156 @@ export namespace JSX {
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/math
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    math: MathMLMathElementAttributes<MathMLElement>;
+    math: MathMLMathElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/merror
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    merror: MathMLMerrorElementAttributes<MathMLElement>;
+    merror: MathMLMerrorElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mfrac
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mfrac: MathMLMfracElementAttributes<MathMLElement>;
+    mfrac: MathMLMfracElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mi
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mi: MathMLMiElementAttributes<MathMLElement>;
+    mi: MathMLMiElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mmultiscripts
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mmultiscripts: MathMLMmultiscriptsElementAttributes<MathMLElement>;
+    mmultiscripts: MathMLMmultiscriptsElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mn
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mn: MathMLMnElementAttributes<MathMLElement>;
+    mn: MathMLMnElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mo
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mo: MathMLMoElementAttributes<MathMLElement>;
+    mo: MathMLMoElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mover
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mover: MathMLMoverElementAttributes<MathMLElement>;
+    mover: MathMLMoverElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mpadded
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mpadded: MathMLMpaddedElementAttributes<MathMLElement>;
+    mpadded: MathMLMpaddedElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mphantom
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mphantom: MathMLMphantomElementAttributes<MathMLElement>;
+    mphantom: MathMLMphantomElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mprescripts
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mprescripts: MathMLMprescriptsElementAttributes<MathMLElement>;
+    mprescripts: MathMLMprescriptsElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mroot
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mroot: MathMLMrootElementAttributes<MathMLElement>;
+    mroot: MathMLMrootElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mrow
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mrow: MathMLMrowElementAttributes<MathMLElement>;
+    mrow: MathMLMrowElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/ms
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    ms: MathMLMsElementAttributes<MathMLElement>;
+    ms: MathMLMsElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mspace
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mspace: MathMLMspaceElementAttributes<MathMLElement>;
+    mspace: MathMLMspaceElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/msqrt
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    msqrt: MathMLMsqrtElementAttributes<MathMLElement>;
+    msqrt: MathMLMsqrtElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mstyle
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mstyle: MathMLMstyleElementAttributes<MathMLElement>;
+    mstyle: MathMLMstyleElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/msub
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    msub: MathMLMsubElementAttributes<MathMLElement>;
+    msub: MathMLMsubElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/msubsup
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    msubsup: MathMLMsubsupElementAttributes<MathMLElement>;
+    msubsup: MathMLMsubsupElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/msup
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    msup: MathMLMsupElementAttributes<MathMLElement>;
+    msup: MathMLMsupElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mtable
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mtable: MathMLMtableElementAttributes<MathMLElement>;
+    mtable: MathMLMtableElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mtd
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mtd: MathMLMtdElementAttributes<MathMLElement>;
+    mtd: MathMLMtdElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mtext
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mtext: MathMLMtextElementAttributes<MathMLElement>;
+    mtext: MathMLMtextElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mtr
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mtr: MathMLMtrElementAttributes<MathMLElement>;
+    mtr: MathMLMtrElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/munder
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    munder: MathMLMunderElementAttributes<MathMLElement>;
+    munder: MathMLMunderElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/munderover
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    munderover: MathMLMunderoverElementAttributes<MathMLElement>;
+    munderover: MathMLMunderoverElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/semantics
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    semantics: MathMLSemanticsElementAttributes<MathMLElement>;
+    semantics: MathMLSemanticsElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @non-standard
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/menclose
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    menclose: MathMLMencloseElementAttributes<MathMLElement>;
+    menclose: MathMLMencloseElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @deprecated
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/maction
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    maction: MathMLMactionElementAttributes<MathMLElement>;
+    maction: MathMLMactionElementAttributes<MathMLElement> & Properties<MathMLElement>;
     /**
      * @deprecated
      * @non-standard
      * @url https://developer.mozilla.org/en-US/docs/Web/MathML/Element/mfenced
      * @url https://developer.mozilla.org/en-US/docs/Web/API/MathMLElement
      */
-    mfenced: MathMLMfencedElementAttributes<MathMLElement>;
+    mfenced: MathMLMfencedElementAttributes<MathMLElement> & Properties<MathMLElement>;
   }
 
   interface IntrinsicElements
