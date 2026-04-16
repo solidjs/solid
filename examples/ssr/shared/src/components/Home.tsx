@@ -1,15 +1,18 @@
 import { createSignal, onSettled } from "solid-js";
+
 const Home = () => {
   const [s, set] = createSignal(0);
+
   onSettled(() => {
     const t = setInterval(() => {
-      const newVal = s() + 1;
-      set(newVal);
+      set(s() + 1);
     }, 100);
+
     return () => {
       clearInterval(t);
     };
   });
+
   return (
     <>
       <h1>Welcome to this Simple Routing Example</h1>

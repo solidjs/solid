@@ -1,13 +1,19 @@
 import { createMemo, createProjection, For, Loading, Repeat } from "solid-js";
 
-async function* getData() {
-  const items = [
+interface StreamItem {
+  id: number;
+  text: string;
+}
+
+async function* getData(): AsyncIterable<StreamItem> {
+  const items: StreamItem[] = [
     { id: 1, text: "First item" },
     { id: 2, text: "Second item" },
     { id: 3, text: "Third item" },
     { id: 4, text: "Fourth item" },
     { id: 5, text: "Fifth item" }
   ];
+
   for (const item of items) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     yield item;
@@ -15,19 +21,23 @@ async function* getData() {
 }
 
 const Stream = () => {
-  const memoItems = createMemo(async function* () {
-    let accum = [];
+  const memoItems = createMemo<StreamItem[]>(async function* () {
+    let accum: StreamItem[] = [];
+
     for await (const val of getData()) {
       yield (accum = [...accum, val]);
     }
-  }, []);
+  });
 
-  const projItems = createProjection(async function* (s) {
-    for await (const val of getData()) {
-      s.push(val);
-      yield;
-    }
-  }, []);
+  const projItems = createProjection<StreamItem[]>(
+    async function* (state) {
+      for await (const val of getData()) {
+        state.push(val);
+        yield;
+      }
+    },
+    []
+  );
 
   return (
     <>

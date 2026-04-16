@@ -12,11 +12,12 @@ const port = 3000;
 app.use(express.static(url.fileURLToPath(new URL("../public", import.meta.url))));
 
 app.get("*", (req, res) => {
-  let html;
+  let html: string | undefined;
+
   try {
     html = renderToString(() => <App url={req.url} />, { manifest });
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error(error);
   } finally {
     res.send(html);
   }

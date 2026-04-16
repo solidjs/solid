@@ -1,8 +1,9 @@
-import { createUniqueId, createSignal } from "solid-js";
+import { createSignal, createUniqueId } from "solid-js";
 
 const Settings = () => {
   const [text, setText] = createSignal("Hi");
   const id = createUniqueId();
+
   return (
     <>
       <h1>Settings</h1>

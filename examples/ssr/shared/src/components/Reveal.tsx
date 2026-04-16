@@ -1,13 +1,12 @@
 import { createMemo, createSignal, Loading, Reveal, Show } from "solid-js";
 
-function delayedValue(ms, value) {
+function delayedValue<T>(ms: number, value: T): Promise<T> {
   return new Promise(resolve => setTimeout(() => resolve(value), ms));
 }
 
-function AsyncCard(props) {
-  const value = createMemo(() =>
-    delayedValue(props.delay, `${props.title} resolved in ${props.delay}ms`)
-  );
+function AsyncCard(props: { delay: number; title: string }) {
+  const value = createMemo(() => delayedValue(props.delay, `${props.title} resolved in ${props.delay}ms`));
+
   return (
     <Loading fallback={<div class="loader">{props.title} loading...</div>}>
       <div class="reveal-card">

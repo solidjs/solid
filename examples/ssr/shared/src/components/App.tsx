@@ -1,6 +1,6 @@
-import { useContext, isPending, lazy } from "solid-js";
+import { isPending, lazy, Loading, Match, Switch } from "solid-js";
 import { HydrationScript } from "@solidjs/web";
-import { Link, RouteHOC, RouterContext } from "../router";
+import { Link, RouteHOC, useRouter } from "../router";
 import Profile from "./Profile";
 
 const Home = lazy(() => import("./Home"), "./Home");
@@ -10,7 +10,8 @@ const ErrorStream = lazy(() => import("./ErrorStream"), "./ErrorStream");
 const RevealPage = lazy(() => import("./Reveal"), "./Reveal");
 
 const App = RouteHOC(() => {
-  const [location, { matches }] = useContext(RouterContext);
+  const [location, { matches }] = useRouter();
+
   return (
     <html lang="en">
       <head>

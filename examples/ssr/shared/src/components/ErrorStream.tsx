@@ -1,16 +1,25 @@
 import { createMemo, createSignal, Errored, Loading } from "solid-js";
 
-async function loadItem(id) {
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  if (id !== "1") {
-    throw new Error(`Item ${id} not found`);
-  }
-  return { title: "Test Item" };
+interface Item {
+  title: string;
 }
 
-function InnerBoundaryItem(props) {
+function loadItem(id: string): Promise<Item> {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (id !== "1") {
+        reject(new Error(`Item ${id} not found`));
+        return;
+      }
+
+      resolve({ title: "Test Item" });
+    }, 1500);
+  });
+}
+
+function InnerBoundaryItem(props: { id: string }) {
   const [id, setId] = createSignal(props.id);
-  const item = createMemo(() => loadItem(id()));
+  const item = createMemo<Item>(async () => loadItem(id()));
 
   return (
     <Loading fallback={<div>Item Loading...</div>}>
@@ -35,9 +44,9 @@ function InnerBoundaryItem(props) {
   );
 }
 
-function OuterBoundaryItem(props) {
+function OuterBoundaryItem(props: { id: string }) {
   const [id, setId] = createSignal(props.id);
-  const item = createMemo(() => loadItem(id()));
+  const item = createMemo<Item>(async () => loadItem(id()));
 
   return (
     <Errored

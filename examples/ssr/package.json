@@ -11,19 +11,24 @@
     "string:start": "node string/lib/index.js",
     "stream:build": "rollup -c stream/rollup.config.js",
     "stream:start": "node stream/lib/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "clean": "rimraf */lib/ */public/"
   },
   "devDependencies": {
     "@babel/core": "^7.21.3",
+    "@babel/preset-typescript": "^7.18.6",
     "@rollup/plugin-babel": "6.0.3",
     "@rollup/plugin-commonjs": "24.0.1",
     "@rollup/plugin-node-resolve": "15.0.1",
-    "rollup-plugin-output-manifest": "^2.0.0",
+    "@solidjs/web": "workspace:*",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
     "babel-preset-solid": "workspace:*",
     "express": "^4.20.0",
     "rollup": "^3.20.0",
     "rollup-plugin-copy": "^3.4.0",
+    "rollup-plugin-output-manifest": "^2.0.0",
     "solid-js": "workspace:*",
-    "@solidjs/web": "workspace:*"
+    "typescript": "^6.0.2"
   }
 }

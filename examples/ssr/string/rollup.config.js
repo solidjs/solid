@@ -7,6 +7,7 @@ import fs from "fs";
 
 const componentsDir = path.resolve("shared/src/components");
 const manifestPath = path.resolve("string/public/js/asset-manifest.json");
+const extensions = [".js", ".jsx", ".ts", ".tsx"];
 
 function solidAssetManifest() {
   return {
@@ -16,7 +17,7 @@ function solidAssetManifest() {
       const chunkKeyByFileName = {};
       for (const [fileName, chunk] of Object.entries(bundle)) {
         if (chunk.type !== "chunk" || !chunk.facadeModuleId) continue;
-        const rel = "./" + path.relative(componentsDir, chunk.facadeModuleId).replace(/\.js$/, "");
+        const rel = "./" + path.relative(componentsDir, chunk.facadeModuleId).replace(/\.[jt]sx?$/, "");
         if (rel.startsWith("./..")) continue;
         chunkKeyByFileName[fileName] = rel;
       }
@@ -60,27 +61,7 @@ function virtualAssetManifest() {
 
 export default [
   {
-    input: "./string/index.js",
-    output: [
-      {
-        dir: "string/lib",
-        format: "esm"
-      }
-    ],
-    external: ["solid-js", "@solidjs/web", "path", "express", "fs", "url"],
-    plugins: [
-      nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"] }),
-      babel({
-        babelHelpers: "bundled",
-        presets: [["solid", { generate: "ssr", hydratable: true }]]
-      }),
-      common(),
-      virtualAssetManifest()
-    ],
-    preserveEntrySignatures: false
-  },
-  {
-    input: "shared/src/index.js",
+    input: "shared/src/index.tsx",
     output: [
       {
         dir: "string/public/js",
@@ -89,10 +70,15 @@ export default [
     ],
     preserveEntrySignatures: false,
     plugins: [
-      nodeResolve({ exportConditions: ["solid", "development"] }),
+      nodeResolve({ exportConditions: ["solid", "development"], extensions }),
       babel({
+        extensions,
+        exclude: "node_modules/**",
         babelHelpers: "bundled",
-        presets: [["solid", { generate: "dom", hydratable: true, dev: true }]]
+        presets: [
+          ["solid", { generate: "dom", hydratable: true, dev: true }],
+          "@babel/preset-typescript"
+        ]
       }),
       common(),
       solidAssetManifest(),
@@ -105,5 +91,27 @@ export default [
         ]
       })
     ]
+  },
+  {
+    input: "./string/index.tsx",
+    output: [
+      {
+        dir: "string/lib",
+        format: "esm"
+      }
+    ],
+    external: ["solid-js", "@solidjs/web", "path", "express", "fs", "url"],
+    plugins: [
+      nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"], extensions }),
+      babel({
+        extensions,
+        exclude: "node_modules/**",
+        babelHelpers: "bundled",
+        presets: [["solid", { generate: "ssr", hydratable: true }], "@babel/preset-typescript"]
+      }),
+      common(),
+      virtualAssetManifest()
+    ],
+    preserveEntrySignatures: false
   }
 ];
