@@ -29,15 +29,12 @@ const Stream = () => {
     }
   });
 
-  const projItems = createProjection<StreamItem[]>(
-    async function* (state) {
-      for await (const val of getData()) {
-        state.push(val);
-        yield;
-      }
-    },
-    []
-  );
+  const projItems = createProjection<StreamItem[]>(async function* (state) {
+    for await (const val of getData()) {
+      state.push(val);
+      yield;
+    }
+  }, []);
 
   return (
     <>

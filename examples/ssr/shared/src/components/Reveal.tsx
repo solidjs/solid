@@ -5,7 +5,9 @@ function delayedValue<T>(ms: number, value: T): Promise<T> {
 }
 
 function AsyncCard(props: { delay: number; title: string }) {
-  const value = createMemo(() => delayedValue(props.delay, `${props.title} resolved in ${props.delay}ms`));
+  const value = createMemo(() =>
+    delayedValue(props.delay, `${props.title} resolved in ${props.delay}ms`)
+  );
 
   return (
     <Loading fallback={<div class="loader">{props.title} loading...</div>}>

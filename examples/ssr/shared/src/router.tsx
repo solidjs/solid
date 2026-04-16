@@ -1,4 +1,10 @@
-import { createContext, createSignal, useContext, type Component, type ParentProps } from "solid-js";
+import {
+  createContext,
+  createSignal,
+  useContext,
+  type Component,
+  type ParentProps
+} from "solid-js";
 import { isServer } from "@solidjs/web";
 
 type RouterValue = [

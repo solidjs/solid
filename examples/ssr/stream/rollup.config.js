@@ -17,7 +17,8 @@ function solidAssetManifest() {
       const chunkKeyByFileName = {};
       for (const [fileName, chunk] of Object.entries(bundle)) {
         if (chunk.type !== "chunk" || !chunk.facadeModuleId) continue;
-        const rel = "./" + path.relative(componentsDir, chunk.facadeModuleId).replace(/\.[jt]sx?$/, "");
+        const rel =
+          "./" + path.relative(componentsDir, chunk.facadeModuleId).replace(/\.[jt]sx?$/, "");
         if (rel.startsWith("./..")) continue;
         chunkKeyByFileName[fileName] = rel;
       }
