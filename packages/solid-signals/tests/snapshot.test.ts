@@ -338,7 +338,7 @@ describe("insertSubs optimization", () => {
   });
 });
 
-describe("pureWrite signals excluded from snapshot capture", () => {
+describe("ownedWrite signals excluded from snapshot capture", () => {
   it("error boundary functions correctly under active snapshot capture", () => {
     let result!: () => any;
     let owner!: any;
@@ -390,7 +390,7 @@ describe("pureWrite signals excluded from snapshot capture", () => {
   });
 
   it("load boundary functions correctly under active snapshot capture", () => {
-    // Ensures pureWrite signals in CollectionQueue._disabled are not
+    // Ensures ownedWrite signals in CollectionQueue._disabled are not
     // snapshot-captured, which would freeze the boundary in its initial state
     let result!: () => any;
     let owner!: any;

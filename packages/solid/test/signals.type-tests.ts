@@ -49,8 +49,8 @@ createEffect(
   {}
 );
 
-// @ts-expect-error the compute function must accept an undefined first prev
 createEffect(
+  // @ts-expect-error the compute function must accept an undefined first prev
   (prev: number) => prev + 1,
   () => {}
 );
@@ -94,8 +94,8 @@ createRenderEffect(
   {}
 );
 
-// @ts-expect-error the compute function must accept an undefined first prev
 createRenderEffect(
+  // @ts-expect-error the compute function must accept an undefined first prev
   (prev: number) => prev + 1,
   () => {}
 );

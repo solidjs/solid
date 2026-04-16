@@ -99,6 +99,34 @@ createEffect(
 );
 ```
 
+The `initialValue` parameter from 1.x is gone. In 2.0, the compute function receives `prev` (which is `undefined` on the first run). If you need a default, use a default parameter:
+
+```js
+// 1.x (initialValue as second arg)
+createEffect((prev) => {
+  console.log("changed from", prev, "to", count());
+  return count();
+}, 0);
+
+// 2.0 (default parameter for prev, apply function is second arg)
+createEffect(
+  (prev = 0) => count(),
+  (value, prev) => {
+    console.log("changed from", prev, "to", value);
+  }
+);
+```
+
+This same change applies to `createMemo` — the second argument is now `options`, not an initial value:
+
+```js
+// 1.x
+const doubled = createMemo((prev) => count() * 2, 0);
+
+// 2.0 (no initialValue arg; prev is undefined on first run)
+const doubled = createMemo(() => count() * 2);
+```
+
 Cleanup usually lives on the apply side now:
 
 ```js
@@ -137,7 +165,7 @@ onSettled(() => {
 
 ### Dev warnings you’ll likely see (and how to fix them)
 
-These are **dev-only warnings** meant to catch subtle bugs earlier.
+These are **dev-only diagnostics** meant to catch bugs earlier. Some are warnings (console); others are errors (throw). See [RFC 08](08-dev-diagnostics.md) for the full reference.
 
 #### “Top-level reactive read” in a component
 
@@ -170,21 +198,21 @@ function OkArgs(props) {
 
 #### “Write inside reactive scope” (owned scope)
 
-Writing to signals/stores inside a reactive scope will warn. Usually you want:
+Writing to signals/stores inside a reactive scope **throws** in dev. Usually you want:
 
 - derive values with `createMemo` (no write-back)
 - write in event handlers / actions
 - return cleanup from effect apply functions (instead of writing during tracking)
 
 ```js
-// ❌ warns: writing from inside a memo
+// ❌ throws: writing from inside a memo
 createMemo(() => setDoubled(count() * 2));
 
 // ✅ derive instead of writing back
 const doubled = createMemo(() => count() * 2);
 ```
 
-If you truly have an **internal** signal that needs to be written from within owned scope (not app state), opt in narrowly with `pureWrite: true`.
+If you truly have an **internal** signal that needs to be written from within owned scope (not app state), opt in narrowly with `ownedWrite: true`.
 
 ## Async data & transitions
 
@@ -204,6 +232,8 @@ If you truly have an **internal** signal that needs to be written from within ow
 
 ### `createResource` → async computations + `Loading`
 
+The basic pattern: replace `createResource` with an async `createMemo` (or `createStore(fn)` for collections), and wrap consumers in `Loading`:
+
 ```js
 // 1.x
 const [user] = createResource(id, fetchUser);
@@ -217,6 +247,17 @@ const user = createMemo(() => fetchUser(id()));
   <Profile user={user()} />
 </Loading>
 ```
+
+The resource tuple features map to standalone APIs:
+
+| 1.x resource feature | 2.0 replacement |
+|---|---|
+| `resource.loading` | `Loading` (initial), `isPending(() => resource())` (revalidation) |
+| `resource.error` | `Errored` boundary or effect `error` option |
+| `refetch()` | `refresh(resource)` |
+| `mutate()` | `createOptimisticStore` + `action` (see [RFC 06](06-actions-optimistic.md)) |
+
+See [RFC 05 — createResource migration](05-async-data.md#createresource--async-computations--loading) for detailed before/after examples of each pattern.
 
 ### Initial loading vs revalidation: `Loading` vs `isPending`
 
@@ -376,6 +417,24 @@ This isn’t just `For`. A few control-flow APIs pass **accessors** into functio
 </Switch>
 ```
 
+### Coordinating loading boundaries: `SuspenseList` → `Reveal`
+
+`SuspenseList` is replaced by `Reveal`, which coordinates sibling `Loading` boundaries.
+
+```jsx
+// 1.x
+<SuspenseList revealOrder="forwards">
+  <Suspense fallback={<Skeleton />}><ProfileHeader /></Suspense>
+  <Suspense fallback={<Skeleton />}><Posts /></Suspense>
+</SuspenseList>
+
+// 2.0 — sequential (default), together, or collapsed
+<Reveal>
+  <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+  <Loading fallback={<Skeleton />}><Posts /></Loading>
+</Reveal>
+```
+
 ## DOM
 
 ### Attributes & events: closer to HTML (and fewer namespaces)
@@ -450,25 +509,298 @@ const Theme = createContext("light");
 <Theme value="dark">{props.children}</Theme>
 ```
 
-## Quick rename / removal map (not exhaustive)
+## New in 2.0
+
+These APIs are new additions (not renames of 1.x APIs):
+
+- **`Reveal`** — coordinates reveal timing of sibling `Loading` boundaries (sequential, together, collapsed). Replaces `SuspenseList`.
+- **`Repeat`** — count/range-based list rendering without diffing (skeletons, windowing).
+- **`action(fn)`** — wraps generator/async generator mutations with transition coordination.
+- **`createOptimistic` / `createOptimisticStore`** — signal/store primitives whose writes revert when a transition completes.
+- **`createProjection(fn, seed)`** — derived store with reactive reconciliation.
+- **`isPending(fn)`** — expression-level "stale while revalidating" check.
+- **`isRefreshing()`** — returns `true` when code is executing inside a `refresh()` cycle.
+- **`latest(fn)`** — peek at in-flight values during transitions.
+- **`refresh(target)`** — explicit recomputation/invalidation of derived reads.
+- **`resolve(fn)`** — returns a Promise that resolves when a reactive expression settles.
+- **`Loading` `on` prop** — controls when a Loading boundary re-shows fallback during revalidation.
+- **`deep(store)`** — deep observation of a store (tracks all nested changes).
+- **`reconcile(value, key)`** — diffing function for updating stores from new data.
+- **Function-form `createSignal(fn)` / `createStore(fn)`** — derived (writable) primitives.
+- **Effect `EffectBundle`** — `createEffect` accepts `{ effect, error }` for structured error handling.
+- **`createMemo` `lazy` option** — defers initial computation until first read.
+- **`unobserved` callback** — fires when a signal/memo loses all subscribers (resource cleanup).
+
+## Detailed removal guide
+
+These removals benefit from more context than a one-liner. For simple renames, see the [quick map](#quick-rename--removal-map) below.
+
+### `batch` → default microtask batching + `flush()`
+
+In 1.x, `batch` was explicit — you wrapped multiple writes to avoid intermediate renders. In 2.0, **all writes are batched by default** (microtask). There's nothing to wrap. If you need to force synchronous application (tests, imperative interop), use `flush()`:
+
+```js
+// 1.x
+batch(() => {
+  setA(1);
+  setB(2);
+});
+
+// 2.0 — just write; batching is automatic
+setA(1);
+setB(2);
+
+// If you need synchronous "apply now":
+setA(1);
+setB(2);
+flush();
+```
+
+### `createComputed` → `createMemo`, `createEffect`, or derived `createSignal`
+
+`createComputed` was used for three distinct patterns. The replacement depends on which one:
+
+**Readonly derivation** — use `createMemo`:
+
+```js
+// 1.x
+createComputed(() => setDoubled(count() * 2));
+
+// 2.0
+const doubled = createMemo(() => count() * 2);
+```
+
+**Side effect on change** — use split `createEffect`:
+
+```js
+// 1.x
+createComputed(() => {
+  const val = input();
+  localStorage.setItem("input", val);
+});
+
+// 2.0
+createEffect(
+  () => input(),
+  (val) => localStorage.setItem("input", val)
+);
+```
+
+**Derived-with-writeback** (computed that also has a setter) — use function-form `createSignal`:
+
+```js
+// 1.x
+const [value, setValue] = createSignal(props.initial);
+createComputed(() => setValue(props.initial));
+
+// 2.0
+const [value, setValue] = createSignal(() => props.initial);
+```
+
+### `on` helper → split effects
+
+`on` existed to declare explicit dependencies separately from the effect body. Split effects make this unnecessary — the compute phase *is* the explicit dependency declaration:
+
+```js
+// 1.x
+createEffect(on(count, (value, prev) => {
+  console.log("changed from", prev, "to", value);
+}));
+
+// 2.0 — compute phase declares deps, effect phase runs side effects
+createEffect(
+  () => count(),
+  (value, prev) => {
+    console.log("changed from", prev, "to", value);
+  }
+);
+```
+
+```js
+// 1.x — multiple deps
+createEffect(on([a, b], ([a, b]) => {
+  console.log(a, b);
+}));
+
+// 2.0
+createEffect(
+  () => [a(), b()],
+  ([a, b]) => console.log(a, b)
+);
+```
+
+`on` also had a `defer` option to skip the initial run. In 2.0, `createEffect` has this directly:
+
+```js
+// 1.x
+createEffect(on(count, (value) => {
+  console.log("changed to", value);
+}, { defer: true }));
+
+// 2.0
+createEffect(count, (value) => {
+  console.log("changed to", value);
+}, { defer: true });
+```
+
+### `onError` / `catchError` → `Errored` + effect `error` option
+
+In 1.x, `onError`/`catchError` were imperative error handlers registered in scope. In 2.0, errors propagate through the reactive graph and are caught structurally:
+
+**Component-level error UI** — use `Errored`:
+
+```jsx
+// 1.x
+<ErrorBoundary fallback={err => <p>{err.message}</p>}>
+  <Child />
+</ErrorBoundary>
+
+// 2.0
+<Errored fallback={err => <p>{err.message}</p>}>
+  <Child />
+</Errored>
+```
+
+**Programmatic error handling in effects** — use the `error` option:
+
+```js
+// 1.x
+catchError(() => {
+  createEffect(() => riskyAsyncWork());
+}, (err) => console.error("caught:", err));
+
+// 2.0
+createEffect(
+  () => riskyAsyncWork(),
+  {
+    effect: (value) => { /* success path */ },
+    error: (err) => console.error("caught:", err)
+  }
+);
+```
+
+### `produce` → now the default setter behavior
+
+`produce` is not really "removed" — it's the default. Store setters in 2.0 receive a mutable draft. If you imported `produce` to wrap your setter, just drop it:
+
+```js
+// 1.x
+import { produce } from "solid-js/store";
+setStore(produce(s => {
+  s.user.name = "Alice";
+  s.list.push("item");
+}));
+
+// 2.0 — draft-first is the default
+setStore(s => {
+  s.user.name = "Alice";
+  s.list.push("item");
+});
+```
+
+If you need the old path-style syntax, use `storePath`:
+
+```js
+setStore(storePath("user", "name", "Alice"));
+```
+
+### `createMutable` / `modifyMutable` → `createStore` with draft setters
+
+`createMutable` gave you a proxy you could write to directly. In 2.0, `createStore` with draft setters gives the same ergonomics while keeping writes explicit:
+
+```js
+// 1.x
+const state = createMutable({ count: 0, items: [] });
+state.count++;
+state.items.push("a");
+
+// 2.0
+const [state, setState] = createStore({ count: 0, items: [] });
+setState(s => {
+  s.count++;
+  s.items.push("a");
+});
+```
+
+The key difference: writes go through `setState`, which makes them visible to the reactive system's batching and transition coordination. Direct mutation on a proxy can't participate in transitions or optimistic rollback.
+
+### `from` / `observable` → async iterators / effects
+
+`from` converted external reactive sources into signals. `observable` converted signals into observables. These directions have different replacements.
+
+**External → Solid (`from`):** Async iterables work directly in computations:
+
+```js
+// 1.x
+import { from } from "solid-js";
+const signal = from(observable$);
+
+// 2.0 — async iterables are first-class in computations
+const value = createMemo(async function* () {
+  for await (const val of observable$) {
+    yield val;
+  }
+});
+```
+
+**Solid → External (`observable`):** There's no drop-in replacement. `observable()` produced a standard Observable that external libraries could subscribe to. In 2.0, use `createEffect` to push signal changes to an external subscriber:
+
+```js
+// 1.x
+import { observable } from "solid-js";
+const obs$ = observable(signal);
+obs$.subscribe(value => externalLib.update(value));
+
+// 2.0 — use an effect to push changes outward
+createEffect(signal, (value) => {
+  externalLib.update(value)
+});
+```
+
+If you need a standard Observable/AsyncIterable interface for external consumers, you'll need to build a thin adapter around `createEffect`. This is a known gap — the 1.x `observable()` convenience doesn't have a direct 2.0 equivalent yet. I expect this to move into @solid-primitives.
+
+## Quick rename / removal map
+
+### Import paths
 
 - **`solid-js/web` → `@solidjs/web`**
-- **`solid-js/store` → `solid-js`**
+- **`solid-js/store` → `solid-js`** (store APIs now exported from `solid-js` directly)
 - **`solid-js/h` → `@solidjs/h`**
 - **`solid-js/html` → `@solidjs/html`**
 - **`solid-js/universal` → `@solidjs/universal`**
+
+### Renames
+
 - **`Suspense` → `Loading`**
+- **`SuspenseList` → `Reveal`**
 - **`ErrorBoundary` → `Errored`**
 - **`mergeProps` → `merge`**
 - **`splitProps` → `omit`**
 - **`createSelector` → `createProjection` / `createStore(fn)`**
 - **`unwrap` → `snapshot`**
-- **`classList` → `class`**
-- **`mergeProps` / `splitProps` → `merge` / `omit`**
-- **`createResource` removed** → async computations + `Loading`
-- **`startTransition` / `useTransition` removed** → built-in transitions + `isPending`/`Loading` + optimistic APIs
-- **`use:` directives removed** → `ref` directive factories
-- **`attr:` / `bool:` removed** → standard attribute behavior
-- **`oncapture:` removed**
 - **`onMount` → `onSettled`**
+- **`equalFn` → `isEqual`**
+- **`getListener` → `getObserver`**
+- **`classList` → `class`** (object/array forms)
+
+### Removals
+
+- **`createResource`** → async computations + `Loading`
+- **`startTransition` / `useTransition`** → built-in transitions + `isPending`/`Loading` + optimistic APIs
+- **`batch`** → `flush()` when you need synchronous application
+- **`createComputed`** → `createEffect` (split), function-form `createSignal`/`createStore`, or `createMemo`
+- **`on` helper** → no longer necessary with split effects
+- **`onError` / `catchError`** → `Errored` or effect `error` option
+- **`produce`** → now the default store setter behavior (draft-first)
+- **`createMutable` / `modifyMutable`** → use `createStore` with draft setters
+- **`from` / `observable`** → async iterators
+- **`createDeferred`** → removed; handle outside Solid
+- **`indexArray`** → use `mapArray` with `keyed: false`
+- **`resetErrorBoundaries`** → no longer needed (error boundaries heal automatically)
+- **`enableScheduling`** → removed
+- **`writeSignal`** → removed (internal API that should not have been exported)
+- **`use:` directives** → `ref` directive factories
+- **`attr:` / `bool:` namespaces** → standard attribute behavior
+- **`oncapture:`** → removed
+- **`Context.Provider`** → use the context directly as provider (`<Context value={...}>`)
 

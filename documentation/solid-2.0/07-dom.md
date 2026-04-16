@@ -115,11 +115,9 @@ Used as:
 | Removed | Replacement / notes |
 |--------|----------------------|
 | `classList` | Use `class` with object or array |
-| `oncapture:` | Removed (replacement pattern TBD / use native event options where applicable) |
+| `oncapture:` | Removed; use native `addEventListener` with `{ capture: true }` where needed |
 | `attr:` / `bool:` namespaces | Single attribute/property model above |
 | `use:` directives | Use `ref` callbacks / directive factories (`ref={directive(opts)}`); arrays compose (`ref={[a, b]}`) |
-
-`@solidjs/legacy` can provide compatibility for deprecated DOM APIs where feasible.
 
 ## Alternatives considered
 

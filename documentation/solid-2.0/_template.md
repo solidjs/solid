@@ -16,7 +16,7 @@ Focus on concepts and proposed API. Use **code snippets** to illustrate each ide
 
 ## Migration / replacement
 
-How to get from current API to the new one. Mention `@solidjs/legacy` where it applies.
+How to get from current API to the new one.
 
 ## Removals (if any)
 

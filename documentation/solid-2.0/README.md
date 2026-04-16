@@ -10,14 +10,15 @@ The RFCs below are **deep dives** on specific topic areas. Over time, it’s exp
 
 ---
 
-## RFC index (7)
+## RFC index (8)
 
 | # | RFC | One-line summary |
 |---|-----|------------------|
-| 01 | [Reactivity, batching, and effects](01-reactivity-batching-effects.md) | pureWrite, strict top-level reads, flush, split effects, onSettled |
+| 01 | [Reactivity, batching, and effects](01-reactivity-batching-effects.md) | ownedWrite, strict top-level reads, flush, split effects, lazy memos, unobserved, onSettled |
 | 02 | [Signals, derived primitives, ownership, and context](02-signals-derived-ownership.md) | Derived signal/store, createRoot dispose-by-parent, Context as Provider |
-| 03 | [Control flow](03-control-flow.md) | For/Repeat, Show/Switch, Loading, Errored |
-| 04 | [Stores](04-stores.md) | draft-first setters, merge/omit, projections (createProjection/createStore(fn)), deep |
-| 05 | [Async data](05-async-data.md) | Async in computations, isPending, latest, transitions |
+| 03 | [Control flow](03-control-flow.md) | For/Repeat/Reveal, Show/Switch, Loading, Errored |
+| 04 | [Stores](04-stores.md) | draft-first setters, merge/omit, reconcile, projections (createProjection/createStore(fn)), deep |
+| 05 | [Async data](05-async-data.md) | Async in computations, isPending, latest, Loading `on` prop, transitions |
 | 06 | [Actions and optimistic](06-actions-optimistic.md) | action (generator), createOptimistic / createOptimisticStore |
 | 07 | [DOM](07-dom.md) | HTML standards, class, booleans |
+| 08 | [Dev-mode diagnostics](08-dev-diagnostics.md) | All dev warnings/errors, diagnostic codes, programmatic API |

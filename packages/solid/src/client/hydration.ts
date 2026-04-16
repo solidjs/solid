@@ -440,7 +440,7 @@ function hydratedCreateMemo(compute: any, options?: any) {
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const memo = coreMemo((prev: any) => {
       if (!hydrated()) return prev;
       return compute(prev);
@@ -471,7 +471,7 @@ function hydratedCreateSignal(fn?: any, second?: any) {
   const ssrSource = second?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const sig = coreSignal((prev: any) => {
       if (!hydrated()) return prev;
       return fn(prev);
@@ -526,7 +526,7 @@ function hydratedCreateOptimistic(fn?: any, second?: any) {
   const ssrSource = second?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const sig = coreOptimistic((prev: any) => {
       if (!hydrated()) return prev;
       return fn(prev);
@@ -562,7 +562,7 @@ function hydrateStoreLikeFn(
   ssrSource: string | undefined
 ): any {
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const result = coreFn(
       (draft: any) => {
         if (!hydrated()) return;
@@ -575,7 +575,7 @@ function hydrateStoreLikeFn(
     return result;
   }
   if (ssrSource === "hybrid") {
-    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     const result = coreFn(
       (draft: any) => {
         const o = getOwner()!;
@@ -636,7 +636,7 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?:
   const ssrSource = options?.ssrSource;
 
   if (ssrSource === "client") {
-    const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
+    const [hydrated, setHydrated] = coreSignal(false, { ownedWrite: true });
     let active = false;
     coreFn(
       (prev: any) => {

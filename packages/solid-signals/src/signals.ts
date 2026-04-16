@@ -96,7 +96,7 @@ export interface SignalOptions<T> {
   /** Custom equality function, or `false` to always notify subscribers */
   equals?: false | ((prev: T, next: T) => boolean);
   /** Suppress dev-mode warnings when writing inside an owned scope */
-  pureWrite?: boolean;
+  ownedWrite?: boolean;
   /** Callback invoked when the signal loses all subscribers */
   unobserved?: () => void;
 }
@@ -129,7 +129,7 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 /**
  * Creates a simple reactive state with a getter and setter.
  *
- * When called with a plain value, creates a signal with `SignalOptions` (name, equals, pureWrite, unobserved).
+ * When called with a plain value, creates a signal with `SignalOptions` (name, equals, ownedWrite, unobserved).
  * When called with a function, creates a writable memo with `SignalOptions & MemoOptions` (adds id, lazy).
  *
  * ```typescript
@@ -339,7 +339,7 @@ export function resolve<T>(fn: () => T): Promise<T> {
  * Creates an optimistic signal that can be used to optimistically update a value
  * and then revert it back to the previous value at end of transition.
  *
- * When called with a plain value, creates an optimistic signal with `SignalOptions` (name, equals, pureWrite, unobserved).
+ * When called with a plain value, creates an optimistic signal with `SignalOptions` (name, equals, ownedWrite, unobserved).
  * When called with a function, creates a writable optimistic memo with `SignalOptions & MemoOptions` (adds id, lazy).
  *
  * ```typescript

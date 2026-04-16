@@ -313,7 +313,7 @@ export function computed<T>(
       (transparent ? context?.id : context?.id != null ? getNextChildId(context) : undefined),
     _transparent: transparent || undefined,
     _equals: options?.equals != null ? options.equals : isEqual,
-    _pureWrite: !!options?.pureWrite,
+    _ownedWrite: !!options?.ownedWrite,
     _unobserved: options?.unobserved,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
@@ -364,7 +364,7 @@ export function computed<T>(
   if (parent) self._height = parent._height + 1;
   if (snapshotCaptureActive && ownerInSnapshotScope(context)) self._inSnapshotScope = true;
   if (externalSourceConfig) {
-    const bridgeSignal = signal<undefined>(undefined, { equals: false, pureWrite: true });
+    const bridgeSignal = signal<undefined>(undefined, { equals: false, ownedWrite: true });
     const source = externalSourceConfig.factory(self._fn as any, () => {
       setSignal(bridgeSignal, undefined);
     });
@@ -398,7 +398,7 @@ export function signal<T>(
 ): Signal<T> {
   const s = {
     _equals: options?.equals != null ? options.equals : isEqual,
-    _pureWrite: !!options?.pureWrite,
+    _ownedWrite: !!options?.ownedWrite,
     _noSnapshot: !!options?._noSnapshot,
     _unobserved: options?.unobserved,
     _value: v,
@@ -699,14 +699,14 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (
     __DEV__ &&
-    !el._pureWrite &&
+    !el._ownedWrite &&
     !context?._childrenForbidden &&
     context &&
     (el as FirewallSignal<any>)._firewall !== context
   ) {
     const message =
       "Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
-      "Move the write outside or set the `pureWrite` option if this is intentional.";
+      "Move the write outside or set the `ownedWrite` option if this is intentional.";
     emitDiagnostic({
       code: "SIGNAL_WRITE_IN_OWNED_SCOPE",
       kind: "write",
@@ -814,7 +814,7 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
 function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
   if (!el._pendingSignal) {
     // Start false, write true if pending - ensures reversion returns to false
-    el._pendingSignal = optimisticSignal(false, { pureWrite: true });
+    el._pendingSignal = optimisticSignal(false, { ownedWrite: true });
     // Propagate parent-child lane relationship for isPending(() => latest(x))
     if (el._parentSource) {
       el._pendingSignal._parentSource = el;

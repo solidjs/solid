@@ -47,11 +47,20 @@ Notes:
 
 ### Range/count rendering: `Repeat`
 
-`Repeat` renders based on `count` (and optional `from`), with no list diffing. It’s useful for skeletons, numeric ranges, and windowed UIs.
+`Repeat` renders based on `count` (and optional `from`), with no list diffing. Unlike `For`, children receive a **plain number** (not an accessor) — the index itself is stable and never changes for a given slot.
+
+This is primarily intended for use with **stores**, where the data at each index manages its own granular updates. The index is just a stable lookup key; reactivity comes from the store reads, not the index changing:
 
 ```jsx
-// 10 items: 0..9
-<Repeat count={10}>{(i) => <Item index={i} />}</Repeat>
+// Store-backed list: index is stable, store handles granular updates
+<Repeat count={store.items.length}>
+  {(i) => <Row name={store.items[i].name} status={store.items[i].status} />}
+</Repeat>
+```
+
+```jsx
+// Skeletons
+<Repeat count={10}>{(i) => <Skeleton key={i} />}</Repeat>
 
 // Windowing / offset
 <Repeat count={visibleCount()} from={start()}>
@@ -59,8 +68,8 @@ Notes:
 </Repeat>
 
 // Fallback when count is 0
-<Repeat count={items.length} fallback={<EmptyState />}>
-  {(i) => <div>{items[i]}</div>}
+<Repeat count={store.items.length} fallback={<EmptyState />}>
+  {(i) => <div>{store.items[i].label}</div>}
 </Repeat>
 ```
 
@@ -106,6 +115,8 @@ Notes:
 
 In 2.0’s async model, async values are part of computations (not a separate `createResource`), so `Loading` is the user-facing “this subtree may suspend” boundary.
 
+`Loading` also accepts an `on` prop to control when the boundary re-shows its fallback during revalidation. See [RFC 05](05-async-data.md) for details.
+
 ### Error boundary: `Errored`
 
 `Errored` is the error boundary. It supports a static fallback or a callback form that receives the error and a reset function.
@@ -124,7 +135,50 @@ In 2.0’s async model, async values are part of computations (not a separate `c
 </Errored>
 ```
 
+### Reveal timing: `Reveal`
+
+`Reveal` coordinates the reveal timing of sibling `Loading` boundaries. It replaces `SuspenseList` from 1.x.
+
+- **Sequential** (default): boundaries reveal in DOM order as each resolves.
+- **Together** (`together`): all boundaries wait until the group is ready, then reveal at once.
+- **Collapsed** (`collapsed`, sequential only): only the frontier boundary shows its fallback; later boundaries produce nothing until their turn.
+
+```jsx
+<Reveal>
+  <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+  <Loading fallback={<Skeleton />}><Posts /></Loading>
+</Reveal>
+
+// Together mode — all reveal at once
+<Reveal together>
+  <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+  <Loading fallback={<Skeleton />}><Posts /></Loading>
+</Reveal>
+
+// Collapsed mode — only the frontier shows fallback
+<Reveal collapsed>
+  <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+  <Loading fallback={<Skeleton />}><Posts /></Loading>
+</Reveal>
+```
+
 ## Migration / replacement
+
+### `SuspenseList` → `Reveal`
+
+```jsx
+// 1.x
+<SuspenseList revealOrder="forwards">
+  <Suspense fallback={<Skeleton />}><ProfileHeader /></Suspense>
+  <Suspense fallback={<Skeleton />}><Posts /></Suspense>
+</SuspenseList>
+
+// 2.0
+<Reveal>
+  <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+  <Loading fallback={<Skeleton />}><Posts /></Loading>
+</Reveal>
+```
 
 ### `Index` → `For keyed={false}`
 
@@ -174,6 +228,7 @@ In 2.0’s async model, async values are part of computations (not a separate `c
 |--------|-------------|
 | `Index` | `For keyed={false}` |
 | `Suspense` | `Loading` |
+| `SuspenseList` | `Reveal` |
 | `ErrorBoundary` | `Errored` |
 
 ## Alternatives considered
@@ -181,6 +236,3 @@ In 2.0’s async model, async values are part of computations (not a separate `c
 - Keeping both `For` and `Index`: rejected in favor of one API with explicit keying.
 - Adding a separate “range” mode to `For`: rejected in favor of a dedicated `Repeat` that makes “no diffing” obvious.
 
-## Open questions
-
-- Should `For` default to keyed-by-identity explicitly documented as the default (vs relying on undefined meaning “keyed”)? If so, should `keyed` default to `true` in docs and types?

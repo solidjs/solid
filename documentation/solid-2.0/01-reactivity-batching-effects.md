@@ -17,21 +17,21 @@ Solid 2.0 tightens the reactivity model: no writes under owned scope (with narro
 
 ### No writes under owned scope
 
-Writing to a signal inside a reactive scope (effect, memo, component body) warns in dev. Writes belong in event handlers, `onSettled`, or untracked blocks. When a signal must be written from within scope (e.g. internal state), opt in with `pureWrite: true`:
+Writing to a signal inside a reactive scope (effect, memo, component body) **throws** in dev. Writes belong in event handlers, `onSettled`, or untracked blocks. When a signal must be written from within scope (e.g. internal state), opt in with `ownedWrite: true`:
 
 ```js
-// Default: warn if set in effect/component
+// Default: throws if set in effect/component
 const [count, setCount] = createSignal(0);
 
 // Opt-in: allow writes in owned scope (e.g. internal flags)
-const [ref, setRef] = createSignal(null, { pureWrite: true });
+const [ref, setRef] = createSignal(null, { ownedWrite: true });
 ```
 
-`pureWrite` is not a general-purpose escape hatch. A common misuse is enabling it to silence warnings for application state while still writing from reactive scope:
+`ownedWrite` is not a general-purpose escape hatch. A common misuse is enabling it to silence errors for application state while still writing from reactive scope:
 
 ```js
-// ❌ BAD: using pureWrite to silence a write-under-scope warning for app state
-const [count, setCount] = createSignal(0, { pureWrite: true });
+// ❌ BAD: using ownedWrite to suppress the write-under-scope error for app state
+const [count, setCount] = createSignal(0, { ownedWrite: true });
 const [doubled, setDoubled] = createSignal(untrack(count) + 1); // force untracked read to get around other warning
 createMemo(() => setDoubled(count() + 1)); // feedback loop
 
@@ -108,7 +108,136 @@ createEffect(
 );
 ```
 
-**`createRenderEffect`** is split the same way and tears when dependencies change. **`createEffect`** may accept an options object with `effect` and `error` for handling errors from the reactive graph (e.g. async).
+The 1.x `initialValue` parameter is removed. The compute function receives `prev` as its argument (`undefined` on first run); use a default parameter if you need an initial value:
+
+```js
+// compute receives prev (undefined on first run)
+createEffect(
+  (prev = 0) => count(),   // prev defaults to 0 on first run
+  (value, prev) => { ... }
+);
+```
+
+The same applies to `createMemo` — the second argument is now `options`, not an initial value.
+
+### Lazy memos
+
+`createMemo` accepts a `lazy` option that defers the initial computation until the value is first read. Without `lazy`, memos compute eagerly on creation. With `lazy: true`, the memo is inert until something reads it — useful for expensive derivations that may not be needed immediately (or at all):
+
+```js
+const expensive = createMemo(
+  () => heavyComputation(source()),
+  { lazy: true }
+);
+
+// No computation has happened yet.
+// First read triggers the computation:
+expensive(); // now it runs
+```
+
+Lazy memos still track dependencies normally once evaluated. They're particularly useful in components that conditionally render — a lazy memo inside a branch that never renders never pays the computation cost.
+
+### `unobserved` callback
+
+Both `createSignal` and `createMemo` accept an `unobserved` callback that fires when the signal/memo loses all subscribers. This is useful for cleaning up external resources (connections, subscriptions, timers) that only need to exist while something is actively listening:
+
+```js
+const data = createMemo(
+  () => {
+    const ws = new WebSocket(url());
+    onCleanup(() => ws.close());
+    return new Promise(resolve => {
+      ws.onmessage = (e) => resolve(JSON.parse(e.data));
+    });
+  },
+  {
+    unobserved: () => console.log("no subscribers, resources cleaned up")
+  }
+);
+```
+
+Combined with `lazy`, this enables demand-driven computations that spin up only when read and tear down when no longer needed.
+
+### Stores in the compute phase
+
+The effect callback (back half) runs in an **untracked scope**. If a store proxy is passed through as the return value of the compute phase, reading its properties in the effect callback will trigger `STRICT_READ_UNTRACKED` warnings — those reads happen outside tracking and won't cause the effect to re-run. The fix is to extract the data you need in the compute phase and pass plain values to the effect.
+
+**Property-level tracking** — read the specific properties you need in the compute phase and return them as plain values:
+
+```js
+// Bad: passes store proxy through, reads in effect trigger warnings
+createEffect(
+  () => store.user,
+  (user) => sendAnalytics(user.name, user.age)  // reads in untracked scope
+);
+
+// Good: reads happen in compute, effect receives plain values
+createEffect(
+  () => ({ name: store.user.name, age: store.user.age }),
+  (value) => sendAnalytics(value.name, value.age)
+);
+```
+
+**Deep tracking with `deep()`** — when you need to react to any nested change, `deep(store)` subscribes to every property and returns a plain (non-proxy) snapshot that is safe to use in the effect:
+
+```js
+createEffect(
+  () => deep(store),
+  (snapshot) => saveToLocalStorage(JSON.stringify(snapshot))
+);
+```
+
+**Untracked snapshot with `snapshot()`** — when you need the store's current value *without* subscribing to it (e.g. as context alongside other tracked signals), `snapshot()` produces a plain copy without setting up any tracking:
+
+```js
+createEffect(
+  () => saveFlag(),
+  () => {
+    const data = snapshot(store);
+    upload(data);
+  }
+);
+```
+
+`deep()` and `snapshot()` both return plain objects, but `deep()` sets up deep tracking while `snapshot()` does not. See [RFC 04 — Stores](04-stores.md) for full details.
+
+### `createRenderEffect` (render-phase split effect)
+
+`createRenderEffect` uses the same split compute/apply pattern as `createEffect`, but runs during the render phase — synchronously as DOM elements are created and updated, not batched to the next microtask. When its dependencies change, the apply function runs immediately (this is the "tearing" behavior: it can observe intermediate states rather than waiting for the full batch to settle).
+
+Use `createRenderEffect` for DOM-level work that must happen synchronously during rendering (e.g. the runtime's own attribute/property bindings). For application-level side effects, prefer `createEffect`.
+
+```js
+// Synchronous render-phase binding
+createRenderEffect(
+  () => props.title,         // compute: track the value
+  (value) => {               // apply: runs synchronously when value changes
+    el.title = value;
+    return () => {           // cleanup
+      el.title = "";
+    };
+  }
+);
+```
+
+### `createEffect` error handling
+
+`createEffect` accepts an `EffectBundle` as its second argument — an object with `effect` and `error` handlers — instead of a bare function. This lets you handle errors thrown from async computations in the reactive graph:
+
+```js
+createEffect(
+  () => fetchData(id()),
+  {
+    effect: (data) => {
+      renderData(data);
+    },
+    error: (err, cleanup) => {
+      console.error("Fetch failed:", err);
+      cleanup();
+    }
+  }
+);
+```
 
 ### createTrackedEffect and onSettled
 
@@ -129,7 +258,7 @@ Unlike other tracked scopes these primitives cannot create nested primitives whi
 
 - **`batch`:** Remove; use `flush()` when you need synchronous application of updates (e.g. before reading DOM).
 - **`onMount`:** Replace with `onSettled`.
-- **Writes under scope:** Move setter calls to event handlers, `onSettled`, or untracked blocks; or create the signal with `{ pureWrite: true }` for the rare valid case (e.g. internal or intentionally in-scope writes).
+- **Writes under scope:** Move setter calls to event handlers, `onSettled`, or untracked blocks; or create the signal with `{ ownedWrite: true }` for the rare valid case (e.g. internal or intentionally in-scope writes).
 
 ## Removals
 
@@ -139,8 +268,6 @@ Unlike other tracked scopes these primitives cannot create nested primitives whi
 | `onError` / `catchError` | Effect `error` callback or ErrorBoundary / Errored |
 | `on` helper | No longer necessary with split effects |
 
-`@solidjs/legacy` can provide approximations for deprecated APIs where feasible.
-
 ## Alternatives considered
 
 - Keeping `batch` as an alias for “run updates now” was considered; unifying on `flush` reduces API surface and matches the mental model (drain queue).
@@ -148,4 +275,4 @@ Unlike other tracked scopes these primitives cannot create nested primitives whi
 
 ## Open questions
 
-- Whether to promote the write-under-scope warning to an error in a future release.
+(None remaining — write-under-scope is now an error.)

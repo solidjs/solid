@@ -99,8 +99,8 @@ export class RevealController {
   _collapsedAccessor: BoolAccessor;
   _slots: RevealSlot[] = [];
   _parentController?: RevealController;
-  _disabled: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
-  _collapsed: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
+  _disabled: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
+  _collapsed: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
   _ready = true;
   _evaluating = false;
 
@@ -173,8 +173,8 @@ export class CollectionQueue extends Queue {
   _sources: Set<Computed<any>> = new Set();
   _tree?: BoundaryComputed<any>;
   _pending = true;
-  _disabled: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
-  _collapsed: Signal<boolean> = signal(false, { pureWrite: true, _noSnapshot: true });
+  _disabled: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
+  _collapsed: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
   _revealController?: RevealController;
   _initialized: boolean = false;
   _onFn: (() => any) | undefined;

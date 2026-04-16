@@ -284,7 +284,7 @@ export class GlobalQueue extends Queue {
             stashedOptimisticReads = new Set();
             for (let i = 0; i < stashedTransition._optimisticNodes.length; i++) {
               const node = stashedTransition._optimisticNodes[i];
-              if ((node as any)._fn || node._pureWrite) continue;
+              if ((node as any)._fn || node._ownedWrite) continue;
               stashedOptimisticReads.add(node);
               queueStashedOptimisticEffects(node);
             }

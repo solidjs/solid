@@ -57,7 +57,7 @@ export function mapArray<Item, MappedItem>(
   return accessor(node);
 }
 
-const pureOptions = { pureWrite: true };
+const pureOptions = { ownedWrite: true };
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   const newItems = this._list() || [],
     newLen = newItems.length;

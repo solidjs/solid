@@ -87,11 +87,16 @@ rest.c;        // 3
 
 ### Derived stores: `createProjection` and `createStore(fn)`
 
-`createProjection(fn, seed, options?)` creates a mutable derived store (a projection). The derive function receives a draft that you can mutate.
+The relationship between these two mirrors the signal/memo split:
 
-The second argument is an explicit backing host object/array that the proxy wraps and reconciles into.
+| Signals | Stores |
+|---------|--------|
+| `createMemo(fn)` — readonly derived value | `createProjection(fn, seed)` — readonly derived store |
+| `createSignal(fn)` — writable derived value | `createStore(fn, seed)` — writable derived store |
 
-If the derive function **returns a value**, that value is **reconciled** into the projection output (rather than being shallowly replaced). This makes “return new data” projections work well for lists/maps while preserving identity for unchanged entries (keyed by `options.key`, default `"id"`).
+Just as `createMemo` returns only a getter and `createSignal(fn)` returns `[getter, setter]`, `createProjection` returns only the store while `createStore(fn, seed)` returns `[store, setter]`.
+
+**`createProjection(fn, seed, options?)`** — a readonly derived store. The derive function receives a draft it can mutate. If the derive function **returns a value**, that value is **reconciled** into the output (keyed by `options.key`, default `"id"`), preserving identity for unchanged entries.
 
 ```js
 // Selection without notifying every row
@@ -112,14 +117,34 @@ const users = createProjection(async () => {
 }, [], { key: "id" });
 ```
 
-`createStore(fn, seed, options?)` is the derived-store form; it’s effectively “projection store” creation using the familiar store API.
+**`createStore(fn, seed, options?)`** — a writable derived store. Same derive semantics as `createProjection`, but returns `[store, setter]` so you can also write to it imperatively. Use this when you need both reactively derived state *and* local mutations.
 
 ```js
-const [cache] = createStore((draft) => {
-  // mutate derived draft based on reactive inputs
+const [cache, setCache] = createStore((draft) => {
   draft.value = expensive(selector());
 }, { value: 0 });
+
+// Can also write imperatively
+setCache(s => { s.override = true; });
 ```
+
+### `reconcile(value, key)` (diffing into stores)
+
+`reconcile` returns a diffing function that updates a store (or a nested part of a store) from new data while preserving identity for unchanged entries. The second argument is the key used for identity matching (a string property name or a function).
+
+In 2.0 the usage changes from 1.x because setters are now draft-first: you call `reconcile` *inside* the setter callback, targeting the specific part of the draft you want to reconcile.
+
+```js
+// 1.x (path-style setter)
+setStore("todos", reconcile(serverTodos));
+
+// 2.0 (draft-first setter)
+setStore(s => {
+  reconcile(serverTodos, "id")(s.todos);
+});
+```
+
+This pairs naturally with `createProjection`, where returning a value from the derive function uses reconciliation automatically (keyed by `options.key`, default `"id"`).
 
 ### `snapshot(store)` (replaces `unwrap`)
 
@@ -136,16 +161,21 @@ JSON.stringify(plain);
 
 ### `deep(store)` helper
 
-Store tracking is normally property-level (optimal). When you truly need deep observation (e.g. for serialization, logging, or “watch everything”), use `deep(store)` inside a reactive scope.
+Store tracking is normally property-level (optimal). When you need deep observation, use `deep(store)` in the compute phase of a split effect. It subscribes to every nested property and returns a plain (non-proxy) snapshot.
+
+This matters because the effect callback runs in an untracked scope — if you pass a store proxy through and read its properties in the effect half, those reads trigger `STRICT_READ_UNTRACKED` warnings and won't re-run the effect. `deep()` solves this by doing all the reads in the compute phase and handing a plain object to the effect:
 
 ```js
 createEffect(
   () => deep(store),
   (snapshot) => {
-    // runs when anything inside store changes
+    // snapshot is a plain object — safe to read, serialize, diff
+    saveToLocalStorage(JSON.stringify(snapshot));
   }
 );
 ```
+
+Contrast with `snapshot(store)`, which also returns a plain object but does **not** subscribe — useful when you need the current store value without tracking it. See [RFC 01 — Stores in the compute phase](01-reactivity-batching-effects.md#stores-in-the-compute-phase) for the full pattern comparison.
 
 ## Migration / replacement
 
