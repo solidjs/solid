@@ -77,16 +77,18 @@ export function effect<T>(
       node._queue.notify(node, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
       if (__DEV__ && _hitUnhandledAsync) {
         resetUnhandledAsync();
-        const err = new Error("An async value must be rendered inside a Loading boundary.");
-        emitDiagnostic({
-          code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
-          kind: "async",
-          severity: "error",
-          message: err.message,
-          ownerId: node.id,
-          ownerName: node._name
-        });
-        if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) throw err;
+        if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
+          const message = "An async value must be rendered inside a Loading boundary.";
+          emitDiagnostic({
+            code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+            kind: "async",
+            severity: "error",
+            message,
+            ownerId: node.id,
+            ownerName: node._name
+          });
+          throw new Error(message);
+        }
       }
     }
   };
