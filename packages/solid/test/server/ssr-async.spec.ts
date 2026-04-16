@@ -505,6 +505,98 @@ describe("Loading SSR Async", () => {
       expect(fragmentResults.size).toBe(1);
       expect([...fragmentResults.values()][0]).toBe("<div>HELLO</div>");
     });
+
+    test("async memo callback can wrap a pending async read", async () => {
+      const { context, fragmentResults } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              const base = createMemo(() => d.promise);
+              const wrapped = createMemo(async () => (base() as string).toUpperCase());
+              return ssr(["<div>", "</div>"], () => wrapped()) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      d.resolve("hello");
+      await tick();
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBe("<div>HELLO</div>");
+    });
+
+    test("async projection callback can wrap a pending async read", async () => {
+      const { context, fragmentResults } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              const base = createMemo(() => d.promise);
+              const store = createProjection(
+                async (draft: { name: string }) => {
+                  draft.name = (base() as string).toUpperCase();
+                  await Promise.resolve();
+                },
+                { name: "init" }
+              );
+              return ssr(["<div>", "</div>"], () => store.name) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      d.resolve("hello");
+      await tick();
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBe("<div>HELLO</div>");
+    });
+
+    test("async iterator memo can wrap a pending async read before first yield", async () => {
+      const { context, fragmentResults } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<string>();
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              const base = createMemo(() => d.promise);
+              const wrapped = createMemo(async function* () {
+                yield (base() as string).toUpperCase();
+              });
+              return ssr(["<div>", "</div>"], () => wrapped()) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      d.resolve("hello");
+      await tick();
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBe("<div>HELLO</div>");
+    });
   });
 
   // --------------------------------------------------------------------------

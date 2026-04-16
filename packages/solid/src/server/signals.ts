@@ -121,6 +121,90 @@ export function getObserver() {
   return Observer;
 }
 
+type DeferredPromise<T> = {
+  promise: Promise<T> & { s?: 1 | 2; v?: any };
+  resolve: (value: T) => void;
+  reject: (error: any) => void;
+};
+
+function createDeferredPromise<T>(): DeferredPromise<T> {
+  let settled = false;
+  let resolvePromise!: (value: T) => void;
+  let rejectPromise!: (error: any) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  }) as DeferredPromise<T>["promise"];
+
+  return {
+    promise,
+    resolve(value: T) {
+      if (settled) return;
+      settled = true;
+      promise.s = 1;
+      promise.v = value;
+      resolvePromise(value);
+    },
+    reject(error: any) {
+      if (settled) return;
+      settled = true;
+      promise.s = 2;
+      promise.v = error;
+      rejectPromise(error);
+    }
+  };
+}
+
+function subscribePendingRetry(error: any, retry: () => void): boolean {
+  if (!(error instanceof NotReadyError)) return false;
+  (error as any).source?.then(
+    () => retry(),
+    () => retry()
+  );
+  return true;
+}
+
+function settleServerAsync<T, U>(
+  initial: T | PromiseLike<T>,
+  rerun: () => T | PromiseLike<T>,
+  deferred: DeferredPromise<U>,
+  onSuccess: (value: T) => U,
+  onError: (error: any) => void,
+  isDisposed: () => boolean
+) {
+  let first = true;
+
+  const attempt = () => {
+    if (isDisposed()) return;
+
+    let current: T | PromiseLike<T>;
+    try {
+      current = first ? initial : rerun();
+      first = false;
+    } catch (error) {
+      if (subscribePendingRetry(error, attempt)) return;
+      onError(error);
+      deferred.reject(error);
+      return;
+    }
+
+    Promise.resolve(current).then(
+      value => {
+        if (isDisposed()) return;
+        deferred.resolve(onSuccess(value));
+      },
+      error => {
+        if (isDisposed()) return;
+        if (subscribePendingRetry(error, attempt)) return;
+        onError(error);
+        deferred.reject(error);
+      }
+    );
+  };
+
+  attempt();
+}
+
 // === Reactive Primitives (pull-based) ===
 
 export function createSignal<T>(): Signal<T | undefined>;
@@ -176,19 +260,16 @@ export function createMemo<T>(
 
   function update() {
     if (comp.disposed) return;
+    const run = () =>
+      runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
     try {
       comp.error = undefined;
-      const result = runWithOwner(owner, () =>
-        runWithObserver(comp, () => comp.compute(comp.value))
-      );
+      const result = run();
       comp.computed = true;
-      processResult(comp, result, owner, ctx, options?.deferStream, options?.ssrSource);
+      processResult(comp, result, owner, ctx, options?.deferStream, options?.ssrSource, run);
     } catch (err) {
       if (err instanceof NotReadyError) {
-        (err as any).source?.then(
-          () => update(),
-          () => update()
-        );
+        subscribePendingRetry(err, update);
       }
       comp.error = err;
       comp.computed = true;
@@ -301,7 +382,8 @@ function processResult<T>(
   owner: Owner,
   ctx: any,
   deferStream?: boolean,
-  ssrSource?: string
+  ssrSource?: string,
+  rerun?: () => any
 ) {
   if (comp.disposed) return;
   const id = owner.id;
@@ -317,63 +399,106 @@ function processResult<T>(
       comp.error = (result as any).v;
       return;
     }
-    result.then(
-      (v: T) => {
+    const deferred = createDeferredPromise<T>();
+    if (ctx?.async && ctx.serialize && id && !noHydrate)
+      ctx.serialize(id, deferred.promise, deferStream);
+    settleServerAsync(
+      result,
+      () => (rerun ? rerun() : result),
+      deferred,
+      (value: T) => {
         (result as any).s = 1;
-        (result as any).v = v;
-        if (comp.disposed) return;
-        comp.value = v;
+        (result as any).v = value;
+        comp.value = value;
         comp.error = undefined;
+        return value;
       },
-      (err: any) => {
+      (error: any) => {
         (result as any).s = 2;
-        (result as any).v = err;
-        if (comp.disposed) return;
-        comp.error = err;
-      }
+        (result as any).v = error;
+        comp.error = error;
+      },
+      () => comp.disposed
     );
-    if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, result, deferStream);
-    comp.error = new NotReadyError(result);
+    comp.error = new NotReadyError(deferred.promise);
     return;
   }
 
   const iterator = result?.[Symbol.asyncIterator];
   if (typeof iterator === "function") {
-    const iter = iterator.call(result);
-
     if (ssrSource === "hybrid") {
-      const promise = iter.next().then(
-        (v: IteratorResult<T>) => {
-          (promise as any).s = 1;
-          (promise as any).v = v.value;
-          if (!v.done) closeAsyncIterator(iter);
-          if (comp.disposed) return v.value;
-          comp.value = v.value;
+      let currentResult = result;
+      let iter: AsyncIterator<T>;
+      const deferred = createDeferredPromise<T>();
+      const runFirst = () => {
+        const source = currentResult ?? (rerun ? rerun() : result);
+        currentResult = undefined;
+        const nextIterator = source?.[Symbol.asyncIterator];
+        if (typeof nextIterator !== "function") {
+          throw new Error("Expected async iterator while retrying server createMemo");
+        }
+        iter = nextIterator.call(source);
+        return iter.next().then((value: IteratorResult<T>) => {
+          if (!value.done) closeAsyncIterator(iter);
+          return value.value;
+        });
+      };
+      settleServerAsync(
+        runFirst(),
+        runFirst,
+        deferred,
+        (value: T) => {
+          comp.value = value;
           comp.error = undefined;
-          return v.value;
+          return value;
         },
-        () => {}
+        (error: any) => {
+          comp.error = error;
+        },
+        () => comp.disposed
       );
-      if (ctx?.async && ctx.serialize && id && !noHydrate) ctx.serialize(id, promise, deferStream);
-      comp.error = new NotReadyError(promise);
+      if (ctx?.async && ctx.serialize && id && !noHydrate)
+        ctx.serialize(id, deferred.promise, deferStream);
+      comp.error = new NotReadyError(deferred.promise);
     } else {
       // Full streaming ("server" or default): eagerly start the first iteration.
       // Tapped wrapper replays first value, then delegates to iter for the rest.
-      const firstNext = iter.next();
+      let currentResult = result;
+      let iter: AsyncIterator<T>;
+      let firstResult: IteratorResult<T> | undefined;
+      const deferred = createDeferredPromise<void>();
+      const runFirst = () => {
+        const source = currentResult ?? (rerun ? rerun() : result);
+        currentResult = undefined;
+        const nextIterator = source?.[Symbol.asyncIterator];
+        if (typeof nextIterator !== "function") {
+          throw new Error("Expected async iterator while retrying server createMemo");
+        }
+        iter = nextIterator.call(source);
+        return iter.next().then((value: IteratorResult<T>) => {
+          firstResult = value;
+          // Resolve nesting: delays outer promise settlement by 1 microtask,
+          // giving seroval's push() time to call stream.next() before Loading completes.
+          return Promise.resolve();
+        });
+      };
 
-      const firstReady = firstNext.then(
-        (r: IteratorResult<T>) => {
-          if (comp.disposed) return;
-          if (!r.done) {
-            comp.value = r.value;
+      settleServerAsync(
+        runFirst(),
+        runFirst,
+        deferred,
+        () => {
+          const resolved = firstResult;
+          if (resolved && !resolved.done) {
+            comp.value = resolved.value;
           }
           comp.error = undefined;
-          // Resolve nesting: returning a Promise delays firstReady's settlement
-          // by 1 microtask, giving seroval's push() time to call stream.next()
-          // before the Loading boundary fires done().
-          return Promise.resolve();
+          return undefined;
         },
-        () => {}
+        (error: any) => {
+          comp.error = error;
+        },
+        () => comp.disposed
       );
 
       if (ctx?.async && ctx.serialize && id && !noHydrate) {
@@ -383,7 +508,11 @@ function processResult<T>(
             next() {
               if (tappedFirst) {
                 tappedFirst = false;
-                return firstNext.then((r: IteratorResult<T>) => r);
+                return deferred.promise.then(() =>
+                  firstResult?.done
+                    ? ({ done: true as const, value: undefined } as IteratorResult<T>)
+                    : (firstResult as IteratorResult<T>)
+                );
               }
               return iter.next().then((r: IteratorResult<T>) => r);
             },
@@ -394,7 +523,7 @@ function processResult<T>(
         };
         ctx.serialize(id, tapped, deferStream);
       }
-      comp.error = new NotReadyError(firstReady);
+      comp.error = new NotReadyError(deferred.promise);
     }
     return;
   }
@@ -588,60 +717,95 @@ export function createProjection<T extends object>(
   const patches: PatchOp[] = [];
   const draft = useProxy ? createDeepProxy(state as any, patches) : (state as any as T);
 
-  const result = runWithOwner(owner, () => fn(draft));
+  const runProjection = () => runWithOwner(owner, () => fn(draft));
+  const result = runProjection();
 
   // Async iterable (generator)
   const iteratorFn = (result as any)?.[Symbol.asyncIterator];
   if (typeof iteratorFn === "function") {
-    const iter = iteratorFn.call(result);
-
     if (ssrSource === "hybrid") {
-      const promise = iter.next().then(
-        (r: IteratorResult<void | T>) => {
-          (promise as any).s = 1;
+      let currentResult = result;
+      let iter: AsyncIterator<void | T>;
+      const deferred = createDeferredPromise<T>();
+      const [pending, markReady] = createPendingProxy(state, deferred.promise);
+      const runFirst = () => {
+        const source = currentResult ?? runProjection();
+        currentResult = undefined;
+        const nextIterator = (source as any)?.[Symbol.asyncIterator];
+        if (typeof nextIterator !== "function") {
+          throw new Error("Expected async iterator while retrying server createProjection");
+        }
+        iter = nextIterator.call(source);
+        return iter.next().then((r: IteratorResult<void | T>) => {
           if (!r.done) closeAsyncIterator(iter);
-          if (disposed) {
-            (promise as any).v = state;
-            return state;
+          return r.value as T;
+        });
+      };
+      settleServerAsync(
+        runFirst(),
+        runFirst,
+        deferred,
+        (value: void | T) => {
+          if (value !== undefined && value !== state) {
+            Object.assign(state, value);
           }
-          if (r.value !== undefined && r.value !== state) {
-            Object.assign(state, r.value);
-          }
-          (promise as any).v = state;
           markReady();
-          return state;
+          return state as T;
         },
-        () => {}
+        (error: any) => {
+          markReady();
+        },
+        () => disposed
       );
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
-        ctx.serialize(owner.id, promise, options?.deferStream);
-      const [pending, markReady] = createPendingProxy(state, promise);
+        ctx.serialize(owner.id, deferred.promise, options?.deferStream);
       return pending;
     } else {
       // Full streaming: eagerly start first iteration. Tapped wrapper replays
       // first value as full state snapshot, then yields patch batches.
-      const firstNext = iter.next();
+      let currentResult = result;
+      let iter: AsyncIterator<void | T>;
+      let firstResult: IteratorResult<void | T> | undefined;
+      const deferred = createDeferredPromise<void>();
+      const [pending, markReady] = createPendingProxy(state, deferred.promise);
+      const runFirst = () => {
+        const source = currentResult ?? runProjection();
+        currentResult = undefined;
+        const nextIterator = (source as any)?.[Symbol.asyncIterator];
+        if (typeof nextIterator !== "function") {
+          throw new Error("Expected async iterator while retrying server createProjection");
+        }
+        iter = nextIterator.call(source);
+        return iter.next().then((value: IteratorResult<void | T>) => {
+          firstResult = value;
+          return Promise.resolve();
+        });
+      };
 
-      const firstReady = firstNext.then(
-        (r: IteratorResult<void | T>) => {
-          if (disposed) return;
+      settleServerAsync(
+        runFirst(),
+        runFirst,
+        deferred,
+        () => {
           patches.length = 0;
-          if (!r.done) {
-            if (r.value !== undefined && r.value !== draft) {
-              Object.assign(state, r.value as T);
-            }
+          const resolved = firstResult;
+          if (
+            resolved &&
+            !resolved.done &&
+            resolved.value !== undefined &&
+            resolved.value !== draft
+          ) {
+            Object.assign(state, resolved.value as T);
           }
           // Lock SSR-visible state at V1: subsequent generator mutations update
           // `state` (for draft/patch correctness) but reads go through the frozen copy.
           markReady(JSON.parse(JSON.stringify(state)) as T);
-          // Resolve nesting: delays firstReady's settlement by 1 microtask,
-          // giving seroval's push() time to call stream.next() before the
-          // Loading boundary fires done().
-          return Promise.resolve();
+          return undefined;
         },
-        () => {
+        (error: any) => {
           markReady();
-        }
+        },
+        () => disposed
       );
 
       if (ctx?.async && !getContext(NoHydrateContext) && owner.id) {
@@ -651,8 +815,8 @@ export function createProjection<T extends object>(
             next() {
               if (tappedFirst) {
                 tappedFirst = false;
-                return firstNext.then((r: IteratorResult<void | T>) => {
-                  if (r.done) return { done: true as const, value: undefined };
+                return deferred.promise.then(() => {
+                  if (firstResult?.done) return { done: true as const, value: undefined };
                   return { done: false as const, value: JSON.parse(JSON.stringify(state)) };
                 });
               }
@@ -675,31 +839,31 @@ export function createProjection<T extends object>(
         };
         ctx.serialize(owner.id, tapped, options?.deferStream);
       }
-      const [pending, markReady] = createPendingProxy(state, firstReady);
       return pending;
     }
   }
 
   if (result instanceof Promise) {
-    const promise = result.then(
-      (v: void | T) => {
-        (promise as any).s = 1;
-        if (disposed) {
-          (promise as any).v = state;
-          return state as T;
+    const deferred = createDeferredPromise<T>();
+    const [pending, markReady] = createPendingProxy(state, deferred.promise);
+    settleServerAsync(
+      result,
+      () => runProjection() as void | T | PromiseLike<void | T>,
+      deferred,
+      (value: void | T) => {
+        if (value !== undefined && value !== state) {
+          Object.assign(state, value);
         }
-        if (v !== undefined && v !== state) {
-          Object.assign(state, v);
-        }
-        (promise as any).v = state;
         markReady();
         return state as T;
       },
-      () => {}
+      (error: any) => {
+        markReady();
+      },
+      () => disposed
     );
     if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
-      ctx.serialize(owner.id, promise, options?.deferStream);
-    const [pending, markReady] = createPendingProxy(state, promise);
+      ctx.serialize(owner.id, deferred.promise, options?.deferStream);
     return pending;
   }
 

@@ -12,7 +12,8 @@
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "postinstall": "simple-git-hooks",
-    "test": "turbo run test test-types",
+    "test": "turbo run test test-types --filter=!test-integration",
+    "test:integration": "turbo run test --filter=test-integration",
     "coverage": "turbo run coverage",
     "build": "turbo run build",
     "types": "turbo run types",

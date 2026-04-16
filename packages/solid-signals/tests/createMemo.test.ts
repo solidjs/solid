@@ -18,6 +18,16 @@ import {
 
 afterEach(() => flush());
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: any) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 it("should store and return value on read", () => {
   const [$x] = createSignal(1);
   const [$y] = createSignal(1);
@@ -1134,6 +1144,36 @@ describe("async compute", () => {
     expect(b!()).toBe(21);
     expect(isPending(a!)).toBe(false);
     expect(isPending(b!)).toBe(false);
+  });
+
+  it("async memo can wrap a pending async read", async () => {
+    const gate = deferred<number>();
+    let outer!: () => number;
+    let boundary!: () => unknown;
+
+    createRoot(() => {
+      const inner = createMemo(() => gate.promise);
+      outer = createMemo(async () => {
+        const value = inner();
+        await Promise.resolve();
+        return value * 2;
+      });
+      boundary = createLoadingBoundary(
+        () => outer(),
+        () => "loading"
+      );
+    });
+
+    expect(boundary!()).toBe("loading");
+
+    gate.resolve(3);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(outer!()).toBe(6);
+    expect(boundary!()).toBe(6);
+    expect(isPending(outer!)).toBe(false);
   });
 
   it("isPending with sync memo depending on async memo", async () => {

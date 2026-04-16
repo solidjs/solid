@@ -12,6 +12,16 @@ import {
   refresh
 } from "../../src/index.js";
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: any) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("Projection async behavior", () => {
   it("resolves async draft and transforms into new value", async () => {
     const [$x, setX] = createSignal(1);
@@ -765,5 +775,39 @@ describe("Projection isPending behavior", () => {
     flush();
 
     expect(result).toEqual(["Before ", "typeof: number", " After"]);
+  });
+
+  it("async projection can wrap a pending async read", async () => {
+    const gate = deferred<string>();
+    let boundary!: () => unknown;
+    let proj!: { value: string };
+
+    createRoot(() => {
+      const inner = createMemo(() => gate.promise);
+      proj = createProjection(
+        async draft => {
+          draft.value = inner().toUpperCase();
+          await Promise.resolve();
+        },
+        { value: "init" }
+      );
+      boundary = createLoadingBoundary(
+        () => proj.value,
+        () => "loading"
+      );
+    });
+
+    flush();
+    expect(boundary()).toBe("loading");
+
+    gate.resolve("ready");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(proj.value).toBe("READY");
+    expect(boundary()).toBe("READY");
+    expect(isPending(() => proj.value)).toBe(false);
   });
 });
