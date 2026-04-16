@@ -61,6 +61,7 @@ type SharedConfig = {
   has?: (id: string) => boolean;
   gather?: (key: string) => void;
   cleanupFragment?: (id: string) => void;
+  loadModuleAssets?: (mapping: Record<string, string>) => Promise<void> | undefined;
   registry?: Map<string, Element>;
   completed?: WeakSet<Element> | null;
   events?: any[] | null;
@@ -778,27 +779,6 @@ export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
 export const createEffect: typeof coreEffect = ((...args: any[]) =>
   (_createEffect || coreEffect)(...args)) as typeof coreEffect;
 
-// === Module asset loading ===
-
-function loadModuleAssets(mapping: Record<string, string>): Promise<void> | undefined {
-  const hy = (globalThis as any)._$HY;
-  if (!hy) return;
-  if (!hy.modules) hy.modules = {};
-  if (!hy.loading) hy.loading = {};
-  const pending: Promise<void>[] = [];
-  for (const moduleUrl in mapping) {
-    if (hy.modules[moduleUrl]) continue;
-    const entryUrl = mapping[moduleUrl];
-    if (!hy.loading[moduleUrl]) {
-      hy.loading[moduleUrl] = import(/* @vite-ignore */ entryUrl).then(mod => {
-        hy.modules[moduleUrl] = mod;
-      });
-    }
-    pending.push(hy.loading[moduleUrl]);
-  }
-  return pending.length ? Promise.all(pending).then(() => {}) : undefined;
-}
-
 // === Loading component ===
 function createBoundaryTrigger(): () => void {
   setSnapshotCapture(false);
@@ -896,7 +876,8 @@ export function createLoadingBoundary(
     let assetPromise: Promise<void> | undefined;
     if (sharedConfig.hydrating && sharedConfig.has!(id + "_assets")) {
       const mapping = sharedConfig.load!(id + "_assets");
-      if (mapping && typeof mapping === "object") assetPromise = loadModuleAssets(mapping);
+      if (mapping && typeof mapping === "object")
+        assetPromise = sharedConfig.loadModuleAssets?.(mapping);
     }
 
     // Check boundary serialization key (sync SSR path: ctx.serialize(id, ...))

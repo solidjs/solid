@@ -29,12 +29,32 @@ enableHydration();
 // Mock hydration data store
 let hydrationData: Record<string, any>;
 
+function loadModuleAssets(mapping: Record<string, string>): Promise<void> | undefined {
+  const hy = (globalThis as any)._$HY;
+  if (!hy) return;
+  if (!hy.modules) hy.modules = {};
+  if (!hy.loading) hy.loading = {};
+  const pending: Promise<void>[] = [];
+  for (const moduleUrl in mapping) {
+    if (hy.modules[moduleUrl]) continue;
+    const entryUrl = mapping[moduleUrl];
+    if (!hy.loading[moduleUrl]) {
+      hy.loading[moduleUrl] = import(/* @vite-ignore */ entryUrl).then(mod => {
+        hy.modules[moduleUrl] = mod;
+      });
+    }
+    pending.push(hy.loading[moduleUrl]);
+  }
+  return pending.length ? Promise.all(pending).then(() => {}) : undefined;
+}
+
 function startHydration(data: Record<string, any>) {
   hydrationData = data;
   sharedConfig.hydrating = true;
   (sharedConfig as any).has = (id: string) => id in hydrationData;
   (sharedConfig as any).load = (id: string) => hydrationData[id];
   (sharedConfig as any).gather = () => {};
+  (sharedConfig as any).loadModuleAssets = loadModuleAssets;
 }
 
 function stopHydration() {
@@ -43,6 +63,7 @@ function stopHydration() {
   (sharedConfig as any).load = undefined;
   (sharedConfig as any).gather = undefined;
   (sharedConfig as any).cleanupFragment = undefined;
+  (sharedConfig as any).loadModuleAssets = undefined;
 }
 
 describe("Error Boundary Hydration", () => {

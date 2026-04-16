@@ -21,6 +21,7 @@ function startHydration(data: Record<string, any>) {
   (sharedConfig as any).has = (id: string) => id in hydrationData;
   (sharedConfig as any).load = (id: string) => hydrationData[id];
   (sharedConfig as any).gather = () => {};
+  (sharedConfig as any).loadModuleAssets = () => undefined;
 }
 
 function stopHydration() {
@@ -28,6 +29,7 @@ function stopHydration() {
   (sharedConfig as any).has = undefined;
   (sharedConfig as any).load = undefined;
   (sharedConfig as any).gather = undefined;
+  (sharedConfig as any).loadModuleAssets = undefined;
 }
 
 afterEach(() => {
