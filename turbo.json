@@ -16,7 +16,7 @@
       "outputs": ["dist/**", "**/dist/**"]
     },
     "solid-js#types": {
-      "dependsOn": ["@solidjs/signals#types", "@solidjs/signals#build"],
+      "dependsOn": ["@solidjs/signals#types"],
       "outputs": ["types/**", "types-cjs/**", "**/types/**", "**/types-cjs/**"]
     },
     "@solidjs/web#link": {

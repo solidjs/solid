@@ -338,12 +338,7 @@ function wrapFirstYield(iterable: any, activate: () => void) {
   };
 }
 
-function hydrateSignalFromAsyncIterable(
-  coreFn: Function,
-  compute: any,
-  value: any,
-  options: any
-): any {
+function hydrateSignalFromAsyncIterable(coreFn: Function, compute: any, options: any): any {
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
   if (!sharedConfig.has!(expectedId)) return null;
@@ -356,7 +351,7 @@ function hydrateSignalFromAsyncIterable(
       return it;
     }
   };
-  return coreFn(() => iterable, value, options);
+  return coreFn(() => iterable, options);
 }
 
 function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, options: any): any {
@@ -436,9 +431,9 @@ function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, opti
 
 // --- Hydration-aware implementations ---
 
-function hydratedCreateMemo(compute: any, value?: any, options?: any) {
+function hydratedCreateMemo(compute: any, options?: any) {
   if (!sharedConfig.hydrating || options?.transparent) {
-    return coreMemo(compute, value, options);
+    return coreMemo(compute, options);
   }
   markTopLevelSnapshotScope();
 
@@ -446,74 +441,58 @@ function hydratedCreateMemo(compute: any, value?: any, options?: any) {
 
   if (ssrSource === "client") {
     const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
-    const memo = coreMemo(
-      (prev: any) => {
-        if (!hydrated()) return prev ?? value;
-        return compute(prev);
-      },
-      value,
-      options
-    );
+    const memo = coreMemo((prev: any) => {
+      if (!hydrated()) return prev;
+      return compute(prev);
+    }, options);
     setHydrated(true);
     return memo;
   }
 
   if (ssrSource === "initial") {
-    return coreMemo(
-      (prev: any) => {
-        if (!sharedConfig.hydrating) return compute(prev);
-        subFetch(compute, prev);
-        return prev ?? value;
-      },
-      value,
-      options
-    );
+    return coreMemo((prev: any) => {
+      if (!sharedConfig.hydrating) return compute(prev);
+      subFetch(compute, prev);
+      return prev;
+    }, options);
   }
 
   // "server", "hybrid", or undefined — use serialized value from server
-  const aiResult = hydrateSignalFromAsyncIterable(coreMemo, compute, value, options);
+  const aiResult = hydrateSignalFromAsyncIterable(coreMemo, compute, options);
   if (aiResult !== null) return aiResult;
 
-  return coreMemo((prev: any) => readSerializedOrCompute(compute, prev), value, options);
+  return coreMemo((prev: any) => readSerializedOrCompute(compute, prev), options);
 }
 
-function hydratedCreateSignal(fn?: any, second?: any, third?: any) {
-  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreSignal(fn, second, third);
+function hydratedCreateSignal(fn?: any, second?: any) {
+  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreSignal(fn, second);
   markTopLevelSnapshotScope();
 
-  const ssrSource = third?.ssrSource;
+  const ssrSource = second?.ssrSource;
 
   if (ssrSource === "client") {
     const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
-    const sig = coreSignal(
-      (prev: any) => {
-        if (!hydrated()) return prev ?? second;
-        return fn(prev);
-      },
-      second,
-      third
-    );
+    const sig = coreSignal((prev: any) => {
+      if (!hydrated()) return prev;
+      return fn(prev);
+    }, second);
     setHydrated(true);
     return sig;
   }
 
   if (ssrSource === "initial") {
-    return coreSignal(
-      (prev: any) => {
-        if (!sharedConfig.hydrating) return fn(prev);
-        subFetch(fn, prev);
-        return prev ?? second;
-      },
-      second,
-      third
-    );
+    return coreSignal((prev: any) => {
+      if (!sharedConfig.hydrating) return fn(prev);
+      subFetch(fn, prev);
+      return prev;
+    }, second);
   }
 
   // "server", "hybrid", or undefined
-  const aiResult = hydrateSignalFromAsyncIterable(coreSignal, fn, second, third);
+  const aiResult = hydrateSignalFromAsyncIterable(coreSignal, fn, second);
   if (aiResult !== null) return aiResult;
 
-  return coreSignal((prev: any) => readSerializedOrCompute(fn, prev), second, third);
+  return coreSignal((prev: any) => readSerializedOrCompute(fn, prev), second);
 }
 
 function hydratedCreateErrorBoundary<U>(
@@ -540,43 +519,35 @@ function hydratedCreateErrorBoundary<U>(
   return coreErrorBoundary(fn, fallback);
 }
 
-function hydratedCreateOptimistic(fn?: any, second?: any, third?: any) {
-  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreOptimistic(fn, second, third);
+function hydratedCreateOptimistic(fn?: any, second?: any) {
+  if (typeof fn !== "function" || !sharedConfig.hydrating) return coreOptimistic(fn, second);
   markTopLevelSnapshotScope();
 
-  const ssrSource = third?.ssrSource;
+  const ssrSource = second?.ssrSource;
 
   if (ssrSource === "client") {
     const [hydrated, setHydrated] = coreSignal(false, { pureWrite: true });
-    const sig = coreOptimistic(
-      (prev: any) => {
-        if (!hydrated()) return prev ?? second;
-        return fn(prev);
-      },
-      second,
-      third
-    );
+    const sig = coreOptimistic((prev: any) => {
+      if (!hydrated()) return prev;
+      return fn(prev);
+    }, second);
     setHydrated(true);
     return sig;
   }
 
   if (ssrSource === "initial") {
-    return coreOptimistic(
-      (prev: any) => {
-        if (!sharedConfig.hydrating) return fn(prev);
-        subFetch(fn, prev);
-        return prev ?? second;
-      },
-      second,
-      third
-    );
+    return coreOptimistic((prev: any) => {
+      if (!sharedConfig.hydrating) return fn(prev);
+      subFetch(fn, prev);
+      return prev;
+    }, second);
   }
 
   // "server", "hybrid", or undefined
-  const aiResult = hydrateSignalFromAsyncIterable(coreOptimistic, fn, second, third);
+  const aiResult = hydrateSignalFromAsyncIterable(coreOptimistic, fn, second);
   if (aiResult !== null) return aiResult;
 
-  return coreOptimistic((prev: any) => readSerializedOrCompute(fn, prev), second, third);
+  return coreOptimistic((prev: any) => readSerializedOrCompute(fn, prev), second);
 }
 
 function wrapStoreFn(fn: any) {
@@ -636,7 +607,7 @@ function hydratedCreateStore(first?: any, second?: any, third?: any) {
     return coreStore(first, second, third);
   markTopLevelSnapshotScope();
   const ssrSource = third?.ssrSource;
-  if (ssrSource === "initial") return coreStore(second ?? {}, undefined, third);
+  if (ssrSource === "initial") return coreStore(second ?? {});
   return hydrateStoreLikeFn(coreStore, first, second ?? {}, third, ssrSource);
 }
 
@@ -645,7 +616,7 @@ function hydratedCreateOptimisticStore(first?: any, second?: any, third?: any) {
     return coreOptimisticStore(first, second, third);
   markTopLevelSnapshotScope();
   const ssrSource = third?.ssrSource;
-  if (ssrSource === "initial") return coreOptimisticStore(second ?? {}, undefined, third);
+  if (ssrSource === "initial") return coreOptimisticStore(second ?? {});
   return hydrateStoreLikeFn(coreOptimisticStore, first, second ?? {}, third, ssrSource);
 }
 
@@ -659,8 +630,8 @@ function hydratedCreateProjection(fn: any, initialValue?: any, options?: any) {
 
 // --- Hydration-aware effect implementations ---
 
-function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: any, options?: any) {
-  if (!sharedConfig.hydrating) return coreFn(compute, effectFn, value, options);
+function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
+  if (!sharedConfig.hydrating || options?.transparent) return coreFn(compute, effectFn, options);
 
   const ssrSource = options?.ssrSource;
 
@@ -669,7 +640,7 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: a
     let active = false;
     coreFn(
       (prev: any) => {
-        if (!hydrated()) return value;
+        if (!hydrated()) return prev;
         active = true;
         return compute(prev);
       },
@@ -677,7 +648,6 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: a
         if (!active) return;
         return effectFn(next, prev);
       },
-      value,
       options
     );
     setHydrated(true);
@@ -689,10 +659,9 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: a
       (prev: any) => {
         if (!sharedConfig.hydrating) return compute(prev);
         subFetch(compute, prev);
-        return prev ?? value;
+        return prev;
       },
       effectFn,
-      value,
       options
     );
     return;
@@ -700,15 +669,15 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, value?: a
 
   // "server", "hybrid", or undefined — use serialized value from server
   markTopLevelSnapshotScope();
-  coreFn((prev: any) => readSerializedOrCompute(compute, prev), effectFn, value, options);
+  coreFn((prev: any) => readSerializedOrCompute(compute, prev), effectFn, options);
 }
 
-function hydratedCreateRenderEffect(compute: any, effectFn: any, value?: any, options?: any) {
-  return hydratedEffect(coreRenderEffect, compute, effectFn, value, options);
+function hydratedCreateRenderEffect(compute: any, effectFn: any, options?: any) {
+  return hydratedEffect(coreRenderEffect, compute, effectFn, options);
 }
 
-function hydratedCreateEffect(compute: any, effectFn: any, value?: any, options?: any) {
-  return hydratedEffect(coreEffect, compute, effectFn, value, options);
+function hydratedCreateEffect(compute: any, effectFn: any, options?: any) {
+  return hydratedEffect(coreEffect, compute, effectFn, options);
 }
 
 // --- Public API ---
@@ -778,7 +747,7 @@ export const createOptimistic: typeof coreOptimistic = ((...args: any[]) =>
 
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue?: T,
+  initialValue: T,
   options?: HydrationProjectionOptions
 ) => Store<T> & { [$REFRESH]: any } = ((...args: any[]) =>
   (_createProjection || coreProjection)(...args)) as any;
@@ -789,7 +758,7 @@ export const createStore: {
   <T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    store?: NoFn<T> | Store<NoFn<T>>,
+    store: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 } = ((...args: any[]) => (_createStore || coreStore)(...args)) as any;
@@ -798,7 +767,7 @@ export const createOptimisticStore: {
   <T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    store?: NoFn<T> | Store<NoFn<T>>,
+    store: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 } = ((...args: any[]) => (_createOptimisticStore || coreOptimisticStore)(...args)) as any;

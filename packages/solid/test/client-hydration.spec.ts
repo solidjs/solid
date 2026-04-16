@@ -862,7 +862,7 @@ describe("ssrSource client modes", () => {
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => 999, undefined, { ssrSource: "hybrid" })();
+        result = createMemo(() => 999, { ssrSource: "hybrid" })();
       },
       { id: "t" }
     );
@@ -871,19 +871,19 @@ describe("ssrSource client modes", () => {
     expect(result).toBe(42);
   });
 
-  test("ssrSource 'initial' uses initialValue, ignores serialized data", () => {
+  test("ssrSource 'initial' leaves memo uninitialized and ignores serialized data", () => {
     startHydration({ t0: { v: 42, s: 1 } });
 
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => 999, 0, { ssrSource: "initial" })();
+        result = createMemo(() => 999, { ssrSource: "initial" })();
       },
       { id: "t" }
     );
     flush();
 
-    expect(result).toBe(0);
+    expect(result).toBeUndefined();
   });
 
   test("ssrSource 'initial' captures deps via subFetch", () => {
@@ -899,7 +899,6 @@ describe("ssrSource client modes", () => {
               typeof globalThis.fetch !== "function" || globalThis.fetch !== originalFetch;
             return 999;
           },
-          0,
           { ssrSource: "initial" }
         )();
       },
@@ -911,19 +910,19 @@ describe("ssrSource client modes", () => {
     expect(fetchCalled).toBe(true);
   });
 
-  test("ssrSource 'client' uses initialValue during hydration", () => {
+  test("ssrSource 'client' leaves memo uninitialized during hydration", () => {
     startHydration({});
 
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => 999, 0, { ssrSource: "client" })();
+        result = createMemo(() => 999, { ssrSource: "client" })();
       },
       { id: "t" }
     );
     flush();
 
-    expect(result).toBe(0);
+    expect(result).toBeUndefined();
   });
 
   test("ssrSource 'client' toggle flips immediately, protected by snapshot scope", () => {
@@ -932,14 +931,14 @@ describe("ssrSource client modes", () => {
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => 999, 0, { ssrSource: "client" });
+        result = createMemo(() => 999, { ssrSource: "client" });
       },
       { id: "t" }
     );
     flush();
 
-    // During hydration, snapshot scope protects — returns initialValue
-    expect(result()).toBe(0);
+    // During hydration, snapshot scope protects — returns the uninitialized value
+    expect(result()).toBeUndefined();
 
     stopHydration();
     flush();
@@ -1230,7 +1229,7 @@ describe("Async Iterable Hydration — createMemo", () => {
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => "fallback", "default");
+        result = createMemo((prev = "default") => (void prev, "fallback"));
       },
       { id: "t" }
     );
@@ -1307,7 +1306,7 @@ describe("Async Iterable Hydration — createMemo", () => {
     let result: any;
     createRoot(
       () => {
-        result = createMemo(() => 999, undefined, { ssrSource: "hybrid" })();
+        result = createMemo(() => 999, { ssrSource: "hybrid" })();
       },
       { id: "t" }
     );
@@ -2150,7 +2149,6 @@ describe("Snapshot Hydration", () => {
             computeCount++;
             return 999;
           },
-          0,
           { ssrSource: "client" }
         );
       },
@@ -2158,8 +2156,8 @@ describe("Snapshot Hydration", () => {
     );
     flush();
 
-    // Snapshot protects: returns initial value during hydration
-    expect(result()).toBe(0);
+    // Snapshot protects: returns the uninitialized value during hydration
+    expect(result()).toBeUndefined();
 
     stopHydration();
     flush();
@@ -2180,7 +2178,7 @@ describe("Snapshot Hydration", () => {
     createRoot(
       () => {
         // Trigger snapshot scope via a hydrated wrapper
-        createMemo(() => 0, 0, { ssrSource: "client" });
+        createMemo(() => 0, { ssrSource: "client" });
         // Raw memo in the same scope — reads x, gets snapshot
         derived = coreMemo(() => x() * 2);
       },
@@ -2212,7 +2210,7 @@ describe("Snapshot Hydration", () => {
 
     createRoot(
       () => {
-        createMemo(() => 0, 0, { ssrSource: "client" });
+        createMemo(() => 0, { ssrSource: "client" });
         derivedA = coreMemo(() => a() * 10);
         derivedB = coreMemo(() => b() * 10);
       },
@@ -2272,7 +2270,7 @@ describe("Snapshot Hydration", () => {
 
     createRoot(
       () => {
-        createMemo(() => 0, 0, { ssrSource: "client" });
+        createMemo(() => 0, { ssrSource: "client" });
         coreMemo(() => x());
         onHydrationEnd(() => {
           callbackFired = true;
@@ -2363,7 +2361,6 @@ describe("Loading + Async Iterable end-to-end pipeline", () => {
                 hydratingStates.push(sharedConfig.hydrating);
                 return 123;
               },
-              0,
               { ssrSource: "client" }
             );
             return (() => memo()) as any;
@@ -2660,7 +2657,7 @@ describe("Loading + Async Iterable end-to-end pipeline", () => {
         Loading({
           fallback: "loading...",
           get children() {
-            memo = createMemo(() => 0, undefined, { ssrSource: "hybrid" });
+            memo = createMemo(() => 0, { ssrSource: "hybrid" });
             return (() => memo()) as any;
           }
         });

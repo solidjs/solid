@@ -87,7 +87,9 @@ rest.c;        // 3
 
 ### Derived stores: `createProjection` and `createStore(fn)`
 
-`createProjection(fn, initial?, options?)` creates a mutable derived store (a projection). The derive function receives a draft that you can mutate.
+`createProjection(fn, seed, options?)` creates a mutable derived store (a projection). The derive function receives a draft that you can mutate.
+
+The second argument is an explicit backing host object/array that the proxy wraps and reconciles into.
 
 If the derive function **returns a value**, that value is **reconciled** into the projection output (rather than being shallowly replaced). This makes “return new data” projections work well for lists/maps while preserving identity for unchanged entries (keyed by `options.key`, default `"id"`).
 
@@ -110,7 +112,7 @@ const users = createProjection(async () => {
 }, [], { key: "id" });
 ```
 
-`createStore(fn, initial?, options?)` is the derived-store form; it’s effectively “projection store” creation using the familiar store API.
+`createStore(fn, seed, options?)` is the derived-store form; it’s effectively “projection store” creation using the familiar store API.
 
 ```js
 const [cache] = createStore((draft) => {

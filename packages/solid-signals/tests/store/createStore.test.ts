@@ -148,7 +148,7 @@ describe("Unwrapping Edge Cases", () => {
 
 describe("Tracking State changes", () => {
   test("isPending sees a derived store update held by async work", async () => {
-    const [store, setStore] = createStore<string[]>(() => []);
+    const [store, setStore] = createStore<string[]>(() => [], []);
     let asyncMemo: () => string;
     const results: { pending: boolean; value: string }[] = [];
 

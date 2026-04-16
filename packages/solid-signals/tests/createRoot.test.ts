@@ -278,7 +278,7 @@ describe("transparent owners", () => {
 
     createRoot(
       () => {
-        const transparentMemo = createMemo(() => {}, undefined, { transparent: true });
+        const transparentMemo = createMemo(() => {}, { transparent: true });
         transparentMemo();
         siblingId = createMemo(() => getOwner()!.id)();
       },
@@ -299,7 +299,6 @@ describe("transparent owners", () => {
             childA = createMemo(() => getOwner()!.id)();
             childB = createMemo(() => getOwner()!.id)();
           },
-          undefined,
           { transparent: true }
         );
         transparentMemo();

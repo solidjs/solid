@@ -16,7 +16,7 @@ import {
 
 export function createProjectionInternal<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: T = {} as T,
+  seed: T,
   options?: ProjectionOptions
 ) {
   let node;
@@ -38,7 +38,7 @@ export function createProjectionInternal<T extends object = {}>(
     wrappedMap.set(source, wrapped);
     return wrapped;
   };
-  const wrappedStore: Store<T> = wrapProjection(initialValue);
+  const wrappedStore: Store<T> = wrapProjection(seed);
 
   node = computed(() => {
     const owner = getOwner() as Computed<void | T>;
@@ -72,20 +72,20 @@ export function createProjectionInternal<T extends object = {}>(
  * draft and can mutate it directly or return a new value for reconciliation.
  *
  * ```typescript
- * const store = createProjection<T>(fn, initialValue?, options?: ProjectionOptions);
+ * const store = createProjection<T>(fn, seed, options?: ProjectionOptions);
  * ```
  * @param fn a function that receives the current draft and mutates it or returns new data
- * @param initialValue the initial store value (defaults to `{}`)
+ * @param seed the backing store host value to wrap and reconcile into
  * @param options `ProjectionOptions` -- name, key, all
  *
  * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
  */
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: T = {} as T,
+  seed: T,
   options?: ProjectionOptions
 ): Store<T> & { [$REFRESH]: any } {
-  return createProjectionInternal(fn, initialValue, options).store;
+  return createProjectionInternal(fn, seed, options).store;
 }
 
 export function createWriteTraps(isActive?: () => boolean): ProxyHandler<any> {

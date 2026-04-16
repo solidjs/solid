@@ -38,7 +38,7 @@
   },
   "scripts": {
     "build": "npm-run-all -nl build:* && pnpm types",
-    "build:clean": "rimraf dist/",
+    "build:clean": "rimraf dist/dev.js dist/prod.js dist/node.cjs",
     "build:js": "rollup -c",
     "types": "tsc -p tsconfig.build.json && node ../../scripts/sync-dual-types.mjs ./dist/types ./dist/types-cjs",
     "test": "vitest run",

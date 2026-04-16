@@ -149,16 +149,14 @@ export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 export function createSignal<T>(
   fn: ComputeFunction<T>,
-  initialValue?: T,
   options?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
   first?: T | ComputeFunction<T>,
-  second?: T | SignalOptions<T>,
-  third?: SignalOptions<T> & MemoOptions<T>
+  second?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = computed<T>(first as any, second as any, third);
+    const node = computed<T>(first as any, undefined, second as any);
     (node as any)._preventAutoDisposal = true;
     return [
       accessor<T | undefined>(node),
@@ -174,68 +172,45 @@ export function createSignal<T>(
  * Creates a readonly derived reactive memoized signal.
  *
  * ```typescript
- * const value = createMemo<T>(compute, initialValue?, options?: MemoOptions<T>);
+ * const value = createMemo<T>(compute, options?: MemoOptions<T>);
  * ```
- * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
- * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
+ * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param options `MemoOptions` -- id, name, equals, unobserved, lazy
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
  */
-// The extra Prev generic parameter separates inference of the compute input
-// parameter type from inference of the compute return type, so that the effect
-// return type is always used as the memo Accessor's return type.
-export function createMemo<Next extends Prev, Prev = Next>(
-  compute: ComputeFunction<undefined | NoInfer<Prev>, Next>
-): Accessor<Next>;
-export function createMemo<Next extends Prev, Init = Next, Prev = Next>(
-  compute: ComputeFunction<Init | Prev, Next>,
-  value: Init,
-  options?: MemoOptions<Next>
-): Accessor<Next>;
-export function createMemo<Next extends Prev, Init, Prev>(
-  compute: ComputeFunction<Init | Prev, Next>,
-  value?: Init,
-  options?: MemoOptions<Next>
-): Accessor<Next> {
-  let node = computed<Next>(compute as any, value as any, options);
-  return accessor<Next>(node);
+// NoInfer keeps the previous-value parameter from influencing T inference, so
+// the memo/effect result type is still driven by the compute return type.
+export function createMemo<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): Accessor<T> {
+  let node = computed<T>(compute as any, undefined, options);
+  return accessor<T>(node);
 }
 
 /**
  * Creates a reactive effect that runs after the render phase.
  *
  * ```typescript
- * createEffect<T>(compute, effectFn | { effect, error }, initialValue?, options?: EffectOptions);
+ * createEffect<T>(compute, effectFn | { effect, error }, options?: EffectOptions);
  * ```
- * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param effectFn a function that receives the new value and is used to perform side effects (return a cleanup function), or an `EffectBundle` with `effect` and `error` handlers
- * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
  * @param options `EffectOptions` -- name, defer
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
-export function createEffect<Next>(
-  compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effectFn: EffectFunction<NoInfer<Next>, Next> | EffectBundle<NoInfer<Next>, Next>
-): void;
-export function createEffect<Next, Init = Next>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
-  value: Init,
-  options?: EffectOptions
-): void;
-export function createEffect<Next, Init>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
-  value?: Init,
+export function createEffect<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  effectFn: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
   effect(
     compute as any,
     (effectFn as any).effect || effectFn,
     (effectFn as any).error,
-    value as any,
+    undefined,
     __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
   );
 }
@@ -245,32 +220,20 @@ export function createEffect<Next, Init>(
  * are created and updated but not necessarily connected.
  *
  * ```typescript
- * createRenderEffect<T>(compute, effectFn, initialValue?, options?: EffectOptions);
+ * createRenderEffect<T>(compute, effectFn, options?: EffectOptions);
  * ```
- * @param compute a function that receives its previous or the initial value, if set, and returns a new value used to react on a computation
+ * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param effectFn a function that receives the new value and is used to perform side effects
- * @param value an optional initial value for the computation; if set, fn will never receive undefined as first argument
  * @param options `EffectOptions` -- name, defer
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */
-export function createRenderEffect<Next>(
-  compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effectFn: EffectFunction<NoInfer<Next>, Next>
-): void;
-export function createRenderEffect<Next, Init = Next>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next>,
-  value: Init,
-  options?: EffectOptions
-): void;
-export function createRenderEffect<Next, Init>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next>,
-  value?: Init,
+export function createRenderEffect<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
-  effect(compute as any, effectFn, undefined, value as any, {
+  effect(compute as any, effectFn, undefined, undefined, {
     render: true,
     ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
   });
@@ -383,7 +346,7 @@ export function resolve<T>(fn: () => T): Promise<T> {
  * // Plain optimistic signal
  * const [state, setState] = createOptimistic<T>(value, options?: SignalOptions<T>);
  * // Writable optimistic memo (function overload)
- * const [state, setState] = createOptimistic<T>(fn, initialValue?, options?: SignalOptions<T> & MemoOptions<T>);
+ * const [state, setState] = createOptimistic<T>(fn, options?: SignalOptions<T> & MemoOptions<T>);
  * ```
  * @param value initial value of the signal; if empty, the signal's type will automatically extended with undefined
  * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
@@ -399,16 +362,14 @@ export function createOptimistic<T>(
 ): Signal<T>;
 export function createOptimistic<T>(
   fn: ComputeFunction<T>,
-  initialValue?: T,
   options?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T>;
 export function createOptimistic<T>(
   first?: T | ComputeFunction<T>,
-  second?: T | SignalOptions<T>,
-  third?: SignalOptions<T> & MemoOptions<T>
+  second?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = optimisticComputed<T>(first as any, second as any, third);
+    const node = optimisticComputed<T>(first as any, undefined, second as any);
     (node as any)._preventAutoDisposal = true;
     return [
       accessor<T | undefined>(node),

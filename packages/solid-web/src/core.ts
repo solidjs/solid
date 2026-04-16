@@ -14,12 +14,7 @@ export {
   ssrRunInScope
 } from "solid-js";
 
-export const effect = (fn, effectFn, initial) =>
-  createRenderEffect(fn, effectFn, initial, { transparent: true });
+export const effect = (fn, effectFn) => createRenderEffect(fn, effectFn, { transparent: true });
 
 export const memo = (fn, transparent) =>
-  transparent
-    ? fn.$r
-      ? fn
-      : coreMemo(() => fn(), undefined, { transparent: true })
-    : createMemo(() => fn());
+  transparent ? (fn.$r ? fn : coreMemo(() => fn(), { transparent: true })) : createMemo(() => fn());

@@ -122,7 +122,7 @@ describe("async computed transition entanglement", () => {
       // Async computed that reads counter and joins the same transition (same tick).
       // When counter changes, this node's recompute restores the incomplete transition,
       // causing flush to stash all effects — including counter's render effect.
-      createSignal(async () => counter(), 0);
+      createSignal(async () => counter());
 
       createRenderEffect(
         () => counter(),

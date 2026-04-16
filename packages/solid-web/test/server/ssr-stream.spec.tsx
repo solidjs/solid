@@ -240,7 +240,7 @@ describe("SSR Streaming — Basic Rendering", () => {
 describe("SSR Streaming — deferStream", () => {
   test("deferStream blocks the shell until resolved", async () => {
     function App() {
-      const data = createMemo(async () => asyncValue("Deferred", 50), undefined, {
+      const data = createMemo(async () => asyncValue("Deferred", 50), {
         deferStream: true
       });
       return (
@@ -259,7 +259,7 @@ describe("SSR Streaming — deferStream", () => {
 
   test("mixed deferred and non-deferred", async () => {
     function App() {
-      const deferred = createMemo(async () => asyncValue("Deferred", 30), undefined, {
+      const deferred = createMemo(async () => asyncValue("Deferred", 30), {
         deferStream: true
       });
       const streamed = createMemo(async () => asyncValue("Streamed", 60));
@@ -593,7 +593,7 @@ describe("SSR Streaming — Callbacks", () => {
     let shellHtml = "";
 
     function App() {
-      const data = createMemo(async () => asyncValue("Ready", 30), undefined, {
+      const data = createMemo(async () => asyncValue("Ready", 30), {
         deferStream: true
       });
       return (

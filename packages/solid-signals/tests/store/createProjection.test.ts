@@ -153,7 +153,7 @@ describe("Projection basics", () => {
     const tmp = vi.fn();
 
     createRoot(() => {
-      const a = createProjection($x);
+      const a = createProjection($x, { v: 0 });
 
       createRenderEffect(
         () => a.v,
@@ -198,7 +198,7 @@ describe("selection with projections", () => {
         if (prev !== undefined && prev !== selected) delete state[prev];
         if (selected) state[selected] = true;
         prev = selected;
-      });
+      }, {});
       Array.from({ length: 100 }, (_, i) =>
         createRenderEffect(
           () => isSelected[i],
@@ -246,7 +246,7 @@ describe("selection with projections", () => {
         if (prev !== undefined && prev !== selected) delete state[prev];
         if (selected) state[selected] = true;
         prev = selected;
-      });
+      }, {});
       Array.from({ length: 100 }, (_, i) => {
         list[i] = [];
         createRenderEffect(

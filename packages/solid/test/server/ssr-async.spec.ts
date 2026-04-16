@@ -1488,7 +1488,7 @@ describe("Stream Blocking / deferStream", () => {
 
     createRoot(
       () => {
-        createProjection(() => d.promise);
+        createProjection(() => d.promise, {} as { name?: string });
       },
       { id: "t" }
     );
@@ -1548,7 +1548,7 @@ describe("Stream Blocking / deferStream", () => {
         Loading({
           fallback: "Loading...",
           get children() {
-            const data = createMemo(() => d.promise, undefined, { deferStream: true });
+            const data = createMemo(() => d.promise, { deferStream: true });
             return ssr(["<div>", "</div>"], () => data()) as any;
           }
         });
@@ -1574,7 +1574,7 @@ describe("Stream Blocking / deferStream", () => {
 
     createRoot(
       () => {
-        createMemo(() => d.promise, undefined, { deferStream: true });
+        createMemo(() => d.promise, { deferStream: true });
       },
       { id: "t" }
     );
@@ -1647,7 +1647,7 @@ describe("Stream Blocking / deferStream", () => {
         Loading({
           fallback: "Loading...",
           get children() {
-            const [data] = createSignal(() => d.promise, undefined, { deferStream: true });
+            const [data] = createSignal(() => d.promise, { deferStream: true });
             return ssr(["<div>", "</div>"], () => data()) as any;
           }
         });
@@ -1707,7 +1707,7 @@ describe("ssrSource server modes", () => {
     sharedConfig.context = undefined;
   });
 
-  test("ssrSource 'initial' skips computation on createMemo, uses initialValue", () => {
+  test("ssrSource 'initial' skips computation on createMemo without a seeded value", () => {
     let computeRan = false;
     let result: any;
     createRoot(
@@ -1717,7 +1717,6 @@ describe("ssrSource server modes", () => {
             computeRan = true;
             return 999;
           },
-          42,
           { ssrSource: "initial" }
         );
         result = read();
@@ -1726,10 +1725,10 @@ describe("ssrSource server modes", () => {
     );
 
     expect(computeRan).toBe(false);
-    expect(result).toBe(42);
+    expect(result).toBeUndefined();
   });
 
-  test("ssrSource 'client' skips computation on createMemo, uses initialValue", () => {
+  test("ssrSource 'client' skips computation on createMemo without a seeded value", () => {
     let computeRan = false;
     let result: any;
     createRoot(
@@ -1739,7 +1738,6 @@ describe("ssrSource server modes", () => {
             computeRan = true;
             return 999;
           },
-          42,
           { ssrSource: "client" }
         );
         result = read();
@@ -1748,7 +1746,7 @@ describe("ssrSource server modes", () => {
     );
 
     expect(computeRan).toBe(false);
-    expect(result).toBe(42);
+    expect(result).toBeUndefined();
   });
 
   test("ssrSource 'hybrid' runs computation (same as default for Promises)", () => {
@@ -1759,7 +1757,7 @@ describe("ssrSource server modes", () => {
     let result: any;
     createRoot(
       () => {
-        const read = createMemo(() => d.promise, undefined, { ssrSource: "hybrid" });
+        const read = createMemo(() => d.promise, { ssrSource: "hybrid" });
         try {
           result = read();
         } catch (e) {
@@ -1782,7 +1780,7 @@ describe("ssrSource server modes", () => {
     let result: any;
     createRoot(
       () => {
-        const read = createMemo(() => d.promise, undefined, { ssrSource: "server" });
+        const read = createMemo(() => d.promise, { ssrSource: "server" });
         try {
           result = read();
         } catch (e) {
@@ -1801,8 +1799,8 @@ describe("ssrSource server modes", () => {
     let ownerCreated = false;
     createRoot(
       () => {
-        createMemo(() => 1, 0, { ssrSource: "initial" });
-        const second = createMemo(() => 2, 0);
+        createMemo(() => 1, { ssrSource: "initial" });
+        const second = createMemo(() => 2);
         ownerCreated = second() === 2;
       },
       { id: "t" }
@@ -1811,7 +1809,7 @@ describe("ssrSource server modes", () => {
     expect(ownerCreated).toBe(true);
   });
 
-  test("ssrSource 'initial' on createSignal(fn) skips computation", () => {
+  test("ssrSource 'initial' on createSignal(fn) skips computation without a seeded value", () => {
     let computeRan = false;
     let result: any;
     createRoot(
@@ -1821,7 +1819,6 @@ describe("ssrSource server modes", () => {
             computeRan = true;
             return 999;
           },
-          42,
           { ssrSource: "initial" }
         );
         result = read();
@@ -1830,7 +1827,7 @@ describe("ssrSource server modes", () => {
     );
 
     expect(computeRan).toBe(false);
-    expect(result).toBe(42);
+    expect(result).toBeUndefined();
   });
 
   test("ssrSource 'initial' on createProjection skips computation", () => {
@@ -1860,7 +1857,7 @@ describe("ssrSource server modes", () => {
 
     createRoot(
       () => {
-        createMemo(() => Promise.resolve(42), undefined, { ssrSource: "initial" });
+        createMemo(() => Promise.resolve(42), { ssrSource: "initial" });
       },
       { id: "t" }
     );
@@ -1905,7 +1902,6 @@ describe("Async Iterable — createMemo", () => {
             yield await d.promise;
             yield "second";
           },
-          undefined,
           { ssrSource: "server" }
         );
       },
@@ -1931,7 +1927,6 @@ describe("Async Iterable — createMemo", () => {
             yield await d.promise;
             yield "second";
           },
-          undefined,
           { ssrSource: "server" }
         );
       },
@@ -1966,7 +1961,6 @@ describe("Async Iterable — createMemo", () => {
             await secondReady;
             yield "second";
           },
-          undefined,
           { ssrSource: "server" }
         );
       },
@@ -2006,7 +2000,6 @@ describe("Async Iterable — createMemo", () => {
             yield "first";
             yield "second";
           },
-          undefined,
           { ssrSource: "hybrid" }
         );
       },
@@ -2032,7 +2025,6 @@ describe("Async Iterable — createMemo", () => {
             yield "first";
             yield "second";
           },
-          undefined,
           { ssrSource: "hybrid" }
         );
       },
@@ -2076,7 +2068,6 @@ describe("Async Iterable — createMemo", () => {
                 };
               }
             }) as any,
-          undefined,
           { ssrSource: "hybrid" }
         );
       },
@@ -2200,7 +2191,6 @@ describe("Async Iterable — createMemo", () => {
             await secondReady;
             yield "second";
           },
-          undefined,
           { ssrSource: "server" }
         );
       },
@@ -2234,7 +2224,6 @@ describe("Async Iterable — createMemo", () => {
           async function* () {
             throw new Error("gen error");
           },
-          undefined,
           { ssrSource: "server" }
         );
       },
@@ -2259,7 +2248,6 @@ describe("Async Iterable — createMemo", () => {
           async function* () {
             // Generator returns immediately without yielding
           },
-          "fallback",
           { ssrSource: "server" }
         );
       },
@@ -2273,8 +2261,8 @@ describe("Async Iterable — createMemo", () => {
     const r = await iter.next();
     expect(r.done).toBe(true);
 
-    // comp.value should still be the initial value (no yield to update it)
-    expect(read()).toBe("fallback");
+    // No first yield means the memo never commits a value.
+    expect(read()).toBeUndefined();
   });
 
   test("error on second yield after successful first", async () => {
@@ -2290,7 +2278,6 @@ describe("Async Iterable — createMemo", () => {
             yield "first";
             throw new Error("second yield failed");
           },
-          undefined,
           { ssrSource: "server" }
         );
       },

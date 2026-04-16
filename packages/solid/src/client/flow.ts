@@ -89,14 +89,12 @@ export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
   const keyed = props.keyed;
   const conditionValue = createMemo<T | undefined | null | boolean>(
     () => props.when,
-    undefined,
     IS_DEV ? { name: "condition value" } : undefined
   );
   const condition = keyed
     ? conditionValue
     : createMemo(
         conditionValue,
-        undefined,
         IS_DEV
           ? {
               equals: (a, b) => !a === !b,
@@ -123,7 +121,6 @@ export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
       }
       return props.fallback;
     },
-    undefined,
     IS_DEV ? { name: "value" } : undefined
   ) as unknown as JSX.Element;
 }
@@ -155,14 +152,12 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
       const prevFunc = func;
       const conditionValue = createMemo(
         () => (prevFunc() ? undefined : mp.when),
-        undefined,
         IS_DEV ? { name: "condition value" } : undefined
       );
       const condition = mp.keyed
         ? conditionValue
         : createMemo(
             conditionValue,
-            undefined,
             IS_DEV
               ? {
                   equals: (a, b) => !a === !b,
@@ -192,7 +187,6 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
           )
         : child;
     },
-    undefined,
     IS_DEV ? { name: "eval conditions" } : undefined
   ) as unknown as JSX.Element;
 }

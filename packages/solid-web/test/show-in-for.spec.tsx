@@ -70,18 +70,14 @@ describe("Issue #2620 - createProjection + For + Show tree", () => {
             {item => {
               return (
                 <Show when={props.id === item().parentId} keyed={true}>
-                  {() => {
-                    return (
-                      <li data-id={item().id} data-parent={item().parentId}>
-                        <p>
-                          {item().id} {"-->"} {JSON.stringify(item().parentId)}
-                        </p>
-                        <div>
-                          <Item items={item().children} id={item().id} />
-                        </div>
-                      </li>
-                    );
-                  }}
+                  <li data-id={item().id} data-parent={item().parentId}>
+                    <p>
+                      {item().id} {"-->"} {JSON.stringify(item().parentId)}
+                    </p>
+                    <div>
+                      <Item items={item().children} id={item().id} />
+                    </div>
+                  </li>
                 </Show>
               );
             }}

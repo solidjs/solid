@@ -126,21 +126,19 @@ export function getObserver() {
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 export function createSignal<T>(
-  fn: ComputeFunction<T>,
-  initialValue?: T,
+  fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: SignalOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
-  first?: T | ComputeFunction<T>,
-  second?: T | SignalOptions<T>,
-  third?: SignalOptions<T>
+  first?: T | ComputeFunction<any, any>,
+  second?: SignalOptions<any>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const opts =
-      third?.deferStream || third?.ssrSource
-        ? { deferStream: third?.deferStream, ssrSource: third?.ssrSource }
+      second?.deferStream || second?.ssrSource
+        ? { deferStream: second?.deferStream, ssrSource: second?.ssrSource }
         : undefined;
-    const memo = createMemo<T>((prev: T) => (first as (prev?: T) => T)(prev), second as T, opts);
+    const memo = createMemo<T>((prev?: T) => (first as (prev?: T) => T)(prev), opts);
     return [memo, (() => undefined) as Setter<T | undefined>];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations)
@@ -152,27 +150,18 @@ export function createSignal<T>(
   ] as Signal<T | undefined>;
 }
 
-export function createMemo<Next extends Prev, Prev = Next>(
-  compute: ComputeFunction<undefined | NoInfer<Prev>, Next>
-): Accessor<Next>;
-export function createMemo<Next extends Prev, Init = Next, Prev = Next>(
-  compute: ComputeFunction<Init | Prev, Next>,
-  value: Init,
-  options?: MemoOptions<Next>
-): Accessor<Next>;
-export function createMemo<Next extends Prev, Init, Prev>(
-  compute: ComputeFunction<Init | Prev, Next>,
-  value?: Init,
-  options?: MemoOptions<Next>
-): Accessor<Next> {
+export function createMemo<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): Accessor<T> {
   // Capture SSR context at creation time — async re-computations (via .then callbacks)
   // may run after a concurrent request has overwritten sharedConfig.context.
   const ctx = sharedConfig.context;
   const owner = createOwner();
-  const comp: ServerComputation<Next> = {
+  const comp: ServerComputation<T> = {
     owner,
-    value: value as any,
-    compute: compute as ComputeFunction<any, Next>,
+    value: undefined as any,
+    compute: compute as ComputeFunction<any, T>,
     error: undefined,
     computed: false,
     disposed: false
@@ -208,7 +197,7 @@ export function createMemo<Next extends Prev, Init, Prev>(
 
   const ssrSource = options?.ssrSource;
   if (ssrSource === "initial" || ssrSource === "client") {
-    // Skip computation — use initialValue, no serialization. Owner created for ID parity.
+    // Skip computation and keep the value uninitialized. Owner created for ID parity.
     comp.computed = true;
   } else if (!options?.lazy) {
     update();
@@ -423,10 +412,9 @@ function closeAsyncIterator(iter: any, value?: any) {
 
 // === Effects ===
 
-function serverEffect<Next, Init>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next> | undefined,
-  value: Init | undefined,
+function serverEffect<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  effectFn: EffectFunction<T, T> | undefined,
   options: EffectOptions | undefined
 ): void {
   const ssrSource = options?.ssrSource;
@@ -436,10 +424,10 @@ function serverEffect<Next, Init>(
   }
   const ctx = sharedConfig.context;
   const owner = createOwner();
-  const comp: ServerComputation<Next> = {
+  const comp: ServerComputation<T> = {
     owner,
-    value: value as any,
-    compute: compute as ComputeFunction<any, Next>,
+    value: undefined as any,
+    compute: compute as ComputeFunction<any, T>,
     error: undefined,
     computed: true,
     disposed: false
@@ -453,53 +441,31 @@ function serverEffect<Next, Init>(
   }
   try {
     const result = runWithOwner(owner, () =>
-      runWithObserver(comp, () => (compute as ComputeFunction<any, Next>)(value as any))
+      runWithObserver(comp, () => (compute as ComputeFunction<any, T>)(undefined))
     );
     if (ssrSource) {
       processResult(comp, result, owner, ctx, options?.deferStream, ssrSource);
     }
-    effectFn?.((ssrSource ? (comp.value ?? result) : result) as any, value as any);
+    effectFn?.((ssrSource ? (comp.value ?? result) : result) as any, undefined);
   } catch (err) {
     // Swallow errors from effects on server
   }
 }
 
-export function createEffect<Next>(
-  compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effectFn: EffectFunction<NoInfer<Next>, Next> | EffectBundle<NoInfer<Next>, Next>
-): void;
-export function createEffect<Next, Init = Next>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
-  value: Init,
-  options?: EffectOptions
-): void;
-export function createEffect<Next, Init>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effect: EffectFunction<Next, Next> | EffectBundle<Next, Next>,
-  value?: Init,
+export function createEffect<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  effect: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
-  serverEffect(compute, undefined, value, options);
+  serverEffect(compute, undefined, options);
 }
 
-export function createRenderEffect<Next>(
-  compute: ComputeFunction<undefined | NoInfer<Next>, Next>,
-  effectFn: EffectFunction<NoInfer<Next>, Next>
-): void;
-export function createRenderEffect<Next, Init = Next>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next>,
-  value: Init,
-  options?: EffectOptions
-): void;
-export function createRenderEffect<Next, Init>(
-  compute: ComputeFunction<Init | Next, Next>,
-  effectFn: EffectFunction<Next, Next>,
-  value?: Init,
+export function createRenderEffect<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
-  serverEffect(compute, effectFn, value, options);
+  serverEffect(compute, effectFn, options);
 }
 
 export function createTrackedEffect(
@@ -528,17 +494,15 @@ export function createOptimistic<T>(
   options?: SignalOptions<T>
 ): Signal<T>;
 export function createOptimistic<T>(
-  fn: ComputeFunction<T>,
-  initialValue?: T,
+  fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: SignalOptions<T>
 ): Signal<T>;
 export function createOptimistic<T>(
-  first?: T | ComputeFunction<T>,
-  second?: T | SignalOptions<T>,
-  third?: SignalOptions<T>
+  first?: T | ComputeFunction<any, any>,
+  second?: SignalOptions<any>
 ): Signal<T | undefined> {
   // On server, optimistic is the same as regular signal
-  return (createSignal as Function)(first, second, third);
+  return (createSignal as Function)(first, second);
 }
 
 // === Store (plain objects, no proxy) ===
@@ -551,11 +515,18 @@ function setProperty(state: any, property: PropertyKey, value: any) {
 }
 
 export function createStore<T extends object>(
+  store: T | Store<T>
+): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object>(
+  fn: (store: T) => void | T | Promise<void | T>,
+  store: T | Store<T>
+): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
   second?: T | Store<T>
 ): [get: Store<T>, set: StoreSetter<T>] {
   if (typeof first === "function") {
-    const store = createProjection(first as any, (second ?? {}) as T);
+    const store = createProjection(first as any, second as T);
     return [store as Store<T>, ((fn: (state: T) => void) => fn(store as T)) as StoreSetter<T>];
   }
   const state = first as T;
@@ -594,7 +565,7 @@ function createPendingProxy<T extends object>(
 
 export function createProjection<T extends object>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: T = {} as T,
+  initialValue: T,
   options?: { deferStream?: boolean; ssrSource?: string }
 ): Store<T> {
   const ctx = sharedConfig.context;

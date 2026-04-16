@@ -93,10 +93,9 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  * @description https://docs.solidjs.com/reference/component-apis/children
  */
 export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
-  const c = createMemo(fn, undefined, { lazy: true });
+  const c = createMemo(fn, { lazy: true });
   const memo = createMemo(
     () => flatten(c()),
-    undefined,
     IS_DEV ? { name: "children", lazy: true } : { lazy: true }
   ) as unknown as ChildrenReturn;
   memo.toArray = () => {

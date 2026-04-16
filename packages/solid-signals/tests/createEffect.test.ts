@@ -440,7 +440,7 @@ it("should see consistent values with latest() and direct read on async resolve"
   const logs: [string, any][] = [];
 
   createRoot(() => {
-    const [get] = createSignal(async () => 1, 2, {});
+    const [get] = createSignal(async () => 1, {});
 
     createEffect(
       () => {
@@ -482,7 +482,6 @@ it("should defer user effects with the defer option", () => {
       () => {
         mark += "b";
       },
-      undefined,
       { defer: true }
     );
   });

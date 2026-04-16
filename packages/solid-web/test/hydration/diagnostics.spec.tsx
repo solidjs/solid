@@ -5,13 +5,15 @@
 import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
 import { sharedConfig, createMemo, createSignal, flush, Errored, Loading } from "solid-js";
 import { hydrate, insert } from "@solidjs/web";
+import type * as WebServer from "../../types/server.js";
 
 function setupHydration() {
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
 }
 
 async function renderStreamHtml(code: () => any): Promise<string> {
-  const { renderToStream } = await import("../../dist/server.js");
+  const serverEntry = "../../dist/server.js" as string;
+  const { renderToStream } = (await import(serverEntry)) as typeof WebServer;
   return new Promise(resolve => {
     const chunks: string[] = [];
     renderToStream(code).pipe({
@@ -96,7 +98,9 @@ describe("Phase 1: Hydration error diagnostics", () => {
 
   test("late Loading rejection hydrates without orphan warning", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const rejected = Promise.reject(new Error("Item bad-item not found"));
+    const rejected: Promise<{ title: string }> = Promise.reject(
+      new Error("Item bad-item not found")
+    );
     rejected.catch(() => {});
     const html = await renderStreamHtml(() => {
       const item = createMemo(() => rejected);

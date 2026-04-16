@@ -31,8 +31,8 @@ describe("Create signals", () => {
     const memo = createMemo(() => "Hello");
     expect(memo()).toBe("Hello");
   });
-  test("Create and read a Memo with initial value", () => {
-    const memo = createMemo(i => `${i} John`, "Hello");
+  test("Create and read a Memo with defaulted prev", () => {
+    const memo = createMemo((i = "Hello") => `${i} John`);
     expect(memo()).toBe("Hello John");
   });
   test("Create a Effect with explicit deps", () => {
@@ -391,14 +391,14 @@ describe("Typecheck computed and effects", () => {
     createRoot(() => {
       let count = 0;
       const [sign, setSign] = createSignal("thoughts");
-      const fn = (arg: number) => {
+      const fn = (arg = 12) => {
         count++;
         sign();
         expect(arg).toBe(12);
         return arg;
       };
-      createRenderEffect(fn, () => {}, 12);
-      createEffect(fn, () => {}, 12);
+      createRenderEffect(fn, () => {});
+      createEffect(fn, () => {});
       setTimeout(() => {
         expect(count).toBe(2);
         setSign("update");

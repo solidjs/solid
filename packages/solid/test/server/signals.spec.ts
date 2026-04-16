@@ -105,7 +105,6 @@ describe("Server createMemo", () => {
             calls++;
             return 42;
           },
-          undefined,
           { lazy: true }
         );
         expect(calls).toBe(0); // not computed yet
@@ -118,10 +117,10 @@ describe("Server createMemo", () => {
     );
   });
 
-  test("memo with initial value", () => {
+  test("memo with defaulted prev", () => {
     createRoot(
       () => {
-        const memo = createMemo((prev: number) => prev + 1, 10);
+        const memo = createMemo((prev?: number) => (prev ?? 10) + 1);
         expect(memo()).toBe(11);
       },
       { id: "test" }
@@ -140,12 +139,12 @@ describe("Server createMemo", () => {
     );
   });
 
-  test("memo throws NotReadyError for unresolved async even with non-undefined initial", async () => {
+  test("memo throws NotReadyError for unresolved async even with a defaulted prev", async () => {
     let resolve!: (v: string[]) => void;
     const p = new Promise<string[]>(r => (resolve = r));
     createRoot(
       () => {
-        const memo = createMemo(() => p, []);
+        const memo = createMemo((prev = [] as string[]) => (void prev, p));
         expect(() => memo()).toThrow(NotReadyError);
       },
       { id: "test" }
@@ -189,7 +188,7 @@ describe("Server createEffect", () => {
     const effectFn = vi.fn();
     createRoot(
       () => {
-        createEffect(compute, effectFn, undefined, { ssrSource: "client" });
+        createEffect(compute, effectFn, { ssrSource: "client" });
       },
       { id: "test" }
     );
@@ -202,7 +201,7 @@ describe("Server createEffect", () => {
     const effectFn = vi.fn();
     createRoot(
       () => {
-        createEffect(compute, effectFn, undefined, { ssrSource: "initial" });
+        createEffect(compute, effectFn, { ssrSource: "initial" });
       },
       { id: "test" }
     );
@@ -215,7 +214,7 @@ describe("Server createEffect", () => {
     const effectFn = vi.fn();
     createRoot(
       () => {
-        createEffect(compute, effectFn, undefined, { ssrSource: "server" });
+        createEffect(compute, effectFn, { ssrSource: "server" });
       },
       { id: "test" }
     );
@@ -245,7 +244,7 @@ describe("Server createRenderEffect", () => {
     const effectFn = vi.fn();
     createRoot(
       () => {
-        createRenderEffect(compute, effectFn, undefined, { ssrSource: "client" });
+        createRenderEffect(compute, effectFn, { ssrSource: "client" });
       },
       { id: "test" }
     );
@@ -258,7 +257,7 @@ describe("Server createRenderEffect", () => {
     const effectFn = vi.fn();
     createRoot(
       () => {
-        createRenderEffect(compute, effectFn, undefined, { ssrSource: "initial" });
+        createRenderEffect(compute, effectFn, { ssrSource: "initial" });
       },
       { id: "test" }
     );
@@ -271,7 +270,7 @@ describe("Server createRenderEffect", () => {
     const effectFn = vi.fn();
     createRoot(
       () => {
-        createRenderEffect(compute, effectFn, undefined, { ssrSource: "server" });
+        createRenderEffect(compute, effectFn, { ssrSource: "server" });
       },
       { id: "test" }
     );

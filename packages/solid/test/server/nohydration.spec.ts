@@ -192,7 +192,7 @@ describe("NoHydration / Hydration (server)", () => {
       () => {
         NoHydration({
           get children() {
-            createMemo(() => Promise.resolve(42), undefined, { ssrSource: "server" });
+            createMemo(() => Promise.resolve(42), { ssrSource: "server" });
             return "x";
           }
         });
@@ -209,7 +209,7 @@ describe("NoHydration / Hydration (server)", () => {
 
     createRoot(
       () => {
-        createMemo(() => Promise.resolve(42), undefined, { ssrSource: "server" });
+        createMemo(() => Promise.resolve(42), { ssrSource: "server" });
       },
       { id: "t" }
     );

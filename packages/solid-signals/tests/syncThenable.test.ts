@@ -492,7 +492,7 @@ describe("fromObservable pattern", () => {
 
     createRoot(() => {
       signal = createMemo(() => fromObservable(asyncObservable));
-      createRenderEffect(signal, () => {}, undefined, {});
+      createRenderEffect(signal, () => {}, {});
     });
 
     // Initial read throws NotReadyError (caught by boundary)

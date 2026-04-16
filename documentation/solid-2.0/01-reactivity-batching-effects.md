@@ -106,13 +106,6 @@ createEffect(
     return () => { /* cleanup */ };
   }
 );
-
-// With initial value
-createEffect(
-  () => [a(), b()],
-  (deps) => { /* ... */ },
-  undefined
-);
 ```
 
 **`createRenderEffect`** is split the same way and tears when dependencies change. **`createEffect`** may accept an options object with `effect` and `error` for handling errors from the reactive graph (e.g. async).

@@ -517,7 +517,7 @@ describe("createLoadingBoundary", () => {
         const data = createMemo(async () => {
           await Promise.resolve();
           return 100;
-        }, 100);
+        });
 
         const boundary = createLoadingBoundary(
           () => data(),
@@ -547,7 +547,7 @@ describe("createLoadingBoundary", () => {
         const data = createMemo(async () => {
           await Promise.resolve();
           return 101;
-        }, 100);
+        });
 
         const boundary = createLoadingBoundary(
           () => data(),
@@ -579,7 +579,7 @@ describe("createLoadingBoundary", () => {
           callCount++;
           await Promise.resolve();
           return 100;
-        }, 100);
+        });
 
         const boundary = createLoadingBoundary(
           () => data(),
@@ -612,7 +612,7 @@ describe("createLoadingBoundary", () => {
       onCompute?: () => void,
       onFirstUnwrap?: (value: any) => void
     ) {
-      const normalized = createMemo(() => accessor(), undefined, { transparent: true });
+      const normalized = createMemo(() => accessor(), { transparent: true });
       createRenderEffect(
         prev => {
           onCompute?.();
@@ -620,8 +620,7 @@ describe("createLoadingBoundary", () => {
           onFirstUnwrap?.(first);
           return flatten(first, { skipNonRendered: true });
         },
-        value => write(value),
-        undefined
+        value => write(value)
       );
     }
 
@@ -644,7 +643,6 @@ describe("createLoadingBoundary", () => {
               () => "loading"
             );
           },
-          undefined,
           { transparent: true }
         );
 
@@ -700,7 +698,6 @@ describe("createLoadingBoundary", () => {
               () => "loading"
             );
           },
-          undefined,
           { transparent: true }
         );
 
@@ -753,7 +750,6 @@ describe("createLoadingBoundary", () => {
               () => "loading"
             );
           },
-          undefined,
           { transparent: true }
         );
 
@@ -812,7 +808,6 @@ describe("createLoadingBoundary", () => {
               () => "loading"
             );
           },
-          undefined,
           { transparent: true }
         );
 

@@ -213,7 +213,7 @@ it("should discover new dependencies", () => {
 it("should accept equals option", () => {
   const [$x, setX] = createSignal(0);
 
-  const $a = createMemo(() => $x(), 0, {
+  const $a = createMemo(() => $x(), {
     // Skip even numbers.
     equals: (prev, next) => prev + 1 === next
   });
@@ -240,23 +240,23 @@ it("should accept equals option", () => {
 it("should ignore equals before memo initialization", () => {
   const [$x] = createSignal(1);
 
-  const $a = createMemo(() => $x(), 0, {
+  const $a = createMemo(() => $x(), {
     equals: () => true
   });
 
   expect($a()).toBe(1);
 });
 
-it("should use fallback if error is thrown during init", () => {
+it("should route init errors through the boundary without a memo fallback", () => {
   createRoot(() => {
     createErrorBoundary(
       () => {
         const $a = createMemo(() => {
           if (1) throw Error();
           return "";
-        }, "foo");
+        });
 
-        expect($a()).toBe("foo");
+        expect(() => $a()).toThrow();
       },
       () => {}
     )();
@@ -264,7 +264,7 @@ it("should use fallback if error is thrown during init", () => {
 });
 
 describe("async compute", () => {
-  it("should ignore equals on first async resolution with an initial value", async () => {
+  it("should ignore equals on first async resolution without a seeded baseline", async () => {
     let resolveAsync!: () => void;
     let result: unknown;
 
@@ -274,7 +274,6 @@ describe("async compute", () => {
           new Promise<number>(res => {
             resolveAsync = () => res(1);
           }),
-        0,
         { equals: () => true }
       );
       const boundary = createLoadingBoundary(
@@ -2035,7 +2034,6 @@ it("should compute lazy memo when first read inside another computation", () => 
         innerRuns++;
         return $x() + 1;
       },
-      undefined,
       { lazy: true }
     );
 
@@ -2058,8 +2056,8 @@ it("should compute nested lazy memos when first read inside another computation"
   let eager: () => number;
 
   createRoot(() => {
-    const lazyOuter = createMemo(() => $x() + 1, undefined, { lazy: true });
-    const lazyInner = createMemo(() => lazyOuter() * 10, undefined, { lazy: true });
+    const lazyOuter = createMemo(() => $x() + 1, { lazy: true });
+    const lazyInner = createMemo(() => lazyOuter() * 10, { lazy: true });
 
     eager = createMemo(() => lazyInner() + 100);
 
@@ -2120,7 +2118,7 @@ it("should dispose all sibling children when async memo resolves to falsy value"
 
       const conditionValue = createMemo(() => item());
 
-      const condition = createMemo(conditionValue, undefined, {
+      const condition = createMemo(conditionValue, {
         equals: (a: any, b: any) => !a === !b
       });
 

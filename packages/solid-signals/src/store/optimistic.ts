@@ -41,7 +41,7 @@ import {
  * When called with a function, creates a derived optimistic store with `ProjectionOptions` (name, key, all).
  *
  * @param fn a function that receives the current store and can be used to mutate it directly inside a transition
- * @param initial The initial value of the store.
+ * @param store The plain store value, or the backing seed when using the derived-store form.
  * @param options Optional projection options for reconciliation.
  *
  * @returns A tuple containing a store accessor and a setter function to apply changes.
@@ -51,7 +51,7 @@ export function createOptimisticStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store?: NoFn<T> | Store<NoFn<T>>,
+  store: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
@@ -62,7 +62,7 @@ export function createOptimisticStore<T extends object = {}>(
   // Register clear function with scheduler
   GlobalQueue._clearOptimisticStore ||= clearOptimisticStore;
   const derived = typeof first === "function";
-  const initialValue = ((derived ? second : first) as T) ?? ({} as T);
+  const initialValue = (derived ? second : first) as T;
   const fn = derived
     ? (first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>)
     : undefined;
@@ -116,7 +116,7 @@ function clearOptimisticStore(store: any): void {
 
 function createOptimisticProjectionInternal<T extends object = {}>(
   fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) | undefined,
-  initialValue: T = {} as T,
+  initialValue: T,
   options?: ProjectionOptions
 ) {
   let node: Computed<void> | undefined;

@@ -547,7 +547,7 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
  * // Plain store
  * const [store, setStore] = createStore<T>(initialValue);
  * // Derived store (projection)
- * const [store, setStore] = createStore<T>(fn, initialValue?, options?: ProjectionOptions);
+ * const [store, setStore] = createStore<T>(fn, seed, options?: ProjectionOptions);
  * ```
  * @param store initial value to wrap in a reactive proxy, or a derive function
  * @param options `ProjectionOptions` -- name, key, all (only for derived stores)
@@ -559,7 +559,7 @@ export function createStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store?: NoFn<T> | Store<NoFn<T>>,
+  store: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
@@ -568,7 +568,9 @@ export function createStore<T extends object = {}>(
   options?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function",
-    wrappedStore = derived ? createProjectionInternal(first, second, options).store : wrap(first);
+    wrappedStore = derived
+      ? createProjectionInternal(first, second as NoFn<T> | Store<NoFn<T>>, options).store
+      : wrap(first);
 
   if (__DEV__) registerGraph(wrappedStore, getOwner());
 

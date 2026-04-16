@@ -72,17 +72,21 @@ function Page() {
 
 #### Function-form `createSignal` (“writable memo”)
 
-`createSignal(fn, initialValue?, options?)` creates a signal whose value is computed by `fn(prev)` and can also be written through its setter. This replaces many `createComputed` “write-back” use cases with an explicit primitive.
+`createSignal(fn, options?)` creates a signal whose value is computed by `fn(prev)` and can also be written through its setter. This replaces many `createComputed` “write-back” use cases with an explicit primitive.
 
 ```js
 // Example: derived signal
 const [value, setValue] = createSignal(() => props.something);
-// setValue(...) writes like a normal signal; the compute receives prev on recompute.ß
+// If you want a first-run default for prev, use a default parameter:
+const [cached, setCached] = createSignal((prev = props.something) => prev);
+// setValue(...) writes like a normal signal; the compute receives prev on recompute.
 ```
 
 #### Function-form `createStore` (derived/projection store)
 
-`createStore(fn, initial?, options?)` creates a derived store driven by mutation in `fn(draft)` (and may also return a value / Promise / async iterable). It’s the store analogue for derived shapes and underpins patterns like “selector-like” updates without notifying everything.
+`createStore(fn, seed, options?)` creates a derived store driven by mutation in `fn(draft)` (and may also return a value / Promise / async iterable). It’s the store analogue for derived shapes and underpins patterns like “selector-like” updates without notifying everything.
+
+Unlike memo/effect `prev`, the second argument here is a real backing host object/array for the derived store. Treat it as an explicit `seed`, not as the old memo-style “initial value”.
 
 ```js
 // Example: derived store that only flips the active key

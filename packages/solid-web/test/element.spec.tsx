@@ -303,7 +303,7 @@ describe("Spread children caching", () => {
     createRoot(() => {
       const [show, _setShow] = createSignal(true);
       setShow = _setShow;
-      const stableRendered = createMemo(() => rendered(), undefined, { lazy: true });
+      const stableRendered = createMemo(() => rendered(), { lazy: true });
       props = {
         get children() {
           return [

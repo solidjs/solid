@@ -329,7 +329,7 @@ const [count, setCount] = createSignal(0);
 const [doubled] = createSignal(() => count() * 2);
 ```
 
-`createStore(fn, initial)` creates a **derived store** using the familiar `createStore` API:
+`createStore(fn, seed)` creates a **derived store** using the familiar `createStore` API:
 
 ```js
 const [items] = createStore(() => api.listItems(), []);

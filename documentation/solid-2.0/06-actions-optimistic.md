@@ -90,7 +90,7 @@ const updateName = action(function* (next) {
 
 ### `createOptimisticStore` (optimistic store)
 
-`createOptimisticStore(fnOrValue, initial?, options?)` is the store analogue. A common pattern is to derive from a source getter and then apply optimistic mutations in an action.
+`createOptimisticStore(fnOrValue, seed, options?)` is the store analogue in its derived-store form. That second argument is the backing host object/array for the optimistic proxy. A common pattern is to derive from a source getter and then apply optimistic mutations in an action.
 
 ```js
 const [todos, setOptimisticTodos] = createOptimisticStore(() => api.getTodos(), []);
