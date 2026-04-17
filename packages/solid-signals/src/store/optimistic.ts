@@ -51,7 +51,7 @@ export function createOptimisticStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store: NoFn<T> | Store<NoFn<T>>,
+  store: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
@@ -116,7 +116,7 @@ function clearOptimisticStore(store: any): void {
 
 function createOptimisticProjectionInternal<T extends object = {}>(
   fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) | undefined,
-  initialValue: T,
+  initialValue: Partial<T>,
   options?: ProjectionOptions
 ) {
   let node: Computed<void> | undefined;
@@ -134,7 +134,7 @@ function createOptimisticProjectionInternal<T extends object = {}>(
     });
   };
 
-  const wrapProjection = (source: T) => {
+  const wrapProjection = (source: Partial<T>) => {
     if (wrappedMap.has(source)) return wrappedMap.get(source);
     if (source[$TARGET]?.[STORE_WRAP] === wrapProjection) return source;
     const wrapped = createStoreProxy(source, storeTraps, wrapper);
@@ -142,7 +142,7 @@ function createOptimisticProjectionInternal<T extends object = {}>(
     return wrapped;
   };
 
-  const wrappedStore: Store<T> = wrapProjection(initialValue);
+  const wrappedStore = wrapProjection(initialValue) as Store<T>;
 
   // If there's a projection function, create a computed to drive it
   if (fn) {

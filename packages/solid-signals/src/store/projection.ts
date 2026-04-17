@@ -16,7 +16,7 @@ import {
 
 export function createProjectionInternal<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: T,
+  seed: Partial<T>,
   options?: ProjectionOptions
 ) {
   let node;
@@ -31,14 +31,14 @@ export function createProjectionInternal<T extends object = {}>(
       configurable: true
     });
   };
-  const wrapProjection = (source: T) => {
+  const wrapProjection = (source: Partial<T>) => {
     if (wrappedMap.has(source)) return wrappedMap.get(source);
     if (source[$TARGET]?.[STORE_WRAP] === wrapProjection) return source;
     const wrapped = createStoreProxy(source, storeTraps, wrapper);
     wrappedMap.set(source, wrapped);
     return wrapped;
   };
-  const wrappedStore: Store<T> = wrapProjection(seed);
+  const wrappedStore = wrapProjection(seed) as Store<T>;
 
   node = computed(() => {
     const owner = getOwner() as Computed<void | T>;
@@ -82,7 +82,7 @@ export function createProjectionInternal<T extends object = {}>(
  */
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: T,
+  seed: Partial<T>,
   options?: ProjectionOptions
 ): Store<T> & { [$REFRESH]: any } {
   return createProjectionInternal(fn, seed, options).store;

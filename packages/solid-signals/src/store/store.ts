@@ -559,7 +559,7 @@ export function createStore<T extends object = {}>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  store: NoFn<T> | Store<NoFn<T>>,
+  store: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(

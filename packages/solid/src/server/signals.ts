@@ -648,7 +648,7 @@ export function createStore<T extends object>(
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   fn: (store: T) => void | T | Promise<void | T>,
-  store: T | Store<T>
+  store: Partial<T> | Store<T>
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T>),
@@ -694,12 +694,12 @@ function createPendingProxy<T extends object>(
 
 export function createProjection<T extends object>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  initialValue: T,
+  initialValue: Partial<T>,
   options?: { deferStream?: boolean; ssrSource?: string }
 ): Store<T> {
   const ctx = sharedConfig.context;
   const owner = createOwner();
-  const [state] = createStore(initialValue);
+  const [state] = createStore(initialValue as T);
 
   if (options?.ssrSource === "initial" || options?.ssrSource === "client") {
     return state;
