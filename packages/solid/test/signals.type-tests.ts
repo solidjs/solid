@@ -4,6 +4,7 @@ import {
   createMemo,
   Accessor,
   createSignal,
+  createOptimistic,
   Signal,
   Setter
 } from "../src/index.js";
@@ -130,6 +131,10 @@ const memo7 = createMemo((prev?: number) => {
   return (prev ?? 0) + 1;
 }, {});
 const memo7Value: number = memo7();
+const clientMemo = createMemo(() => 123, { ssrSource: "client" });
+const clientMemoValue: number | undefined = clientMemo();
+// @ts-expect-error client memo may be undefined during hydration
+const badClientMemoValue: number = clientMemo();
 
 // @ts-expect-error the compute function must accept an undefined first prev
 const memo8 = createMemo((prev: number) => prev + 1);
@@ -158,6 +163,18 @@ const [derived, setDerived] = createSignal((prev?: number) => (prev ?? count()) 
 const derivedValue: number = derived();
 setDerived(10);
 setDerived(prev => (prev ?? 0) + 1);
+const [clientDerived] = createSignal((prev?: number) => (prev ?? count()) + 1, {
+  ssrSource: "client"
+});
+const clientDerivedValue: number | undefined = clientDerived();
+// @ts-expect-error client derived signal may be undefined during hydration
+const badClientDerivedValue: number = clientDerived();
+const [clientOptimistic] = createOptimistic((prev?: number) => (prev ?? count()) + 1, {
+  ssrSource: "client"
+});
+const clientOptimisticValue: number | undefined = clientOptimistic();
+// @ts-expect-error client optimistic signal may be undefined during hydration
+const badClientOptimisticValue: number = clientOptimistic();
 
 const [optimisticFnValue, setOptimisticFnValue] = createSignal<() => number>(() => () => 1);
 // @ts-expect-error number is not assignable to function

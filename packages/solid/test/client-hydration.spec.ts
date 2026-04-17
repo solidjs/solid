@@ -892,45 +892,6 @@ describe("ssrSource client modes", () => {
     expect(result).toBe(42);
   });
 
-  test("ssrSource 'initial' leaves memo uninitialized and ignores serialized data", () => {
-    startHydration({ t0: { v: 42, s: 1 } });
-
-    let result: any;
-    createRoot(
-      () => {
-        result = createMemo(() => 999, { ssrSource: "initial" })();
-      },
-      { id: "t" }
-    );
-    flush();
-
-    expect(result).toBeUndefined();
-  });
-
-  test("ssrSource 'initial' captures deps via subFetch", () => {
-    startHydration({ t0: { v: 42, s: 1 } });
-
-    let fetchCalled = false;
-    const originalFetch = globalThis.fetch;
-    createRoot(
-      () => {
-        createMemo(
-          () => {
-            fetchCalled =
-              typeof globalThis.fetch !== "function" || globalThis.fetch !== originalFetch;
-            return 999;
-          },
-          { ssrSource: "initial" }
-        )();
-      },
-      { id: "t" }
-    );
-    flush();
-
-    // subFetch replaces fetch with a mock — if it ran, fetchCalled should be true
-    expect(fetchCalled).toBe(true);
-  });
-
   test("ssrSource 'client' leaves memo uninitialized during hydration", () => {
     startHydration({});
 
@@ -1018,28 +979,6 @@ describe("ssrSource client modes — createProjection", () => {
     expect(store.count).toBe(7);
   });
 
-  test("ssrSource 'initial' uses initialValue, ignores serialized data", () => {
-    startHydration({ t0: { v: { name: "server" }, s: 1 } });
-
-    let store: any;
-    createRoot(
-      () => {
-        store = createProjection(
-          (draft: any) => {
-            draft.name = "computed";
-          },
-          { name: "init" },
-          { ssrSource: "initial" }
-        );
-      },
-      { id: "t" }
-    );
-    flush();
-
-    // "initial" skips server data — fn runs against initialValue with no hydration override
-    expect(store.name).toBe("init");
-  });
-
   test("ssrSource 'client' uses initialValue during hydration", () => {
     startHydration({});
 
@@ -1109,28 +1048,6 @@ describe("ssrSource client modes — createStore(fn)", () => {
     flush();
 
     expect(store.name).toBe("hybrid-val");
-  });
-
-  test("ssrSource 'initial' uses initialValue, ignores serialized data", () => {
-    startHydration({ t0: { v: { name: "server" }, s: 1 } });
-
-    let store: any;
-    createRoot(
-      () => {
-        [store] = createStore(
-          (draft: any) => {
-            draft.name = "computed";
-          },
-          { name: "init" },
-          { ssrSource: "initial" }
-        );
-      },
-      { id: "t" }
-    );
-    flush();
-
-    // "initial" skips server data — store gets plain initialValue
-    expect(store.name).toBe("init");
   });
 
   test("ssrSource 'client' uses initialValue during hydration", () => {

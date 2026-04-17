@@ -21,8 +21,14 @@ import {
   releaseSnapshotScope,
   clearSnapshots,
   $REFRESH,
+  type Accessor,
+  type ComputeFunction,
+  type MemoOptions,
+  type NoInfer,
   type Owner,
   type ProjectionOptions,
+  type Signal,
+  type SignalOptions,
   type Store,
   type StoreSetter,
   createOwner,
@@ -35,7 +41,7 @@ import { IS_DEV } from "./core.js";
 
 type HydrationSsrFields = {
   deferStream?: boolean;
-  ssrSource?: "server" | "hybrid" | "initial" | "client";
+  ssrSource?: "server" | "hybrid" | "client";
 };
 declare module "@solidjs/signals" {
   interface MemoOptions<T> extends HydrationSsrFields {}
@@ -44,7 +50,18 @@ declare module "@solidjs/signals" {
 }
 
 export type HydrationProjectionOptions = ProjectionOptions & {
-  ssrSource?: "server" | "hybrid" | "initial" | "client";
+  ssrSource?: "server" | "hybrid" | "client";
+};
+
+type HydrationClientMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & { ssrSource: "client" };
+type HydrationMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & {
+  ssrSource?: "server" | "hybrid";
+};
+type HydrationClientSignalOptions<T> = Omit<SignalOptions<T> & MemoOptions<T>, "ssrSource"> & {
+  ssrSource: "client";
+};
+type HydrationSignalOptions<T> = Omit<SignalOptions<T> & MemoOptions<T>, "ssrSource"> & {
+  ssrSource?: "server" | "hybrid";
 };
 
 export type HydrationContext = {};
@@ -450,14 +467,6 @@ function hydratedCreateMemo(compute: any, options?: any) {
     return memo;
   }
 
-  if (ssrSource === "initial") {
-    return coreMemo((prev: any) => {
-      if (!sharedConfig.hydrating) return compute(prev);
-      subFetch(compute, prev);
-      return prev;
-    }, options);
-  }
-
   // "server", "hybrid", or undefined — use serialized value from server
   const aiResult = hydrateSignalFromAsyncIterable(coreMemo, compute, options);
   if (aiResult !== null) return aiResult;
@@ -479,14 +488,6 @@ function hydratedCreateSignal(fn?: any, second?: any) {
     }, second);
     setHydrated(true);
     return sig;
-  }
-
-  if (ssrSource === "initial") {
-    return coreSignal((prev: any) => {
-      if (!sharedConfig.hydrating) return fn(prev);
-      subFetch(fn, prev);
-      return prev;
-    }, second);
   }
 
   // "server", "hybrid", or undefined
@@ -534,14 +535,6 @@ function hydratedCreateOptimistic(fn?: any, second?: any) {
     }, second);
     setHydrated(true);
     return sig;
-  }
-
-  if (ssrSource === "initial") {
-    return coreOptimistic((prev: any) => {
-      if (!sharedConfig.hydrating) return fn(prev);
-      subFetch(fn, prev);
-      return prev;
-    }, second);
   }
 
   // "server", "hybrid", or undefined
@@ -608,7 +601,6 @@ function hydratedCreateStore(first?: any, second?: any, third?: any) {
     return coreStore(first, second, third);
   markTopLevelSnapshotScope();
   const ssrSource = third?.ssrSource;
-  if (ssrSource === "initial") return coreStore(second ?? {});
   return hydrateStoreLikeFn(coreStore, first, second ?? {}, third, ssrSource);
 }
 
@@ -617,7 +609,6 @@ function hydratedCreateOptimisticStore(first?: any, second?: any, third?: any) {
     return coreOptimisticStore(first, second, third);
   markTopLevelSnapshotScope();
   const ssrSource = third?.ssrSource;
-  if (ssrSource === "initial") return coreOptimisticStore(second ?? {});
   return hydrateStoreLikeFn(coreOptimisticStore, first, second ?? {}, third, ssrSource);
 }
 
@@ -625,7 +616,6 @@ function hydratedCreateProjection(fn: any, initialValue?: any, options?: any) {
   if (!sharedConfig.hydrating) return coreProjection(fn, initialValue, options);
   markTopLevelSnapshotScope();
   const ssrSource = options?.ssrSource;
-  if (ssrSource === "initial") return coreProjection((draft: any) => draft, initialValue, options);
   return hydrateStoreLikeFn(coreProjection, fn, initialValue, options, ssrSource);
 }
 
@@ -652,19 +642,6 @@ function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?:
       options
     );
     setHydrated(true);
-    return;
-  }
-
-  if (ssrSource === "initial") {
-    coreFn(
-      (prev: any) => {
-        if (!sharedConfig.hydrating) return compute(prev);
-        subFetch(compute, prev);
-        return prev;
-      },
-      effectFn,
-      options
-    );
     return;
   }
 
@@ -734,17 +711,45 @@ export function enableHydration() {
 }
 
 // Wrapped primitives — delegate to override or core
-export const createMemo: typeof coreMemo = ((...args: any[]) =>
-  (_createMemo || coreMemo)(...args)) as typeof coreMemo;
+export const createMemo: {
+  <T>(
+    compute: ComputeFunction<undefined | NoInfer<T>, T>,
+    options: HydrationClientMemoOptions<T>
+  ): Accessor<T | undefined>;
+  <T>(
+    compute: ComputeFunction<undefined | NoInfer<T>, T>,
+    options?: HydrationMemoOptions<T>
+  ): Accessor<T>;
+} = ((...args: any[]) => (_createMemo || coreMemo)(...args)) as any;
 
-export const createSignal: typeof coreSignal = ((...args: any[]) =>
-  (_createSignal || coreSignal)(...args)) as typeof coreSignal;
+export const createSignal: {
+  <T>(): Signal<T | undefined>;
+  <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
+  <T>(
+    fn: ComputeFunction<undefined | NoInfer<T>, T>,
+    options: HydrationClientSignalOptions<T>
+  ): Signal<T | undefined>;
+  <T>(
+    fn: ComputeFunction<undefined | NoInfer<T>, T>,
+    options?: HydrationSignalOptions<T>
+  ): Signal<T>;
+} = ((...args: any[]) => (_createSignal || coreSignal)(...args)) as any;
 
 export const createErrorBoundary: typeof coreErrorBoundary = ((...args: any[]) =>
   (_createErrorBoundary || coreErrorBoundary)(...args)) as typeof coreErrorBoundary;
 
-export const createOptimistic: typeof coreOptimistic = ((...args: any[]) =>
-  (_createOptimistic || coreOptimistic)(...args)) as typeof coreOptimistic;
+export const createOptimistic: {
+  <T>(): Signal<T | undefined>;
+  <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
+  <T>(
+    fn: ComputeFunction<undefined | NoInfer<T>, T>,
+    options: HydrationClientSignalOptions<T>
+  ): Signal<T | undefined>;
+  <T>(
+    fn: ComputeFunction<undefined | NoInfer<T>, T>,
+    options?: HydrationSignalOptions<T>
+  ): Signal<T>;
+} = ((...args: any[]) => (_createOptimistic || coreOptimistic)(...args)) as any;
 
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,

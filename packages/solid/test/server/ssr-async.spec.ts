@@ -1799,27 +1799,6 @@ describe("ssrSource server modes", () => {
     sharedConfig.context = undefined;
   });
 
-  test("ssrSource 'initial' skips computation on createMemo without a seeded value", () => {
-    let computeRan = false;
-    let result: any;
-    createRoot(
-      () => {
-        const read = createMemo(
-          () => {
-            computeRan = true;
-            return 999;
-          },
-          { ssrSource: "initial" }
-        );
-        result = read();
-      },
-      { id: "t" }
-    );
-
-    expect(computeRan).toBe(false);
-    expect(result).toBeUndefined();
-  });
-
   test("ssrSource 'client' skips computation on createMemo without a seeded value", () => {
     let computeRan = false;
     let result: any;
@@ -1887,11 +1866,11 @@ describe("ssrSource server modes", () => {
     expect(serializeLog.length).toBe(1);
   });
 
-  test("ssrSource 'initial' still creates owner for ID parity", () => {
+  test("ssrSource 'client' still creates owner for ID parity", () => {
     let ownerCreated = false;
     createRoot(
       () => {
-        createMemo(() => 1, { ssrSource: "initial" });
+        createMemo(() => 1, { ssrSource: "client" });
         const second = createMemo(() => 2);
         ownerCreated = second() === 2;
       },
@@ -1901,7 +1880,7 @@ describe("ssrSource server modes", () => {
     expect(ownerCreated).toBe(true);
   });
 
-  test("ssrSource 'initial' on createSignal(fn) skips computation without a seeded value", () => {
+  test("ssrSource 'client' on createSignal(fn) skips computation without a seeded value", () => {
     let computeRan = false;
     let result: any;
     createRoot(
@@ -1911,7 +1890,7 @@ describe("ssrSource server modes", () => {
             computeRan = true;
             return 999;
           },
-          { ssrSource: "initial" }
+          { ssrSource: "client" }
         );
         result = read();
       },
@@ -1922,7 +1901,7 @@ describe("ssrSource server modes", () => {
     expect(result).toBeUndefined();
   });
 
-  test("ssrSource 'initial' on createProjection skips computation", () => {
+  test("ssrSource 'client' on createProjection skips computation", () => {
     let computeRan = false;
     let store: any;
     createRoot(
@@ -1933,7 +1912,7 @@ describe("ssrSource server modes", () => {
             draft.name = "computed";
           },
           { name: "initial" },
-          { ssrSource: "initial" }
+          { ssrSource: "client" }
         );
       },
       { id: "t" }
@@ -1943,13 +1922,13 @@ describe("ssrSource server modes", () => {
     expect(store.name).toBe("initial");
   });
 
-  test("ssrSource 'initial' does not serialize", () => {
+  test("ssrSource 'client' does not serialize", () => {
     const { context, serializeLog } = createSerializeTrackingContext();
     sharedConfig.context = context;
 
     createRoot(
       () => {
-        createMemo(() => Promise.resolve(42), { ssrSource: "initial" });
+        createMemo(() => Promise.resolve(42), { ssrSource: "client" });
       },
       { id: "t" }
     );

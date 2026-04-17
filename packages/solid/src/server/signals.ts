@@ -105,6 +105,15 @@ interface ServerComputation<T = any> {
   disposed: boolean;
 }
 
+type SsrSourceMode = "server" | "hybrid" | "client";
+type ServerSsrOptions = { deferStream?: boolean; ssrSource?: SsrSourceMode };
+type ServerClientMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & { ssrSource: "client" };
+type ServerMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & { ssrSource?: "server" | "hybrid" };
+type ServerClientSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & { ssrSource: "client" };
+type ServerSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & {
+  ssrSource?: "server" | "hybrid";
+};
+
 let Observer: ServerComputation | null = null;
 
 function runWithObserver<T>(comp: ServerComputation, fn: () => T): T {
@@ -211,7 +220,11 @@ export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 export function createSignal<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
-  options?: SignalOptions<T>
+  options: ServerClientSignalOptions<T>
+): Signal<T | undefined>;
+export function createSignal<T>(
+  fn: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerSignalOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
   first?: T | ComputeFunction<any, any>,
@@ -222,7 +235,7 @@ export function createSignal<T>(
       second?.deferStream || second?.ssrSource
         ? { deferStream: second?.deferStream, ssrSource: second?.ssrSource }
         : undefined;
-    const memo = createMemo<T>((prev?: T) => (first as (prev?: T) => T)(prev), opts);
+    const memo = createMemo<T>((prev?: T) => (first as (prev?: T) => T)(prev), opts as any);
     return [memo, (() => undefined) as Setter<T | undefined>];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations)
@@ -236,8 +249,16 @@ export function createSignal<T>(
 
 export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
-  options?: MemoOptions<T>
-): Accessor<T> {
+  options: ServerClientMemoOptions<T>
+): Accessor<T | undefined>;
+export function createMemo<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerMemoOptions<T>
+): Accessor<T>;
+export function createMemo<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerClientMemoOptions<T> | ServerMemoOptions<T>
+): Accessor<T | undefined> {
   // Capture SSR context at creation time — async re-computations (via .then callbacks)
   // may run after a concurrent request has overwritten sharedConfig.context.
   const ctx = sharedConfig.context;
@@ -277,7 +298,7 @@ export function createMemo<T>(
   }
 
   const ssrSource = options?.ssrSource;
-  if (ssrSource === "initial" || ssrSource === "client") {
+  if (ssrSource === "client") {
     // Skip computation and keep the value uninitialized. Owner created for ID parity.
     comp.computed = true;
   } else if (!options?.lazy) {
@@ -382,7 +403,7 @@ function processResult<T>(
   owner: Owner,
   ctx: any,
   deferStream?: boolean,
-  ssrSource?: string,
+  ssrSource?: SsrSourceMode,
   rerun?: () => any
 ) {
   if (comp.disposed) return;
@@ -547,7 +568,7 @@ function serverEffect<T>(
   options: EffectOptions | undefined
 ): void {
   const ssrSource = options?.ssrSource;
-  if (ssrSource === "client" || ssrSource === "initial") {
+  if (ssrSource === "client") {
     createOwner();
     return;
   }
@@ -624,7 +645,11 @@ export function createOptimistic<T>(
 ): Signal<T>;
 export function createOptimistic<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
-  options?: SignalOptions<T>
+  options: ServerClientSignalOptions<T>
+): Signal<T | undefined>;
+export function createOptimistic<T>(
+  fn: ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerSignalOptions<T>
 ): Signal<T>;
 export function createOptimistic<T>(
   first?: T | ComputeFunction<any, any>,
@@ -695,13 +720,13 @@ function createPendingProxy<T extends object>(
 export function createProjection<T extends object>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: Partial<T>,
-  options?: { deferStream?: boolean; ssrSource?: string }
+  options?: ServerSsrOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
   const owner = createOwner();
   const [state] = createStore(initialValue as T);
 
-  if (options?.ssrSource === "initial" || options?.ssrSource === "client") {
+  if (options?.ssrSource === "client") {
     return state;
   }
 

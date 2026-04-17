@@ -41,7 +41,11 @@ export type PropValue =
  *   narrowing
  * - other types pass through unchanged
  */
-export type WidenPropValue<V> = [V] extends [string] ? (string extends V ? string | number : V) : V;
+export type WidenPropValue<V> = [V] extends [string]
+  ? string extends V
+    ? string | number
+    : V
+  : V;
 
 /**
  * Structurally identical → `Y`; distinct → `N`. Used by `IsReadonlyKey` to detect

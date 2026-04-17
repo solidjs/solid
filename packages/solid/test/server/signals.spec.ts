@@ -196,19 +196,6 @@ describe("Server createEffect", () => {
     expect(effectFn).not.toHaveBeenCalled();
   });
 
-  test("ssrSource initial skips both compute and effectFn", () => {
-    const compute = vi.fn(() => 1);
-    const effectFn = vi.fn();
-    createRoot(
-      () => {
-        createEffect(compute, effectFn, { ssrSource: "initial" });
-      },
-      { id: "test" }
-    );
-    expect(compute).not.toHaveBeenCalled();
-    expect(effectFn).not.toHaveBeenCalled();
-  });
-
   test("ssrSource server runs compute and skips effectFn", () => {
     const compute = vi.fn(() => 42);
     const effectFn = vi.fn();
@@ -245,19 +232,6 @@ describe("Server createRenderEffect", () => {
     createRoot(
       () => {
         createRenderEffect(compute, effectFn, { ssrSource: "client" });
-      },
-      { id: "test" }
-    );
-    expect(compute).not.toHaveBeenCalled();
-    expect(effectFn).not.toHaveBeenCalled();
-  });
-
-  test("ssrSource initial skips both compute and effectFn", () => {
-    const compute = vi.fn(() => 42);
-    const effectFn = vi.fn();
-    createRoot(
-      () => {
-        createRenderEffect(compute, effectFn, { ssrSource: "initial" });
       },
       { id: "test" }
     );
