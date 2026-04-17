@@ -1,5 +1,22 @@
 # solid-js
 
+## 2.0.0-beta.7
+
+### Patch Changes
+
+- e855fcb: Fix dual runtime package type resolution for CommonJS consumers.
+- 76b11b2: Bump dom-expressions to next.22 with cascading root hole fix and jsx-properties type resolution
+- 5869c94: Fix ASYNC_OUTSIDE_LOADING_BOUNDARY diagnostic firing even when a boundary handled the async
+- 3242e50: Move loadModuleAssets to dom-expressions and consume via sharedConfig for lazy hydration without Loading boundary
+- f18780e: Update `@solidjs/signals` to `0.13.12` to fix `Loading` boundaries mounted during async refresh so new fallbacks render instead of holding stale content.
+- ea7f892: Fix ownerless conditional memo reads by reviving suspended unowned computeds on direct access, and align Repeat and Reveal compiler/runtime exports.
+- beb419e: Move `@solidjs/signals` into the monorepo and wire local builds, tests, and releases to the workspace package.
+- bd563d0: Remove the misleading initial value parameter from derived primitives and require explicit seed values for store-backed projection APIs.
+- 5086c21: Rename `pureWrite` option to `ownedWrite` across signals and hydration to align with error messaging and documentation
+- 8511fc1: Support async callbacks in createMemo and createProjection on the server by retrying when a NotReadyError-rejected promise is detected, instead of treating it as a terminal error
+- Updated dependencies [5acf0ee]
+  - @solidjs/signals@2.0.0-beta.7
+
 ## 2.0.0-beta.6
 
 ### Patch Changes

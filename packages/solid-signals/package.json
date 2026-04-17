@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/signals",
-  "version": "2.0.0-beta.6",
+  "version": "2.0.0-beta.7",
   "description": "SolidJS' reactive core implementation",
   "author": "Ryan Carniato",
   "license": "MIT",
