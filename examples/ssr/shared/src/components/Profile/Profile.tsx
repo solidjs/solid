@@ -5,10 +5,10 @@ export interface User {
   lastName: string;
 }
 
-function Profile(props: { info?: string[]; user?: User }) {
+function Profile(props: { info: string[]; user: User }) {
   return (
     <>
-      <h1>{props.user?.firstName}'s Profile</h1>
+      <h1>{props.user.firstName}'s Profile</h1>
       <p>This section could be about you.</p>
       <Loading fallback={<span class="loader">Loading Info...</span>}>
         <ul>

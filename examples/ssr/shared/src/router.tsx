@@ -28,7 +28,7 @@ function RouteHOC(Comp: Component): Component<{ url?: string }> {
     }
 
     return (
-      <RouterContext value={[location, { setLocation: value => setLocation(value), matches }]}>
+      <RouterContext value={[location, { setLocation, matches }]}>
         <Comp />
       </RouterContext>
     );
