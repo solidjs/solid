@@ -1,5 +1,5 @@
 import { cpSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 const args = process.argv.slice(2);
 
@@ -17,14 +17,22 @@ for (let i = 0; i < args.length; i += 2) {
     process.exit(1);
   }
 
+  // Work around Node 22.6–22.x fs.cpSync false positives when dest's path extends src's
+  // name as a string prefix (e.g. types -> types-cjs). See nodejs/node#54285.
+  const staging = resolve(dirname(dest), ".dual-types-staging", basename(dest));
+
+  rmSync(staging, { recursive: true, force: true });
   rmSync(dest, { recursive: true, force: true });
-  mkdirSync(dirname(dest), { recursive: true });
-  cpSync(src, dest, { recursive: true });
-  rewriteTreeToCjsDeclarations(dest);
+  mkdirSync(dirname(staging), { recursive: true });
+  cpSync(src, staging, { recursive: true });
+  rewriteTreeToCjsDeclarations(staging);
   writeFileSync(
-    resolve(dest, "package.json"),
+    resolve(staging, "package.json"),
     JSON.stringify({ type: "commonjs" }, null, 2) + "\n"
   );
+  mkdirSync(dirname(dest), { recursive: true });
+  renameSync(staging, dest);
+  rmSync(dirname(staging), { recursive: true, force: true });
 }
 
 function rewriteTreeToCjsDeclarations(root) {

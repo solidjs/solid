@@ -112,8 +112,8 @@ importers:
         specifier: ~5.7.2
         version: 5.7.3
       vite-plugin-solid:
-        specifier: 3.0.0-next.2
-        version: 3.0.0-next.2(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1))
+        specifier: 3.0.0-next.4
+        version: 3.0.0-next.4(@solidjs/web@2.0.0-beta.7(solid-js@2.0.0-experimental.16))(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1))
       vitest:
         specifier: ^2.1.2
         version: 2.1.9(@types/node@22.19.11)(jsdom@25.0.1)(terser@5.46.1)
@@ -175,7 +175,7 @@ importers:
         specifier: 0.41.0-next.20
         version: 0.41.0-next.20(@babel/core@7.29.0)
       solid-js:
-        specifier: ^2.0.0-beta.6
+        specifier: ^2.0.0-beta.7
         version: 2.0.0-experimental.16
 
   packages/solid:
@@ -1365,6 +1365,12 @@ packages:
     resolution: {integrity: sha512-2HRCml6OztYXyJXAvdDXPKcawukWY2GpR5/nxKp4iBgiO3wcoEGkAaqctIbZcNB6KlUQBIqt8VYkNSj2397EfA==}
     cpu: [x64]
     os: [win32]
+
+  '@solidjs/web@2.0.0-beta.7':
+    resolution: {integrity: sha512-m5VjmDBufrOX0ZKGbhvwkT0CPK0TbMxDbxVPDB1PH2evGbWXQZcUlrpFM1N8RBO5md3aR/T1PgMfnOjleJbrRg==}
+    peerDependencies:
+      '@solidjs/signals': workspace:*
+      solid-js: ^2.0.0-beta.7
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -3494,12 +3500,13 @@ packages:
     engines: {node: ^18.0.0 || >=20.0.0}
     hasBin: true
 
-  vite-plugin-solid@3.0.0-next.2:
-    resolution: {integrity: sha512-13AjTjjvrit4QfLtygAEC2pnYWgawowniqBHBtjNnpltnjIzYd8YhPbBv1NEBf3jcFQtQZEQib1tFiIRAxba6w==}
+  vite-plugin-solid@3.0.0-next.4:
+    resolution: {integrity: sha512-6t2oUJs5H7UtFxw3tM/EC2mxHmzeOtMlnPI/HFkzDqy1XaDuGjbdhggSi7KbuhP0mWM7I+IktPDlu4SWuCFPKw==}
     peerDependencies:
+      '@solidjs/web': '>=2.0.0-beta.0 <2.0.0-experimental.0'
       '@testing-library/jest-dom': ^5.16.6 || ^5.17.0 || ^6.*
-      solid-js: '>=2.0.0-beta.0 <2.0.0'
-      vite: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
+      solid-js: '>=2.0.0-beta.0 <2.0.0-experimental.0'
+      vite: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0
     peerDependenciesMeta:
       '@testing-library/jest-dom':
         optional: true
@@ -4889,6 +4896,12 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
+
+  '@solidjs/web@2.0.0-beta.7(solid-js@2.0.0-experimental.16)':
+    dependencies:
+      seroval: 1.5.1
+      seroval-plugins: 1.5.0(seroval@1.5.1)
+      solid-js: 2.0.0-experimental.16
 
   '@types/babel__core@7.20.5':
     dependencies:
@@ -7287,9 +7300,10 @@ snapshots:
       - supports-color
       - terser
 
-  vite-plugin-solid@3.0.0-next.2(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1)):
+  vite-plugin-solid@3.0.0-next.4(@solidjs/web@2.0.0-beta.7(solid-js@2.0.0-experimental.16))(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1)):
     dependencies:
       '@babel/core': 7.29.0
+      '@solidjs/web': 2.0.0-beta.7(solid-js@2.0.0-experimental.16)
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
       merge-anything: 5.1.7
