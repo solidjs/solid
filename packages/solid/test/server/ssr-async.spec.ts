@@ -1109,42 +1109,6 @@ describe("Loading SSR Async", () => {
       ).toBe(false);
     });
 
-    test("outer Errored catches invalid top-level async read during Loading discovery", () => {
-      const { context, registeredFragments } = createMockSSRContext();
-      sharedConfig.context = context;
-
-      const d = deferred<string>();
-      let result: any;
-      const read = (value: any): any => {
-        while (typeof value === "function") value = value();
-        return value;
-      };
-
-      createRoot(
-        () => {
-          result = Errored({
-            fallback: (e: any) => `OuterError: ${String(e.message || e)}`,
-            get children() {
-              return Loading({
-                fallback: "Loading..." as any,
-                get children() {
-                  const data = createMemo(() => d.promise);
-                  const value = data();
-                  return ssr(["<div>", "</div>"], value) as any;
-                }
-              }) as any;
-            }
-          }) as any;
-        },
-        { id: "t" }
-      );
-
-      expect(read(result)).toBe(
-        "OuterError: Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
-      );
-      expect(registeredFragments.size).toBe(0);
-    });
-
     test("Loading with nested Errored resolves mixed success and error content", async () => {
       const { context, registeredFragments, fragmentResults, fragmentErrors } =
         createMockSSRContext();

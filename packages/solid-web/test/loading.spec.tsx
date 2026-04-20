@@ -81,6 +81,27 @@ describe("Testing Loading", () => {
     expect(div.innerHTML).toBe("Hi, Jo.Hello Jo");
   });
 
+  test("bare async memo as direct Loading child (issue #2677)", async () => {
+    const localDiv = document.createElement("div");
+    let resolveData!: (value: string) => void;
+
+    const localDispose = render(() => {
+      const data = createMemo(() => new Promise<string>(r => (resolveData = r)));
+      return <Loading fallback="Loading...">{data()}</Loading>;
+    }, localDiv);
+
+    flush();
+    expect(localDiv.innerHTML).toBe("Loading...");
+
+    resolveData("Bare Data");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(localDiv.innerHTML).toBe("Bare Data");
+
+    localDispose();
+  });
+
   test("on prop treats component value as the boundary key", async () => {
     let setId!: (value: string) => void;
     const localDiv = document.createElement("div");

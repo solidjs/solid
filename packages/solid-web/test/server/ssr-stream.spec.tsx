@@ -170,6 +170,44 @@ describe("SSR Streaming — Basic Rendering", () => {
     expect(html).toContain("Loaded Data");
   });
 
+  test("bare async memo as direct Loading child (issue #2677)", async () => {
+    function App() {
+      const data = createMemo(async () => asyncValue("Bare Data", 20));
+      return (
+        <div>
+          <Loading fallback={<span>Loading...</span>}>{data()}</Loading>
+        </div>
+      );
+    }
+
+    const { shell, chunks } = await collectChunks(() => <App />);
+    const full = chunks.join("");
+    expect(shell).toContain("Loading...");
+    expect(full).toContain("Bare Data");
+  });
+
+  test("bare rejected async memo under Errored inside Loading resolves to error fallback", async () => {
+    function App() {
+      const data = createMemo<{ title: string }>(() =>
+        Promise.reject(new Error("boom")).catch(e => {
+          throw e;
+        })
+      );
+      return (
+        <div>
+          <Loading fallback={<span>Pending</span>}>
+            <Errored fallback={(e: any) => <span>err: {e.message}</span>}>{data().title}</Errored>
+          </Loading>
+        </div>
+      );
+    }
+
+    const html = await renderComplete(() => <App />);
+    expect(html).toContain("err:");
+    expect(html).toContain("boom");
+    expect(html).not.toContain("tracking scope");
+  });
+
   test("async memo — shell contains fallback, final has resolved value", async () => {
     function App() {
       const data = createMemo(async () => {

@@ -47,15 +47,6 @@ export function ssrHandleError(err: any) {
   throw err;
 }
 
-class InvalidTopLevelAsyncReadError extends Error {
-  constructor() {
-    super(
-      "Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
-    );
-    this.name = "InvalidTopLevelAsyncReadError";
-  }
-}
-
 /**
  * Tracks all resources inside a component and renders a fallback until they are all resolved
  *
@@ -83,6 +74,7 @@ export function createLoadingBoundary(
 
   let done: ((value?: string, error?: any) => boolean) | undefined;
   let handledRenderError: any;
+  let retryPromise: Promise<any> | undefined;
   let serializeBuffer: [string, any, boolean?][] = [];
   const bufferedCtx = Object.create(ctx) as typeof ctx;
   bufferedCtx.serialize = (id: string, value: any, deferStream?: boolean) => {
@@ -134,21 +126,25 @@ export function createLoadingBoundary(
     }
   }
 
-  function runDiscovery(): SSRTemplateObject {
+  function runDiscovery(): SSRTemplateObject | undefined {
     o.dispose(false);
     serializeBuffer = [];
+    retryPromise = undefined;
     return runLoadingPhase(() => {
       try {
         return ctx.resolve(fn());
       } catch (err) {
-        if (err instanceof NotReadyError) throw new InvalidTopLevelAsyncReadError();
+        if (err instanceof NotReadyError) {
+          retryPromise = (err as any).source as Promise<any>;
+          return undefined;
+        }
         throw err;
       }
     }) as any;
   }
 
   let ret = runDiscovery();
-  if (!ret?.p?.length) {
+  if (!retryPromise && !ret?.p?.length) {
     commitBoundaryState();
     return () => ret;
   }
@@ -175,13 +171,17 @@ export function createLoadingBoundary(
     done = ctx.registerFragment(id, regOpts);
     (async () => {
       try {
+        while (retryPromise) {
+          await retryPromise.catch(() => {});
+          ret = runDiscovery();
+        }
         commitBoundaryState();
-        while (ret.p.length) {
-          await Promise.all(ret.p).catch(() => {});
-          ret = runLoadingPhase(() => ctx.ssr(ret.t, ...ret.h)) as any;
+        while (ret!.p.length) {
+          await Promise.all(ret!.p).catch(() => {});
+          ret = runLoadingPhase(() => ctx.ssr(ret!.t, ...ret!.h)) as any;
         }
         flushSerializeBuffer();
-        done!(ret.t[0]);
+        done!(ret!.t[0]);
         if (revealGroup) revealGroup.onResolved(id);
       } catch (err) {
         finalizeError(err);
