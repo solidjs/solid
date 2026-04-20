@@ -104,7 +104,7 @@ import { createSignal } from "solid-js";
 
 // A component is just a function that (optionally) accepts properties and returns a DOM node
 const Counter = props => {
-  // Create a piece of reactive state, giving us a accessor, count(), and a setter, setCount()
+  // Create a piece of reactive state, giving us an accessor, count(), and a setter, setCount()
   const [count, setCount] = createSignal(props.startingCount || 1);
 
   // The increment function calls the setter
