@@ -369,10 +369,22 @@ function hydrateSignalFromAsyncIterable(coreFn: Function, compute: any, options:
       return it;
     }
   };
-  return coreFn(() => iterable, options);
+  return coreFn((prev: any) => {
+    // Run the user compute up to its first await on the client so any reactive
+    // dependencies read before the first suspension are tracked. subFetch mocks
+    // fetch/Promise so the async generator cannot progress past that point —
+    // the server iterator drives the actual values from here on.
+    subFetch(compute, prev);
+    return iterable;
+  }, options);
 }
 
-function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, options: any): any {
+function hydrateStoreFromAsyncIterable(
+  coreFn: Function,
+  fn: any,
+  initialValue: any,
+  options: any
+): any {
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
   if (!sharedConfig.has!(expectedId)) return null;
@@ -384,15 +396,31 @@ function hydrateStoreFromAsyncIterable(coreFn: Function, initialValue: any, opti
   let buffered: any = null;
   return coreFn(
     (draft: any) => {
+      // Run the user fn up to its first await on the client so any reactive
+      // dependencies read before the first suspension are tracked. Writes go
+      // to a shadow of the draft and are discarded — the server iterator is
+      // authoritative and drives the real draft via the iterable below.
+      const { proxy } = createShadowDraft(draft);
+      subFetch(fn, proxy);
       const process = (res: any) => {
         if (res.done) return { done: true, value: undefined };
         if (isFirst) {
           isFirst = false;
-          if (Array.isArray(res.value)) {
-            for (let i = 0; i < res.value.length; i++) draft[i] = res.value[i];
-            draft.length = res.value.length;
-          } else {
-            Object.assign(draft, res.value);
+          // The initial full value IS the snapshot state the SSR DOM reflects.
+          // Disable snapshot capture while applying it so prepareStoreWrite doesn't
+          // record the pre-write (empty) base as the snapshot — otherwise reads
+          // during hydration (e.g. Repeat reading length) see the stale pre-value
+          // and fail to match the server-rendered DOM.
+          setSnapshotCapture(false);
+          try {
+            if (Array.isArray(res.value)) {
+              for (let i = 0; i < res.value.length; i++) draft[i] = res.value[i];
+              draft.length = res.value.length;
+            } else {
+              Object.assign(draft, res.value);
+            }
+          } finally {
+            setSnapshotCapture(true);
           }
         } else {
           applyPatches(draft, res.value);
@@ -591,7 +619,7 @@ function hydrateStoreLikeFn(
     setHydrated(true);
     return result;
   }
-  const aiResult = hydrateStoreFromAsyncIterable(coreFn, initialValue, options);
+  const aiResult = hydrateStoreFromAsyncIterable(coreFn, fn, initialValue, options);
   if (aiResult !== null) return aiResult;
   return coreFn(wrapStoreFn(fn), initialValue, options);
 }

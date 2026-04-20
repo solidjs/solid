@@ -42,6 +42,7 @@ export function createProjectionInternal<T extends object = {}>(
 
   node = computed(() => {
     const owner = getOwner() as Computed<void | T>;
+    if (!node) node = owner;
     let settled = false;
     let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
     const draft = new Proxy(
