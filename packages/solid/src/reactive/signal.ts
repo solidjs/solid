@@ -1226,7 +1226,7 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  * Resolves child elements to help interact with children
  *
  * @param fn an accessor for the children
- * @returns a accessor of the same children, but resolved
+ * @returns an accessor of the same children, but resolved
  *
  * @description https://docs.solidjs.com/reference/component-apis/children
  */
