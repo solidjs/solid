@@ -51,6 +51,30 @@ export let _hitUnhandledAsync = false;
 // When a background transition is stashed, plain optimistic signals need one
 // committed-view rerun. Keep that override local to the stash flush.
 let stashedOptimisticReads: Set<Signal<any>> | null = null;
+
+// Store property nodes that were created solely to carry a pending write (no
+// subscribers at write time). Swept after each flush that commits pending
+// values — any still without subs get disposed via their `_unobserved` hook,
+// releasing the slot in the parent store's node map.
+const transientStoreNodes = new Set<Signal<any>>();
+
+export function registerTransientStoreNode(node: Signal<any>): void {
+  transientStoreNodes.add(node);
+}
+
+function sweepTransientStoreNodes(): void {
+  if (transientStoreNodes.size === 0) return;
+  for (const node of transientStoreNodes) {
+    if (node._subs !== null) {
+      transientStoreNodes.delete(node);
+      continue;
+    }
+    if (node._pendingValue !== NOT_PENDING) continue;
+    if (node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING) continue;
+    transientStoreNodes.delete(node);
+    node._unobserved?.();
+  }
+}
 export function resetUnhandledAsync(): void {
   _hitUnhandledAsync = false;
 }
@@ -469,6 +493,7 @@ export function finalizePureQueue(
       optimisticStores.clear();
       schedule();
     }
+    sweepTransientStoreNodes();
     cleanupCompletedLanes(completingTransition);
   }
 }

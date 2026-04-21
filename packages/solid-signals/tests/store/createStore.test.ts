@@ -43,7 +43,8 @@ describe("State Getters", () => {
     setState(s => {
       s.name = "Jake";
     });
-    expect(state!.greeting).toBe("Hi, Jake");
+    // Writes batch like signals — untracked reads still see the previous value.
+    expect(state!.greeting).toBe("Hi, John");
   });
 
   test("Testing an update from state", () => {
@@ -72,7 +73,8 @@ describe("Simple setState modes", () => {
     setState(s => {
       s.key = "value";
     });
-    expect(state.key).toBe("value");
+    // Writes batch — reads return the previous value until flush.
+    expect(state.key).toBe("");
   });
 
   test("Test Array", () => {
@@ -89,9 +91,10 @@ describe("Simple setState modes", () => {
     setTodos(t => {
       t.shift();
     });
+    // Writes batch — reads still see the pre-write array until flush.
     expect(Array.isArray(todos)).toBe(true);
     expect(todos[0].done).toBe(true);
-    expect(todos[1].title).toBe("Go Home");
+    expect(todos[1].title).toBe("Eat Lunch");
   });
 
   test("Test Array Nested", () => {
@@ -107,9 +110,10 @@ describe("Simple setState modes", () => {
     setState(s => {
       s.todos.push({ id: 3, title: "Go Home", done: false });
     });
+    // Writes batch — reads still see the pre-write array until flush.
     expect(Array.isArray(state.todos)).toBe(true);
-    expect(state.todos[1].done).toBe(true);
-    expect(state.todos[2].title).toBe("Go Home");
+    expect(state.todos[1].done).toBe(false);
+    expect(state.todos[2]).toBeUndefined();
   });
 });
 
@@ -619,6 +623,7 @@ describe("Setting state from Effects", () => {
           })
         );
         await p;
+        flush();
         expect(state.data).toBe("promised");
         done(undefined);
       });
@@ -668,14 +673,16 @@ describe("Array length", () => {
     const [state, setState] = createStore<number[]>([10, 11, 12]);
 
     setState(s => {
+      // Inside the setter the writable proxy reflects writes synchronously.
       expect(s.length).toBe(3);
       s[3] = 20;
       expect(s.length).toBe(4);
       expect(s[3]).toBe(20);
     });
 
-    expect(state.length).toBe(4);
-    expect(state[3]).toBe(20);
+    // Outside the setter writes batch — reads see the previous values until flush.
+    expect(state.length).toBe(3);
+    expect(state[3]).toBeUndefined();
 
     flush();
 
@@ -694,13 +701,15 @@ describe("Array length", () => {
       expect(s[3]).toBeUndefined();
     });
 
-    expect(state.length).toBe(4);
-    expect("3" in state).toBe(true);
+    // Length and presence both batch — reads see the pre-write array until flush.
+    expect(state.length).toBe(3);
+    expect("3" in state).toBe(false);
     expect(state[3]).toBeUndefined();
 
     flush();
 
     expect(state.length).toBe(4);
+    expect("3" in state).toBe(true);
     expect(state[3]).toBeUndefined();
   });
 });
@@ -808,6 +817,7 @@ describe("Nested Classes", () => {
       setStore(s => {
         s.inner = node;
       });
+      flush();
 
       expect(store.inner).toBe(node);
     } finally {
@@ -874,6 +884,29 @@ describe("In Operator", () => {
     expect("b" in store).toBe(true);
     expect("c" in store).toBe(true);
     expect(access).toBe(0);
+  });
+
+  test("batches like signals on cold writes", () => {
+    const [store, setStore] = createStore<{ a: number; b?: number }>({ a: 1 });
+
+    expect("a" in store).toBe(true);
+    expect("b" in store).toBe(false);
+
+    setStore(s => {
+      s.b = 2;
+      delete s.a;
+    });
+    // Presence batches alongside value — reads see the pre-write shape until flush.
+    expect("a" in store).toBe(true);
+    expect("b" in store).toBe(false);
+    expect(store.a).toBe(1);
+    expect(store.b).toBeUndefined();
+
+    flush();
+    expect("a" in store).toBe(false);
+    expect("b" in store).toBe(true);
+    expect(store.a).toBeUndefined();
+    expect(store.b).toBe(2);
   });
 });
 

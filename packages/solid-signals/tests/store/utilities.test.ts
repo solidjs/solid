@@ -285,9 +285,10 @@ describe("Clone Store", () => {
       v.a = "Greetings";
       v.c = "John";
     });
-    expect(clone.a).toBe("Greetings");
+    // Writes batch — the clone (a merge over the source) reflects the previous values until flush.
+    expect(clone.a).toBe("Hi");
     expect(clone.b).toBe("Jo");
-    expect(clone.c).toBe("John");
+    expect(clone.c).toBeUndefined();
   });
   it("returns same reference when only one argument", () => {
     const [state, setState] = createStore<{ a: string; b: string; c?: string }>({
@@ -639,6 +640,11 @@ describe("snapshot", () => {
     expect(immutable).toEqual(state);
     expect(immutable).toBe(ref);
   });
+  // snapshot reads the override directly and is intended as an untrack/deep
+  // peek — it sees pending writes synchronously. Inside a reactive scope
+  // tracked reads also resolve to the pending value (the compute is downstream
+  // of the write), so both views agree; outside any scope tracked reads still
+  // return the previous value until flush, and snapshot diverges by design.
   test("returns new object if changed", () => {
     const ref = { a: 1, b: 2 };
     const [state, setState] = createStore(ref);
@@ -652,7 +658,7 @@ describe("snapshot", () => {
     });
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
-    expect(newImmutable).toEqual(state);
+    expect(newImmutable).toEqual({ a: 3, b: 2 });
     expect(newImmutable).not.toBe(immutable);
     expect(newImmutable).not.toEqual(immutable);
   });
@@ -669,7 +675,7 @@ describe("snapshot", () => {
     });
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
-    expect(newImmutable).toEqual(state);
+    expect(newImmutable).toEqual({ a: 1, b: { c: 3 } });
     expect(newImmutable).not.toBe(immutable);
   });
   test("returns existing object if nested unchanged", () => {
@@ -684,7 +690,7 @@ describe("snapshot", () => {
     });
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
-    expect(newImmutable).toEqual(state);
+    expect(newImmutable).toEqual({ a: 3, b: { c: 2 } });
     expect(newImmutable).not.toBe(immutable);
     expect(newImmutable.b).toBe(immutable.b);
   });
@@ -700,7 +706,7 @@ describe("snapshot", () => {
     });
     const newImmutable = snapshot(state);
     expect(newImmutable).not.toBe(state);
-    expect(newImmutable).toEqual(state);
+    expect(newImmutable).toEqual({ a: 1, b: [4, 3] });
     expect(newImmutable).not.toBe(immutable);
   });
 });

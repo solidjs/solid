@@ -17,7 +17,11 @@ import {
   type Computed,
   type Signal
 } from "../core/index.js";
-import { globalQueue, projectionWriteActive } from "../core/scheduler.js";
+import {
+  globalQueue,
+  projectionWriteActive,
+  registerTransientStoreNode
+} from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
 export type Store<T> = Readonly<T>;
@@ -142,7 +146,7 @@ function getNode<T>(
     {
       equals: equals,
       unobserved() {
-        delete nodes[property];
+        if (nodes[property] === s) delete nodes[property];
       }
     },
     firewall
@@ -229,24 +233,68 @@ function prepareStoreWrite(target: StoreNode, store: any, property: PropertyKey)
   return { base, overrideKey, state };
 }
 
+function upsertStoreNode(
+  target: StoreNode,
+  nodes: DataNodes,
+  property: PropertyKey,
+  prev: any,
+  snapshotProps?: Record<PropertyKey, any>
+): DataNode {
+  if (nodes[property]) return nodes[property]!;
+  const initial = isWrappable(prev) ? wrap(prev, target) : prev;
+  const node = getNode(
+    nodes,
+    property,
+    initial,
+    target[STORE_FIREWALL],
+    isEqual,
+    target[STORE_OPTIMISTIC],
+    snapshotProps
+  );
+  registerTransientStoreNode(node);
+  return node;
+}
+
 function notifyStoreProperty(
   target: StoreNode,
   property: PropertyKey,
   mode: "set" | "invalidate" | "delete",
-  value?: any
+  value?: any,
+  prev?: any,
+  prevHas?: boolean
 ) {
-  if (target[STORE_HAS]?.[property]) setSignal(target[STORE_HAS]![property], mode !== "delete");
+  // Cold writes upsert a transient pending node so untracked reads batch like signals.
+  // Skip for projection writes (different commit semantics) and for optimistic stores
+  // (whose whole purpose is immediate visibility via STORE_OPTIMISTIC_OVERRIDE).
+  const skipUpsert = projectionWriteActive || target[STORE_OPTIMISTIC];
+  const newHas = mode !== "delete";
+  const existingHas = target[STORE_HAS]?.[property];
+  if (existingHas) {
+    setSignal(existingHas, newHas);
+  } else if (!skipUpsert && mode !== "invalidate" && prevHas !== newHas) {
+    const hasNode = upsertStoreNode(target, getNodes(target, STORE_HAS), property, prevHas);
+    setSignal(hasNode, newHas);
+  }
   const nodes = getNodes(target, STORE_NODE);
   if (mode === "set") {
-    nodes[property] &&
+    if (nodes[property]) {
       setSignal(nodes[property], () => (isWrappable(value) ? wrap(value, target) : value));
+    } else if (!skipUpsert) {
+      const node = upsertStoreNode(target, nodes, property, prev, target[STORE_SNAPSHOT_PROPS]);
+      setSignal(node, () => (isWrappable(value) ? wrap(value, target) : value));
+    }
   } else if (mode === "invalidate") {
     if (nodes[property]) {
       setSignal(nodes[property], {} as any);
       delete nodes[property];
     }
   } else {
-    nodes[property] && setSignal(nodes[property], undefined);
+    if (nodes[property]) {
+      setSignal(nodes[property], undefined);
+    } else if (!skipUpsert) {
+      const node = upsertStoreNode(target, nodes, property, prev, target[STORE_SNAPSHOT_PROPS]);
+      setSignal(node, undefined);
+    }
   }
   nodes[$TRACK] && setSignal(nodes[$TRACK], undefined);
 }
@@ -348,18 +396,19 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           ? target[STORE_OVERRIDE][property] !== $DELETED
           : property in target[STORE_VALUE];
 
-    if (!writeOnly(target[$PROXY])) {
-      getObserver() &&
-        read(
-          getNode(
-            getNodes(target, STORE_HAS),
-            property,
-            has,
-            target[STORE_FIREWALL],
-            isEqual,
-            target[STORE_OPTIMISTIC]
-          )
-        );
+    if (writeOnly(target[$PROXY])) return has;
+    const nodes = getNodes(target, STORE_HAS);
+    // If a has-node already exists, it carries the batched presence — `read()`
+    // returns `_value` (committed) for untracked reads and the pending value for
+    // downstream computes. This keeps `in` consistent with value reads.
+    if (nodes[property]) return read(nodes[property]);
+    // No node yet: `has` reflects committed presence (no pending write could change
+    // it without first upserting a has-node at the write site). Create + read only
+    // when tracking; leave untracked reads node-free.
+    if (getObserver()) {
+      return read(
+        getNode(nodes, property, has, target[STORE_FIREWALL], isEqual, target[STORE_OPTIMISTIC])
+      );
     }
     return has;
   },
@@ -376,6 +425,12 @@ export const storeTraps: ProxyHandler<StoreNode> = {
             : target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
               ? target[STORE_OVERRIDE][property]
               : base;
+        const prevHas =
+          target[STORE_OPTIMISTIC_OVERRIDE] && property in target[STORE_OPTIMISTIC_OVERRIDE]
+            ? target[STORE_OPTIMISTIC_OVERRIDE][property] !== $DELETED
+            : target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
+              ? target[STORE_OVERRIDE][property] !== $DELETED
+              : property in target[STORE_VALUE];
         const value = rawValue?.[$TARGET]?.[STORE_VALUE] ?? rawValue;
         const isArrayIndexWrite = Array.isArray(state) && property !== "length";
         const nextIndex = isArrayIndexWrite ? parseInt(property as string) + 1 : 0;
@@ -396,12 +451,22 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           override[property] = value;
           if (nextLength !== undefined) override.length = nextLength;
         }
-        notifyStoreProperty(target, property, "set", value);
+        notifyStoreProperty(target, property, "set", value, prev, prevHas);
         // notify length change
-        if (Array.isArray(state)) {
+        if (Array.isArray(state) && property !== "length" && nextLength !== undefined) {
           const nodes = getNodes(target, STORE_NODE);
-          const lengthValue = property === "length" ? value : nextLength;
-          lengthValue !== undefined && nodes.length && setSignal(nodes.length, lengthValue);
+          if (nodes.length) {
+            setSignal(nodes.length, nextLength);
+          } else if (!projectionWriteActive && !target[STORE_OPTIMISTIC]) {
+            const node = upsertStoreNode(
+              target,
+              nodes,
+              "length",
+              len,
+              target[STORE_SNAPSHOT_PROPS]
+            );
+            setSignal(node, nextLength);
+          }
         }
         if (__DEV__) DEV.hooks.onStoreNodeUpdate?.(target[$PROXY], property, value, prev);
       });
@@ -465,7 +530,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         } else if (target[overrideKey] && property in target[overrideKey]) {
           delete target[overrideKey][property];
         } else return true;
-        notifyStoreProperty(target, property, "delete");
+        notifyStoreProperty(target, property, "delete", undefined, prev, true);
       });
     }
     return true;

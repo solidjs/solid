@@ -166,18 +166,21 @@ describe("DEV.hooks", () => {
     DEV!.hooks.onStoreNodeUpdate = (state: any, property: PropertyKey, value: any, prev: any) =>
       updates.push({ state, property, value, prev });
 
+    let setStore!: (fn: (s: { count: number; name: string }) => void) => void;
     createRoot(() => {
-      const [store, setStore] = createStore({ count: 0, name: "test" });
-      setStore(s => {
-        s.count = 5;
-      });
-      flush();
-
-      expect(updates.length).toBe(1);
-      expect(updates[0].property).toBe("count");
-      expect(updates[0].value).toBe(5);
-      expect(updates[0].prev).toBe(0);
+      const [, _setStore] = createStore({ count: 0, name: "test" });
+      setStore = _setStore;
     });
+
+    setStore(s => {
+      s.count = 5;
+    });
+    flush();
+
+    expect(updates.length).toBe(1);
+    expect(updates[0].property).toBe("count");
+    expect(updates[0].value).toBe(5);
+    expect(updates[0].prev).toBe(0);
   });
 });
 
