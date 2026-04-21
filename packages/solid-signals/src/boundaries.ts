@@ -68,7 +68,10 @@ let _revealUsed = false;
 
 type RevealSlot = CollectionQueue | RevealController;
 type BoolAccessor = () => boolean;
+export type RevealOrder = "sequential" | "together" | "natural";
+type OrderAccessor = () => RevealOrder;
 const FALSE_ACCESSOR: BoolAccessor = () => false;
+const SEQUENTIAL_ACCESSOR: OrderAccessor = () => "sequential";
 
 function isRevealController(slot: RevealSlot): slot is RevealController {
   return slot instanceof RevealController;
@@ -76,6 +79,10 @@ function isRevealController(slot: RevealSlot): slot is RevealController {
 
 function isSlotReady(slot: RevealSlot): boolean {
   return isRevealController(slot) ? slot.isReady() : slot._sources.size === 0 && !slot._pending;
+}
+
+function isSlotMinimallyReady(slot: RevealSlot): boolean {
+  return isRevealController(slot) ? slot.isMinimallyReady() : isSlotReady(slot);
 }
 
 function setSlotState(
@@ -95,17 +102,18 @@ function setSlotState(
 }
 
 export class RevealController {
-  _togetherAccessor: BoolAccessor;
+  _orderAccessor: OrderAccessor;
   _collapsedAccessor: BoolAccessor;
   _slots: RevealSlot[] = [];
   _parentController?: RevealController;
   _disabled: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
   _collapsed: Signal<boolean> = signal(false, { ownedWrite: true, _noSnapshot: true });
   _ready = true;
+  _minimallyReady = true;
   _evaluating = false;
 
-  constructor(together: BoolAccessor, collapsed: BoolAccessor) {
-    this._togetherAccessor = together;
+  constructor(order: OrderAccessor, collapsed: BoolAccessor) {
+    this._orderAccessor = order;
     this._collapsedAccessor = collapsed;
   }
 
@@ -123,12 +131,46 @@ export class RevealController {
     return this._forEachOwnedSlot(isSlotReady);
   }
 
+  /**
+   * "Minimally ready" = this group has something visible to show under its own policy.
+   * Used by an enclosing `together` group to decide when it can release.
+   * - `together`: fully ready (atomic).
+   * - `sequential`: the first owned slot is minimally ready (frontier can advance).
+   * - `natural`: any owned slot is minimally ready.
+   */
+  isMinimallyReady(): boolean {
+    const order = untrack(this._orderAccessor);
+    if (order === "together") return this.isReady();
+    if (order === "natural") {
+      let hasSlot = false;
+      let anyReady = false;
+      this._forEachOwnedSlot(slot => {
+        hasSlot = true;
+        if (isSlotMinimallyReady(slot)) {
+          anyReady = true;
+          return false;
+        }
+      });
+      return !hasSlot || anyReady;
+    }
+    // sequential: only the first owned slot matters.
+    let firstReady = true;
+    this._forEachOwnedSlot(slot => {
+      firstReady = isSlotMinimallyReady(slot);
+      return false;
+    });
+    return firstReady;
+  }
+
   register(slot: RevealSlot): void {
     if (this._slots.includes(slot)) return;
     this._slots.push(slot);
-    const together = !!untrack(this._togetherAccessor);
+    const order = untrack(this._orderAccessor);
     (setSignal(slot._disabled, true),
-      setSignal(slot._collapsed, together ? false : !!untrack(this._collapsedAccessor)));
+      setSignal(
+        slot._collapsed,
+        order === "sequential" ? !!untrack(this._collapsedAccessor) : false
+      ));
     untrack(() => this.evaluate());
   }
 
@@ -142,29 +184,69 @@ export class RevealController {
     if (this._evaluating) return;
     this._evaluating = true;
     const wasReady = this._ready;
+    const wasMinReady = this._minimallyReady;
     try {
       const disabled = disabledOverride ?? read(this._disabled),
-        collapseTail = !!untrack(this._collapsedAccessor),
+        order = untrack(this._orderAccessor),
+        collapseTail = order === "sequential" && !!untrack(this._collapsedAccessor),
         collapsed = collapsedOverride ?? collapseTail;
-      if (disabled && collapsed)
-        this._forEachOwnedSlot(slot => setSlotState(slot, this, true, true));
-      else if (!!untrack(this._togetherAccessor)) {
-        const ready = this.isReady();
-        this._forEachOwnedSlot(slot => setSlotState(slot, this, !ready, false));
+      if (disabled) {
+        // Held by an outer group. Propagate the hold (and whatever collapsed policy
+        // the outer asked for) down the whole subtree. Inner order is ignored while
+        // held; it resumes once the outer releases us.
+        this._forEachOwnedSlot(slot => setSlotState(slot, this, true, collapsed));
+      } else if (order === "natural") {
+        // Each child reveals based on its own readiness. A nested controller slot
+        // is released to run its own order locally — we bypass setSlotState for it
+        // so the parent backpointer survives for upward readiness notifications.
+        this._forEachOwnedSlot(slot => {
+          if (isRevealController(slot)) {
+            setSignal(slot._collapsed, false);
+            setSignal(slot._disabled, false);
+            slot.evaluate(false, false);
+          } else {
+            setSlotState(slot, this, !isSlotReady(slot), false);
+          }
+        });
+      } else if (order === "together") {
+        // Release when every direct slot is minimally ready (has something to show
+        // under its own order). A fully-ready inner together is minimally ready;
+        // sequential's first slot being ready is minimally ready; natural having any
+        // ready child is minimally ready. This lets `together` guarantee a single
+        // cohesive reveal without waiting for every grandchild.
+        const minReady = this._forEachOwnedSlot(isSlotMinimallyReady);
+        this._forEachOwnedSlot(slot => setSlotState(slot, this, !minReady, false));
       } else {
         let pendingSeen = false;
         this._forEachOwnedSlot(slot => {
           if (pendingSeen) return setSlotState(slot, this, true, collapseTail);
           if (isSlotReady(slot)) return setSlotState(slot, this, false, false);
           pendingSeen = true;
-          setSlotState(slot, this, true, false);
+          // Frontier slot. For a leaf, holding `_disabled=true` is what keeps its
+          // fallback visible. For a composite, we instead release it so it runs
+          // its own order locally — its leaves will each show their own fallback
+          // until their data lands. Outer still waits on full readiness before
+          // advancing past this slot, and we bypass setSlotState so the parent
+          // backpointer survives for upward readiness notifications.
+          if (isRevealController(slot)) {
+            setSignal(slot._collapsed, false);
+            setSignal(slot._disabled, false);
+            slot.evaluate(false, false);
+          } else {
+            setSlotState(slot, this, true, false);
+          }
         });
       }
     } finally {
       this._ready = this.isReady();
+      this._minimallyReady = this.isMinimallyReady();
       this._evaluating = false;
     }
-    if (this._parentController && wasReady !== this._ready) this._parentController.evaluate();
+    if (
+      this._parentController &&
+      (wasReady !== this._ready || wasMinReady !== this._minimallyReady)
+    )
+      this._parentController.evaluate();
   }
 }
 
@@ -334,21 +416,51 @@ export function createErrorBoundary<U>(
   });
 }
 
+/**
+ * Coordinate the reveal timing of sibling loading boundaries.
+ *
+ * Accepts reactive accessors:
+ * - `order`: `"sequential"` (default) | `"together"` | `"natural"`.
+ *   - `"sequential"` — classic frontier reveal: siblings reveal in registration order
+ *     as each resolves; later siblings stay hidden until earlier ones complete.
+ *   - `"together"` — every direct slot stays on its fallback until the whole group
+ *     is "minimally ready" (each direct slot has produced its own first visible
+ *     content under its own order), then the whole group releases at once.
+ *   - `"natural"` — children reveal independently (as each resolves). At the top
+ *     level this is a no-op compared to not using `createRevealOrder`; the mode
+ *     exists for nesting, where the group registers as a single composite slot to
+ *     any enclosing `createRevealOrder`.
+ * - `collapsed`: only meaningful when `order === "sequential"`. When set, tail siblings
+ *   past the frontier suppress their own fallback output. Ignored under `"together"`
+ *   and `"natural"` — those orders have no frontier.
+ *
+ * Nested `createRevealOrder` groups compose: the inner controller registers as a
+ * single slot in the outer controller and is held on its fallbacks until the outer
+ * releases that slot. Once released, the inner controller runs its own order locally
+ * over anything still pending. There is no opt-out from an outer hold.
+ *
+ * "Minimally ready" is what an order considers its first visible content:
+ * - `sequential` — frontier-0 is minimally ready (leaf: on resolve; nested: via its
+ *   own minimal signal).
+ * - `together` — every direct slot is minimally ready.
+ * - `natural` — any direct slot has visible content (leaves on resolve; nested
+ *   composites when fully ready, since natural treats composites as atomic).
+ */
 export function createRevealOrder<T>(
   fn: () => T,
-  options?: { together?: BoolAccessor; collapsed?: BoolAccessor }
+  options?: { order?: OrderAccessor; collapsed?: BoolAccessor }
 ): T {
   _revealUsed = true;
   const owner = createOwner();
   const parentController = getContext(RevealControllerContext);
-  const together = options?.together || FALSE_ACCESSOR,
+  const order = options?.order || SEQUENTIAL_ACCESSOR,
     collapsed = options?.collapsed || FALSE_ACCESSOR;
-  const controller = new RevealController(together, collapsed);
+  const controller = new RevealController(order, collapsed);
   setContext(RevealControllerContext, controller, owner);
   return runWithOwner(owner, () => {
     const value = fn();
     computed(() => {
-      together();
+      order();
       collapsed();
       controller.evaluate();
     });

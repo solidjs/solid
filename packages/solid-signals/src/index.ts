@@ -79,5 +79,6 @@ export {
   createLoadingBoundary,
   createErrorBoundary,
   createRevealOrder,
-  flatten
+  flatten,
+  type RevealOrder
 } from "./boundaries.js";

@@ -7,7 +7,8 @@ import {
   createRoot,
   createSignal,
   flush,
-  mapArray
+  mapArray,
+  type RevealOrder
 } from "../src/index.js";
 
 function deferred<T = void>() {
@@ -34,10 +35,10 @@ function materialize(value: any): any {
 
 function createRevealOrder<T>(
   fn: () => T,
-  options?: { together?: boolean; collapsed?: boolean }
+  options?: { order?: RevealOrder; collapsed?: boolean }
 ): T {
   return baseCreateRevealOrder(fn, {
-    together: () => !!options?.together,
+    order: () => options?.order ?? "sequential",
     collapsed: () => (typeof options?.collapsed === "boolean" ? options.collapsed : true)
   });
 }
@@ -171,7 +172,7 @@ describe("createRevealOrder", () => {
             () => "l3"
           )
         ],
-        { together: true, collapsed: false }
+        { order: "together", collapsed: false }
       );
 
       createRenderEffect(
@@ -222,7 +223,7 @@ describe("createRevealOrder", () => {
             () => "l2"
           )
         ],
-        { together: () => true, collapsed: () => true }
+        { order: () => "together", collapsed: () => true }
       );
 
       createRenderEffect(
@@ -340,7 +341,7 @@ describe("createRevealOrder", () => {
               () => "lb2"
             )
           ],
-          { together: true, collapsed: false }
+          { order: "together", collapsed: false }
         ),
         createLoadingBoundary(
           () => c(),
@@ -374,7 +375,11 @@ describe("createRevealOrder", () => {
     expect(outer).toEqual(["A", ["B1", "B2"], "C"]);
   });
 
-  it("supports together outer with sequential inner mode mix", async () => {
+  it("together outer holds nested sequential until every direct slot is minimally ready", async () => {
+    // Outer together forces its direct slots (la, nested, lc) onto their fallbacks
+    // until each is minimally ready. For a nested sequential slot, "minimally ready"
+    // means its first registered slot (lb1) is resolved. While the outer is holding,
+    // no inner children reveal — the hold propagates through the nested Reveal.
     let result: any[] = [];
     const aReady = deferred<number>();
     const b1Ready = deferred<number>();
@@ -420,7 +425,7 @@ describe("createRevealOrder", () => {
             () => "lc"
           )
         ],
-        { together: true, collapsed: false }
+        { order: "together", collapsed: false }
       );
 
       createRenderEffect(
@@ -430,19 +435,25 @@ describe("createRevealOrder", () => {
     });
 
     flush();
-    expect(result).toEqual(["la", ["lb1", undefined], "lc"]);
+    // All held: nested propagates the hold to both children.
+    expect(result).toEqual(["la", ["lb1", "lb2"], "lc"]);
 
     aReady.resolve(1);
     await settle();
-    expect(result).toEqual(["la", ["lb1", undefined], "lc"]);
+    // la minimally ready, nested and lc not yet — still held.
+    expect(result).toEqual(["la", ["lb1", "lb2"], "lc"]);
 
     b1Ready.resolve(1);
     await settle();
-    expect(result).toEqual(["la", ["B1", "lb2"], "lc"]);
+    // Nested's first slot is now ready (nested minimally ready), but lc still pending.
+    // Outer still holds the whole group; no inner children reveal under the hold.
+    expect(result).toEqual(["la", ["lb1", "lb2"], "lc"]);
 
     cReady.resolve(1);
     await settle();
-    expect(result).toEqual(["la", ["B1", "lb2"], "lc"]);
+    // Every direct slot is minimally ready → outer releases. Nested's own sequential
+    // order now applies: lb1 revealed, lb2 still its frontier fallback.
+    expect(result).toEqual(["A", ["B1", "lb2"], "C"]);
 
     b2Ready.resolve(1);
     await settle();
@@ -605,7 +616,7 @@ describe("createRevealOrder", () => {
                   () => "lb2"
                 )
               ],
-              { together: true, collapsed: false }
+              { order: "together", collapsed: false }
             );
           }
           const c = createMemo(async () => {
@@ -746,6 +757,9 @@ describe("createRevealOrder", () => {
 
     aReady.resolve(1);
     await settle();
+    // Outer advances frontier to the nested composite and releases it to run its
+    // own sequential order locally. Nested's own collapsed=true applies, so b1 is
+    // the nested frontier (shows its fallback) and b2 is tail-collapsed.
     expect(result).toEqual(["A", ["lb1", undefined], undefined]);
 
     current.resolve(1);
@@ -810,7 +824,7 @@ describe("createRevealOrder", () => {
                     () => "lb2"
                   )
                 ],
-                { together: true, collapsed: false }
+                { order: "together", collapsed: false }
               );
             }
             const c = createMemo(async () => {
@@ -1059,7 +1073,7 @@ describe("createRevealOrder", () => {
               )
             ])
           ],
-          { together: true, collapsed: false }
+          { order: "together", collapsed: false }
         )
       ]);
 
@@ -1074,7 +1088,12 @@ describe("createRevealOrder", () => {
 
     aReady.resolve(1);
     await settle();
-    expect(result).toEqual(["A", ["lb", [undefined, undefined]]]);
+    // Outer advances frontier to the middle composite and releases it to run its
+    // own order. Middle is together with collapsed=false: it holds b and the
+    // innermost composite on their fallbacks (not collapsed) until the whole
+    // composite is ready. Innermost in turn surfaces its leaves' fallbacks under
+    // the hold.
+    expect(result).toEqual(["A", ["lb", ["lc", "ld"]]]);
 
     bReady.resolve(1);
     cReady.resolve(1);
@@ -1129,7 +1148,7 @@ describe("createRevealOrder", () => {
               { on: $id }
             )
           ],
-          { together: true, collapsed: false }
+          { order: "together", collapsed: false }
         ),
         createLoadingBoundary(
           () => c(),
@@ -1296,5 +1315,580 @@ describe("createRevealOrder", () => {
     await settle();
     expect(first).toBe("a1");
     expect(second).toBe("b1");
+  });
+
+  it("natural mode lets inner siblings reveal independently in resolution order", async () => {
+    let result: any[] = [];
+    const first = deferred<number>();
+    const second = deferred<number>();
+    const third = deferred<number>();
+
+    createRoot(() => {
+      const a = createMemo(async () => {
+        await first.promise;
+        return 1;
+      });
+      const b = createMemo(async () => {
+        await second.promise;
+        return 2;
+      });
+      const c = createMemo(async () => {
+        await third.promise;
+        return 3;
+      });
+
+      const ordered = createRevealOrder(
+        () => [
+          createLoadingBoundary(
+            () => a(),
+            () => "l1"
+          ),
+          createLoadingBoundary(
+            () => b(),
+            () => "l2"
+          ),
+          createLoadingBoundary(
+            () => c(),
+            () => "l3"
+          )
+        ],
+        { order: "natural" }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual(["l1", "l2", "l3"]);
+
+    second.resolve(2);
+    await settle();
+    expect(result).toEqual(["l1", 2, "l3"]);
+
+    third.resolve(3);
+    await settle();
+    expect(result).toEqual(["l1", 2, 3]);
+
+    first.resolve(1);
+    await settle();
+    expect(result).toEqual([1, 2, 3]);
+  });
+
+  it("natural mode ignores collapsed — inner fallbacks stay visible", async () => {
+    let result: any[] = [];
+    const first = deferred<number>();
+    const second = deferred<number>();
+
+    createRoot(() => {
+      const a = createMemo(async () => {
+        await first.promise;
+        return 1;
+      });
+      const b = createMemo(async () => {
+        await second.promise;
+        return 2;
+      });
+
+      const ordered = createRevealOrder(
+        () => [
+          createLoadingBoundary(
+            () => a(),
+            () => "l1"
+          ),
+          createLoadingBoundary(
+            () => b(),
+            () => "l2"
+          )
+        ],
+        { order: "natural", collapsed: true }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual(["l1", "l2"]);
+  });
+
+  it("outer sequential releases the inner natural composite at its frontier", async () => {
+    // The natural composite registers with outer as one slot. When outer reaches
+    // the composite as its frontier it releases it, so inner natural runs its own
+    // per-slot policy locally — grandchildren reveal independently as their data
+    // arrives, while outer still waits on the whole composite before advancing to
+    // its own tail-collapsed siblings.
+    let result: any[] = [];
+    const a = deferred<number>();
+    const innerA = deferred<number>();
+    const innerB = deferred<number>();
+    const c = deferred<number>();
+
+    createRoot(() => {
+      const outerA = createMemo(async () => {
+        await a.promise;
+        return "A";
+      });
+      const ia = createMemo(async () => {
+        await innerA.promise;
+        return "iA";
+      });
+      const ib = createMemo(async () => {
+        await innerB.promise;
+        return "iB";
+      });
+      const outerC = createMemo(async () => {
+        await c.promise;
+        return "C";
+      });
+
+      const ordered = createRevealOrder(() => [
+        createLoadingBoundary(
+          () => outerA(),
+          () => "la"
+        ),
+        createRevealOrder(
+          () => [
+            createLoadingBoundary(
+              () => ia(),
+              () => "lia"
+            ),
+            createLoadingBoundary(
+              () => ib(),
+              () => "lib"
+            )
+          ],
+          { order: "natural" }
+        ),
+        createLoadingBoundary(
+          () => outerC(),
+          () => "lc"
+        )
+      ]);
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    // outer sequential with default collapsed=true: first-pending shows fallback,
+    // tail-collapsed natural composite and c render undefined.
+    expect(result).toEqual(["la", [undefined, undefined], undefined]);
+
+    // Resolve outer A — frontier advances to the inner natural composite.
+    a.resolve(1);
+    await settle();
+    expect(result).toEqual(["A", ["lia", "lib"], undefined]);
+
+    // Inner B resolves independently while iA is still pending — inner natural's
+    // per-slot policy applies while outer holds the tail siblings.
+    innerB.resolve(2);
+    await settle();
+    expect(result).toEqual(["A", ["lia", "iB"], undefined]);
+
+    // C is tail-collapsed under outer sequential — resolving doesn't change anything.
+    c.resolve(3);
+    await settle();
+    expect(result).toEqual(["A", ["lia", "iB"], undefined]);
+
+    // When inner A also resolves, the natural composite is fully ready and outer
+    // advances past it to c.
+    innerA.resolve(4);
+    await settle();
+    expect(result).toEqual(["A", ["iA", "iB"], "C"]);
+  });
+
+  it("outer natural releases nested natural composite so grandchildren reveal independently", async () => {
+    // Outer natural releases each composite slot to run its own order locally.
+    // The nested natural composite then reveals its children independently as
+    // their data arrives — grandchildren are not held just because the composite
+    // isn't fully ready.
+    let result: any[] = [];
+    const a = deferred<number>();
+    const b = deferred<number>();
+    const c = deferred<number>();
+
+    createRoot(() => {
+      const ma = createMemo(async () => {
+        await a.promise;
+        return "A";
+      });
+      const mb = createMemo(async () => {
+        await b.promise;
+        return "B";
+      });
+      const mc = createMemo(async () => {
+        await c.promise;
+        return "C";
+      });
+
+      const ordered = createRevealOrder(
+        () => [
+          createLoadingBoundary(
+            () => ma(),
+            () => "la"
+          ),
+          createRevealOrder(
+            () => [
+              createLoadingBoundary(
+                () => mb(),
+                () => "lb"
+              ),
+              createLoadingBoundary(
+                () => mc(),
+                () => "lc"
+              )
+            ],
+            { order: "natural" }
+          )
+        ],
+        { order: "natural" }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual(["la", ["lb", "lc"]]);
+
+    // C resolves alone — inner natural reveals it directly, independent of b.
+    c.resolve(3);
+    await settle();
+    expect(result).toEqual(["la", ["lb", "C"]]);
+
+    // A resolves — outer's leaf slot reveals independently.
+    a.resolve(1);
+    await settle();
+    expect(result).toEqual(["A", ["lb", "C"]]);
+
+    // B resolves — last pending boundary clears.
+    b.resolve(2);
+    await settle();
+    expect(result).toEqual(["A", ["B", "C"]]);
+  });
+
+  it("outer together + inner together: releases only when every descendant is ready", async () => {
+    let result: any[] = [];
+    const t1 = deferred<number>();
+    const t2 = deferred<number>();
+
+    createRoot(() => {
+      const m1 = createMemo(async () => {
+        await t1.promise;
+        return "T1";
+      });
+      const m2 = createMemo(async () => {
+        await t2.promise;
+        return "T2";
+      });
+
+      const ordered = createRevealOrder(
+        () => [
+          createRevealOrder(
+            () => [
+              createLoadingBoundary(
+                () => m1(),
+                () => "l1"
+              ),
+              createLoadingBoundary(
+                () => m2(),
+                () => "l2"
+              )
+            ],
+            { order: "together", collapsed: false }
+          )
+        ],
+        { order: "together", collapsed: false }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual([["l1", "l2"]]);
+
+    t1.resolve(1);
+    await settle();
+    // Inner together is atomic — not minimally ready until both resolve.
+    // Outer still holds everything.
+    expect(result).toEqual([["l1", "l2"]]);
+
+    t2.resolve(2);
+    await settle();
+    // Inner together fully ready → outer releases → both visible at once.
+    expect(result).toEqual([["T1", "T2"]]);
+  });
+
+  it("outer together + inner sequential: releases at first-ready; tail stays on fallback", async () => {
+    // An inner sequential slot is "minimally ready" when its first registered slot
+    // resolves. That triggers outer-together release, after which the inner
+    // sequential continues to gate its tail on its own frontier.
+    let result: any[] = [];
+    const s1 = deferred<number>();
+    const s2 = deferred<number>();
+
+    createRoot(() => {
+      const m1 = createMemo(async () => {
+        await s1.promise;
+        return "S1";
+      });
+      const m2 = createMemo(async () => {
+        await s2.promise;
+        return "S2";
+      });
+
+      const ordered = baseCreateRevealOrder(
+        () => [
+          baseCreateRevealOrder(
+            () => [
+              createLoadingBoundary(
+                () => m1(),
+                () => "l1"
+              ),
+              createLoadingBoundary(
+                () => m2(),
+                () => "l2"
+              )
+            ],
+            { order: () => "sequential", collapsed: () => false }
+          )
+        ],
+        { order: () => "together", collapsed: () => false }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual([["l1", "l2"]]);
+
+    // Resolve the second slot first — sequential's frontier hasn't advanced, so
+    // the inner is NOT minimally ready yet, and outer still holds everything.
+    s2.resolve(2);
+    await settle();
+    expect(result).toEqual([["l1", "l2"]]);
+
+    // Now resolve the first slot. Inner sequential's frontier-0 is ready →
+    // minimally ready → outer releases → inner sequential reveals l1 and, since
+    // s2 already resolved, also reveals l2.
+    s1.resolve(1);
+    await settle();
+    expect(result).toEqual([["S1", "S2"]]);
+  });
+
+  it("outer together + inner natural: releases when any inner child is ready", async () => {
+    // An inner natural slot is "minimally ready" when any one of its children is
+    // ready. That triggers outer-together release; remaining children continue to
+    // reveal per natural as they resolve.
+    let result: any[] = [];
+    const n1 = deferred<number>();
+    const n2 = deferred<number>();
+
+    createRoot(() => {
+      const m1 = createMemo(async () => {
+        await n1.promise;
+        return "N1";
+      });
+      const m2 = createMemo(async () => {
+        await n2.promise;
+        return "N2";
+      });
+
+      const ordered = baseCreateRevealOrder(
+        () => [
+          baseCreateRevealOrder(
+            () => [
+              createLoadingBoundary(
+                () => m1(),
+                () => "l1"
+              ),
+              createLoadingBoundary(
+                () => m2(),
+                () => "l2"
+              )
+            ],
+            { order: () => "natural" }
+          )
+        ],
+        { order: () => "together", collapsed: () => false }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual([["l1", "l2"]]);
+
+    // Resolve the second child — natural's minimally-ready condition (any child
+    // ready) is satisfied → outer releases. Remaining natural children reveal
+    // independently as they resolve.
+    n2.resolve(2);
+    await settle();
+    expect(result).toEqual([["l1", "N2"]]);
+
+    n1.resolve(1);
+    await settle();
+    expect(result).toEqual([["N1", "N2"]]);
+  });
+
+  it("outer natural + inner sequential: inner composite runs its own frontier locally", async () => {
+    // Outer natural releases composite slots to run their own order locally, so
+    // an inner sequential reveals its children per its own frontier-gating,
+    // independently of the outer leaf sibling.
+    let result: any[] = [];
+    const a = deferred<number>();
+    const s1 = deferred<number>();
+    const s2 = deferred<number>();
+
+    createRoot(() => {
+      const ma = createMemo(async () => {
+        await a.promise;
+        return "A";
+      });
+      const m1 = createMemo(async () => {
+        await s1.promise;
+        return "S1";
+      });
+      const m2 = createMemo(async () => {
+        await s2.promise;
+        return "S2";
+      });
+
+      const ordered = baseCreateRevealOrder(
+        () => [
+          createLoadingBoundary(
+            () => ma(),
+            () => "la"
+          ),
+          baseCreateRevealOrder(
+            () => [
+              createLoadingBoundary(
+                () => m1(),
+                () => "l1"
+              ),
+              createLoadingBoundary(
+                () => m2(),
+                () => "l2"
+              )
+            ],
+            { order: () => "sequential", collapsed: () => false }
+          )
+        ],
+        { order: () => "natural" }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual(["la", ["l1", "l2"]]);
+
+    // Resolving the tail of the inner sequential is blocked by its own frontier.
+    s2.resolve(2);
+    await settle();
+    expect(result).toEqual(["la", ["l1", "l2"]]);
+
+    // Inner frontier-0 resolves — inner sequential advances past s1 and, since
+    // s2 already resolved, advances past s2 too. Outer leaf is independent.
+    s1.resolve(1);
+    await settle();
+    expect(result).toEqual(["la", ["S1", "S2"]]);
+
+    a.resolve(1);
+    await settle();
+    expect(result).toEqual(["A", ["S1", "S2"]]);
+  });
+
+  it("outer natural + inner together: inner remains atomic while outer runs natural", async () => {
+    // Outer natural releases the inner together composite to run its own policy.
+    // Inner together stays on its fallback until every inner child resolves,
+    // then reveals atomically — the outer leaf sibling is independent.
+    let result: any[] = [];
+    const a = deferred<number>();
+    const t1 = deferred<number>();
+    const t2 = deferred<number>();
+
+    createRoot(() => {
+      const ma = createMemo(async () => {
+        await a.promise;
+        return "A";
+      });
+      const m1 = createMemo(async () => {
+        await t1.promise;
+        return "T1";
+      });
+      const m2 = createMemo(async () => {
+        await t2.promise;
+        return "T2";
+      });
+
+      const ordered = baseCreateRevealOrder(
+        () => [
+          createLoadingBoundary(
+            () => ma(),
+            () => "la"
+          ),
+          baseCreateRevealOrder(
+            () => [
+              createLoadingBoundary(
+                () => m1(),
+                () => "l1"
+              ),
+              createLoadingBoundary(
+                () => m2(),
+                () => "l2"
+              )
+            ],
+            { order: () => "together", collapsed: () => false }
+          )
+        ],
+        { order: () => "natural" }
+      );
+
+      createRenderEffect(
+        () => (result = materialize(ordered)),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toEqual(["la", ["l1", "l2"]]);
+
+    // Outer leaf resolves first — natural reveals it independently while inner
+    // together is still holding its children.
+    a.resolve(1);
+    await settle();
+    expect(result).toEqual(["A", ["l1", "l2"]]);
+
+    // Partial inner resolution — together stays atomic, both still on fallback.
+    t1.resolve(1);
+    await settle();
+    expect(result).toEqual(["A", ["l1", "l2"]]);
+
+    // Inner fully ready — together reveals atomically.
+    t2.resolve(2);
+    await settle();
+    expect(result).toEqual(["A", ["T1", "T2"]]);
   });
 });

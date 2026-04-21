@@ -147,7 +147,7 @@ describe("Reveal server exports", () => {
 
   test("createRevealOrder with options is a no-op passthrough", () => {
     const val = createRevealOrder(() => 42, {
-      together: () => true,
+      order: () => "together",
       collapsed: () => false
     });
     expect(val).toBe(42);
@@ -243,7 +243,7 @@ describe("Reveal SSR component", () => {
     createRoot(
       () => {
         Reveal({
-          together: true,
+          order: "together",
           get children() {
             return [
               Loading({
@@ -400,7 +400,7 @@ describe("Reveal SSR component", () => {
         Reveal({
           children: [
             Reveal({
-              together: true,
+              order: "together",
               children: "inner-content" as any
             })
           ] as any
@@ -513,7 +513,7 @@ describe("Reveal SSR component", () => {
           fallback: "outer-fb",
           get children() {
             return Reveal({
-              together: true,
+              order: "together",
               get children() {
                 return [
                   Loading({
@@ -559,6 +559,284 @@ describe("Reveal SSR component", () => {
     expect(mock.revealFragmentsCalls.length).toBe(1);
   });
 
+  test("Reveal natural mode reveals each fragment immediately as it resolves", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const d1 = deferred<string>();
+    const d2 = deferred<string>();
+    const d3 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "natural",
+          get children() {
+            return [
+              Loading({
+                fallback: "fb-1",
+                get children() {
+                  const data = createMemo(() => d1.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              }),
+              Loading({
+                fallback: "fb-2",
+                get children() {
+                  const data = createMemo(() => d2.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              }),
+              Loading({
+                fallback: "fb-3",
+                get children() {
+                  const data = createMemo(() => d3.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              })
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Natural mode: out-of-order resolutions reveal immediately.
+    d3.resolve("val-3");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(1);
+    expect(mock.revealFragmentsCalls[0]).toEqual([keys[2]]);
+
+    d1.resolve("val-1");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(2);
+    expect(mock.revealFragmentsCalls[1]).toEqual([keys[0]]);
+
+    d2.resolve("val-2");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(3);
+    expect(mock.revealFragmentsCalls[2]).toEqual([keys[1]]);
+
+    // Natural never gates fallbacks.
+    expect(mock.revealFallbacksCalls.length).toBe(0);
+  });
+
+  test("natural inside sequential: inner children are held behind outer frontier", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dOuter1 = deferred<string>();
+    const dInnerA = deferred<string>();
+    const dInnerB = deferred<string>();
+    const dOuter2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          get children() {
+            return [
+              Loading({
+                fallback: "outer-1-fb",
+                get children() {
+                  const data = createMemo(() => dOuter1.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "natural",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "inner-a-fb",
+                      get children() {
+                        const data = createMemo(() => dInnerA.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "inner-b-fb",
+                      get children() {
+                        const data = createMemo(() => dInnerB.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any),
+              Loading({
+                fallback: "outer-2-fb",
+                get children() {
+                  const data = createMemo(() => dOuter2.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              })
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+    // keys: [outer-1, inner-a, inner-b, outer-2]
+
+    // Inner fragments resolve before outer-1. Outer sequential holds the inner
+    // natural group behind its frontier (outer-1), so nothing reveals yet.
+    dInnerA.resolve("inner-a-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    dInnerB.resolve("inner-b-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    // Outer-2 resolves but is behind the frontier too.
+    dOuter2.resolve("outer-2-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    // Outer-1 resolves — frontier advances past outer-1 and activates the inner
+    // natural composite, which drains its stash [inner-a, inner-b], then past
+    // outer-2.
+    dOuter1.resolve("outer-1-val");
+    await tick();
+    const revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]); // outer-1
+    expect(revealed).toContain(keys[1]); // inner-a (drained from stash)
+    expect(revealed).toContain(keys[2]); // inner-b (drained from stash)
+    expect(revealed).toContain(keys[3]); // outer-2
+  });
+
+  test("natural group acts as single composite slot to outer sequential frontier", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dOuter1 = deferred<string>();
+    const dInnerA = deferred<string>();
+    const dInnerB = deferred<string>();
+    const dOuter2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          get children() {
+            return [
+              Loading({
+                fallback: "outer-1-fb",
+                get children() {
+                  const data = createMemo(() => dOuter1.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "natural",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "inner-a-fb",
+                      get children() {
+                        const data = createMemo(() => dInnerA.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "inner-b-fb",
+                      get children() {
+                        const data = createMemo(() => dInnerB.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any),
+              Loading({
+                fallback: "outer-2-fb",
+                get children() {
+                  const data = createMemo(() => dOuter2.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              })
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Resolve outer-1 + outer-2, but only one inner. Outer-2 should still wait
+    // because the natural composite isn't ready (inner-b is still pending).
+    dOuter1.resolve("outer-1-val");
+    dOuter2.resolve("outer-2-val");
+    dInnerA.resolve("inner-a-val");
+    await tick();
+
+    const revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]); // outer-1 revealed
+    expect(revealed).toContain(keys[1]); // inner-a revealed (natural, independent)
+    expect(revealed).not.toContain(keys[2]); // inner-b still pending
+    expect(revealed).not.toContain(keys[3]); // outer-2 must wait for composite
+
+    // Resolve inner-b — natural group completes, notifies parent, outer-2 reveals.
+    dInnerB.resolve("inner-b-val");
+    await tick();
+    const revealed2 = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed2).toContain(keys[2]);
+    expect(revealed2).toContain(keys[3]);
+  });
+
+  test("natural mode ignores collapsed: never calls revealFallbacks", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const d1 = deferred<string>();
+    const d2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          // `collapsed` is disallowed on `order="natural"` at the type level,
+          // but the runtime should still be defensive if called via `as any`.
+          order: "natural",
+          get children() {
+            return [
+              Loading({
+                fallback: "fb-1",
+                get children() {
+                  const data = createMemo(() => d1.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              }),
+              Loading({
+                fallback: "fb-2",
+                get children() {
+                  const data = createMemo(() => d2.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              })
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    d2.resolve("val-2");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(1);
+    expect(mock.revealFallbacksCalls.length).toBe(0);
+
+    d1.resolve("val-1");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(2);
+    expect(mock.revealFallbacksCalls.length).toBe(0);
+  });
+
   test("together mode ignores collapsed flag", async () => {
     const mock = createMockSSRContext({ async: true });
     sharedConfig.context = mock.context;
@@ -569,7 +847,7 @@ describe("Reveal SSR component", () => {
     createRoot(
       () => {
         Reveal({
-          together: true,
+          order: "together",
           collapsed: true,
           get children() {
             return [
@@ -606,5 +884,680 @@ describe("Reveal SSR component", () => {
     await tick();
     expect(mock.revealFragmentsCalls.length).toBe(1);
     expect(mock.revealFallbacksCalls.length).toBe(0);
+  });
+
+  test("outer together + inner together: releases only when every descendant is ready", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB = deferred<string>();
+    const dC = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "together",
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "together",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b-fb",
+                      get children() {
+                        const data = createMemo(() => dB.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "c-fb",
+                      get children() {
+                        const data = createMemo(() => dC.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Inner together is minimally ready only when BOTH inner leaves resolve, so
+    // nothing reveals until all three leaves settle.
+    dA.resolve("a-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    dB.resolve("b-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    dC.resolve("c-val");
+    await tick();
+    // Single cohesive reveal across the whole subtree.
+    const revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]); // a
+    expect(revealed).toContain(keys[1]); // b
+    expect(revealed).toContain(keys[2]); // c
+  });
+
+  test("outer together + inner sequential: releases at first-ready; tail still held", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB = deferred<string>();
+    const dC = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "together",
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b-fb",
+                      get children() {
+                        const data = createMemo(() => dB.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "c-fb",
+                      get children() {
+                        const data = createMemo(() => dC.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Inner sequential is minimally ready when its frontier-0 (keys[1]) resolves.
+    // The outer together still waits for direct child a.
+    dB.resolve("b-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    // a resolves — now every direct slot of outer together is minimally ready;
+    // outer together releases. Inner sequential flushes its frontier (b); c is
+    // still pending and stays on its fallback under inner's own sequential order.
+    dA.resolve("a-val");
+    await tick();
+    const revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]); // a
+    expect(revealed).toContain(keys[1]); // b (inner frontier)
+    expect(revealed).not.toContain(keys[2]); // c still held behind inner sequential
+
+    // c resolves — inner advances and flushes it.
+    dC.resolve("c-val");
+    await tick();
+    const revealed2 = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed2).toContain(keys[2]);
+  });
+
+  test("outer together + inner natural: releases when any inner child is ready", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB = deferred<string>();
+    const dC = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "together",
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "natural",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b-fb",
+                      get children() {
+                        const data = createMemo(() => dB.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "c-fb",
+                      get children() {
+                        const data = createMemo(() => dC.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Inner natural is minimally ready as soon as any child resolves.
+    dB.resolve("b-val");
+    await tick();
+    // Still waiting on direct child a; nothing reveals yet.
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    // a resolves — every direct child of outer together is now minimally ready.
+    // Outer together releases: a and b flush; c stays on fallback under inner
+    // natural's per-slot reveal.
+    dA.resolve("a-val");
+    await tick();
+    const revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]); // a
+    expect(revealed).toContain(keys[1]); // b (inner natural's already-resolved child)
+    expect(revealed).not.toContain(keys[2]); // c still pending
+
+    // c resolves — inner natural reveals it immediately now that it's unheld.
+    dC.resolve("c-val");
+    await tick();
+    const revealed2 = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed2).toContain(keys[2]);
+  });
+
+  test("sequential+collapsed outer uncollapses inner leaves on frontier advance", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dOuter1 = deferred<string>();
+    const dInnerA = deferred<string>();
+    const dInnerB = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          collapsed: true,
+          get children() {
+            return [
+              Loading({
+                fallback: "outer-1-fb",
+                get children() {
+                  const data = createMemo(() => dOuter1.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "natural",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "inner-a-fb",
+                      get children() {
+                        const data = createMemo(() => dInnerA.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "inner-b-fb",
+                      get children() {
+                        const data = createMemo(() => dInnerB.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+    // keys: [outer-1, inner-a, inner-b]
+
+    // Nothing revealed yet; fallbacks for inner-a/inner-b were rendered as
+    // collapsed templates because of outer's tail-collapse.
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+    expect(mock.revealFallbacksCalls.length).toBe(0);
+
+    // Outer-1 resolves → frontier advances to the inner composite. The inner
+    // group is released to run its own order; its leaves were registered with
+    // collapseFallback=true (tail-collapsed by outer), so activating the inner
+    // must emit revealFallbacks for them to become visible.
+    dOuter1.resolve("outer-1-val");
+    await tick();
+    const uncollapsed = mock.revealFallbacksCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(uncollapsed).toContain(keys[1]); // inner-a fallback now visible
+    expect(uncollapsed).toContain(keys[2]); // inner-b fallback now visible
+
+    // Outer-1 itself revealed.
+    const revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]);
+    expect(revealed).not.toContain(keys[1]);
+    expect(revealed).not.toContain(keys[2]);
+
+    // Inner leaves reveal independently per inner's natural policy as their
+    // data lands.
+    dInnerB.resolve("inner-b-val");
+    await tick();
+    const revealed2 = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed2).toContain(keys[2]);
+    expect(revealed2).not.toContain(keys[1]);
+
+    dInnerA.resolve("inner-a-val");
+    await tick();
+    const revealed3 = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed3).toContain(keys[1]);
+  });
+
+  test("outer sequential + inner sequential: inner runs its own frontier after outer reaches it", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB1 = deferred<string>();
+    const dB2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          collapsed: false,
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                collapsed: false,
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b1-fb",
+                      get children() {
+                        const data = createMemo(() => dB1.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "b2-fb",
+                      get children() {
+                        const data = createMemo(() => dB2.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Inner tail (b2) resolves first — outer hasn't reached the inner yet, and
+    // inner sequential's own frontier is b1; nothing reveals.
+    dB2.resolve("b2-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    // a resolves — outer advances frontier to the inner composite and activates
+    // it. Inner sequential still waits on its own frontier (b1) before
+    // revealing anything.
+    dA.resolve("a-val");
+    await tick();
+    let revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]); // a
+    expect(revealed).not.toContain(keys[1]); // b1 still pending
+    expect(revealed).not.toContain(keys[2]); // b2 held behind inner frontier
+
+    // b1 resolves — inner advances past b1 and, since b2 already resolved,
+    // advances past b2 too.
+    dB1.resolve("b1-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[1]);
+    expect(revealed).toContain(keys[2]);
+  });
+
+  test("outer sequential + inner together: inner stays atomic after outer reaches it", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB1 = deferred<string>();
+    const dB2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          collapsed: false,
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "together",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b1-fb",
+                      get children() {
+                        const data = createMemo(() => dB1.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "b2-fb",
+                      get children() {
+                        const data = createMemo(() => dB2.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // a resolves first — outer advances and activates the inner together
+    // composite. Inner together keeps holding both leaves until each resolves.
+    dA.resolve("a-val");
+    await tick();
+    let revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]);
+    expect(revealed).not.toContain(keys[1]);
+    expect(revealed).not.toContain(keys[2]);
+
+    // Partial inner resolution — still atomic, nothing new reveals.
+    dB1.resolve("b1-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).not.toContain(keys[1]);
+    expect(revealed).not.toContain(keys[2]);
+
+    // Both inner leaves ready — together releases them in one pass.
+    dB2.resolve("b2-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[1]);
+    expect(revealed).toContain(keys[2]);
+  });
+
+  test("outer natural + inner sequential: inner runs its own frontier; outer leaf independent", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB1 = deferred<string>();
+    const dB2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "natural",
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                collapsed: false,
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b1-fb",
+                      get children() {
+                        const data = createMemo(() => dB1.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "b2-fb",
+                      get children() {
+                        const data = createMemo(() => dB2.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Inner tail resolves first — inner sequential's frontier is still b1; no
+    // inner reveal. Outer natural does not gate the leaf sibling on inner.
+    dB2.resolve("b2-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(0);
+
+    // Outer leaf resolves independently under natural.
+    dA.resolve("a-val");
+    await tick();
+    let revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]);
+    expect(revealed).not.toContain(keys[1]);
+    expect(revealed).not.toContain(keys[2]);
+
+    // Inner frontier resolves — inner advances past b1 and b2 together (b2 was
+    // already resolved).
+    dB1.resolve("b1-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[1]);
+    expect(revealed).toContain(keys[2]);
+  });
+
+  test("outer natural + inner together: inner stays atomic; outer leaf independent", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB1 = deferred<string>();
+    const dB2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "natural",
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "together",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b1-fb",
+                      get children() {
+                        const data = createMemo(() => dB1.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "b2-fb",
+                      get children() {
+                        const data = createMemo(() => dB2.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Outer leaf reveals independently under natural while inner together
+    // holds both children.
+    dA.resolve("a-val");
+    await tick();
+    let revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]);
+    expect(revealed).not.toContain(keys[1]);
+    expect(revealed).not.toContain(keys[2]);
+
+    dB1.resolve("b1-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).not.toContain(keys[1]);
+    expect(revealed).not.toContain(keys[2]);
+
+    // Inner fully ready — together releases atomically.
+    dB2.resolve("b2-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[1]);
+    expect(revealed).toContain(keys[2]);
+  });
+
+  test("outer natural + inner natural: grandchildren reveal independently", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const dA = deferred<string>();
+    const dB1 = deferred<string>();
+    const dB2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "natural",
+          get children() {
+            return [
+              Loading({
+                fallback: "a-fb",
+                get children() {
+                  const data = createMemo(() => dA.promise);
+                  return ssr(["<span>", "</span>"], () => data()) as any;
+                }
+              }),
+              Reveal({
+                order: "natural",
+                get children() {
+                  return [
+                    Loading({
+                      fallback: "b1-fb",
+                      get children() {
+                        const data = createMemo(() => dB1.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    }),
+                    Loading({
+                      fallback: "b2-fb",
+                      get children() {
+                        const data = createMemo(() => dB2.promise);
+                        return ssr(["<span>", "</span>"], () => data()) as any;
+                      }
+                    })
+                  ] as any;
+                }
+              } as any)
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    const keys = [...mock.registeredFragments.keys()];
+
+    // Each leaf (grand-children or outer leaf) reveals on its own as it
+    // resolves — natural all the way down.
+    dB2.resolve("b2-val");
+    await tick();
+    let revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[2]);
+    expect(revealed).not.toContain(keys[0]);
+    expect(revealed).not.toContain(keys[1]);
+
+    dA.resolve("a-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[0]);
+    expect(revealed).not.toContain(keys[1]);
+
+    dB1.resolve("b1-val");
+    await tick();
+    revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
+    expect(revealed).toContain(keys[1]);
   });
 });

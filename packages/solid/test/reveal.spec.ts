@@ -22,12 +22,11 @@ describe("Reveal client component", () => {
     expect(result).toBe("hello");
   });
 
-  test("Reveal with together and collapsed renders children", () => {
+  test("Reveal with order='together' renders children", () => {
     let result: any;
     createRoot(() => {
       result = Reveal({
-        together: true,
-        collapsed: true,
+        order: "together",
         children: "content" as any
       });
     });
@@ -35,7 +34,19 @@ describe("Reveal client component", () => {
     expect(result).toBe("content");
   });
 
-  test("Reveal defaults together and collapsed to false", () => {
+  test("Reveal with order='natural' renders children", () => {
+    let result: any;
+    createRoot(() => {
+      result = Reveal({
+        order: "natural",
+        children: "child" as any
+      });
+    });
+    flush();
+    expect(result).toBe("child");
+  });
+
+  test("Reveal defaults to sequential with collapsed=false", () => {
     let result: any;
     createRoot(() => {
       result = Reveal({ children: "child" as any });
@@ -79,7 +90,7 @@ describe("Reveal client component", () => {
           return [
             "before",
             Reveal({
-              together: true,
+              order: "together",
               get children() {
                 return "inner" as any;
               }
@@ -102,7 +113,7 @@ describe("Reveal client component", () => {
         fallback: "outer-fb",
         get children() {
           return Reveal({
-            together: true,
+            order: "together",
             get children() {
               return [
                 Loading({
@@ -140,7 +151,7 @@ describe("Reveal client component", () => {
     let result: any;
     createRoot(() => {
       result = createRevealOrder(() => ["a", "b", "c"], {
-        together: () => true,
+        order: () => "together",
         collapsed: () => false
       });
     });

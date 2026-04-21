@@ -1750,7 +1750,7 @@ describe("SSR Streaming — Reveal", () => {
     }
     function App() {
       return (
-        <Reveal together>
+        <Reveal order="together">
           <Loading fallback={<div>wait-X</div>}>
             <BoundaryX />
           </Loading>
@@ -1794,7 +1794,7 @@ describe("SSR Streaming — Reveal", () => {
           <Loading fallback={<div>outer-1-fb</div>}>
             <Outer1 />
           </Loading>
-          <Reveal together>
+          <Reveal order="together">
             <Loading fallback={<div>inner-a-fb</div>}>
               <InnerA />
             </Loading>
@@ -1853,7 +1853,7 @@ describe("SSR Streaming — Reveal", () => {
     function App() {
       return (
         <Loading fallback={<div>outer-fb</div>}>
-          <Reveal together>
+          <Reveal order="together">
             <Loading fallback={<div>inner-A-fb</div>}>
               <InnerA />
             </Loading>
@@ -1877,6 +1877,113 @@ describe("SSR Streaming — Reveal", () => {
     expect(full).toContain("inner-B");
     // Inner Reveal group should produce $dfj for coordinated activation
     expect(full).toMatch(/\$dfj\(\[/);
+  });
+
+  test("natural mode: each fragment streams as its own data resolves", async () => {
+    const { promise: pX, resolve: resolveX } = deferred<string>();
+    const { promise: pY, resolve: resolveY } = deferred<string>();
+
+    function BoundaryX() {
+      const data = createMemo(async () => pX);
+      return <div>{data()}</div>;
+    }
+    function BoundaryY() {
+      const data = createMemo(async () => pY);
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Reveal order="natural">
+          <Loading fallback={<div>wait-X</div>}>
+            <BoundaryX />
+          </Loading>
+          <Loading fallback={<div>wait-Y</div>}>
+            <BoundaryY />
+          </Loading>
+        </Reveal>
+      );
+    }
+
+    const chunksPromise = collectChunks(() => <App />);
+
+    // Resolve Y first — natural should stream Y immediately, not wait for X.
+    resolveY("Y-val");
+    await delay(20);
+    resolveX("X-val");
+
+    const { chunks } = await chunksPromise;
+    const full = chunks.join("");
+
+    // Natural streams each fragment as its own data resolves. Both values
+    // must appear in the final output; shell contents are timing-sensitive
+    // here because Y resolves before shell capture completes in this test.
+    expect(full).toContain("X-val");
+    expect(full).toContain("Y-val");
+    expect(full).toContain("$dfj");
+  });
+
+  test("natural inside sequential: inner streams independently; outer siblings wait for composite", async () => {
+    const { promise: pOuter1, resolve: resolveOuter1 } = deferred<string>();
+    const { promise: pInnerA, resolve: resolveInnerA } = deferred<string>();
+    const { promise: pInnerB, resolve: resolveInnerB } = deferred<string>();
+    const { promise: pOuter2, resolve: resolveOuter2 } = deferred<string>();
+
+    function Outer1() {
+      const data = createMemo(async () => pOuter1);
+      return <div>{data()}</div>;
+    }
+    function InnerA() {
+      const data = createMemo(async () => pInnerA);
+      return <span>{data()}</span>;
+    }
+    function InnerB() {
+      const data = createMemo(async () => pInnerB);
+      return <span>{data()}</span>;
+    }
+    function Outer2() {
+      const data = createMemo(async () => pOuter2);
+      return <div>{data()}</div>;
+    }
+    function App() {
+      return (
+        <Reveal>
+          <Loading fallback={<div>outer-1-fb</div>}>
+            <Outer1 />
+          </Loading>
+          <Reveal order="natural">
+            <Loading fallback={<span>inner-a-fb</span>}>
+              <InnerA />
+            </Loading>
+            <Loading fallback={<span>inner-b-fb</span>}>
+              <InnerB />
+            </Loading>
+          </Reveal>
+          <Loading fallback={<div>outer-2-fb</div>}>
+            <Outer2 />
+          </Loading>
+        </Reveal>
+      );
+    }
+
+    const chunksPromise = collectChunks(() => <App />);
+
+    // Resolve all outer + one inner. Natural children reveal themselves
+    // independently, but the outer sequential frontier blocks outer-2 on
+    // the natural composite being complete (inner-b is still pending).
+    resolveOuter1("outer-1-val");
+    resolveOuter2("outer-2-val");
+    resolveInnerA("inner-a-val");
+    await delay(20);
+    resolveInnerB("inner-b-val");
+
+    const { chunks } = await chunksPromise;
+    const full = chunks.join("");
+
+    expect(full).toContain("outer-1-val");
+    expect(full).toContain("inner-a-val");
+    expect(full).toContain("inner-b-val");
+    expect(full).toContain("outer-2-val");
+    expect(full).toContain("$dfj");
   });
 
   test("out-of-order resolution: later slot resolving first does not appear before frontier", async () => {
@@ -1919,6 +2026,122 @@ describe("SSR Streaming — Reveal", () => {
     expect(full).toContain("resolved-A");
     expect(full).toContain("resolved-B");
     // Sequential mode should produce ordered $dfj activations
+    expect(full).toContain("$dfj");
+  });
+
+  test("outer together + inner sequential: inner holds until outer together releases", async () => {
+    const { promise: pA, resolve: resolveA } = deferred<string>();
+    const { promise: pB, resolve: resolveB } = deferred<string>();
+    const { promise: pC, resolve: resolveC } = deferred<string>();
+
+    function A() {
+      const data = createMemo(async () => pA);
+      return <span>{data()}</span>;
+    }
+    function B() {
+      const data = createMemo(async () => pB);
+      return <span>{data()}</span>;
+    }
+    function C() {
+      const data = createMemo(async () => pC);
+      return <span>{data()}</span>;
+    }
+    function App() {
+      return (
+        <Reveal order="together">
+          <Loading fallback={<span>a-fb</span>}>
+            <A />
+          </Loading>
+          <Reveal>
+            <Loading fallback={<span>b-fb</span>}>
+              <B />
+            </Loading>
+            <Loading fallback={<span>c-fb</span>}>
+              <C />
+            </Loading>
+          </Reveal>
+        </Reveal>
+      );
+    }
+
+    const chunksPromise = collectChunks(() => <App />);
+
+    // Inner sequential's frontier (b) resolves first. Outer together holds
+    // everything because direct child a hasn't resolved yet.
+    resolveB("b-val");
+    await delay(20);
+    // a resolves — every direct slot of outer together is now minimally ready,
+    // so outer together releases. Inner sequential flushes b (its frontier);
+    // c stays held behind inner's own frontier until it resolves.
+    resolveA("a-val");
+    await delay(20);
+    resolveC("c-val");
+
+    const { chunks } = await chunksPromise;
+    const full = chunks.join("");
+
+    expect(full).toContain("a-val");
+    expect(full).toContain("b-val");
+    expect(full).toContain("c-val");
+    // The nested coordination emits $dfj reveal calls.
+    expect(full).toContain("$dfj");
+  });
+
+  test("outer together + inner natural: inner streams only after outer together releases", async () => {
+    const { promise: pA, resolve: resolveA } = deferred<string>();
+    const { promise: pB, resolve: resolveB } = deferred<string>();
+    const { promise: pC, resolve: resolveC } = deferred<string>();
+
+    function A() {
+      const data = createMemo(async () => pA);
+      return <span>{data()}</span>;
+    }
+    function B() {
+      const data = createMemo(async () => pB);
+      return <span>{data()}</span>;
+    }
+    function C() {
+      const data = createMemo(async () => pC);
+      return <span>{data()}</span>;
+    }
+    function App() {
+      return (
+        <Reveal order="together">
+          <Loading fallback={<span>a-fb</span>}>
+            <A />
+          </Loading>
+          <Reveal order="natural">
+            <Loading fallback={<span>b-fb</span>}>
+              <B />
+            </Loading>
+            <Loading fallback={<span>c-fb</span>}>
+              <C />
+            </Loading>
+          </Reveal>
+        </Reveal>
+      );
+    }
+
+    const chunksPromise = collectChunks(() => <App />);
+
+    // Inner natural's b resolves first. Under plain natural it would stream
+    // immediately, but the outer together is holding the whole subtree, so b's
+    // swap is stashed until outer releases.
+    resolveB("b-val");
+    await delay(20);
+    // a resolves — outer together now has every direct slot minimally ready
+    // (inner natural is minimally ready via b). Release: a + b flush together;
+    // c continues streaming per inner natural once it resolves.
+    resolveA("a-val");
+    await delay(20);
+    resolveC("c-val");
+
+    const { chunks } = await chunksPromise;
+    const full = chunks.join("");
+
+    expect(full).toContain("a-val");
+    expect(full).toContain("b-val");
+    expect(full).toContain("c-val");
     expect(full).toContain("$dfj");
   });
 });

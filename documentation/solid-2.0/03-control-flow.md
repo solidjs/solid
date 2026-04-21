@@ -139,28 +139,87 @@ In 2.0’s async model, async values are part of computations (not a separate `c
 
 `Reveal` coordinates the reveal timing of sibling `Loading` boundaries. It replaces `SuspenseList` from 1.x.
 
-- **Sequential** (default): boundaries reveal in DOM order as each resolves.
-- **Together** (`together`): all boundaries wait until the group is ready, then reveal at once.
-- **Collapsed** (`collapsed`, sequential only): only the frontier boundary shows its fallback; later boundaries produce nothing until their turn.
+#### Props
+
+- `order` — `"sequential" | "together" | "natural"`, defaults to `"sequential"`.
+  - `"sequential"` — boundaries reveal in DOM order. Later boundaries stay on their fallbacks until every earlier one has resolved.
+  - `"together"` — all boundaries keep their fallbacks until the whole group is ready, then the whole group reveals at once.
+  - `"natural"` — each boundary reveals as soon as its own data resolves; there is no frontier inside the group. At the top level this is equivalent to not using a `Reveal` at all — its purpose is [nesting](#nesting) (see below), where it marks "this subtree is one composite slot to my parent, but its children don't coordinate with each other".
+- `collapsed` — `boolean`. Only consulted when `order="sequential"` (ignored under `"together"` and `"natural"`). When set, boundaries past the current frontier render nothing instead of their own fallback; only the frontier fallback is visible.
 
 ```jsx
+// Sequential (default) — reveals top-to-bottom as each resolves.
 <Reveal>
   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
   <Loading fallback={<Skeleton />}><Posts /></Loading>
 </Reveal>
 
-// Together mode — all reveal at once
-<Reveal together>
+// Together — every boundary waits for the whole group, then reveals at once.
+<Reveal order="together">
   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
   <Loading fallback={<Skeleton />}><Posts /></Loading>
 </Reveal>
 
-// Collapsed mode — only the frontier shows fallback
+// Collapsed (sequential-only) — only the frontier shows a fallback.
 <Reveal collapsed>
   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
   <Loading fallback={<Skeleton />}><Posts /></Loading>
 </Reveal>
 ```
+
+#### Nesting
+
+A nested `<Reveal>` acts as a single composite slot to its parent: the parent's ordering decides when the inner slot is allowed to reveal. Until then the inner group is **held**: every descendant boundary stays on its fallback, even if its own data has already resolved. Once the parent releases the slot, the inner group resumes its own `order` locally.
+
+This rule is absolute. There is no opt-out: wrapping children in an extra `<Loading>` does not let them escape an outer hold, because the `<Loading>` is itself just another slot that the parent holds. If you need a subtree to reveal independently of an outer group, do not nest it under that group.
+
+##### Minimally ready
+
+Each order defines when it has "first visible content" under its own policy. This is the threshold that upward notifications use to report readiness to an enclosing `Reveal`:
+
+- `sequential` — frontier-0 (the first registered slot) has reached its own minimally-ready state.
+- `together` — every direct slot has reached its own minimally-ready state.
+- `natural` — any direct slot has produced visible content (leaves on resolve; nested composites when their whole subtree is ready, since natural treats a composite as one atomic slot).
+
+For a leaf `<Loading>`, "minimally ready" and "fully ready" are the same thing: its data resolved. For a nested `<Reveal>`, the two differ — e.g. a nested `sequential` is minimally ready once its first child resolves, even though later children are still pending.
+
+`order="together"` uses minimal readiness (not full readiness) to decide when to release. This keeps a nested `together` composable: an outer `together` doesn't have to wait for every grandchild to resolve; it releases as soon as every direct child is showing something. After release, each inner group keeps running its own order over anything still pending.
+
+##### Nesting matrix
+
+| Outer `order` | Inner `order` | Outer release condition | After outer releases, inner siblings behave as |
+|---|---|---|---|
+| `sequential` | `sequential` | Outer frontier reaches the inner slot. | Inner reveals in registration order; outer frontier waits for the inner group to finish before advancing past it. |
+| `sequential` | `together` | Outer frontier reaches the inner slot. | Inner reveals atomically once every inner child is ready. |
+| `sequential` | `natural` | Outer frontier reaches the inner slot. | Inner reveals per-slot: each leaf on resolve, each grandchild composite when fully ready. |
+| `together` | `sequential` | Every direct child of the outer `together` is minimally ready; that means the inner's frontier-0 has resolved. | Inner reveals its frontier-0 immediately with the group release, then continues its own sequential order for the tail. |
+| `together` | `together` | Every direct child of the outer is minimally ready; that means the inner `together` has all its own children ready. | Inner reveals atomically as part of the same group release. |
+| `together` | `natural` | Every direct child of the outer is minimally ready; that means at least one inner child is ready. | Already-resolved inner children flush with the group release; later inner resolutions stream independently under natural. |
+| `natural` | `sequential` | The inner composite is fully ready (i.e. every inner child has resolved). | Inner group is fully ready at release; all inner children flush together. |
+| `natural` | `together` | The inner composite is fully ready. | Same as above. |
+| `natural` | `natural` | The inner composite is fully ready. | Same as above. |
+
+`order="natural"` is primarily useful when you have a group whose children don't need to coordinate with each other. Nesting a natural group under an outer ordering lets the natural group participate as one unit in the outer order while each child reveals on its own data once the outer releases the slot.
+
+```jsx
+<Reveal>
+  <Loading fallback={<Skeleton />}><Header /></Loading>
+  <Reveal order="natural">
+    <Loading fallback={<CardSkel />}><Card id={1} /></Loading>
+    <Loading fallback={<CardSkel />}><Card id={2} /></Loading>
+    <Loading fallback={<CardSkel />}><Card id={3} /></Loading>
+  </Reveal>
+  <Loading fallback={<Skeleton />}><Footer /></Loading>
+</Reveal>
+```
+
+Here the outer sequential order ensures `Header` reveals first; until it does, the cards section stays on its fallbacks even if card data arrives early. Once the frontier reaches the cards section, natural takes over inside and each card reveals independently as its own data resolves. `Footer` waits for the whole cards composite to finish before it reveals.
+
+#### SSR behavior
+
+- `renderToString` fully supports `order="sequential"` without `collapsed`, and `order="natural"`.
+- `order="together"` and `collapsed` rely on streamed activation and therefore require `renderToStream` / `renderToStringAsync` to behave correctly. Using them with `renderToString` inside a nested `Reveal` logs a warning.
+- Under streaming, the rules above apply identically: held fragments stream their resolved HTML into templates as data arrives, but the swap from fallback to content is deferred until the enclosing `Reveal` releases the slot. Swaps then happen in resolution order within the released group.
 
 ## Migration / replacement
 

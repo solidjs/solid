@@ -1,7 +1,8 @@
 import { children, IS_DEV } from "../client/core.js";
 import { createMemo, untrack, mapArray, repeat, createRevealOrder } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary } from "./hydration.js";
-import type { Accessor } from "@solidjs/signals";
+import type { Accessor, RevealOrder } from "@solidjs/signals";
+export type { RevealOrder };
 import type { JSX } from "../jsx.js";
 
 type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
@@ -262,30 +263,52 @@ export function Loading(props: {
   ) as unknown as JSX.Element;
 }
 
+export type RevealProps = {
+  order?: RevealOrder;
+  collapsed?: boolean;
+  children: JSX.Element;
+};
+
 /**
  * Coordinates the reveal timing of sibling `<Loading>` boundaries.
  *
- * - **Sequential** (default): boundaries reveal in DOM order as each resolves.
- * - **Together** (`together`): all boundaries wait until the group is ready, then reveal at once.
- * - **Collapsed** (`collapsed`, sequential only): only the frontier boundary shows its fallback;
- *   later boundaries produce nothing until their turn.
+ * The `order` prop picks the reveal policy:
+ * - `"sequential"` (default) — boundaries reveal in registration order; later boundaries
+ *   stay on their fallback until earlier ones resolve.
+ * - `"together"` — every direct slot stays on its fallback until the whole group is
+ *   "minimally ready" (every direct slot has its own first visible content available),
+ *   then the group releases in one cohesive reveal.
+ * - `"natural"` — each boundary reveals as its own data resolves. At the top level
+ *   this is equivalent to omitting `<Reveal>`; the mode exists for nesting, where
+ *   the group registers as a single composite slot in an enclosing `<Reveal>`.
+ *
+ * The `collapsed` prop is only consulted when `order="sequential"` (the default);
+ * it is ignored under `"together"` and `"natural"`. When set, tail boundaries past
+ * the frontier suppress their own fallback output.
+ *
+ * Nested `<Reveal>` groups compose: the inner group is one slot in the outer order
+ * and is held on its fallbacks until the outer releases the slot. Once released, the
+ * inner group runs its own `order` locally over whatever is still pending. There is
+ * no escape hatch — nesting under an outer group means participating in its ordering.
+ * See `documentation/solid-2.0/03-control-flow.md` for the full nesting matrix and the
+ * "minimally ready" definition per order.
  *
  * ```typescript
- * <Reveal>
+ * <Reveal order="sequential">
  *   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
- *   <Loading fallback={<Skeleton />}><Posts /></Loading>
+ *   <Reveal order="natural">
+ *     <Loading fallback={<Skeleton />}><PostA /></Loading>
+ *     <Loading fallback={<Skeleton />}><PostB /></Loading>
+ *   </Reveal>
+ *   <Loading fallback={<Skeleton />}><Comments /></Loading>
  * </Reveal>
  * ```
  *
  * @description https://docs.solidjs.com/reference/components/reveal
  */
-export function Reveal(props: {
-  together?: boolean;
-  collapsed?: boolean;
-  children: JSX.Element;
-}): JSX.Element {
+export function Reveal(props: RevealProps): JSX.Element {
   return createRevealOrder(() => props.children, {
-    together: () => !!props.together,
+    order: () => props.order ?? "sequential",
     collapsed: () => !!props.collapsed
   }) as unknown as JSX.Element;
 }

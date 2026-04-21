@@ -421,6 +421,8 @@ This isn’t just `For`. A few control-flow APIs pass **accessors** into functio
 
 `SuspenseList` is replaced by `Reveal`, which coordinates sibling `Loading` boundaries.
 
+Ordering is controlled by a single `order` prop with three values: `"sequential"` (default, matches `revealOrder="forwards"`), `"together"` (matches `revealOrder="together"`), and `"natural"` (new in 2.0 — no in-group ordering). A separate `collapsed` boolean covers the former `tail="collapsed"` case; it is only consulted when `order="sequential"` and is ignored otherwise.
+
 ```jsx
 // 1.x
 <SuspenseList revealOrder="forwards">
@@ -428,12 +430,33 @@ This isn’t just `For`. A few control-flow APIs pass **accessors** into functio
   <Suspense fallback={<Skeleton />}><Posts /></Suspense>
 </SuspenseList>
 
-// 2.0 — sequential (default), together, or collapsed
+// 2.0 — default sequential ordering
 <Reveal>
   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
   <Loading fallback={<Skeleton />}><Posts /></Loading>
 </Reveal>
+
+// 2.0 — reveal the whole group at once
+<Reveal order="together">
+  <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+  <Loading fallback={<Skeleton />}><Posts /></Loading>
+</Reveal>
+
+// 2.0 — nested natural group that reveals independently within its slot
+<Reveal>
+  <Loading fallback={<Skeleton />}><Header /></Loading>
+  <Reveal order="natural">
+    {/* Held on their fallbacks until the outer frontier reaches this slot.
+        Once released, each card reveals as its own data resolves. */}
+    <Loading fallback={<CardSkel />}><Card id={1} /></Loading>
+    <Loading fallback={<CardSkel />}><Card id={2} /></Loading>
+  </Reveal>
+</Reveal>
 ```
+
+> Note: in earlier 2.0 betas `Reveal` exposed a boolean `together` prop. That prop has been replaced by `order="together"`. `collapsed` still exists; it is a sequential-only knob and has no effect under `order="together"` or `order="natural"`.
+
+Nesting semantics, the outer/inner ordering matrix, and SSR caveats are documented in [Control flow → Reveal](./03-control-flow.md#reveal-timing-reveal).
 
 ## DOM
 
@@ -513,7 +536,7 @@ const Theme = createContext("light");
 
 These APIs are new additions (not renames of 1.x APIs):
 
-- **`Reveal`** — coordinates reveal timing of sibling `Loading` boundaries (sequential, together, collapsed). Replaces `SuspenseList`.
+- **`Reveal`** — coordinates reveal timing of sibling `Loading` boundaries via an `order` prop (`"sequential"` | `"together"` | `"natural"`) plus a sequential-only `collapsed` flag. Replaces `SuspenseList`. `order="natural"` is new: the nested group participates as a single composite slot in its parent's ordering, and once the parent releases that slot, each inner child reveals independently on its own data.
 - **`Repeat`** — count/range-based list rendering without diffing (skeletons, windowing).
 - **`action(fn)`** — wraps generator/async generator mutations with transition coordination.
 - **`createOptimistic` / `createOptimisticStore`** — signal/store primitives whose writes revert when a transition completes.

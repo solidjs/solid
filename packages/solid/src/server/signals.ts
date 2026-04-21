@@ -1087,9 +1087,14 @@ export function createLoadingBoundary(
   }
 }
 
+export type RevealOrder = "sequential" | "together" | "natural";
+
 export function createRevealOrder<T>(
   fn: () => T,
-  _options?: { together?: () => boolean; collapsed?: () => boolean }
+  _options?: {
+    order?: () => RevealOrder;
+    collapsed?: () => boolean;
+  }
 ): T {
   const o = createOwner();
   return runWithOwner(o, fn);
