@@ -183,7 +183,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (lane) currentOptimisticLane = lane;
   }
   try {
-    value = handleAsync(el, el._fn(value));
+    // Snapshot `_inFlight` so we can detect whether `_fn` self-registered an async
+    // subscription (e.g. `createProjection` calls `handleAsync` from inside its body
+    // with a setter callback). In that case, the outer `handleAsync` call below would
+    // clobber the fresh subscription, so we skip it and let the internally-registered
+    // iteration drive updates.
+    const prevInFlight = el._inFlight;
+    const fnResult = el._fn(value);
+    value = el._inFlight !== prevInFlight ? fnResult : handleAsync(el, fnResult);
     clearStatus(el, create);
     const resolvedLane = resolveLane(el);
     if (resolvedLane) {

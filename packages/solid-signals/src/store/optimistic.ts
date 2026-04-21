@@ -7,7 +7,7 @@ import {
   type Computed
 } from "../core/index.js";
 import { GlobalQueue, setProjectionWriteActive } from "../core/scheduler.js";
-import { createWriteTraps } from "./projection.js";
+import { runProjectionComputed } from "./projection.js";
 import { reconcile } from "./reconcile.js";
 import {
   $DELETED,
@@ -146,39 +146,26 @@ function createOptimisticProjectionInternal<T extends object = {}>(
 
   // If there's a projection function, create a computed to drive it
   if (fn) {
-    node = computed(() => {
-      const owner = getOwner() as Computed<void | T>;
-      let settled = false;
-      let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
-      const draft = new Proxy(
-        wrappedStore,
-        createWriteTraps(() => !settled || owner._inFlight === result)
-      );
-      // All writes inside firewall recompute go to STORE_OVERRIDE (base), not STORE_OPTIMISTIC_OVERRIDE
+    // All writes inside firewall recompute must go to STORE_OVERRIDE (base), not
+    // STORE_OPTIMISTIC_OVERRIDE. The outer wrap covers the sync body (including
+    // `fn(draft)` and the initial commit); `wrapCommit` re-applies the flag for
+    // async yields because they fire outside any enclosing try/finally.
+    const wrapCommit = (write: () => void) => {
       setProjectionWriteActive(true);
       try {
-        storeSetter<T>(draft, s => {
-          result = fn(s);
-          settled = true;
-          const value = handleAsync(owner, result, value => {
-            // Async callback still needs projectionWriteActive for reconcile
-            setProjectionWriteActive(true);
-            try {
-              value !== s &&
-                value !== undefined &&
-                storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
-            } finally {
-              setProjectionWriteActive(false);
-            }
-          });
-          value !== s &&
-            value !== undefined &&
-            reconcile(value, options?.key || "id")(wrappedStore);
-        });
+        write();
       } finally {
         setProjectionWriteActive(false);
       }
-    });
+    };
+    node = computed(() => {
+      setProjectionWriteActive(true);
+      try {
+        runProjectionComputed(wrappedStore, fn, options?.key || "id", wrapCommit);
+      } finally {
+        setProjectionWriteActive(false);
+      }
+    }) as Computed<void>;
     (node as any)._preventAutoDisposal = true;
   }
 

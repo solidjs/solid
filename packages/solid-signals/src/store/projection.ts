@@ -41,24 +41,8 @@ export function createProjectionInternal<T extends object = {}>(
   const wrappedStore = wrapProjection(seed) as Store<T>;
 
   node = computed(() => {
-    const owner = getOwner() as Computed<void | T>;
-    if (!node) node = owner;
-    let settled = false;
-    let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
-    const draft = new Proxy(
-      wrappedStore,
-      createWriteTraps(() => !settled || owner._inFlight === result)
-    );
-    storeSetter<T>(draft, s => {
-      result = fn(s);
-      settled = true;
-      const value = handleAsync(owner, result, value => {
-        value !== s &&
-          value !== undefined &&
-          storeSetter(wrappedStore, reconcile(value, options?.key || "id"));
-      });
-      value !== s && value !== undefined && reconcile(value, options?.key || "id")(wrappedStore);
-    });
+    if (!node) node = getOwner();
+    runProjectionComputed(wrappedStore, fn, options?.key || "id");
   });
   (node as any)._preventAutoDisposal = true;
 
@@ -87,6 +71,45 @@ export function createProjection<T extends object = {}>(
   options?: ProjectionOptions
 ): Store<T> & { [$REFRESH]: any } {
   return createProjectionInternal(fn, seed, options).store;
+}
+
+/**
+ * Shared projection computed body used by both `createProjection` and the derived
+ * form of `createOptimisticStore`. Encapsulates the write-trap draft, `storeSetter`
+ * wrapping, the `handleAsync` subscription with a setter callback, and the commit
+ * path (which must always go through `storeSetter` so the `writeOnly` guard is
+ * engaged during `reconcile`'s property reads).
+ *
+ * `wrapCommit` is invoked for every commit (sync return and each async yield) and
+ * lets callers layer extra context around the write — e.g. the optimistic store
+ * re-enters `setProjectionWriteActive` so reconciles target `STORE_OVERRIDE`
+ * instead of `STORE_OPTIMISTIC_OVERRIDE` even when an async yield fires outside
+ * the outer `setProjectionWriteActive` scope.
+ */
+export function runProjectionComputed<T extends object>(
+  wrappedStore: Store<T>,
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  key: string | ((item: NonNullable<any>) => any),
+  wrapCommit?: (write: () => void) => void
+): Computed<void | T> {
+  const owner = getOwner() as Computed<void | T>;
+  let settled = false;
+  let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
+  const draft = new Proxy(
+    wrappedStore,
+    createWriteTraps(() => !settled || owner._inFlight === result)
+  );
+  storeSetter<T>(draft, s => {
+    result = fn(s);
+    settled = true;
+    const commit = (v: void | T) => {
+      if (v === s || v === undefined) return;
+      const write = () => storeSetter(wrappedStore, reconcile(v, key));
+      wrapCommit ? wrapCommit(write) : write();
+    };
+    commit(handleAsync(owner, result, commit));
+  });
+  return owner;
 }
 
 export function createWriteTraps(isActive?: () => boolean): ProxyHandler<any> {
