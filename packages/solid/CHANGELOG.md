@@ -1,5 +1,129 @@
 # solid-js
 
+## 2.0.0-beta.8
+
+### Patch Changes
+
+- 34c65b8: CSR: async reads without a `Loading` ancestor no longer throw. The root mount now participates in transitions — when uncaught async surfaces during initial render, the root DOM attach is withheld until all pending settles and then attaches atomically. On the no-async happy path, `render()` still attaches synchronously before returning (via an internal tail `flush()`).
+
+  **New `schedule` option on effects**
+
+  `@solidjs/signals` exposes a new `schedule?: boolean` option on `EffectOptions`. When `true`, the initial effect callback is enqueued through the effect queue (the same path user effects already take) instead of running synchronously at creation. This lets the initial run participate in transitions — if any source bails during the compute phase, the callback is held until the transition settles.
+
+  ```ts
+  createRenderEffect(
+    () => source(),
+    v => {
+      /* runs after flush, deferred by any pending transition */
+    },
+    { schedule: true }
+  );
+  ```
+
+  `@solidjs/web`'s `render()` uses this option internally for its top-level insert, which is what enables permissive top-level async in CSR.
+
+  **Dev diagnostic**
+
+  `ASYNC_OUTSIDE_LOADING_BOUNDARY` is now a non-halting `console.warn` (severity downgraded from `error` to `warn`). With deferred-mount the runtime is correct; the diagnostic is an informative FYI rather than a correctness failure. The warning only fires during the synchronous body of `render()` / `hydrate()` — post-mount transitions (including lazy route changes) run under their own transitions with the guard off and do not emit this warning.
+
+  Placing a `Loading` boundary remains the right tool when you want explicit fallback UI or partial progressive mount.
+
+  **Known limitation: multi-phase async**
+
+  Multi-phase async flows — for example, a `lazy()` component whose resolved body reads a second pending async memo — may still reveal partial DOM between waves. This is because the scheduler currently nulls `activeTransition` before running the completing flush's restored queues; a new transition started by recomputes during that phase does not re-stash already-restored callbacks. Single-wave nested async (including static siblings alongside a pending descendant) commits atomically. The multi-phase case is tracked as a follow-up; the recommended workaround today is to place a `Loading` boundary around multi-phase async subtrees.
+
+- ed2079f: Fix SSR `<Loading>` to handle a bare async memo passed directly as its child (e.g. `<Loading>{asyncValue()}</Loading>`). The boundary now catches the synchronous `NotReadyError` from the discovery pass, awaits the underlying source, and re-runs discovery — restoring parity with the client and allowing inner `<Errored>` boundaries to propagate async holes through outer `<Loading>` on the server (issue #2677).
+- 2597a4a: Fix `createProjection` hydration from async iterables when no `Loading` boundary wraps the consumer (e.g. `Repeat` reading projection state directly).
+  - `hydration.ts`: disable snapshot capture while applying the initial full value from the server iterable so `prepareStoreWrite` doesn't record the pre-write (empty) base as the snapshot. Without this, reads during hydration (like `Repeat` reading `length`) see the stale pre-value and fail to match the server-rendered DOM, producing unclaimed nodes and duplicated items.
+  - `projection.ts`: eagerly assign the inner `computed` owner to the outer `node` binding on first run so `STORE_FIREWALL` lookups work during synchronous hydration writes (before `node = computed(...)` returns).
+
+- 00c3f78: Fix `createProjection` streaming when no outer `Loading` boundary is present. Two related bugs were fixed, plus a small internal refactor:
+  - The synchronous `reconcile` path in `createProjectionInternal` now goes through `storeSetter` so the `writeOnly` guard is engaged during reconcile reads. Previously it bypassed the guard, causing the projection's own reads (via its store's `_firewall`) to be tracked as dependencies, dirtying the projection mid-recompute and producing a runaway self-loop.
+  - `recompute` now snapshots `_inFlight` before running the node's `_fn`. When `_fn` self-registers an async subscription (as `createProjection` does via an internal `handleAsync(owner, asyncIterable, setter)` call that returns `undefined` from the body), the outer `handleAsync(el, undefined)` would otherwise clear `_inFlight` and drop every subsequent yielded value. The snapshot lets `recompute` skip the outer `handleAsync` in that case and keep the internally-registered iteration alive, so projections stream all values (not just the first) regardless of whether a `Loading` boundary is present.
+  - Internal: the projection recompute body (`draft + storeSetter + handleAsync + commit`) is now shared between `createProjection` and the derived form of `createOptimisticStore` via a `runProjectionComputed` helper. As a side-effect this routes optimistic projections' sync commit through `storeSetter` too, bringing them in line with the fix above.
+
+- d46928f: fix: stores now batch like signals on cold writes
+
+  Untracked reads of a store property after a `setStore` mutation now return the
+  previous value until `flush()` (or the surrounding effect/transition) commits,
+  matching `createSignal` semantics. The `in` operator batches the same way —
+  after a cold add or delete, presence reflects the pre-write shape until commit.
+  Previously both reads resolved synchronously against the override, which broke
+  the "no reading uncommitted state" invariant for store properties that had
+  never been observed.
+
+  Internally we upsert a transient pending node for the property (and, on
+  presence change, a matching `STORE_HAS` node) on cold writes, queue the new
+  value as `_pendingValue`, and sweep nodes that never gain a subscriber when
+  their pending write commits. Optimistic stores and projection writes are
+  unaffected — they keep their immediate-visibility semantics.
+
+- 000da61: Refactor `WidenPropValue` helper in `jsx-properties.d.ts` to split the nested conditional into a small named helper. Behavior-identical; removes a line that sat exactly at `printWidth: 100` so formatters running at the default width no longer fight the repo's prettier config.
+- 2e4a924: Remove the `ssrSource: "initial"` mode and type derived `client` hydration reads as possibly undefined until hydration resumes.
+- ac0067a: Replace `Reveal`'s boolean `together` prop with an `order` string union
+  (`"sequential" | "together" | "natural"`) and add the new `"natural"` mode.
+  - `order="sequential"` is the default and matches the previous default behavior.
+  - `order="together"` replaces `<Reveal together>`; existing `together` props must be migrated to `order="together"`.
+  - `order="natural"` is new. A nested `<Reveal order="natural">` group opts its own
+    children out of the outer frontier (each child reveals as its own data resolves),
+    while the group as a whole still acts as a single composite slot to the enclosing
+    `<Reveal>`. This closes the gap where a nested subtree needed to respect its parent's
+    broader ordering while returning to natural, independent reveal behavior internally.
+  - `collapsed` is only consulted when `order="sequential"` (the default). It is
+    silently ignored under `order="together"` or `order="natural"` — no type error,
+    so dynamic `order` bindings don't need a discriminated-union workaround.
+  - `RevealOrder` (the `"sequential" | "together" | "natural"` string union) is
+    exported from `solid-js` for use in consumer code that types the prop directly.
+  - `renderToString` now supports `order="natural"` out of the box (no streaming required).
+  - `createRevealOrder` options changed from `{ together?, collapsed? }` to
+    `{ order?, collapsed? }` with the same accessor shape.
+
+  See `documentation/solid-2.0/03-control-flow.md` for the full outer/inner nesting
+  matrix and SSR caveats.
+
+- ac0067a: Fix nested `<Reveal>` coordination: a nested group is now held on its fallbacks
+  until its parent releases the slot it occupies, in both the client runtime and
+  SSR streaming. Previously, an inner `Reveal` inside an outer `order="together"`
+  (or past the frontier of an outer `sequential` without `collapsed`) could reveal
+  its own children independently, breaking the outer group's "reveal as one unit"
+  guarantee.
+
+  Key behavior changes:
+  - `order="together"` now releases when every direct slot is "minimally ready"
+    under its own order (a nested `sequential` is minimally ready at frontier-0,
+    a nested `natural` when any child is ready, a nested `together` when all its
+    children are ready) rather than waiting for every descendant to fully resolve.
+    This keeps `together` composable without sacrificing the cohesive group reveal.
+  - When an outer `sequential` advances to a nested `Reveal` as its frontier, or
+    an outer `natural` surfaces a nested `Reveal` slot, the nested group is now
+    released to run its own order locally. Previously the nested group inherited
+    the outer's hold, which forced its children to reveal together once released;
+    they now reveal per the nested group's own policy (e.g., inner `natural`
+    children reveal independently as their data lands). This applies to both the
+    client runtime and SSR streaming.
+  - SSR fix: when an outer `sequential+collapsed` frontier advances to a nested
+    `Reveal`, the inner group now emits `revealFallbacks` for its leaf children so
+    their collapsed fallback templates become visible under the inner's own order.
+    Previously the inner fallbacks remained hidden until they resolved. Requires a
+    matching `dom-expressions` update: `$dflj(ids)` now materializes every id in
+    the list instead of stopping at the first, so bulk uncollapse reveals all of
+    its listed fallbacks in one call. Solid's `advanceFrontier` now passes the
+    single new frontier key to `revealFallbacks` for sequential cascading, which
+    preserves the prior incremental behavior.
+  - Nested `<Reveal>` groups cannot opt out of an outer group's hold while it is
+    still held. Wrapping a subtree in a `<Loading>` does not bypass this — the
+    `<Loading>` is itself a slot the parent holds. Subtrees that need independent
+    reveal should not be nested under an outer ordering.
+  - On the server, HTML for resolved fragments still streams immediately into
+    templates; only the `revealFragments` swap calls are stashed and drained in
+    resolution order when the enclosing `Reveal` releases the slot.
+
+  See `documentation/solid-2.0/03-control-flow.md` for the updated nesting matrix
+  and the "minimally ready" definition per order.
+
+- Updated dependencies [34c65b8]
+  - @solidjs/signals@2.0.0-beta.8
+
 ## 2.0.0-beta.7
 
 ### Patch Changes
