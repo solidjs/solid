@@ -1,6 +1,6 @@
 {
-  "name": "ssr-example",
-  "description": "Example of different SSR modes",
+  "name": "rendering-example",
+  "description": "Example of the different Solid render modes (string SSR, streaming SSR, client-only)",
   "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",
@@ -11,6 +11,8 @@
     "string:start": "node string/lib/index.js",
     "stream:build": "rollup -c stream/rollup.config.js",
     "stream:start": "node stream/lib/index.js",
+    "csr:build": "rollup -c csr/rollup.config.js",
+    "csr:start": "node csr/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "clean": "rimraf */lib/ */public/"
   },

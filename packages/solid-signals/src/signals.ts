@@ -81,12 +81,26 @@ export type EffectBundle<Prev, Next extends Prev = Prev> = {
   error: (err: unknown, cleanup: () => void) => void;
 };
 
-/** Options for effect primitives (`createEffect`, `createRenderEffect`, `createTrackedEffect`, `createReaction`). */
-export interface EffectOptions {
+/** Options shared by every effect primitive. */
+interface BaseEffectOptions {
   /** Debug name (dev mode only) */
   name?: string;
+}
+
+/** Options for effect primitives that support deferring/scheduling their initial run (`createEffect`, `createRenderEffect`, `createReaction`). */
+export interface EffectOptions extends BaseEffectOptions {
   /** When true, defers the initial effect execution until the next change */
   defer?: boolean;
+  /**
+   * When true, enqueues the initial effect callback through the effect queue instead of running
+   * it synchronously at creation. Lets the initial run participate in transitions -- if any
+   * source throws `NotReadyError` during the compute phase, the callback is held until the
+   * transition settles.
+   *
+   * Primarily for render effects that need transition-aware initial mounts (e.g. the root
+   * `insert()` in `render()`).
+   */
+  schedule?: boolean;
 }
 
 /** Options for plain signals created with `createSignal(value)` or `createOptimistic(value)`. */
@@ -156,7 +170,7 @@ export function createSignal<T>(
   second?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = computed<T>(first as any, undefined, second as any);
+    const node = computed<T>(first as any, second as any);
     (node as any)._preventAutoDisposal = true;
     return [
       accessor<T | undefined>(node),
@@ -185,7 +199,7 @@ export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: MemoOptions<T>
 ): Accessor<T> {
-  let node = computed<T>(compute as any, undefined, options);
+  let node = computed<T>(compute as any, options);
   return accessor<T>(node);
 }
 
@@ -206,13 +220,10 @@ export function createEffect<T>(
   effectFn: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
-  effect(
-    compute as any,
-    (effectFn as any).effect || effectFn,
-    (effectFn as any).error,
-    undefined,
-    __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
-  );
+  effect(compute as any, (effectFn as any).effect || effectFn, (effectFn as any).error, {
+    user: true,
+    ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+  });
 }
 
 /**
@@ -233,10 +244,12 @@ export function createRenderEffect<T>(
   effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions
 ): void {
-  effect(compute as any, effectFn, undefined, undefined, {
-    render: true,
-    ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
-  });
+  effect(
+    compute as any,
+    effectFn,
+    undefined,
+    __DEV__ ? { ...options, name: options?.name ?? "effect" } : options
+  );
 }
 
 /**
@@ -248,16 +261,16 @@ export function createRenderEffect<T>(
  * state). Use only when dynamic subscription patterns require same-scope tracking.
  *
  * ```typescript
- * createTrackedEffect(compute, options?: EffectOptions);
+ * createTrackedEffect(compute, options?: { name?: string });
  * ```
  * @param compute a function that contains reactive reads to track and returns an optional cleanup function to run on disposal or before next execution
- * @param options `EffectOptions` -- name, defer
+ * @param options -- name
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-tracked-effect
  */
 export function createTrackedEffect(
   compute: () => void | (() => void),
-  options?: EffectOptions
+  options?: BaseEffectOptions
 ): void {
   trackedEffect(
     compute,
@@ -300,10 +313,10 @@ export function createReaction(
           dispose(node as any);
         },
         (effectFn as any).error,
-        undefined,
         {
-          defer: true,
-          ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)
+          ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options),
+          user: true,
+          defer: true
         }
       );
     });
@@ -369,7 +382,7 @@ export function createOptimistic<T>(
   second?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
-    const node = optimisticComputed<T>(first as any, undefined, second as any);
+    const node = optimisticComputed<T>(first as any, second as any);
     (node as any)._preventAutoDisposal = true;
     return [
       accessor<T | undefined>(node),

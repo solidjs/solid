@@ -620,7 +620,7 @@ export function createRenderEffect<T>(
 
 export function createTrackedEffect(
   compute: () => void | (() => void),
-  options?: EffectOptions
+  options?: { name?: string }
 ): void {
   // No-op on server, but allocate computation ID
   const o = getOwner();

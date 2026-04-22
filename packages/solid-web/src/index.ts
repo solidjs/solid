@@ -5,17 +5,19 @@ import {
   SVGElements,
   MathMLElements,
   Namespaces,
-  hydrate as hydrateCore,
-  render as renderCore
+  hydrate as hydrateCore
 } from "./client.js";
 import {
   createMemo,
+  createRoot,
   untrack,
   omit,
   JSX,
   sharedConfig,
   enableHydration,
   enforceLoadingBoundary,
+  flatten,
+  flush,
   $DEVCOMP,
   ComponentProps,
   ValidComponent,
@@ -23,16 +25,7 @@ import {
 } from "solid-js";
 
 export * from "./client.js";
-
-export function render(...args: Parameters<typeof renderCore>): ReturnType<typeof renderCore> {
-  // @ts-ignore — replaced at build time
-  if ("_DX_DEV_") enforceLoadingBoundary(true);
-  const result = renderCore(...args);
-  // @ts-ignore — replaced at build time
-  if ("_DX_DEV_") enforceLoadingBoundary(false);
-  return result;
-}
-
+export * from "./server-mock.js";
 export {
   For,
   Show,
@@ -47,18 +40,86 @@ export {
   merge as mergeProps
 } from "solid-js";
 
-export * from "./server-mock.js";
-
 export const isServer: boolean = false;
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
-function createElement(tagName: string, is = undefined): HTMLElement | SVGElement | MathMLElement {
-  return (
-    SVGElements.has(tagName)
-      ? document.createElementNS(Namespaces.svg, tagName)
-      : MathMLElements.has(tagName)
-        ? document.createElementNS(Namespaces.mathml, tagName)
-        : document.createElement(tagName, { is })
-  ) as HTMLElement | SVGElement | MathMLElement;
+
+type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
+
+export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
+  [K in keyof P]: P[K];
+} & {
+  component: T | undefined;
+};
+
+/**
+ * Renders a component tree into a DOM element and returns a dispose function.
+ *
+ * The top-level insert runs with `schedule: true` so its initial DOM attach
+ * goes through the effect queue rather than executing inline. This lets the
+ * mount participate in transitions: if an uncaught async read surfaces during
+ * the initial render (no `Loading` ancestor absorbs it), the mount is held by
+ * the transition and attaches atomically once all pending settles. On the
+ * no-async happy path the tail `flush()` drains the queued callback so the
+ * attach is synchronous by the time `render()` returns.
+ */
+export function render(
+  code: () => JSX.Element,
+  element: MountableElement,
+  init?: unknown,
+  options: { renderId?: string } = {}
+): () => void {
+  // @ts-ignore — replaced at build time
+  if ("_DX_DEV_" && !element) {
+    throw new Error(
+      "The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document."
+    );
+  }
+  const renderRoot =
+    (element as Element).localName === "template"
+      ? (element as HTMLTemplateElement).content
+      : element;
+  let disposer!: () => void;
+  createRoot(
+    dispose => {
+      disposer = dispose;
+      if (element === document) {
+        (flatten as (v: unknown) => unknown)(code);
+        return;
+      }
+      const marker = (renderRoot as Node).firstChild ? null : undefined;
+      // Narrow the enforcement window to the component body evaluation and
+      // the top-level insert's initial recompute; subsequent updates run under
+      // their own transitions and should not trigger the warn. The bails
+      // originate inside insert()'s compute (normalize/flatten reads memos),
+      // so enforcement must stay on through the insert() call.
+      // @ts-ignore — replaced at build time
+      if ("_DX_DEV_") enforceLoadingBoundary(true);
+      try {
+        // Pass tree as an accessor so insert() always takes the effect path
+        // (otherwise a concrete Node would short-circuit to the synchronous
+        // insertExpression branch and skip the `schedule` option).
+        const tree = code();
+        (
+          insert as unknown as (
+            parent: MountableElement,
+            accessor: unknown,
+            marker: Node | null | undefined,
+            initial: unknown,
+            options?: { schedule?: boolean }
+          ) => void
+        )(element, () => tree, marker, init, { schedule: true });
+      } finally {
+        // @ts-ignore — replaced at build time
+        if ("_DX_DEV_") enforceLoadingBoundary(false);
+      }
+    },
+    { id: options.renderId } as any
+  );
+  flush();
+  return () => {
+    disposer();
+    (renderRoot as Element).textContent = "";
+  };
 }
 
 export const hydrate: typeof hydrateCore = (...args) => {
@@ -100,30 +161,6 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   );
   return treeMarker;
 }
-
-function createElementProxy(el: Element, marker: Text) {
-  return new Proxy(el, {
-    get(target, prop) {
-      if (prop === "appendChild" || prop === "insertBefore") {
-        return (...args: [Node]) => {
-          Object.defineProperty(args[0], "_$host", {
-            get: () => marker.parentNode,
-            configurable: true
-          });
-          (target[prop] as any)(...args);
-        };
-      }
-      const value = Reflect.get(target, prop);
-      return typeof value === "function" ? value.bind(target) : value;
-    }
-  });
-}
-
-export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
-  [K in keyof P]: P[K];
-} & {
-  component: T | undefined;
-};
 
 /**
  * Renders an arbitrary component or element with the given props
@@ -175,4 +212,32 @@ export function createDynamic<T extends ValidComponent>(
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
   const others = omit(props, "component");
   return createDynamic(() => props.component, others as ComponentProps<T>);
+}
+
+function createElement(tagName: string, is = undefined): HTMLElement | SVGElement | MathMLElement {
+  return (
+    SVGElements.has(tagName)
+      ? document.createElementNS(Namespaces.svg, tagName)
+      : MathMLElements.has(tagName)
+        ? document.createElementNS(Namespaces.mathml, tagName)
+        : document.createElement(tagName, { is })
+  ) as HTMLElement | SVGElement | MathMLElement;
+}
+
+function createElementProxy(el: Element, marker: Text) {
+  return new Proxy(el, {
+    get(target, prop) {
+      if (prop === "appendChild" || prop === "insertBefore") {
+        return (...args: [Node]) => {
+          Object.defineProperty(args[0], "_$host", {
+            get: () => marker.parentNode,
+            configurable: true
+          });
+          (target[prop] as any)(...args);
+        };
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
 }

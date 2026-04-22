@@ -8,13 +8,20 @@ import {
   flush
 } from "../src/index.js";
 
-afterEach(() => {
-  enforceLoadingBoundary(false);
-  flush();
-});
-
 describe("enforceLoadingBoundary", () => {
-  it("throws when async pending propagates to root without a boundary", () => {
+  let warnSpy!: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    enforceLoadingBoundary(false);
+    flush();
+  });
+
+  it("warns when async pending propagates to root without a boundary", () => {
     enforceLoadingBoundary(true);
 
     expect(() => {
@@ -22,10 +29,12 @@ describe("enforceLoadingBoundary", () => {
         const value = createMemo(() => new Promise<string>(() => {}));
         createRenderEffect(value, () => {});
       });
-    }).toThrow("Loading boundary");
+    }).not.toThrow();
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Loading boundary"));
   });
 
-  it("does not throw when createLoadingBoundary catches the pending", () => {
+  it("does not warn when createLoadingBoundary catches the pending", () => {
     enforceLoadingBoundary(true);
 
     expect(() => {
@@ -35,6 +44,8 @@ describe("enforceLoadingBoundary", () => {
         createRenderEffect(boundary, () => {});
       });
     }).not.toThrow();
+
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("error is caught by createErrorBoundary when no load boundary", () => {
@@ -56,9 +67,10 @@ describe("enforceLoadingBoundary", () => {
     }).not.toThrow();
 
     expect(caughtError).toBeDefined();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it("does not throw when disabled", () => {
+  it("does not warn when disabled", () => {
     enforceLoadingBoundary(false);
 
     expect(() => {
@@ -67,5 +79,7 @@ describe("enforceLoadingBoundary", () => {
         createRenderEffect(value, () => {});
       });
     }).not.toThrow();
+
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

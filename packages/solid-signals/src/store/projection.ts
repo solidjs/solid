@@ -40,10 +40,13 @@ export function createProjectionInternal<T extends object = {}>(
   };
   const wrappedStore = wrapProjection(seed) as Store<T>;
 
-  node = computed(() => {
-    if (!node) node = getOwner();
-    runProjectionComputed(wrappedStore, fn, options?.key || "id");
-  });
+  node = computed(
+    () => {
+      if (!node) node = getOwner();
+      runProjectionComputed(wrappedStore, fn, options?.key || "id");
+    },
+    __DEV__ && options?.name ? { name: options.name } : undefined
+  );
   (node as any)._preventAutoDisposal = true;
 
   return { store: wrappedStore, node } as {
@@ -61,7 +64,7 @@ export function createProjectionInternal<T extends object = {}>(
  * ```
  * @param fn a function that receives the current draft and mutates it or returns new data
  * @param seed the backing store host value to wrap and reconcile into
- * @param options `ProjectionOptions` -- name, key, all
+ * @param options `ProjectionOptions` -- name, key
  *
  * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
  */

@@ -10,7 +10,7 @@
     "@solidjs/universal": "1.9.4",
     "@solidjs/web": "1.9.4",
     "test-integration": "1.9.4",
-    "ssr-example": "0.0.0",
+    "rendering-example": "0.0.0",
     "@solidjs/signals": "0.13.13"
   },
   "changesets": [

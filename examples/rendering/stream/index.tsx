@@ -2,6 +2,7 @@ import express from "express";
 import url from "url";
 
 import { renderToStream } from "@solidjs/web";
+import Shell from "../shared/src/components/Shell";
 import App from "../shared/src/components/App";
 import manifest from "virtual:asset-manifest";
 
@@ -18,7 +19,14 @@ app.use(
 
 app.get("*", (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  renderToStream(() => <App url={req.url} />, { manifest }).pipe(res);
+  renderToStream(
+    () => (
+      <Shell>
+        <App url={req.url} />
+      </Shell>
+    ),
+    { manifest }
+  ).pipe(res);
 });
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`));

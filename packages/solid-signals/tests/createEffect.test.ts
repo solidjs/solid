@@ -491,3 +491,112 @@ it("should defer user effects with the defer option", () => {
   flush();
   expect(mark).toBe("b");
 });
+
+describe("schedule option", () => {
+  it("does not run initial render-effect callback synchronously when schedule: true", () => {
+    let calls = 0;
+    createRoot(() => {
+      createRenderEffect(
+        () => 1,
+        () => {
+          calls++;
+        },
+        { schedule: true }
+      );
+      expect(calls).toBe(0);
+    });
+    flush();
+    expect(calls).toBe(1);
+  });
+
+  it("runs initial render-effect callback synchronously without schedule (default)", () => {
+    let calls = 0;
+    createRoot(() => {
+      createRenderEffect(
+        () => 1,
+        () => {
+          calls++;
+        }
+      );
+      expect(calls).toBe(1);
+    });
+    flush();
+    expect(calls).toBe(1);
+  });
+
+  it("holds the scheduled callback until a pending async source resolves", async () => {
+    let resolveFn!: (v: number) => void;
+    const promise = new Promise<number>(r => (resolveFn = r));
+    const received: number[] = [];
+
+    createRoot(() => {
+      const [get] = createSignal(() => promise, 0);
+      createRenderEffect(
+        () => get(),
+        v => {
+          received.push(v);
+        },
+        { schedule: true }
+      );
+    });
+
+    flush();
+    expect(received).toEqual([]);
+
+    resolveFn(42);
+    await promise;
+    flush();
+    await Promise.resolve();
+    flush();
+
+    expect(received).toEqual([42]);
+  });
+
+  it("subsequent changes after the scheduled initial run behave like a normal render effect", () => {
+    const [$x, setX] = createSignal(0);
+    const received: number[] = [];
+
+    createRoot(() => {
+      createRenderEffect(
+        () => $x(),
+        v => {
+          received.push(v);
+        },
+        { schedule: true }
+      );
+    });
+
+    flush();
+    expect(received).toEqual([0]);
+
+    setX(1);
+    flush();
+    expect(received).toEqual([0, 1]);
+
+    setX(2);
+    flush();
+    expect(received).toEqual([0, 1, 2]);
+  });
+
+  it("schedule: true + defer: true still defers (defer wins)", () => {
+    const [$x, setX] = createSignal(0);
+    const received: number[] = [];
+
+    createRoot(() => {
+      createRenderEffect(
+        () => $x(),
+        v => {
+          received.push(v);
+        },
+        { schedule: true, defer: true }
+      );
+    });
+
+    flush();
+    expect(received).toEqual([]);
+
+    setX(1);
+    flush();
+    expect(received).toEqual([1]);
+  });
+});

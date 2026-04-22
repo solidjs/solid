@@ -38,7 +38,7 @@ import {
  * and then revert it back to the previous value at end of transition.
  *
  * When called with a plain value, creates an optimistic store.
- * When called with a function, creates a derived optimistic store with `ProjectionOptions` (name, key, all).
+ * When called with a function, creates a derived optimistic store with `ProjectionOptions` (name, key).
  *
  * @param fn a function that receives the current store and can be used to mutate it directly inside a transition
  * @param store The plain store value, or the backing seed when using the derived-store form.
@@ -158,14 +158,17 @@ function createOptimisticProjectionInternal<T extends object = {}>(
         setProjectionWriteActive(false);
       }
     };
-    node = computed(() => {
-      setProjectionWriteActive(true);
-      try {
-        runProjectionComputed(wrappedStore, fn, options?.key || "id", wrapCommit);
-      } finally {
-        setProjectionWriteActive(false);
-      }
-    }) as Computed<void>;
+    node = computed(
+      () => {
+        setProjectionWriteActive(true);
+        try {
+          runProjectionComputed(wrappedStore, fn, options?.key || "id", wrapCommit);
+        } finally {
+          setProjectionWriteActive(false);
+        }
+      },
+      __DEV__ && options?.name ? { name: options.name } : undefined
+    ) as Computed<void>;
     (node as any)._preventAutoDisposal = true;
   }
 

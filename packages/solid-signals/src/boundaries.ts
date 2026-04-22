@@ -33,7 +33,7 @@ export interface BoundaryComputed<T> extends Computed<T> {
 }
 
 function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComputed<T> {
-  const node = computed<T>(fn, undefined, { lazy: true }) as BoundaryComputed<T>;
+  const node = computed<T>(fn, { lazy: true }) as BoundaryComputed<T>;
   node._notifyStatus = (status?: number, error?: any) => {
     // Use passed values if provided, otherwise read from node
     const flags = status !== undefined ? status : node._statusFlags;

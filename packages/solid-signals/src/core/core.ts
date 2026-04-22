@@ -305,12 +305,10 @@ function updateIfNecessary(el: Computed<unknown>): void {
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;
 export function computed<T>(
   fn: (prev: T) => T | PromiseLike<T> | AsyncIterable<T>,
-  initialValue?: T,
   options?: NodeOptions<T>
 ): Computed<T>;
 export function computed<T>(
   fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>,
-  initialValue?: T,
   options?: NodeOptions<T>
 ): Computed<T> {
   const transparent = options?.transparent ?? false;
@@ -327,7 +325,7 @@ export function computed<T>(
     _context: context?._context ?? defaultContext,
     _childCount: 0,
     _fn: fn,
-    _value: initialValue as T,
+    _value: undefined as T,
     _height: 0,
     _child: null,
     _nextHeap: undefined,
@@ -440,10 +438,9 @@ export function optimisticSignal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
 
 export function optimisticComputed<T>(
   fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>,
-  initialValue?: T,
   options?: NodeOptions<T>
 ): Computed<T> {
-  const c = computed(fn, initialValue, options);
+  const c = computed(fn, options);
   c._overrideValue = NOT_PENDING;
   return c;
 }

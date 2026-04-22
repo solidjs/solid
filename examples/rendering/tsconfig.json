@@ -10,5 +10,14 @@
     "esModuleInterop": true,
     "types": ["node"]
   },
-  "include": ["shared/src/**/*", "stream/index.tsx", "string/index.tsx", "types.d.ts"]
+  "include": [
+    "shared/src/**/*",
+    "stream/**/*.ts",
+    "stream/**/*.tsx",
+    "string/**/*.ts",
+    "string/**/*.tsx",
+    "csr/**/*.ts",
+    "csr/**/*.tsx",
+    "types.d.ts"
+  ]
 }

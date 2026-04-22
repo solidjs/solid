@@ -31,28 +31,24 @@ export function effect<T>(
   compute: (prev: T | undefined) => T,
   effect: (val: T, prev: T | undefined) => void | (() => void),
   error?: (err: unknown, cleanup: () => void) => void | (() => void),
-  initialValue?: T,
-  options?: NodeOptions<any> & { render?: boolean; defer?: boolean }
+  options?: NodeOptions<any> & { user?: boolean; defer?: boolean; schedule?: boolean }
 ): void {
   let initialized = false;
-  const node = computed<T>(
-    options?.render ? p => staleValues(() => compute(p)) : compute,
-    initialValue,
-    {
-      ...options,
-      equals: () => {
-        node._modified = !node._error;
-        if (initialized) node._queue.enqueue(node._type, runEffect.bind(node));
-        return false;
-      },
-      lazy: true
-    }
-  ) as Effect<T>;
-  node._prevValue = initialValue;
+  const isUser = !!options?.user;
+  const node = computed<T>(isUser ? compute : p => staleValues(() => compute(p)), {
+    ...options,
+    equals: () => {
+      node._modified = !node._error;
+      if (initialized) node._queue.enqueue(node._type, runEffect.bind(node));
+      return false;
+    },
+    lazy: true
+  }) as Effect<T>;
+  node._prevValue = undefined;
   node._effectFn = effect;
   node._errorFn = error;
   node._cleanup = undefined;
-  node._type = options?.render ? EFFECT_RENDER : EFFECT_USER;
+  node._type = isUser ? EFFECT_USER : EFFECT_RENDER;
   node._notifyStatus = (status?: number, error?: any) => {
     // Use passed values if provided, otherwise read from node
     const actualStatus = status !== undefined ? status : node._statusFlags;
@@ -78,23 +74,24 @@ export function effect<T>(
       if (__DEV__ && _hitUnhandledAsync) {
         resetUnhandledAsync();
         if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-          const message = "An async value must be rendered inside a Loading boundary.";
+          const message =
+            "An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.";
           emitDiagnostic({
             code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
             kind: "async",
-            severity: "error",
+            severity: "warn",
             message,
             ownerId: node.id,
             ownerName: node._name
           });
-          throw new Error(message);
+          console.warn(message);
         }
       }
     }
   };
   recompute(node, true);
   !options?.defer &&
-    (node._type === EFFECT_USER
+    (node._type === EFFECT_USER || options?.schedule
       ? node._queue.enqueue(node._type, runEffect.bind(node))
       : runEffect.call(node));
   initialized = true;
@@ -177,7 +174,6 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
       }
       node._cleanup = cleanup as (() => void) | undefined;
     },
-    undefined,
     { ...options, lazy: true }
   ) as TrackedEffect;
 

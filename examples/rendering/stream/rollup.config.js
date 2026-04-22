@@ -1,12 +1,12 @@
 import path from "path";
+import fs from "fs";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import common from "@rollup/plugin-commonjs";
 import babel from "@rollup/plugin-babel";
 import copy from "rollup-plugin-copy";
-import fs from "fs";
 
 const componentsDir = path.resolve("shared/src/components");
-const manifestPath = path.resolve("string/public/js/asset-manifest.json");
+const manifestPath = path.resolve("stream/public/js/asset-manifest.json");
 const extensions = [".js", ".jsx", ".ts", ".tsx"];
 
 function solidAssetManifest() {
@@ -62,13 +62,8 @@ function virtualAssetManifest() {
 
 export default [
   {
-    input: "shared/src/index.tsx",
-    output: [
-      {
-        dir: "string/public/js",
-        format: "esm"
-      }
-    ],
+    input: "./stream/client.tsx",
+    output: [{ dir: "stream/public/js", format: "esm" }],
     preserveEntrySignatures: false,
     plugins: [
       nodeResolve({ exportConditions: ["solid", "development"], extensions }),
@@ -83,26 +78,16 @@ export default [
       }),
       common(),
       solidAssetManifest(),
-      copy({
-        targets: [
-          {
-            src: ["shared/static/*"],
-            dest: "string/public"
-          }
-        ]
-      })
+      copy({ targets: [{ src: ["shared/static/*"], dest: "stream/public" }] })
     ]
   },
   {
-    input: "./string/index.tsx",
-    output: [
-      {
-        dir: "string/lib",
-        format: "esm"
-      }
-    ],
+    input: "./stream/index.tsx",
+    preserveEntrySignatures: false,
+    output: [{ dir: "stream/lib", format: "esm" }],
     external: ["solid-js", "@solidjs/web", "path", "express", "fs", "url"],
     plugins: [
+      virtualAssetManifest(),
       nodeResolve({ preferBuiltins: true, exportConditions: ["solid", "node"], extensions }),
       babel({
         extensions,
@@ -110,9 +95,7 @@ export default [
         babelHelpers: "bundled",
         presets: [["solid", { generate: "ssr", hydratable: true }], "@babel/preset-typescript"]
       }),
-      common(),
-      virtualAssetManifest()
-    ],
-    preserveEntrySignatures: false
+      common()
+    ]
   }
 ];

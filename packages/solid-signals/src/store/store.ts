@@ -606,7 +606,7 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
  * Creates a deeply reactive store with proxy-based tracking.
  *
  * When called with a plain value, wraps it in a reactive proxy.
- * When called with a function, creates a derived projection store with `ProjectionOptions` (name, key, all).
+ * When called with a function, creates a derived projection store with `ProjectionOptions` (name, key).
  *
  * ```typescript
  * // Plain store
@@ -615,7 +615,7 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
  * const [store, setStore] = createStore<T>(fn, seed, options?: ProjectionOptions);
  * ```
  * @param store initial value to wrap in a reactive proxy, or a derive function
- * @param options `ProjectionOptions` -- name, key, all (only for derived stores)
+ * @param options `ProjectionOptions` -- name, key (only for derived stores)
  *
  * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */

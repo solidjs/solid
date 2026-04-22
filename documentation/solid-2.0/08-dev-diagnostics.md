@@ -55,21 +55,30 @@ function Good() {
 
 #### `ASYNC_OUTSIDE_LOADING_BOUNDARY`
 
-**Message:** "An async value must be rendered inside a Loading boundary."
+**Message:** "An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles."
 
-An async computation resolved outside any `Loading` boundary. Without a boundary, there's nowhere to show a fallback while the value is pending. This is enforced when rendering via `render()` in dev mode.
+**Severity:** `warn` (non-halting)
+
+A render effect read pending async with no `Loading` ancestor catching it. The runtime handles this correctly — `render()` installs its top-level insert as a post-render effect, so the root DOM attach is withheld until all uncaught async settles, then attaches atomically. On the no-async happy path, `render()` still attaches synchronously via an internal tail `flush()`.
+
+The diagnostic is an FYI, not an error: while async is pending the mount container will simply stay empty (or show its existing content, e.g. a static shell). Place a `Loading` boundary when you want explicit fallback UI or partial progressive mount — otherwise the permissive default is fine.
 
 ```jsx
-// Throws: no Loading boundary
+// Warns (non-halting): no Loading ancestor
+// Container stays empty until asyncUser() resolves, then mounts atomically.
 render(() => <Profile user={asyncUser()} />, root);
 
-// Fix: wrap in Loading
+// Explicit fallback UI: wrap in Loading
 render(() => (
   <Loading fallback={<Spinner />}>
     <Profile user={asyncUser()} />
   </Loading>
 ), root);
 ```
+
+**Debugging tip:** if your app doesn't mount, check the console for `ASYNC_OUTSIDE_LOADING_BOUNDARY` — it names the render effect whose pending async is holding the root.
+
+**Scope:** the diagnostic only fires during the synchronous body of `render()` / `hydrate()`. Post-mount route transitions (including lazy route changes) run under their own transitions with the guard off, so they do not emit this warning.
 
 #### `CLEANUP_IN_FORBIDDEN_SCOPE`
 
@@ -267,7 +276,7 @@ Each `DiagnosticEvent` has:
 |------|----------|----------|---------|
 | `SIGNAL_WRITE_IN_OWNED_SCOPE` | error | write | Signal write inside component/computation |
 | `PENDING_ASYNC_UNTRACKED_READ` | error | async | Reading pending async outside tracking scope |
-| `ASYNC_OUTSIDE_LOADING_BOUNDARY` | error | async | Async computation outside Loading boundary |
+| `ASYNC_OUTSIDE_LOADING_BOUNDARY` | warn | async | Async computation outside Loading boundary (non-halting; root mount is deferred) |
 | `CLEANUP_IN_FORBIDDEN_SCOPE` | error | lifecycle | `onCleanup` inside trackedEffect/onSettled |
 | `STRICT_READ_UNTRACKED` | warn | strict-read | Untracked reactive read in component/effect body |
 | `PENDING_ASYNC_FORBIDDEN_SCOPE` | warn | async | Pending async read in trackedEffect/onSettled |
