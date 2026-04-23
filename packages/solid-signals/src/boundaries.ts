@@ -382,15 +382,16 @@ function createCollectionBoundary<T>(
     controller.register(queue);
     cleanup(() => controller.unregister(queue));
   }
-  const decision = computed(() => {
-    if (!read(queue._disabled)) {
-      const resolved = read(tree);
-      if (!untrack(() => read(queue._disabled))) return ((queue._initialized = true), resolved);
-    }
-    if (_revealUsed && read(queue._collapsed)) return undefined;
-    return fallback(queue);
-  });
-  return accessor(decision);
+  return accessor(
+    computed(() => {
+      if (!read(queue._disabled)) {
+        const resolved = read(tree);
+        if (!untrack(() => read(queue._disabled))) return ((queue._initialized = true), resolved);
+      }
+      if (_revealUsed && read(queue._collapsed)) return undefined;
+      return fallback(queue);
+    })
+  );
 }
 
 export function createLoadingBoundary(

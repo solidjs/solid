@@ -53,9 +53,7 @@ export function onCleanup(fn: Disposable): Disposable {
 export type Accessor<T> = () => T;
 
 export function accessor<T>(node: any): Accessor<T> {
-  const fn = read.bind(null, node) as Accessor<T>;
-  (fn as any).$r = true;
-  return fn;
+  return read.bind(null, node) as Accessor<T>;
 }
 
 export type Setter<in out T> = {
@@ -199,8 +197,7 @@ export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: MemoOptions<T>
 ): Accessor<T> {
-  let node = computed<T>(compute as any, options);
-  return accessor<T>(node);
+  return accessor<T>(computed<T>(compute as any, options));
 }
 
 /**

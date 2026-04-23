@@ -1,0 +1,25 @@
+body {
+  background: #fff;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  margin: 0;
+  padding: 30px;
+}
+
+.container {
+  position: absolute;
+  transform-origin: 0 0;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background: #eee;
+}
+
+.dot {
+  position: absolute;
+  font: normal 15px sans-serif;
+  text-align: center;
+  cursor: pointer;
+}
