@@ -5,6 +5,11 @@
   "license": "MIT",
   "version": "2.0.0-beta.8",
   "homepage": "https://github.com/solidjs/solid/blob/main/packages/solid-element#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/solid.git",
+    "directory": "packages/solid-element"
+  },
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",

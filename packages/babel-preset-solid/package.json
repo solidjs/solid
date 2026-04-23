@@ -5,7 +5,11 @@
   "author": "Ryan Carniato <ryansolid@gmail.com>",
   "homepage": "https://github.com/solidjs/solid/blob/main/packages/babel-preset-solid#readme",
   "license": "MIT",
-  "repository": "https://github.com/solidjs/solid/blob/main/packages/babel-preset-solid",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/solid.git",
+    "directory": "packages/babel-preset-solid"
+  },
   "main": "index.js",
   "files": [
     "index.js"
