@@ -215,6 +215,13 @@ export function setProperty(
   value: any,
   deleting: boolean = false
 ): void {
+  // Prototype pollution guard: refuse to redefine the prototype chain via
+  // `state.__proto__ = ...` or to overwrite built-in prototype links.
+  if (property === "__proto__") {
+    if (IS_DEV)
+      console.warn(`Refusing to set "__proto__" on a store (prototype pollution guard).`);
+    return;
+  }
   if (!deleting && state[property] === value) return;
   const prev = state[property],
     len = state.length;
@@ -273,6 +280,21 @@ export function updatePath(current: StoreNode, path: any[], traversed: PropertyK
     part = path.shift();
     const partType = typeof part,
       isArray = Array.isArray(current);
+
+    // Prototype pollution guard: refuse to traverse into dangerous keys
+    // (e.g. `setStore("__proto__", ...)` or
+    // `setStore("constructor", "prototype", ...)`), which would otherwise
+    // let callers reach and mutate Object.prototype / Function.prototype.
+    if (
+      partType === "string" &&
+      (part === "__proto__" || part === "constructor" || part === "prototype")
+    ) {
+      if (IS_DEV)
+        console.warn(
+          `Refusing to traverse into "${part}" on a store (prototype pollution guard).`
+        );
+      return;
+    }
 
     if (Array.isArray(part)) {
       // Ex. update('data', [2, 23], 'label', l => l + ' !!!');
