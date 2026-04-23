@@ -49,8 +49,8 @@ importers:
         specifier: ^2.1.2
         version: 2.1.9(vitest@2.1.9(@types/node@22.19.11)(jsdom@25.0.1)(terser@5.46.1))
       babel-plugin-jsx-dom-expressions:
-        specifier: 0.50.0-next.1
-        version: 0.50.0-next.1(@babel/core@7.29.0)
+        specifier: 0.50.0-next.2
+        version: 0.50.0-next.2(@babel/core@7.29.0)
       babel-plugin-transform-rename-import:
         specifier: ^2.3.0
         version: 2.3.0
@@ -61,17 +61,17 @@ importers:
         specifier: ^3.1.0
         version: 3.2.3
       dom-expressions:
-        specifier: 0.50.0-next.1
-        version: 0.50.0-next.1(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.5.1))(seroval@1.5.1)
+        specifier: 0.50.0-next.2
+        version: 0.50.0-next.2(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.5.1))(seroval@1.5.1)
       hyper-dom-expressions:
-        specifier: 0.50.0-next.1
-        version: 0.50.0-next.1
+        specifier: 0.50.0-next.2
+        version: 0.50.0-next.2
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
       lit-dom-expressions:
-        specifier: 0.50.0-next.1
-        version: 0.50.0-next.1
+        specifier: 0.50.0-next.2
+        version: 0.50.0-next.2
       ncp:
         specifier: ^2.0.0
         version: 2.0.0
@@ -113,7 +113,7 @@ importers:
         version: 5.7.3
       vite-plugin-solid:
         specifier: 3.0.0-next.4
-        version: 3.0.0-next.4(@solidjs/web@2.0.0-beta.7(solid-js@2.0.0-experimental.16))(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1))
+        version: 3.0.0-next.4(@solidjs/web@2.0.0-beta.8(solid-js@2.0.0-experimental.16))(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1))
       vitest:
         specifier: ^2.1.2
         version: 2.1.9(@types/node@22.19.11)(jsdom@25.0.1)(terser@5.46.1)
@@ -166,16 +166,64 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2
 
+  examples/sierpinski:
+    devDependencies:
+      '@babel/core':
+        specifier: ^7.21.3
+        version: 7.29.0
+      '@babel/preset-typescript':
+        specifier: ^7.18.6
+        version: 7.28.5(@babel/core@7.29.0)
+      '@rollup/plugin-babel':
+        specifier: 6.0.3
+        version: 6.0.3(@babel/core@7.29.0)(@types/babel__core@7.20.5)(rollup@3.30.0)
+      '@rollup/plugin-commonjs':
+        specifier: 24.0.1
+        version: 24.0.1(rollup@3.30.0)
+      '@rollup/plugin-node-resolve':
+        specifier: 15.0.1
+        version: 15.0.1(rollup@3.30.0)
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../../packages/solid-web
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      babel-preset-solid:
+        specifier: workspace:*
+        version: link:../../packages/babel-preset-solid
+      cross-env:
+        specifier: ^7.0.3
+        version: 7.0.3
+      express:
+        specifier: ^4.20.0
+        version: 4.22.1
+      rollup:
+        specifier: ^3.20.0
+        version: 3.30.0
+      rollup-plugin-copy:
+        specifier: ^3.4.0
+        version: 3.5.0
+      solid-js:
+        specifier: workspace:*
+        version: link:../../packages/solid
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
+
   packages/babel-preset-solid:
     dependencies:
       '@babel/core':
         specifier: ^7.0.0
         version: 7.29.0
       babel-plugin-jsx-dom-expressions:
-        specifier: 0.50.0-next.1
-        version: 0.50.0-next.1(@babel/core@7.29.0)
+        specifier: 0.50.0-next.2
+        version: 0.50.0-next.2(@babel/core@7.29.0)
       solid-js:
-        specifier: ^2.0.0-beta.7
+        specifier: ^2.0.0-beta.8
         version: 2.0.0-experimental.16
 
   packages/solid:
@@ -272,9 +320,6 @@ importers:
         specifier: ^1.1.0
         version: 1.5.0(seroval@1.5.0)
     devDependencies:
-      '@solidjs/signals':
-        specifier: workspace:*
-        version: link:../solid-signals
       solid-js:
         specifier: workspace:*
         version: link:../solid
@@ -1366,11 +1411,11 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@solidjs/web@2.0.0-beta.7':
-    resolution: {integrity: sha512-m5VjmDBufrOX0ZKGbhvwkT0CPK0TbMxDbxVPDB1PH2evGbWXQZcUlrpFM1N8RBO5md3aR/T1PgMfnOjleJbrRg==}
+  '@solidjs/web@2.0.0-beta.8':
+    resolution: {integrity: sha512-TzL2EPX5vWdrg9CV7dvfWm/92VAVId8u8uPbtVMPFU3Ed0Ukw2+p+Rb84q+mF/4llaUhFwHu+vKV02pykySveA==}
     peerDependencies:
       '@solidjs/signals': workspace:*
-      solid-js: ^2.0.0-beta.7
+      solid-js: ^2.0.0-beta.8
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -1581,8 +1626,8 @@ packages:
   axios@1.13.5:
     resolution: {integrity: sha512-cz4ur7Vb0xS4/KUN0tPWe44eqxrIu31me+fbang3ijiNscE129POzipJJA6zniq2C/Z6sJCjMimjS8Lc/GAs8Q==}
 
-  babel-plugin-jsx-dom-expressions@0.50.0-next.1:
-    resolution: {integrity: sha512-24npJl7TehsX98b1jLkoxrRXOyGT0nsbthaLDxsIFloGb0OHm31RhNILmLjjvRE/L5CGGejMe0i1Yx45xQqubw==}
+  babel-plugin-jsx-dom-expressions@0.50.0-next.2:
+    resolution: {integrity: sha512-a7g6Em66W0eMllAQ/8dALYLDPawvisu40rHi2gRfdT2hnI67yRAnfmKTZYR2FQCZsGTwvHbjaQmmBjZM461gMw==}
     peerDependencies:
       '@babel/core': ^7.20.12
 
@@ -1778,6 +1823,11 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
+  cross-env@7.0.3:
+    resolution: {integrity: sha512-+/HKd6EgcQCJGh2PSjZuUitQBQynKor4wrFbRg4DtAgS1aWO+gU52xpH7M9ScGgXSYmAVS9bIJ8EzuaGw0oNAw==}
+    engines: {node: '>=10.14', npm: '>=6', yarn: '>=1'}
+    hasBin: true
+
   cross-spawn@6.0.6:
     resolution: {integrity: sha512-VqCUuhcd1iB+dsv8gxPttb5iZh/D0iubSP21g36KXdEuf6I5JiioesUVjpCdHV9MZRUfVFlvwtIUyPfxo5trtw==}
     engines: {node: '>=4.8'}
@@ -1873,8 +1923,8 @@ packages:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
 
-  dom-expressions@0.50.0-next.1:
-    resolution: {integrity: sha512-amRbjNQW8qgDnBs+PF8F0qD5uIDVigPiwXkL+hi3St/vJ6rK73qaqxqyEKMnhXYxdY2M9Sm6lmCp11r/Hno2vw==}
+  dom-expressions@0.50.0-next.2:
+    resolution: {integrity: sha512-F0/7vwJtDcBdB9GXZKESeBR9SiRDLc8bK81p5Mac8A75OJsDF19Ge0oYzvQf7sTzlp8b2eatgNr8jrTgK86k7Q==}
     peerDependencies:
       csstype: ^3.0
       seroval: ~1.5.0
@@ -2239,8 +2289,8 @@ packages:
     resolution: {integrity: sha512-tsYlhAYpjCKa//8rXZ9DqKEawhPoSytweBC2eNvcaDK+57RZLHGqNs3PZTQO6yekLFSuvA6AlnAfrw1uBvtb+Q==}
     hasBin: true
 
-  hyper-dom-expressions@0.50.0-next.1:
-    resolution: {integrity: sha512-FydTtmg3iajJCxyzkgHX33xZ2GFF/UtJ0UY5+Jv4ocWAeAWGI0oc6X4PJMjrX4NmBGfrC4/9QieOHTyY9XE+2A==}
+  hyper-dom-expressions@0.50.0-next.2:
+    resolution: {integrity: sha512-v76zS/pXWv4y+/sEx44Oq1Rr9m4Vt9iRWTC1/UUVvhSVDz0w+KbJ6wD4i7ugzgtaC7wOoyfzq+pJVSQowbIf5Q==}
 
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
@@ -2511,8 +2561,8 @@ packages:
     resolution: {integrity: sha512-aprLII/vPzuQvYZnDRU78Fns9I2Ag3gi4Ipga/hxnVMCZC8DnR2nI7XBqrPoywGfxqIx/DgarGvDJZAD3YBTgQ==}
     hasBin: true
 
-  lit-dom-expressions@0.50.0-next.1:
-    resolution: {integrity: sha512-C6Y8Y4FuCqa2+QvhJeiDtnVhwZzjKaiNadGN4xnEov6NmRXe3H1vp3v5nICOkLXBp/zIj4H2BRu+wsbgiypjNA==}
+  lit-dom-expressions@0.50.0-next.2:
+    resolution: {integrity: sha512-BHJJmqlIdfNf5OUxIXhojIyDS+gbY+v7tPVu3QWINcsUssQQAgiHDaGzqI6BTgXyqWQHHnL97grEr4r7bzSi/g==}
 
   load-json-file@4.0.0:
     resolution: {integrity: sha512-Kx8hMakjX03tiGTLAIdJ+lL0htKnXjEZN6hk/tozf/WOuYGdZBJrZ+rCJRbVCugsjB3jMLn9746NsQIf5VjBMw==}
@@ -4893,7 +4943,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
 
-  '@solidjs/web@2.0.0-beta.7(solid-js@2.0.0-experimental.16)':
+  '@solidjs/web@2.0.0-beta.8(solid-js@2.0.0-experimental.16)':
     dependencies:
       seroval: 1.5.1
       seroval-plugins: 1.5.0(seroval@1.5.1)
@@ -5151,7 +5201,7 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  babel-plugin-jsx-dom-expressions@0.50.0-next.1(@babel/core@7.29.0):
+  babel-plugin-jsx-dom-expressions@0.50.0-next.2(@babel/core@7.29.0):
     dependencies:
       '@babel/core': 7.29.0
       '@babel/helper-module-imports': 7.18.6
@@ -5366,6 +5416,10 @@ snapshots:
       minimist: 1.2.8
       request: 2.88.2
 
+  cross-env@7.0.3:
+    dependencies:
+      cross-spawn: 7.0.6
+
   cross-spawn@6.0.6:
     dependencies:
       nice-try: 1.0.5
@@ -5454,7 +5508,7 @@ snapshots:
     dependencies:
       path-type: 4.0.0
 
-  dom-expressions@0.50.0-next.1(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.5.1))(seroval@1.5.1):
+  dom-expressions@0.50.0-next.2(csstype@3.2.3)(seroval-plugins@1.5.0(seroval@1.5.1))(seroval@1.5.1):
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.2.3
@@ -5957,7 +6011,7 @@ snapshots:
 
   human-id@4.1.3: {}
 
-  hyper-dom-expressions@0.50.0-next.1: {}
+  hyper-dom-expressions@0.50.0-next.2: {}
 
   iconv-lite@0.4.24:
     dependencies:
@@ -6242,7 +6296,7 @@ snapshots:
 
   lcov-parse@1.0.0: {}
 
-  lit-dom-expressions@0.50.0-next.1: {}
+  lit-dom-expressions@0.50.0-next.2: {}
 
   load-json-file@4.0.0:
     dependencies:
@@ -7290,10 +7344,10 @@ snapshots:
       - supports-color
       - terser
 
-  vite-plugin-solid@3.0.0-next.4(@solidjs/web@2.0.0-beta.7(solid-js@2.0.0-experimental.16))(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1)):
+  vite-plugin-solid@3.0.0-next.4(@solidjs/web@2.0.0-beta.8(solid-js@2.0.0-experimental.16))(solid-js@2.0.0-experimental.16)(vite@5.4.21(@types/node@22.19.11)(terser@5.46.1)):
     dependencies:
       '@babel/core': 7.29.0
-      '@solidjs/web': 2.0.0-beta.7(solid-js@2.0.0-experimental.16)
+      '@solidjs/web': 2.0.0-beta.8(solid-js@2.0.0-experimental.16)
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
       merge-anything: 5.1.7
