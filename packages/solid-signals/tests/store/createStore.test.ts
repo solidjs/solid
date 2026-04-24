@@ -887,7 +887,7 @@ describe("In Operator", () => {
   });
 
   test("batches like signals on cold writes", () => {
-    const [store, setStore] = createStore<{ a: number; b?: number }>({ a: 1 });
+    const [store, setStore] = createStore<{ a?: number; b?: number }>({ a: 1 });
 
     expect("a" in store).toBe(true);
     expect("b" in store).toBe(false);

@@ -45,6 +45,7 @@ import { clearSignals, DEV, emitDiagnostic, registerGraph } from "./dev.js";
 import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeTransition,
+  assignOrMergeLane,
   clock,
   dirtyQueue,
   globalQueue,
@@ -157,7 +158,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     }
   }
 
-  const isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
+  let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
   const hasOverride = el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING;
   // Track if node was pending (for detecting async resolution)
   const wasPending = !!(el._statusFlags & STATUS_PENDING);
@@ -181,6 +182,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if (isOptimisticDirty) {
     const lane = resolveLane(el);
     if (lane) currentOptimisticLane = lane;
+  } else if (activeTransition && !create && activeTransition._optimisticNodes.length) {
+    // Lane adoption: parent-deeper-than-owned-child can run before its OPT-dirty
+    // child propagates. Walk deps once and inherit the OPT lane so this node
+    // recomputes under the right posture and propagates correctly.
+    for (let d: Link | null = el._deps; d; d = d._nextDep) {
+      const dep = d._dep as Computed<any>;
+      if (dep._flags & REACTIVE_OPTIMISTIC_DIRTY) {
+        const depLane = resolveLane(dep);
+        if (depLane) {
+          isOptimisticDirty = true;
+          currentOptimisticLane = depLane;
+          el._flags |= REACTIVE_OPTIMISTIC_DIRTY;
+          assignOrMergeLane(el as any, depLane);
+          break;
+        }
+      }
+    }
   }
   try {
     // Snapshot `_inFlight` so we can detect whether `_fn` self-registered an async
@@ -668,6 +686,24 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
     if (c && stale && shouldReadStashedOptimisticValue(el as Signal<any>)) return el._value as T;
     return el._overrideValue as T;
+  }
+
+  // Entanglement gate: a reader recomputing under an optimistic lane that
+  // reads a plain signal with a pending mid-transition write sees the
+  // committed value. Async drivers are not under an optimistic lane and so
+  // bypass this, reading _pendingValue for correct fetching. The sub is
+  // recorded for replay at commit so it re-runs with the new committed view.
+  if (
+    activeTransition !== null &&
+    currentOptimisticLane !== null &&
+    !latestReadActive &&
+    el._pendingValue !== NOT_PENDING &&
+    owner === el &&
+    !(el as Partial<Computed<unknown>>)._fn &&
+    c
+  ) {
+    activeTransition._gatedSubs.add(c as Computed<any>);
+    return el._value as T;
   }
 
   // In optimistic lane context, return _value for optimistic/lane-assigned signals

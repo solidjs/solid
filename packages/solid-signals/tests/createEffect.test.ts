@@ -530,10 +530,10 @@ describe("schedule option", () => {
     const received: number[] = [];
 
     createRoot(() => {
-      const [get] = createSignal(() => promise, 0);
+      const [get] = createSignal<number>(() => promise, 0 as any);
       createRenderEffect(
         () => get(),
-        v => {
+        (v: number) => {
           received.push(v);
         },
         { schedule: true }

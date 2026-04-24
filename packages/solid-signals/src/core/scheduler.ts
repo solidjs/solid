@@ -140,6 +140,10 @@ export interface Transition {
   _actions: Array<Generator<any, any, any> | AsyncGenerator<any, any, any>>;
   _queueStash: QueueStub;
   _done: boolean | Transition;
+  // Subscribers that, while recomputing under an optimistic lane, read a plain
+  // signal's committed value through the entanglement gate. At commit they
+  // get rescheduled so they re-run with the new committed view.
+  _gatedSubs: Set<Computed<any>>;
 }
 
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
@@ -153,6 +157,7 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
     if (!targetReporters) target._asyncReporters.set(source, (targetReporters = new Set()));
     for (const reporter of reporters) targetReporters.add(reporter);
   }
+  for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
 }
 
 function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
@@ -377,7 +382,8 @@ export class GlobalQueue extends Queue {
         _optimisticStores: new Set(),
         _actions: [],
         _queueStash: { _queues: [[], []], _children: [] },
-        _done: false
+        _done: false,
+        _gatedSubs: new Set()
       };
     } else if (transition) {
       const outgoing = activeTransition;
@@ -483,6 +489,24 @@ export function finalizePureQueue(
     resolveOptimisticNodes(
       completingTransition ? completingTransition._optimisticNodes : globalQueue._optimisticNodes
     );
+    // Replay entanglement: subs recorded by the read-time gate get rescheduled
+    // so they re-run with the now-committed values visible.
+    if (completingTransition && completingTransition._gatedSubs.size) {
+      for (const sub of completingTransition._gatedSubs) {
+        if (sub._flags & REACTIVE_DISPOSED) continue;
+        if ((sub as any)._type === EFFECT_TRACKED) {
+          if (!(sub as any)._modified) {
+            (sub as any)._modified = true;
+            sub._queue.enqueue(EFFECT_USER, (sub as any)._run);
+          }
+          continue;
+        }
+        const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
+        if (queue._min > sub._height) queue._min = sub._height;
+        insertIntoHeap(sub, queue);
+      }
+      completingTransition._gatedSubs.clear();
+    }
     const optimisticStores = completingTransition
       ? completingTransition._optimisticStores
       : globalQueue._optimisticStores;
