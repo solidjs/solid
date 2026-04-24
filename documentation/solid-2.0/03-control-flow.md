@@ -4,13 +4,14 @@
 
 ## Summary
 
-Solid 2.0 simplifies and unifies control-flow APIs by consolidating list rendering into a single `For` signature (covering the old `For`/`Index` split), introducing `Repeat` for range/count-based rendering, and renaming/reshaping async and error boundaries as `Loading` and `Errored`. The goal is fewer “nearly-the-same” APIs, more explicit keying semantics, and control-flow callbacks that are consistent with the 2.0 reactivity model.
+Solid 2.0 simplifies and unifies control-flow APIs by consolidating list rendering into a single `For` signature (covering the old `For`/`Index` split), introducing `Repeat` for range/count-based rendering, renaming/reshaping async and error boundaries as `Loading` and `Errored`, and reshaping `createDynamic` into a `lazy`-style `dynamic` factory that returns a stable `Component`. The goal is fewer “nearly-the-same” APIs, more explicit keying semantics, and control-flow callbacks that are consistent with the 2.0 reactivity model.
 
 ## Motivation
 
 - **One list primitive:** Having both `For` and `Index` encourages bikeshedding and accidental misuse. A single `For` that can be keyed or index-based is easier to teach and document.
 - **Ranges without diffing:** Rendering “count-based” lists (skeletons, ranges, windowing) shouldn’t require list diffing; `Repeat` expresses this directly.
 - **Async and error UX:** Names like Suspense and ErrorBoundary are long and carry baggage. `Loading` and `Errored` are concise and align better with their actual role in the 2.0 async model.
+- **Dynamic components as values:** A factory that returns a stable `Component<P>` composes cleanly with JSX (reactive props, children, refs) and with the async-computation model — async sources suspend through `Loading` via the same `NotReadyError` flow as any other reactive read.
 
 ## Detailed design
 
@@ -134,6 +135,36 @@ In 2.0’s async model, async values are part of computations (not a separate `c
   <Page />
 </Errored>
 ```
+
+### Dynamic components: `dynamic` factory and `<Dynamic>`
+
+Solid 2.0 reshapes `createDynamic` into a `lazy`-style factory named `dynamic`. Given a source that produces a component (or native tag name), `dynamic` returns a **stable `Component<P>`** whose identity is driven reactively. The returned value is usable anywhere a component is — children, refs, and reactive props flow through the normal JSX path.
+
+```jsx
+import { dynamic } from "@solidjs/web";
+
+// Reactive swap between two components
+const Active = dynamic(() => isEditing() ? Editor : Viewer);
+return <Active value={value()} />;
+
+// Native tag swap
+const Tag = dynamic(() => multiline() ? "textarea" : "input");
+return <Tag value={value()} />;
+```
+
+The `<Dynamic component={...}>` JSX wrapper from 1.x still exists and is unchanged at the call site; it is now a thin delegate over `dynamic`:
+
+```jsx
+<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
+```
+
+#### Async sources and `Loading`
+
+`source` may return a `Promise<Component | string | undefined>`. The factory composes with `Loading` / `Errored` through the normal `NotReadyError` flow — no separate suspense primitive or user-side `await`.
+
+#### Notes
+
+- The source evaluation is shared across all mounted instances of the returned component, so using one `dynamic(...)` in many places doesn't duplicate work.
 
 ### Reveal timing: `Reveal`
 
@@ -281,6 +312,24 @@ Here the outer sequential order ensures `Header` reveals first; until it does, t
 </Errored>
 ```
 
+### `createDynamic(source, props)` → `dynamic(source)` factory
+
+```jsx
+// 1.x
+import { createDynamic } from "solid-js/web";
+createDynamic(() => current(), { value: value() });
+
+// 2.0 — factory form
+import { dynamic } from "@solidjs/web";
+const Active = dynamic(() => current());
+return <Active value={value()} />;
+
+// 2.0 — manual composition, if you really want a one-shot call
+createComponent(dynamic(() => current()), { value: value() });
+```
+
+The `<Dynamic component={...}>` JSX wrapper is unchanged at the call site; most users don't need to touch anything.
+
 ## Removals
 
 | Removed | Replacement |
@@ -289,6 +338,7 @@ Here the outer sequential order ensures `Header` reveals first; until it does, t
 | `Suspense` | `Loading` |
 | `SuspenseList` | `Reveal` |
 | `ErrorBoundary` | `Errored` |
+| `createDynamic(source, props)` | `dynamic(source)` factory (`<Dynamic>` unchanged) |
 
 ## Alternatives considered
 

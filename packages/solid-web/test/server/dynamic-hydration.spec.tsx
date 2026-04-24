@@ -2,11 +2,11 @@
  * @jsxImportSource solid-js
  */
 import { describe, expect, test } from "vitest";
-import { createDynamic, Dynamic } from "@solidjs/web";
+import { dynamic, Dynamic } from "@solidjs/web";
 import { createRoot, getOwner, Show } from "solid-js";
 
 describe("Dynamic hydration key alignment", () => {
-  test("createDynamic consumes 2 parent slots (cached memo + outer memo)", () => {
+  test("dynamic factory consumes 2 parent slots (cached memo + outer memo)", () => {
     createRoot(
       () => {
         let innerChildId: string | undefined;
@@ -16,7 +16,7 @@ describe("Dynamic hydration key alignment", () => {
           return props.children;
         }
 
-        createDynamic(() => Wrapper, { children: "test-child" } as any);
+        dynamic(() => Wrapper)({ children: "test-child" } as any);
 
         expect(innerChildId).toBe("t1");
       },
@@ -24,7 +24,7 @@ describe("Dynamic hydration key alignment", () => {
     );
   });
 
-  test("createDynamic followed by Show - sibling IDs are aligned", () => {
+  test("dynamic factory followed by Show - sibling IDs are aligned", () => {
     createRoot(
       () => {
         let dynamicChildId: string | undefined;
@@ -35,7 +35,7 @@ describe("Dynamic hydration key alignment", () => {
           return props.children;
         }
 
-        createDynamic(() => Wrapper, { children: "dynamic-child" } as any);
+        dynamic(() => Wrapper)({ children: "dynamic-child" } as any);
 
         Show({
           when: true,
@@ -52,7 +52,7 @@ describe("Dynamic hydration key alignment", () => {
     );
   });
 
-  test("Dynamic component - uses createDynamic internally", () => {
+  test("Dynamic component - uses dynamic factory internally", () => {
     createRoot(
       () => {
         let innerChildId: string | undefined;

@@ -3,8 +3,17 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
-import { createRoot, createSignal, Component, JSX, createStore, flush, Show } from "solid-js";
-import { Dynamic } from "../src/index.js";
+import {
+  createRoot,
+  createSignal,
+  Component,
+  JSX,
+  createStore,
+  flush,
+  Show,
+  Loading
+} from "solid-js";
+import { Dynamic, dynamic } from "../src/index.js";
 
 describe("Testing Dynamic control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -168,5 +177,156 @@ describe("Dynamic intrinsic child granularity", () => {
     setList(["x"]);
     flush();
     expect(div.innerHTML).toBe("<div>x</div>");
+  });
+});
+
+describe("dynamic factory", () => {
+  let disposer!: () => void;
+  afterEach(() => disposer());
+
+  test("returns a stable Component usable directly in JSX with children", () => {
+    let div!: HTMLDivElement;
+    const CompA: Component<{ children?: JSX.Element }> = props => <div>Hi {props.children}</div>;
+
+    createRoot(dispose => {
+      disposer = dispose;
+      const User = dynamic(() => CompA);
+      expect(typeof User).toBe("function");
+
+      <div ref={div}>
+        <User>Smith</User>
+      </div>;
+    });
+    flush();
+
+    expect(div.innerHTML).toBe("<div>Hi Smith</div>");
+  });
+
+  test("swaps component reactively from a signal source", () => {
+    let div!: HTMLDivElement;
+    const CompA: Component<{ id: string }> = props => <div>A {props.id}</div>;
+    const CompB: Component<{ id: string }> = props => <span>B {props.id}</span>;
+    let setComp!: any;
+
+    createRoot(dispose => {
+      disposer = dispose;
+      const [comp, _setComp] = createSignal<Component<{ id: string }> | undefined>();
+      setComp = _setComp;
+      const User = dynamic<Component<{ id: string }>>(() => comp() ?? CompA);
+
+      <div ref={div}>
+        <User id="x" />
+      </div>;
+    });
+    flush();
+
+    expect(div.innerHTML).toBe("<div>A x</div>");
+    setComp(() => CompB);
+    flush();
+    expect(div.innerHTML).toBe("<span>B x</span>");
+  });
+
+  test("component identity is stable across renders", () => {
+    const CompA: Component = () => <div>A</div>;
+    let User1: Component<any>;
+    let User2: Component<any>;
+
+    createRoot(dispose => {
+      disposer = dispose;
+      User1 = dynamic(() => CompA);
+      User2 = dynamic(() => CompA);
+    });
+
+    expect(User1!).toBe(User1!);
+    expect(User1!).not.toBe(User2!);
+  });
+
+  test("supports string tags through the factory", () => {
+    let div!: HTMLDivElement;
+    let setTag!: (v: "div" | "span") => "div" | "span";
+
+    createRoot(dispose => {
+      disposer = dispose;
+      const [tag, _setTag] = createSignal<"div" | "span">("div");
+      setTag = _setTag;
+      const El = dynamic(() => tag());
+
+      <div ref={div}>
+        <El>hi</El>
+      </div>;
+    });
+    flush();
+
+    expect(div.innerHTML).toBe("<div>hi</div>");
+    setTag("span");
+    flush();
+    expect(div.innerHTML).toBe("<span>hi</span>");
+  });
+
+  test("renders nothing when source returns null, false, or undefined, and swaps back", () => {
+    let div!: HTMLDivElement;
+    const CompA: Component = () => <div>A</div>;
+    let setComp!: any;
+
+    createRoot(dispose => {
+      disposer = dispose;
+      const [comp, _setComp] = createSignal<Component | null | undefined | false>();
+      setComp = _setComp;
+      const User = dynamic(() => comp());
+
+      <div ref={div}>
+        <User />
+      </div>;
+    });
+    flush();
+
+    expect(div.innerHTML).toBe("");
+    setComp(() => CompA);
+    flush();
+    expect(div.innerHTML).toBe("<div>A</div>");
+    setComp(null);
+    flush();
+    expect(div.innerHTML).toBe("");
+    setComp(() => CompA);
+    flush();
+    expect(div.innerHTML).toBe("<div>A</div>");
+    setComp(false);
+    flush();
+    expect(div.innerHTML).toBe("");
+    setComp(() => CompA);
+    flush();
+    expect(div.innerHTML).toBe("<div>A</div>");
+    setComp(undefined);
+    flush();
+    expect(div.innerHTML).toBe("");
+  });
+
+  test("async source suspends through Loading and resolves", async () => {
+    let div!: HTMLDivElement;
+    const CompA: Component<{ children?: JSX.Element }> = props => (
+      <div>loaded {props.children}</div>
+    );
+    let resolve!: (value: Component<{ children?: JSX.Element }>) => void;
+    const pending = new Promise<Component<{ children?: JSX.Element }>>(r => (resolve = r));
+
+    createRoot(dispose => {
+      disposer = dispose;
+      const User = dynamic(() => pending);
+
+      <div ref={div}>
+        <Loading fallback={<span>loading...</span>}>
+          <User>now</User>
+        </Loading>
+      </div>;
+    });
+    flush();
+
+    expect(div.innerHTML).toBe("<span>loading...</span>");
+
+    resolve(CompA);
+    await pending;
+    flush();
+
+    expect(div.innerHTML).toBe("<div>loaded now</div>");
   });
 });

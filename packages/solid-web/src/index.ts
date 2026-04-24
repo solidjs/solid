@@ -9,6 +9,7 @@ import {
   hydrate as hydrateCore
 } from "./client.js";
 import {
+  createComponent,
   createMemo,
   untrack,
   omit,
@@ -18,6 +19,7 @@ import {
   enforceLoadingBoundary,
   flush,
   $DEVCOMP,
+  Component,
   ComponentProps,
   ValidComponent,
   createRenderEffect
@@ -47,7 +49,7 @@ type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Nod
 export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   [K in keyof P]: P[K];
 } & {
-  component: T | undefined;
+  component: T | null | undefined | false;
 };
 
 /**
@@ -129,43 +131,50 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
 }
 
 /**
- * Renders an arbitrary component or element with the given props
+ * Returns a stable `Component` whose identity is driven by a reactive (and
+ * optionally async) `source`. The returned component can be used anywhere a
+ * normal component is used; children and props flow through JSX as usual.
  *
- * This is a lower level version of the `Dynamic` component, useful for
- * performance optimizations in libraries. Do not use this unless you know
- * what you are doing.
+ * `source` may return a component, a native tag name (`'input'`, `'textarea'`,
+ * etc.), `undefined`, or a `Promise` of any of the above. A pending promise
+ * propagates as `NotReadyError` through the surrounding reactive scope, so
+ * async swaps compose with `Loading`/Suspense boundaries the same way as
+ * `lazy`.
+ *
  * ```typescript
- * const element = () => multiline() ? 'textarea' : 'input';
- * createDynamic(element, { value: value() });
+ * const User = dynamic(() => getUserComp(props.id));
+ * return <User>client content</User>;
  * ```
+ *
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
-export function createDynamic<T extends ValidComponent>(
-  component: () => T | undefined,
-  props: ComponentProps<T>
-): JSX.Element {
-  const cached = createMemo<Function | string | undefined>(component);
-  return createMemo(() => {
-    const component = cached();
-    switch (typeof component) {
-      case "function":
-        if (isDev) Object.assign(component, { [$DEVCOMP]: true });
-        return untrack(() => component(props));
+export function dynamic<T extends ValidComponent>(
+  source: () => T | Promise<T> | null | undefined | false
+): Component<ComponentProps<T>> {
+  const cached = createMemo<Function | string | undefined>(source as () => any, { lazy: true });
+  return props => {
+    return createMemo(() => {
+      const component = cached();
+      switch (typeof component) {
+        case "function":
+          if (isDev) Object.assign(component, { [$DEVCOMP]: true });
+          return untrack(() => (component as Function)(props));
 
-      case "string":
-        const el = sharedConfig.hydrating
-          ? getNextElement()
-          : createElement(
-              component,
-              untrack(() => props.is)
-            );
-        spread(el, props);
-        return el;
+        case "string":
+          const el = sharedConfig.hydrating
+            ? getNextElement()
+            : createElement(
+                component as string,
+                untrack(() => (props as any).is)
+              );
+          spread(el, props);
+          return el;
 
-      default:
-        break;
-    }
-  }) as unknown as JSX.Element;
+        default:
+          break;
+      }
+    }) as unknown as JSX.Element;
+  };
 }
 
 /**
@@ -176,8 +185,8 @@ export function createDynamic<T extends ValidComponent>(
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
-  const others = omit(props, "component");
-  return createDynamic(() => props.component, others as ComponentProps<T>);
+  const Comp = dynamic<T>(() => props.component as T | null | undefined | false);
+  return createComponent(Comp, omit(props, "component") as ComponentProps<T>);
 }
 
 function createElement(tagName: string, is = undefined): HTMLElement | SVGElement | MathMLElement {

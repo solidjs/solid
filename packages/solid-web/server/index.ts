@@ -1,10 +1,12 @@
 import { ssrElement } from "./server.js";
 import {
+  createComponent,
   omit,
   getOwner,
   getNextChildId,
   createOwner,
   runWithOwner,
+  type Component,
   type JSX,
   type ValidComponent,
   type ComponentProps
@@ -28,36 +30,37 @@ export {
 export const isServer: boolean = true;
 export const isDev: boolean = false;
 
-export function createDynamic<T extends ValidComponent>(
-  component: () => T | undefined,
-  props: ComponentProps<T>
-): JSX.Element {
+export function dynamic<T extends ValidComponent>(
+  source: () => T | Promise<T> | null | undefined | false
+): Component<ComponentProps<T>> {
   const o = getOwner();
   if (o?.id != null) getNextChildId(o);
-  const memoOwner = createOwner();
+  return props => {
+    const memoOwner = createOwner();
 
-  return runWithOwner(memoOwner, () => {
-    const comp = component(),
-      t = typeof comp;
+    return runWithOwner(memoOwner, () => {
+      const comp = source(),
+        t = typeof comp;
 
-    if (comp) {
-      if (t === "function") return (comp as Function)(props);
-      else if (t === "string") {
-        return ssrElement(comp as string, props, undefined, true) as unknown as JSX.Element;
+      if (comp) {
+        if (t === "function") return (comp as Function)(props);
+        else if (t === "string") {
+          return ssrElement(comp as string, props, undefined, true) as unknown as JSX.Element;
+        }
       }
-    }
-  }) as JSX.Element;
+    }) as JSX.Element;
+  };
 }
 
 export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   [K in keyof P]: P[K];
 } & {
-  component: T | undefined;
+  component: T | null | undefined | false;
 };
 
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {
-  const others = omit(props, "component");
-  return createDynamic(() => props.component, others as ComponentProps<T>);
+  const Comp = dynamic<T>(() => props.component as T | null | undefined | false);
+  return createComponent(Comp, omit(props, "component") as ComponentProps<T>);
 }
 
 export function Portal(props: { mount?: Node; useShadow?: boolean; children: JSX.Element }) {

@@ -417,6 +417,29 @@ This isn’t just `For`. A few control-flow APIs pass **accessors** into functio
 </Switch>
 ```
 
+### Dynamic components: `createDynamic` → `dynamic` factory
+
+`createDynamic(source, props): JSX.Element` is replaced by a `lazy`-style factory, `dynamic(source): Component<P>`. The factory returns a stable component whose identity is driven by a reactive (and optionally async) source — children, refs, and reactive props flow through the normal JSX path, so the returned value is usable anywhere a component is.
+
+```jsx
+// 1.x style
+import { Dynamic } from "solid-js/web";
+<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
+
+// 2.0 — <Dynamic> is unchanged at the call site and now delegates to dynamic() internally.
+import { Dynamic } from "@solidjs/web";
+<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
+
+// 2.0 — new factory form (preferred when you want a stable component reference)
+import { dynamic } from "@solidjs/web";
+const Active = dynamic(() => isEditing() ? Editor : Viewer);
+return <Active value={value()} />;
+```
+
+Async sources compose with `Loading`/Suspense through the normal `NotReadyError` flow — no wrapper primitive or `await` in user code.
+
+`<Dynamic component={...}>` still exists and is user-facing unchanged; it's now a thin wrapper over `dynamic`. Direct callers of the old `createDynamic(source, props)` should either use `<Dynamic>` or compose manually as `createComponent(dynamic(source), props)`.
+
 ### Coordinating loading boundaries: `SuspenseList` → `Reveal`
 
 `SuspenseList` is replaced by `Reveal`, which coordinates sibling `Loading` boundaries.
@@ -553,6 +576,7 @@ These APIs are new additions (not renames of 1.x APIs):
 - **Effect `EffectBundle`** — `createEffect` accepts `{ effect, error }` for structured error handling.
 - **`createMemo` `lazy` option** — defers initial computation until first read.
 - **`unobserved` callback** — fires when a signal/memo loses all subscribers (resource cleanup).
+- **`dynamic(source)` factory** — `lazy`-style factory that returns a stable component whose identity is driven by a reactive (and optionally async) source. Backs the `<Dynamic>` JSX wrapper.
 
 ## Detailed removal guide
 
@@ -800,6 +824,7 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`mergeProps` → `merge`**
 - **`splitProps` → `omit`**
 - **`createSelector` → `createProjection` / `createStore(fn)`**
+- **`createDynamic(source, props)` → `dynamic(source)` factory** (`<Dynamic>` JSX wrapper unchanged)
 - **`unwrap` → `snapshot`**
 - **`onMount` → `onSettled`**
 - **`equalFn` → `isEqual`**
