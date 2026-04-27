@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/web",
-  "description": "Solid's web runtime for the browser and the server",
+  "description": "Solid's web runtime: client rendering, hydration, SSR, and DOM-specific control flow (Portal, Dynamic).",
   "version": "2.0.0-beta.8",
   "author": "Ryan Carniato",
   "license": "MIT",

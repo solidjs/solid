@@ -377,7 +377,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     }
     if (__DEV__ && strictRead && typeof property === "string") {
       const message =
-        `Reactive value read directly in ${strictRead} will not update. ` +
+        `[STRICT_READ_UNTRACKED] Reactive value read directly in ${strictRead} will not update. ` +
         `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
       emitDiagnostic({
         code: "STRICT_READ_UNTRACKED",

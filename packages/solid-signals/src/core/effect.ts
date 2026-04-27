@@ -75,7 +75,7 @@ export function effect<T>(
         resetUnhandledAsync();
         if (!node._queue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
           const message =
-            "An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.";
+            "[ASYNC_OUTSIDE_LOADING_BOUNDARY] An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.";
           emitDiagnostic({
             code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
             kind: "async",
@@ -97,7 +97,8 @@ export function effect<T>(
   initialized = true;
   cleanup(() => node._cleanup?.());
   if (__DEV__ && !node._parent) {
-    const message = "Effects created outside a reactive context will never be disposed";
+    const message =
+      "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
     emitDiagnostic({
       code: "NO_OWNER_EFFECT",
       kind: "lifecycle",
@@ -195,7 +196,8 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   cleanup(() => node._cleanup?.());
 
   if (__DEV__ && !node._parent) {
-    const message = "Effects created outside a reactive context will never be disposed";
+    const message =
+      "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
     emitDiagnostic({
       code: "NO_OWNER_EFFECT",
       kind: "lifecycle",

@@ -4,8 +4,15 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_ZOMBIE
 } from "./constants.js";
-import { context, latestReadActive, pendingCheckActive, runWithOwner, tracking } from "./core.js";
-import { clearSignals, DEV } from "./dev.js";
+import {
+  context,
+  latestReadActive,
+  pendingCheckActive,
+  PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE,
+  runWithOwner,
+  tracking
+} from "./core.js";
+import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { unlinkSubs } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap } from "./heap.js";
 import { dirtyQueue, globalQueue, zombieQueue } from "./scheduler.js";
@@ -184,9 +191,15 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
   } as Root;
 
   if (__DEV__ && parent?._childrenForbidden) {
-    throw new Error(
-      "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
-    );
+    emitDiagnostic({
+      code: "PRIMITIVE_IN_FORBIDDEN_SCOPE",
+      kind: "lifecycle",
+      severity: "error",
+      message: PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE,
+      ownerId: parent.id,
+      ownerName: (parent as any)._name
+    });
+    throw new Error(PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE);
   }
   if (parent) {
     const lastChild = parent._firstChild;

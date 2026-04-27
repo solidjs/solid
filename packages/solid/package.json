@@ -1,6 +1,6 @@
 {
   "name": "solid-js",
-  "description": "A declarative JavaScript library for building user interfaces.",
+  "description": "Reactive JavaScript library for building user interfaces. Compiles JSX to real DOM with fine-grained signal-based updates — no virtual DOM.",
   "version": "2.0.0-beta.8",
   "author": "Ryan Carniato",
   "license": "MIT",

@@ -50,7 +50,8 @@ export function onCleanup(fn: Disposable): Disposable {
   if (__DEV__) {
     const owner = getOwner();
     if (!owner) {
-      const message = "onCleanup called outside a reactive context will never be run";
+      const message =
+        "[NO_OWNER_CLEANUP] onCleanup called outside a reactive context will never be run";
       emitDiagnostic({
         code: "NO_OWNER_CLEANUP",
         kind: "lifecycle",
@@ -60,7 +61,7 @@ export function onCleanup(fn: Disposable): Disposable {
       console.warn(message);
     } else if (owner._childrenForbidden) {
       const message =
-        "Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
+        "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
       emitDiagnostic({
         code: "CLEANUP_IN_FORBIDDEN_SCOPE",
         kind: "lifecycle",
@@ -332,7 +333,37 @@ export function createEffect<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   effectFn: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
   options?: EffectOptions
+): void;
+/**
+ * @deprecated `createEffect(compute)` (single argument) is no longer supported.
+ * Pass a separate effect function as the second argument:
+ * `createEffect(compute, effect)`. See [MISSING_EFFECT_FN].
+ *
+ * - For a side effect that reacts to changes, split the work:
+ *   `createEffect(() => signal(), value => doWork(value))`.
+ * - For a derived value, use `createMemo(() => signal())`.
+ * - For a one-shot side effect at construction time, just call the function.
+ */
+export function createEffect<T>(compute: ComputeFunction<undefined | NoInfer<T>, T>): never;
+export function createEffect<T>(
+  compute: ComputeFunction<undefined | NoInfer<T>, T>,
+  effectFn?: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
+  options?: EffectOptions
 ): void {
+  if (__DEV__ && effectFn === undefined) {
+    const message =
+      "[MISSING_EFFECT_FN] createEffect requires both a compute function and an effect function. " +
+      "Use `createEffect(() => signal(), value => doWork(value))`. " +
+      "If you want a derived value, use `createMemo`. " +
+      "If you want a one-shot side effect, just call the function directly.";
+    emitDiagnostic({
+      code: "MISSING_EFFECT_FN",
+      kind: "lifecycle",
+      severity: "error",
+      message
+    });
+    throw new Error(message);
+  }
   effect(compute as any, (effectFn as any).effect || effectFn, (effectFn as any).error, {
     user: true,
     ...(__DEV__ ? { ...options, name: options?.name ?? "effect" } : options)

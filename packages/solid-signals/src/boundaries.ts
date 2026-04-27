@@ -348,7 +348,8 @@ function createCollectionBoundary<T>(
   onFn?: () => any
 ) {
   if (__DEV__ && !getOwner()) {
-    const message = "Boundaries created outside a reactive context will never be disposed.";
+    const message =
+      "[NO_OWNER_BOUNDARY] Boundaries created outside a reactive context will never be disposed.";
     emitDiagnostic({
       code: "NO_OWNER_BOUNDARY",
       kind: "lifecycle",

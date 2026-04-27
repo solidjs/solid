@@ -214,6 +214,54 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2
 
+  examples/todos:
+    devDependencies:
+      '@babel/core':
+        specifier: ^7.21.3
+        version: 7.29.0
+      '@babel/preset-typescript':
+        specifier: ^7.18.6
+        version: 7.28.5(@babel/core@7.29.0)
+      '@rollup/plugin-babel':
+        specifier: 6.0.3
+        version: 6.0.3(@babel/core@7.29.0)(@types/babel__core@7.20.5)(rollup@3.30.0)
+      '@rollup/plugin-commonjs':
+        specifier: 24.0.1
+        version: 24.0.1(rollup@3.30.0)
+      '@rollup/plugin-node-resolve':
+        specifier: 15.0.1
+        version: 15.0.1(rollup@3.30.0)
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../../packages/solid-web
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      babel-preset-solid:
+        specifier: workspace:*
+        version: link:../../packages/babel-preset-solid
+      cross-env:
+        specifier: ^7.0.3
+        version: 7.0.3
+      express:
+        specifier: ^4.20.0
+        version: 4.22.1
+      rollup:
+        specifier: ^3.20.0
+        version: 3.30.0
+      rollup-plugin-copy:
+        specifier: ^3.4.0
+        version: 3.5.0
+      solid-js:
+        specifier: workspace:*
+        version: link:../../packages/solid
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
+
   packages/babel-preset-solid:
     dependencies:
       '@babel/core':

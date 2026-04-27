@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/html",
-  "description": "Build-less Tagged-Template-Literal Templating for Solid",
+  "description": "Tagged-template-literal templating for Solid — write components with no build step.",
   "version": "2.0.0-beta.8",
   "author": "Ryan Carniato",
   "license": "MIT",

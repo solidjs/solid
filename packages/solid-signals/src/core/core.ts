@@ -70,6 +70,10 @@ import type {
 
 GlobalQueue._update = recompute;
 GlobalQueue._dispose = disposeChildren;
+
+export const PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE =
+  "[PRIMITIVE_IN_FORBIDDEN_SCOPE] Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled";
+
 export let tracking = false;
 export let stale = false;
 export let refreshing = false;
@@ -370,9 +374,15 @@ export function computed<T>(
     ? (context as Root)._parentComputed
     : (context as Computed<any> | null);
   if (__DEV__ && context?._childrenForbidden) {
-    throw new Error(
-      "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
-    );
+    emitDiagnostic({
+      code: "PRIMITIVE_IN_FORBIDDEN_SCOPE",
+      kind: "lifecycle",
+      severity: "error",
+      message: PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE,
+      ownerId: context.id,
+      ownerName: (context as any)._name
+    });
+    throw new Error(PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE);
   }
   if (context) {
     const lastChild = context._firstChild;
@@ -594,7 +604,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING) {
     const message =
-      `Reading a pending async value directly in ${strictRead}. ` +
+      `[PENDING_ASYNC_UNTRACKED_READ] Reading a pending async value directly in ${strictRead}. ` +
       `Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function).`;
     emitDiagnostic({
       code: "PENDING_ASYNC_UNTRACKED_READ",
@@ -631,7 +641,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (__DEV__ && c?._childrenForbidden) {
         const message =
-          "Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
+          "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
           "Use createEffect instead which supports async-aware reactivity.";
         emitDiagnostic({
           code: "PENDING_ASYNC_FORBIDDEN_SCOPE",
@@ -684,7 +694,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (__DEV__ && strictRead) {
     const message =
-      `Reactive value read directly in ${strictRead} will not update. ` +
+      `[STRICT_READ_UNTRACKED] Reactive value read directly in ${strictRead} will not update. ` +
       `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`;
     emitDiagnostic({
       code: "STRICT_READ_UNTRACKED",
@@ -761,7 +771,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     (el as FirewallSignal<any>)._firewall !== context
   ) {
     const message =
-      "Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
+      "[SIGNAL_WRITE_IN_OWNED_SCOPE] Writing to a Signal inside an owned scope (component, computation) is not allowed. " +
       "Move the write outside or set the `ownedWrite` option if this is intentional.";
     emitDiagnostic({
       code: "SIGNAL_WRITE_IN_OWNED_SCOPE",
@@ -859,7 +869,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED) {
     const message =
-      "runWithOwner called with a disposed owner. Children created inside will never be disposed.";
+      "[RUN_WITH_DISPOSED_OWNER] runWithOwner called with a disposed owner. Children created inside will never be disposed.";
     emitDiagnostic({
       code: "RUN_WITH_DISPOSED_OWNER",
       kind: "owner",

@@ -17,9 +17,11 @@ export type DiagnosticCode =
   | "RUN_WITH_DISPOSED_OWNER"
   | "NO_OWNER_CLEANUP"
   | "CLEANUP_IN_FORBIDDEN_SCOPE"
+  | "PRIMITIVE_IN_FORBIDDEN_SCOPE"
   | "NO_OWNER_EFFECT"
   | "NO_OWNER_BOUNDARY"
-  | "ASYNC_OUTSIDE_LOADING_BOUNDARY";
+  | "ASYNC_OUTSIDE_LOADING_BOUNDARY"
+  | "MISSING_EFFECT_FN";
 
 export type DiagnosticKind = "strict-read" | "async" | "write" | "lifecycle" | "owner";
 
