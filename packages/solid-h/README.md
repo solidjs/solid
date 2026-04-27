@@ -17,11 +17,17 @@ h("div", { title: "My button" }, h("span", "1"), h("span", "2"), h("span", "3"))
 
 This is the least efficient way to use Solid as it requires a slightly larger runtime that isn't treeshakeable, and cannot leverage anything in the way of analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
 
+> `h(...)` returns a tagged zero-arity thunk rather than a DOM node directly.
+> Pass a function reference (or `() => h(App)`) to `render(...)` so the thunk
+> is invoked inside the root. Nested `h(...)` thunks auto-invoke when consumed,
+> so composition with control-flow components like `<For>` and `<Show>` works
+> without extra wrapping.
+
 ## Example
 
 ```js
-import { render } from "solid-js/web";
-import h from "solid-js/h";
+import { render } from "@solidjs/web";
+import h from "@solidjs/h";
 import { createSignal } from "solid-js";
 
 function Button(props) {

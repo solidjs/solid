@@ -6,8 +6,12 @@ function Fragment(props: { children: JSX.Element }) {
   return props.children;
 }
 
-function jsx(type: any, props: any) {
-  return h(type, props);
+// Explicit return annotation keeps tsc from inlining `import("../../types/hyperscript").HyperElement`
+// in the emitted .d.ts. `sync-dual-types.mjs` rewrites `.d.ts` -> `.d.cts` extensions but does not
+// remap the `types/` <-> `types-cjs/` directory, so a cross-folder inferred reference would break
+// Node16 CJS type resolution from `@solidjs/h/jsx-runtime`'s CJS export.
+function jsx(type: any, props: any): JSX.Element {
+  return h(type, props) as unknown as JSX.Element;
 }
 
 // support React Transform in case someone really wants it for some reason

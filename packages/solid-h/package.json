@@ -72,12 +72,14 @@
     "types:h": "tsc --project ./tsconfig.json && ncp ../../node_modules/hyper-dom-expressions/types/index.d.ts ./types/hyperscript.d.ts",
     "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/types/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./jsx-runtime/types/jsx-properties.d.ts",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./jsx-runtime/types ./jsx-runtime/types-cjs",
-    "link": "symlink-dir . node_modules/@solidjs/h"
+    "link": "symlink-dir . node_modules/@solidjs/h",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "@solidjs/web": "^2.0.0-beta.8"
   },
   "devDependencies": {
-    "@solidjs/web": "workspace:*"
+    "@solidjs/web": "workspace:*",
+    "solid-js": "workspace:*"
   }
 }

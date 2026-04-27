@@ -120,7 +120,7 @@
     "types": "npm-run-all -nl types:clean types:web types:copy-web types:web-storage types:cjs",
     "types:clean": "rimraf types/ types-cjs/ storage/types-cjs/",
     "types:web": "tsc --project ./tsconfig.build.json",
-    "types:copy-web": "ncp ../../node_modules/dom-expressions/src/client.d.ts ./types/client.d.ts && ncp ../../node_modules/dom-expressions/src/server.d.ts ./types/server.d.ts",
+    "types:copy-web": "ncp ../../node_modules/dom-expressions/src/server.d.ts ./types/server.d.ts",
     "types:web-storage": "tsc --project ./storage/tsconfig.build.json",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./storage/types ./storage/types-cjs",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",

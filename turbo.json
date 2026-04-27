@@ -60,6 +60,14 @@
       "dependsOn": ["solid-js#build", "@solidjs/web#build"],
       "outputs": []
     },
+    "@solidjs/h#test": {
+      "dependsOn": ["@solidjs/web#build", "@solidjs/h#build"],
+      "outputs": []
+    },
+    "@solidjs/html#test": {
+      "dependsOn": ["@solidjs/web#build", "@solidjs/html#build"],
+      "outputs": []
+    },
     "test-integration#test": {
       "dependsOn": [
         "@solidjs/signals#build",
@@ -71,6 +79,10 @@
       ]
     },
     "solid-js#test-types": {
+      "outputs": [],
+      "dependsOn": ["types"]
+    },
+    "@solidjs/web#test-types": {
       "outputs": [],
       "dependsOn": ["types"]
     }

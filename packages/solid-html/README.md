@@ -2,26 +2,28 @@
 
 This sub module provides a Tagged Template Literal `html` method for Solid. This is useful to use Solid in non-compiled environments. This method can be used as replacement for JSX.
 
-`html` uses `${}` to escape into JavaScript expressions. Components are closed with `<//>`
+`html` uses `${}` to escape into JavaScript expressions. Components are closed with `<//>`.
+
+Since Solid 2.0, `html` is backed by [`sld-dom-expressions`](https://www.npmjs.com/package/sld-dom-expressions), an AST-based tagged-template runtime. Templates are parsed at runtime (no `new Function` / `eval`, so it is CSP-safe) and reactive bindings are installed against the resulting DOM.
 
 ```js
 // create an element with a title attribute
 html`<button title="My button">Click Me</button>`
 
-// create a component with a title prop
+// create a component with a title prop (inline expression hole)
 html`<${Button} title="My button">Click me<//>`
 
 // create an element with dynamic attribute and spread
 html`<div title=${() => selectedClass()} ...${props} />`
 ```
 
-Using `html` is slightly less efficient than JSX(but more than HyperScript), requires a larger runtime that isn't treeshakeable, and cannot leverage expression analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
+Using `html` is slightly less efficient than JSX, requires a larger runtime that isn't treeshakeable, and cannot leverage expression analysis, so it requires manual wrapping of expressions and has a few other caveats (see below).
 
 ## Example
 
 ```js
-import { render } from "solid-js/web";
-import html from "solid-js/html";
+import { render } from "@solidjs/web";
+import html from "@solidjs/html";
 import { createSignal } from "solid-js";
 
 function Button(props) {
@@ -36,6 +38,40 @@ function Counter() {
 }
 
 render(Counter, document.getElementById("app"));
+```
+
+## Component registry
+
+Inline expression holes (`<${Component} />`) work without any setup, but the `sld` runtime also supports a named component registry. `html.define({ ... })` returns a new tag with the supplied components merged into the registry; capitalized tag names in the template are then looked up by name. The original `html` tag is unchanged.
+
+```js
+import html from "@solidjs/html";
+import { For, Show } from "solid-js";
+
+const tpl = html.define({ For, Show });
+
+function List(props) {
+  return tpl`
+    <Show when=${() => props.items.length > 0} fallback=${tpl`<p>No items</p>`}>
+      <ul>
+        <For each=${() => props.items}>
+          ${item => tpl`<li>${item.name}</li>`}
+        </For>
+      </ul>
+    </Show>
+  `;
+}
+```
+
+An unregistered capitalized tag name throws at template-construction time, which gives tooling (codemods, syntax highlighters) something concrete to key off.
+
+## Return shape
+
+A `html\`...\`` expression returns a single node when the template resolves to one root, and an array of nodes when it resolves to many. Consumers that need to spread or iterate the result should normalize:
+
+```js
+const result = html`<span/><span/>`;
+const nodes = Array.isArray(result) ? result : [result];
 ```
 
 ## Differences from JSX

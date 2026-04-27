@@ -6,6 +6,7 @@ import {
   insert,
   createComponent,
   dynamicProperty,
+  untrack,
   SVGElements,
   MathMLElements,
   Namespaces
@@ -17,6 +18,7 @@ const h: HyperScript = createHyperScript({
   insert,
   createComponent,
   dynamicProperty,
+  untrack,
   SVGElements,
   MathMLElements,
   Namespaces

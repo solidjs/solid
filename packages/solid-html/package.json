@@ -42,13 +42,15 @@
     "build:js": "rollup -c",
     "types": "npm-run-all -nl types:clean types:html types:cjs",
     "types:clean": "rimraf types/ types-cjs/",
-    "types:html": "tsc --project ./tsconfig.json && ncp ../../node_modules/lit-dom-expressions/types/index.d.ts ./types/lit.d.ts",
-    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs"
+    "types:html": "tsc --project ./tsconfig.json && ncp ../../node_modules/sld-dom-expressions/dist/index.d.mts ./types/sld.d.ts",
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "@solidjs/web": "^2.0.0-beta.8"
   },
   "devDependencies": {
-    "@solidjs/web": "workspace:*"
+    "@solidjs/web": "workspace:*",
+    "solid-js": "workspace:*"
   }
 }
