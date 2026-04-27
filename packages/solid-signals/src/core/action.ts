@@ -15,6 +15,40 @@ function restoreTransition<T>(transition: Transition, fn: () => T): T {
   return result;
 }
 
+/**
+ * Wraps a generator function so each invocation runs as a single transaction
+ * (a "transition") that batches every signal/store write between yields. The
+ * surrounding UI sees one atomic update per yielded step; nothing is committed
+ * until the action either completes or the next `yield` resolves.
+ *
+ * Yield promises (or any awaitable) inside the generator — the action waits
+ * for each before continuing, but the writes you made beforehand are already
+ * visible (or held by `<Loading>` if optimistic). Yield bare values for
+ * synchronous batched steps.
+ *
+ * Each call returns a `Promise` that resolves with the generator's return
+ * value, or rejects if it throws. Pair with `createOptimistic` /
+ * `createOptimisticStore` to apply tentative writes that auto-revert if the
+ * action fails.
+ *
+ * @example
+ * ```ts
+ * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
+ *
+ * const addTodo = action(function* (text: string) {
+ *   const tempId = crypto.randomUUID();
+ *   setTodos(t => { t.push({ id: tempId, text, pending: true }); }); // optimistic
+ *   const saved = yield api.createTodo(text); // network round-trip
+ *   setTodos(t => {
+ *     const i = t.findIndex(x => x.id === tempId);
+ *     if (i >= 0) t[i] = saved;
+ *   });
+ *   return saved;
+ * });
+ *
+ * await addTodo("buy milk");
+ * ```
+ */
 export function action<Args extends any[], Y, R>(
   genFn: (...args: Args) => Generator<Y, R, any> | AsyncGenerator<Y, R, any>
 ) {

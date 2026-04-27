@@ -53,8 +53,20 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
 };
 
 /**
- * Renders a component tree into a DOM element and returns a dispose function.
+ * Renders a component tree into a DOM element. Returns a dispose function
+ * that tears the tree down and cleans up reactive scopes when called.
  *
+ * @example
+ * ```tsx
+ * import { render } from "@solidjs/web";
+ *
+ * const dispose = render(() => <App />, document.getElementById("root")!);
+ *
+ * // Later, to unmount:
+ * dispose();
+ * ```
+ *
+ * @remarks
  * The top-level insert is queued via `insertOptions: { schedule: true }` so
  * its initial DOM attach goes through the effect queue rather than executing
  * inline. This lets the mount participate in transitions: if an uncaught
@@ -90,15 +102,44 @@ export function render(
   }
 }
 
+/**
+ * Resumes a server-rendered tree on the client, attaching event listeners
+ * and reactive bindings without reconstructing the DOM. Returns a `dispose`
+ * function that tears down reactive scopes (DOM nodes are left in place).
+ *
+ * Use this when the page HTML was produced by `renderToString`,
+ * `renderToStringAsync`, or `renderToStream`. For client-only apps, use
+ * `render` instead.
+ *
+ * Pass `options.renderId` to hydrate one of multiple roots emitted by a
+ * server render that used the same id.
+ *
+ * @example
+ * ```tsx
+ * import { hydrate } from "@solidjs/web";
+ *
+ * hydrate(() => <App />, document.getElementById("root")!);
+ * ```
+ */
 export const hydrate: typeof hydrateCore = (...args) => {
   enableHydration();
   return hydrateCore(...args);
 };
 
 /**
- * Renders components somewhere else in the DOM
+ * Renders its children into a different part of the DOM (modal roots,
+ * tooltips, layers that need to escape an `overflow: hidden` ancestor).
  *
- * Useful for inserting modals and tooltips outside of an cropping layout. If no mount point is given, the portal is inserted in document.body; it is wrapped in a `<div>` unless the target is document.head or `isSVG` is true. setting `useShadow` to true places the element in a shadow root to isolate styles.
+ * If `mount` is omitted, the portal attaches to `document.body`. The portal
+ * still participates in the parent's reactive scope and disposes when the
+ * parent does.
+ *
+ * @example
+ * ```tsx
+ * <Portal mount={document.getElementById("modal-root")!}>
+ *   <Dialog />
+ * </Portal>
+ * ```
  *
  * @description https://docs.solidjs.com/reference/components/portal
  */

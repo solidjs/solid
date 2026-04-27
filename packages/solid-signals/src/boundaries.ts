@@ -394,6 +394,18 @@ function createCollectionBoundary<T>(
   );
 }
 
+/**
+ * Lower-level primitive that backs the `<Loading>` flow control. Catches
+ * pending async reads inside `fn` and renders `fallback` until they settle.
+ *
+ * App code should use `<Loading fallback={...}>` instead — reach for this only
+ * when authoring custom boundary components.
+ *
+ * @param fn the tracked subtree
+ * @param fallback the fallback shown while async reads in `fn` are unresolved
+ * @param options `on` — accessor whose value scopes the boundary; when set,
+ *   transitions caused by writes to other reactive sources are *not* caught
+ */
 export function createLoadingBoundary(
   fn: () => any,
   fallback: () => any,
@@ -402,6 +414,15 @@ export function createLoadingBoundary(
   return createCollectionBoundary(STATUS_PENDING, fn, () => fallback(), options?.on);
 }
 
+/**
+ * Lower-level primitive that backs the `<Errored>` flow control. Catches
+ * thrown errors inside `fn` and invokes `fallback(error, reset)` instead.
+ * `reset()` recomputes the failing sources so the boundary can attempt to
+ * recover.
+ *
+ * App code should use `<Errored fallback={...}>` instead — reach for this only
+ * when authoring custom boundary components.
+ */
 export function createErrorBoundary<U>(
   fn: () => any,
   fallback: (error: unknown, reset: () => void) => U
@@ -474,6 +495,20 @@ export function createRevealOrder<T>(
   });
 }
 
+/**
+ * Resolves a children value to its renderable form: unwraps zero-arg functions
+ * (accessors), recursively flattens arrays, and optionally skips
+ * non-rendering values (`null`, `undefined`, `true`, `false`, `""`).
+ *
+ * Used internally by flow components and by the renderer to walk a children
+ * tree. App code rarely needs this directly — see `children()` in `solid-js`
+ * for the user-facing helper that memoizes the result.
+ *
+ * @param children value or array of values to flatten
+ * @param options
+ *   - `skipNonRendered` — drop values that won't render
+ *   - `doNotUnwrap` — leave function children as-is (caller will resolve)
+ */
 export function flatten(
   children: any,
   options?: { skipNonRendered?: boolean; doNotUnwrap?: boolean }

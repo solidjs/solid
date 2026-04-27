@@ -78,7 +78,21 @@ export function Repeat<T extends JSX.Element>(props: {
 }
 
 /**
- * Conditionally render its children or an optional fallback component
+ * Conditionally renders its children when `when` is truthy, otherwise renders
+ * the optional `fallback`.
+ *
+ * The function-child form receives an accessor for the narrowed value — call
+ * it to read. Without `keyed` (default), the child is preserved across
+ * truthy values; with `keyed`, the child remounts whenever the value's
+ * identity changes.
+ *
+ * @example
+ * ```tsx
+ * <Show when={user()} fallback={<SignIn />}>
+ *   {u => <Greeting name={u().name} />}
+ * </Show>
+ * ```
+ *
  * @description https://docs.solidjs.com/reference/components/show
  */
 export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
@@ -198,12 +212,24 @@ export type MatchProps<T, F extends ConditionalRenderCallback<T> = ConditionalRe
   children: ConditionalRenderChildren<T, F>;
 };
 /**
- * Selects a content based on condition when inside a `<Switch>` control flow
- * ```typescript
- * <Match when={condition()}>
- *   <Content/>
- * </Match>
+ * A branch inside a `<Switch>`. The first `<Match>` whose `when` is truthy
+ * wins; remaining matches are skipped.
+ *
+ * Like `<Show>`, `<Match>` supports a function child that receives an
+ * accessor for the narrowed value.
+ *
+ * @example
+ * ```tsx
+ * <Switch fallback={<NotFound />}>
+ *   <Match when={user()}>
+ *     {u => <Profile name={u().name} />}
+ *   </Match>
+ *   <Match when={loading()}>
+ *     <Spinner />
+ *   </Match>
+ * </Switch>
  * ```
+ *
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
 export function Match<T, F extends ConditionalRenderCallback<T>>(props: MatchProps<T, F>) {
@@ -240,14 +266,34 @@ export function Errored(props: {
 }
 
 /**
- * Tracks all resources inside a component and renders a fallback until they are all resolved
- * ```typescript
- * const AsyncComponent = lazy(() => import('./component'));
+ * Renders a `fallback` while pending async reads inside the subtree settle.
  *
- * <Loading fallback={<LoadingIndicator />}>
- *   <AsyncComponent />
+ * Any computation (`createMemo`, `createSignal(fn)`, `createStore(fn)`,
+ * `lazy(...)`, etc.) that throws because data isn't ready is caught by the
+ * nearest enclosing `<Loading>`. The boundary swaps to its `fallback` until
+ * every pending read has resolved, then renders the children.
+ *
+ * The optional `on` prop scopes the boundary so it ignores transitions
+ * caused by writes to other reactive sources — those transitions stay on the
+ * previous content (with `isPending()` flipping during the transition).
+ *
+ * @example
+ * ```tsx
+ * const Profile = lazy(() => import("./Profile"));
+ *
+ * <Loading fallback={<Spinner />}>
+ *   <Profile />
  * </Loading>
  * ```
+ *
+ * @example
+ * ```tsx
+ * // Only show the fallback for transitions caused by writes to `route`.
+ * <Loading fallback={<Skeleton />} on={route}>
+ *   <Page />
+ * </Loading>
+ * ```
+ *
  * @description https://docs.solidjs.com/reference/components/suspense
  */
 export function Loading(props: {

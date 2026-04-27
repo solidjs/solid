@@ -14,9 +14,28 @@ import { $TRACK } from "./store/index.js";
 export type Maybe<T> = T | void | null | undefined | false;
 
 /**
- * Reactively transforms an array with a callback function - underlying helper for the `<For>` control flow
+ * Reactively maps an array, reusing the previously-mapped value for unchanged
+ * items. The callback receives `(value, index)` as accessors so individual
+ * items and indexes can be subscribed to without re-running the mapper.
  *
- * similar to `Array.prototype.map`, but gets the value and index as accessors, transforms only values that changed and returns an accessor and reactively tracks changes to the list.
+ * This is the underlying helper that powers `<For>`. App code should use
+ * `<For>` directly; reach for `mapArray` when implementing custom list
+ * components.
+ *
+ * - `options.keyed` — `true` (default for primitives) compares by identity;
+ *   `false` falls back to index-only mapping; pass a function `(item) => key`
+ *   for stable identity by extracted key.
+ * - `options.fallback` — accessor returning a value to show when the input is
+ *   empty.
+ *
+ * @example
+ * ```ts
+ * const view = mapArray(
+ *   items,
+ *   (item, index) => `${index()}: ${item().label}`,
+ *   { fallback: () => "no items" }
+ * );
+ * ```
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/map-array
  */
@@ -212,7 +231,17 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
 }
 
 /**
- * Reactively repeats a callback function the count provided - underlying helper for the `<Repeat>` control flow
+ * Reactively renders a callback `count` times, reusing previously-rendered
+ * entries when only the count changes. Underlying helper for `<Repeat>`.
+ *
+ * - `options.from` — start index (default `0`); useful for offset/windowed
+ *   rendering.
+ * - `options.fallback` — accessor returning a value to show when count is `0`.
+ *
+ * @example
+ * ```ts
+ * const view = repeat(count, i => `Item ${i}`, { fallback: () => "empty" });
+ * ```
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/repeat
  */

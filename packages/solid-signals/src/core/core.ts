@@ -479,10 +479,26 @@ export function setStrictRead(v: string | false): string | false {
 }
 
 /**
- * Executes `fn` without tracking reactive dependencies.
+ * Runs `fn` outside of any reactive tracking — reads inside `fn` will not
+ * subscribe the current scope. Returns whatever `fn` returns.
  *
- * Pass a `strictReadLabel` string to enable strict-read warnings: any reactive read inside `fn`
- * that is not inside a nested tracking scope will log a warning in dev mode.
+ * Use `untrack` inside a memo or effect when you need to read a signal once
+ * without making the surrounding computation depend on its future changes.
+ *
+ * Pass a `strictReadLabel` string to enable a dev-mode warning: any reactive
+ * read inside `fn` that isn't inside a nested tracking scope will log a
+ * warning naming the label.
+ *
+ * @example
+ * ```ts
+ * createEffect(
+ *   () => trigger(),                 // tracks `trigger` only
+ *   () => {
+ *     const snapshot = untrack(() => state); // read once, untracked
+ *     log(snapshot);
+ *   }
+ * );
+ * ```
  */
 export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   if (!externalSourceConfig && !tracking && (!__DEV__ || (!strictRead && !strictReadLabel)))
@@ -821,6 +837,25 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   return v;
 }
 
+/**
+ * Executes `fn` with the given `owner` set as the current owner. Any reactive
+ * primitives (`createSignal`, `createMemo`, `createEffect`, `onCleanup`,
+ * `cleanup`, etc.) created inside `fn` are attached to that owner, so they
+ * are disposed when the owner is disposed.
+ *
+ * The classic pattern: capture the current owner with `getOwner()` inside a
+ * component, then re-enter it from a callback (event handler, async resolve,
+ * setTimeout) so disposables created in the callback get cleaned up with the
+ * component.
+ *
+ * @example
+ * ```ts
+ * function delayed<T>(ms: number, fn: () => T) {
+ *   const owner = getOwner();
+ *   setTimeout(() => runWithOwner(owner, fn), ms);
+ * }
+ * ```
+ */
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   if (__DEV__ && owner && (owner as any)._flags & REACTIVE_DISPOSED) {
     const message =
@@ -956,6 +991,23 @@ export function staleValues<T>(fn: () => T, set = true): T {
   }
 }
 
+/**
+ * Reads reactive expressions while bypassing any pending async overlay — i.e.
+ * always returns the most-recently-committed value, even when newer reads
+ * inside `fn` are still in flight.
+ *
+ * Useful inside a `<Loading>` boundary's children when you want to keep
+ * showing the previous resolved data instead of the fallback while the next
+ * value loads.
+ *
+ * @example
+ * ```tsx
+ * <Loading fallback={<Skeleton />}>
+ *   {/* During a transition, render the previous user instead of skeleton: *\/}
+ *   <UserCard user={latest(() => user())} />
+ * </Loading>
+ * ```
+ */
 export function latest<T>(fn: () => T): T {
   const prevLatest = latestReadActive;
   latestReadActive = true;
@@ -966,6 +1018,21 @@ export function latest<T>(fn: () => T): T {
   }
 }
 
+/**
+ * Returns `true` if any reactive read inside `fn` is currently in a pending
+ * (async, not-yet-settled) state. Does not subscribe — pair with a tracked
+ * memo if you want to react to pending status changes.
+ *
+ * Useful for showing inline transition indicators alongside the previous
+ * value (rather than swapping to a `<Loading>` fallback).
+ *
+ * @example
+ * ```tsx
+ * const pending = createMemo(() => isPending(() => user()));
+ *
+ * <button disabled={pending()}>{pending() ? "Saving…" : "Save"}</button>
+ * ```
+ */
 export function isPending(fn: () => any): boolean {
   const prevPendingCheck = pendingCheckActive;
   const prevFoundPending = foundPending;
@@ -985,6 +1052,27 @@ export function isPending(fn: () => any): boolean {
   }
 }
 
+/**
+ * Forces a reactive source to re-execute, even if its inputs haven't changed.
+ *
+ * Two forms:
+ * - `refresh(memo)` — pass an accessor (memo / signal getter) and its
+ *   underlying computation reruns.
+ * - `refresh(store)` — pass a *projected* store created from
+ *   `createStore(fn, ...)` or `createProjection(...)` and the projection
+ *   recomputes.
+ *
+ * Use it to invalidate cached async values (e.g. force a re-fetch) without
+ * tearing the consumer down.
+ *
+ * @example
+ * ```ts
+ * const user = createMemo(async () => fetch(`/users/${id()}`).then(r => r.json()));
+ *
+ * // Re-fetch on demand
+ * <button onClick={() => refresh(user)}>Reload</button>
+ * ```
+ */
 export function refresh<T>(fn: (() => T) | (T & { [$REFRESH]: any })): T {
   let prevRefreshing = refreshing;
   refreshing = true;
@@ -1002,6 +1090,18 @@ export function refresh<T>(fn: (() => T) | (T & { [$REFRESH]: any })): T {
   }
 }
 
+/**
+ * Returns `true` while a `refresh()` call is in progress. Useful for showing
+ * a "refreshing" indicator distinct from the initial-load `<Loading>`
+ * fallback.
+ *
+ * @example
+ * ```tsx
+ * <Show when={isRefreshing()}>
+ *   <span class="badge">refreshing…</span>
+ * </Show>
+ * ```
+ */
 export function isRefreshing(): boolean {
   return refreshing;
 }

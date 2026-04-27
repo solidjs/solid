@@ -174,6 +174,28 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
   }
 }
 
+/**
+ * Returns a draft-mutating function that smart-merges `value` into a store,
+ * preserving the identity of items whose `key` field matches between old and
+ * new states. Useful when applying server payloads or full-replacement data
+ * onto an existing store without losing fine-grained reactivity.
+ *
+ * Items with the same key are updated in place (only changed properties
+ * trigger updates). Items added or removed update the corresponding signals.
+ *
+ * @param value the next state to merge in
+ * @param key property name (string) or extractor function for stable identity
+ *
+ * @example
+ * ```ts
+ * const [todos, setTodos] = createStore<Todo[]>([]);
+ *
+ * async function refresh() {
+ *   const fresh = await api.getTodos();
+ *   setTodos(reconcile(fresh, "id")); // diff-merge by `id`
+ * }
+ * ```
+ */
 export function reconcile<T extends U, U>(
   value: T,
   key: string | ((item: NonNullable<any>) => any)

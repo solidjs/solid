@@ -34,17 +34,34 @@ import {
 } from "./store.js";
 
 /**
- * Creates an optimistic store that can be used to optimistically update a value
- * and then revert it back to the previous value at end of transition.
+ * The store equivalent of `createOptimistic`. Writes inside an `action`
+ * transition are tentative — they show up immediately but auto-revert (or
+ * reconcile to the action's resolved value) once the transition finishes.
  *
- * When called with a plain value, creates an optimistic store.
- * When called with a function, creates a derived optimistic store with `ProjectionOptions` (name, key).
+ * Use this for optimistic UI on collection-shaped data. For single-value
+ * optimistic state, prefer `createOptimistic`.
  *
- * @param fn a function that receives the current store and can be used to mutate it directly inside a transition
- * @param store The plain store value, or the backing seed when using the derived-store form.
- * @param options Optional projection options for reconciliation.
+ * - Plain form: `createOptimisticStore(initialValue)`.
+ * - Derived form: `createOptimisticStore(fn, seed, options?)` — a projection
+ *   store whose authoritative value is recomputed by `fn` and whose
+ *   optimistic overlay reverts after each transition.
  *
- * @returns A tuple containing a store accessor and a setter function to apply changes.
+ * @example
+ * ```ts
+ * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
+ *
+ * const addTodo = action(function* (text: string) {
+ *   const tempId = crypto.randomUUID();
+ *   setTodos(t => { t.push({ id: tempId, text, pending: true }); }); // optimistic
+ *   const saved = yield api.createTodo(text);
+ *   setTodos(t => {
+ *     const i = t.findIndex(x => x.id === tempId);
+ *     if (i >= 0) t[i] = saved;
+ *   });
+ * });
+ * ```
+ *
+ * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */
 export function createOptimisticStore<T extends object = {}>(
   store: NoFn<T> | Store<NoFn<T>>

@@ -75,6 +75,12 @@ export type ComponentProps<T extends ValidComponent> =
  */
 export type Ref<T> = T | ((val: T) => void);
 
+/**
+ * Invokes a component, wrapping the call in `untrack` so that reactive reads
+ * inside the component body don't subscribe the parent computation. Compiled
+ * JSX uses this internally; manual calls are rarely needed unless authoring a
+ * custom JSX factory or renderer.
+ */
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T
@@ -83,7 +89,32 @@ export function createComponent<T extends Record<string, any>>(
   return untrack(() => Comp(props || ({} as T)));
 }
 
-// lazy load a function component asynchronously
+/**
+ * Defines a code-split component. The returned component triggers its dynamic
+ * import on first render and suspends through any enclosing `<Loading>`
+ * boundary while the chunk is in flight. Call `.preload()` to start the
+ * import early (e.g. on hover).
+ *
+ * @param fn dynamic import returning the module's default export
+ * @param moduleUrl optional module URL used during hydration to look up
+ *   preloaded chunks; usually injected by the bundler integration
+ *
+ * @example
+ * ```tsx
+ * const Profile = lazy(() => import("./Profile"));
+ *
+ * function App() {
+ *   return (
+ *     <Loading fallback={<Spinner />}>
+ *       <Profile id="42" />
+ *     </Loading>
+ *   );
+ * }
+ *
+ * // Preload before the user clicks
+ * <button onMouseEnter={() => Profile.preload()}>Open profile</button>
+ * ```
+ */
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
   moduleUrl?: string
@@ -125,6 +156,24 @@ export function lazy<T extends Component<any>>(
 }
 
 let counter = 0;
+/**
+ * Returns a stable id string that matches between server-rendered and
+ * client-hydrated trees. Use it for `<label for>`, `aria-labelledby`, and
+ * other attributes that need consistent ids across SSR.
+ *
+ * @example
+ * ```tsx
+ * function Field(props: { label: string }) {
+ *   const id = createUniqueId();
+ *   return (
+ *     <>
+ *       <label for={id}>{props.label}</label>
+ *       <input id={id} />
+ *     </>
+ *   );
+ * }
+ * ```
+ */
 export function createUniqueId(): string {
   return sharedConfig.hydrating ? sharedConfig.getNextContextId() : `cl-${counter++}`;
 }

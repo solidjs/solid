@@ -21,7 +21,8 @@
     "types",
     "types-cjs",
     "jsx-runtime.d.ts",
-    "package.json"
+    "package.json",
+    "CHEATSHEET.md"
   ],
   "exports": {
     ".": {

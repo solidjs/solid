@@ -103,15 +103,44 @@ function formatId(prefix: string, id: number) {
   return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
 }
 
+/**
+ * Returns the currently-tracking observer (the computation that subscribes to
+ * reactive reads at this point), or `null` if reads here would be untracked.
+ * Used by reactive primitives that need to know whether they're inside a
+ * tracking scope. App code rarely needs this — see `getOwner()` for the
+ * lifecycle owner instead.
+ */
 export function getObserver(): Owner | null {
   if (pendingCheckActive || latestReadActive) return PENDING_OWNER;
   return tracking ? context : null;
 }
 
+/**
+ * Returns the current reactive **owner** — the lifecycle node that the next
+ * `cleanup()` / `onCleanup()` / `createSignal()` etc. will be attached to.
+ *
+ * Returns `null` if called outside any owner. Capture the owner with
+ * `getOwner()` and re-enter it later with `runWithOwner(owner, fn)` to attach
+ * disposables created from a callback (event handler, async resolution, etc.)
+ * back to a component's lifecycle.
+ *
+ * @example
+ * ```ts
+ * function defer<T>(fn: () => T) {
+ *   const owner = getOwner();
+ *   queueMicrotask(() => runWithOwner(owner, fn));
+ * }
+ * ```
+ */
 export function getOwner(): Owner | null {
   return context;
 }
 
+/**
+ * Low-level: registers `fn` as a disposal callback on the current owner.
+ * Most code should use `onCleanup()` from `solid-js`, which adds dev-mode
+ * checks. `cleanup()` is the unchecked primitive used by internals.
+ */
 export function cleanup(fn: Disposable): Disposable {
   if (!context) return fn;
   if (!context._disposal) context._disposal = fn;
@@ -120,10 +149,16 @@ export function cleanup(fn: Disposable): Disposable {
   return fn;
 }
 
+/** Returns `true` if the owner has been disposed (or marked zombie pending disposal). */
 export function isDisposed(node: Owner): boolean {
   return !!((node as any)._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE));
 }
 
+/**
+ * Creates a fresh owner attached as a child of the current owner (or as a
+ * detached root if there is none). Mostly used by framework internals to
+ * group cleanups; app code should prefer `createRoot()` or `runWithOwner()`.
+ */
 export function createOwner(options?: { id?: string; transparent?: boolean }) {
   const parent = context;
   const transparent = options?.transparent ?? false;
@@ -167,10 +202,26 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
 }
 
 /**
- * Creates a new non-tracked reactive context with manual disposal
+ * Creates a detached reactive root. The callback receives a `dispose()`
+ * function which, when called, tears down every signal, memo, effect, and
+ * `onCleanup` registered inside the root.
  *
- * @param fn a function in which the reactive state is scoped
- * @returns the output of `fn`.
+ * Use this to host long-lived reactive scopes outside of a component (custom
+ * controllers, app bootstrapping, tests). Inside a component, prefer
+ * letting Solid's component lifecycle own things.
+ *
+ * @example
+ * ```ts
+ * const dispose = createRoot(dispose => {
+ *   const [n, setN] = createSignal(0);
+ *   createEffect(() => n(), value => console.log(value));
+ *   setInterval(() => setN(x => x + 1), 1000);
+ *   return dispose;
+ * });
+ *
+ * // Later, to tear everything down:
+ * dispose();
+ * ```
  *
  * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
  */

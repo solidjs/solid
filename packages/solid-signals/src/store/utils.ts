@@ -75,9 +75,20 @@ function snapshotImpl<T>(
 }
 
 /**
- * Returns a non reactive copy of the store object.
- * It will attempt to preserver the original reference unless the value has been modified.
- * @param item store proxy object
+ * Returns a plain (non-proxy, non-reactive) deep copy of a store value.
+ * Reading via `snapshot` does **not** subscribe to changes — use this when you
+ * need to hand a stable plain object to non-reactive code (logging,
+ * serialization, structured-clone, network payloads, etc.).
+ *
+ * Returns the original object identity for any sub-tree that wasn't modified
+ * relative to the proxy's underlying source.
+ *
+ * @example
+ * ```ts
+ * const [state] = createStore({ user: { name: "Ada" }, todos: [] });
+ *
+ * console.log(JSON.stringify(snapshot(state))); // safe, non-reactive copy
+ * ```
  */
 export function snapshot<T>(item: T): T;
 export function snapshot<T>(item: T, map?: Map<unknown, unknown>, lookup?: WeakMap<any, any>): T;
@@ -86,10 +97,25 @@ export function snapshot<T>(item: any, map?: Map<unknown, unknown>, lookup?: Wea
 }
 
 /**
- * Returns a non-reactive snapshot of the store while subscribing to all nested changes.
- * Subscribes to `$TRACK` at every level so that any deep change triggers recomputation,
- * and returns plain (non-proxy) data. Works correctly with `reconcile()`.
- * @param store store proxy object
+ * Returns a plain (non-proxy) deep copy **and** subscribes the current
+ * tracking scope to every nested change in the source store. Any write
+ * anywhere in the subtree invalidates the consumer.
+ *
+ * Use this when you need plain data inside a reactive scope and want to
+ * react to deep mutations (e.g. passing a snapshot to `reconcile()` or to a
+ * memo that should rerun on any nested change). For most read paths, prefer
+ * direct property access — Solid stores already track per-property reads
+ * with no `deep()` wrapper needed.
+ *
+ * @example
+ * ```ts
+ * const [state] = createStore({ a: { b: { c: 1 } } });
+ *
+ * createEffect(
+ *   () => deep(state),                  // reruns on any nested change
+ *   plain => sendToWorker(plain)        // worker gets a non-proxy copy
+ * );
+ * ```
  */
 export function deep<T extends object>(store: T): T {
   return snapshotImpl(store, true) as T;
@@ -172,6 +198,26 @@ function resolveSource(s: any) {
 }
 
 const $SOURCES = Symbol(__DEV__ ? "MERGE_SOURCE" : 0);
+/**
+ * Merges multiple props-like objects into a single proxy that *preserves
+ * reactivity*. Reads are forwarded to the right-most source that defines the
+ * property, so later sources override earlier ones (like `Object.assign`).
+ *
+ * Function arguments are treated as memo-backed sources — useful for passing
+ * derived defaults whose computation should track reactively.
+ *
+ * Use this in component bodies to merge defaults / overrides without losing
+ * Solid's per-property tracking.
+ *
+ * @example
+ * ```tsx
+ * function Button(_props: { label: string; type?: string; disabled?: boolean }) {
+ *   const props = merge({ type: "button", disabled: false }, _props);
+ *
+ *   return <button type={props.type} disabled={props.disabled}>{props.label}</button>;
+ * }
+ * ```
+ */
 export function merge<T extends unknown[]>(...sources: T): Merge<T> {
   if (sources.length === 1 && typeof sources[0] !== "function") return sources[0] as any;
   let proxy = false;
@@ -256,6 +302,31 @@ export type Omit<T, K extends readonly (keyof T)[]> = {
   [P in keyof T as Exclude<P, K[number]>]: T[P];
 };
 
+/**
+ * Returns a reactive proxy of `props` with the listed keys hidden. Tracking
+ * on the remaining keys is preserved.
+ *
+ * Use it to forward "rest" props to a child element while pulling out the
+ * keys your component handles itself — the equivalent of `splitProps(p, ["a","b"])[1]`.
+ *
+ * @example
+ * ```tsx
+ * function Input(props: { label: string; value: string; onInput: (v: string) => void } & JSX.HTMLAttributes<HTMLInputElement>) {
+ *   const rest = omit(props, "label", "value", "onInput");
+ *
+ *   return (
+ *     <label>
+ *       {props.label}
+ *       <input
+ *         {...rest}
+ *         value={props.value}
+ *         onInput={e => props.onInput(e.currentTarget.value)}
+ *       />
+ *     </label>
+ *   );
+ * }
+ * ```
+ */
 export function omit<T extends Record<any, any>, K extends readonly (keyof T)[]>(
   props: T,
   ...keys: K

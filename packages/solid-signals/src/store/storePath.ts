@@ -187,6 +187,34 @@ export interface storePath {
   <T>(setter: PathSetter<T>): (state: T) => void;
 }
 
+/**
+ * Path-based setter helper for `createStore`. Call `storePath(...path, value)`
+ * to produce a draft-mutating function suitable for passing to `setStore`.
+ *
+ * The canonical setter form in Solid 2.0 is the draft-mutating callback
+ * (`setStore(s => { s.user.name = "Ada"; })`). `storePath` is a backwards-
+ * compatibility helper for users porting from Solid 1.x's
+ * `setStore("user", "name", "Ada")` style — it's optional and you can mix the
+ * two styles freely.
+ *
+ * Path parts can be:
+ * - a single key — `"user"`, `0`
+ * - an array of keys — `[0, 1, 2]`
+ * - a range over an array — `{ from?, to?, by? }`
+ * - a filter `(item, index) => boolean` for arrays
+ *
+ * The final argument is the new value or an updater `(prev) => next`. Use
+ * `storePath.DELETE` to remove a property.
+ *
+ * @example
+ * ```ts
+ * const [state, setState] = createStore({ user: { name: "Ada" }, todos: [] });
+ *
+ * setState(storePath("user", "name", "Grace"));
+ * setState(storePath("todos", t => !t.done, "done", true)); // mark all undone as done
+ * setState(storePath("user", "nickname", storePath.DELETE));
+ * ```
+ */
 export const storePath: storePath = Object.assign(
   function storePath(...args: any[]) {
     return (state: any) => {

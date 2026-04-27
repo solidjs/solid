@@ -24,7 +24,13 @@ import {
 } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
+/** A read-only view of a store's value as seen by consumers. Mutate it via the paired `StoreSetter`. */
 export type Store<T> = Readonly<T>;
+/**
+ * A store setter. The callback receives a writable **draft** of the store —
+ * mutate it in place (`s.foo = 1`, `s.list.push(x)`) or return a new value to
+ * replace the contents entirely.
+ */
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
 /** Base options for store primitives. */
 export interface StoreOptions {
@@ -603,19 +609,40 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
 }
 
 /**
- * Creates a deeply reactive store with proxy-based tracking.
+ * Creates a deeply-reactive store backed by a Proxy. Reads track each property
+ * accessed; only the parts that change trigger updates.
  *
- * When called with a plain value, wraps it in a reactive proxy.
- * When called with a function, creates a derived projection store with `ProjectionOptions` (name, key).
+ * The setter takes a **draft-mutating** function — it receives a writable
+ * draft of the store and you mutate it in place. To replace whole sub-trees,
+ * return the new value from the function.
  *
- * ```typescript
- * // Plain store
- * const [store, setStore] = createStore<T>(initialValue);
- * // Derived store (projection)
- * const [store, setStore] = createStore<T>(fn, seed, options?: ProjectionOptions);
+ * - Plain form: `createStore(initialValue)` — wraps a value in a reactive
+ *   proxy.
+ * - Derived form: `createStore(fn, seed, options?)` — a *projection store*
+ *   whose contents are computed by `fn(draft)`. `fn` may be sync, async, or
+ *   an `AsyncIterable`; results reconcile against the existing store using
+ *   `options.key` (default `"id"`) for stable identity.
+ *
+ * @example
+ * ```ts
+ * const [state, setState] = createStore({
+ *   user: { name: "Ada", age: 36 },
+ *   todos: [] as { id: string; text: string }[]
+ * });
+ *
+ * setState(s => { s.user.age = 37; });                          // mutate in place
+ * setState(s => { s.todos.push({ id: "1", text: "x" }); });
+ * setState(s => ({ ...s, user: { name: "Grace", age: 85 } }));  // replace
  * ```
- * @param store initial value to wrap in a reactive proxy, or a derive function
- * @param options `ProjectionOptions` -- name, key (only for derived stores)
+ *
+ * @example
+ * ```ts
+ * // Derived store — auto-fetches & reconciles by `id`
+ * const [users] = createStore(
+ *   async () => fetch("/users").then(r => r.json()),
+ *   [] as User[]
+ * );
+ * ```
  *
  * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */

@@ -6,6 +6,8 @@ Temporary beta documentation for Solid 2.0. Treat **`MIGRATION.md`** as the prim
 
 **Start here (beta tester guide):** [MIGRATION.md](MIGRATION.md)
 
+**Quick API reference:** [`CHEATSHEET.md`](../../packages/solid/CHEATSHEET.md) (lives inside `packages/solid/` so it ships with the `solid-js` npm package).
+
 The RFCs below are **deep dives** on specific topic areas. Over time, it’s expected that the most important bits will be folded into the main docs; these are intentionally detailed and “proposal-shaped”.
 
 ---

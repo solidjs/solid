@@ -544,8 +544,23 @@ function reassignPendingTransition(pendingNodes: Signal<any>[]) {
 export const globalQueue = new GlobalQueue();
 
 /**
- * By default, changes are batched on the microtask queue which is an async process. You can flush
- * the queue synchronously to get the latest updates by calling `flush()`.
+ * Synchronously processes the pending reactive queue: runs every scheduled
+ * memo/effect/computation that has dirty inputs, until the graph is settled.
+ *
+ * Reactive updates are normally batched onto the microtask queue, so multiple
+ * writes in a row collapse into a single update pass. Call `flush()` when you
+ * need to *observe* the result of those writes synchronously — most commonly
+ * in tests, but also at the boundary of imperative integration code.
+ *
+ * @example
+ * ```ts
+ * const [count, setCount] = createSignal(0);
+ * const doubled = createMemo(() => count() * 2);
+ *
+ * setCount(5);
+ * flush();
+ * expect(doubled()).toBe(10);
+ * ```
  */
 export function flush(): void {
   if (globalQueue._running) {

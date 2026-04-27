@@ -56,15 +56,31 @@ export function createProjectionInternal<T extends object = {}>(
 }
 
 /**
- * Creates a mutable derived store (projection). The derive function receives a mutable
- * draft and can mutate it directly or return a new value for reconciliation.
+ * Creates a derived (projected) store. Like `createMemo` but for stores: the
+ * derive function receives a mutable draft and either mutates it in place or
+ * returns a new value, which is reconciled against the previous draft using
+ * `options.key` (default `"id"`).
  *
- * ```typescript
- * const store = createProjection<T>(fn, seed, options?: ProjectionOptions);
+ * Returns the projected store directly (no setter — reads only).
+ *
+ * Use this when you want the structural-sharing / per-property tracking
+ * behaviour of a store on top of a derived computation. For simple read-only
+ * derivations, `createMemo` is lighter.
+ *
+ * @param fn receives the current draft; mutate it or return new data
+ * @param seed the backing store value to wrap and reconcile into
+ * @param options `ProjectionOptions` — `name`, `key`
+ *
+ * @example
+ * ```ts
+ * const filtered = createProjection<User[]>(
+ *   draft => {
+ *     draft.length = 0;
+ *     for (const u of allUsers()) if (u.active) draft.push(u);
+ *   },
+ *   []
+ * );
  * ```
- * @param fn a function that receives the current draft and mutates it or returns new data
- * @param seed the backing store host value to wrap and reconcile into
- * @param options `ProjectionOptions` -- name, key
  *
  * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
  */

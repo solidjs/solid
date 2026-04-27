@@ -883,15 +883,10 @@ function scheduleResumeAfterAssets(
 }
 
 /**
- * Tracks all resources inside a component and renders a fallback until they are all resolved
- * ```typescript
- * const AsyncComponent = lazy(() => import('./component'));
- *
- * <Loading fallback={<LoadingIndicator />}>
- *   <AsyncComponent />
- * </Loading>
- * ```
- * @description https://docs.solidjs.com/reference/components/suspense
+ * Lower-level primitive that backs the `<Loading>` component. Returns a
+ * computation that yields `fallback()` while async reads inside `fn` are
+ * pending, and `fn()` once they have settled. Most callers should use
+ * `<Loading>` directly; this is exposed for renderers and library authors.
  */
 export function createLoadingBoundary(
   fn: () => any,

@@ -29,21 +29,33 @@ export interface Context<T> extends ContextProviderComponent<T> {
 }
 
 /**
- * Creates a Context to handle a state scoped for the children of a component
- * ```typescript
- * interface Context<T> {
- *   id: symbol;
- *   Provider: FlowComponent<{ value: T }>;
- *   defaultValue: T;
+ * Creates a Context for sharing state with descendants without prop drilling.
+ *
+ * The returned `Context` is itself a provider component — pass it a `value`
+ * prop to scope a value to its children. Read it inside descendants with
+ * `useContext`.
+ *
+ * @param defaultValue value returned by `useContext` outside any provider
+ * @param options `{ name }` for debugging in development
+ * @returns a context object that doubles as its own provider component
+ *
+ * @example
+ * ```tsx
+ * const ThemeContext = createContext<"light" | "dark">("light");
+ *
+ * function App() {
+ *   return (
+ *     <ThemeContext value="dark">
+ *       <Toolbar />
+ *     </ThemeContext>
+ *   );
  * }
- * export function createContext<T>(
- *   defaultValue?: T,
- *   options?: { name?: string }
- * ): Context<T | undefined>;
+ *
+ * function Toolbar() {
+ *   const theme = useContext(ThemeContext); // "dark"
+ *   return <div class={theme}>...</div>;
+ * }
  * ```
- * @param defaultValue optional default to inject into context
- * @param options allows to set a name in dev mode for debugging purposes
- * @returns The context that contains the Provider Component and that can be used with `useContext`
  *
  * @description https://docs.solidjs.com/reference/component-apis/create-context
  */
@@ -69,10 +81,21 @@ export function createContext<T>(
 }
 
 /**
- * Uses a context to receive a scoped state from a parent's Context.Provider
+ * Reads the current value of a context, or its `defaultValue` if no enclosing
+ * provider is found.
  *
- * @param context Context object made by `createContext`
- * @returns the current or `defaultValue`, if present
+ * @param context a context returned from `createContext`
+ * @returns the value provided by the nearest enclosing context, or the default
+ *
+ * @example
+ * ```tsx
+ * const Theme = createContext<"light" | "dark">("light");
+ *
+ * function Button() {
+ *   const theme = useContext(Theme);
+ *   return <button class={theme}>Click</button>;
+ * }
+ * ```
  *
  * @description https://docs.solidjs.com/reference/component-apis/use-context
  */
@@ -85,10 +108,20 @@ export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
 export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedJSXElement[] };
 
 /**
- * Resolves child elements to help interact with children
+ * Resolves a `children` accessor and exposes the result as an accessor with
+ * a `.toArray()` helper. Use this when a component needs to inspect or
+ * iterate over its children rather than just render them through.
  *
  * @param fn an accessor for the children
- * @returns a accessor of the same children, but resolved
+ * @returns an accessor of the resolved children, with `.toArray()` for iteration
+ *
+ * @example
+ * ```tsx
+ * function List(props: { children: JSX.Element }) {
+ *   const items = children(() => props.children);
+ *   return <ul>{items.toArray().map(item => <li>{item}</li>)}</ul>;
+ * }
+ * ```
  *
  * @description https://docs.solidjs.com/reference/component-apis/children
  */

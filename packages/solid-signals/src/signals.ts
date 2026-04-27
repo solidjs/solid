@@ -21,6 +21,31 @@ import {
 import { emitDiagnostic, registerGraph } from "./core/dev.js";
 import { globalQueue } from "./core/scheduler.js";
 
+/**
+ * Registers a callback to run when the surrounding reactive scope is disposed.
+ *
+ * Use this to release any resource set up inside an effect, computation, or
+ * component — event listeners, timers, subscriptions, observers, etc. The
+ * callback runs once when the owner is disposed (component unmount, root
+ * teardown, or before the next run of an enclosing `createReaction`).
+ *
+ * Must be called inside an owner. Calling outside an owner is a no-op (with a
+ * dev-mode warning) — schedule cleanup another way in that case.
+ *
+ * Cannot be used inside `createTrackedEffect` or `onSettled` — return a
+ * cleanup function from the effect body instead.
+ *
+ * @example
+ * ```ts
+ * createEffect(
+ *   () => userId(),
+ *   id => {
+ *     const ws = new WebSocket(`/feed/${id}`);
+ *     onCleanup(() => ws.close());
+ *   }
+ * );
+ * ```
+ */
 export function onCleanup(fn: Disposable): Disposable {
   if (__DEV__) {
     const owner = getOwner();
@@ -50,12 +75,27 @@ export function onCleanup(fn: Disposable): Disposable {
   return cleanup(fn);
 }
 
+/**
+ * A zero-arg getter for a reactive value. Calling it inside a tracking scope
+ * (memo, effect compute, JSX expression) subscribes the scope to changes.
+ *
+ * Reading outside any tracking scope simply returns the current value without
+ * creating a subscription.
+ */
 export type Accessor<T> = () => T;
 
 export function accessor<T>(node: any): Accessor<T> {
   return read.bind(null, node) as Accessor<T>;
 }
 
+/**
+ * A signal setter. Accepts either a new value or an updater `(prev) => next`.
+ *
+ * If the type permits `undefined`, `setState()` (no args) clears to `undefined`.
+ *
+ * To store a function as the value itself (rather than as an updater), wrap it
+ * with an updater: `setHandler(() => myHandler)`.
+ */
 export type Setter<in out T> = {
   <U extends T>(
     ...args: undefined extends T ? [] : [value: Exclude<U, Function> | ((prev: T) => U)]
@@ -65,6 +105,7 @@ export type Setter<in out T> = {
   <U extends T>(value: Exclude<U, Function> | ((prev: T) => U)): U;
 };
 
+/** A `[get, set]` pair returned from `createSignal` / `createOptimistic`. */
 export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 export type ComputeFunction<Prev, Next extends Prev = Prev> = (
@@ -155,6 +196,23 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
  *
  * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
+ * @example
+ * ```ts
+ * const [count, setCount] = createSignal(0);
+ *
+ * count();              // 0
+ * setCount(1);          // explicit value
+ * setCount(c => c + 1); // updater
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Writable memo: starts as `fn()`, can be locally overwritten by setter.
+ * const [user, setUser] = createSignal(() => fetchUser(userId()));
+ *
+ * setUser({ ...user(), name: "Alice" }); // optimistic local edit
+ * ```
+ *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal
  */
 export function createSignal<T>(): Signal<T | undefined>;
@@ -189,6 +247,25 @@ export function createSignal<T>(
  * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param options `MemoOptions` -- id, name, equals, unobserved, lazy
  *
+ * @example
+ * ```ts
+ * const [first, setFirst] = createSignal("Ada");
+ * const [last, setLast] = createSignal("Lovelace");
+ *
+ * const fullName = createMemo(() => `${first()} ${last()}`);
+ *
+ * fullName(); // "Ada Lovelace"
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Async memo — reads surface as pending inside <Loading>
+ * const user = createMemo(async () => {
+ *   const res = await fetch(`/users/${id()}`);
+ *   return res.json();
+ * });
+ * ```
+ *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
  */
 // NoInfer keeps the previous-value parameter from influencing T inference, so
@@ -201,14 +278,53 @@ export function createMemo<T>(
 }
 
 /**
- * Creates a reactive effect that runs after the render phase.
+ * Creates a reactive effect with **separate compute and effect phases**.
+ *
+ * - `compute(prev)` runs reactively — *put all reactive reads here*. The
+ *   returned value is passed to `effect` and is also the new "previous" value
+ *   for the next run.
+ * - `effect(next, prev?)` runs imperatively (untracked) after the queue
+ *   flushes. *Put DOM writes / fetch / logging / subscriptions here.* It may
+ *   return a cleanup function which runs before the next effect or on
+ *   disposal.
+ *
+ * Reactive reads inside `effect` will *not* re-trigger this effect — that's
+ * intentional. If you need a single-phase tracked effect, use
+ * `createTrackedEffect` (with the tradeoffs noted there).
+ *
+ * Pass an `EffectBundle` (`{ effect, error }`) instead of a plain function to
+ * intercept errors thrown from the compute or effect phases.
  *
  * ```typescript
  * createEffect<T>(compute, effectFn | { effect, error }, options?: EffectOptions);
  * ```
  * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param effectFn a function that receives the new value and is used to perform side effects (return a cleanup function), or an `EffectBundle` with `effect` and `error` handlers
- * @param options `EffectOptions` -- name, defer
+ * @param options `EffectOptions` -- name, defer, schedule
+ *
+ * @example
+ * ```ts
+ * const [count, setCount] = createSignal(0);
+ *
+ * createEffect(
+ *   () => count(),                  // compute: tracks `count`
+ *   value => console.log(value)     // effect: side effect
+ * );
+ *
+ * setCount(1); // logs 1 after the next flush
+ * ```
+ *
+ * @example
+ * ```ts
+ * createEffect(
+ *   () => userId(),
+ *   id => {
+ *     const ctrl = new AbortController();
+ *     fetch(`/users/${id}`, { signal: ctrl.signal });
+ *     return () => ctrl.abort(); // cleanup before next run / disposal
+ *   }
+ * );
+ * ```
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
@@ -232,7 +348,7 @@ export function createEffect<T>(
  * ```
  * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param effectFn a function that receives the new value and is used to perform side effects
- * @param options `EffectOptions` -- name, defer
+ * @param options `EffectOptions` -- name, defer, schedule
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */
@@ -263,6 +379,19 @@ export function createRenderEffect<T>(
  * @param compute a function that contains reactive reads to track and returns an optional cleanup function to run on disposal or before next execution
  * @param options -- name
  *
+ * @example
+ * ```ts
+ * createTrackedEffect(() => {
+ *   const target = focusedNode();
+ *   if (!target) return;
+ *
+ *   const handler = () => log(target.value());
+ *   target.on("change", handler);
+ *
+ *   return () => target.off("change", handler);
+ * });
+ * ```
+ *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-tracked-effect
  */
 export function createTrackedEffect(
@@ -284,6 +413,20 @@ export function createTrackedEffect(
  * ```
  * @param effectFn a function (or `EffectBundle`) that is called when tracked function is invalidated
  * @param options `EffectOptions` -- name, defer
+ *
+ * @example
+ * ```ts
+ * const [count, setCount] = createSignal(0);
+ *
+ * const track = createReaction(() => {
+ *   console.log("count changed once, re-arm to listen again");
+ *   track(() => count()); // re-arm
+ * });
+ *
+ * track(() => count()); // initial arm
+ *
+ * setCount(1); // logs once, reaction re-armed for next change
+ * ```
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
  */
@@ -321,7 +464,22 @@ export function createReaction(
 }
 
 /**
- * Returns a promise of the resolved value of a reactive expression
+ * Awaits a reactive expression and returns its first fully-settled value as a
+ * `Promise`. Pending async reads (`createMemo` returning a promise, etc.) are
+ * waited on; once the expression returns synchronously without `NotReadyError`
+ * the promise resolves with that value.
+ *
+ * Must be called *outside* a tracking scope — it doesn't subscribe, it just
+ * resolves the current value once.
+ *
+ * @example
+ * ```ts
+ * const user = createMemo(() => fetch(`/users/${id()}`).then(r => r.json()));
+ *
+ * // outside any reactive scope
+ * const initial = await resolve(() => user());
+ * ```
+ *
  * @param fn a reactive expression to resolve
  */
 export function resolve<T>(fn: () => T): Promise<T> {
@@ -363,6 +521,18 @@ export function resolve<T>(fn: () => T): Promise<T> {
  *
  * @returns `[state: Accessor<T>, setState: Setter<T>]`
  *
+ * @example
+ * ```ts
+ * const [todos, setTodos] = createOptimistic(initialTodos);
+ *
+ * const addTodo = action(function* (text: string) {
+ *   const tempId = crypto.randomUUID();
+ *   setTodos(t => [...t, { id: tempId, text, pending: true }]); // optimistic
+ *   const saved = yield api.createTodo(text);
+ *   setTodos(t => t.map(x => (x.id === tempId ? saved : x)));   // reconcile
+ * });
+ * ```
+ *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
  */
 export function createOptimistic<T>(): Signal<T | undefined>;
@@ -395,15 +565,56 @@ export function createOptimistic<T>(
 }
 
 /**
- * Runs a callback after the current flush cycle completes.
+ * Schedules `callback` to run **once** after the reactive graph has fully
+ * settled — i.e. once every pending async read inside the current owner has
+ * resolved and the queue has flushed. Each call registers a single fire; it
+ * does not create an ongoing subscription.
  *
- * When called within a reactive context (owner), uses a tracked effect with untracked
- * reads - this means normal signal reads won't create subscriptions, but uninitialized
- * async values will throw NotReadyError, causing the callback to re-run when they settle.
+ * Two main usages:
  *
- * When called without an owner, runs once and immediately calls any returned cleanup.
+ * - **Inside a component body or reactive scope:** runs once after the
+ *   component's first stable render (analogous to "after mount" but framed
+ *   around graph settlement, not DOM connection).
+ * - **Inside an event handler:** schedules work to run after the action /
+ *   transition triggered by the event has completed.
  *
- * @param callback Function to run, may return a cleanup function
+ * Reactive reads inside the callback are *not* tracked — to react to
+ * subsequent settles, register a new `onSettled` each time.
+ *
+ * `onCleanup` is **not** allowed inside the callback — return a cleanup
+ * function instead, which runs on owner disposal.
+ *
+ * @example
+ * ```tsx
+ * function Dashboard() {
+ *   const data = createMemo(async () => fetchData());
+ *
+ *   onSettled(() => {
+ *     // Runs once, after the initial async read has resolved.
+ *     analytics.track("dashboard.ready");
+ *   });
+ *
+ *   return <Loading fallback={<Spinner />}><pre>{data()}</pre></Loading>;
+ * }
+ * ```
+ *
+ * @example
+ * ```tsx
+ * function SaveButton() {
+ *   const save = action(function* () {
+ *     yield api.save();
+ *   });
+ *
+ *   const handleClick = () => {
+ *     save();
+ *     onSettled(() => toast("Saved!")); // runs after the action settles
+ *   };
+ *
+ *   return <button onClick={handleClick}>Save</button>;
+ * }
+ * ```
+ *
+ * @param callback Function to run; may return a cleanup function
  */
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
