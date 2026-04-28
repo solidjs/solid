@@ -1,5 +1,5 @@
 ---
-"solid-js": minor
+"solid-js": patch
 ---
 
 `createEffect(compute)` (single-argument form) is now a hard error. Solid 2.0's `createEffect` requires a separate effect callback as its second argument: `createEffect(() => signal(), value => doWork(value))`.
