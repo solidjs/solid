@@ -1,5 +1,115 @@
 # solid-js
 
+## 2.0.0-beta.9
+
+### Patch Changes
+
+- 9015b12: AI-readiness docs/JSDoc pass — continued from the initial pass shipped earlier on this branch. Targets the failure modes surfaced while authoring the kitchen-sink TodoMVC example.
+
+  **Cheatsheet (`solid-js/CHEATSHEET.md`)**
+  - New "Props" section leading with "props are reactive values, not accessors". Covers the two failure modes that dominated the audit: passing `filter={filter}` instead of `filter={filter()}`, and destructuring props in the child (`function Comp({ value })`) which unwraps reactivity once and breaks tracking. The footgun list now points at this section.
+  - Reframed `onSettled` as the canonical lifecycle primitive for component-level setup/teardown (return a cleanup function from the body); demoted `onCleanup` to advanced.
+  - Store/setter/projection entries reframed to match the JSDoc precision below.
+
+  **`createStore`, `createOptimisticStore`, `createProjection`**
+  - `StoreSetter<T>` is mutation-first; the return form is shallow (arrays index-replace + length-adjust, objects top-level diff) and is **not** keyed reconciliation. Keyed reconciliation belongs to the projection-function return path (`createStore(fn, …, { key })`, `createProjection`, `createOptimisticStore(fn, …)`), where the function's return is reconciled by `options.key` (default `"id"`).
+  - `createStore` JSDoc gained a paragraph against putting signal accessors as store property values — the proxy already tracks reads per-property; nesting `() => signal()` inside a store property gives you a getter that won't track when called.
+  - `createOptimisticStore` / `createProjection` — explicit note that `options.key` defaults to `"id"` and is only worth specifying for non-`id` identity fields. Replaced the imperative `draft.length = 0; draft.push(...)` example with a `return …filter(...)` form that names the keyed-reconcile guarantee, plus a per-property mutation example.
+  - Added a `setStore(s => s.list.filter(...))` line to `createStore` and a `removeTodo` `filter`-return action to `createOptimisticStore`.
+
+  **`<Loading>`**
+  - Added a sentence on scoping: place the boundary around the data-dependent slot, not the surrounding shell, so revalidation doesn't replace layout chrome with the fallback.
+
+  **Hydration wrappers (`solid-js`)**
+  - The hydration-aware re-exports of `createMemo`, `createSignal`, `createOptimistic`, `createProjection`, `createStore`, `createOptimisticStore`, `createRenderEffect`, `createEffect`, and `createErrorBoundary` previously had no docs at the wrapper site — hovering them in `solid-js` showed only the type signature. Each wrapper now carries the canonical primitive description plus a short **Hydration** paragraph pointing at the new `HydrationSsrFields` type, which centrally documents the `ssrSource` modes (`"server"` / `"hybrid"` / `"client"`) and `deferStream`.
+  - `HydrationProjectionOptions` (used by `createProjection`, the projection form of `createStore`, and `createOptimisticStore`) gets its own JSDoc explaining the `ssrSource` extension over `ProjectionOptions`.
+
+  **`@solidjs/universal` README**
+  - 2.0 banner added matching the `@solidjs/web` pattern — names the `solid-js/universal` → `@solidjs/universal` rename and the new deferred-mount semantics in the wrapped `createRenderer.render` (top-level mount goes through the effect queue and drains with a tail `flush()`; uncaught top-level async holds the initial commit on the active transition).
+  - Custom-renderer example fixed: import path corrected to `@solidjs/universal`, the destructured `use` (1.x relic) replaced with `applyRef, ref` to match the actual `dom-expressions/universal.js` return shape, and the forwarded control-flow list updated to 2.0 names — `For, Repeat, Show, Switch, Match, Errored, Loading, Reveal` instead of `For, Show, Suspense, SuspenseList, Switch, Match, Index, ErrorBoundary`.
+
+  JSDoc/example/docs only — no runtime or type-signature changes.
+
+- fb2e43b: Docs and JSDoc pass for AI-assisted code generation: rewrite root, `solid-js`, and `@solidjs/web` READMEs for the 2.0 beta; ship a one-page `CHEATSHEET.md` inside the `solid-js` npm package; audit and add `@example` blocks to the high-traffic public exports across `solid-js`, `@solidjs/web`, and `@solidjs/signals`. No runtime changes.
+- 845b6bb: Drop the solid-side support machinery for dom-expressions' old
+  `memo(accessor, true)` wrap in `insert()`. That wrap has been replaced in
+  dom-expressions with a conditionally nested render-effect pattern that
+  splits the accessor's creation scope from its read scope — fixing stale
+  reads and transition-ownership regressions (the Sierpinski hover freeze)
+  without reintroducing the #2610 sibling re-render.
+
+  Solid-side companion cleanup:
+  - `@solidjs/web` `memo` helper collapses to `createMemo(() => fn())` and
+    drops the `coreMemo` import; the `transparent` branch and `$r`
+    short-circuit are no longer reachable.
+  - `@solidjs/signals` `accessor()` no longer tags the returned function
+    with `$r`.
+  - `@solidjs/web` drops `@solidjs/signals` from `peerDependencies` and
+    `devDependencies` — it reaches signals transitively through
+    `solid-js`.
+
+  No public API changes. Coordinates with a forthcoming dom-expressions
+  release.
+
+- 23f7550: Bump dom-expressions/babel-plugin-jsx-dom-expressions/hyper-dom-expressions to 0.50.0-next.3. Replace lit-dom-expressions with sld-dom-expressions in @solidjs/html for an AST-driven, CSP-safe tagged-template runtime. Wire `untrack` into @solidjs/h's runtime to satisfy the new hyper API. Add small vitest smoke suites for @solidjs/h and @solidjs/html, and a `@solidjs/web#test-types` task with a tripwire for upstream `client.d.ts` re-exports of `VoidElements`/`RawTextElements`. Refresh both READMEs.
+- 8b9c5bf: Bump dom-expressions, babel-plugin-jsx-dom-expressions, hyper-dom-expressions, and sld-dom-expressions to 0.50.0-next.4. Picks up the hyperscript callback-prop materialization fix (returning `h(Comp, …)` from a render-prop callback no longer re-mounts stable rows on parent updates) and the upstream `client.d.ts` re-exports of `VoidElements`/`RawTextElements`. Drops the local workarounds in `@solidjs/web` (explicit constants re-export and the `client.d.ts` skip in `types:copy-web`). Folds the For-row regression cases into `@solidjs/h`'s smoke suite as plain tests.
+- 9015b12: `createContext<T>()` (default-less form) is now typed `Context<T>` (was `Context<T | undefined>`). `useContext` returns `T` directly and the runtime continues to throw `ContextNotFoundError` when no Provider is mounted (this was already the runtime behavior — only the type signature was lying).
+
+  This eliminates the `useX`-with-throw wrapper hook idiom: `const useTodos = () => { const t = useContext(Ctx); if (!t) throw …; return t; }` becomes a plain `useContext(TodosContext)` call.
+
+  The default form `createContext<T>(defaultValue)` is unchanged: `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config); for any context carrying reactive state, prefer the default-less form.
+
+  **Breaking:** consumers that rely on `useContext(ctx)` returning `undefined` for a default-less context (and branch on that) will now see the throw at runtime and the type narrowing they were doing becomes a type error. Migration: pass an explicit default to `createContext`, or remove the now-redundant null check.
+
+- c324d2c: Diagnostic messages now include their stable code identifier as a prefix (e.g. `[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed`). Applied to all dev-mode diagnostics: `STRICT_READ_UNTRACKED`, `PENDING_ASYNC_UNTRACKED_READ`, `PENDING_ASYNC_FORBIDDEN_SCOPE`, `SIGNAL_WRITE_IN_OWNED_SCOPE`, `RUN_WITH_DISPOSED_OWNER`, `NO_OWNER_CLEANUP`, `CLEANUP_IN_FORBIDDEN_SCOPE`, `NO_OWNER_EFFECT`, `NO_OWNER_BOUNDARY`, `ASYNC_OUTSIDE_LOADING_BOUNDARY`, and `MISSING_EFFECT_FN`.
+
+  The previously bare `throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled")` (raised when creating a memo, effect, or owner inside `createTrackedEffect`/`onSettled`) is now also surfaced through the diagnostic system as `PRIMITIVE_IN_FORBIDDEN_SCOPE` (severity `error`, dev-only, throws after emitting). Existing tests that match the message substring continue to work.
+
+  The code identifier surfaces in console output and thrown errors, so users (and AI tools) can search documentation, issue trackers, and the source by code rather than parsing prose. The `code` field on `DiagnosticEvent` is unchanged — this only affects the human-readable `message` string.
+
+- 4620612: Fix `createOptimisticStore` flicker on the second toggle of the same property when the action calls `refresh()` after `yield`. The stash branch's committed-view rerun was firing whenever the action queue was empty, even if the transition was still waiting on async reporters — causing render effects to briefly read the previous committed value before the new override. The rerun now also requires `_asyncReporters` to be empty, matching `transitionComplete`'s definition of idle.
+- f7d5af6: Fix `<For keyed={false}>` (and `mapArray` with `keyed: false`) lagging by one update when its source is a store and a store property is mutated in-place. The mapArray internal owner now points its `_parentComputed` at the mapArray computed, so untracked store-proxy reads inside `updateKeyedMap` resolve to the pending value being written in the same flush rather than the stale committed value. Fixes #2687.
+- c324d2c: `createEffect(compute)` (single-argument form) is now a hard error. Solid 2.0's `createEffect` requires a separate effect callback as its second argument: `createEffect(() => signal(), value => doWork(value))`.
+
+  Two layers now surface the misuse:
+  - **TypeScript** — a deprecated overload `createEffect(compute): never` is added so editors render the call with strikethrough and surface the migration message on hover.
+  - **Runtime (dev)** — calling without an effect function now throws synchronously with a clear message and emits a new `MISSING_EFFECT_FN` diagnostic (replaces the previous opaque `TypeError: Cannot read properties of undefined`).
+
+  If you want a derived value, use `createMemo`. If you want a one-shot side effect at construction time, just call the function directly.
+
+- c324d2c: Tighten npm `description` fields across the published packages so they identify each package's role unambiguously in npm search results and AI-indexed package metadata.
+  - `solid-js` — was generic ("A declarative JavaScript library for building user interfaces."); now names the actual differentiators (real DOM, signal-based updates, no virtual DOM).
+  - `@solidjs/web` — names the concrete entry points (rendering, hydration, SSR, Portal, Dynamic).
+  - `@solidjs/signals` — names the actual primitives (signals, memos, effects, stores, async-aware computations) instead of "reactive core implementation".
+  - `@solidjs/h` — drops the self-deprecating "less-optimal" wording; states the use case (no compiled JSX).
+  - `solid-html` — leads with the user-visible benefit (no build step).
+  - `babel-preset-solid` — mentions what makes it Solid-specific (fine-grained DOM ops vs. generic JSX).
+
+  `solid-element` and `@solidjs/universal` descriptions left unchanged.
+
+- 3ee92f3: Fix mid-transition observability of mixed optimistic and entangled state. Subscribers recomputing under an optimistic lane that read a plain signal with a pending mid-transition write now see the signal's committed value (entangled), while optimistic overrides still project their optimistic value. Async drivers continue to read latest values for correct fetching. At commit, gated subscribers re-run with the new committed view.
+- 0ef177e: Fixes #2686. Owned non-lazy memos no longer autodispose when their
+  subscriber count momentarily drops to zero (e.g. during a transition swap,
+  or when read only through `untrack` from a suspending render-effect). They
+  now live for their owner's lifetime and retain their cached value, so an
+  async `createMemo` read via `untrack` from a suspending consumer settles
+  once and stays settled across re-runs.
+
+  Lazy memos (`createMemo(fn, { lazy: true })`) and unowned memos retain the
+  previous "compute-on-demand, dispose-when-not-needed" semantics, and the
+  JSDoc on `lazy` now documents this contract.
+
+  Internally this folds the per-node config booleans (`_ownedWrite`,
+  `_noSnapshot`, `_transparent`, `_inSnapshotScope`, `_childrenForbidden`,
+  `_preventAutoDisposal`) into a single `_config: number` bitfield with
+  `CONFIG_*` constants, replacing `_preventAutoDisposal` (opt-out) with
+  `CONFIG_AUTO_DISPOSE` (opt-in). Public node options are unchanged.
+
+- 9015b12: Introduce `Refreshable<T>` as a public type alias for the `$REFRESH` brand applied to derived/projected stores. The return types of `createOptimisticStore`, `createProjection`, and the projection form of `createStore` now use `Refreshable<Store<T>>` instead of inlining `Store<T> & { [$REFRESH]: any }`.
+
+  This fixes a TS4058 error in user-defined hooks that wrap these primitives — the inferred return type would previously reference the unique `$REFRESH` symbol from a deep import path, forcing consumers to write an explicit return annotation. `Refreshable` is re-exported from both `@solidjs/signals` and `solid-js` (client + server entries) so the inferred type is now nameable from any consumer.
+  - @solidjs/signals@2.0.0-beta.9
+
 ## 2.0.0-beta.8
 
 ### Patch Changes

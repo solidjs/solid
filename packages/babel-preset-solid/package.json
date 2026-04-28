@@ -1,6 +1,6 @@
 {
   "name": "babel-preset-solid",
-  "version": "2.0.0-beta.8",
+  "version": "2.0.0-beta.9",
   "description": "Babel preset that compiles Solid's JSX into fine-grained DOM operations.",
   "author": "Ryan Carniato <ryansolid@gmail.com>",
   "homepage": "https://github.com/solidjs/solid/blob/main/packages/babel-preset-solid#readme",
@@ -22,7 +22,7 @@
   },
   "peerDependencies": {
     "@babel/core": "^7.0.0",
-    "solid-js": "^2.0.0-beta.8"
+    "solid-js": "^2.0.0-beta.9"
   },
   "peerDependenciesMeta": {
     "solid-js": {

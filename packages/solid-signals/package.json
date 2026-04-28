@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/signals",
-  "version": "2.0.0-beta.8",
+  "version": "2.0.0-beta.9",
   "description": "Solid's reactive primitives: signals, memos, effects, stores, and async-aware computations.",
   "author": "Ryan Carniato",
   "license": "MIT",
