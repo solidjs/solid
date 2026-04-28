@@ -10,6 +10,14 @@ export const REACTIVE_OPTIMISTIC_DIRTY = 1 << 7;
 export const REACTIVE_SNAPSHOT_STALE = 1 << 8;
 export const REACTIVE_LAZY = 1 << 9;
 
+// Static configuration bits packed into Owner/Computed/Signal _config.
+export const CONFIG_OWNED_WRITE = 1 << 0;
+export const CONFIG_NO_SNAPSHOT = 1 << 1;
+export const CONFIG_TRANSPARENT = 1 << 2;
+export const CONFIG_IN_SNAPSHOT_SCOPE = 1 << 3;
+export const CONFIG_CHILDREN_FORBIDDEN = 1 << 4;
+export const CONFIG_AUTO_DISPOSE = 1 << 5;
+
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
 export const STATUS_ERROR = 1 << 1;

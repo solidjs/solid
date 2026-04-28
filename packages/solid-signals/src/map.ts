@@ -1,6 +1,7 @@
 import { setStrictRead } from "./core/core.js";
 import {
   computed,
+  CONFIG_AUTO_DISPOSE,
   createOwner,
   runWithOwner,
   setSignal,
@@ -72,7 +73,7 @@ export function mapArray<Item, MappedItem>(
       _fallback: options?.fallback
     })
   );
-  (node as any)._preventAutoDisposal = true;
+  node._config &= ~CONFIG_AUTO_DISPOSE;
   return accessor(node);
 }
 
@@ -278,7 +279,7 @@ export function repeat(
       _fallback: options?.fallback
     })
   );
-  (node as any)._preventAutoDisposal = true;
+  node._config &= ~CONFIG_AUTO_DISPOSE;
   return accessor(node);
 }
 

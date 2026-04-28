@@ -47,7 +47,7 @@ const [value, setValue] = createSignal(() => props.initial);
 // Options
 createSignal(0, { ownedWrite: true });           // allow writes from inside owned scope
 createSignal(0, { unobserved: () => cleanup() });// fires when no subscribers
-createMemo(fn, { lazy: true });                  // defer first compute until read
+createMemo(fn, { lazy: true });                  // defer first compute until read; autodispose when unobserved
 createMemo(fn, { equals: (a, b) => a.id === b.id });
 ```
 

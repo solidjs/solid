@@ -1,6 +1,12 @@
 import { clearStatus, handleAsync, notifyStatus } from "./async.js";
 import {
   $REFRESH,
+  CONFIG_AUTO_DISPOSE,
+  CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_IN_SNAPSHOT_SCOPE,
+  CONFIG_NO_SNAPSHOT,
+  CONFIG_OWNED_WRITE,
+  CONFIG_TRANSPARENT,
   defaultContext,
   EFFECT_TRACKED,
   NO_SNAPSHOT,
@@ -42,7 +48,7 @@ import {
   signalLanes,
   type OptimisticLane
 } from "./lanes.js";
-import { clearSignals, DEV, emitDiagnostic, registerGraph } from "./dev.js";
+import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeTransition,
@@ -58,16 +64,7 @@ import {
   shouldReadStashedOptimisticValue,
   zombieQueue
 } from "./scheduler.js";
-import type {
-  Computed,
-  Disposable,
-  FirewallSignal,
-  Link,
-  NodeOptions,
-  Owner,
-  Root,
-  Signal
-} from "./types.js";
+import type { Computed, FirewallSignal, Link, NodeOptions, Owner, Root, Signal } from "./types.js";
 
 GlobalQueue._update = recompute;
 GlobalQueue._dispose = disposeChildren;
@@ -119,7 +116,7 @@ function releaseSubtree(owner: Owner): void {
     }
     if ((child as any)._fn) {
       const comp = child as Computed<any>;
-      comp._inSnapshotScope = false;
+      comp._config &= ~CONFIG_IN_SNAPSHOT_SCOPE;
       if (comp._flags & REACTIVE_SNAPSHOT_STALE) {
         comp._flags &= ~REACTIVE_SNAPSHOT_STALE;
         comp._flags |= REACTIVE_DIRTY;
@@ -339,9 +336,12 @@ export function computed<T>(
     id:
       options?.id ??
       (transparent ? context?.id : context?.id != null ? getNextChildId(context) : undefined),
-    _transparent: transparent || undefined,
+    _config:
+      (transparent ? CONFIG_TRANSPARENT : 0) |
+      (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+      (!context || options?.lazy ? CONFIG_AUTO_DISPOSE : 0) |
+      (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
     _equals: options?.equals != null ? options.equals : isEqual,
-    _ownedWrite: !!options?.ownedWrite,
     _unobserved: options?.unobserved,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
@@ -374,7 +374,7 @@ export function computed<T>(
   const parent = (context as Root)?._root
     ? (context as Root)._parentComputed
     : (context as Computed<any> | null);
-  if (__DEV__ && context?._childrenForbidden) {
+  if (__DEV__ && context && context._config & CONFIG_CHILDREN_FORBIDDEN) {
     emitDiagnostic({
       code: "PRIMITIVE_IN_FORBIDDEN_SCOPE",
       kind: "lifecycle",
@@ -396,7 +396,6 @@ export function computed<T>(
   }
   if (__DEV__) DEV.hooks.onOwner?.(self);
   if (parent) self._height = parent._height + 1;
-  if (snapshotCaptureActive && ownerInSnapshotScope(context)) self._inSnapshotScope = true;
   if (externalSourceConfig) {
     const bridgeSignal = signal<undefined>(undefined, { equals: false, ownedWrite: true });
     const source = externalSourceConfig.factory(self._fn as any, () => {
@@ -432,8 +431,9 @@ export function signal<T>(
 ): Signal<T> {
   const s = {
     _equals: options?.equals != null ? options.equals : isEqual,
-    _ownedWrite: !!options?.ownedWrite,
-    _noSnapshot: !!options?._noSnapshot,
+    _config:
+      (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
+      (options?._noSnapshot ? CONFIG_NO_SNAPSHOT : 0),
     _unobserved: options?.unobserved,
     _value: v,
     _subs: null,
@@ -450,7 +450,7 @@ export function signal<T>(
   firewall && (firewall._child = s as FirewallSignal<unknown>);
   if (
     snapshotCaptureActive &&
-    !s._noSnapshot &&
+    !(s._config & CONFIG_NO_SNAPSHOT) &&
     !((firewall?._statusFlags ?? 0) & STATUS_PENDING)
   ) {
     (s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
@@ -640,7 +640,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (owner._statusFlags & STATUS_PENDING) {
     if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
-      if (__DEV__ && c?._childrenForbidden) {
+      if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
           "[PENDING_ASYNC_FORBIDDEN_SCOPE] Reading a pending async value inside createTrackedEffect or onSettled will throw. " +
           "Use createEffect instead which supports async-aware reactivity.";
@@ -683,7 +683,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     } else throw (el as Computed<any>)._error;
   }
 
-  if (snapshotCaptureActive && c && (c as Computed<any>)._inSnapshotScope) {
+  if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
     const sv = el._snapshotValue;
     if (sv !== undefined) {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
@@ -753,9 +753,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !c &&
     owner === el &&
     typeof computed._fn === "function" &&
-    !(computed as any)._preventAutoDisposal &&
+    el._config & CONFIG_AUTO_DISPOSE &&
     !(owner._statusFlags & STATUS_PENDING) &&
-    !computed._parent &&
     !el._subs
   ) {
     unobserved(el as Computed<unknown>);
@@ -766,8 +765,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (
     __DEV__ &&
-    !el._ownedWrite &&
-    !context?._childrenForbidden &&
+    !(el._config & CONFIG_OWNED_WRITE) &&
+    !(context && context._config & CONFIG_CHILDREN_FORBIDDEN) &&
     context &&
     (el as FirewallSignal<any>)._firewall !== context
   ) {

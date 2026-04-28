@@ -1,4 +1,6 @@
 import {
+  CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_TRANSPARENT,
   defaultContext,
   REACTIVE_DISPOSED,
   REACTIVE_IN_HEAP,
@@ -90,7 +92,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
 
 function childId(owner: Owner, consume: boolean): string {
   let counter: Owner = owner;
-  while (counter._transparent && counter._parent) counter = counter._parent;
+  while (counter._config & CONFIG_TRANSPARENT && counter._parent) counter = counter._parent;
   if (counter.id != null)
     return formatId(counter.id, consume ? counter._childCount++ : counter._childCount);
   throw new Error("Cannot get child id from owner without an id");
@@ -173,7 +175,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     id:
       options?.id ??
       (transparent ? parent?.id : parent?.id != null ? getNextChildId(parent) : undefined),
-    _transparent: transparent || undefined,
+    _config: transparent ? CONFIG_TRANSPARENT : 0,
     _root: true,
     _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
     _firstChild: null,
@@ -190,7 +192,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     }
   } as Root;
 
-  if (__DEV__ && parent?._childrenForbidden) {
+  if (__DEV__ && parent && parent._config & CONFIG_CHILDREN_FORBIDDEN) {
     emitDiagnostic({
       code: "PRIMITIVE_IN_FORBIDDEN_SCOPE",
       kind: "lifecycle",

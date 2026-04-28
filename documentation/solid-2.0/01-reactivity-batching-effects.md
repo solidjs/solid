@@ -137,6 +137,8 @@ expensive(); // now it runs
 
 Lazy memos still track dependencies normally once evaluated. They're particularly useful in components that conditionally render — a lazy memo inside a branch that never renders never pays the computation cost.
 
+`lazy` also opts a memo into **autodisposal**: once the memo loses its last subscriber it is torn down and recomputed from scratch on the next read. This makes lazy memos true compute-on-demand values that don't retain state across idle periods. By contrast, the default (non-lazy) owned memo lives for its owner's lifetime and keeps its cached value even when momentarily unsubscribed (e.g. across a transition swap, or when only read through `untrack` from a suspending consumer). Unowned memos also autodispose, so a memo created outside any reactive scope doesn't leak when it's left without subscribers.
+
 ### `unobserved` callback
 
 Both `createSignal` and `createMemo` accept an `unobserved` callback that fires when the signal/memo loses all subscribers. This is useful for cleaning up external resources (connections, subscriptions, timers) that only need to exist while something is actively listening:

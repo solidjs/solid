@@ -12,6 +12,7 @@ import {
   isDisposed,
   type Owner
 } from "../src/index.js";
+import { CONFIG_TRANSPARENT } from "../src/core/index.js";
 
 const { getChildren, getSignals, getParent, getSources, getObservers } = DEV!;
 
@@ -147,7 +148,7 @@ describe("Phase 1b: Notification hooks", () => {
       DEV!.hooks.onOwner = o => owners.push(o);
       createRoot(() => {}, { transparent: true });
       expect(owners.length).toBe(1);
-      expect(owners[0]._transparent).toBe(true);
+      expect(!!(owners[0]._config & CONFIG_TRANSPARENT)).toBe(true);
     });
   });
 

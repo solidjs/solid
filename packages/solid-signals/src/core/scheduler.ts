@@ -1,4 +1,6 @@
 import {
+  CONFIG_IN_SNAPSHOT_SCOPE,
+  CONFIG_OWNED_WRITE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -317,7 +319,7 @@ export class GlobalQueue extends Queue {
             stashedOptimisticReads = new Set();
             for (let i = 0; i < stashedTransition._optimisticNodes.length; i++) {
               const node = stashedTransition._optimisticNodes[i];
-              if ((node as any)._fn || node._ownedWrite) continue;
+              if ((node as any)._fn || node._config & CONFIG_OWNED_WRITE) continue;
               stashedOptimisticReads.add(node);
               queueStashedOptimisticEffects(node);
             }
@@ -431,7 +433,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
   const hasSnapshot = (node as any)._snapshotValue !== undefined;
 
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    if (hasSnapshot && (s._sub as any)._inSnapshotScope) {
+    if (hasSnapshot && s._sub._config & CONFIG_IN_SNAPSHOT_SCOPE) {
       s._sub._flags |= REACTIVE_SNAPSHOT_STALE;
       continue;
     }

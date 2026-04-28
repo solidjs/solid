@@ -3,6 +3,7 @@ import type { StatusError } from "./core/error.js";
 import {
   cleanup,
   computed,
+  CONFIG_AUTO_DISPOSE,
   createContext,
   createOwner,
   getContext,
@@ -42,7 +43,7 @@ function boundaryComputed<T>(fn: () => T, propagationMask: number): BoundaryComp
     node._queue.notify(node, node._propagationMask, flags, actualError);
   };
   node._propagationMask = propagationMask;
-  (node as any)._preventAutoDisposal = true;
+  node._config &= ~CONFIG_AUTO_DISPOSE;
   recompute(node, true);
   return node;
 }

@@ -1,4 +1,11 @@
-import { computed, getOwner, handleAsync, type Computed, type Refreshable } from "../core/index.js";
+import {
+  computed,
+  CONFIG_AUTO_DISPOSE,
+  getOwner,
+  handleAsync,
+  type Computed,
+  type Refreshable
+} from "../core/index.js";
 import { setProjectionWriteActive } from "../core/scheduler.js";
 import { reconcile } from "./reconcile.js";
 import {
@@ -47,7 +54,7 @@ export function createProjectionInternal<T extends object = {}>(
     },
     __DEV__ && options?.name ? { name: options.name } : undefined
   );
-  (node as any)._preventAutoDisposal = true;
+  node._config &= ~CONFIG_AUTO_DISPOSE;
 
   return { store: wrappedStore, node } as {
     store: Refreshable<Store<T>>;

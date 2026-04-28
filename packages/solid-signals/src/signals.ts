@@ -2,6 +2,8 @@ import type { Disposable } from "./core/index.js";
 import {
   cleanup,
   computed,
+  CONFIG_AUTO_DISPOSE,
+  CONFIG_CHILDREN_FORBIDDEN,
   createRoot,
   dispose,
   effect,
@@ -61,7 +63,7 @@ export function onCleanup(fn: Disposable): Disposable {
         message
       });
       console.warn(message);
-    } else if (owner._childrenForbidden) {
+    } else if (owner._config & CONFIG_CHILDREN_FORBIDDEN) {
       const message =
         "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
       emitDiagnostic({
@@ -173,7 +175,14 @@ export interface MemoOptions<T> {
   equals?: false | ((prev: T, next: T) => boolean);
   /** Callback invoked when the computed loses all subscribers */
   unobserved?: () => void;
-  /** When true, defers the initial computation until the value is first read */
+  /**
+   * When true, defers the initial computation until the value is first read,
+   * **and** opts the memo into autodisposal — once it has no remaining
+   * subscribers it is torn down and recomputed from scratch on the next read.
+   * Use it for compute-on-demand values that should not retain state across
+   * idle periods. Non-lazy owned memos live for their owner's lifetime and
+   * never autodispose.
+   */
   lazy?: boolean;
 }
 
@@ -230,7 +239,7 @@ export function createSignal<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = computed<T>(first as any, second as any);
-    (node as any)._preventAutoDisposal = true;
+    node._config &= ~CONFIG_AUTO_DISPOSE;
     return [
       accessor<T | undefined>(node),
       setSignal.bind(null, node as any) as Setter<T | undefined>
@@ -583,7 +592,7 @@ export function createOptimistic<T>(
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = optimisticComputed<T>(first as any, second as any);
-    (node as any)._preventAutoDisposal = true;
+    node._config &= ~CONFIG_AUTO_DISPOSE;
     return [
       accessor<T | undefined>(node),
       setSignal.bind(null, node as any) as Setter<T | undefined>
@@ -673,7 +682,7 @@ export function createOptimistic<T>(
  */
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
-  owner && !owner._childrenForbidden
+  owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)
     ? createTrackedEffect(() => untrack(callback), __DEV__ ? { name: "onSettled" } : undefined)
     : globalQueue.enqueue(EFFECT_USER, () => {
         const cleanup = callback();

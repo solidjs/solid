@@ -1,14 +1,12 @@
 import {
   computed,
-  getOwner,
-  handleAsync,
+  CONFIG_AUTO_DISPOSE,
   setSignal,
   type Computed,
   type Refreshable
 } from "../core/index.js";
 import { GlobalQueue, setProjectionWriteActive } from "../core/scheduler.js";
 import { runProjectionComputed } from "./projection.js";
-import { reconcile } from "./reconcile.js";
 import {
   $DELETED,
   $TARGET,
@@ -197,7 +195,7 @@ function createOptimisticProjectionInternal<T extends object = {}>(
       },
       __DEV__ && options?.name ? { name: options.name } : undefined
     ) as Computed<void>;
-    (node as any)._preventAutoDisposal = true;
+    node._config &= ~CONFIG_AUTO_DISPOSE;
   }
 
   return { store: wrappedStore, node } as {

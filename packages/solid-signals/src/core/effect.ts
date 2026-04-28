@@ -1,4 +1,6 @@
 import {
+  CONFIG_AUTO_DISPOSE,
+  CONFIG_CHILDREN_FORBIDDEN,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -44,6 +46,7 @@ export function effect<T>(
     },
     lazy: true
   }) as Effect<T>;
+  node._config &= ~CONFIG_AUTO_DISPOSE;
   node._prevValue = undefined;
   node._effectFn = effect;
   node._errorFn = error;
@@ -179,7 +182,7 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
   ) as TrackedEffect;
 
   node._cleanup = undefined;
-  node._childrenForbidden = true;
+  node._config = (node._config & ~CONFIG_AUTO_DISPOSE) | CONFIG_CHILDREN_FORBIDDEN;
   node._modified = true;
   node._type = EFFECT_TRACKED;
   node._notifyStatus = (status?: number, error?: any) => {

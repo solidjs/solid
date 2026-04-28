@@ -1,8 +1,8 @@
-import { REACTIVE_RECOMPUTING_DEPS, REACTIVE_ZOMBIE } from "./constants.js";
+import { CONFIG_AUTO_DISPOSE, REACTIVE_RECOMPUTING_DEPS, REACTIVE_ZOMBIE } from "./constants.js";
 import { deleteFromHeap } from "./heap.js";
 import { disposeChildren } from "./owner.js";
 import { dirtyQueue, zombieQueue } from "./scheduler.js";
-import type { Computed, FirewallSignal, Link, Signal } from "./types.js";
+import type { Computed, Link, Signal } from "./types.js";
 
 // https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L100
 export function unlinkSubs(link: Link): Link | null {
@@ -18,11 +18,12 @@ export function unlinkSubs(link: Link): Link | null {
     dep._subs = nextSub;
     if (nextSub === null) {
       dep._unobserved?.();
-      // No more subscribers, unwatch if computed
-      (dep as Computed<any>)._fn &&
-        !(dep as any)._preventAutoDisposal &&
-        !((dep as Computed<any>)._flags & REACTIVE_ZOMBIE) &&
-        unobserved(dep as Computed<any>);
+      // No more subscribers; only tear down if CONFIG_AUTO_DISPOSE is set.
+      const c = dep as Computed<any>;
+      (c as any)._fn &&
+        c._config & CONFIG_AUTO_DISPOSE &&
+        !(c._flags & REACTIVE_ZOMBIE) &&
+        unobserved(c);
     }
   }
   return nextDep;

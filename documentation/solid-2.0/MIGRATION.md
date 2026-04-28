@@ -596,7 +596,7 @@ These APIs are new additions (not renames of 1.x APIs):
 - **`reconcile(value, key)`** — diffing function for updating stores from new data.
 - **Function-form `createSignal(fn)` / `createStore(fn)`** — derived (writable) primitives.
 - **Effect `EffectBundle`** — `createEffect` accepts `{ effect, error }` for structured error handling.
-- **`createMemo` `lazy` option** — defers initial computation until first read.
+- **`createMemo` `lazy` option** — defers initial computation until first read; also opts the memo into autodisposal when its subscriber count drops to zero. Non-lazy owned memos live for their owner's lifetime.
 - **`unobserved` callback** — fires when a signal/memo loses all subscribers (resource cleanup).
 - **`dynamic(source)` factory** — `lazy`-style factory that returns a stable component whose identity is driven by a reactive (and optionally async) source. Backs the `<Dynamic>` JSX wrapper.
 

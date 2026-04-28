@@ -32,8 +32,7 @@ export interface RawSignal<T> {
   _snapshotValue?: any;
   _name?: string;
   _equals: false | ((a: T, b: T) => boolean);
-  _ownedWrite?: boolean;
-  _noSnapshot?: boolean;
+  _config: number;
   _unobserved?: () => void;
   _time: number;
   _transition: Transition | null;
@@ -53,8 +52,7 @@ export interface FirewallSignal<T> extends RawSignal<T> {
 export type Signal<T> = RawSignal<T> | FirewallSignal<T>;
 export interface Owner {
   id?: string;
-  _transparent?: boolean;
-  _childrenForbidden?: boolean;
+  _config: number;
   _snapshotScope?: boolean;
   _disposal: Disposable | Disposable[] | null;
   _parent: Owner | null;
@@ -71,7 +69,6 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _deps: Link | null;
   _depsTail: Link | null;
   _flags: number;
-  _inSnapshotScope?: boolean;
   _blocked?: boolean;
   _pendingSource?: Computed<any>;
   _pendingSources?: Set<Computed<any>>;

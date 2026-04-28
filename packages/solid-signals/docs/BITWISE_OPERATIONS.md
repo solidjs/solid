@@ -6,8 +6,9 @@
 - reactive node dirtiness and lifecycle flags
 - async/error status flags
 - status propagation masks for boundaries
+- per-node static configuration (`CONFIG_*`)
 
-The definitions live in `src/core/constants.ts`. The old `ERROR_BIT` / `LOADING_BIT` names are no longer used in the codebase; the current names are `STATUS_*` and `REACTIVE_*`.
+The definitions live in `src/core/constants.ts`. The old `ERROR_BIT` / `LOADING_BIT` names are no longer used in the codebase; the current names are `STATUS_*`, `REACTIVE_*`, and `CONFIG_*`.
 
 ## Current Flag Groups
 
@@ -40,6 +41,24 @@ export const STATUS_UNINITIALIZED = 1 << 2;
 ```
 
 These are the flags boundary queues and async propagation care about.
+
+### Configuration flags
+These describe a node's static identity (mostly fixed at creation) and are packed into a single `_config` field on every Owner / Computed / Signal:
+
+```typescript
+export const CONFIG_OWNED_WRITE = 1 << 0;
+export const CONFIG_NO_SNAPSHOT = 1 << 1;
+export const CONFIG_TRANSPARENT = 1 << 2;
+export const CONFIG_IN_SNAPSHOT_SCOPE = 1 << 3;
+export const CONFIG_CHILDREN_FORBIDDEN = 1 << 4;
+export const CONFIG_AUTO_DISPOSE = 1 << 5;
+```
+
+Most bits are immutable once set. The exceptions:
+
+- `CONFIG_IN_SNAPSHOT_SCOPE` is cleared when the snapshot scope is released.
+- `CONFIG_CHILDREN_FORBIDDEN` is set by `createTrackedEffect` after creation.
+- `CONFIG_AUTO_DISPOSE` is set at creation when the node has no parent (unowned) **or** when `lazy: true`. Infrastructure factories (`effect`, `trackedEffect`, `boundaryComputed`, `mapArray`, `repeat`, `createSignal(fn)`, `createOptimistic(fn)`, projection nodes) clear it after creation so they live for their owner's lifetime instead of being torn down when their subscriber count hits zero. Both autodispose paths — the `unlinkSubs` zero-subscriber path and the `read()` no-observer tail — gate on this single bit.
 
 ### Effect kinds
 These are numeric tags, not bitmasks:
