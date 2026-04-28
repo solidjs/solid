@@ -58,21 +58,23 @@ export function mapArray<Item, MappedItem>(
           }
         }) as typeof map)
       : map;
-  const node = computed(
-    updateKeyedMap.bind({
-      _owner: createOwner(),
-      _len: 0,
-      _list: list,
-      _items: [],
-      _map: wrappedMap,
-      _mappings: [],
-      _nodes: [],
-      _key: keyFn,
-      _rows: keyFn || options?.keyed === false ? [] : undefined,
-      _indexes: indexes ? [] : undefined,
-      _fallback: options?.fallback
-    })
-  );
+  const data: MapData<Item, MappedItem> = {
+    _owner: createOwner(),
+    _len: 0,
+    _list: list,
+    _items: [],
+    _map: wrappedMap,
+    _mappings: [],
+    _nodes: [],
+    _key: keyFn,
+    _rows: keyFn || options?.keyed === false ? [] : undefined,
+    _indexes: indexes ? [] : undefined,
+    _fallback: options?.fallback
+  };
+  const node = computed(updateKeyedMap.bind(data as MapData<unknown, unknown>));
+  // Untracked reads inside the internal owner resolve via _parentComputed; routing
+  // them through node lets store-proxy lookups see pending writes (not stale _value).
+  data._owner._parentComputed = node;
   node._config &= ~CONFIG_AUTO_DISPOSE;
   return accessor(node);
 }
