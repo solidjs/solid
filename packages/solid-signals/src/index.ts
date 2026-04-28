@@ -40,6 +40,7 @@ export type {
   ExternalSourceFactory,
   ExternalSource,
   ExternalSourceConfig,
+  Refreshable,
   Dev,
   DevHooks,
   DiagnosticCapture,

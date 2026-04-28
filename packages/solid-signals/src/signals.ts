@@ -22,29 +22,31 @@ import { emitDiagnostic, registerGraph } from "./core/dev.js";
 import { globalQueue } from "./core/scheduler.js";
 
 /**
- * Registers a callback to run when the surrounding reactive scope is disposed.
+ * Low-level reactive-cleanup primitive. Registers a callback that runs when
+ * the surrounding owner is disposed.
  *
- * Use this to release any resource set up inside an effect, computation, or
- * component — event listeners, timers, subscriptions, observers, etc. The
- * callback runs once when the owner is disposed (component unmount, root
- * teardown, or before the next run of an enclosing `createReaction`).
+ * **In 2.0 user code this is rare.** The two cases where you might reach for
+ * it have better-shaped tools:
+ *
+ * - **Component lifecycle (mount/unmount, listeners, intervals):** use
+ *   {@link onSettled} and **return** a cleanup function. Setup and teardown
+ *   stay paired in one block. This replaces the 1.x `onMount` + `onCleanup`
+ *   pairing.
+ * - **Cleanup tied to an effect run:** `onCleanup` does not belong in
+ *   `createEffect`'s apply phase. If a compute phase genuinely needs per-run
+ *   teardown, that's usually a sign the work should be a memo/projection
+ *   instead, or moved to `onSettled` if it's lifecycle-shaped.
+ *
+ * Where `onCleanup` is the right tool is **library / custom-primitive
+ * internals** — coordinating disposal inside a `createRoot` body, or wiring
+ * cleanup to a captured owner via `runWithOwner` from a custom factory.
+ * Application code rarely needs to write any of those shapes directly.
  *
  * Must be called inside an owner. Calling outside an owner is a no-op (with a
- * dev-mode warning) — schedule cleanup another way in that case.
+ * dev-mode warning).
  *
  * Cannot be used inside `createTrackedEffect` or `onSettled` — return a
- * cleanup function from the effect body instead.
- *
- * @example
- * ```ts
- * createEffect(
- *   () => userId(),
- *   id => {
- *     const ws = new WebSocket(`/feed/${id}`);
- *     onCleanup(() => ws.close());
- *   }
- * );
- * ```
+ * cleanup function from the callback body instead.
  */
 export function onCleanup(fn: Disposable): Disposable {
   if (__DEV__) {
@@ -601,27 +603,47 @@ export function createOptimistic<T>(
  * resolved and the queue has flushed. Each call registers a single fire; it
  * does not create an ongoing subscription.
  *
- * Two main usages:
+ * The canonical lifecycle primitive in 2.0. Three main usages:
  *
- * - **Inside a component body or reactive scope:** runs once after the
- *   component's first stable render (analogous to "after mount" but framed
- *   around graph settlement, not DOM connection).
- * - **Inside an event handler:** schedules work to run after the action /
+ * - **Component-level setup-and-teardown** *(the most common shape)*: run
+ *   setup after the component's first stable render and **return a cleanup
+ *   function** to dispose it on owner disposal. This is the replacement for
+ *   the 1.x `onMount` + `onCleanup` pairing — setup and teardown live in one
+ *   block, and `onCleanup` is no longer the right tool for component
+ *   bodies. (`onMount` no longer exists in 2.0.)
+ * - **Post-settle "ready" hook:** run once after a component's first stable
+ *   render — analytics ping, focus, scroll-into-view, etc. No cleanup needed.
+ * - **Inside an event handler:** schedule work to run after the action /
  *   transition triggered by the event has completed.
  *
  * Reactive reads inside the callback are *not* tracked — to react to
  * subsequent settles, register a new `onSettled` each time.
  *
  * `onCleanup` is **not** allowed inside the callback — return a cleanup
- * function instead, which runs on owner disposal.
+ * function instead. The returned cleanup runs on owner disposal.
  *
  * @example
  * ```tsx
+ * // Component-level setup + teardown — replaces onMount + onCleanup.
+ * // Subscribe to an external source on mount, unsubscribe on dispose.
+ * function useViewportWidth() {
+ *   const [width, setWidth] = createSignal(window.innerWidth);
+ *   onSettled(() => {
+ *     const onResize = () => setWidth(window.innerWidth);
+ *     window.addEventListener("resize", onResize);
+ *     return () => window.removeEventListener("resize", onResize);
+ *   });
+ *   return width;
+ * }
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // Post-settle "ready" hook — no cleanup needed.
  * function Dashboard() {
  *   const data = createMemo(async () => fetchData());
  *
  *   onSettled(() => {
- *     // Runs once, after the initial async read has resolved.
  *     analytics.track("dashboard.ready");
  *   });
  *
@@ -631,6 +653,7 @@ export function createOptimistic<T>(
  *
  * @example
  * ```tsx
+ * // Event-handler — runs after the action settles.
  * function SaveButton() {
  *   const save = action(function* () {
  *     yield api.save();
@@ -638,14 +661,15 @@ export function createOptimistic<T>(
  *
  *   const handleClick = () => {
  *     save();
- *     onSettled(() => toast("Saved!")); // runs after the action settles
+ *     onSettled(() => toast("Saved!"));
  *   };
  *
  *   return <button onClick={handleClick}>Save</button>;
  * }
  * ```
  *
- * @param callback Function to run; may return a cleanup function
+ * @param callback Function to run; may return a cleanup function that fires
+ *   on owner disposal
  */
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();

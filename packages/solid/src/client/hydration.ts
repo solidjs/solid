@@ -20,13 +20,13 @@ import {
   markSnapshotScope,
   releaseSnapshotScope,
   clearSnapshots,
-  $REFRESH,
   type Accessor,
   type ComputeFunction,
   type MemoOptions,
   type NoInfer,
   type Owner,
   type ProjectionOptions,
+  type Refreshable,
   type Signal,
   type SignalOptions,
   type Store,
@@ -40,7 +40,30 @@ import { JSX } from "../jsx.js";
 import { IS_DEV } from "./core.js";
 
 type HydrationSsrFields = {
+  /**
+   * Defer the SSR stream flush until this primitive's first value is
+   * resolved. Lets late-resolving sources hold the document open
+   * rather than forcing the surrounding `<Loading>` boundary to render
+   * its fallback into the HTML. Server-only; ignored on the client.
+   */
   deferStream?: boolean;
+  /**
+   * Hydration policy. Decides what initial value the client uses and
+   * whether the compute re-runs.
+   *
+   * - `"server"` *(default)*: client uses the serialized server value
+   *   as initial state. Compute does **not** re-run for the initial
+   *   value — the serialized result is authoritative. Choose this when
+   *   the compute is deterministic from server-available inputs.
+   * - `"hybrid"`: client uses the serialized server value, then
+   *   re-runs the compute to take over. Choose this for computes that
+   *   mix server data with client-only signals (e.g. window size,
+   *   user-locale).
+   * - `"client"`: skip the server value entirely. Compute is deferred
+   *   until hydration completes, then runs as if first-mounted.
+   *   Choose this for client-only state where serialization is
+   *   meaningless.
+   */
   ssrSource?: "server" | "hybrid" | "client";
 };
 declare module "@solidjs/signals" {
@@ -49,6 +72,23 @@ declare module "@solidjs/signals" {
   interface EffectOptions extends HydrationSsrFields {}
 }
 
+/**
+ * Options for `createProjection`, `createStore(fn, ...)`, and
+ * `createOptimisticStore(fn, ...)` — `ProjectionOptions` plus a
+ * hydration-aware `ssrSource` field.
+ *
+ * `ssrSource` controls what initial value the client uses and whether
+ * the projection's compute re-runs:
+ *
+ * - `"server"` *(default)*: client uses the serialized server value
+ *   as initial state.
+ * - `"hybrid"`: serialized value first, then re-run the compute on
+ *   the client to take over.
+ * - `"client"`: skip serialization; compute runs only after hydration
+ *   completes.
+ *
+ * See {@link HydrationSsrFields} for the fuller explanation.
+ */
 export type HydrationProjectionOptions = ProjectionOptions & {
   ssrSource?: "server" | "hybrid" | "client";
 };
@@ -739,6 +779,49 @@ export function enableHydration() {
 }
 
 // Wrapped primitives — delegate to override or core
+
+/**
+ * Creates a readonly derived reactive memoized signal.
+ *
+ * `compute(prev)` runs reactively — every reactive read inside it is
+ * tracked, and the returned value becomes the memo's current value.
+ * The memo is cached: it only recomputes when one of its tracked
+ * sources changes.
+ *
+ * ```ts
+ * const value = createMemo<T>(compute, options?: MemoOptions<T>);
+ * ```
+ *
+ * @example
+ * ```ts
+ * const [first, setFirst] = createSignal("Ada");
+ * const [last, setLast] = createSignal("Lovelace");
+ *
+ * const fullName = createMemo(() => `${first()} ${last()}`);
+ *
+ * fullName(); // "Ada Lovelace"
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Async memo — reads suspend inside <Loading>
+ * const user = createMemo(async () => {
+ *   const res = await fetch(`/users/${id()}`);
+ *   return res.json();
+ * });
+ * ```
+ *
+ * **Hydration:** `MemoOptions` accepts an `ssrSource` field
+ * (`"server"` | `"hybrid"` | `"client"`) that controls what initial
+ * value the client uses and whether `compute` re-runs. See
+ * {@link HydrationSsrFields}.
+ *
+ * @param compute receives the previous value, returns the new value
+ * @param options `MemoOptions` — `id`, `name`, `equals`, `unobserved`,
+ *   `lazy`, `transparent`, `ssrSource`
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
+ */
 export const createMemo: {
   <T>(
     compute: ComputeFunction<undefined | NoInfer<T>, T>,
@@ -750,6 +833,40 @@ export const createMemo: {
   ): Accessor<T>;
 } = ((...args: any[]) => (_createMemo || coreMemo)(...args)) as any;
 
+/**
+ * Creates a simple reactive state with a getter and setter.
+ *
+ * - **Plain form** — `createSignal(value, options?: SignalOptions<T>)`:
+ *   stores a value; the setter writes a new value or applies an
+ *   updater `(prev) => next`.
+ * - **Function form (writable memo)** —
+ *   `createSignal(fn, options?: SignalOptions<T> & MemoOptions<T>)`:
+ *   the value is computed by `fn` like a memo, but the setter can
+ *   locally override it (useful for optimistic edits over a derived
+ *   default).
+ *
+ * ```ts
+ * // Plain
+ * const [count, setCount] = createSignal(0);
+ *
+ * count();              // 0
+ * setCount(1);          // explicit value
+ * setCount(c => c + 1); // updater
+ *
+ * // Writable memo: starts as `fn()`, can be locally overwritten.
+ * const [user, setUser] = createSignal(() => fetchUser(userId()));
+ * setUser({ ...user(), name: "Alice" }); // optimistic local edit
+ * ```
+ *
+ * **Hydration:** in the function form, `SignalOptions & MemoOptions`
+ * accepts an `ssrSource` field (`"server"` | `"hybrid"` | `"client"`)
+ * that controls what initial value the client uses and whether `fn`
+ * re-runs. See {@link HydrationSsrFields}.
+ *
+ * @returns `[state: Accessor<T>, setState: Setter<T>]`
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal
+ */
 export const createSignal: {
   <T>(): Signal<T | undefined>;
   <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
@@ -763,9 +880,53 @@ export const createSignal: {
   ): Signal<T>;
 } = ((...args: any[]) => (_createSignal || coreSignal)(...args)) as any;
 
+/**
+ * Lower-level primitive that backs the `<Errored>` flow control.
+ * Catches errors thrown inside `fn` and renders `fallback(error,
+ * reset)` instead. `reset()` recomputes the failing sources so the
+ * boundary can attempt to recover.
+ *
+ * App code should use `<Errored fallback={...}>` directly — reach for
+ * this only when authoring a custom boundary component.
+ *
+ * **Hydration:** if the server serialized an error for this boundary,
+ * the client re-throws it on the first hydration pass so `fallback`
+ * renders the same content the server emitted.
+ */
 export const createErrorBoundary: typeof coreErrorBoundary = ((...args: any[]) =>
   (_createErrorBoundary || coreErrorBoundary)(...args)) as typeof coreErrorBoundary;
 
+/**
+ * Creates an optimistic signal — a `Signal<T>` whose writes are
+ * tentative inside an `action` transition: they show up immediately,
+ * then auto-revert (or reconcile to the action's resolved value) once
+ * the transition settles.
+ *
+ * Use this for single-value optimistic state. For collection-shaped
+ * state, prefer `createOptimisticStore`.
+ *
+ * - **Plain form** — `createOptimistic(value, options?: SignalOptions<T>)`.
+ * - **Function form** — `createOptimistic(fn, options?: SignalOptions<T> & MemoOptions<T>)`:
+ *   the authoritative value is recomputed by `fn`; the optimistic
+ *   overlay reverts after each transition.
+ *
+ * @example
+ * ```ts
+ * const [name, setName] = createOptimistic("Ada");
+ *
+ * const rename = action(function* (next: string) {
+ *   setName(next);                 // optimistic
+ *   yield api.rename(next);        // commits or reverts on settle
+ * });
+ * ```
+ *
+ * **Hydration:** in the function form, accepts an `ssrSource` field
+ * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
+ *
+ * @returns `[state: Accessor<T>, setState: Setter<T>]`
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
+ */
 export const createOptimistic: {
   <T>(): Signal<T | undefined>;
   <T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
@@ -779,36 +940,249 @@ export const createOptimistic: {
   ): Signal<T>;
 } = ((...args: any[]) => (_createOptimistic || coreOptimistic)(...args)) as any;
 
+/**
+ * Creates a derived (projected) store — `createMemo` for stores. The
+ * derive function receives a mutable draft and either mutates it in
+ * place (canonical) or returns a new value. Either way the result is
+ * reconciled against the previous draft by `options.key` (default
+ * `"id"`), so surviving items keep their proxy identity — only
+ * added/removed items are created/disposed.
+ *
+ * Returns the projected store directly (no setter — reads only).
+ *
+ * Reach for this when you want the structural-sharing / per-property
+ * tracking of a store on top of a derived computation. For simple
+ * read-only derivations, `createMemo` is lighter.
+ *
+ * @example
+ * ```ts
+ * // Mutation form — update individual fields on the draft.
+ * const summary = createProjection<{ total: number; active: number }>(
+ *   draft => {
+ *     draft.total = users().length;
+ *     draft.active = users().filter(u => u.active).length;
+ *   },
+ *   { total: 0, active: 0 }
+ * );
+ *
+ * // Return form — produce a derived collection. Reconciled by `id`
+ * // so each surviving user keeps the same store identity.
+ * const activeUsers = createProjection<User[]>(
+ *   () => allUsers().filter(u => u.active),
+ *   []
+ * );
+ * ```
+ *
+ * **Hydration:** {@link HydrationProjectionOptions} adds `ssrSource`
+ * (`"server"` | `"hybrid"` | `"client"`) for the same client-vs-server
+ * tradeoffs as the other primitives. See {@link HydrationSsrFields}.
+ */
 export const createProjection: <T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: T,
   options?: HydrationProjectionOptions
-) => Store<T> & { [$REFRESH]: any } = ((...args: any[]) =>
+) => Refreshable<Store<T>> = ((...args: any[]) =>
   (_createProjection || coreProjection)(...args)) as any;
 
 type NoFn<T> = T extends Function ? never : T;
 
+/**
+ * Creates a deeply-reactive store backed by a Proxy. Reads track each
+ * property accessed; only the parts that change trigger updates.
+ *
+ * Store properties hold **plain values**, not accessors. The proxy
+ * already tracks reads per-property — wrapping a value in
+ * `() => state.foo` produces a getter that *won't* track when called,
+ * which looks like a reactivity bug but is just a category error. If
+ * you have a signal-shaped piece of state, make it a property of the
+ * store (`{ foo: 1 }`) rather than nesting an accessor inside
+ * (`{ foo: () => signal() }`).
+ *
+ * The setter takes a **draft-mutating** function — mutate the draft
+ * in place (canonical). The callback may also return a new value:
+ * arrays are replaced by index (length adjusted), objects are
+ * shallow-diffed at the top level (keys present in the returned value
+ * are written, missing keys deleted). Use the return form for shapes
+ * where mutation is awkward — most commonly removing items via
+ * `filter`. The setter does **not** do keyed reconciliation; for
+ * that, use the derived/projection form (or `createProjection`).
+ *
+ * - **Plain form** — `createStore(initialValue)`: wraps a value in a
+ *   reactive proxy.
+ * - **Derived form** — `createStore(fn, seed, options?)`: a
+ *   *projection store* whose contents are computed by `fn(draft)`.
+ *   `fn` may be sync, async, or an `AsyncIterable`; the projection's
+ *   result reconciles against the existing store by `options.key`
+ *   (default `"id"`) for stable identity.
+ *
+ * @example
+ * ```ts
+ * const [state, setState] = createStore({
+ *   user: { name: "Ada", age: 36 },
+ *   todos: [] as { id: string; text: string; done: boolean }[]
+ * });
+ *
+ * // Canonical: mutate the draft in place.
+ * setState(s => { s.user.age = 37; });
+ * setState(s => { s.todos.push({ id: "1", text: "x", done: false }); });
+ *
+ * // Return form: reach for it when mutation is awkward.
+ * setState(s => s.todos.filter(t => !t.done));               // remove items
+ * setState(s => ({ ...s, user: { name: "Grace", age: 85 } })); // shallow replace
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Derived store — auto-fetches & reconciles by `id`.
+ * const [users] = createStore(
+ *   async () => fetch("/users").then(r => r.json()),
+ *   [] as User[]
+ * );
+ * ```
+ *
+ * **Hydration:** the derived form accepts
+ * {@link HydrationProjectionOptions}, which adds an `ssrSource` field
+ * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
+ *
+ * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
+ */
 export const createStore: {
   <T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     store: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
-  ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
+  ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => (_createStore || coreStore)(...args)) as any;
 
+/**
+ * The store equivalent of `createOptimistic`. Writes inside an
+ * `action` transition are tentative — they show up immediately but
+ * auto-revert (or reconcile to the action's resolved value) once the
+ * transition finishes.
+ *
+ * Use this for optimistic UI on collection-shaped data. For
+ * single-value optimistic state, prefer `createOptimistic`.
+ *
+ * - **Plain form** — `createOptimisticStore(initialValue)`.
+ * - **Derived form** — `createOptimisticStore(fn, seed, options?)`:
+ *   a projection store whose authoritative value is recomputed by
+ *   `fn` and whose optimistic overlay reverts after each transition.
+ *
+ * `options.key` defaults to `"id"`; specify it only when your data
+ * uses a different identity field (e.g. `{ key: "uuid" }` or
+ * `{ key: t => t.slug }`). Restating the default just adds noise.
+ *
+ * @example
+ * ```ts
+ * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
+ *
+ * // Mutation: optimistic add, then in-place reconcile to the saved row.
+ * const addTodo = action(function* (text: string) {
+ *   const tempId = crypto.randomUUID();
+ *   setTodos(t => { t.push({ id: tempId, text, pending: true }); });
+ *   const saved = yield api.createTodo(text);
+ *   setTodos(t => {
+ *     const i = t.findIndex(x => x.id === tempId);
+ *     if (i >= 0) t[i] = saved;
+ *   });
+ * });
+ *
+ * // Return form: filter is the natural shape for removal.
+ * const removeTodo = action(function* (id: string) {
+ *   setTodos(t => t.filter(x => x.id !== id));
+ *   yield api.removeTodo(id);
+ * });
+ * ```
+ *
+ * **Hydration:** the derived form accepts
+ * {@link HydrationProjectionOptions}, which adds an `ssrSource` field
+ * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
+ *
+ * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
+ */
 export const createOptimisticStore: {
   <T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     store: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
-  ): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
+  ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => (_createOptimisticStore || coreOptimisticStore)(...args)) as any;
 
+/**
+ * Creates a reactive computation that runs during the render phase as
+ * DOM elements are created and updated but not necessarily connected.
+ *
+ * Same compute/effect split as `createEffect` (`compute(prev)` tracks,
+ * `effect(next, prev?)` runs imperatively), but scheduled inside the
+ * render queue rather than after it. Reach for this only when
+ * authoring renderer plumbing — app code should use `createEffect`.
+ *
+ * ```ts
+ * createRenderEffect<T>(compute, effectFn, options?: EffectOptions);
+ * ```
+ *
+ * **Hydration:** `EffectOptions` accepts an `ssrSource` field
+ * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
+ *
+ * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
+ */
 export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
   (_createRenderEffect || coreRenderEffect)(...args)) as typeof coreRenderEffect;
 
+/**
+ * Creates a reactive effect with **separate compute and effect phases**.
+ *
+ * - `compute(prev)` runs reactively — *put all reactive reads here*.
+ *   The returned value is passed to `effect` and is also the new
+ *   "previous" value for the next run.
+ * - `effect(next, prev?)` runs imperatively (untracked) after the
+ *   queue flushes. *Put DOM writes / fetch / logging / subscriptions
+ *   here.* It may return a cleanup function which runs before the
+ *   next effect or on disposal.
+ *
+ * Reactive reads inside `effect` will *not* re-trigger this effect —
+ * that's intentional. If you need a single-phase tracked effect, use
+ * `createTrackedEffect` (with the tradeoffs noted there).
+ *
+ * Pass an `EffectBundle` (`{ effect, error }`) instead of a plain
+ * function to intercept errors thrown from the compute or effect
+ * phases.
+ *
+ * ```ts
+ * createEffect<T>(compute, effectFn | { effect, error }, options?: EffectOptions);
+ * ```
+ *
+ * @example
+ * ```ts
+ * const [count, setCount] = createSignal(0);
+ *
+ * createEffect(
+ *   () => count(),                  // compute: tracks `count`
+ *   value => console.log(value)     // effect: side effect
+ * );
+ *
+ * setCount(1); // logs 1 after the next flush
+ * ```
+ *
+ * @example
+ * ```ts
+ * createEffect(
+ *   () => userId(),
+ *   id => {
+ *     const ctrl = new AbortController();
+ *     fetch(`/users/${id}`, { signal: ctrl.signal });
+ *     return () => ctrl.abort(); // cleanup before next run / disposal
+ *   }
+ * );
+ * ```
+ *
+ * **Hydration:** `EffectOptions` accepts an `ssrSource` field
+ * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
+ *
+ * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
+ */
 export const createEffect: typeof coreEffect = ((...args: any[]) =>
   (_createEffect || coreEffect)(...args)) as typeof coreEffect;
 

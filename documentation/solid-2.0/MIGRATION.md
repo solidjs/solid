@@ -555,6 +555,28 @@ const Theme = createContext("light");
 <Theme value="dark">{props.children}</Theme>
 ```
 
+### `useContext` on a default-less context returns `T`, not `T | undefined`
+
+`createContext<T>()` (no default) is now typed `Context<T>` — `useContext` returns `T` directly and throws `ContextNotFoundError` at runtime if no Provider is mounted. Drop any `useX`-with-throw wrapper hooks; they only existed to narrow the type, which is no longer needed.
+
+```ts
+// 1.x — wrapper exists purely to narrow T | undefined → T
+const TodosContext = createContext<TodosCtx>();
+const useTodos = () => {
+  const ctx = useContext(TodosContext);
+  if (!ctx) throw new Error("missing TodosContext.Provider");
+  return ctx;
+};
+
+// 2.0 — direct call. Type is TodosCtx; throws if no Provider.
+const TodosContext = createContext<TodosCtx>();
+const [todos, { addTodo }] = useContext(TodosContext);
+```
+
+The default form `createContext<T>(defaultValue)` is unchanged — `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config); use the default-less form for any context carrying reactive state.
+
+If you genuinely relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch. Most existing wrapper hooks were already throwing on `undefined`, so for them the change is a removal, not a migration.
+
 ## New in 2.0
 
 These APIs are new additions (not renames of 1.x APIs):

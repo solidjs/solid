@@ -66,6 +66,30 @@ function Page() {
 }
 ```
 
+### Context: default-less form throws on missing Provider
+
+In 2.0, `createContext<T>()` (no default) is typed `Context<T>` — `useContext` returns `T` directly and throws `ContextNotFoundError` at runtime if no Provider is mounted. The runtime already behaved this way in 1.x, but the type signature was `T | undefined`, which is why ecosystem code is full of `useX`-with-throw wrapper hooks. They are no longer needed.
+
+```ts
+// 1.x boilerplate — the wrapper exists only to narrow the type
+const TodosContext = createContext<TodosCtx>();
+const useTodos = () => {
+  const ctx = useContext(TodosContext);
+  if (!ctx) throw new Error("missing TodosContext.Provider");
+  return ctx;
+};
+
+// 2.0 — direct call, no wrapper. Throws if no Provider; type is TodosCtx, not TodosCtx | undefined.
+const TodosContext = createContext<TodosCtx>();
+const [todos, { addTodo }] = useContext(TodosContext);
+```
+
+The default form `createContext<T>(defaultValue)` is unchanged: `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config). For any context carrying reactive state, prefer the default-less form.
+
+> If you want truly app-wide state, **don't use Context** — a module-scope signal/store *is* a global. Context is for scoping state to a subtree, which is why a Provider is mandatory in the default-less form.
+
+**Migration:** drop `useX`-with-throw wrappers and call `useContext` directly. If you actively relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch.
+
 ### Derived primitives: function-form `createSignal` and `createStore`
 
 2.0 supports function overloads for `createSignal` and `createStore` to represent “derived state” using the same primitives users already know.

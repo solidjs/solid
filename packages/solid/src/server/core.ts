@@ -21,24 +21,23 @@ export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
 // Context API
 export interface Context<T> extends ContextProviderComponent<T> {
   id: symbol;
-  defaultValue: T;
+  defaultValue: T | undefined;
 }
 
 /**
- * Creates a Context to handle a state scoped for the children of a component
- * @param defaultValue optional default to inject into context
+ * Creates a Context to share state with descendants of a Provider.
+ *
+ * - `createContext<T>()` — default-less. `useContext` throws
+ *   `ContextNotFoundError` outside any Provider. Use this for any context
+ *   carrying reactive state.
+ * - `createContext<T>(defaultValue)` — default form. `useContext` falls back
+ *   to `defaultValue` outside a Provider. Reserved for primitive fallbacks
+ *   (theme, locale, frozen config).
+ *
+ * @param defaultValue optional default; only meaningful for primitive fallbacks
  * @param options allows to set a name in dev mode for debugging purposes
- * @returns The context that contains the Provider Component and that can be used with `useContext`
  */
-export function createContext<T>(
-  defaultValue?: undefined,
-  options?: EffectOptions
-): Context<T | undefined>;
-export function createContext<T>(defaultValue: T, options?: EffectOptions): Context<T>;
-export function createContext<T>(
-  defaultValue?: T,
-  options?: EffectOptions
-): Context<T | undefined> {
+export function createContext<T>(defaultValue?: T, options?: EffectOptions): Context<T> {
   const id = Symbol((options && options.name) || "");
   function provider(props: FlowProps<{ value: unknown }>) {
     return createRoot(() => {
@@ -48,13 +47,12 @@ export function createContext<T>(
   }
   provider.id = id;
   provider.defaultValue = defaultValue;
-  return provider as unknown as Context<T | undefined>;
+  return provider as unknown as Context<T>;
 }
 
 /**
- * Uses a context to receive a scoped state from a parent's Context.Provider
- * @param context Context object made by `createContext`
- * @returns the current or `defaultValue`, if present
+ * Reads the current value of a context. Throws `ContextNotFoundError` if no
+ * Provider is mounted and the context was created without a default.
  */
 export function useContext<T>(context: Context<T>): T {
   return getContext(context);

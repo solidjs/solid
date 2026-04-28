@@ -19,7 +19,8 @@ import {
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
-  STORE_SNAPSHOT_PROPS
+  STORE_SNAPSHOT_PROPS,
+  type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import { externalSourceConfig } from "./external.js";
@@ -1083,7 +1084,7 @@ export function isPending(fn: () => any): boolean {
  * <button onClick={() => refresh(user)}>Reload</button>
  * ```
  */
-export function refresh<T>(fn: (() => T) | (T & { [$REFRESH]: any })): T {
+export function refresh<T>(fn: (() => T) | Refreshable<T>): T {
   let prevRefreshing = refreshing;
   refreshing = true;
   try {

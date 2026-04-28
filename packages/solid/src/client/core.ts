@@ -25,49 +25,74 @@ export type ContextProviderComponent<T> = FlowComponent<{ value: T }>;
 // Context API
 export interface Context<T> extends ContextProviderComponent<T> {
   id: symbol;
-  defaultValue: T;
+  defaultValue: T | undefined;
 }
 
 /**
- * Creates a Context for sharing state with descendants without prop drilling.
+ * Creates a Context for sharing state with descendants of a Provider in the
+ * component tree.
  *
  * The returned `Context` is itself a provider component — pass it a `value`
  * prop to scope a value to its children. Read it inside descendants with
  * `useContext`.
  *
- * @param defaultValue value returned by `useContext` outside any provider
+ * Two forms:
+ *
+ * - **`createContext<T>()`** (default-less, the canonical form). Reading via
+ *   `useContext` outside an enclosing Provider throws `ContextNotFoundError`.
+ *   Use this for everything that carries reactive state — signals, stores,
+ *   `[state, actions]` tuples, services. The Provider is mandatory by
+ *   construction; the throw makes a missing Provider a loud bug instead of a
+ *   silent no-op. The annotation `<T>` is required because there is no value
+ *   to infer from.
+ * - **`createContext<T>(defaultValue)`** (default form). Reserved for the
+ *   narrow case of contexts whose value is a primitive with a meaningful
+ *   static fallback (theme, locale, frozen config). Outside any Provider,
+ *   `useContext` returns `defaultValue`.
+ *
+ * If you want truly app-wide state, **don't use Context** — a module-scope
+ * signal/store *is* a global. Context is for scoping state to a subtree;
+ * that's why a Provider is required.
+ *
+ * @param defaultValue optional default; only meaningful for primitive
+ *   fallbacks. Omit for any context carrying reactive state.
  * @param options `{ name }` for debugging in development
  * @returns a context object that doubles as its own provider component
  *
  * @example
  * ```tsx
- * const ThemeContext = createContext<"light" | "dark">("light");
+ * // Reactive payload — default-less, throws if no Provider.
+ * type TodosCtx = readonly [Store<Todo[]>, TodoActions];
+ * const TodosContext = createContext<TodosCtx>();
  *
  * function App() {
  *   return (
- *     <ThemeContext value="dark">
- *       <Toolbar />
- *     </ThemeContext>
+ *     <TodosContext value={createTodos()}>
+ *       <TodoList />
+ *     </TodosContext>
  *   );
  * }
  *
- * function Toolbar() {
- *   const theme = useContext(ThemeContext); // "dark"
- *   return <div class={theme}>...</div>;
+ * function TodoList() {
+ *   const [todos, { addTodo }] = useContext(TodosContext); // typed as TodosCtx
+ *   // ...
+ * }
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // Primitive default — falls back to "light" outside a Provider.
+ * const ThemeContext = createContext<"light" | "dark">("light");
+ *
+ * function Button() {
+ *   const theme = useContext(ThemeContext); // "light" | "dark"
+ *   return <button class={theme}>Click</button>;
  * }
  * ```
  *
  * @description https://docs.solidjs.com/reference/component-apis/create-context
  */
-export function createContext<T>(
-  defaultValue?: undefined,
-  options?: EffectOptions
-): Context<T | undefined>;
-export function createContext<T>(defaultValue: T, options?: EffectOptions): Context<T>;
-export function createContext<T>(
-  defaultValue?: T,
-  options?: EffectOptions
-): Context<T | undefined> {
+export function createContext<T>(defaultValue?: T, options?: EffectOptions): Context<T> {
   const id = Symbol((options && options.name) || "");
   function provider(props: FlowProps<{ value: unknown }>) {
     return createRoot(() => {
@@ -77,23 +102,35 @@ export function createContext<T>(
   }
   provider.id = id;
   provider.defaultValue = defaultValue;
-  return provider as unknown as Context<T | undefined>;
+  return provider as unknown as Context<T>;
 }
 
 /**
- * Reads the current value of a context, or its `defaultValue` if no enclosing
- * provider is found.
+ * Reads the current value of a context.
+ *
+ * - For `createContext<T>()` (default-less): returns the value from the
+ *   nearest enclosing Provider, or throws `ContextNotFoundError` if none is
+ *   mounted. Return type is `T` (no narrowing required).
+ * - For `createContext<T>(defaultValue)`: returns the value from the nearest
+ *   enclosing Provider, or `defaultValue` if none is mounted.
+ *
+ * In Solid, `useContext` is the canonical way to read context. There is no
+ * need for a wrapper hook that throws on missing Provider — the default-less
+ * form already does that, and its return type is `T`.
  *
  * @param context a context returned from `createContext`
- * @returns the value provided by the nearest enclosing context, or the default
+ * @returns the value provided by the nearest enclosing Provider, or the
+ *   default if one was supplied to `createContext`
+ * @throws `ContextNotFoundError` if no Provider is mounted and the context
+ *   was created without a default
  *
  * @example
  * ```tsx
- * const Theme = createContext<"light" | "dark">("light");
+ * const TodosContext = createContext<TodosCtx>();
  *
- * function Button() {
- *   const theme = useContext(Theme);
- *   return <button class={theme}>Click</button>;
+ * function TodoList() {
+ *   const [todos, { addTodo }] = useContext(TodosContext); // throws if no Provider
+ *   // ...
  * }
  * ```
  *

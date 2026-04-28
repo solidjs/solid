@@ -1,5 +1,7 @@
 # Solid Universal
 
+> **Solid 2.0 (experimental beta).** In 1.x this was the `solid-js/universal` subpath; in 2.0 it's a separate `@solidjs/universal` package. The `createRenderer` returned `render` now schedules the top-level mount through the effect queue and drains it with a tail `flush()`, matching `@solidjs/web`'s deferred-mount semantics so uncaught top-level async holds the initial commit on the active transition and attaches atomically once it settles.
+
 This contains the means to create the runtime for a custom renderer for Solid. This can enable using Solid to render to different platforms like native mobile and desktop, canvas or WebGL, or even the terminal. It relies on custom compilation from `babel-preset-solid` and exporting the result of `createRenderer` at a referenceable location.
 
 ## Example
@@ -42,7 +44,7 @@ To create a custom renderer you must implement certain methods and export (as na
 
 ```js
 // example custom dom renderer
-import { createRenderer } from "solid-js/universal";
+import { createRenderer } from "@solidjs/universal";
 
 const PROPERTIES = new Set(["className", "textContent"]);
 
@@ -58,7 +60,8 @@ export const {
   spread,
   setProp,
   mergeProps,
-  use
+  applyRef,
+  ref
 } = createRenderer({
   createElement(string) {
     return document.createElement(string);
@@ -98,13 +101,13 @@ export const {
 // Forward Solid control flow
 export {
   For,
+  Repeat,
   Show,
-  Suspense,
-  SuspenseList,
   Switch,
   Match,
-  Index,
-  ErrorBoundary
+  Errored,
+  Loading,
+  Reveal
 } from "solid-js";
 ```
 

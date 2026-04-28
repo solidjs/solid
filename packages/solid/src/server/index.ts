@@ -63,6 +63,7 @@ export type {
   NotWrappable,
   Omit,
   Owner,
+  Refreshable,
   Signal,
   SignalOptions,
   Setter,

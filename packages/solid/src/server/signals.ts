@@ -44,6 +44,7 @@ export type {
   Setter,
   Signal,
   Owner,
+  Refreshable,
   Maybe,
   Store,
   StoreSetter,

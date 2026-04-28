@@ -498,6 +498,16 @@ describe("Server context", () => {
       { id: "test" }
     );
   });
+
+  test("default-less createContext throws when read outside a Provider", () => {
+    createRoot(
+      () => {
+        const Ctx = createContext<number>();
+        expect(() => useContext(Ctx)).toThrow();
+      },
+      { id: "test-throw" }
+    );
+  });
 });
 
 // === Owner / ID tree ===

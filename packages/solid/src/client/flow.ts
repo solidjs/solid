@@ -277,6 +277,12 @@ export function Errored(props: {
  * caused by writes to other reactive sources — those transitions stay on the
  * previous content (with `isPending()` flipping during the transition).
  *
+ * Scope `<Loading>` around the data-dependent slot, not the surrounding
+ * shell. Wrapping layout chrome (header, nav, footer) in the same boundary
+ * as the data means revalidation replaces the entire screen with the
+ * fallback; rendering chrome outside the boundary keeps it stable while
+ * only the affordance flips.
+ *
  * @example
  * ```tsx
  * const Profile = lazy(() => import("./Profile"));

@@ -442,9 +442,27 @@ describe("onCleanup", () => {
 });
 
 describe("create and use context", () => {
-  test("createContext without arguments defaults to undefined and to throw if accessed without provider", () => {
+  test("default-less createContext throws when read outside any Provider", () => {
     const context = createContext<number>();
     expect(() => createRoot(() => useContext(context))).toThrow();
+  });
+
+  test("default-less createContext returns T (not T | undefined) — type-level contract", () => {
+    type TodosCtx = readonly [number[], { add: (n: number) => void }];
+    const TodosContext = createContext<TodosCtx>();
+    // The next line compiles only if useContext is typed as TodosCtx. If it
+    // were TodosCtx | undefined, destructuring would error.
+    type Ctx = ReturnType<typeof useContext<TodosCtx>>;
+    const _typeAssertion: Ctx = [[1], { add: () => {} }];
+    expect(_typeAssertion[0]).toEqual([1]);
+    expect(TodosContext.defaultValue).toBeUndefined();
+  });
+
+  test("createContext with default value falls back outside any Provider", () => {
+    const ThemeContext = createContext<"light" | "dark">("light");
+    createRoot(() => {
+      expect(useContext(ThemeContext)).toBe("light");
+    });
   });
 });
 

@@ -1,4 +1,4 @@
-import { $REFRESH, computed, getOwner, handleAsync, type Computed } from "../core/index.js";
+import { computed, getOwner, handleAsync, type Computed, type Refreshable } from "../core/index.js";
 import { setProjectionWriteActive } from "../core/scheduler.js";
 import { reconcile } from "./reconcile.js";
 import {
@@ -50,16 +50,18 @@ export function createProjectionInternal<T extends object = {}>(
   (node as any)._preventAutoDisposal = true;
 
   return { store: wrappedStore, node } as {
-    store: Store<T> & { [$REFRESH]: any };
+    store: Refreshable<Store<T>>;
     node: Computed<void | T>;
   };
 }
 
 /**
  * Creates a derived (projected) store. Like `createMemo` but for stores: the
- * derive function receives a mutable draft and either mutates it in place or
- * returns a new value, which is reconciled against the previous draft using
- * `options.key` (default `"id"`).
+ * derive function receives a mutable draft and either mutates it in place
+ * (canonical) or returns a new value. Either way the result is reconciled
+ * against the previous draft by `options.key` (default `"id"`), so surviving
+ * items keep their proxy identity — only added/removed items are
+ * created/disposed.
  *
  * Returns the projected store directly (no setter — reads only).
  *
@@ -67,17 +69,29 @@ export function createProjectionInternal<T extends object = {}>(
  * behaviour of a store on top of a derived computation. For simple read-only
  * derivations, `createMemo` is lighter.
  *
- * @param fn receives the current draft; mutate it or return new data
+ * @param fn receives the current draft; mutate it in place or return new
+ *   data. Return is convenient for filter/derive shapes where mutation is
+ *   awkward.
  * @param seed the backing store value to wrap and reconcile into
- * @param options `ProjectionOptions` — `name`, `key`
+ * @param options `ProjectionOptions` — `name`, `key`. `key` defaults to
+ *   `"id"`; specify it only when your data uses a different identity field
+ *   (e.g. `{ key: "uuid" }` or `{ key: u => u.slug }`).
  *
  * @example
  * ```ts
- * const filtered = createProjection<User[]>(
+ * // Mutation form — update individual fields on the draft.
+ * const summary = createProjection<{ total: number; active: number }>(
  *   draft => {
- *     draft.length = 0;
- *     for (const u of allUsers()) if (u.active) draft.push(u);
+ *     draft.total = users().length;
+ *     draft.active = users().filter(u => u.active).length;
  *   },
+ *   { total: 0, active: 0 }
+ * );
+ *
+ * // Return form — produce a derived collection. Reconciled by `id` so each
+ * // surviving user keeps the same store identity across recomputes.
+ * const activeUsers = createProjection<User[]>(
+ *   () => allUsers().filter(u => u.active),
  *   []
  * );
  * ```
@@ -88,7 +102,7 @@ export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: Partial<T>,
   options?: ProjectionOptions
-): Store<T> & { [$REFRESH]: any } {
+): Refreshable<Store<T>> {
   return createProjectionInternal(fn, seed, options).store;
 }
 

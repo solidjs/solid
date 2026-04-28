@@ -1,10 +1,10 @@
 import {
-  $REFRESH,
   computed,
   getOwner,
   handleAsync,
   setSignal,
-  type Computed
+  type Computed,
+  type Refreshable
 } from "../core/index.js";
 import { GlobalQueue, setProjectionWriteActive } from "../core/scheduler.js";
 import { runProjectionComputed } from "./projection.js";
@@ -46,18 +46,29 @@ import {
  *   store whose authoritative value is recomputed by `fn` and whose
  *   optimistic overlay reverts after each transition.
  *
+ * `options.key` defaults to `"id"`; specify it only when your data uses a
+ * different identity field (e.g. `{ key: "uuid" }` or `{ key: t => t.slug }`).
+ * Restating the default just adds noise.
+ *
  * @example
  * ```ts
  * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
  *
+ * // Mutation: optimistic add, then in-place reconcile to the saved row.
  * const addTodo = action(function* (text: string) {
  *   const tempId = crypto.randomUUID();
- *   setTodos(t => { t.push({ id: tempId, text, pending: true }); }); // optimistic
+ *   setTodos(t => { t.push({ id: tempId, text, pending: true }); });
  *   const saved = yield api.createTodo(text);
  *   setTodos(t => {
  *     const i = t.findIndex(x => x.id === tempId);
  *     if (i >= 0) t[i] = saved;
  *   });
+ * });
+ *
+ * // Return form: filter is the natural shape for removal.
+ * const removeTodo = action(function* (id: string) {
+ *   setTodos(t => t.filter(x => x.id !== id));
+ *   yield api.removeTodo(id);
  * });
  * ```
  *
@@ -70,7 +81,7 @@ export function createOptimisticStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   store: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
-): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: NoFn<T> | Store<NoFn<T>>,
@@ -190,7 +201,7 @@ function createOptimisticProjectionInternal<T extends object = {}>(
   }
 
   return { store: wrappedStore, node } as {
-    store: Store<T> & { [$REFRESH]: any };
+    store: Refreshable<Store<T>>;
     node: Computed<void> | undefined;
   };
 }

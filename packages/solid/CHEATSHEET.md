@@ -2,7 +2,7 @@
 
 One-page reference for Solid 2.0. Every API exists in `solid-js` unless noted. DOM APIs are in `@solidjs/web`.
 
-> **Reading this for AI codegen?** Solid 2.0 is **not** Solid 1.x. The bottom of this file lists the 2.0 patterns that differ from your training data — read it.
+> **AI codegen warning.** Solid is **not React**, and 2.0 is **not 1.x**. Both priors are dominant bug sources here — distrust pattern-matching from either. The bottom of this file lists 2.0-specific corrections; read them before generating code.
 
 ---
 
@@ -16,7 +16,7 @@ import {
   merge, omit,
   action, createOptimistic, createOptimisticStore,
   isPending, latest, refresh,
-  untrack, flush, onSettled, onCleanup,
+  untrack, flush, onSettled,
   createContext, useContext, children, lazy, createUniqueId,
 } from "solid-js";
 
@@ -86,17 +86,16 @@ createEffect(
 // Run on next change only (skip initial)
 createEffect(() => count(), v => log(v), { defer: true });
 
-// Schedule once after the current activity settles
+// Schedule once after the current activity settles — the canonical
+// "do this once and clean it up on dispose" primitive (replaces 1.x
+// onMount + onCleanup for component-level lifecycle).
 onSettled(() => {
-  measure();
-  return () => unmount();
+  const id = setInterval(tick, 1000);
+  return () => clearInterval(id);
 });
-
-// Lifecycle cleanup inside computations
-onCleanup(() => clearInterval(id));
 ```
 
-`onSettled` works in component bodies (after first reactive settle) **and** in event handlers (defer work until the triggered transition settles).
+`onSettled` works in component bodies (after first reactive settle) **and** in event handlers (defer work until the triggered transition settles). For component-level setup-and-teardown, **use `onSettled` with a returned cleanup, not `onCleanup` directly** — `onCleanup` is reserved for reactive cleanup inside computations (see Advanced).
 
 ---
 
@@ -122,7 +121,10 @@ setStore(s => {
   s.list.push("x");
 });
 
-// Return a value to shallow-replace
+// Return a value when mutation is awkward (filter/remove most often).
+// Arrays replace by index + length; objects shallow-diff at the top level.
+// No keyed reconciliation here — for that, use createProjection / createStore(fn).
+setStore(s => s.list.filter(x => x !== "x"));
 setStore(s => ({ ...s, list: [] }));
 
 // Reconcile new data into a sub-tree (preserve identity)
@@ -140,7 +142,31 @@ const [cache, setCache] = createStore(draft => { draft.x = compute(); }, { x: 0 
 
 ---
 
-## Props helpers
+## Props
+
+**Props are reactive values, not accessors.** Two rules, one underlying model — and together the most common AI-generated bug class in Solid.
+
+```jsx
+const [count, setCount] = createSignal(0);
+
+// 1. At the call site: pass the VALUE. Call accessors at the JSX boundary.
+<Counter value={count()} />            // ✅
+<Counter value={count} />              // ❌ child receives a function, not a number
+
+// 2. In the child: read via `props.x`. The *property access* is what tracks.
+function Counter(props) {
+  return <div>{props.value}</div>;     // ✅ re-reads on each render
+}
+function Counter({ value }) {          // ❌ destructure unwraps once, reactivity is dead
+  return <div>{value}</div>;
+}
+```
+
+The rules are two sides of the same boundary: the parent collapses its accessors to values when handing off; the JSX runtime re-wraps `props` so that `props.value` re-reads on each access. Skip step 1 and the child gets a function; skip step 2 and the child reads once.
+
+If you genuinely need to forward a getter (rare — render props, lazy slots), pass `getValue={() => count()}` and document it. Default to values.
+
+### Helpers
 
 ```ts
 const merged = merge(defaults, props, overrides); // replaces mergeProps
@@ -255,22 +281,46 @@ return <Active value={value()} />;
 
 ## Context, components, lazy
 
+Context is for state scoped to a subtree of the component tree. **If you
+want truly app-wide state, don't use Context — a module-scope signal/store
+*is* a global.** That's why the default-less form requires a Provider.
+
 ```tsx
-const Theme = createContext("light");
+// Default-less — the canonical form. No Provider → ContextNotFoundError.
+type TodosCtx = readonly [Store<Todo[]>, TodoActions];
+const TodosContext = createContext<TodosCtx>();
 
 function App() {
   return (
-    <Theme value="dark">          {/* context value IS the provider — no .Provider */}
-      <Page />
-    </Theme>
+    <TodosContext value={createTodos()}>   {/* the context IS the provider */}
+      <TodoList />
+    </TodosContext>
   );
 }
 
+function TodoList() {
+  const [todos, { addTodo }] = useContext(TodosContext); // typed as TodosCtx
+  // ...
+}
+```
+
+```tsx
+// Default form — only for primitive fallbacks (theme, locale, frozen config).
+// Outside any Provider, useContext returns the default.
+const Theme = createContext<"light" | "dark">("light");
+
 function Page() {
-  const theme = useContext(Theme);
+  const theme = useContext(Theme); // "light" | "dark"
   return <div class={theme}>...</div>;
 }
+```
 
+Don't write a `useTodos`-style wrapper that re-throws on missing Provider —
+the default-less form already throws, and `useContext` is typed `T` (no
+`| undefined`). The wrapper is React-flavored boilerplate that no longer
+earns its keep.
+
+```tsx
 // Resolve children once
 const list = children(() => props.children);
 list.toArray();
@@ -327,19 +377,37 @@ function titleDirective(source) {
 }
 ```
 
-### Attributes & class
+### Attributes
 
 ```jsx
 <video muted={true} />              // boolean = presence/absence
 <video muted={false} />
 <some-element enabled="true" />     // when platform requires the string
-
-<div class="card" />
-<div class={{ active: isActive(), disabled: isDisabled() }} />
-<div class={["card", props.class, { active: isActive() }]} />
 ```
 
-Lowercase HTML attribute names. No `attr:` / `bool:` / `oncapture:` namespaces. No `classList`. Event handlers stay camelCase (`onClick`).
+Lowercase HTML attribute names. No `attr:` / `bool:` / `oncapture:` namespaces. Event handlers stay camelCase (`onClick`).
+
+### Conditional classes — always use the array/object form
+
+```jsx
+<div class="card" />                                          // static string
+<div class={{ active: isActive(), invalid: !valid() }} />     // object: toggle by truthiness
+<div class={["card", props.class, { active: isActive() }]} /> // array: merge entries
+```
+
+Array entries are always-on (or further nested arrays/objects). Object entries toggle by truthiness. There is no `classList` prop — the array+object form replaces it.
+
+**Don't build class strings manually.** String concatenation, template literals, and `.join(" ")` over conditionals are the React/`classnames` reflex. Use the array+object form so conditions compose:
+
+```jsx
+<li class={["todo", { completed: props.todo.completed, errored: !!err() }]} />     // ✅
+
+const cls = ["todo",                                                                // ❌
+  props.todo.completed && "completed",
+  err() && "errored",
+].filter(Boolean).join(" ");
+return <li class={cls} />;
+```
 
 ---
 
@@ -375,6 +443,12 @@ Each diagnostic has a code (see RFC 08 / runtime error message) — search the d
 Reach for these only when the named situation applies. **If you're not sure, you don't need them** — the common-path APIs above are the answer.
 
 ```ts
+// Reactive cleanup inside a computation — runs before the next compute and
+// on disposal. For component-level setup-and-teardown, use onSettled and
+// return a cleanup; onCleanup is for library/primitive internals where the
+// cleanup is tied to a reactive run, not a component lifecycle.
+onCleanup(() => disposeReactiveResource());
+
 // Deep tracking — only when an effect needs to react to *any* nested store change.
 // Default store tracking is property-level (preferred).
 createEffect(() => deep(store), snap => save(snap));
@@ -463,10 +537,11 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 - **Setters don't update reads immediately** — values become visible after the microtask flushes (or via `flush()`).
 - **No writes inside owned scope** — writing a signal/store from inside a memo, effect compute, or component body throws in dev. Move writes to event handlers, `onSettled`, or untracked blocks. Opt in narrowly with `{ ownedWrite: true }` for internal state.
 - **No top-level reactive reads in component body** — reading signals/props directly at the top of a component warns. Read inside JSX, a memo, or `untrack`.
-- **Don't destructure props** — `function Comp({ name })` warns; use `props.name` to keep reactivity.
+- **Props are values, not accessors** — at the call site call accessors (`<X v={count()} />`, not `<X v={count} />`). The single most common AI-generated bug.
+- **Don't destructure props** — `function Comp({ name })` warns; use `props.name` to keep reactivity. (Same root cause as above; see the Props section.)
 - **`<For>` non-keyed children are accessors** — `(item, i) => ...` where `item` and `i` are functions. Call them: `item()`, `i()`.
 - **`<Show>` / `<Match>` function children receive narrowed accessors** — also call them.
-- **Stores: setters take a draft callback** by default. Mutate it. Optionally return a value for shallow replacement.
+- **Stores: setters take a draft callback** — mutate the draft in place by default. Returning a new value is shallow (array index-replace, object top-level diff); reach for it for filter/remove. Keyed reconcile is a *projection-fn* feature, not a setter feature.
 - **`undefined` is a real value in `merge`** — it overrides rather than "skip this key".
 - **Async lives in computations** — return a Promise/AsyncIterable from `createMemo`/`createStore(fn)`/`createProjection`. Reads suspend; wrap in `<Loading>`.
 - **`Loading` is initial-only by default** — once content has rendered, revalidation keeps it visible. Use `isPending(() => x())` for "refreshing…" indicators. Use `<Loading on={key}>` to re-show fallback on key changes.

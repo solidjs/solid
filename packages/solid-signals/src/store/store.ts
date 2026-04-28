@@ -15,6 +15,7 @@ import {
   trackOptimisticStore,
   untrack,
   type Computed,
+  type Refreshable,
   type Signal
 } from "../core/index.js";
 import {
@@ -27,9 +28,19 @@ import { createProjectionInternal } from "./projection.js";
 /** A read-only view of a store's value as seen by consumers. Mutate it via the paired `StoreSetter`. */
 export type Store<T> = Readonly<T>;
 /**
- * A store setter. The callback receives a writable **draft** of the store —
- * mutate it in place (`s.foo = 1`, `s.list.push(x)`) or return a new value to
- * replace the contents entirely.
+ * A store setter. The callback receives a writable **draft** of the store.
+ *
+ * - **Mutate in place (canonical):** `s.foo = 1`, `s.list.push(x)`,
+ *   `s.list.splice(i, 1)`. This is the default form for most updates.
+ * - **Return a new value:** for shapes where mutation is awkward, most
+ *   commonly removing items (`s => s.list.filter(...)`). Arrays are replaced
+ *   by index (length adjusted); objects are shallow-diffed at the top level
+ *   (keys present in the returned value are written, missing keys deleted).
+ *
+ * The setter does **not** perform keyed reconciliation. If you need surviving
+ * items to keep their store identity across full-array replacement, use the
+ * projection form — `createStore(fn, seed, { key })` or `createProjection` —
+ * whose derive function reconciles its return by `options.key`.
  */
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
 /** Base options for store primitives. */
@@ -612,32 +623,47 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
  * Creates a deeply-reactive store backed by a Proxy. Reads track each property
  * accessed; only the parts that change trigger updates.
  *
- * The setter takes a **draft-mutating** function — it receives a writable
- * draft of the store and you mutate it in place. To replace whole sub-trees,
- * return the new value from the function.
+ * Store properties hold **plain values**, not accessors. The proxy already
+ * tracks reads per-property — wrapping a value in `() => state.foo` produces
+ * a getter that *won't* track when called, which looks like a reactivity bug
+ * but is just a category error. If you have a signal-shaped piece of state,
+ * make it a property of the store (`{ foo: 1 }`) rather than nesting an
+ * accessor inside (`{ foo: () => signal() }`).
+ *
+ * The setter takes a **draft-mutating** function — mutate the draft in place
+ * (canonical). The callback may also return a new value: arrays are replaced
+ * by index (length adjusted), objects are shallow-diffed at the top level
+ * (keys present in the returned value are written, missing keys deleted). Use
+ * the return form for shapes where mutation is awkward — most commonly
+ * removing items via `filter`. The setter does **not** do keyed reconciliation;
+ * for that, use the derived/projection form (or `createProjection`).
  *
  * - Plain form: `createStore(initialValue)` — wraps a value in a reactive
  *   proxy.
  * - Derived form: `createStore(fn, seed, options?)` — a *projection store*
  *   whose contents are computed by `fn(draft)`. `fn` may be sync, async, or
- *   an `AsyncIterable`; results reconcile against the existing store using
- *   `options.key` (default `"id"`) for stable identity.
+ *   an `AsyncIterable`; the projection's result reconciles against the
+ *   existing store by `options.key` (default `"id"`) for stable identity.
  *
  * @example
  * ```ts
  * const [state, setState] = createStore({
  *   user: { name: "Ada", age: 36 },
- *   todos: [] as { id: string; text: string }[]
+ *   todos: [] as { id: string; text: string; done: boolean }[]
  * });
  *
- * setState(s => { s.user.age = 37; });                          // mutate in place
- * setState(s => { s.todos.push({ id: "1", text: "x" }); });
- * setState(s => ({ ...s, user: { name: "Grace", age: 85 } }));  // replace
+ * // Canonical: mutate the draft in place.
+ * setState(s => { s.user.age = 37; });
+ * setState(s => { s.todos.push({ id: "1", text: "x", done: false }); });
+ *
+ * // Return form: reach for it when mutation is awkward.
+ * setState(s => s.todos.filter(t => !t.done));               // remove items
+ * setState(s => ({ ...s, user: { name: "Grace", age: 85 } })); // shallow replace
  * ```
  *
  * @example
  * ```ts
- * // Derived store — auto-fetches & reconciles by `id`
+ * // Derived store — auto-fetches & reconciles by `id`.
  * const [users] = createStore(
  *   async () => fetch("/users").then(r => r.json()),
  *   [] as User[]
@@ -653,7 +679,7 @@ export function createStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   store: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
-): [get: Store<T> & { [$REFRESH]: any }, set: StoreSetter<T>];
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: NoFn<T> | Store<NoFn<T>>,

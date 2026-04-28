@@ -1,0 +1,34 @@
+{
+  "name": "todos-example",
+  "description": "TodoMVC built on Solid 2.0 — exercises createOptimisticStore, action, refresh, draft-first store setters, Loading, per-item retry affordances, and a global Errored boundary",
+  "version": "0.0.0",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c rollup.config.js",
+    "build:prod": "cross-env production=1 rollup -c rollup.config.js",
+    "start": "node server.js",
+    "dev": "rollup -c rollup.config.js -w",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rimraf public/js"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.21.3",
+    "@babel/preset-typescript": "^7.18.6",
+    "@rollup/plugin-babel": "6.0.3",
+    "@rollup/plugin-commonjs": "24.0.1",
+    "@rollup/plugin-node-resolve": "15.0.1",
+    "@solidjs/web": "workspace:*",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "babel-preset-solid": "workspace:*",
+    "cross-env": "^7.0.3",
+    "express": "^4.20.0",
+    "rollup": "^3.20.0",
+    "rollup-plugin-copy": "^3.4.0",
+    "solid-js": "workspace:*",
+    "typescript": "^6.0.2"
+  }
+}
