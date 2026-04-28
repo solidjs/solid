@@ -1169,6 +1169,142 @@ describe("createOptimisticStore", () => {
       expect(todos[0].completed).toBe(false);
     });
 
+    it("should not flicker through previously-committed value on second toggle of async-source optimistic store", async () => {
+      // Regression: stashedOptimisticReads was firing on stashed transitions
+      // that still had live _asyncReporters, causing render effects to briefly
+      // re-render with the previous committed value of the property signal
+      // (e.g. the prior toggle's result) before the override settled in.
+      //
+      // The bug surfaces specifically once the action's generator has fully
+      // returned (so `_actions.length === 0`) while `refresh()` inside it
+      // kicked a new pending projection fetch (so `_asyncReporters` is
+      // populated). The stash branch ran the committed-view rerun even
+      // though the transition was still genuinely waiting on async work.
+      let serverCompleted = false;
+      let resolveFetch: (() => void) | null = null;
+
+      const [todos, setTodos] = createOptimisticStore(
+        async () => {
+          await new Promise<void>(r => (resolveFetch = r));
+          return [{ id: "1", completed: serverCompleted }];
+        },
+        [] as { id: string; completed: boolean }[],
+        { key: "id" }
+      );
+
+      const values: (boolean | undefined)[] = [];
+
+      createRoot(() => {
+        createRenderEffect(
+          () => todos[0]?.completed,
+          v => {
+            values.push(v);
+          }
+        );
+      });
+
+      flush();
+      expect(typeof resolveFetch).toBe("function");
+      resolveFetch!();
+      resolveFetch = null;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(todos[0].completed).toBe(false);
+      expect(values[values.length - 1]).toBe(false);
+
+      // === Toggle 1: false -> true. Drive it all the way through commit so
+      // that el._value (the property signal's committed snapshot) ends up
+      // holding `true` — the value the second toggle would flicker through.
+      let resolveApi1: () => void;
+      const apiPromise1 = new Promise<void>(r => (resolveApi1 = r));
+      const toggle1 = action(function* () {
+        setTodos(t => {
+          const todo = t.find(x => x.id === "1");
+          if (todo) todo.completed = true;
+        });
+        yield apiPromise1;
+        serverCompleted = true;
+        refresh(todos);
+      });
+      toggle1();
+      await Promise.resolve();
+      flush();
+
+      expect(todos[0].completed).toBe(true);
+      expect(values[values.length - 1]).toBe(true);
+
+      resolveApi1!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(typeof resolveFetch).toBe("function");
+      resolveFetch!();
+      resolveFetch = null;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(todos[0].completed).toBe(true);
+
+      // === Toggle 2: true -> false. To trigger the bug we have to reach
+      // the state where the action's generator has returned (_actions empty)
+      // while a refresh-driven fetch is still pending (_asyncReporters
+      // populated). That's the moment stashedOptimisticReads used to fire
+      // unconditionally — re-reading el._value (= `true` from toggle 1)
+      // inside the render effect.
+      let resolveApi2: () => void;
+      const apiPromise2 = new Promise<void>(r => (resolveApi2 = r));
+      const toggle2 = action(function* () {
+        setTodos(t => {
+          const todo = t.find(x => x.id === "1");
+          if (todo) todo.completed = false;
+        });
+        yield apiPromise2;
+        serverCompleted = false;
+        refresh(todos);
+      });
+      toggle2();
+      await Promise.resolve();
+      flush();
+
+      expect(todos[0].completed).toBe(false);
+      expect(values[values.length - 1]).toBe(false);
+
+      // Mark this point. From here until the new fetch resolves, the
+      // render effect must not see `true` (the previous committed value).
+      const lengthBeforeApi2Resolve = values.length;
+
+      resolveApi2!();
+      // Action generator resumes, calls refresh(todos), returns.
+      // Action is now removed from _actions. The refresh-triggered fetch
+      // is still pending — _asyncReporters has it.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      // The new fetch is pending — resolveFetch is set but not called.
+      expect(typeof resolveFetch).toBe("function");
+
+      const valuesDuringStashedTransition = values.slice(lengthBeforeApi2Resolve);
+      expect(valuesDuringStashedTransition.every(v => v === false)).toBe(true);
+      expect(todos[0].completed).toBe(false);
+
+      // Resolve the fetch and let the transition commit cleanly.
+      resolveFetch!();
+      resolveFetch = null;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(todos[0].completed).toBe(false);
+      expect(values[values.length - 1]).toBe(false);
+    });
+
     it("should handle toggles with flush between them (separate event loops)", async () => {
       // Simulates: user clicks, flush runs, then clicks again later
       let resolveApi1: () => void;

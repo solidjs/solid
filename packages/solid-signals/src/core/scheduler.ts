@@ -309,7 +309,11 @@ export class GlobalQueue extends Queue {
           scheduled = dirtyQueue._max >= dirtyQueue._min;
           reassignPendingTransition(stashedTransition._pendingNodes);
           activeTransition = null;
-          if (!stashedTransition._actions.length && stashedTransition._optimisticNodes.length) {
+          if (
+            !stashedTransition._actions.length &&
+            !stashedTransition._asyncReporters.size &&
+            stashedTransition._optimisticNodes.length
+          ) {
             stashedOptimisticReads = new Set();
             for (let i = 0; i < stashedTransition._optimisticNodes.length; i++) {
               const node = stashedTransition._optimisticNodes[i];
