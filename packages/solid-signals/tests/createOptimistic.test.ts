@@ -1,5 +1,6 @@
 import {
   action,
+  createEffect,
   createLoadingBoundary,
   createMemo,
   createOptimistic,
@@ -825,6 +826,121 @@ describe("createOptimistic", () => {
       expect($data!()).toBe(20); // computed: 2 * 10 = 20, not 999
       expect($id()).toBe(2); // committed
       expect(isPending($data!)).toBe(false);
+    });
+
+    it("plain optimistic stays true through refresh-of-unrelated-async (issue #2685)", async () => {
+      // github.com/solidjs/solid/issues/2685 — the optimistic signal itself
+      // is plain (no async source); the async work comes from refresh()ing
+      // an unrelated async memo inside the action. Pre-fix: render effect
+      // observed `false` after refresh kicked the async memo, even though
+      // the action's optimistic override was still in force. User effect
+      // continued to observe `true`. Both tiers must agree at every flush.
+      let resolveFetch: (() => void) | null = null;
+
+      const usersMemo = createMemo(async () => {
+        await new Promise<void>(r => (resolveFetch = r));
+        return [{ id: 1, name: "John" }];
+      });
+      const [pending, setPending] = createOptimistic(false);
+
+      const renderObs: boolean[] = [];
+      const userObs: boolean[] = [];
+
+      createRoot(() => {
+        // Subscribe a render effect to usersMemo so refresh() actually
+        // schedules a re-fetch (matching the JSX <For each={users()}>).
+        createRenderEffect(
+          () => {
+            try {
+              usersMemo();
+            } catch {
+              /* NotReadyError from initial async — expected */
+            }
+          },
+          () => {}
+        );
+
+        createRenderEffect(
+          () => pending(),
+          v => {
+            renderObs.push(v);
+          }
+        );
+        createEffect(
+          () => pending(),
+          v => {
+            userObs.push(v);
+          }
+        );
+      });
+
+      flush();
+      // Initial fetch resolves so the memo is committed.
+      expect(typeof resolveFetch).toBe("function");
+      resolveFetch!();
+      resolveFetch = null;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(pending()).toBe(false);
+      expect(renderObs).toEqual(userObs);
+      const baselineRender = [...renderObs];
+      const baselineUser = [...userObs];
+
+      // Action: optimistic write -> yield -> refresh(usersMemo).
+      let resolveApi!: () => void;
+      const apiPromise = new Promise<void>(r => (resolveApi = r));
+      const save = action(function* () {
+        setPending(true);
+        yield apiPromise;
+        refresh(usersMemo);
+      });
+      save().catch(() => {});
+
+      // After optimistic write + yield: both tiers must see true.
+      await Promise.resolve();
+      flush();
+      expect(renderObs[renderObs.length - 1]).toBe(true);
+      expect(userObs[userObs.length - 1]).toBe(true);
+
+      // Resolve the action's yield. Generator resumes, calls refresh(),
+      // throws NotReadyError out into the action promise (caught), and
+      // the transition stashes with _actions=0 but _asyncReporters>0
+      // (the refreshed memo). Pre-fix: the stash branch's "committed view"
+      // rerun fired and render effect saw `pending = false`. Post-fix:
+      // the rerun is gated on _asyncReporters being empty, so the override
+      // stays in force.
+      resolveApi();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      // Render and user tiers must agree at this critical mid-transition
+      // moment.
+      expect(renderObs[renderObs.length - 1]).toBe(userObs[userObs.length - 1]);
+      expect(renderObs[renderObs.length - 1]).toBe(true);
+
+      // Resolve the refreshed fetch. Transition completes, optimistic
+      // override is reverted, both tiers settle on false.
+      expect(typeof resolveFetch).toBe("function");
+      resolveFetch!();
+      resolveFetch = null;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+
+      expect(pending()).toBe(false);
+      expect(renderObs[renderObs.length - 1]).toBe(false);
+      expect(userObs[userObs.length - 1]).toBe(false);
+
+      // No tier ever logged a value the other tier didn't.
+      const newRender = renderObs.slice(baselineRender.length);
+      const newUser = userObs.slice(baselineUser.length);
+      expect(newRender).toEqual(newUser);
     });
   });
 
