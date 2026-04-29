@@ -74,6 +74,7 @@ export const STORE_VALUE = "v",
   STORE_OPTIMISTIC_OVERRIDE = "x",
   STORE_NODE = "n",
   STORE_HAS = "h",
+  STORE_CUSTOM_PROTO = "c",
   STORE_WRAP = "w",
   STORE_LOOKUP = "l",
   STORE_FIREWALL = "f",
@@ -86,6 +87,7 @@ export type StoreNode = {
   [STORE_OPTIMISTIC_OVERRIDE]?: Record<PropertyKey, any>;
   [STORE_NODE]?: DataNodes;
   [STORE_HAS]?: DataNodes;
+  [STORE_CUSTOM_PROTO]?: boolean;
   [STORE_WRAP]?: (value: any, target?: StoreNode) => any;
   [STORE_LOOKUP]?: WeakMap<any, any>;
   [STORE_FIREWALL]?: Computed<any>;
@@ -118,6 +120,7 @@ export function createStoreProxy<T extends object>(
     newTarget = [];
     newTarget.v = value;
   } else newTarget = { v: value };
+  newTarget[STORE_CUSTOM_PROTO] = hasCustomPrototype(unwrapStoreValue(value));
   extend && extend(newTarget);
   return (newTarget[$PROXY] = new Proxy(newTarget, traps));
 }
@@ -146,6 +149,26 @@ export function setWriteOverride(value: boolean) {
 
 function writeOnly(proxy: any) {
   return writeOverride || !!Writing?.has(proxy);
+}
+
+function unwrapStoreValue(value: any) {
+  return value?.[$TARGET]?.[STORE_VALUE] ?? value;
+}
+
+function hasCustomPrototype(value: any): boolean {
+  if (Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto !== null && proto !== Object.prototype;
+}
+
+function hasInheritedAccessor(source: Record<PropertyKey, any>, property: PropertyKey): boolean {
+  let current = Object.getPrototypeOf(source);
+  while (current && current !== Object.prototype) {
+    const desc = Reflect.getOwnPropertyDescriptor(current, property);
+    if (desc) return !!desc.get;
+    current = Object.getPrototypeOf(current);
+  }
+  return false;
 }
 
 function getNodes(target: StoreNode, type: typeof STORE_NODE | typeof STORE_HAS): DataNodes {
@@ -348,6 +371,12 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     if (!tracked) {
       const desc = Object.getOwnPropertyDescriptor(storeValue, property);
       if (desc && desc.get) return desc.get.call(receiver);
+      if (!desc && !overridden && target[STORE_CUSTOM_PROTO]) {
+        const source = unwrapStoreValue(storeValue);
+        if (hasInheritedAccessor(source, property)) {
+          return Reflect.get(storeValue, property, receiver);
+        }
+      }
     }
     if (writeOnly(receiver)) {
       let value =
@@ -454,7 +483,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
             : target[STORE_OVERRIDE] && property in target[STORE_OVERRIDE]
               ? target[STORE_OVERRIDE][property] !== $DELETED
               : property in target[STORE_VALUE];
-        const value = rawValue?.[$TARGET]?.[STORE_VALUE] ?? rawValue;
+        const value = unwrapStoreValue(rawValue);
         const isArrayIndexWrite = Array.isArray(state) && property !== "length";
         const nextIndex = isArrayIndexWrite ? parseInt(property as string) + 1 : 0;
         const len =
@@ -506,7 +535,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
           "value" in descriptor
             ? {
                 ...descriptor,
-                value: descriptor.value?.[$TARGET]?.[STORE_VALUE] ?? descriptor.value
+                value: unwrapStoreValue(descriptor.value)
               }
             : descriptor;
         Object.defineProperty(
