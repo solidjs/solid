@@ -2,6 +2,7 @@ import {
   $TARGET,
   createEffect,
   createMemo,
+  createProjection,
   createRenderEffect,
   createRoot,
   createSignal,
@@ -799,6 +800,65 @@ describe("Nested Classes", () => {
     });
     flush();
     expect(sum).toBe(15);
+  });
+
+  test("prototype getters track instance field updates", () => {
+    class CustomThing {
+      a = 1;
+      b = 10;
+      get sum() {
+        return this.a + this.b;
+      }
+    }
+
+    const [store, setStore] = createStore(new CustomThing());
+
+    let sum;
+    createRoot(() => {
+      createEffect(
+        () => store.sum,
+        v => {
+          sum = v;
+        }
+      );
+    });
+    flush();
+    expect(sum).toBe(11);
+    setStore(s => {
+      s.a = 10;
+    });
+    flush();
+    expect(sum).toBe(20);
+  });
+
+  test("prototype getters track through projection stores seeded from another store", () => {
+    class CustomThing {
+      a = 1;
+      b = 10;
+      get sum() {
+        return this.a + this.b;
+      }
+    }
+
+    const [base, setBase] = createStore(new CustomThing());
+    const projection = createProjection<CustomThing>(() => {}, base);
+
+    let sum;
+    createRoot(() => {
+      createEffect(
+        () => projection.sum,
+        v => {
+          sum = v;
+        }
+      );
+    });
+    flush();
+    expect(sum).toBe(11);
+    setBase(s => {
+      s.a = 10;
+    });
+    flush();
+    expect(sum).toBe(20);
   });
 
   test("does not wrap Node instances", () => {
