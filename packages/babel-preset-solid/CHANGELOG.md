@@ -1,5 +1,27 @@
 # babel-preset-solid
 
+## 1.9.12
+
+### Patch Changes
+
+- c58983d: fix SSR output including `bool:` attribute serialization and escaping for logical and child expressions
+- Updated dependencies [51b0797]
+- Updated dependencies [6b0c4ee]
+- Updated dependencies [51cce75]
+- Updated dependencies [c58983d]
+  - solid-js@1.9.12
+
+## 1.9.10
+
+### Patch Changes
+
+- 6c92555: Update dom-expressions, seroval plugins, optional chaining ref, style optimization
+- Updated dependencies [2270ae9]
+- Updated dependencies [94d87f1]
+- Updated dependencies [3114302]
+- Updated dependencies [6c92555]
+  - solid-js@1.9.10
+
 ## 1.9.9
 
 ### Patch Changes

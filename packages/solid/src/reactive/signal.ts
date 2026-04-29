@@ -950,7 +950,7 @@ export interface OnOptions {
  * });
  * ```
  *
- * @description https://docs.solidjs.com/reference/reactive-utilities/on
+ * @description https://docs.solidjs.com/reference/reactive-utilities/on-util
  */
 export function on<S, Next extends Prev, Prev = Next>(
   deps: AccessorArray<S> | Accessor<S>,
@@ -1417,6 +1417,8 @@ function runComputation(node: Computation<any>, value: any, time: number) {
     if (node.updatedAt != null && "observers" in node) {
       writeSignal(node as Memo<any>, nextValue, true);
     } else if (Transition && Transition.running && node.pure) {
+      // On first computation during transition, also set committed value #2046
+      if (!Transition.sources.has(node as Memo<any>)) node.value = nextValue;
       Transition.sources.add(node as Memo<any>);
       (node as Memo<any>).tValue = nextValue;
     } else node.value = nextValue;
@@ -1468,15 +1470,26 @@ function createComputation<Next, Init = unknown>(
   if (IS_DEV && options && options.name) c.name = options.name;
 
   if (ExternalSourceConfig && c.fn) {
+    const sourceFn = c.fn;
     const [track, trigger] = createSignal<void>(undefined, { equals: false });
-    const ordinary = ExternalSourceConfig.factory(c.fn, trigger);
+    const ordinary = ExternalSourceConfig.factory(sourceFn, trigger);
     onCleanup(() => ordinary.dispose());
+    let inTransition: ExternalSource | undefined;
     const triggerInTransition: () => void = () =>
-      startTransition(trigger).then(() => inTransition.dispose());
-    const inTransition = ExternalSourceConfig.factory(c.fn, triggerInTransition);
+      startTransition(trigger).then(() => {
+        if (inTransition) {
+          inTransition.dispose();
+          inTransition = undefined;
+        }
+      });
     c.fn = x => {
       track();
-      return Transition && Transition.running ? inTransition.track(x) : ordinary.track(x);
+      if (Transition && Transition.running) {
+        if (!inTransition)
+          inTransition = ExternalSourceConfig!.factory(sourceFn, triggerInTransition);
+        return inTransition.track(x);
+      }
+      return ordinary.track(x);
     };
   }
 
@@ -1788,7 +1801,7 @@ type TODO = any;
  *
  * * If the error is thrown again inside the error handler, it will trigger the next available parent handler
  *
- * @description https://www.solidjs.com/docs/latest/api#onerror | https://docs.solidjs.com/reference/reactive-utilities/catch-error
+ * @description https://docs.solidjs.com/reference/reactive-utilities/catch-error
  */
 export function onError(fn: (err: Error) => void): void {
   ERROR || (ERROR = Symbol("error"));

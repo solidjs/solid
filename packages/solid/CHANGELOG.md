@@ -1,5 +1,29 @@
 # solid-js
 
+## 1.9.12
+
+### Patch Changes
+
+- 51b0797: fix: prevent createDeferred from keeping Node.js process alive
+- 6b0c4ee: fix: lazily create inTransition external source to prevent use-after-dispose
+- 51cce75: Set committed value for computations created during transition
+- c58983d: fix SSR output including `bool:` attribute serialization and escaping for logical and child expressions
+
+## 1.9.11
+
+### Patch Changes
+
+- 6628d9f: Update dom-expressions/seroval to latest
+
+## 1.9.10
+
+### Patch Changes
+
+- 2270ae9: Fix: Collision during SSR in createResource due to `loading` property.
+- 94d87f1: Update `build:clean` and `types:clean` script to include missing paths
+- 3114302: Improve `splitProps` performance
+- 6c92555: Update dom-expressions, seroval plugins, optional chaining ref, style optimization
+
 ## 1.9.9
 
 ### Patch Changes
