@@ -383,6 +383,48 @@ describe("storePath.DELETE", () => {
   });
 });
 
+describe("storePath prototype pollution guard", () => {
+  afterEach(() => {
+    delete (Object.prototype as any).polluted_a;
+    delete (Object.prototype as any).polluted_b;
+    delete (Object.prototype as any).polluted_c;
+    delete (Object.prototype as any).polluted_d;
+  });
+
+  test("does not pollute Object.prototype via __proto__ path", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+
+    setStore(storePath("__proto__", "polluted_a", true));
+
+    expect(({} as any).polluted_a).toBeUndefined();
+  });
+
+  test("does not pollute Object.prototype via __proto__ merge", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+
+    setStore(storePath("__proto__", { polluted_b: true }));
+
+    expect(({} as any).polluted_b).toBeUndefined();
+  });
+
+  test("does not pollute Object.prototype via constructor.prototype path", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+
+    setStore(storePath("constructor", "prototype", "polluted_c", true));
+
+    expect(({} as any).polluted_c).toBeUndefined();
+  });
+
+  test("does not apply JSON-parsed __proto__ keys during root merge", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+    const evil = JSON.parse('{"__proto__": {"polluted_d": true}}');
+
+    setStore(storePath(evil));
+
+    expect(({} as any).polluted_d).toBeUndefined();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Type-level tests (not executed, just checked by tsc)
 // ---------------------------------------------------------------------------

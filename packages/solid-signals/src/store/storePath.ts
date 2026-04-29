@@ -35,6 +35,10 @@ export type Part<T, K extends KeyOf<T> = KeyOf<T>> =
 
 const DELETE = Symbol(__DEV__ ? "STORE_PATH_DELETE" : 0);
 
+function isPrototypePollutionKey(part: unknown): boolean {
+  return part === "__proto__" || part === "constructor" || part === "prototype";
+}
+
 function updatePath(current: any, args: any[], i = 0) {
   let part: any,
     prev = current;
@@ -42,6 +46,8 @@ function updatePath(current: any, args: any[], i = 0) {
     part = args[i];
     const partType = typeof part;
     const isArray = Array.isArray(current);
+
+    if (partType === "string" && isPrototypePollutionKey(part)) return;
 
     if (Array.isArray(part)) {
       for (let j = 0; j < part.length; j++) {
@@ -89,6 +95,7 @@ function updatePath(current: any, args: any[], i = 0) {
     const keys = Object.keys(value);
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
+      if (isPrototypePollutionKey(key)) continue;
       const desc = Object.getOwnPropertyDescriptor(value, key)!;
       if (desc.get || desc.set) Object.defineProperty(target, key, desc);
       else target[key] = desc.value;
