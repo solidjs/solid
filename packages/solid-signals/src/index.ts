@@ -17,6 +17,7 @@ export {
   isDisposed,
   getObserver,
   isEqual,
+  isAlwaysEqual,
   untrack,
   isPending,
   latest,
