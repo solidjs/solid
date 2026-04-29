@@ -20,10 +20,14 @@ const narrowedError = (name: string) =>
     : `Stale read from <${name}>.`;
 
 /**
- * Creates a list of elements from a list
+ * Creates a list of elements from a list.
  *
- * it receives a map function as its child that receives list element and index accessors and returns a JSX-Element; if the list is empty, an optional fallback is returned:
- * ```typescript
+ * Receives a map function as its child that takes list element and index
+ * accessors and returns a JSX element; if the list is empty, an optional
+ * `fallback` is rendered instead.
+ *
+ * @example
+ * ```tsx
  * <For each={items} fallback={<div>No items</div>}>
  *   {(item, index) => <div data-index={index()}>{item()}</div>}
  * </For>
@@ -46,10 +50,13 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
 }
 
 /**
- * Creates a list elements from a count
+ * Creates a list of elements from a count.
  *
- * it receives a map function as its child that receives the index and returns a JSX-Element; if the list is empty, an optional fallback is returned:
- * ```typescript
+ * Receives a map function as its child that takes the index and returns a JSX
+ * element; if the count is zero, an optional `fallback` is rendered instead.
+ *
+ * @example
+ * ```tsx
  * <Repeat count={items.length} fallback={<div>No items</div>}>
  *   {(index) => <div data-index={index}>{items[index]}</div>}
  * </Repeat>
@@ -143,8 +150,12 @@ export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
 type EvalConditions = readonly [number, Accessor<unknown>, MatchProps<unknown>];
 
 /**
- * Switches between content based on mutually exclusive conditions
- * ```typescript
+ * Switches between content based on mutually exclusive conditions. Renders
+ * the first `<Match>` whose `when` is truthy; falls back to `fallback` when
+ * none match.
+ *
+ * @example
+ * ```tsx
  * <Switch fallback={<FourOhFour />}>
  *   <Match when={state.route === 'home'}>
  *     <Home />
@@ -154,6 +165,7 @@ type EvalConditions = readonly [number, Accessor<unknown>, MatchProps<unknown>];
  *   </Match>
  * </Switch>
  * ```
+ *
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
 export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
@@ -237,17 +249,21 @@ export function Match<T, F extends ConditionalRenderCallback<T>>(props: MatchPro
 }
 
 /**
- * Catches uncaught errors inside components and renders a fallback content
+ * Catches uncaught errors inside its subtree and renders fallback content
+ * instead. The `fallback` prop can be a JSX element, or a callback that
+ * receives the error and a `reset()` function for retry affordances.
  *
- * Also supports a callback form that passes the error and a reset function:
- * ```typescript
- * <Errored fallback={
- *   (err, reset) => <div onClick={reset}>Error: {err.toString()}</div>
- * }>
+ * Errors thrown from the fallback itself can be caught by a parent
+ * `<Errored>`.
+ *
+ * @example
+ * ```tsx
+ * <Errored fallback={(err, reset) => (
+ *   <div onClick={reset}>Error: {err.toString()}</div>
+ * )}>
  *   <MyComp />
  * </Errored>
  * ```
- * Errors thrown from the fallback can be caught by a parent Errored
  *
  * @description https://docs.solidjs.com/reference/components/error-boundary
  */
@@ -345,8 +361,11 @@ export type RevealProps = {
  * See `documentation/solid-2.0/03-control-flow.md` for the full nesting matrix and the
  * "minimally ready" definition per order.
  *
- * ```typescript
- * <Reveal order="sequential">
+ * @example
+ * ```tsx
+ * // Default order is "sequential"; the inner group composes as one slot
+ * // and runs its own "natural" order locally once the outer releases it.
+ * <Reveal>
  *   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
  *   <Reveal order="natural">
  *     <Loading fallback={<Skeleton />}><PostA /></Loading>

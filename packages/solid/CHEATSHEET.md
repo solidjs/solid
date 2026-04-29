@@ -254,8 +254,11 @@ Optimistic writes revert when the transition completes.
   <Page />
 </Errored>
 
-// Coordinate sibling Loadings (replaces <SuspenseList>)
-<Reveal order="sequential" /* | "together" | "natural" */ collapsed>
+// Coordinate sibling Loadings (replaces <SuspenseList>).
+// Default order is "sequential" — siblings reveal in registration order
+// as each resolves. `collapsed` (sequential only) suppresses tail-sibling
+// fallbacks past the frontier. Other orders: "together" | "natural".
+<Reveal collapsed>
   <Loading fallback={<S/>}><A/></Loading>
   <Loading fallback={<S/>}><B/></Loading>
 </Reveal>
@@ -415,8 +418,7 @@ return <li class={cls} />;
 ```ts
 import {
   renderToString, renderToStringAsync, renderToStream,
-  ssr, ssrElement, ssrClassList, ssrStyle, ssrAttribute, escape,
-  isServer
+  isServer, isDev
 } from "@solidjs/web";
 ```
 

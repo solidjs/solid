@@ -36,6 +36,13 @@ export const SUPPORTS_PROXY = typeof Proxy === "function";
 
 export const defaultContext = {};
 
+/**
+ * Brand symbol used by `Refreshable<T>` values (projection stores, async
+ * memos) to expose their underlying computation to `refresh()`. Not part of
+ * the user-facing API.
+ *
+ * @internal
+ */
 export const $REFRESH = Symbol("refresh");
 
 /**

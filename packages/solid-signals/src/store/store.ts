@@ -58,6 +58,12 @@ export type NoFn<T> = T extends Function ? never : T;
 type DataNode = Signal<any>;
 type DataNodes = Record<PropertyKey, DataNode>;
 
+/**
+ * Brand symbols used internally by the store proxy / projection plumbing.
+ * Cross-package wiring; not part of the user-facing API.
+ *
+ * @internal
+ */
 export const $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),
   $TARGET = Symbol(__DEV__ ? "STORE_TARGET" : 0),
   $PROXY = Symbol(__DEV__ ? "STORE_PROXY" : 0),

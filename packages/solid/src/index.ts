@@ -96,8 +96,11 @@ export {
   Hydration,
   NoHydrateContext
 } from "./client/hydration.js";
-// stub
+// Stub exports — only meaningful on the server entry; the client entry
+// satisfies the export surface so isomorphic builds don't break.
+/** @internal */
 export function ssrHandleError() {}
+/** @internal */
 export function ssrRunInScope() {}
 
 import type { JSX } from "./jsx.js";

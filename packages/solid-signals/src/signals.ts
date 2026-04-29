@@ -49,6 +49,18 @@ import { globalQueue } from "./core/scheduler.js";
  *
  * Cannot be used inside `createTrackedEffect` or `onSettled` — return a
  * cleanup function from the callback body instead.
+ *
+ * @example
+ * ```ts
+ * // Library shape: thread a resource's disposal into a *captured* owner
+ * // from a factory that has no settle-phase setup of its own. `onSettled`
+ * // would queue a callback we don't need; `onCleanup` is the leaner
+ * // primitive when the only job is "register disposal on this owner".
+ * function bindToOwner<T extends { dispose(): void }>(owner: Owner, resource: T): T {
+ *   runWithOwner(owner, () => onCleanup(() => resource.dispose()));
+ *   return resource;
+ * }
+ * ```
  */
 export function onCleanup(fn: Disposable): Disposable {
   if (__DEV__) {
@@ -151,7 +163,12 @@ export interface EffectOptions extends BaseEffectOptions {
 export interface SignalOptions<T> {
   /** Debug name (dev mode only) */
   name?: string;
-  /** Custom equality function, or `false` to always notify subscribers */
+  /**
+   * Custom equality function, or `false` to always notify subscribers.
+   * Defaults to reference equality (`isEqual`). Pass a comparator (e.g.
+   * `(a, b) => a.id === b.id`) for value-based equality, or `false` to
+   * notify on every write regardless of equality.
+   */
   equals?: false | ((prev: T, next: T) => boolean);
   /** Suppress dev-mode warnings when writing inside an owned scope */
   ownedWrite?: boolean;
@@ -171,7 +188,12 @@ export interface MemoOptions<T> {
   name?: string;
   /** When true, the owner is invisible to the ID scheme -- inherits parent ID and doesn't consume a childCount slot */
   transparent?: boolean;
-  /** Custom equality function, or `false` to always notify subscribers */
+  /**
+   * Custom equality function, or `false` to always notify subscribers.
+   * Defaults to reference equality (`isEqual`). Pass a comparator (e.g.
+   * `(a, b) => a.id === b.id`) for value-based equality, or `false` to
+   * notify on every recompute regardless of equality.
+   */
   equals?: false | ((prev: T, next: T) => boolean);
   /** Callback invoked when the computed loses all subscribers */
   unobserved?: () => void;
@@ -385,12 +407,28 @@ export function createEffect<T>(
  * Creates a reactive computation that runs during the render phase as DOM elements
  * are created and updated but not necessarily connected.
  *
+ * Same compute / effect split as `createEffect`, but scheduled inside the render
+ * queue rather than after it. Reach for this only when authoring renderer
+ * plumbing (custom DOM bindings, JSX-generated `insert()` / `spread()` calls).
+ * App code should use `createEffect`.
+ *
  * ```typescript
  * createRenderEffect<T>(compute, effectFn, options?: EffectOptions);
  * ```
  * @param compute a function that receives its previous value and returns a new value used to react on a computation
  * @param effectFn a function that receives the new value and is used to perform side effects
  * @param options `EffectOptions` -- name, defer, schedule
+ *
+ * @example
+ * ```ts
+ * // Custom directive: bind an element's textContent to a reactive source.
+ * function bindText(el: HTMLElement, source: () => string) {
+ *   createRenderEffect(
+ *     () => source(),
+ *     value => { el.textContent = value; }
+ *   );
+ * }
+ * ```
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */

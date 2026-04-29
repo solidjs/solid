@@ -37,11 +37,59 @@ export {
   Repeat,
   Reveal,
   NoHydration,
-  Hydration,
-  merge as mergeProps
+  Hydration
 } from "solid-js";
 
+import { merge } from "solid-js";
+
+/**
+ * Compiler-emitted prop-spread helper. The JSX transform (in
+ * `dom-expressions`) emits `mergeProps(...)` calls when compiling prop
+ * spreads on components — it is *not* a user-facing API. Application code
+ * should import `merge` from `solid-js` directly.
+ *
+ * @internal
+ */
+export const mergeProps = merge;
+
+/**
+ * Build-time constant indicating whether code is running on the server. This
+ * client entry sets it to `false`; the matching server entry (`@solidjs/web`
+ * resolved through the `solid` server export condition) sets it to `true`.
+ *
+ * Bundlers can dead-code-eliminate branches gated on `isServer`, so guarding
+ * browser-only code with `if (!isServer) {…}` keeps it out of the SSR bundle
+ * entirely.
+ *
+ * @example
+ * ```ts
+ * import { isServer } from "@solidjs/web";
+ *
+ * if (!isServer) {
+ *   // Browser-only: tree-shaken out of the SSR bundle.
+ *   window.addEventListener("resize", onResize);
+ * }
+ * ```
+ */
 export const isServer: boolean = false;
+
+/**
+ * Build-time constant indicating whether code is running in a dev build.
+ * Replaced statically (`_SOLID_DEV_`) by the bundler integration, so guards
+ * like `if (isDev) {…}` are stripped from production builds.
+ *
+ * Use this to gate dev-only diagnostics, warnings, or expensive invariants
+ * that should never ship to production.
+ *
+ * @example
+ * ```ts
+ * import { isDev } from "@solidjs/web";
+ *
+ * if (isDev) {
+ *   console.warn("debug-only path");
+ * }
+ * ```
+ */
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
@@ -179,12 +227,15 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
  * `source` may return a component, a native tag name (`'input'`, `'textarea'`,
  * etc.), `undefined`, or a `Promise` of any of the above. A pending promise
  * propagates as `NotReadyError` through the surrounding reactive scope, so
- * async swaps compose with `Loading`/Suspense boundaries the same way as
- * `lazy`.
+ * async swaps compose with `<Loading>` boundaries the same way as `lazy`.
  *
- * ```typescript
- * const User = dynamic(() => getUserComp(props.id));
- * return <User>client content</User>;
+ * @example
+ * ```tsx
+ * // `source` can return either a custom Component or a native tag
+ * // name — they're interchangeable, and the returned reference is a
+ * // stable Component you can use anywhere a normal one would go.
+ * const Field = dynamic(() => multiline() ? RichTextEditor : "input");
+ * return <Field value={value()} onInput={onInput} />;
  * ```
  *
  * @description https://docs.solidjs.com/reference/components/dynamic
@@ -219,10 +270,18 @@ export function dynamic<T extends ValidComponent>(
 }
 
 /**
- * Renders an arbitrary custom or native component and passes the other props
- * ```typescript
- * <Dynamic component={multiline() ? 'textarea' : 'input'} value={value()} />
+ * Renders an arbitrary custom or native component and forwards the other
+ * props. JSX form of `dynamic()` — same primitive, picked at the JSX site.
+ *
+ * @example
+ * ```tsx
+ * <Dynamic
+ *   component={multiline() ? RichTextEditor : "input"}
+ *   value={value()}
+ *   onInput={onInput}
+ * />
  * ```
+ *
  * @description https://docs.solidjs.com/reference/components/dynamic
  */
 export function Dynamic<T extends ValidComponent>(props: DynamicProps<T>): JSX.Element {

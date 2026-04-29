@@ -27,7 +27,19 @@ export {
   Hydration
 } from "solid-js";
 
+/**
+ * Build-time constant indicating whether code is running on the server. This
+ * is the server entry; the value is `true`. The client entry of `@solidjs/web`
+ * sets it to `false`. See the client-entry JSDoc for the canonical guard
+ * pattern.
+ */
 export const isServer: boolean = true;
+
+/**
+ * Build-time constant indicating whether code is running in a dev build.
+ * The server entry hard-codes `false` (SSR builds are production by
+ * convention); the client entry's value is set by `_SOLID_DEV_` substitution.
+ */
 export const isDev: boolean = false;
 
 export function dynamic<T extends ValidComponent>(

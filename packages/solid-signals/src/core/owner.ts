@@ -98,10 +98,22 @@ function childId(owner: Owner, consume: boolean): string {
   throw new Error("Cannot get child id from owner without an id");
 }
 
+/**
+ * Allocates and returns the next stable child id for `owner`. Used by
+ * hydration plumbing and `createUniqueId`. Not part of the user-facing API.
+ *
+ * @internal
+ */
 export function getNextChildId(owner: Owner): string {
   return childId(owner, true);
 }
 
+/**
+ * Returns the *next* child id for `owner` without consuming it. Used by
+ * hydration plumbing to peek at the id a future child will receive.
+ *
+ * @internal
+ */
 export function peekNextChildId(owner: Owner): string {
   return childId(owner, false);
 }
@@ -118,6 +130,15 @@ function formatId(prefix: string, id: number) {
  * Used by reactive primitives that need to know whether they're inside a
  * tracking scope. App code rarely needs this — see `getOwner()` for the
  * lifecycle owner instead.
+ *
+ * @example
+ * ```ts
+ * // Library predicate: only register a hot-path subscription when the
+ * // caller is inside a tracking scope (memo / effect compute / JSX).
+ * function trackIfTracked(source: () => unknown) {
+ *   if (getObserver()) source();
+ * }
+ * ```
  */
 export function getObserver(): Owner | null {
   if (pendingCheckActive || latestReadActive) return PENDING_OWNER;
@@ -158,15 +179,33 @@ export function cleanup(fn: Disposable): Disposable {
   return fn;
 }
 
-/** Returns `true` if the owner has been disposed (or marked zombie pending disposal). */
+/**
+ * Returns `true` if the owner has been disposed (or marked zombie pending
+ * disposal). Pair with a captured owner to bail out of late callbacks whose
+ * surrounding component already unmounted.
+ *
+ * @example
+ * ```ts
+ * function onSettleSafe(fn: () => void) {
+ *   const owner = getOwner();
+ *   queueMicrotask(() => {
+ *     if (owner && isDisposed(owner)) return; // component unmounted; skip
+ *     runWithOwner(owner, fn);
+ *   });
+ * }
+ * ```
+ */
 export function isDisposed(node: Owner): boolean {
   return !!((node as any)._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE));
 }
 
 /**
  * Creates a fresh owner attached as a child of the current owner (or as a
- * detached root if there is none). Mostly used by framework internals to
- * group cleanups; app code should prefer `createRoot()` or `runWithOwner()`.
+ * detached root if there is none). Used by framework internals to group
+ * cleanups; app code should use `createRoot()` (host a reactive scope outside
+ * a component) or `runWithOwner()` (re-enter a captured owner).
+ *
+ * @internal
  */
 export function createOwner(options?: { id?: string; transparent?: boolean }) {
   const parent = context;

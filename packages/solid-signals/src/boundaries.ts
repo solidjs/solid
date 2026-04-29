@@ -407,6 +407,17 @@ function createCollectionBoundary<T>(
  * @param fallback the fallback shown while async reads in `fn` are unresolved
  * @param options `on` — accessor whose value scopes the boundary; when set,
  *   transitions caused by writes to other reactive sources are *not* caught
+ *
+ * @example
+ * ```tsx
+ * // Custom boundary component built on top of the primitive.
+ * function MyLoading(props: { fallback: JSX.Element; children: JSX.Element }) {
+ *   return createLoadingBoundary(
+ *     () => props.children,
+ *     () => props.fallback
+ *   ) as unknown as JSX.Element;
+ * }
+ * ```
  */
 export function createLoadingBoundary(
   fn: () => any,
@@ -424,6 +435,20 @@ export function createLoadingBoundary(
  *
  * App code should use `<Errored fallback={...}>` instead — reach for this only
  * when authoring custom boundary components.
+ *
+ * @example
+ * ```tsx
+ * // Custom boundary that wraps the primitive and adds telemetry.
+ * function TracedErrored(props: { fallback: (e: unknown) => JSX.Element; children: JSX.Element }) {
+ *   return createErrorBoundary(
+ *     () => props.children,
+ *     (err, reset) => {
+ *       reportError(err);
+ *       return props.fallback(err);
+ *     }
+ *   ) as unknown as JSX.Element;
+ * }
+ * ```
  */
 export function createErrorBoundary<U>(
   fn: () => any,
@@ -469,6 +494,17 @@ export function createErrorBoundary<U>(
  * - `together` — every direct slot is minimally ready.
  * - `natural` — any direct slot has visible content (leaves on resolve; nested
  *   composites when fully ready, since natural treats composites as atomic).
+ *
+ * @example
+ * ```ts
+ * // Primitive form of `<Reveal>` — coordinate sibling loading boundaries
+ * // programmatically. App code uses the JSX `<Reveal>` component instead.
+ * // Both options are accessors so they can react to state changes.
+ * createRevealOrder(
+ *   () => renderSiblings(),
+ *   { order: () => mode(), collapsed: () => true }
+ * );
+ * ```
  */
 export function createRevealOrder<T>(
   fn: () => T,
@@ -510,6 +546,15 @@ export function createRevealOrder<T>(
  * @param options
  *   - `skipNonRendered` — drop values that won't render
  *   - `doNotUnwrap` — leave function children as-is (caller will resolve)
+ *
+ * @example
+ * ```ts
+ * // Custom renderer walking a children tree manually. Most authors should
+ * // use `children()` from solid-js, which memoizes the resolved value.
+ * function renderChildren(value: unknown): unknown {
+ *   return flatten(value, { skipNonRendered: true });
+ * }
+ * ```
  */
 export function flatten(
   children: any,

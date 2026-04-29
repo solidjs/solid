@@ -13,6 +13,12 @@ import { FlowComponent, FlowProps } from "./component.js";
 
 // replaced during build
 export const IS_DEV = "_SOLID_DEV_" as string | boolean;
+/**
+ * Brand symbol marking dev-built components for `solid-devtools` /
+ * AI-readiness instrumentation. Internal cross-package wiring.
+ *
+ * @internal
+ */
 export const $DEVCOMP = Symbol(IS_DEV ? "COMPONENT_DEV" : 0);
 
 // Magic type that when used at sites where generic types are inferred from, will prevent those sites from being involved in the inference.

@@ -25,6 +25,25 @@ export let externalSourceConfig: {
  * @param config.factory receives `(fn, trigger)` — wrap fn execution in external tracking,
  *   call trigger when external deps change. Return `{ track, dispose }`.
  * @param config.untrack optional wrapper for `untrack` — disables external tracking too.
+ *
+ * @example
+ * ```ts
+ * // Bridge an external "subscribe / notify" library into Solid's graph.
+ * // `factory` wraps every Solid compute so the external library can attach
+ * // its own dependency tracker; `trigger` re-runs the compute on external
+ * // change. `untrack` mirrors Solid's `untrack()` into the external library
+ * // so that reads inside `untrack(...)` don't get tracked twice.
+ * enableExternalSource({
+ *   factory: (compute, trigger) => {
+ *     const sub = externalLib.subscribe(trigger);
+ *     return {
+ *       track: prev => externalLib.run(() => compute(prev)),
+ *       dispose: () => sub.unsubscribe()
+ *     };
+ *   },
+ *   untrack: fn => externalLib.untracked(fn)
+ * });
+ * ```
  */
 export function enableExternalSource(config: ExternalSourceConfig): void {
   const { factory, untrack: untrackFn = fn => fn() } = config;

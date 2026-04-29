@@ -80,6 +80,14 @@ function sweepTransientStoreNodes(): void {
 export function resetUnhandledAsync(): void {
   _hitUnhandledAsync = false;
 }
+/**
+ * Toggles the dev-mode "must be inside a `<Loading>` boundary" enforcement
+ * window. Only `render()` calls this — wrapping the initial mount so that a
+ * top-level uncaught async read surfaces the diagnostic. Not part of the
+ * user-facing API.
+ *
+ * @internal
+ */
 export function enforceLoadingBoundary(enabled: boolean): void {
   _enforceLoadingBoundary = enabled;
 }

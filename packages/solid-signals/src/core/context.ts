@@ -22,10 +22,14 @@ export function createContext<T>(defaultValue?: T, description?: string): Contex
 }
 
 /**
- * Attempts to get a context value for the given key.
+ * Low-level owner-targeted context read. The user-facing read API is
+ * `useContext` (in `solid-js`), which wraps this primitive. Exposed here for
+ * cross-package wiring (e.g. hydration-aware context plumbing).
  *
  * @throws `NoOwnerError` if there's no owner at the time of call.
  * @throws `ContextNotFoundError` if a context value has not been set yet.
+ *
+ * @internal
  */
 export function getContext<T>(context: Context<T>, owner: Owner | null = getOwner()): T {
   if (!owner) {
@@ -44,9 +48,13 @@ export function getContext<T>(context: Context<T>, owner: Owner | null = getOwne
 }
 
 /**
- * Attempts to set a context value on the parent scope with the given key.
+ * Low-level owner-targeted context write. The user-facing API is
+ * `createContext` (in `solid-js`); its provider component wraps this
+ * primitive. Exposed here for cross-package wiring.
  *
  * @throws `NoOwnerError` if there's no owner at the time of call.
+ *
+ * @internal
  */
 export function setContext<T>(context: Context<T>, value?: T, owner: Owner | null = getOwner()) {
   if (!owner) {

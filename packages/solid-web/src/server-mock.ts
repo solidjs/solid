@@ -127,24 +127,56 @@ export function renderToStream<T>(
 } {
   throwInBrowser(renderToStream);
 }
-/** Compiler primitive — emitted by JSX-DOM-Expressions for tagged-template SSR output. Not meant for hand-written code. */
+/**
+ * Compiler primitive — emitted by JSX-DOM-Expressions for tagged-template
+ * SSR output. Not meant for hand-written code.
+ * @internal
+ */
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {}
-/** Compiler primitive — emitted by JSX-DOM-Expressions for SSR element output. Not meant for hand-written code. */
+/**
+ * Compiler primitive — emitted by JSX-DOM-Expressions for SSR element
+ * output. Not meant for hand-written code.
+ * @internal
+ */
 export function ssrElement(
   name: string,
   props: any,
   children: any,
   needsId: boolean
 ): { t: string } {}
-/** Compiler primitive — serializes a classList object for SSR output. Not meant for hand-written code. */
+/**
+ * Compiler primitive — serializes a classList object for SSR output. Not
+ * meant for hand-written code.
+ * @internal
+ */
 export function ssrClassList(value: { [k: string]: boolean }): string {}
-/** Compiler primitive — serializes a style object for SSR output. Not meant for hand-written code. */
+/**
+ * Compiler primitive — serializes a style object for SSR output. Not meant
+ * for hand-written code.
+ * @internal
+ */
 export function ssrStyle(value: { [k: string]: string }): string {}
-/** Compiler primitive — serializes a boolean attribute for SSR output. Not meant for hand-written code. */
+/**
+ * Compiler primitive — serializes a boolean attribute for SSR output. Not
+ * meant for hand-written code.
+ * @internal
+ */
 export function ssrAttribute(key: string, value: boolean): string {}
-/** Compiler primitive — generates the hydration-key attribute for SSR output. Not meant for hand-written code. */
+/**
+ * Compiler primitive — generates the hydration-key attribute for SSR
+ * output. Not meant for hand-written code.
+ * @internal
+ */
 export function ssrHydrationKey(): string {}
-/** Compiler primitive — collapses an SSR-shaped node into its HTML string. Not meant for hand-written code. */
+/**
+ * Compiler primitive — collapses an SSR-shaped node into its HTML string.
+ * Not meant for hand-written code.
+ * @internal
+ */
 export function resolveSSRNode(node: any): string {}
-/** Escapes a string for safe inclusion in HTML output. Useful when constructing SSR fragments by hand. */
+/**
+ * Escapes a string for safe inclusion in HTML output. Used by the SSR
+ * runtime; not generally part of user code.
+ * @internal
+ */
 export function escape(html: string): string {}

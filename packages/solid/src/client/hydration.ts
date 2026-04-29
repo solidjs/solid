@@ -106,6 +106,12 @@ type HydrationSignalOptions<T> = Omit<SignalOptions<T> & MemoOptions<T>, "ssrSou
 
 export type HydrationContext = {};
 
+/**
+ * Internal context flag set by `<NoHydration>` to disable hydration for its
+ * subtree. Cross-package wiring; not part of the user-facing API.
+ *
+ * @internal
+ */
 export const NoHydrateContext: Context<boolean> = {
   id: Symbol("NoHydrateContext"),
   defaultValue: false
@@ -127,6 +133,13 @@ type SharedConfig = {
   getNextContextId(): string;
 };
 
+/**
+ * Shared hydration coordination object — populated by `enableHydration()` and
+ * consumed by the hydration-aware primitive wrappers and SSR streaming
+ * runtime. Cross-package wiring; not part of the user-facing API.
+ *
+ * @internal
+ */
 export const sharedConfig: SharedConfig = {
   hydrating: false,
   registry: undefined,
@@ -728,6 +741,13 @@ function hydratedCreateEffect(compute: any, effectFn: any, options?: any) {
 
 // --- Public API ---
 
+/**
+ * Switches the primitive wrappers above (`createMemo`, `createSignal`,
+ * `createStore`, etc.) into hydration-aware mode. Called by `hydrate()`
+ * before mounting; cross-package wiring not part of the user-facing API.
+ *
+ * @internal
+ */
 export function enableHydration() {
   _createMemo = hydratedCreateMemo;
   _createSignal = hydratedCreateSignal;
@@ -892,6 +912,24 @@ export const createSignal: {
  * **Hydration:** if the server serialized an error for this boundary,
  * the client re-throws it on the first hydration pass so `fallback`
  * renders the same content the server emitted.
+ *
+ * @example
+ * ```tsx
+ * // Custom boundary built on the primitive — adds telemetry around the
+ * // canonical `<Errored>` shape.
+ * function TracedErrored(props: {
+ *   fallback: (e: unknown) => JSX.Element;
+ *   children: JSX.Element;
+ * }): JSX.Element {
+ *   return createErrorBoundary(
+ *     () => props.children,
+ *     (err, reset) => {
+ *       reportError(err);
+ *       return props.fallback(err);
+ *     }
+ *   ) as unknown as JSX.Element;
+ * }
+ * ```
  */
 export const createErrorBoundary: typeof coreErrorBoundary = ((...args: any[]) =>
   (_createErrorBoundary || coreErrorBoundary)(...args)) as typeof coreErrorBoundary;
@@ -1126,6 +1164,19 @@ export const createOptimisticStore: {
  * **Hydration:** `EffectOptions` accepts an `ssrSource` field
  * (`"server"` | `"hybrid"` | `"client"`). See {@link HydrationSsrFields}.
  *
+ * @example
+ * ```ts
+ * // Custom directive: bind an element's textContent to a reactive source
+ * // synchronously during render. App code should use `createEffect` for
+ * // post-render side effects.
+ * function bindText(el: HTMLElement, source: () => string) {
+ *   createRenderEffect(
+ *     () => source(),
+ *     value => { el.textContent = value; }
+ *   );
+ * }
+ * ```
+ *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */
 export const createRenderEffect: typeof coreRenderEffect = ((...args: any[]) =>
@@ -1261,6 +1312,18 @@ function scheduleResumeAfterAssets(
  * computation that yields `fallback()` while async reads inside `fn` are
  * pending, and `fn()` once they have settled. Most callers should use
  * `<Loading>` directly; this is exposed for renderers and library authors.
+ *
+ * @example
+ * ```tsx
+ * // Custom boundary component built on the primitive. App code uses
+ * // `<Loading fallback={…}>` directly.
+ * function MyLoading(props: { fallback: JSX.Element; children: JSX.Element }): JSX.Element {
+ *   return createLoadingBoundary(
+ *     () => props.children,
+ *     () => props.fallback
+ *   ) as unknown as JSX.Element;
+ * }
+ * ```
  */
 export function createLoadingBoundary(
   fn: () => any,
@@ -1352,6 +1415,15 @@ export function createLoadingBoundary(
  * Disables hydration for its children on the client.
  * During hydration, skips the subtree entirely (returns undefined so DOM is left untouched).
  * After hydration, renders children fresh.
+ *
+ * @example
+ * ```tsx
+ * // Mount a client-only widget that the server didn't render. The subtree
+ * // is left empty during hydration, then renders fresh once hydration ends.
+ * <NoHydration>
+ *   <ClientOnlyMap />
+ * </NoHydration>
+ * ```
  */
 export function NoHydration(props: { children: JSX.Element }): JSX.Element {
   const o = createOwner();
@@ -1363,7 +1435,22 @@ export function NoHydration(props: { children: JSX.Element }): JSX.Element {
 }
 
 /**
- * Re-enables hydration within a NoHydration zone (passthrough on client).
+ * Re-enables hydration within a `<NoHydration>` zone (passthrough on the
+ * client). Use it to opt a subtree back into hydration when the surrounding
+ * region was opted out.
+ *
+ * @example
+ * ```tsx
+ * // Inside a `<NoHydration>` region, re-enable hydration for one inner
+ * // subtree that does need to match a server-rendered fragment.
+ * <NoHydration>
+ *   <ClientOnlyShell>
+ *     <Hydration>
+ *       <ServerHydratedWidget />
+ *     </Hydration>
+ *   </ClientOnlyShell>
+ * </NoHydration>
+ * ```
  */
 export function Hydration(props: { id?: string; children: JSX.Element }): JSX.Element {
   return props.children as unknown as JSX.Element;
