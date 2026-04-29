@@ -20,7 +20,7 @@ import {
   createContext, useContext, children, lazy, createUniqueId,
 } from "solid-js";
 
-import { render, hydrate, Portal, Dynamic, dynamic } from "@solidjs/web";
+import { render, hydrate, Portal, dynamic, Dynamic } from "@solidjs/web";
 ```
 
 Old subpaths are gone:
@@ -102,10 +102,9 @@ onSettled(() => {
 ## Reactive control utilities
 
 ```ts
-untrack(() => count());               // read without subscribing
-flush();                              // drain queued updates synchronously
-isEqual(a, b);                        // default equality
-createRoot(dispose => { /* ... */ }); // owned by parent unless detached
+untrack(() => count()); // read without subscribing
+flush();                // drain queued updates synchronously
+isEqual(a, b);          // default equality
 ```
 
 ---
@@ -129,9 +128,6 @@ setStore(s => ({ ...s, list: [] }));
 
 // Reconcile new data into a sub-tree (preserve identity)
 setStore(s => { reconcile(serverTodos, "id")(s.todos); });
-
-// Plain (non-reactive) snapshot
-JSON.stringify(snapshot(store));
 
 // Derived stores (mirror signal/memo split)
 const items = createProjection(async () => api.list(), [], { key: "id" }); // readonly
@@ -264,14 +260,17 @@ Optimistic writes revert when the transition completes.
   <Loading fallback={<S/>}><B/></Loading>
 </Reveal>
 
-// Dynamic component
-import { Dynamic, dynamic } from "@solidjs/web";
+// Dynamic component — factory form (canonical). Stable Component identity;
+// composes with lazy(), routing, polymorphic patterns.
+import { dynamic } from "@solidjs/web";
 
-<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
-
-// Or factory form (stable Component reference)
 const Active = dynamic(() => isEditing() ? Editor : Viewer);
 return <Active value={value()} />;
+
+// JSX-wrapper convenience form. Use when the source is inline and you don't
+// need to capture the component identity.
+import { Dynamic } from "@solidjs/web";
+<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
 ```
 
 `<For>` non-keyed: `item` and `i` are **accessors** — call them: `item()`, `i()`.
@@ -453,6 +452,11 @@ onCleanup(() => disposeReactiveResource());
 // Default store tracking is property-level (preferred).
 createEffect(() => deep(store), snap => save(snap));
 
+// Plain (non-reactive) deep copy of a store. For serialization (JSON.stringify,
+// localStorage, sending over the wire) and tests that need a plain-object
+// assertion target. Inside reactive scopes, prefer reading individual values.
+JSON.stringify(snapshot(store));
+
 // Render-phase synchronous effect — for DOM bindings that must run during render
 // (the runtime's own attribute/property bindings). For app code, use createEffect.
 createRenderEffect(() => props.title, v => { el.title = v; });
@@ -464,6 +468,15 @@ createTrackedEffect(() => log(count()));
 // One-shot tracked callback (advanced reactive patterns).
 const track = createReaction(() => doWork());
 track(() => count());
+
+// Manually create an owned reactive scope. App code uses render(); reach for
+// createRoot in tests, library setup, and other non-render entry points where
+// you need an owner so reactive primitives can dispose properly.
+createRoot(dispose => {
+  const [count, setCount] = createSignal(0);
+  // ...
+  dispose();
+});
 
 // Detach a root from its parent (module singletons, external integrations only).
 runWithOwner(null, () => { /* ... */ });
