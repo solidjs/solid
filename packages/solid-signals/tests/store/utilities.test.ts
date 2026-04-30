@@ -164,6 +164,13 @@ describe("merge", () => {
     expect(props.a === source1).toBeTruthy();
     expect(props.b === source2).toBeTruthy();
   });
+  it("flattens nested merge sources in order", () => {
+    const target = { a: 3, b: 4 };
+    const props = merge(merge({ a: 1 }, { b: 2 }), target);
+    expect(props === target).toBeTruthy();
+    expect(merge(merge({ value: 1 }, { value: 2 }), { value: 3 }).value).toBe(3);
+    expect(merge({ value: 1 }, merge({ value: 2 }, { value: 3 })).value).toBe(3);
+  });
   it("does not clone nested objects", () => {
     const b = { value: 1 };
     const props = merge({ a: 1 }, { b });
@@ -360,6 +367,18 @@ describe("omit Props", () => {
       const [state] = createStore({ greeting: "Yo", name: "Bob" });
       const out = Comp2(state);
       expect(out).toBe("Yo Bob");
+    });
+  });
+  test("omit with store hides keys from proxy traps", () => {
+    createRoot(() => {
+      const [state] = createStore({ id: "input", color: "red", disabled: true });
+      const otherProps = omit(state, "color", "disabled");
+
+      expect(otherProps.id).toBe("input");
+      expect((otherProps as any).color).toBeUndefined();
+      expect("id" in otherProps).toBeTruthy();
+      expect("color" in otherProps).toBeFalsy();
+      expect(Object.keys(otherProps)).toEqual(["id"]);
     });
   });
   test("omit result is immutable", () => {

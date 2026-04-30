@@ -226,8 +226,9 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
     const s = sources[i];
     proxy = proxy || (!!s && $PROXY in (s as object));
     const childSources = !!s && (s as object)[$SOURCES];
-    if (childSources) flattened.push(...childSources);
-    else
+    if (childSources) {
+      for (let i = 0; i < childSources.length; i++) flattened.push(childSources[i]);
+    } else
       flattened.push(
         typeof s === "function" ? ((proxy = true), createMemo(s as () => any)) : (s as any)
       );
@@ -249,10 +250,12 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
           return false;
         },
         keys() {
-          const keys: Array<string> = [];
-          for (let i = 0; i < flattened.length; i++)
-            keys.push(...Object.keys(resolveSource(flattened[i])));
-          return [...new Set(keys)];
+          const keys = new Set<string>();
+          for (let i = 0; i < flattened.length; i++) {
+            const sourceKeys = Object.keys(resolveSource(flattened[i]));
+            for (let j = 0; j < sourceKeys.length; j++) keys.add(sourceKeys[j]);
+          }
+          return [...keys];
         }
       },
       propTraps
@@ -331,27 +334,29 @@ export function omit<T extends Record<any, any>, K extends readonly (keyof T)[]>
   props: T,
   ...keys: K
 ): Omit<T, K> {
-  const blocked = new Set<keyof T>(keys);
   if (SUPPORTS_PROXY && $PROXY in props) {
     return new Proxy(
       {
         get(property) {
-          return blocked.has(property) ? undefined : props[property as any];
+          return keys.includes(property as keyof T) ? undefined : props[property as any];
         },
         has(property) {
-          return !blocked.has(property) && property in props;
+          return !keys.includes(property as keyof T) && property in props;
         },
         keys() {
-          return Object.keys(props).filter(k => !blocked.has(k));
+          return Object.keys(props).filter(k => !keys.includes(k));
         }
       },
       propTraps
     ) as unknown as Omit<T, K>;
   }
   const result: Record<string, any> = {};
+  const propNames = Object.getOwnPropertyNames(props);
+  const blocked =
+    keys.length > 4 && propNames.length > keys.length ? new Set<keyof T>(keys) : undefined;
 
-  for (const propName of Object.getOwnPropertyNames(props)) {
-    if (!blocked.has(propName)) {
+  for (const propName of propNames) {
+    if (blocked ? !blocked.has(propName) : !keys.includes(propName)) {
       const desc = Object.getOwnPropertyDescriptor(props, propName)!;
       !desc.get && !desc.set && desc.enumerable && desc.writable && desc.configurable
         ? (result[propName] = desc.value)
