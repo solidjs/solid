@@ -799,6 +799,33 @@ describe("In Operator", () => {
   });
 });
 
+describe("Prototype pollution guard", () => {
+  test("setStore cannot pollute Object.prototype via __proto__ path", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+    setStore("__proto__", "polluted_a", true);
+    expect(({} as any).polluted_a).toBeUndefined();
+  });
+
+  test("setStore cannot pollute Object.prototype via __proto__ merge", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+    setStore("__proto__", { polluted_b: true });
+    expect(({} as any).polluted_b).toBeUndefined();
+  });
+
+  test("setStore cannot pollute via constructor.prototype", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+    setStore("constructor", "prototype", "polluted_c", true);
+    expect(({} as any).polluted_c).toBeUndefined();
+  });
+
+  test("setStore cannot pollute via JSON-parsed __proto__ own property merge", () => {
+    const [, setStore] = createStore<Record<string, any>>({ a: 1 });
+    const evil = JSON.parse('{"__proto__": {"polluted_d": true}}');
+    setStore(evil);
+    expect(({} as any).polluted_d).toBeUndefined();
+  });
+});
+
 // type tests
 
 // NotWrappable keys are ignored
