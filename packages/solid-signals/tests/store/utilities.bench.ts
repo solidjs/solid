@@ -52,7 +52,7 @@ type Test = {
   benchs: { title: string; func: any }[];
 };
 
-function createTest<T extends (...args: any[]) => any, G extends (...args: any[]) => any>(options: {
+function createTest<G extends (...args: any[]) => any>(options: {
   name: string;
   /**
    * `vitest bench -t "FILTER"` does not work
@@ -60,10 +60,10 @@ function createTest<T extends (...args: any[]) => any, G extends (...args: any[]
   filter?: RegExp;
   subjects: {
     name: string;
-    func: T;
+    func: (...args: any[]) => any;
   }[];
   generator: Record<string, G>;
-  inputs: (generator: G) => Record<string, Parameters<T>>;
+  inputs: (generator: G) => Record<string, any[]>;
 }) {
   const tests: Test[] = [];
   for (const generatorName in options.generator) {
