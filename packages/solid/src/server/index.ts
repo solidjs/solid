@@ -86,7 +86,7 @@ export type {
   Context,
   ContextProviderComponent,
   ResolvedChildren,
-  ResolvedJSXElement
+  ResolvedElement
 } from "./core.js";
 
 // Component helpers and types
@@ -94,6 +94,7 @@ export * from "./component.js";
 
 // Flow controls
 export * from "./flow.js";
+export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
 export {
@@ -105,11 +106,6 @@ export {
   NoHydrateContext
 } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
-
-// Types
-import type { JSX } from "../jsx.js";
-type JSXElement = JSX.Element;
-export type { JSXElement, JSX };
 
 // Dev — no dev mode on server
 export const DEV = undefined;

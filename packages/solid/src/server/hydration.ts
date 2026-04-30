@@ -12,7 +12,7 @@ import {
 import { sharedConfig, NoHydrateContext } from "./shared.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
 import type { Context } from "./signals.js";
-import type { JSX } from "../jsx.js";
+import type { Element as SolidElement } from "../types.js";
 
 export { sharedConfig, NoHydrateContext } from "./shared.js";
 export type { HydrationContext, SSRTemplateObject } from "./shared.js";
@@ -218,12 +218,12 @@ export function createLoadingBoundary(
  * Elements inside will not receive hydration keys (`_hk`) and signals will not be serialized.
  * Use `Hydration` to re-enable hydration within a `NoHydration` zone.
  */
-export function NoHydration(props: { children: JSX.Element }): JSX.Element {
+export function NoHydration(props: { children: SolidElement }): SolidElement {
   const o = createOwner();
   return runWithOwner(o, () => {
     setContext(NoHydrateContext, true);
     return props.children;
-  }) as unknown as JSX.Element;
+  }) as unknown as SolidElement;
 }
 
 /**
@@ -231,11 +231,11 @@ export function NoHydration(props: { children: JSX.Element }): JSX.Element {
  * Pass an `id` prop matching the client's `hydrate({ renderId })` to align hydration keys.
  * Has no effect when not inside a `NoHydration` zone (passthrough).
  */
-export function Hydration(props: { id?: string; children: JSX.Element }): JSX.Element {
-  if (!getContext(NoHydrateContext)) return props.children as unknown as JSX.Element;
+export function Hydration(props: { id?: string; children: SolidElement }): SolidElement {
+  if (!getContext(NoHydrateContext)) return props.children as unknown as SolidElement;
   const o = createOwner({ id: props.id ?? "" });
   return runWithOwner(o, () => {
     setContext(NoHydrateContext, false);
     return props.children;
-  }) as unknown as JSX.Element;
+  }) as unknown as SolidElement;
 }

@@ -36,7 +36,7 @@ import {
   setContext,
   type Context
 } from "@solidjs/signals";
-import { JSX } from "../jsx.js";
+import type { Element as SolidElement } from "../types.js";
 import { IS_DEV } from "./core.js";
 
 type HydrationSsrFields = {
@@ -125,8 +125,8 @@ type SharedConfig = {
   gather?: (key: string) => void;
   cleanupFragment?: (id: string) => void;
   loadModuleAssets?: (mapping: Record<string, string>) => Promise<void> | undefined;
-  registry?: Map<string, Element>;
-  completed?: WeakSet<Element> | null;
+  registry?: Map<string, object>;
+  completed?: WeakSet<object> | null;
   events?: any[] | null;
   verifyHydration?: () => void;
   done: boolean;
@@ -1425,13 +1425,13 @@ export function createLoadingBoundary(
  * </NoHydration>
  * ```
  */
-export function NoHydration(props: { children: JSX.Element }): JSX.Element {
+export function NoHydration(props: { children: SolidElement }): SolidElement {
   const o = createOwner();
   return runWithOwner(o, () => {
     setContext(NoHydrateContext, true);
-    if (sharedConfig.hydrating) return undefined as unknown as JSX.Element;
+    if (sharedConfig.hydrating) return undefined as unknown as SolidElement;
     return props.children;
-  }) as unknown as JSX.Element;
+  }) as unknown as SolidElement;
 }
 
 /**
@@ -1452,6 +1452,6 @@ export function NoHydration(props: { children: JSX.Element }): JSX.Element {
  * </NoHydration>
  * ```
  */
-export function Hydration(props: { id?: string; children: JSX.Element }): JSX.Element {
-  return props.children as unknown as JSX.Element;
+export function Hydration(props: { id?: string; children: SolidElement }): SolidElement {
+  return props.children as unknown as SolidElement;
 }

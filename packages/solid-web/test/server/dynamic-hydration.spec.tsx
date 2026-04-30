@@ -1,5 +1,5 @@
 /**
- * @jsxImportSource solid-js
+ * @jsxImportSource @solidjs/web
  */
 import { describe, expect, test } from "vitest";
 import { dynamic, Dynamic } from "@solidjs/web";

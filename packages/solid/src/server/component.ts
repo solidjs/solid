@@ -7,15 +7,15 @@ import {
   NoHydrateContext
 } from "./signals.js";
 import { sharedConfig } from "./shared.js";
-import type { JSX } from "../jsx.js";
+import type { Element as SolidElement } from "../types.js";
 
 export function enableHydration() {}
 
 /**
- * A general `Component` has no implicit `children` prop.  If desired, you can
- * specify one as in `Component<{name: String, children: JSX.Element}>`.
+ * A general `Component` has no implicit `children` prop. If desired, specify
+ * one explicitly, e.g. `Component<{ name: string; children: Element }>`.
  */
-export type Component<P extends Record<string, any> = {}> = (props: P) => JSX.Element;
+export type Component<P extends Record<string, any> = {}> = (props: P) => SolidElement;
 
 /**
  * Extend props to forbid the `children` prop.
@@ -27,9 +27,9 @@ export type VoidProps<P extends Record<string, any> = {}> = P & { children?: nev
 export type VoidComponent<P extends Record<string, any> = {}> = Component<VoidProps<P>>;
 
 /**
- * Extend props to allow an optional `children` prop with the usual type in JSX.
+ * Extend props to allow optional Solid children.
  */
-export type ParentProps<P extends Record<string, any> = {}> = P & { children?: JSX.Element };
+export type ParentProps<P extends Record<string, any> = {}> = P & { children?: SolidElement };
 /**
  * `ParentComponent` allows an optional `children` prop with the usual type in JSX.
  */
@@ -38,25 +38,20 @@ export type ParentComponent<P extends Record<string, any> = {}> = Component<Pare
 /**
  * Extend props to require a `children` prop with the specified type.
  */
-export type FlowProps<P extends Record<string, any> = {}, C = JSX.Element> = P & { children: C };
+export type FlowProps<P extends Record<string, any> = {}, C = SolidElement> = P & { children: C };
 /**
  * `FlowComponent` requires a `children` prop with the specified type.
  */
-export type FlowComponent<P extends Record<string, any> = {}, C = JSX.Element> = Component<
+export type FlowComponent<P extends Record<string, any> = {}, C = SolidElement> = Component<
   FlowProps<P, C>
 >;
 
-export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
+export type ValidComponent = Component<any>;
 
 /**
  * Takes the props of the passed component and returns its type
  */
-export type ComponentProps<T extends ValidComponent> =
-  T extends Component<infer P>
-    ? P
-    : T extends keyof JSX.IntrinsicElements
-      ? JSX.IntrinsicElements[T]
-      : Record<string, unknown>;
+export type ComponentProps<T extends ValidComponent> = T extends Component<infer P> ? P : never;
 
 /**
  * Type of `props.ref`, for use in `Component` or `props` typing.
@@ -69,7 +64,7 @@ export type Ref<T> = T | ((val: T) => void);
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T
-): JSX.Element {
+): SolidElement {
   return Comp(props || ({} as T));
 }
 
@@ -134,7 +129,7 @@ export function lazy<T extends Component<any>>(
     return createMemo(() => {
       if (!p.v) throw new NotReadyError(p);
       return p.v(props);
-    }) as unknown as JSX.Element;
+    }) as unknown as SolidElement;
   };
   wrap.preload = load;
   wrap.moduleUrl = moduleUrl;

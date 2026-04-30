@@ -13,20 +13,19 @@ import {
   createMemo,
   untrack,
   omit,
-  JSX,
   sharedConfig,
   enableHydration,
   enforceLoadingBoundary,
   flush,
   $DEVCOMP,
   Component,
-  ComponentProps,
-  ValidComponent,
   createRenderEffect
 } from "solid-js";
+import type { JSX } from "./jsx.js";
 
 export * from "./client.js";
 export * from "./server-mock.js";
+export type { JSX } from "./jsx.js";
 export {
   For,
   Show,
@@ -93,6 +92,14 @@ export const isServer: boolean = false;
 export const isDev: boolean = "_SOLID_DEV_" as unknown as boolean;
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
+export type IntrinsicElement = Extract<keyof JSX.IntrinsicElements, string>;
+export type ValidComponent = IntrinsicElement | Component<any> | (string & {});
+export type ComponentProps<T extends ValidComponent> =
+  T extends Component<infer P>
+    ? P
+    : T extends keyof JSX.IntrinsicElements
+      ? JSX.IntrinsicElements[T]
+      : Record<string, unknown>;
 
 export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
   [K in keyof P]: P[K];
@@ -194,12 +201,12 @@ export const hydrate: typeof hydrateCore = (...args) => {
 export function Portal<T extends boolean = false, S extends boolean = false>(props: {
   mount?: Element;
   children: JSX.Element;
-}) {
+}): JSX.Element {
   const treeMarker = document.createTextNode(""),
     startMarker = document.createTextNode(""),
     endMarker = document.createTextNode(""),
     mount = () => createElementProxy(props.mount || document.body, treeMarker);
-  let content = createMemo(() => [startMarker, props.children]);
+  let content = createMemo(() => [startMarker, props.children] as unknown as JSX.Element);
 
   createRenderEffect<[Element, JSX.Element]>(
     () => [mount(), content()],
@@ -216,7 +223,7 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
       };
     }
   );
-  return treeMarker;
+  return treeMarker as unknown as JSX.Element;
 }
 
 /**

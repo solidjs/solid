@@ -1,5 +1,5 @@
 /**
- * @jsxImportSource solid-js
+ * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi } from "vitest";
@@ -7,7 +7,6 @@ import {
   createRoot,
   createSignal,
   createUniqueId,
-  JSX,
   children,
   Show,
   flush,
@@ -16,6 +15,7 @@ import {
   onCleanup,
   DEV
 } from "solid-js";
+import type { JSX } from "../src/index.js";
 
 describe("Basic element attributes", () => {
   test("spread", () => {
@@ -29,7 +29,7 @@ describe("Basic element attributes", () => {
         },
         onClick: () => console.log("clicked")
       },
-      d = createRoot(() => <div {...props} />) as HTMLDivElement & { $$click: any };
+      d = createRoot(() => <div {...props} />) as unknown as HTMLDivElement & { $$click: any };
     expect(div!).toBe(d);
     expect(d.id).toBe("main");
     expect(d.title).toBe("main");
@@ -39,14 +39,14 @@ describe("Basic element attributes", () => {
 
   test("class", () => {
     const classes = { first: true, second: false, "third fourth": true },
-      d = (<div class={classes} />) as HTMLDivElement;
+      d = (<div class={classes} />) as unknown as HTMLDivElement;
     expect(d.className).toBe("first third fourth");
   });
 
   test("ternary expression triggered", () => {
     const [s, setS] = createSignal(0);
     const div = createRoot(() => {
-      return (<div>{s() > 5 ? "Large" : "Small"}</div>) as HTMLDivElement;
+      return (<div>{s() > 5 ? "Large" : "Small"}</div>) as unknown as HTMLDivElement;
     });
     expect(div.innerHTML).toBe("Small");
     setS(7);
@@ -58,7 +58,9 @@ describe("Basic element attributes", () => {
     let div1: HTMLDivElement, div2: HTMLDivElement;
     const [s, setS] = createSignal(6);
     createRoot(() => {
-      <div>{s() > 5 && (div1 = (<div />) as HTMLDivElement)}</div>;
+      <div>
+        {s() > 5 && ((div1 = (<div />) as unknown as HTMLDivElement) as unknown as JSX.Element)}
+      </div>;
       div2 = div1;
     });
     setS(7);
@@ -179,7 +181,7 @@ describe("Basic element attributes", () => {
           <label for={id}>Hi</label>
           <input type="text" id={id} />
         </div>
-      ) as HTMLDivElement;
+      ) as unknown as HTMLDivElement;
     });
     expect((div!.firstChild as HTMLLabelElement).htmlFor).toBe(
       (div!.firstChild!.nextSibling as HTMLInputElement).id
@@ -209,7 +211,7 @@ describe("Basic element attributes", () => {
           </Comp>
           <Comp />
         </div>
-      ) as HTMLDivElement;
+      ) as unknown as HTMLDivElement;
     });
     expect(res.innerHTML).toBe(
       "<div><span>Hello</span></div><div><span>Hello</span></div><div><span>Jake</span></div>"
@@ -234,7 +236,7 @@ describe("Insert caching (issue #2610)", () => {
           <Show when={show()}>visible</Show>
           <Sibling />
         </div>
-      ) as HTMLDivElement;
+      ) as unknown as HTMLDivElement;
     });
     flush();
 
@@ -272,7 +274,7 @@ describe("Insert caching (issue #2610)", () => {
           </Show>
           <Sibling />
         </div>
-      ) as HTMLDivElement;
+      ) as unknown as HTMLDivElement;
     });
     flush();
 
@@ -312,8 +314,8 @@ describe("Spread children caching", () => {
             <Show when={show()}>{show() ? "hide" : "show"}</Show>
           ] as unknown as JSX.Element;
         },
-        ref(el) {
-          div = el as HTMLDivElement;
+        ref(el: HTMLDivElement) {
+          div = el;
         }
       };
       <div {...props} />;
@@ -341,8 +343,8 @@ describe("Spread children caching", () => {
         get children() {
           return list();
         },
-        ref(el) {
-          div = el as HTMLDivElement;
+        ref(el: HTMLDivElement) {
+          div = el;
         }
       };
       <div {...props} />;

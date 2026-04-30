@@ -74,11 +74,12 @@ export type {
   Context,
   ContextProviderComponent,
   ResolvedChildren,
-  ResolvedJSXElement
+  ResolvedElement
 } from "./client/core.js";
 
 export * from "./client/component.js";
 export * from "./client/flow.js";
+export type { ArrayElement, Element } from "./types.js";
 export {
   sharedConfig,
   enableHydration,
@@ -102,10 +103,6 @@ export {
 export function ssrHandleError() {}
 /** @internal */
 export function ssrRunInScope() {}
-
-import type { JSX } from "./jsx.js";
-type JSXElement = JSX.Element;
-export type { JSXElement, JSX };
 
 // dev
 import { IS_DEV } from "./client/core.js";

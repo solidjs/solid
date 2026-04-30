@@ -63,14 +63,14 @@
     "./types/*": "./types/*"
   },
   "scripts": {
-    "build": "npm-run-all -nl build:*",
+    "build": "npm-run-all -nl build:clean types:copy build:js",
     "build:clean": "rimraf dist/ coverage/ /jsx-runtime/dist",
     "build:js": "rollup -c",
     "types": "npm-run-all -nl types:clean types:copy types:h types:jsx types:cjs",
     "types:clean": "rimraf types/ types-cjs/ jsx-runtime/types-cjs/",
-    "types:copy": "ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/src/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./jsx-runtime/src/jsx-properties.d.ts",
+    "types:copy": "ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/src/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./jsx-runtime/src/jsx-properties.d.ts && dom-expressions-jsx-types --input ./jsx-runtime/src/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import 'import type { Element as SolidElement } from \"solid-js\";'",
     "types:h": "tsc --project ./tsconfig.json && ncp ../../node_modules/hyper-dom-expressions/types/index.d.ts ./types/hyperscript.d.ts",
-    "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/types/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./jsx-runtime/types/jsx-properties.d.ts",
+    "types:jsx": "rimraf ./jsx-runtime/types && tsc --project ./jsx-runtime/tsconfig.json && ncp ../../node_modules/dom-expressions/src/jsx-h.d.ts ./jsx-runtime/types/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./jsx-runtime/types/jsx-properties.d.ts && dom-expressions-jsx-types --input ./jsx-runtime/types/jsx.d.ts --element \"SolidElement | Node | FunctionElement | ArrayElement\" --import 'import type { Element as SolidElement } from \"solid-js\";'",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./jsx-runtime/types ./jsx-runtime/types-cjs",
     "link": "symlink-dir . node_modules/@solidjs/h",
     "test": "vitest run"

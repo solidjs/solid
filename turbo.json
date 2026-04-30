@@ -44,7 +44,14 @@
     },
     "@solidjs/web#types": {
       "dependsOn": ["^types"],
-      "outputs": ["types/**", "types-cjs/**", "**/types/**", "**/types-cjs/**"]
+      "outputs": [
+        "types/**",
+        "types-cjs/**",
+        "**/types/**",
+        "**/types-cjs/**",
+        "src/jsx.d.ts",
+        "src/jsx-properties.d.ts"
+      ]
     },
     "coverage": {
       "outputs": ["coverage/**"]

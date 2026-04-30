@@ -8,7 +8,7 @@ import {
   runWithOwner
 } from "./signals.js";
 import type { Accessor, EffectOptions } from "./signals.js";
-import type { JSX } from "../jsx.js";
+import type { ArrayElement, Element as SolidElement } from "../types.js";
 import type { FlowComponent, FlowProps } from "./component.js";
 
 export const $DEVCOMP = Symbol("solid-dev-component");
@@ -58,16 +58,16 @@ export function useContext<T>(context: Context<T>): T {
   return getContext(context);
 }
 
-export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement>;
-export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
-export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedJSXElement[] };
+export type ResolvedElement = Exclude<SolidElement, ArrayElement>;
+export type ResolvedChildren = ResolvedElement | ResolvedElement[];
+export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedElement[] };
 
 /**
  * Resolves child elements to help interact with children
  * @param fn an accessor for the children
  * @returns a accessor of the same children, but resolved
  */
-export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
+export function children(fn: Accessor<SolidElement>): ChildrenReturn {
   const c = createMemo(fn, { lazy: true });
   const memo = createMemo(() => flatten(c()), {
     lazy: true

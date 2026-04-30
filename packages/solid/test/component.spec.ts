@@ -10,7 +10,7 @@ import {
   untrack,
   flush,
   $DEVCOMP,
-  JSX
+  type Element
 } from "../src/index.js";
 
 const Comp = (props: { greeting: string; name: string }) => `${props.greeting} ${props.name}`;
@@ -31,7 +31,7 @@ describe("CreateComponent", () => {
     createRoot(() => {
       const nonObjects = [null, undefined, false];
       nonObjects.forEach(nonObject => {
-        const out = createComponent(p => p as JSX.Element, nonObject as any);
+        const out = createComponent(p => p as Element, nonObject as any);
         expect(out).toEqual({});
       });
     });

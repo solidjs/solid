@@ -29,7 +29,6 @@ export default defineConfig({
   resolve: {
     conditions: ["development", "browser"],
     alias: {
-      "solid-js/jsx-runtime": [resolve(rootDir, "../../packages/solid/src/jsx")],
       "solid-js": [resolve(rootDir, "../../packages/solid/src")]
     }
   }

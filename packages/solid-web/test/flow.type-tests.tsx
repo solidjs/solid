@@ -1,6 +1,6 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { createSignal, Match, Show, Switch } from "../src/index.js";
+import { createSignal, Match, Show, Switch } from "solid-js";
 
 const [count] = createSignal(1);
 

@@ -100,6 +100,26 @@
         "default": "./dist/web.cjs"
       }
     },
+    "./jsx-runtime": {
+      "import": {
+        "types": "./types/jsx.d.ts",
+        "default": "./dist/web.js"
+      },
+      "require": {
+        "types": "./types-cjs/jsx.d.cts",
+        "default": "./dist/web.cjs"
+      }
+    },
+    "./jsx-dev-runtime": {
+      "import": {
+        "types": "./types/jsx.d.ts",
+        "default": "./dist/dev.js"
+      },
+      "require": {
+        "types": "./types-cjs/jsx.d.cts",
+        "default": "./dist/dev.cjs"
+      }
+    },
     "./storage": {
       "import": {
         "types": "./storage/types/index.d.ts",
@@ -113,20 +133,22 @@
     "./types/*": "./types/*"
   },
   "scripts": {
-    "build": "npm-run-all -nl build:*",
+    "build": "npm-run-all -nl build:clean types:copy-jsx build:js",
     "build:clean": "rimraf dist/",
     "build:js": "rollup -c",
     "link": "symlink-dir . node_modules/@solidjs/web",
-    "types": "npm-run-all -nl types:clean types:web types:copy-web types:web-storage types:cjs",
+    "types": "npm-run-all -nl types:clean types:copy-jsx types:web types:copy-web types:web-storage types:cjs",
     "types:clean": "rimraf types/ types-cjs/ storage/types-cjs/",
+    "types:copy-jsx": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./src/jsx-properties.d.ts && dom-expressions-jsx-types --input ./src/jsx.d.ts --element \"SolidElement | Node | ArrayElement\" --import 'import type { Element as SolidElement } from \"solid-js\";'",
     "types:web": "tsc --project ./tsconfig.build.json",
-    "types:copy-web": "ncp ../../node_modules/dom-expressions/src/client.d.ts ./types/client.d.ts && ncp ../../node_modules/dom-expressions/src/server.d.ts ./types/server.d.ts",
+    "types:copy-web": "ncp ../../node_modules/dom-expressions/src/client.d.ts ./types/client.d.ts && ncp ../../node_modules/dom-expressions/src/server.d.ts ./types/server.d.ts && ncp ./src/jsx.d.ts ./types/jsx.d.ts && ncp ./src/jsx-properties.d.ts ./types/jsx-properties.d.ts",
     "types:web-storage": "tsc --project ./storage/tsconfig.build.json",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./storage/types ./storage/types-cjs",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",
     "test:server": "vitest run --config vite.config.server.mjs",
     "coverage": "vitest run --coverage",
-    "test-types": "tsc --project tsconfig.test.json"
+    "test-types": "npm-run-all -nl types test-types:tsc",
+    "test-types:tsc": "tsc --project tsconfig.test.json"
   },
   "dependencies": {
     "seroval": "^1.1.0",

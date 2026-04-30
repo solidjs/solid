@@ -1,5 +1,5 @@
 /**
- * @jsxImportSource solid-js
+ * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
 import { describe, expect, test, beforeEach, afterEach } from "vitest";

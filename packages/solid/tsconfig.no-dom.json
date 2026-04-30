@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "",
+    "emitDeclarationOnly": false,
+    "declaration": false,
+    "noEmit": true,
+    "lib": ["ESNext"],
+    "types": [],
+    "paths": {
+      "solid-js": ["./types/index.d.ts"]
+    }
+  },
+  "include": ["./test/no-dom/**/*.ts"]
+}

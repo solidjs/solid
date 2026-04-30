@@ -9,6 +9,7 @@ This contains the means to create the runtime for a custom renderer for Solid. T
 ### Babel
 
 To use a custom renderer available in the (fictional) `solid-custom-dom` package you'd configure your babelrc as:
+
 ```json
 {
   "presets": [
@@ -26,17 +27,20 @@ To use a custom renderer available in the (fictional) `solid-custom-dom` package
 ### Vite
 
 To use a custom renderer available in the (fictional) `solid-custom-dom` package you'd configure your vite config as:
+
 ```js
-import { defineConfig } from 'vite';
-import solidPlugin from 'vite-plugin-solid';
+import { defineConfig } from "vite";
+import solidPlugin from "vite-plugin-solid";
 
 export default defineConfig({
-  plugins: [solidPlugin({
-    solid: {
-      moduleName: "solid-custom-dom",
-      generate: 'universal'
-    }
-  })]
+  plugins: [
+    solidPlugin({
+      solid: {
+        moduleName: "solid-custom-dom",
+        generate: "universal"
+      }
+    })
+  ]
 });
 ```
 
@@ -99,19 +103,11 @@ export const {
 });
 
 // Forward Solid control flow
-export {
-  For,
-  Repeat,
-  Show,
-  Switch,
-  Match,
-  Errored,
-  Loading,
-  Reveal
-} from "solid-js";
+export { For, Repeat, Show, Switch, Match, Errored, Loading, Reveal } from "solid-js";
 ```
 
 Then to consume:
+
 ```js
 import { render } from "solid-custom-dom";
 
@@ -119,7 +115,69 @@ function App() {
   // the skies the limits
 }
 
-render(() => <App />, mountNode)
+render(() => <App />, mountNode);
 ```
 
-> Note: For TypeScript support of non-standard JSX you will need to provide your own types at a jsx-runtime entry on your package so that it can be set as the `jsxImportSource`. If mixing and matching different JSX implementations you will need use the per file pragmas.
+## TypeScript JSX
+
+`solid-js` does not own renderer JSX types. A custom renderer package should provide its own `jsx-runtime` and `jsx-dev-runtime` type entries, then applications should point `jsxImportSource` at the renderer package:
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "solid-custom-dom"
+  }
+}
+```
+
+The renderer's JSX namespace should describe its own renderable node values and intrinsic elements. A minimal `solid-custom-dom/jsx-runtime.d.ts` looks like:
+
+```ts
+import type { Element as SolidElement } from "solid-js";
+
+// Replace this with the renderer's concrete node type.
+type RendererNode = { readonly type: string };
+
+export namespace JSX {
+  type Element = SolidElement | RendererNode | ArrayElement;
+  interface ArrayElement extends Array<Element> {}
+
+  interface ElementChildrenAttribute {
+    children: {};
+  }
+
+  interface IntrinsicElements {
+    view: { id?: string; children?: Element };
+    text: { value?: string; children?: Element };
+  }
+}
+```
+
+The package should expose those files from `package.json`:
+
+```json
+{
+  "exports": {
+    "./jsx-runtime": {
+      "types": "./types/jsx-runtime.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./types/jsx-runtime.d.ts",
+      "default": "./dist/index.js"
+    }
+  }
+}
+```
+
+If mixing multiple JSX implementations in the same project, use per-file pragmas such as `/** @jsxImportSource solid-custom-dom */`.
+
+Renderer packages that build from `dom-expressions` JSX declarations can vendor those files and customize `JSX.Element` during their type build:
+
+```sh
+dom-expressions-jsx-types \
+  --input ./types/jsx-runtime.d.ts \
+  --element "SolidElement | RendererNode | ArrayElement" \
+  --import 'import type { Element as SolidElement } from "solid-js";'
+```

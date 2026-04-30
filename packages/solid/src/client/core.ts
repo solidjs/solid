@@ -8,7 +8,7 @@ import {
   flatten
 } from "@solidjs/signals";
 import type { Accessor, EffectOptions } from "@solidjs/signals";
-import type { JSX } from "../jsx.js";
+import type { ArrayElement, Element as SolidElement } from "../types.js";
 import { FlowComponent, FlowProps } from "./component.js";
 
 // replaced during build
@@ -146,9 +146,9 @@ export function useContext<T>(context: Context<T>): T {
   return getContext(context);
 }
 
-export type ResolvedJSXElement = Exclude<JSX.Element, JSX.ArrayElement>;
-export type ResolvedChildren = ResolvedJSXElement | ResolvedJSXElement[];
-export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedJSXElement[] };
+export type ResolvedElement = Exclude<SolidElement, ArrayElement>;
+export type ResolvedChildren = ResolvedElement | ResolvedElement[];
+export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => ResolvedElement[] };
 
 /**
  * Resolves a `children` accessor and exposes the result as an accessor with
@@ -160,7 +160,7 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  *
  * @example
  * ```tsx
- * function List(props: { children: JSX.Element }) {
+ * function List(props: { children: Element }) {
  *   const items = children(() => props.children);
  *   return <ul>{items.toArray().map(item => <li>{item}</li>)}</ul>;
  * }
@@ -168,7 +168,7 @@ export type ChildrenReturn = Accessor<ResolvedChildren> & { toArray: () => Resol
  *
  * @description https://docs.solidjs.com/reference/component-apis/children
  */
-export function children(fn: Accessor<JSX.Element>): ChildrenReturn {
+export function children(fn: Accessor<SolidElement>): ChildrenReturn {
   const c = createMemo(fn, { lazy: true });
   const memo = createMemo(
     () => flatten(c()),

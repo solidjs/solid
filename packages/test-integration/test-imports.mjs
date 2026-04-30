@@ -26,11 +26,11 @@ function checkError(error) {
 
 Promise.all([
   import("solid-js").catch(checkError),
-  import("solid-js/jsx-runtime").catch(checkError),
-  import("solid-js/jsx-dev-runtime").catch(checkError),
 
   import("@solidjs/signals").catch(checkError),
   import("@solidjs/web").catch(checkError),
+  import("@solidjs/web/jsx-runtime").catch(checkError),
+  import("@solidjs/web/jsx-dev-runtime").catch(checkError),
   import("@solidjs/web/storage").catch(checkError),
 
   import("@solidjs/h").catch(checkError),

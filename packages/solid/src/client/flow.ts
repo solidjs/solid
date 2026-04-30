@@ -3,16 +3,16 @@ import { createMemo, untrack, mapArray, repeat, createRevealOrder } from "@solid
 import { createErrorBoundary, createLoadingBoundary } from "./hydration.js";
 import type { Accessor, RevealOrder } from "@solidjs/signals";
 export type { RevealOrder };
-import type { JSX } from "../jsx.js";
+import type { Element as SolidElement } from "../types.js";
 
 type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
   ? never
   : T;
-type ConditionalRenderCallback<T> = (item: Accessor<NonNullable<T>>) => JSX.Element;
+type ConditionalRenderCallback<T> = (item: Accessor<NonNullable<T>>) => SolidElement;
 type ConditionalRenderChildren<
   T,
   F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>
-> = JSX.Element | NonZeroParams<F>;
+> = SolidElement | NonZeroParams<F>;
 
 const narrowedError = (name: string) =>
   IS_DEV
@@ -35,9 +35,9 @@ const narrowedError = (name: string) =>
  *
  * @description https://docs.solidjs.com/reference/components/for
  */
-export function For<T extends readonly any[], U extends JSX.Element>(props: {
+export function For<T extends readonly any[], U extends SolidElement>(props: {
   each: T | undefined | null | false;
-  fallback?: JSX.Element;
+  fallback?: SolidElement;
   keyed?: boolean | ((item: T[number]) => any);
   children: (item: Accessor<T[number]>, index: Accessor<number>) => U;
 }) {
@@ -46,7 +46,7 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
       ? { keyed: props.keyed, fallback: () => props.fallback }
       : { keyed: props.keyed };
   if (IS_DEV) options!.name = "<For>";
-  return mapArray(() => props.each, props.children, options) as unknown as JSX.Element;
+  return mapArray(() => props.each, props.children, options) as unknown as SolidElement;
 }
 
 /**
@@ -64,14 +64,14 @@ export function For<T extends readonly any[], U extends JSX.Element>(props: {
  *
  * @description https://docs.solidjs.com/reference/components/repeat
  */
-export function Repeat<T extends JSX.Element>(props: {
+export function Repeat<T extends SolidElement>(props: {
   count: number;
   from?: number | undefined;
-  fallback?: JSX.Element;
+  fallback?: SolidElement;
   children: ((index: number) => T) | T;
 }) {
   const options: {
-    fallback?: Accessor<JSX.Element>;
+    fallback?: Accessor<SolidElement>;
     from?: Accessor<number | undefined>;
     name?: string;
   } = "fallback" in props ? { fallback: () => props.fallback } : {};
@@ -81,7 +81,7 @@ export function Repeat<T extends JSX.Element>(props: {
     () => props.count,
     index => (typeof props.children === "function" ? props.children(index) : props.children),
     options
-  ) as unknown as JSX.Element;
+  ) as unknown as SolidElement;
 }
 
 /**
@@ -105,9 +105,9 @@ export function Repeat<T extends JSX.Element>(props: {
 export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
   when: T | undefined | null | false;
   keyed?: boolean;
-  fallback?: JSX.Element;
+  fallback?: SolidElement;
   children: ConditionalRenderChildren<T, F>;
-}): JSX.Element {
+}): SolidElement {
   const keyed = props.keyed;
   const conditionValue = createMemo<T | undefined | null | boolean>(
     () => props.when,
@@ -144,7 +144,7 @@ export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
       return props.fallback;
     },
     IS_DEV ? { name: "value" } : undefined
-  ) as unknown as JSX.Element;
+  ) as unknown as SolidElement;
 }
 
 type EvalConditions = readonly [number, Accessor<unknown>, MatchProps<unknown>];
@@ -168,7 +168,7 @@ type EvalConditions = readonly [number, Accessor<unknown>, MatchProps<unknown>];
  *
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
-export function Switch(props: { fallback?: JSX.Element; children: JSX.Element }): JSX.Element {
+export function Switch(props: { fallback?: SolidElement; children: SolidElement }): SolidElement {
   const chs = children(() => props.children);
   const switchFunc = createMemo(() => {
     const mps = chs.toArray() as unknown as MatchProps<unknown>[];
@@ -215,7 +215,7 @@ export function Switch(props: { fallback?: JSX.Element; children: JSX.Element })
         : child;
     },
     IS_DEV ? { name: "eval conditions" } : undefined
-  ) as unknown as JSX.Element;
+  ) as unknown as SolidElement;
 }
 
 export type MatchProps<T, F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>> = {
@@ -245,7 +245,7 @@ export type MatchProps<T, F extends ConditionalRenderCallback<T> = ConditionalRe
  * @description https://docs.solidjs.com/reference/components/switch-and-match
  */
 export function Match<T, F extends ConditionalRenderCallback<T>>(props: MatchProps<T, F>) {
-  return props as unknown as JSX.Element;
+  return props as unknown as SolidElement;
 }
 
 /**
@@ -268,9 +268,9 @@ export function Match<T, F extends ConditionalRenderCallback<T>>(props: MatchPro
  * @description https://docs.solidjs.com/reference/components/error-boundary
  */
 export function Errored(props: {
-  fallback: JSX.Element | ((err: any, reset: () => void) => JSX.Element);
-  children: JSX.Element;
-}): JSX.Element {
+  fallback: SolidElement | ((err: any, reset: () => void) => SolidElement);
+  children: SolidElement;
+}): SolidElement {
   return createErrorBoundary(
     () => props.children,
     (err, reset) => {
@@ -278,7 +278,7 @@ export function Errored(props: {
       if (IS_DEV && (typeof f !== "function" || f.length == 0)) console.error(err);
       return typeof f === "function" && f.length ? f(err, reset) : f;
     }
-  ) as unknown as JSX.Element;
+  ) as unknown as SolidElement;
 }
 
 /**
@@ -319,22 +319,22 @@ export function Errored(props: {
  * @description https://docs.solidjs.com/reference/components/suspense
  */
 export function Loading(props: {
-  fallback?: JSX.Element;
+  fallback?: SolidElement;
   on?: any;
-  children: JSX.Element;
-}): JSX.Element {
+  children: SolidElement;
+}): SolidElement {
   const onOpt = "on" in props ? { on: () => props.on } : undefined;
   return createLoadingBoundary(
     () => props.children,
     () => props.fallback,
     onOpt
-  ) as unknown as JSX.Element;
+  ) as unknown as SolidElement;
 }
 
 export type RevealProps = {
   order?: RevealOrder;
   collapsed?: boolean;
-  children: JSX.Element;
+  children: SolidElement;
 };
 
 /**
@@ -377,9 +377,9 @@ export type RevealProps = {
  *
  * @description https://docs.solidjs.com/reference/components/reveal
  */
-export function Reveal(props: RevealProps): JSX.Element {
+export function Reveal(props: RevealProps): SolidElement {
   return createRevealOrder(() => props.children, {
     order: () => props.order ?? "sequential",
     collapsed: () => !!props.collapsed
-  }) as unknown as JSX.Element;
+  }) as unknown as SolidElement;
 }

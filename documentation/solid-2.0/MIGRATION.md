@@ -5,6 +5,7 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 ## Quick checklist (start here)
 
 - **Imports**: some 1.x subpath imports moved to `@solidjs/*` packages (and store helpers moved into `solid-js`).
+- **JSX types**: web projects should set `jsxImportSource` to `@solidjs/web`; `solid-js` no longer owns JSX runtime types.
 - **Batching/reads**: setters don’t immediately change what reads return; values become visible after the microtask batch flushes (or via `flush()`).
 - **Effects**: `createEffect` is split (compute → apply). Cleanup is usually “return a cleanup function”.
 - **Lifecycle**: `onMount` is replaced by `onSettled` (and it can return cleanup).
@@ -61,6 +62,41 @@ import { createRenderer } from "solid-js/universal";
 import { createRenderer } from "@solidjs/universal";
 ```
 
+### TypeScript JSX: `solid-js` → renderer package
+
+In 2.0, `solid-js` does not export a JSX namespace or `jsx-runtime` type entries. The core package owns renderer-neutral component types; renderer packages own JSX types.
+
+For web apps, update `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web"
+  }
+}
+```
+
+If you previously used `"jsxImportSource": "solid-js"` or imported `solid-js/jsx-runtime`, switch to `@solidjs/web`:
+
+```ts
+// 1.x / old beta
+import type { JSX, ComponentProps } from "solid-js";
+
+// 2.0 beta
+import type { JSX, ComponentProps } from "@solidjs/web";
+```
+
+For renderer-neutral component APIs, use `Element` from `solid-js` instead of `JSX.Element`:
+
+```ts
+import type { Component, Element } from "solid-js";
+
+type Wrapper = Component<{ children?: Element }>;
+```
+
+For hyperscript JSX, set `jsxImportSource` to `@solidjs/h`. Custom renderers should provide their own `jsx-runtime` and `jsx-dev-runtime` type entries. See [RFC 09 — TypeScript and JSX ownership](09-typescript-jsx.md) for the full design.
+
 ### Batching & reads: values update after flush
 
 In Solid 2.0, updates are batched by default (microtasks). A key behavioral change is that **setters don’t immediately update what reads return** — the new value becomes visible when the batch is flushed (next microtask), or immediately if you call `flush()`.
@@ -103,7 +139,7 @@ The `initialValue` parameter from 1.x is gone. In 2.0, the compute function rece
 
 ```js
 // 1.x (initialValue as second arg)
-createEffect((prev) => {
+createEffect(prev => {
   console.log("changed from", prev, "to", count());
   return count();
 }, 0);
@@ -121,7 +157,7 @@ This same change applies to `createMemo` — the second argument is now `options
 
 ```js
 // 1.x
-const doubled = createMemo((prev) => count() * 2, 0);
+const doubled = createMemo(prev => count() * 2, 0);
 
 // 2.0 (no initialValue arg; prev is undefined on first run)
 const doubled = createMemo(() => count() * 2);
@@ -250,12 +286,12 @@ const user = createMemo(() => fetchUser(id()));
 
 The resource tuple features map to standalone APIs:
 
-| 1.x resource feature | 2.0 replacement |
-|---|---|
-| `resource.loading` | `Loading` (initial), `isPending(() => resource())` (revalidation) |
-| `resource.error` | `Errored` boundary or effect `error` option |
-| `refetch()` | `refresh(resource)` |
-| `mutate()` | `createOptimisticStore` + `action` (see [RFC 06](06-actions-optimistic.md)) |
+| 1.x resource feature | 2.0 replacement                                                             |
+| -------------------- | --------------------------------------------------------------------------- |
+| `resource.loading`   | `Loading` (initial), `isPending(() => resource())` (revalidation)           |
+| `resource.error`     | `Errored` boundary or effect `error` option                                 |
+| `refetch()`          | `refresh(resource)`                                                         |
+| `mutate()`           | `createOptimisticStore` + `action` (see [RFC 06](06-actions-optimistic.md)) |
 
 See [RFC 05 — createResource migration](05-async-data.md#createresource--async-computations--loading) for detailed before/after examples of each pattern.
 
@@ -272,7 +308,7 @@ const listPending = () => isPending(() => users() || posts());
   <Loading fallback={<Spinner />}>
     <List users={users()} posts={posts()} />
   </Loading>
-</>
+</>;
 ```
 
 ### Peeking in-flight values: `latest(fn)`
@@ -424,15 +460,15 @@ This isn’t just `For`. A few control-flow APIs pass **accessors** into functio
 ```jsx
 // 1.x style
 import { Dynamic } from "solid-js/web";
-<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
+<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />;
 
 // 2.0 — <Dynamic> is unchanged at the call site and now delegates to dynamic() internally.
 import { Dynamic } from "@solidjs/web";
-<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />
+<Dynamic component={isEditing() ? Editor : Viewer} value={value()} />;
 
 // 2.0 — new factory form (preferred when you want a stable component reference)
 import { dynamic } from "@solidjs/web";
-const Active = dynamic(() => isEditing() ? Editor : Viewer);
+const Active = dynamic(() => (isEditing() ? Editor : Viewer));
 return <Active value={value()} />;
 ```
 
@@ -548,11 +584,11 @@ function titleDirective(source) {
 ```jsx
 // 1.x
 const Theme = createContext("light");
-<Theme.Provider value="dark">{props.children}</Theme.Provider>
+<Theme.Provider value="dark">{props.children}</Theme.Provider>;
 
 // 2.0
 const Theme = createContext("light");
-<Theme value="dark">{props.children}</Theme>
+<Theme value="dark">{props.children}</Theme>;
 ```
 
 ### `useContext` on a default-less context returns `T`, not `T | undefined`
@@ -651,7 +687,7 @@ createComputed(() => {
 // 2.0
 createEffect(
   () => input(),
-  (val) => localStorage.setItem("input", val)
+  val => localStorage.setItem("input", val)
 );
 ```
 
@@ -668,13 +704,15 @@ const [value, setValue] = createSignal(() => props.initial);
 
 ### `on` helper → split effects
 
-`on` existed to declare explicit dependencies separately from the effect body. Split effects make this unnecessary — the compute phase *is* the explicit dependency declaration:
+`on` existed to declare explicit dependencies separately from the effect body. Split effects make this unnecessary — the compute phase _is_ the explicit dependency declaration:
 
 ```js
 // 1.x
-createEffect(on(count, (value, prev) => {
-  console.log("changed from", prev, "to", value);
-}));
+createEffect(
+  on(count, (value, prev) => {
+    console.log("changed from", prev, "to", value);
+  })
+);
 
 // 2.0 — compute phase declares deps, effect phase runs side effects
 createEffect(
@@ -687,9 +725,11 @@ createEffect(
 
 ```js
 // 1.x — multiple deps
-createEffect(on([a, b], ([a, b]) => {
-  console.log(a, b);
-}));
+createEffect(
+  on([a, b], ([a, b]) => {
+    console.log(a, b);
+  })
+);
 
 // 2.0
 createEffect(
@@ -702,14 +742,24 @@ createEffect(
 
 ```js
 // 1.x
-createEffect(on(count, (value) => {
-  console.log("changed to", value);
-}, { defer: true }));
+createEffect(
+  on(
+    count,
+    value => {
+      console.log("changed to", value);
+    },
+    { defer: true }
+  )
+);
 
 // 2.0
-createEffect(count, (value) => {
-  console.log("changed to", value);
-}, { defer: true });
+createEffect(
+  count,
+  value => {
+    console.log("changed to", value);
+  },
+  { defer: true }
+);
 ```
 
 ### `onError` / `catchError` → `Errored` + effect `error` option
@@ -734,18 +784,20 @@ In 1.x, `onError`/`catchError` were imperative error handlers registered in scop
 
 ```js
 // 1.x
-catchError(() => {
-  createEffect(() => riskyAsyncWork());
-}, (err) => console.error("caught:", err));
+catchError(
+  () => {
+    createEffect(() => riskyAsyncWork());
+  },
+  err => console.error("caught:", err)
+);
 
 // 2.0
-createEffect(
-  () => riskyAsyncWork(),
-  {
-    effect: (value) => { /* success path */ },
-    error: (err) => console.error("caught:", err)
-  }
-);
+createEffect(() => riskyAsyncWork(), {
+  effect: value => {
+    /* success path */
+  },
+  error: err => console.error("caught:", err)
+});
 ```
 
 ### `produce` → now the default setter behavior
@@ -755,10 +807,12 @@ createEffect(
 ```js
 // 1.x
 import { produce } from "solid-js/store";
-setStore(produce(s => {
-  s.user.name = "Alice";
-  s.list.push("item");
-}));
+setStore(
+  produce(s => {
+    s.user.name = "Alice";
+    s.list.push("item");
+  })
+);
 
 // 2.0 — draft-first is the default
 setStore(s => {
@@ -821,8 +875,8 @@ const obs$ = observable(signal);
 obs$.subscribe(value => externalLib.update(value));
 
 // 2.0 — use an effect to push changes outward
-createEffect(signal, (value) => {
-  externalLib.update(value)
+createEffect(signal, value => {
+  externalLib.update(value);
 });
 ```
 
@@ -837,6 +891,7 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`solid-js/h` → `@solidjs/h`**
 - **`solid-js/html` → `@solidjs/html`**
 - **`solid-js/universal` → `@solidjs/universal`**
+- **`jsxImportSource: "solid-js"` → `"@solidjs/web"`** for web JSX (`"@solidjs/h"` for hyperscript JSX)
 
 ### Renames
 
@@ -873,4 +928,4 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`attr:` / `bool:` namespaces** → standard attribute behavior
 - **`oncapture:`** → removed
 - **`Context.Provider`** → use the context directly as provider (`<Context value={...}>`)
-
+- **`solid-js/jsx-runtime` / `solid-js/jsx-dev-runtime`** → renderer runtime entries such as `@solidjs/web/jsx-runtime`

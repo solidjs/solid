@@ -6,7 +6,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "preserve",
-    "jsxImportSource": "solid-js",
+    "jsxImportSource": "@solidjs/web",
     "esModuleInterop": true,
     "types": ["node"]
   },

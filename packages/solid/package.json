@@ -20,7 +20,6 @@
     "dist",
     "types",
     "types-cjs",
-    "jsx-runtime.d.ts",
     "package.json",
     "CHEATSHEET.md"
   ],
@@ -96,40 +95,19 @@
       }
     },
     "./types/*": "./types/*",
-    "./jsx-runtime": {
-      "import": {
-        "types": "./types/jsx.d.ts",
-        "default": "./dist/solid.js"
-      },
-      "require": {
-        "types": "./types-cjs/jsx.d.cts",
-        "default": "./dist/solid.cjs"
-      }
-    },
-    "./jsx-dev-runtime": {
-      "import": {
-        "types": "./types/jsx.d.ts",
-        "default": "./dist/solid.js"
-      },
-      "require": {
-        "types": "./types-cjs/jsx.d.cts",
-        "default": "./dist/solid.cjs"
-      }
-    },
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
-    "types": "npm-run-all -nl types:clean types:copy types:src types:cjs",
+    "types": "npm-run-all -nl types:clean types:src types:cjs",
     "types:clean": "rimraf types/ types-cjs/",
-    "types:copy": "ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./src/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./src/jsx-properties.d.ts",
-    "types:src": "tsc --project ./tsconfig.build.json && ncp ../../node_modules/dom-expressions/src/jsx.d.ts ./types/jsx.d.ts && ncp ../../node_modules/dom-expressions/src/jsx-properties.d.ts ./types/jsx-properties.d.ts",
+    "types:src": "tsc --project ./tsconfig.build.json",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "test-types": "tsc --project tsconfig.test.json"
+    "test-types": "tsc --project tsconfig.test.json && tsc --project tsconfig.no-dom.json"
   },
   "keywords": [
     "solid",

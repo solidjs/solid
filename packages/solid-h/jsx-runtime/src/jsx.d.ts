@@ -1,5 +1,6 @@
 import * as csstype from "csstype";
 import type { PropKey, WidenPropValue } from "./jsx-properties.js";
+import type { Element as SolidElement } from "solid-js";
 
 /**
  * Originally based on JSX types for Surplus and Inferno and adapted for `dom-expressions`.
@@ -130,15 +131,7 @@ export namespace JSX {
     (): Element;
   }
 
-  type Element =
-    | Node
-    | ArrayElement
-    | FunctionElement
-    | (string & {})
-    | number
-    | boolean
-    | null
-    | undefined;
+  type Element = SolidElement | Node | FunctionElement | ArrayElement;
   // END - difference between `jsx.d.ts` and `jsx-h.d.ts`
 
   interface ArrayElement extends Array<Element> {}

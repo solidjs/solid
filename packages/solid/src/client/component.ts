@@ -1,13 +1,13 @@
 import { untrack, createMemo } from "@solidjs/signals";
 import { $DEVCOMP, IS_DEV, devComponent } from "../client/core.js";
 import { sharedConfig } from "./hydration.js";
-import type { JSX } from "../jsx.js";
+import type { Element as SolidElement } from "../types.js";
 
 /**
- * A general `Component` has no implicit `children` prop.  If desired, you can
- * specify one as in `Component<{name: String, children: JSX.Element}>`.
+ * A general `Component` has no implicit `children` prop. If desired, specify
+ * one explicitly, e.g. `Component<{ name: string; children: Element }>`.
  */
-export type Component<P extends Record<string, any> = {}> = (props: P) => JSX.Element;
+export type Component<P extends Record<string, any> = {}> = (props: P) => SolidElement;
 
 /**
  * Extend props to forbid the `children` prop.
@@ -23,14 +23,12 @@ export type VoidProps<P extends Record<string, any> = {}> = P & { children?: nev
 export type VoidComponent<P extends Record<string, any> = {}> = Component<VoidProps<P>>;
 
 /**
- * Extend props to allow an optional `children` prop with the usual
- * type in JSX, `JSX.Element` (which allows elements, arrays, strings, etc.).
+ * Extend props to allow optional Solid children.
  * Use this for components that you want to accept children.
  */
-export type ParentProps<P extends Record<string, any> = {}> = P & { children?: JSX.Element };
+export type ParentProps<P extends Record<string, any> = {}> = P & { children?: SolidElement };
 /**
- * `ParentComponent` allows an optional `children` prop with the usual
- * type in JSX, `JSX.Element` (which allows elements, arrays, strings, etc.).
+ * `ParentComponent` allows an optional `children` prop.
  * Use this for components that you want to accept children.
  */
 export type ParentComponent<P extends Record<string, any> = {}> = Component<ParentProps<P>>;
@@ -39,34 +37,26 @@ export type ParentComponent<P extends Record<string, any> = {}> = Component<Pare
  * Extend props to require a `children` prop with the specified type.
  * Use this for components where you need a specific child type,
  * typically a function that receives specific argument types.
- * Note that all JSX <Elements> are of the type `JSX.Element`.
  */
-export type FlowProps<P extends Record<string, any> = {}, C = JSX.Element> = P & { children: C };
+export type FlowProps<P extends Record<string, any> = {}, C = SolidElement> = P & { children: C };
 /**
  * `FlowComponent` requires a `children` prop with the specified type.
  * Use this for components where you need a specific child type,
  * typically a function that receives specific argument types.
- * Note that all JSX <Elements> are of the type `JSX.Element`.
  */
-export type FlowComponent<P extends Record<string, any> = {}, C = JSX.Element> = Component<
+export type FlowComponent<P extends Record<string, any> = {}, C = SolidElement> = Component<
   FlowProps<P, C>
 >;
 
-export type ValidComponent = keyof JSX.IntrinsicElements | Component<any> | (string & {});
+export type ValidComponent = Component<any>;
 
 /**
  * Takes the props of the passed component and returns its type
  *
- * @example
- * ComponentProps<typeof Portal> // { mount?: Node; useShadow?: boolean; children: JSX.Element }
- * ComponentProps<'div'> // JSX.HTMLAttributes<HTMLDivElement>
+ * Intrinsic element prop extraction is renderer-specific and lives in renderer
+ * packages such as `@solidjs/web`.
  */
-export type ComponentProps<T extends ValidComponent> =
-  T extends Component<infer P>
-    ? P
-    : T extends keyof JSX.IntrinsicElements
-      ? JSX.IntrinsicElements[T]
-      : Record<string, unknown>;
+export type ComponentProps<T extends ValidComponent> = T extends Component<infer P> ? P : never;
 
 /**
  * Type of `props.ref`, for use in `Component` or `props` typing.
@@ -84,7 +74,7 @@ export type Ref<T> = T | ((val: T) => void);
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T
-): JSX.Element {
+): SolidElement {
   if (IS_DEV) return devComponent(Comp, props || ({} as T));
   return untrack(() => Comp(props || ({} as T)));
 }
@@ -148,7 +138,7 @@ export function lazy<T extends Component<any>>(
             return Comp!(props);
           })
         : ""
-    ) as unknown as JSX.Element;
+    ) as unknown as SolidElement;
   }) as T;
   wrap.preload = () => p || ((p = fn()).then(mod => (comp = () => mod.default)), p);
   wrap.moduleUrl = moduleUrl;

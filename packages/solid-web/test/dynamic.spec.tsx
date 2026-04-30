@@ -1,19 +1,10 @@
 /**
- * @jsxImportSource solid-js
+ * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
-import {
-  createRoot,
-  createSignal,
-  Component,
-  JSX,
-  createStore,
-  flush,
-  Show,
-  Loading
-} from "solid-js";
-import { Dynamic, dynamic } from "../src/index.js";
+import { createRoot, createSignal, Component, createStore, flush, Show, Loading } from "solid-js";
+import { Dynamic, dynamic, type IntrinsicElement, type JSX } from "../src/index.js";
 
 describe("Testing Dynamic control flow", () => {
   let div!: HTMLDivElement, disposer: () => void;
@@ -21,7 +12,7 @@ describe("Testing Dynamic control flow", () => {
   interface ExampleProps {
     id: string;
   }
-  const [comp, setComp] = createSignal<Component<ExampleProps> | keyof JSX.IntrinsicElements>(),
+  const [comp, setComp] = createSignal<Component<ExampleProps> | IntrinsicElement>(),
     [name, setName] = createSignal("Smith");
   const Component = () => (
       <div ref={div}>
@@ -77,7 +68,7 @@ describe("Testing Dynamic with state spread", () => {
   interface ExampleProps {
     id: string;
   }
-  const [comp, setComp] = createSignal<Component<ExampleProps> | keyof JSX.IntrinsicElements>(),
+  const [comp, setComp] = createSignal<Component<ExampleProps> | IntrinsicElement>(),
     [state, setState] = createStore({
       id: "Smith"
     });

@@ -1,4 +1,5 @@
 # babel-preset-solid
+
 Babel preset to transform JSX into Solid runtime calls.
 
 ### Install
@@ -27,6 +28,19 @@ Make or update your .babelrc config file with the preset:
 }
 ```
 
+For TypeScript projects, configure JSX types through the renderer package. Web projects should use:
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web"
+  }
+}
+```
+
+`babel-preset-solid` handles JSX compilation; `jsxImportSource` controls TypeScript's JSX namespace. In Solid 2.0, `solid-js` does not provide `solid-js/jsx-runtime` types.
+
 Via package.json
 
 ```javascript
@@ -43,6 +57,7 @@ Via package.json
 ```
 
 ### Usage for SSR code
+
 When need to transform JSX code to be used on the server, pass the following options
 
 ```javascript
@@ -52,7 +67,9 @@ When need to transform JSX code to be used on the server, pass the following opt
   ]
 }
 ```
+
 And for the browser build pass the hydratable option as well:
+
 ```javascript
 {
   "presets": [

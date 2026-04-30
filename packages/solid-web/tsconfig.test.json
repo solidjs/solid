@@ -2,6 +2,10 @@
   "extends": "../../tsconfig.test.json",
   "compilerOptions": {
     "baseUrl": "",
+    "paths": {
+      "@solidjs/web/jsx-runtime": ["./src/jsx.d.ts"],
+      "@solidjs/web/jsx-dev-runtime": ["./src/jsx.d.ts"]
+    }
   },
   "include": ["./test"]
 }

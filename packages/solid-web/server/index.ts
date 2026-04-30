@@ -6,13 +6,12 @@ import {
   getNextChildId,
   createOwner,
   runWithOwner,
-  type Component,
-  type JSX,
-  type ValidComponent,
-  type ComponentProps
+  type Component
 } from "solid-js";
+import type { JSX } from "../src/jsx.js";
 
 export * from "./server.js";
+export type { JSX } from "../src/jsx.js";
 
 export {
   For,
@@ -41,6 +40,15 @@ export const isServer: boolean = true;
  * convention); the client entry's value is set by `_SOLID_DEV_` substitution.
  */
 export const isDev: boolean = false;
+
+export type IntrinsicElement = Extract<keyof JSX.IntrinsicElements, string>;
+export type ValidComponent = IntrinsicElement | Component<any> | (string & {});
+export type ComponentProps<T extends ValidComponent> =
+  T extends Component<infer P>
+    ? P
+    : T extends keyof JSX.IntrinsicElements
+      ? JSX.IntrinsicElements[T]
+      : Record<string, unknown>;
 
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | null | undefined | false

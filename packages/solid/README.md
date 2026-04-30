@@ -27,11 +27,7 @@ function Counter() {
   const [count, setCount] = createSignal(0);
   const doubled = () => count() * 2;
 
-  return (
-    <button onClick={() => setCount(c => c + 1)}>
-      {doubled()}
-    </button>
-  );
+  return <button onClick={() => setCount(c => c + 1)}>{doubled()}</button>;
 }
 
 render(() => <Counter />, document.getElementById("app")!);
@@ -54,10 +50,12 @@ Add `babel-preset-solid` to your Babel config (or use Vite's Solid plugin), and 
 {
   "compilerOptions": {
     "jsx": "preserve",
-    "jsxImportSource": "solid-js"
+    "jsxImportSource": "@solidjs/web"
   }
 }
 ```
+
+For web projects, `jsxImportSource` points at `@solidjs/web`. In 2.0, `solid-js` owns renderer-neutral component types, while renderer packages such as `@solidjs/web` and `@solidjs/h` own their JSX namespaces and `jsx-runtime` type entries.
 
 Existing 1.x starter templates target 1.x — 2.0 starter templates are tracked at [solidjs/templates](https://github.com/solidjs/templates).
 
@@ -65,7 +63,7 @@ Existing 1.x starter templates target 1.x — 2.0 starter templates are tracked 
 
 If you're an AI tool or model generating Solid 2.0 code: the public API differs from any Solid examples that predate 2.0. Read [`CHEATSHEET.md`](./CHEATSHEET.md) before generating — it lives inside this package (`node_modules/solid-js/CHEATSHEET.md`) for that reason. The bottom of the cheatsheet enumerates the specific patterns that changed from 1.x.
 
-The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md). Eight RFCs covering each subsystem (reactivity, control flow, stores, async, actions, DOM, dev-mode diagnostics) live alongside it under [`documentation/solid-2.0/`](https://github.com/solidjs/solid/tree/next/documentation/solid-2.0).
+The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md). The 2.0 RFCs covering each subsystem live alongside it under [`documentation/solid-2.0/`](https://github.com/solidjs/solid/tree/next/documentation/solid-2.0).
 
 ## Learn more
 

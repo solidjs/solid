@@ -10,18 +10,45 @@ One-page reference for Solid 2.0. Every API exists in `solid-js` unless noted. D
 
 ```ts
 import {
-  createSignal, createMemo, createEffect, createRoot,
-  For, Show, Switch, Match, Loading, Errored, Repeat, Reveal,
-  createStore, createProjection, snapshot, reconcile,
-  merge, omit,
-  action, createOptimistic, createOptimisticStore,
-  isPending, latest, refresh,
-  untrack, flush, onSettled,
-  createContext, useContext, children, lazy, createUniqueId,
+  createSignal,
+  createMemo,
+  createEffect,
+  createRoot,
+  For,
+  Show,
+  Switch,
+  Match,
+  Loading,
+  Errored,
+  Repeat,
+  Reveal,
+  createStore,
+  createProjection,
+  snapshot,
+  reconcile,
+  merge,
+  omit,
+  action,
+  createOptimistic,
+  createOptimisticStore,
+  isPending,
+  latest,
+  refresh,
+  untrack,
+  flush,
+  onSettled,
+  createContext,
+  useContext,
+  children,
+  lazy,
+  createUniqueId
 } from "solid-js";
 
 import { render, hydrate, Portal, dynamic, Dynamic } from "@solidjs/web";
 ```
+
+Web projects should configure TypeScript with `"jsxImportSource": "@solidjs/web"`.
+`solid-js` no longer provides `solid-js/jsx-runtime`; renderer packages own JSX types.
 
 Old subpaths are gone:
 `solid-js/web` → `@solidjs/web`. `solid-js/store` → `solid-js`. `solid-js/h` → `@solidjs/h`. `solid-js/html` → `@solidjs/html`. `solid-js/universal` → `@solidjs/universal`.
@@ -33,8 +60,8 @@ Old subpaths are gone:
 ```ts
 // Plain signal
 const [count, setCount] = createSignal(0);
-count();              // read (call it!)
-setCount(1);          // queues; read returns last committed until flush
+count(); // read (call it!)
+setCount(1); // queues; read returns last committed until flush
 setCount(c => c + 1); // updater form
 
 // Readonly derived
@@ -45,19 +72,19 @@ doubled();
 const [value, setValue] = createSignal(() => props.initial);
 
 // Options
-createSignal(0, { ownedWrite: true });           // allow writes from inside owned scope
-createSignal(0, { unobserved: () => cleanup() });// fires when no subscribers
-createMemo(fn, { lazy: true });                  // defer first compute until read; autodispose when unobserved
+createSignal(0, { ownedWrite: true }); // allow writes from inside owned scope
+createSignal(0, { unobserved: () => cleanup() }); // fires when no subscribers
+createMemo(fn, { lazy: true }); // defer first compute until read; autodispose when unobserved
 createMemo(fn, { equals: (a, b) => a.id === b.id });
 ```
 
-**Reads update only after flush.** `setX(v); x()` returns the *previous* value until the next microtask or `flush()`.
+**Reads update only after flush.** `setX(v); x()` returns the _previous_ value until the next microtask or `flush()`.
 
 ```ts
 setCount(1);
-count();   // still 0
+count(); // still 0
 flush();
-count();   // 1
+count(); // 1
 ```
 
 ---
@@ -67,24 +94,28 @@ count();   // 1
 ```ts
 // Two-arg form is the only form. Compute tracks; apply runs side effects.
 createEffect(
-  () => count(),                    // compute (tracks)
-  (value, prev) => {                // apply (untracked)
+  () => count(), // compute (tracks)
+  (value, prev) => {
+    // apply (untracked)
     el.title = value;
-    return () => { /* cleanup */ }; // optional cleanup
+    return () => {
+      /* cleanup */
+    }; // optional cleanup
   }
 );
 
 // With error handling
-createEffect(
-  () => fetchData(id()),
-  {
-    effect: data => render(data),
-    error:  (err, cleanup) => console.error(err)
-  }
-);
+createEffect(() => fetchData(id()), {
+  effect: data => render(data),
+  error: (err, cleanup) => console.error(err)
+});
 
 // Run on next change only (skip initial)
-createEffect(() => count(), v => log(v), { defer: true });
+createEffect(
+  () => count(),
+  v => log(v),
+  { defer: true }
+);
 
 // Schedule once after the current activity settles — the canonical
 // "do this once and clean it up on dispose" primitive (replaces 1.x
@@ -103,8 +134,8 @@ onSettled(() => {
 
 ```ts
 untrack(() => count()); // read without subscribing
-flush();                // drain queued updates synchronously
-isEqual(a, b);          // default equality
+flush(); // drain queued updates synchronously
+isEqual(a, b); // default equality
 ```
 
 ---
@@ -127,11 +158,18 @@ setStore(s => s.list.filter(x => x !== "x"));
 setStore(s => ({ ...s, list: [] }));
 
 // Reconcile new data into a sub-tree (preserve identity)
-setStore(s => { reconcile(serverTodos, "id")(s.todos); });
+setStore(s => {
+  reconcile(serverTodos, "id")(s.todos);
+});
 
 // Derived stores (mirror signal/memo split)
 const items = createProjection(async () => api.list(), [], { key: "id" }); // readonly
-const [cache, setCache] = createStore(draft => { draft.x = compute(); }, { x: 0 }); // writable
+const [cache, setCache] = createStore(
+  draft => {
+    draft.x = compute();
+  },
+  { x: 0 }
+); // writable
 ```
 
 `undefined` is a real value in `merge` / setters — it overrides, not "skip".
@@ -166,7 +204,7 @@ If you genuinely need to forward a getter (rare — render props, lazy slots), p
 
 ```ts
 const merged = merge(defaults, props, overrides); // replaces mergeProps
-const rest   = omit(props, "class", "style");      // replaces splitProps
+const rest = omit(props, "class", "style"); // replaces splitProps
 ```
 
 ---
@@ -197,9 +235,11 @@ refresh(() => query.user(id()));
 const [todos, setOptimisticTodos] = createOptimisticStore(() => api.list(), []);
 
 const addTodo = action(function* (todo) {
-  setOptimisticTodos(s => { s.push(todo); }); // optimistic write
-  yield api.add(todo);                         // async work
-  refresh(todos);                              // re-derive
+  setOptimisticTodos(s => {
+    s.push(todo);
+  }); // optimistic write
+  yield api.add(todo); // async work
+  refresh(todos); // re-derive
 });
 
 // Optimistic signal
@@ -285,7 +325,7 @@ import { Dynamic } from "@solidjs/web";
 
 Context is for state scoped to a subtree of the component tree. **If you
 want truly app-wide state, don't use Context — a module-scope signal/store
-*is* a global.** That's why the default-less form requires a Provider.
+_is_ a global.** That's why the default-less form requires a Provider.
 
 ```tsx
 // Default-less — the canonical form. No Provider → ContextNotFoundError.
@@ -294,7 +334,9 @@ const TodosContext = createContext<TodosCtx>();
 
 function App() {
   return (
-    <TodosContext value={createTodos()}>   {/* the context IS the provider */}
+    <TodosContext value={createTodos()}>
+      {" "}
+      {/* the context IS the provider */}
       <TodoList />
     </TodosContext>
   );
@@ -334,10 +376,10 @@ const Heavy = lazy(() => import("./Heavy"));
 Component types:
 
 ```ts
-Component<P>           // no implicit children
-VoidComponent<P>       // forbids children
-ParentComponent<P>     // optional JSX.Element children
-FlowComponent<P, C>    // requires children of type C
+type Basic = Component<P>; // no implicit children
+type Empty = VoidComponent<P>; // forbids children
+type WithChildren = ParentComponent<P>; // optional renderer-neutral Element children
+type Flow = FlowComponent<P, C>; // requires children of type C
 ```
 
 ---
@@ -373,9 +415,14 @@ Two-phase directive (recommended):
 function titleDirective(source) {
   // Setup phase (owned): create primitives.
   let el;
-  createEffect(source, value => { if (el) el.title = value; });
+  createEffect(source, value => {
+    if (el) el.title = value;
+  });
   // Apply phase (unowned): DOM writes only.
-  return nextEl => { el = nextEl; el.title = source(); };
+  return nextEl => {
+    el = nextEl;
+    el.title = source();
+  };
 }
 ```
 
@@ -402,12 +449,15 @@ Array entries are always-on (or further nested arrays/objects). Object entries t
 **Don't build class strings manually.** String concatenation, template literals, and `.join(" ")` over conditionals are the React/`classnames` reflex. Use the array+object form so conditions compose:
 
 ```jsx
-<li class={["todo", { completed: props.todo.completed, errored: !!err() }]} />     // ✅
+<li class={["todo", { completed: props.todo.completed, errored: !!err() }]} />; // ✅
 
-const cls = ["todo",                                                                // ❌
+const cls = [
+  "todo", // ❌
   props.todo.completed && "completed",
-  err() && "errored",
-].filter(Boolean).join(" ");
+  err() && "errored"
+]
+  .filter(Boolean)
+  .join(" ");
 return <li class={cls} />;
 ```
 
@@ -416,10 +466,7 @@ return <li class={cls} />;
 ## SSR (server entry)
 
 ```ts
-import {
-  renderToString, renderToStringAsync, renderToStream,
-  isServer, isDev
-} from "@solidjs/web";
+import { renderToString, renderToStringAsync, renderToStream, isServer, isDev } from "@solidjs/web";
 ```
 
 `Portal` throws on the server. `Reveal` `order="together"` and `collapsed` require streaming (`renderToStream` / `renderToStringAsync`).
@@ -452,7 +499,10 @@ onCleanup(() => disposeReactiveResource());
 
 // Deep tracking — only when an effect needs to react to *any* nested store change.
 // Default store tracking is property-level (preferred).
-createEffect(() => deep(store), snap => save(snap));
+createEffect(
+  () => deep(store),
+  snap => save(snap)
+);
 
 // Plain (non-reactive) deep copy of a store. For serialization (JSON.stringify,
 // localStorage, sending over the wire) and tests that need a plain-object
@@ -461,7 +511,12 @@ JSON.stringify(snapshot(store));
 
 // Render-phase synchronous effect — for DOM bindings that must run during render
 // (the runtime's own attribute/property bindings). For app code, use createEffect.
-createRenderEffect(() => props.title, v => { el.title = v; });
+createRenderEffect(
+  () => props.title,
+  v => {
+    el.title = v;
+  }
+);
 
 // Single-callback effect that may re-run in async situations.
 // Rare; prefer createEffect.
@@ -481,12 +536,16 @@ createRoot(dispose => {
 });
 
 // Detach a root from its parent (module singletons, external integrations only).
-runWithOwner(null, () => { /* ... */ });
+runWithOwner(null, () => {
+  /* ... */
+});
 
 // Get the current owner. Mostly used to capture and restore an owner across an
 // async boundary inside library code.
 const owner = getOwner();
-runWithOwner(owner, () => { /* ... */ });
+runWithOwner(owner, () => {
+  /* ... */
+});
 
 // Wait for a reactive expression to settle (imperative code / tests).
 const v = await resolve(() => user());
@@ -508,46 +567,51 @@ setStore(storePath("user", "address", "city", "Paris"));
 If your training data is 1.x, these are the corrections. **Read this before generating Solid 2.0 code.**
 
 ### Imports moved
+
 - `solid-js/web` → `@solidjs/web`
 - `solid-js/store` → `solid-js` (store APIs moved into core)
 - `solid-js/h` / `solid-js/html` / `solid-js/universal` → `@solidjs/h` / `@solidjs/html` / `@solidjs/universal`
+- `jsxImportSource: "solid-js"` → `"@solidjs/web"` for web JSX (`@solidjs/h` for hyperscript JSX)
 
 ### Renames
-| 1.x | 2.0 |
-|---|---|
-| `Suspense` | `Loading` |
-| `SuspenseList` | `Reveal` |
-| `ErrorBoundary` | `Errored` |
-| `mergeProps` | `merge` |
-| `splitProps` | `omit` |
-| `unwrap` | `snapshot` |
-| `onMount` | `onSettled` |
-| `createSelector` | `createProjection` (or `createStore(fn)`) |
-| `equalFn` | `isEqual` |
-| `getListener` | `getObserver` |
-| `Context.Provider` | `<Context value={...}>` (context value *is* the provider) |
-| `classList={{...}}` | `class={{...}}` (object/array forms) |
+
+| 1.x                 | 2.0                                                       |
+| ------------------- | --------------------------------------------------------- |
+| `Suspense`          | `Loading`                                                 |
+| `SuspenseList`      | `Reveal`                                                  |
+| `ErrorBoundary`     | `Errored`                                                 |
+| `mergeProps`        | `merge`                                                   |
+| `splitProps`        | `omit`                                                    |
+| `unwrap`            | `snapshot`                                                |
+| `onMount`           | `onSettled`                                               |
+| `createSelector`    | `createProjection` (or `createStore(fn)`)                 |
+| `equalFn`           | `isEqual`                                                 |
+| `getListener`       | `getObserver`                                             |
+| `Context.Provider`  | `<Context value={...}>` (context value _is_ the provider) |
+| `classList={{...}}` | `class={{...}}` (object/array forms)                      |
 
 ### Removed (with replacements)
-| Removed | Use instead |
-|---|---|
-| `batch` | Default microtask batching; `flush()` to apply now |
-| `createComputed` | `createMemo` / split `createEffect` / function-form `createSignal` |
-| `createResource` | Async computations + `<Loading>` (`createMemo(() => fetchX(id()))`) |
-| `startTransition`, `useTransition` | Built-in transitions; `isPending` / `<Loading>` / optimistic APIs |
-| `on(...)` helper | Split effects (compute phase = explicit deps) |
-| `onError` / `catchError` | `<Errored>` or effect `error` option |
-| `produce` | Default — store setters are draft-first |
-| `createMutable` / `modifyMutable` | `createStore` with draft setters |
-| `from` / `observable` | Async iterables in computations / `createEffect` to push out |
-| `Index` | `<For keyed={false}>` |
-| `indexArray` | `mapArray` (handles non-keyed too) |
-| `use:foo={x}` directives | `ref={foo(x)}` (or array `ref={[a, b(x)]}`) |
-| `attr:` / `bool:` namespaces | Standard attribute behavior |
-| `oncapture:` | `addEventListener(..., { capture: true })` |
-| `resetErrorBoundaries` | Boundaries heal automatically |
+
+| Removed                            | Use instead                                                         |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| `batch`                            | Default microtask batching; `flush()` to apply now                  |
+| `createComputed`                   | `createMemo` / split `createEffect` / function-form `createSignal`  |
+| `createResource`                   | Async computations + `<Loading>` (`createMemo(() => fetchX(id()))`) |
+| `startTransition`, `useTransition` | Built-in transitions; `isPending` / `<Loading>` / optimistic APIs   |
+| `on(...)` helper                   | Split effects (compute phase = explicit deps)                       |
+| `onError` / `catchError`           | `<Errored>` or effect `error` option                                |
+| `produce`                          | Default — store setters are draft-first                             |
+| `createMutable` / `modifyMutable`  | `createStore` with draft setters                                    |
+| `from` / `observable`              | Async iterables in computations / `createEffect` to push out        |
+| `Index`                            | `<For keyed={false}>`                                               |
+| `indexArray`                       | `mapArray` (handles non-keyed too)                                  |
+| `use:foo={x}` directives           | `ref={foo(x)}` (or array `ref={[a, b(x)]}`)                         |
+| `attr:` / `bool:` namespaces       | Standard attribute behavior                                         |
+| `oncapture:`                       | `addEventListener(..., { capture: true })`                          |
+| `resetErrorBoundaries`             | Boundaries heal automatically                                       |
 
 ### Behavior changes
+
 - **`createEffect` takes two arguments now**: `(compute, apply)`. The single-arg form is gone — using it is an error.
 - **Setters don't update reads immediately** — values become visible after the microtask flushes (or via `flush()`).
 - **No writes inside owned scope** — writing a signal/store from inside a memo, effect compute, or component body throws in dev. Move writes to event handlers, `onSettled`, or untracked blocks. Opt in narrowly with `{ ownedWrite: true }` for internal state.
@@ -556,7 +620,7 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 - **Don't destructure props** — `function Comp({ name })` warns; use `props.name` to keep reactivity. (Same root cause as above; see the Props section.)
 - **`<For>` non-keyed children are accessors** — `(item, i) => ...` where `item` and `i` are functions. Call them: `item()`, `i()`.
 - **`<Show>` / `<Match>` function children receive narrowed accessors** — also call them.
-- **Stores: setters take a draft callback** — mutate the draft in place by default. Returning a new value is shallow (array index-replace, object top-level diff); reach for it for filter/remove. Keyed reconcile is a *projection-fn* feature, not a setter feature.
+- **Stores: setters take a draft callback** — mutate the draft in place by default. Returning a new value is shallow (array index-replace, object top-level diff); reach for it for filter/remove. Keyed reconcile is a _projection-fn_ feature, not a setter feature.
 - **`undefined` is a real value in `merge`** — it overrides rather than "skip this key".
 - **Async lives in computations** — return a Promise/AsyncIterable from `createMemo`/`createStore(fn)`/`createProjection`. Reads suspend; wrap in `<Loading>`.
 - **`Loading` is initial-only by default** — once content has rendered, revalidation keeps it visible. Use `isPending(() => x())` for "refreshing…" indicators. Use `<Loading on={key}>` to re-show fallback on key changes.
@@ -573,5 +637,4 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 ## See also
 
 - [`MIGRATION.md`](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md) — full beta-tester migration guide.
-- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/main/documentation/solid-2.0) — eight deep-dive design docs, one per subsystem.
-
+- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/main/documentation/solid-2.0) — deep-dive design docs by subsystem.
