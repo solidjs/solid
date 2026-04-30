@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/universal",
   "description": "Solid's universal runtime for creating custom renderers",
-  "version": "2.0.0-beta.9",
+  "version": "2.0.0-beta.10",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -57,7 +57,7 @@
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-beta.9"
+    "solid-js": "^2.0.0-beta.10"
   },
   "devDependencies": {
     "solid-js": "workspace:*"

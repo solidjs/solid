@@ -1,5 +1,20 @@
 # solid-js
 
+## 2.0.0-beta.10
+
+### Major Changes
+
+- 2a7c6a5: Move JSX type ownership from `solid-js` to renderer packages.
+
+### Patch Changes
+
+- 59dd11f: Docs prep for the 2.0 reference auto-generation pass: backfill JSDoc examples on previously-undocumented public APIs (`getObserver`, `isDisposed`, `createRenderEffect`, `onCleanup`, `createErrorBoundary`, `createLoadingBoundary`, `createRevealOrder`, `flatten`, `enableExternalSource`, `NotReadyError`, `NoHydration`, `Hydration`, `isServer`, `isDev`); normalize inline JSDoc code fences to `@example` tags on the JSX components (`<For>`, `<Repeat>`, `<Switch>`, `<Errored>`, `<Reveal>`, `dynamic`, `<Dynamic>`); and tag cross-package wiring / compiler-emitted exports with `@internal` so the doc generator can hide them from the user-facing surface (`getContext`, `setContext`, `createOwner`, `getNextChildId`, `peekNextChildId`, `enforceLoadingBoundary`, `sharedConfig`, `enableHydration`, `NoHydrateContext`, `$DEVCOMP`, `$PROXY`, `$REFRESH`, `$TRACK`, `$TARGET`, `$DELETED`, `ssr*` helpers, `escape`, `resolveSSRNode`, `mergeProps`, `ssrHandleError`, `ssrRunInScope`). Also extends the `equals` field JSDoc on `SignalOptions` / `MemoOptions` to mention `isEqual` as the default.
+- e841f8c: Bump dom-expressions, babel-plugin-jsx-dom-expressions, hyper-dom-expressions, and sld-dom-expressions to 0.50.0-next.5. Picks up the document-root reactivity fix: `render(..., document)` and `hydrate(..., document)` now wrap the rendered tree in a transparent render effect (mirroring what `insert` does for non-document roots), so a top-level reactive expression at the document root stays driven by signal changes after the initial flatten. Previously the document-root path called `flatten(code)` and discarded the subscription scope, leaving any top-level memo idle after the first walk — most visible with full-document hydration as in TanStack Solid Start. The new JSDoc on the JSX `class` attribute (a string vs. array+object form note carried up from dom-expressions) is also picked up.
+- a93a216: Fix store reads of inherited accessor getters so class/prototype getters track through the store proxy.
+- cf92b55: Guard storePath against prototype pollution through dangerous path segments.
+- Updated dependencies [59dd11f]
+  - @solidjs/signals@2.0.0-beta.10
+
 ## 2.0.0-beta.9
 
 ### Patch Changes
