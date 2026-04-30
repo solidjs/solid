@@ -1,4 +1,5 @@
-import { setProperty, unwrap, isWrappable, StoreNode, $RAW } from "./store.js";
+import { $PROXY, $TRACK } from "solid-js";
+import { setProperty, unwrap, isWrappable, StoreNode, $RAW, $NODE, $HAS } from "./store.js";
 
 const $ROOT = Symbol("store-root");
 
@@ -144,6 +145,14 @@ const setterTraps: ProxyHandler<StoreNode> = {
   get(target, property): any {
     if (property === $RAW) return target;
     const value = target[property];
+    if (
+      property === $PROXY ||
+      property === $TRACK ||
+      property === $NODE ||
+      property === $HAS ||
+      property === "__proto__"
+    )
+      return value;
     let proxy;
     return isWrappable(value)
       ? producers.get(value) ||
