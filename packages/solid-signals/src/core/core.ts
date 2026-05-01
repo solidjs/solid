@@ -341,7 +341,8 @@ export function computed<T>(
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
       (!context || options?.lazy ? CONFIG_AUTO_DISPOSE : 0) |
       (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
-    _equals: options?.equals != null ? options.equals : isEqual,
+    _equals:
+      options?.equals === true ? isAlwaysEqual : options?.equals != null ? options.equals : isEqual,
     _unobserved: options?.unobserved,
     _disposal: null,
     _queue: context?._queue ?? globalQueue,
@@ -476,6 +477,10 @@ export function optimisticComputed<T>(
 
 export function isEqual<T>(a: T, b: T): boolean {
   return a === b;
+}
+
+export function isAlwaysEqual<T>(_a: T, _b: T): boolean {
+  return true;
 }
 
 /**

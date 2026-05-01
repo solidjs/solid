@@ -257,6 +257,72 @@ it("should ignore equals before memo initialization", () => {
   expect($a()).toBe(1);
 });
 
+describe("equals: true (always-equal)", () => {
+  it("should freeze the cached value and never re-notify subscribers", () => {
+    const [$x, setX] = createSignal(1);
+    const downstream = vi.fn();
+    let read!: () => number;
+
+    createRoot(() => {
+      const $a = createMemo(() => $x() * 10, { equals: true });
+      createEffect($a, downstream);
+      read = () => $a();
+    });
+    flush();
+
+    expect(read()).toBe(10);
+    expect(downstream).toHaveBeenCalledTimes(1);
+
+    setX(2);
+    flush();
+    expect(read()).toBe(10);
+    expect(downstream).toHaveBeenCalledTimes(1);
+
+    setX(3);
+    flush();
+    expect(read()).toBe(10);
+    expect(downstream).toHaveBeenCalledTimes(1);
+  });
+
+  it("should freeze a writable memo's value against both deps and setter writes", () => {
+    const [$x, setX] = createSignal(1);
+    let read!: () => number;
+    let setA!: (v: number) => void;
+
+    createRoot(() => {
+      const [$a, set] = createSignal(() => $x() + 100, { equals: true });
+      read = () => $a();
+      setA = set as (v: number) => void;
+    });
+
+    expect(read()).toBe(101);
+
+    setX(2);
+    flush();
+    expect(read()).toBe(101);
+
+    setA(999);
+    flush();
+    expect(read()).toBe(101);
+  });
+
+  it("should defer first run when combined with lazy", () => {
+    const compute = vi.fn(() => 42);
+    const $a = createMemo(compute, { equals: true, lazy: true });
+
+    expect(compute).toHaveBeenCalledTimes(0);
+    expect($a()).toBe(42);
+    expect(compute).toHaveBeenCalledTimes(1);
+  });
+
+  it("should reject equals: true on plain signals at the type level", () => {
+    // @ts-expect-error -- equals: true is memo-only
+    createSignal(0, { equals: true });
+    // sanity: the writable-memo overload still accepts it
+    createSignal(() => 0, { equals: true });
+  });
+});
+
 it("should route init errors through the boundary without a memo fallback", () => {
   createRoot(() => {
     createErrorBoundary(

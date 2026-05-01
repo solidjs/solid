@@ -1,6 +1,7 @@
 export { ContextNotFoundError, NoOwnerError, NotReadyError } from "./error.js";
 export {
   isEqual,
+  isAlwaysEqual,
   untrack,
   runWithOwner,
   computed,

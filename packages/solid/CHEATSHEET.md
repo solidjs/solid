@@ -76,6 +76,8 @@ createSignal(0, { ownedWrite: true }); // allow writes from inside owned scope
 createSignal(0, { unobserved: () => cleanup() }); // fires when no subscribers
 createMemo(fn, { lazy: true }); // defer first compute until read; autodispose when unobserved
 createMemo(fn, { equals: (a, b) => a.id === b.id });
+createMemo(fn, { equals: false });               // always notify (every recompute propagates)
+createMemo(fn, { equals: true });                // never notify (cached value frozen at first result)
 ```
 
 **Reads update only after flush.** `setX(v); x()` returns the _previous_ value until the next microtask or `flush()`.

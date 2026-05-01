@@ -17,7 +17,7 @@ export interface NodeOptions<T> {
   id?: string;
   name?: string;
   transparent?: boolean;
-  equals?: ((prev: T, next: T) => boolean) | false;
+  equals?: ((prev: T, next: T) => boolean) | false | true;
   ownedWrite?: boolean;
   /** Exclude this signal from snapshot capture (internal — not part of public API) */
   _noSnapshot?: boolean;

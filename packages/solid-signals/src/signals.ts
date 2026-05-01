@@ -189,12 +189,16 @@ export interface MemoOptions<T> {
   /** When true, the owner is invisible to the ID scheme -- inherits parent ID and doesn't consume a childCount slot */
   transparent?: boolean;
   /**
-   * Custom equality function, or `false` to always notify subscribers.
+   * Custom equality function, or `false` to always notify subscribers, or
+   * `true` to never notify them — the cached value is frozen at the first
+   * computed result and downstream consumers see a constant. The compute
+   * function still re-runs when its dependencies change, but the new value
+   * is discarded by the equality check (backed by `isAlwaysEqual`).
+   *
    * Defaults to reference equality (`isEqual`). Pass a comparator (e.g.
-   * `(a, b) => a.id === b.id`) for value-based equality, or `false` to
-   * notify on every recompute regardless of equality.
+   * `(a, b) => a.id === b.id`) for value-based equality.
    */
-  equals?: false | ((prev: T, next: T) => boolean);
+  equals?: true | false | ((prev: T, next: T) => boolean);
   /** Callback invoked when the computed loses all subscribers */
   unobserved?: () => void;
   /**
@@ -223,7 +227,7 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
  * // Plain signal
  * const [state, setState] = createSignal<T>(value, options?: SignalOptions<T>);
  * // Writable memo (function overload)
- * const [state, setState] = createSignal<T>(fn, initialValue?, options?: SignalOptions<T> & MemoOptions<T>);
+ * const [state, setState] = createSignal<T>(fn, initialValue?, options?: Omit<SignalOptions<T>, "equals"> & MemoOptions<T>);
  * ```
  * @param value initial value of the state; if empty, the state's type will automatically extended with undefined
  * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
@@ -253,11 +257,11 @@ export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 export function createSignal<T>(
   fn: ComputeFunction<T>,
-  options?: SignalOptions<T> & MemoOptions<T>
+  options?: Omit<SignalOptions<T>, "equals"> & MemoOptions<T>
 ): Signal<T>;
 export function createSignal<T>(
   first?: T | ComputeFunction<T>,
-  second?: SignalOptions<T> & MemoOptions<T>
+  second?: Omit<SignalOptions<T>, "equals"> & MemoOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = computed<T>(first as any, second as any);
@@ -594,7 +598,7 @@ export function resolve<T>(fn: () => T): Promise<T> {
  * // Plain optimistic signal
  * const [state, setState] = createOptimistic<T>(value, options?: SignalOptions<T>);
  * // Writable optimistic memo (function overload)
- * const [state, setState] = createOptimistic<T>(fn, options?: SignalOptions<T> & MemoOptions<T>);
+ * const [state, setState] = createOptimistic<T>(fn, options?: Omit<SignalOptions<T>, "equals"> & MemoOptions<T>);
  * ```
  * @param value initial value of the signal; if empty, the signal's type will automatically extended with undefined
  * @param options optional object with a name for debugging purposes and equals, a comparator function for the previous and next value to allow fine-grained control over the reactivity
@@ -622,11 +626,11 @@ export function createOptimistic<T>(
 ): Signal<T>;
 export function createOptimistic<T>(
   fn: ComputeFunction<T>,
-  options?: SignalOptions<T> & MemoOptions<T>
+  options?: Omit<SignalOptions<T>, "equals"> & MemoOptions<T>
 ): Signal<T>;
 export function createOptimistic<T>(
   first?: T | ComputeFunction<T>,
-  second?: SignalOptions<T> & MemoOptions<T>
+  second?: Omit<SignalOptions<T>, "equals"> & MemoOptions<T>
 ): Signal<T | undefined> {
   if (typeof first === "function") {
     const node = optimisticComputed<T>(first as any, second as any);
