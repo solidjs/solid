@@ -86,6 +86,7 @@ export interface SignalState<T> extends SourceMapValue {
   value: T;
   observers: Computation<any>[] | null;
   observerSlots: number[] | null;
+  lastObserver: Computation<any> | null;
   tValue?: T;
   comparator?: (prev: T, next: T) => boolean;
   // development-only
@@ -236,6 +237,7 @@ export function createSignal<T>(
     value,
     observers: null,
     observerSlots: null,
+    lastObserver: null,
     comparator: options.equals || undefined
   };
 
@@ -257,7 +259,10 @@ export function createSignal<T>(
     return writeSignal(s, value);
   };
 
-  return [readSignal.bind(s), setter];
+  const result = [readSignal.bind(s), setter] as Signal<T | undefined>;
+  if (IS_DEV) (result as any).state = s;
+
+  return result;
 }
 
 export interface BaseOptions {
@@ -1305,7 +1310,8 @@ export function readSignal(this: SignalState<any> | Memo<any>) {
       Updates = updates;
     }
   }
-  if (Listener) {
+  if (Listener && this.lastObserver !== Listener) {
+    this.lastObserver = Listener;
     const sSlot = this.observers ? this.observers.length : 0;
     if (!Listener.sources) {
       Listener.sources = [this];
@@ -1691,6 +1697,7 @@ function cleanNode(node: Owner) {
           source.observerSlots![index] = s;
         }
       }
+      source.lastObserver = null;
     }
   }
 
