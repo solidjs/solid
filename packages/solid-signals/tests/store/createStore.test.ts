@@ -1086,6 +1086,26 @@ describe("objects", () => {
     expect(effect).toHaveBeenCalledWith("baz");
   });
 
+  it("ignores prototype pollution keys in draft setters", () => {
+    const [store, setStore] = createStore<Record<string, any>>({ a: 1 });
+    let inheritedConstructor;
+
+    setStore(s => {
+      (s as any).__proto__ = { polluted_a: true };
+      inheritedConstructor = (s as any).constructor;
+      (s as any).prototype = "value";
+      (s as any).constructor = "value";
+    });
+    flush();
+
+    expect(store.a).toBe(1);
+    expect(store.prototype).toBe("value");
+    expect(store.constructor).toBe("value");
+    expect(inheritedConstructor).toBeUndefined();
+    expect(({} as any).polluted_a).toBeUndefined();
+    expect(({} as any).polluted_b).toBeUndefined();
+  });
+
   it("is immutable from the outside", () => {
     const [store, setStore] = createStore({ foo: "foo" });
     const effect = vi.fn();

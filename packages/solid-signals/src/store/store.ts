@@ -44,6 +44,10 @@ export type Store<T> = Readonly<T>;
  * whose derive function reconciles its return by `options.key`.
  */
 export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
+/** Tuple returned by the plain `createStore(initialValue)` form. */
+export type StoreReturn<T> = [get: Store<T>, set: StoreSetter<T>];
+/** Tuple returned by the derived `createStore(fn, seed, options?)` form. */
+export type ProjectionStoreReturn<T> = [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 /** Base options for store primitives. */
 export interface StoreOptions {
   /** Debug name (dev mode only) */
@@ -158,6 +162,28 @@ function writeOnly(proxy: any) {
 
 function unwrapStoreValue(value: any) {
   return value?.[$TARGET]?.[STORE_VALUE] ?? value;
+}
+
+function isPrototypePollutionKey(property: PropertyKey) {
+  return property === "__proto__" || property === "constructor" || property === "prototype";
+}
+
+function hasOwnStoreProperty(target: StoreNode, property: PropertyKey) {
+  const optimisticOverride = target[STORE_OPTIMISTIC_OVERRIDE];
+  if (
+    optimisticOverride &&
+    Object.prototype.hasOwnProperty.call(optimisticOverride, property) &&
+    optimisticOverride[property] !== $DELETED
+  )
+    return true;
+  const override = target[STORE_OVERRIDE];
+  if (
+    override &&
+    Object.prototype.hasOwnProperty.call(override, property) &&
+    override[property] !== $DELETED
+  )
+    return true;
+  return Object.prototype.hasOwnProperty.call(unwrapStoreValue(target[STORE_VALUE]), property);
 }
 
 function hasInheritedAccessor(source: Record<PropertyKey, any>, property: PropertyKey): boolean {
@@ -393,6 +419,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       }
     }
     if (writeOnly(receiver)) {
+      if (isPrototypePollutionKey(property) && !hasOwnStoreProperty(target, property)) return undefined;
       let value =
         tracked && (overridden || !proxySource)
           ? tracked._overrideValue !== undefined && tracked._overrideValue !== NOT_PENDING
@@ -480,6 +507,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   },
 
   set(target, property, rawValue) {
+    if (property === "__proto__") return true;
     const store = target[$PROXY];
     if (writeOnly(store)) {
       untrack(() => {
@@ -541,6 +569,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   },
 
   defineProperty(target, property, descriptor) {
+    if (property === "__proto__") return true;
     const store = target[$PROXY];
     if (writeOnly(store)) {
       untrack(() => {
@@ -573,6 +602,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
   },
 
   deleteProperty(target, property) {
+    if (property === "__proto__") return true;
     // Check both optimistic and regular override for existing $DELETED
     const optDeleted = target[STORE_OPTIMISTIC_OVERRIDE]?.[property] === $DELETED;
     const regDeleted = target[STORE_OVERRIDE]?.[property] === $DELETED;
@@ -723,17 +753,17 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
  */
 export function createStore<T extends object = {}>(
   store: NoFn<T> | Store<NoFn<T>>
-): [get: Store<T>, set: StoreSetter<T>];
+): StoreReturn<T>;
 export function createStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   store: Partial<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
-): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+): ProjectionStoreReturn<T>;
 export function createStore<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
   second?: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
-): [get: Store<T>, set: StoreSetter<T>] {
+): StoreReturn<T> | ProjectionStoreReturn<T> {
   const derived = typeof first === "function",
     wrappedStore = derived
       ? createProjectionInternal(first, second as NoFn<T> | Store<NoFn<T>>, options).store

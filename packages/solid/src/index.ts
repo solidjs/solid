@@ -60,6 +60,8 @@ export type {
   SourceAccessor,
   Setter,
   Store,
+  StoreReturn,
+  ProjectionStoreReturn,
   StoreOptions,
   SolidStore,
   StoreNode,

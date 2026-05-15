@@ -423,6 +423,22 @@ describe("storePath prototype pollution guard", () => {
 
     expect(({} as any).polluted_d).toBeUndefined();
   });
+
+  test("skips unsafe own keys while merging safe keys", () => {
+    const [store, setStore] = createStore<Record<string, any>>({ a: 1 });
+    const evil = JSON.parse('{"__proto__": {"polluted_d": true}}');
+    evil.safe = true;
+    evil.constructor = { prototype: { polluted_c: true } };
+    evil.prototype = { polluted_d: true };
+
+    setStore(storePath(evil));
+    flush();
+
+    expect(store.a).toBe(1);
+    expect(store.safe).toBe(true);
+    expect(({} as any).polluted_c).toBeUndefined();
+    expect(({} as any).polluted_d).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

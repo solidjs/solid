@@ -1,5 +1,7 @@
 export type {
   Store,
+  StoreReturn,
+  ProjectionStoreReturn,
   StoreSetter,
   StoreNode,
   StoreOptions,
