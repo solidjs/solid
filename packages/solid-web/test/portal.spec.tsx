@@ -2,9 +2,9 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createSignal, flush, Show } from "solid-js";
-import { render, clearDelegatedEvents, Portal } from "../src/index.js";
+import { render, Portal } from "@solidjs/web";
 
 describe("Testing a simple Portal", () => {
   let div = document.createElement("div"),
@@ -39,6 +39,85 @@ describe("Testing an SVG Portal", () => {
   });
 
   test("dispose", () => disposer());
+});
+
+describe("Testing Portal delegated event containers", () => {
+  test("default body portal from an app root bubbles through the logical tree", () => {
+    const root = document.createElement("div");
+    const calls: string[] = [];
+    let portalButton!: HTMLButtonElement;
+
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <section onClick={() => calls.push("logical")}>
+          <Portal>
+            <button ref={portalButton} onClick={() => calls.push("portal")} />
+          </Portal>
+        </section>
+      ),
+      root
+    );
+
+    portalButton.click();
+
+    expect(calls).toEqual(["portal", "logical"]);
+    dispose();
+    root.remove();
+  });
+
+  test("outside-root portal delegated events bubble through the logical tree", () => {
+    const root = document.createElement("div");
+    const mount = document.createElement("div");
+    const calls: string[] = [];
+    let portalButton!: HTMLButtonElement;
+
+    document.body.append(root, mount);
+    const dispose = render(
+      () => (
+        <section onClick={() => calls.push("logical")}>
+          <Portal mount={mount}>
+            <button ref={portalButton} onClick={() => calls.push("portal")} />
+          </Portal>
+        </section>
+      ),
+      root
+    );
+
+    portalButton.click();
+
+    expect(calls).toEqual(["portal", "logical"]);
+    dispose();
+    root.remove();
+    mount.remove();
+  });
+
+  test("inside-root portal mounts do not install extra delegated listeners", () => {
+    const root = document.createElement("div");
+    const mount = document.createElement("div");
+    const add = vi.spyOn(mount, "addEventListener");
+    let portalButton!: HTMLButtonElement;
+    let calls = 0;
+
+    root.appendChild(mount);
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <Portal mount={mount}>
+          <button ref={portalButton} onClick={() => calls++} />
+        </Portal>
+      ),
+      root
+    );
+
+    portalButton.click();
+
+    expect(calls).toBe(1);
+    expect(add).not.toHaveBeenCalledWith("click", expect.any(Function));
+    dispose();
+    add.mockRestore();
+    root.remove();
+  });
 });
 
 describe("Testing a Portal to the head", () => {
@@ -102,11 +181,6 @@ describe("Testing a Portal with Synthetic Events", () => {
     expect(clicked).toBe(false);
     testElem.click();
     expect(clicked).toBe(true);
-    // clicked = false;
-    // clearDelegatedEvents();
-    // expect(clicked).toBe(false);
-    // testElem.click();
-    // expect(clicked).toBe(false);
   });
 
   test("dispose", () => disposer());

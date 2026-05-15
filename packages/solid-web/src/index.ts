@@ -6,7 +6,10 @@ import {
   MathMLElements,
   Namespaces,
   render as renderCore,
-  hydrate as hydrateCore
+  hydrate as hydrateCore,
+  registerDelegatedContainer,
+  unregisterDelegatedContainer,
+  getDelegatedRoot
 } from "./client.js";
 import {
   createComponent,
@@ -19,6 +22,7 @@ import {
   flush,
   $DEVCOMP,
   Component,
+  createEffect,
   createRenderEffect
 } from "solid-js";
 import type { JSX } from "./jsx.js";
@@ -205,8 +209,8 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
   const treeMarker = document.createTextNode(""),
     startMarker = document.createTextNode(""),
     endMarker = document.createTextNode(""),
-    mount = () => createElementProxy(props.mount || document.body, treeMarker);
-  let content = createMemo(() => [startMarker, props.children] as unknown as JSX.Element);
+    mount = () => createElementProxy(props.mount || document.body, treeMarker),
+    content = createMemo(() => [startMarker, props.children] as unknown as JSX.Element);
 
   createRenderEffect<[Element, JSX.Element]>(
     () => [mount(), content()],
@@ -223,6 +227,14 @@ export function Portal<T extends boolean = false, S extends boolean = false>(pro
       };
     }
   );
+
+  createEffect(mount, m => {
+    const ownerRoot = getDelegatedRoot(treeMarker);
+    if (!ownerRoot || (ownerRoot as Node).contains(m)) return;
+    registerDelegatedContainer(m, ownerRoot);
+    return () => unregisterDelegatedContainer(m, ownerRoot);
+  });
+
   return treeMarker as unknown as JSX.Element;
 }
 

@@ -23,7 +23,8 @@
   "sideEffects": false,
   "scripts": {
     "clean": "rimraf dist/",
-    "build": "pnpm run clean && tsc"
+    "build": "pnpm run clean && tsc",
+    "test": "vitest run"
   },
   "dependencies": {
     "component-register": "^0.8.7"

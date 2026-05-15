@@ -48,6 +48,19 @@ DOM behavior in Solid 2.0 follows HTML standards by default: attributes over pro
 <some-element enabled="true" />
 ```
 
+### Root-owned event delegation
+
+CamelCase JSX handlers such as `onClick` still use Solid's delegated event path, but delegation is now owned by render roots rather than by a document-global listener. `render()` / `hydrate()` install delegated listeners on their root container and dispose them when the root is disposed.
+
+This matters for roots that are embedded in a larger page or hosted by web components:
+
+- Rendering into a DOM element scopes delegated events to that root instead of the whole document.
+- Rendering into a `ShadowRoot` attaches delegated listeners to that shadow root.
+- `Portal` registers outside-root mount points as additional listener containers for the owning render root. Portal mounts already inside the root do not need extra listeners.
+- `event.stopPropagation()` inside a nested Solid root can prevent outer roots or host page code from observing the native event, while Solid avoids synthesizing events across unrelated roots.
+
+Compiler-emitted `delegateEvents([...])` now declares which delegated event names are needed; it no longer chooses the physical listener target. The physical listener lifetime is owned by render roots and any framework-provided listener containers.
+
 ### Directives via `ref` (and removal of `use:`)
 
 Solid 2.0 removes the `use:` directive namespace and instead treats “directives” as a first-class **ref** pattern. The `ref` prop becomes the single composition point for:

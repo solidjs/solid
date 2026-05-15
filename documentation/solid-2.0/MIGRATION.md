@@ -549,6 +549,15 @@ const on = (type, handler, options) => el => el.addEventListener(type, handler, 
 <button ref={on("click", handleClick, { capture: true })} />;
 ```
 
+Delegated events are now owned by render roots. `render()` and `hydrate()` install delegated listeners on their root container and clean them up when that root is disposed; compiler-emitted `delegateEvents([...])` only declares which event names are needed. This replaces the old document-global cleanup model.
+
+For most apps this is automatic. The visible differences are in nested roots, portals, and web component hosts:
+
+- Nested Solid roots no longer synthesize delegated handlers across each other's root boundaries.
+- Rendering into a `ShadowRoot` scopes delegated handlers to that shadow root, which is friendlier to web components.
+- `Portal` registers outside-root mount points as listener containers for the owning render root, so portal events still bubble through the logical Solid tree. Portal mounts already inside the root do not install extra listeners.
+- If you were calling `clearDelegatedEvents()`, remove it. Dispose the render root instead.
+
 ### Directives: `use:` → `ref` directive factories (two-phase pattern)
 
 ```jsx

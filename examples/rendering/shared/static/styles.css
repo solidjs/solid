@@ -74,3 +74,25 @@ a.link {
   margin-bottom: 0.5rem;
   color: #337ab7;
 }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+}
+.modal-card {
+  width: min(420px, calc(100vw - 2rem));
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #d0d7de;
+  background: white;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.25);
+  color: #444;
+  font-family: sans-serif;
+}
+.modal-card h2 {
+  margin-top: 0;
+  color: #337ab7;
+}

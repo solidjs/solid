@@ -9,7 +9,7 @@ import {
 export { hot, getCurrentElement, noShadowDOM } from "component-register";
 export type ComponentType<T> = mComponentType<T>;
 import { createRoot, createSignal, runWithOwner } from "solid-js";
-import { insert } from "@solidjs/web";
+import { insert, registerDelegatedRoot, unregisterDelegatedRoot } from "@solidjs/web";
 
 function createProps<T extends object>(raw: T) {
   const keys = Object.keys(raw) as (keyof T)[];
@@ -53,11 +53,13 @@ function withSolid<T extends object>(ComponentType: ComponentType<T>): Component
           (key: string, val: any) => (props[key as keyof T] = val)
         );
         element.addReleaseCallback(() => {
+          unregisterDelegatedRoot(element.renderRoot as Node);
           (element.renderRoot as Node).textContent = "";
           dispose();
         });
 
         const comp = (ComponentType as FunctionComponent<T>)(props as T, options);
+        registerDelegatedRoot(element.renderRoot as Node);
         return insert(element.renderRoot, comp);
       });
     }
