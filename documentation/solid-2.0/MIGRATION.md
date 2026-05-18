@@ -13,7 +13,7 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 - **Lists**: `Index` is gone; use `<For keyed={false}>`. Default `For` receives raw items, while `keyed={false}` receives item accessors and a stable numeric index.
 - **Stores**: prefer draft-first setters; `storePath(...)` exists as an opt-in helper for the old path-style ergonomics.
 - **Plain values**: `snapshot(store)` replaces `unwrap(store)` when you need a plain non-reactive value.
-- **DOM**: `use:` directives are removed; use `ref` directive factories (and array refs).
+- **DOM**: `/*@once*/` and `use:` directives are removed from the public JSX model; use normal reactive JSX, `untrack` for intentional one-time JavaScript reads, and `ref` directive factories (including array refs). Previously tolerated `class:` / `style:` namespace syntax is no longer special; use `class` / `style` object values.
 - **Helpers**: `mergeProps` → `merge`, `splitProps` → `omit`.
 
 ## Core behavior changes
@@ -249,6 +249,38 @@ const doubled = createMemo(() => count() * 2);
 ```
 
 If you truly have an **internal** signal that needs to be written from within owned scope (not app state), opt in narrowly with `ownedWrite: true`.
+
+### `/*@once*/` JSX marker
+
+The `/*@once*/` JSX compiler marker is no longer part of Solid's public JSX model. Do not treat it as a JSX form of `untrack`, and do not look for a marker-based replacement.
+
+Most uses should become normal reactive JSX. If a value should update, leave the read in JSX or another reactive scope:
+
+```jsx
+// 1.x
+<Component value={/*@once*/ props.value} />
+
+// 2.0: keep reactive values reactive
+<Component value={props.value} />
+```
+
+For DOM initial/default state, use the platform default prop instead of freezing a reactive value:
+
+```jsx
+// 1.x
+<input value={/*@once*/ props.initialValue} />
+
+// 2.0
+<input defaultValue={props.initialValue} />
+```
+
+If you truly need the old “read this once” behavior, the replacement is `untrack` in JavaScript, outside JSX:
+
+```jsx
+const value = untrack(() => props.value);
+```
+
+Keep this code narrow. It is not the common path and should not be used to opt reactive values out of updates.
 
 ## Async data & transitions
 

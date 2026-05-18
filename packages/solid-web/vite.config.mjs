@@ -35,7 +35,7 @@ export default defineConfig({
   resolve: {
     conditions: ["development", "browser"],
     alias: {
-      rxcore: [resolve(rootDir, "../../packages/solid-web/src/core")],
+      rxcore: [resolve(rootDir, "../../packages/solid-web/src/core")]
     }
   }
 });

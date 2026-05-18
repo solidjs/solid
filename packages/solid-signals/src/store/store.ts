@@ -419,7 +419,8 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       }
     }
     if (writeOnly(receiver)) {
-      if (isPrototypePollutionKey(property) && !hasOwnStoreProperty(target, property)) return undefined;
+      if (isPrototypePollutionKey(property) && !hasOwnStoreProperty(target, property))
+        return undefined;
       let value =
         tracked && (overridden || !proxySource)
           ? tracked._overrideValue !== undefined && tracked._overrideValue !== NOT_PENDING
@@ -751,9 +752,7 @@ export function storeSetter<T extends object>(store: Store<T>, fn: (draft: T) =>
  *
  * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */
-export function createStore<T extends object = {}>(
-  store: NoFn<T> | Store<NoFn<T>>
-): StoreReturn<T>;
+export function createStore<T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): StoreReturn<T>;
 export function createStore<T extends object = {}>(
   fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   store: Partial<T> | Store<NoFn<T>>,

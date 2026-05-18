@@ -20,7 +20,7 @@ DOM behavior in Solid 2.0 follows HTML standards by default: attributes over pro
 - **Lowercasing:** Use HTML lowercase for built-in attribute names (no camelCase for attributes). Exceptions:
   - **Event handlers** remain camelCase (e.g. `onClick`) to keep the `on` modifier clear.
   - **Default to attributes** But attributes such as `input.value`, `input.defaultValue`, `input.checked`, `input.defaultChecked`, `select.value`, `option.value`, `option.selected`, `option.defaultSelected`, `textarea.value`, `textarea.defaultValue`, `video.muted`, `video.defaultMuted`, `audio.muted`, `audio.defaultMuted` continue to be handled as props where that avoids confusion. Unfortunately, this leads to all form fields be special cased. For example: `<input value={dynamicCurrentValue()} defaultValue={dynamicDefaultValue()}/>` either can be dynamic or static, and in the absense of `defaultValue`, then, `value` is SSRed.
-- **Namespaces:** `attr:`, `bool:`, and `on:` namespaces are removed; the single standard behavior makes the model consistent.
+- **Namespaces:** `attr:`, `bool:`, and `on:` namespaces are removed; the single standard behavior makes the model consistent. The compiler also no longer gives special handling to previously tolerated `class:` / `style:` namespace syntax. Use `class` object/array values for class toggles, `style` object values for style properties, and standard attributes/properties for everything else.
 - **XML Namespaces:** `svg` and `math` work as expected, however when using XML partials, an `xmlns` attribute is required for the browser to create the elements with the correct namespace. Solid adds these automatically to the tags that can recognize as SVG/MathML. For example an `a` tag returned from a partial to be used in XML need `xmlns` added by the user.
 
 ### Enhanced class prop
@@ -131,6 +131,7 @@ const on = (type, handler, options) => el => el.addEventListener(type, handler, 
 
 - **classList:** Use `class` with an object or array instead.
 - **Attributes:** Use lowercase attribute names; use string `"true"` only where the platform requires it.
+- **Static JSX markers:** Do not replace `/*@once*/` with another JSX marker. Most uses should become normal reactive JSX; DOM initial state should use default props such as `defaultValue`; intentional one-time JavaScript reads should use `untrack`.
 - **Directives:** Replace `use:foo={...}` with `ref={foo(...)}` (or `ref={foo}` when no options are needed). Use an array when you need multiple directives/refs.
 
 ## Removals
@@ -138,6 +139,8 @@ const on = (type, handler, options) => el => el.addEventListener(type, handler, 
 | Removed                      | Replacement / notes                                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `classList`                  | Use `class` with object or array                                                                             |
+| tolerated `class:` / `style:` syntax | Use `class={{ ... }}` / `style={{ ... }}` or standard attributes                                      |
+| `/*@once*/`                  | Keep reactive reads reactive; use DOM default props for initial state, or narrow JavaScript `untrack` snapshots for rare one-time reads |
 | `on:` / `oncapture:`         | Use `onClick` for Solid events; use `ref` callbacks that call `addEventListener` for native listener options |
 | `attr:` / `bool:` namespaces | Single attribute/property model above                                                                        |
 | `use:` directives            | Use `ref` callbacks / directive factories (`ref={directive(opts)}`); arrays compose (`ref={[a, b]}`)         |

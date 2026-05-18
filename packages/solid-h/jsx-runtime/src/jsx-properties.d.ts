@@ -31,6 +31,7 @@ export type PropValue =
   | MediaSource
   | Blob
   | File
+  | Date
   | Element;
 
 /**

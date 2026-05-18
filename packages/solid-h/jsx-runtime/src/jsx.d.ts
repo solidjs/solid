@@ -219,7 +219,8 @@ export namespace JSX {
   >;
   // end event handlers
 
-  type ClassList =
+  export type ClassValue =
+    | string
     | Record<string, boolean>
     | Array<string | number | boolean | null | undefined | Record<string, boolean>>;
 
@@ -264,11 +265,6 @@ export namespace JSX {
 
   // TODO: Should we allow this?
   // type ClassKeys = `class:${string}`;
-  // type CSSKeys = Exclude<keyof csstype.PropertiesHyphen, `-${string}`>;
-
-  // type CSSAttributes = {
-  //   [key in CSSKeys as `style:${key}`]: csstype.PropertiesHyphen[key];
-  // };
 
   // BOOLEAN
 
@@ -850,6 +846,20 @@ export namespace JSX {
         : never)
     | (string & {});
 
+  type ExtractEventType<T> = {
+    [K in keyof T as K extends `on${infer Name}` ? Name : never]: T[K] extends EventHandlerUnion<
+      Element,
+      infer E
+    >
+      ? E
+      : never;
+  };
+
+  // EventType["click"] = MouseEvent
+
+  type EventType = ExtractEventType<EventHandlersElement<Element>> &
+    ExtractEventType<EventHandlersWindow<Element>>;
+
   // GLOBAL ATTRIBUTES
 
   /**
@@ -881,7 +891,7 @@ export namespace JSX {
      * with reactive values directly; manually-built strings re-run the whole
      * concatenation on every change instead of toggling the affected classes.
      */
-    class?: FunctionMaybe<string | ClassList | RemoveAttribute>;
+    class?: FunctionMaybe<ClassValue | RemoveAttribute>;
     elementtiming?: FunctionMaybe<string | RemoveAttribute>;
     id?: FunctionMaybe<string | RemoveAttribute>;
     nonce?: FunctionMaybe<string | RemoveAttribute>;
@@ -1528,6 +1538,10 @@ export namespace JSX {
     src?: FunctionMaybe<string | RemoveAttribute>;
 
     onEncrypted?: EventHandlerUnion<T, MediaEncryptedEvent> | undefined;
+    onWaitingForKey?: EventHandlerUnion<T, Event> | undefined;
+
+    /** @deprecated */
+    mediagroup?: FunctionMaybe<string | RemoveAttribute>;
 
     // special cases locked to properties
 
@@ -1866,6 +1880,11 @@ export namespace JSX {
     width?: FunctionMaybe<number | string | RemoveAttribute>;
 
     onEnterPictureInPicture?: EventHandlerUnion<T, PictureInPictureEvent> | undefined;
+    onLeavePictureInPicture?: EventHandlerUnion<T, PictureInPictureEvent> | undefined;
+  }
+
+  interface WebViewHTMLAttributes<T> extends HTMLAttributes<T> {
+    allowpopups?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     disableblinkfeatures?: FunctionMaybe<string | RemoveAttribute>;
     disablewebsecurity?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     enableblinkfeatures?: FunctionMaybe<string | RemoveAttribute>;
@@ -1968,7 +1987,7 @@ export namespace JSX {
      * with reactive values directly; manually-built strings re-run the whole
      * concatenation on every change instead of toggling the affected classes.
      */
-    class?: FunctionMaybe<string | ClassList | RemoveAttribute>;
+    class?: FunctionMaybe<ClassValue | RemoveAttribute>;
     style?: FunctionMaybe<CSSProperties | string | RemoveAttribute>;
   }
   interface TransformableSVGAttributes {
@@ -2142,6 +2161,29 @@ export namespace JSX {
   interface AnimationElementSVGAttributes<T>
     extends SVGAttributes<T>, ExternalResourceSVGAttributes, ConditionalProcessingSVGAttributes {
     onBegin?: EventHandlerUnion<T, TimeEvent> | undefined;
+    onEnd?: EventHandlerUnion<T, TimeEvent> | undefined;
+    onRepeat?: EventHandlerUnion<T, TimeEvent> | undefined;
+  }
+
+  interface ContainerElementSVGAttributes<T>
+    extends
+      SVGAttributes<T>,
+      ShapeElementSVGAttributes<T>,
+      Pick<
+        PresentationSVGAttributes,
+        | "clip-path"
+        | "mask"
+        | "cursor"
+        | "opacity"
+        | "filter"
+        | "enable-background"
+        | "color-interpolation"
+        | "color-rendering"
+      > {}
+
+  interface FilterPrimitiveElementSVGAttributes<T>
+    extends SVGAttributes<T>, Pick<PresentationSVGAttributes, "color-interpolation-filters"> {
+    height?: FunctionMaybe<number | string | RemoveAttribute>;
     result?: FunctionMaybe<string | RemoveAttribute>;
     width?: FunctionMaybe<number | string | RemoveAttribute>;
     x?: FunctionMaybe<number | string | RemoveAttribute>;
