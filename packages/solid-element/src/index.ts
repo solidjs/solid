@@ -29,15 +29,13 @@ function createProps<T extends object>(raw: T) {
 function lookupContext(el: ICustomElement & { _$owner?: any }) {
   if (el.assignedSlot && el.assignedSlot._$owner) return el.assignedSlot._$owner;
   let next: Element & { _$owner?: any } = el.parentNode;
-  while (
-    next &&
-    !next._$owner &&
-    !(next.assignedSlot && (next.assignedSlot as Element & { _$owner?: any })._$owner)
-  )
+  while (next) {
+    if (next._$owner) return next._$owner;
+    if (next.assignedSlot && (next.assignedSlot as Element & { _$owner?: any })._$owner)
+      return (next.assignedSlot as Element & { _$owner?: any })._$owner;
     next = next.parentNode as Element;
-  return next && next.assignedSlot
-    ? (next.assignedSlot as Element & { _$owner?: any })._$owner
-    : el._$owner;
+  }
+  return el._$owner;
 }
 
 function withSolid<T extends object>(ComponentType: ComponentType<T>): ComponentType<T> {
