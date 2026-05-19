@@ -146,7 +146,15 @@ export function createUniqueId(): string {
 }
 
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element {
-  if (sharedConfig.context && !sharedConfig.context.noHydrate) {
+  if (sharedConfig.context) {
+    // Even under noHydrate we still need to isolate the id space for each
+    // component, so that `createResource` calls in sibling/nested components
+    // do not collide on the same context id when a parent `Suspense` resets
+    // `count` back to 0. Without this, a non-hydrating render of
+    // `<Post><Suspense><User/></Suspense></Post>` (each with a resource)
+    // produces two resources sharing the same id key in
+    // `context.resources` and the inner resource reads back the outer one's
+    // value. See #2546.
     const c = sharedConfig.context;
     setHydrateContext(nextHydrateContext());
     const r = Comp(props || ({} as T));
