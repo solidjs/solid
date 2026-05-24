@@ -197,8 +197,10 @@ export function handleAsync<T>(
     clearStatus(el);
     const lane = resolveLane(el as any);
     if (lane) lane._pendingAsync.delete(el);
-    if (setter) setter(value);
-    else if (el._overrideValue !== undefined) {
+    if (setter) {
+      setter(value);
+      if (wasUninitialized) clearStatus(el, true);
+    } else if (el._overrideValue !== undefined) {
       if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING)
         el._pendingValue = value;
       else {

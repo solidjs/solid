@@ -93,6 +93,44 @@ describe("createLoadingBoundary", () => {
     expect(result).toBe(0); // Should show 0, not "loading"
   });
 
+  it("reports pending on first refresh after an async projection resolves", async () => {
+    let result: any;
+    let projection!: { value: number };
+    let current = deferred<{ value: number }>();
+
+    createRoot(() => {
+      projection = createProjection(async () => current.promise, {} as { value: number });
+
+      const boundary = createLoadingBoundary(
+        () => [projection.value, isPending(() => projection.value)],
+        () => "loading"
+      );
+
+      createRenderEffect(
+        () => (result = boundary()),
+        () => {}
+      );
+    });
+
+    flush();
+    expect(result).toBe("loading");
+
+    current.resolve({ value: 1 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    flush();
+    expect(result).toEqual([1, false]);
+
+    current = deferred<{ value: number }>();
+    refresh(projection);
+    flush();
+    expect(result).toEqual([1, true]);
+
+    current.resolve({ value: 2 });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    flush();
+    expect(result).toEqual([2, false]);
+  });
+
   it("clears loading for multiple effects in same boundary", async () => {
     let result1: any, result2: any;
 
