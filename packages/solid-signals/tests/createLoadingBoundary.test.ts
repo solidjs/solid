@@ -11,6 +11,7 @@ import {
   isPending,
   latest,
   NotReadyError,
+  type Refreshable,
   type SourceAccessor,
   refresh,
   untrack
@@ -95,7 +96,7 @@ describe("createLoadingBoundary", () => {
 
   it("reports pending on first refresh after an async projection resolves", async () => {
     let result: any;
-    let projection!: { value: number };
+    let projection!: Refreshable<{ value: number }>;
     let current = deferred<{ value: number }>();
 
     createRoot(() => {
