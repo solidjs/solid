@@ -13,7 +13,6 @@ import {
   storeLookup,
   trackSelf,
   wrap,
-  type Store,
   type StoreNode
 } from "./store.js";
 
@@ -44,7 +43,7 @@ function snapshotImpl<T>(
     map.set(item, item);
   }
   if (isArray) {
-    const len = override?.length || item.length;
+    const len = override?.length ?? item.length;
     for (let i = 0; i < len; i++) {
       v = override && i in override ? override[i] : item[i];
       if (v === $DELETED) continue;
