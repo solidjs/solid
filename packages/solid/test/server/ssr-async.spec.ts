@@ -4,6 +4,7 @@ import {
   createRoot,
   createMemo,
   createSignal,
+  createStore,
   createProjection,
   NotReadyError,
   getOwner,
@@ -560,6 +561,41 @@ describe("Loading SSR Async", () => {
       );
 
       d.resolve("hello");
+      await tick();
+      await tick();
+
+      expect(fragmentResults.size).toBe(1);
+      expect([...fragmentResults.values()][0]).toBe("<div>HELLO</div>");
+    });
+
+    test("sync projection callback can wrap a pending async store read", async () => {
+      const { context, registeredFragments, fragmentResults } = createMockSSRContext();
+      sharedConfig.context = context;
+
+      const d = deferred<{ id: string; name: string }[]>();
+
+      createRoot(
+        () => {
+          Loading({
+            fallback: "Loading...",
+            get children() {
+              const [users] = createStore(() => d.promise, [] as { id: string; name: string }[]);
+              const projected = createProjection(
+                () => users.map(user => ({ ...user, label: user.name.toUpperCase() })),
+                [] as { id: string; name: string; label: string }[]
+              );
+              return ssr(["<div>", "</div>"], () =>
+                projected.map(user => user.label).join(",")
+              ) as any;
+            }
+          });
+        },
+        { id: "t" }
+      );
+
+      expect(registeredFragments.size).toBe(1);
+
+      d.resolve([{ id: "1", name: "hello" }]);
       await tick();
       await tick();
 

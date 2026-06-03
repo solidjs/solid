@@ -1080,7 +1080,34 @@ export function createProjection<T extends object>(
   const draft = useProxy ? createDeepProxy(state as any, patches) : (state as any as T);
 
   const runProjection = () => runWithOwner(owner, () => fn(draft));
-  const result = runProjection();
+  let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
+  try {
+    result = runProjection();
+  } catch (error) {
+    if (!(error instanceof NotReadyError)) throw error;
+
+    const deferred = createDeferredPromise<T>();
+    const [pending, markReady] = createPendingProxy(state, deferred.promise);
+    settleServerAsync<void | T, T>(
+      Promise.reject(error),
+      () => runProjection() as void | T | PromiseLike<void | T>,
+      deferred,
+      (value: void | T) => {
+        if (value !== undefined && value !== state && value !== draft) {
+          Object.assign(state, value);
+        }
+        markReady();
+        return state as T;
+      },
+      (error: any) => {
+        markReady();
+      },
+      () => disposed
+    );
+    if (ctx?.async && !getContext(NoHydrateContext) && owner.id)
+      ctx.serialize(owner.id, deferred.promise, options?.deferStream);
+    return pending;
+  }
 
   // Async iterable (generator)
   const iteratorFn = (result as any)?.[Symbol.asyncIterator];
