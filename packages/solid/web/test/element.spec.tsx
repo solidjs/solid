@@ -3,7 +3,15 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, createUniqueId, JSX, children } from "../../src/index.js";
+import {
+  createMemo,
+  createRoot,
+  createSignal,
+  createUniqueId,
+  JSX,
+  children
+} from "../../src/index.js";
+import { hydrate } from "../src/index.js";
 
 declare module "solid-js/jsx-runtime" {
   namespace JSX {
@@ -31,6 +39,39 @@ describe("Basic element attributes", () => {
     expect(d.title).toBe("main");
     expect(d.$$click).toBeDefined();
     expect(d.innerHTML).toBe("<p>Hi</p>");
+  });
+
+  test("hydrated innerHTML survives attribute-only spread updates", () => {
+    const root = document.createElement("main");
+    root.innerHTML = `<div data-hk="0">Hello world!</div>`;
+    document.body.appendChild(root);
+    (globalThis as any)._$HY = { done: false, events: [], completed: new Set(), r: {} };
+
+    let div!: HTMLDivElement, setCount!: (value: number) => void;
+
+    try {
+      const dispose = hydrate(() => {
+        const [count, set] = createSignal(0);
+        const data = createMemo(() => ({
+          "data-whatever": count() === 1 ? "yes" : "no"
+        }));
+        setCount = set;
+        return (
+          <div ref={div} {...data()} class="flex" style="color: red" innerHTML="Hello world!" />
+        );
+      }, root);
+
+      expect(div.textContent).toBe("Hello world!");
+      setCount(1);
+      expect(div.textContent).toBe("Hello world!");
+      expect(div.getAttribute("data-whatever")).toBe("yes");
+      expect(div.getAttribute("class")).toBe("flex");
+      expect(div.getAttribute("style")).toBe("color: red;");
+      dispose();
+    } finally {
+      root.remove();
+      delete (globalThis as any)._$HY;
+    }
   });
 
   test("classList", () => {
