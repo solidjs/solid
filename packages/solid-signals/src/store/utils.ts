@@ -9,6 +9,7 @@ import {
   getPropertyDescriptor,
   isWrappable,
   STORE_OVERRIDE,
+  STORE_LOOKUP,
   STORE_VALUE,
   storeLookup,
   trackSelf,
@@ -38,7 +39,7 @@ function snapshotImpl<T>(
         : target[STORE_VALUE]
     );
     item = target[STORE_VALUE];
-    lookup = storeLookup;
+    lookup = target[STORE_LOOKUP] ?? storeLookup;
   } else {
     isArray = Array.isArray(item);
     map.set(item, item);
