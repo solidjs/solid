@@ -1770,6 +1770,56 @@ describe("createOptimisticStore", () => {
       expect(pendingValues.at(-1)).toBe(false);
     });
 
+    it("isPending tracks deep optimistic store reads from a nested proxy", async () => {
+      let state: Refreshable<{ items: { name: string }[] }>;
+      let setState: (fn: (s: { items: { name: string }[] }) => void) => void;
+      let save!: () => Promise<void>;
+      let resolveAction!: () => void;
+      const pendingValues: boolean[] = [];
+
+      createRoot(() => {
+        [state, setState] = createOptimisticStore(async () => ({ items: [{ name: "Initial" }] }), {
+          items: [{ name: "Initial" }]
+        });
+
+        createRenderEffect(
+          () => isPending(() => deep(state.items)),
+          value => {
+            pendingValues.push(value);
+          }
+        );
+
+        save = action(function* () {
+          setState(s => {
+            s.items[0].name = "Modified";
+          });
+          expect(isPending(() => deep(state.items))).toBe(true);
+          yield new Promise<void>(resolve => {
+            resolveAction = resolve;
+          });
+        });
+      });
+
+      flush();
+      await Promise.resolve();
+      await Promise.resolve();
+      flush();
+      expect(pendingValues.at(-1)).toBe(false);
+
+      const actionPromise = save();
+      flush();
+
+      expect(state!.items[0].name).toBe("Modified");
+      expect(pendingValues.at(-1)).toBe(true);
+
+      resolveAction();
+      await actionPromise;
+      await Promise.resolve();
+      flush();
+
+      expect(pendingValues.at(-1)).toBe(false);
+    });
+
     it("isPending clears for deep optimistic store reads when fresh projection data lands", async () => {
       let serverCount = 0;
       const fetches: Array<() => void> = [];
