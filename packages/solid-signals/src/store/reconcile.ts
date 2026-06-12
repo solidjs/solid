@@ -17,7 +17,10 @@ import {
 } from "./store.js";
 
 function unwrap(value: any) {
-  return value?.[$TARGET]?.[STORE_NODE] ?? value;
+  // Primitives can't be store proxies; skip the symbol lookups (which box the
+  // primitive) for the common leaf case.
+  if (value === null || typeof value !== "object") return value;
+  return value[$TARGET]?.[STORE_NODE] ?? value;
 }
 
 function getOverrideValue(value: any, override: any, key: string, optOverride?: any) {
@@ -28,7 +31,21 @@ function getOverrideValue(value: any, override: any, key: string, optOverride?: 
 function getAllKeys(value, override, next) {
   const keys = getKeys(value, override) as string[];
   const nextKeys = Object.keys(next);
-  return Array.from(new Set([...keys, ...nextKeys]));
+  // Fast path: identical key sets in identical order (the overwhelmingly
+  // common shape during reconcile) — no Set, no copies.
+  if (keys.length === nextKeys.length) {
+    let same = true;
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i] !== nextKeys[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return keys;
+  }
+  const set = new Set(keys);
+  for (let i = 0; i < nextKeys.length; i++) set.add(nextKeys[i]);
+  return Array.from(set);
 }
 
 // Dispatcher: every applyState call (including recursion) checks for the

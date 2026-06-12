@@ -55,13 +55,32 @@ function snapshotImpl<T>(
         result[i] = unwrapped;
       }
     }
+  } else if (!override) {
+    // Specialized walk for the common no-override case: the descriptor gives
+    // us the value directly, so each property is read once instead of three
+    // times, with no override membership checks.
+    const keys = getKeys(item, undefined);
+    for (let i = 0, l = keys.length; i < l; i++) {
+      const prop = keys[i];
+      const desc = Object.getOwnPropertyDescriptor(item, prop)!;
+      if (desc.get) continue;
+      v = desc.value;
+      if (track && isWrappable(v)) wrap(v, target);
+      if ((unwrapped = snapshotImpl(v, track, map, lookup)) !== v || result) {
+        if (!result) {
+          result = Object.create(Object.getPrototypeOf(item)) as Record<PropertyKey, any>;
+          Object.assign(result, item);
+        }
+        result[prop] = unwrapped;
+      }
+    }
   } else {
     const keys = getKeys(item, override);
     for (let i = 0, l = keys.length; i < l; i++) {
       let prop = keys[i];
       const desc = getPropertyDescriptor(item, override, prop)!;
       if (desc.get) continue;
-      v = override && prop in override ? override[prop] : item[prop];
+      v = prop in override ? override[prop] : item[prop];
       if (track && isWrappable(v)) wrap(v, target);
       if ((unwrapped = snapshotImpl(v, track, map, lookup)) !== item[prop] || result) {
         if (!result) {

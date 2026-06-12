@@ -18,6 +18,7 @@ import {
 } from "./core.js";
 import { emitDiagnostic } from "./dev.js";
 import { StatusError } from "./error.js";
+import { bumpNotifyEpoch } from "./heap.js";
 import { cleanup } from "./owner.js";
 import {
   _hitUnhandledAsync,
@@ -170,6 +171,9 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     if (__DEV__) setTrackedQueueCallback(true);
     try {
       node._modified = false;
+      // Consuming `_modified` invalidates setSignal's skip-walk cache — a
+      // later write in this batch must re-enqueue this effect.
+      bumpNotifyEpoch();
       recompute(node);
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);

@@ -11,6 +11,12 @@ export interface Link {
   _nextDep: Link | null;
   _prevSub: Link | null;
   _nextSub: Link | null;
+  /**
+   * `_sub._depGen` value at the last time this link was created or
+   * revalidated. Lets `link()` answer "was this dep already seen during the
+   * current recompute pass?" in O(1) instead of scanning the dep list.
+   */
+  _gen: number;
 }
 
 export interface NodeOptions<T> {
@@ -36,6 +42,13 @@ export interface RawSignal<T> {
   _config: number;
   _unobserved?: () => void;
   _time: number;
+  /**
+   * `notifyEpoch` value at the last full subscriber walk from `setSignal`.
+   * While it still equals the global epoch (and no subscriber was added since
+   * — `link` resets this to 0), every sub is already queued and repeat writes
+   * skip the walk. 0 means "must walk".
+   */
+  _notifyEpoch: number;
   _transition: Transition | null;
   _pendingValue: T | typeof NOT_PENDING;
   _overrideValue?: T | typeof NOT_PENDING;
@@ -70,6 +83,8 @@ export interface Owner {
 export interface Computed<T> extends RawSignal<T>, Owner {
   _deps: Link | null;
   _depsTail: Link | null;
+  /** Recompute-pass counter; bumped each time dep revalidation starts. */
+  _depGen: number;
   _flags: number;
   _blocked?: boolean;
   _pendingSource?: Computed<any>;

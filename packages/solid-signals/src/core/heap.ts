@@ -15,6 +15,19 @@ export interface Heap {
   _max: number;
 }
 
+/**
+ * Monotonic counter that advances whenever a queued notification is consumed —
+ * a node leaves the heap, or a tracked effect drains its `_modified` flag.
+ * While it holds still, every subscriber a write already pushed into the heap
+ * is guaranteed to still be there, so repeat writes to the same signal in one
+ * batch can skip re-walking the subscriber list entirely (see `setSignal`).
+ */
+export let notifyEpoch = 1;
+
+export function bumpNotifyEpoch(): void {
+  notifyEpoch++;
+}
+
 export function increaseHeapSize(n: number, heap: Heap): void {
   if (n > heap._heap.length) {
     heap._heap.length = n;
@@ -61,6 +74,7 @@ export function insertIntoHeapHeight(n: Computed<unknown>, heap: Heap) {
 export function deleteFromHeap(n: Computed<unknown>, heap: Heap) {
   const flags = n._flags;
   if (!(flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT))) return;
+  notifyEpoch++;
   n._flags = flags & ~(REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT);
   const height = n._height;
   if (n._prevHeap === n) heap._heap[height] = undefined;

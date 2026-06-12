@@ -62,13 +62,17 @@ export function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
   if (isRecomputing) {
     nextDep = prevDep !== null ? prevDep._nextDep : sub._deps;
     if (nextDep !== null && nextDep._dep === dep) {
+      nextDep._gen = sub._depGen;
       sub._depsTail = nextDep;
       return;
     }
   }
 
+  // A link stamped with the current pass generation was already created or
+  // revalidated during this recompute — i.e. it sits in the [head.._depsTail]
+  // prefix. O(1) replacement for scanning the dep list to check membership.
   const prevSub = dep._subsTail;
-  if (prevSub !== null && prevSub._sub === sub && (!isRecomputing || isValidLink(prevSub, sub)))
+  if (prevSub !== null && prevSub._sub === sub && (!isRecomputing || prevSub._gen === sub._depGen))
     return;
 
   const newLink =
@@ -79,25 +83,15 @@ export function link(dep: Signal<any> | Computed<any>, sub: Computed<any>) {
         _sub: sub,
         _nextDep: nextDep,
         _prevSub: prevSub,
-        _nextSub: null
+        _nextSub: null,
+        _gen: sub._depGen
       });
   if (prevDep !== null) prevDep._nextDep = newLink;
   else sub._deps = newLink;
 
   if (prevSub !== null) prevSub._nextSub = newLink;
   else dep._subs = newLink;
+  // New subscriber: the next write must walk the full sub list again.
+  dep._notifyEpoch = 0;
 }
 
-// https://github.com/stackblitz/alien-signals/blob/v2.0.3/src/system.ts#L284
-function isValidLink(checkLink: Link, sub: Computed<unknown>): boolean {
-  const depsTail = sub._depsTail;
-  if (depsTail !== null) {
-    let link = sub._deps!;
-    do {
-      if (link === checkLink) return true;
-      if (link === depsTail) break;
-      link = link._nextDep!;
-    } while (link !== null);
-  }
-  return false;
-}

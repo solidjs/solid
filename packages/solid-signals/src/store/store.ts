@@ -281,7 +281,14 @@ export function getKeys(
   override: Record<PropertyKey, any> | undefined,
   enumerable: boolean = true
 ): PropertyKey[] {
-  const baseKeys = untrack(() => (enumerable ? Object.keys(source) : Reflect.ownKeys(source)));
+  // Plain objects can't trigger proxy traps — only wrap in untrack when the
+  // source is itself a wrapped store (store-in-store), so the common case
+  // skips the closure allocation.
+  const baseKeys = (source as any)[$TARGET]
+    ? untrack(() => (enumerable ? Object.keys(source) : Reflect.ownKeys(source)))
+    : enumerable
+      ? Object.keys(source)
+      : Reflect.ownKeys(source);
   if (!override) return baseKeys;
   const keys = new Set(baseKeys);
   const overrides = Reflect.ownKeys(override);
