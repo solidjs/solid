@@ -224,3 +224,30 @@ it("should call cleanup on re-run after async settles", async () => {
   // Now callback runs
   expect(effect).toHaveBeenCalledWith("done");
 });
+
+it("defers cleanup from nested onSettled to owner disposal (#2766)", () => {
+  // Helper that uses onSettled internally to install + tear down a
+  // subscription. The parent calls the helper from inside another
+  // onSettled — under the bug, the helper's cleanup was invoked eagerly
+  // in the same flush, immediately tearing down the subscription.
+  const log: string[] = [];
+  function useSubscription() {
+    onSettled(() => {
+      log.push("subscribed");
+      return () => log.push("unsubscribed");
+    });
+  }
+
+  const dispose = createRoot(stop => {
+    onSettled(() => {
+      useSubscription();
+    });
+    return stop;
+  });
+
+  flush();
+  expect(log).toEqual(["subscribed"]);
+
+  dispose();
+  expect(log).toEqual(["subscribed", "unsubscribed"]);
+});

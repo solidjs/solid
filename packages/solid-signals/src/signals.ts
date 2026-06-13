@@ -745,15 +745,33 @@ export function createOptimistic<T>(
  */
 export function onSettled(callback: () => void | (() => void)): void {
   const owner = getOwner();
-  owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)
-    ? createTrackedEffect(() => untrack(callback), __DEV__ ? { name: "onSettled" } : undefined)
-    : globalQueue.enqueue(EFFECT_USER, () => {
-        const cleanup = callback();
-        if (__DEV__ && cleanup !== undefined && typeof cleanup !== "function") {
-          throw new Error(
-            "onSettled callback returned an invalid cleanup value. Return a cleanup function or undefined."
-          );
-        }
-        cleanup?.();
-      });
+  if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)) {
+    createTrackedEffect(() => untrack(callback), __DEV__ ? { name: "onSettled" } : undefined);
+    return;
+  }
+  // Fallback path: either no owner, or the current owner is a children-
+  // forbidden scope (the most common case is `onSettled()` called from
+  // inside another `onSettled()` callback, which itself runs as a
+  // tracked effect). The original implementation invoked the returned
+  // cleanup eagerly inside the same flush, which immediately tore down
+  // setup helpers (#2766). Defer cleanup via the captured owner's
+  // disposal chain so it fires on real disposal, not on settle.
+  const capturedOwner = owner;
+  globalQueue.enqueue(EFFECT_USER, () => {
+    const result = callback();
+    if (__DEV__ && result !== undefined && typeof result !== "function") {
+      throw new Error(
+        "onSettled callback returned an invalid cleanup value. Return a cleanup function or undefined."
+      );
+    }
+    if (typeof result === "function") {
+      if (capturedOwner) {
+        runWithOwner(capturedOwner, () => cleanup(result as Disposable));
+      } else {
+        // No owner to scope the cleanup to — the helper is genuinely
+        // orphaned, so we have no point at which to fire it. Drop it
+        // rather than run it immediately and break the setup contract.
+      }
+    }
+  });
 }
