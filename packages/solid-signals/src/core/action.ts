@@ -15,6 +15,14 @@ function restoreTransition<T>(transition: Transition, fn: () => T): T {
   return result;
 }
 
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value != null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
 /**
  * Wraps a generator function so each invocation runs as a single transaction
  * (a "transition") that batches every signal/store write between yields. The
@@ -75,15 +83,18 @@ export function action<Args extends any[], Y, R>(
         } catch (e) {
           return done(undefined, e);
         }
-        if (r instanceof Promise)
-          return void r.then(run, e => restoreTransition(ctx, () => step(e, true)));
-        run(r);
+        if (isThenable(r))
+          return void (r as PromiseLike<IteratorResult<Y, R>>).then(
+            run,
+            e => restoreTransition(ctx, () => step(e, true))
+          );
+        run(r as IteratorResult<Y, R>);
       };
 
       const run = (r: IteratorResult<Y, R>) => {
         if (r.done) return done(r.value);
-        if (r.value instanceof Promise)
-          return void r.value.then(
+        if (isThenable(r.value))
+          return void (r.value as PromiseLike<Y>).then(
             v => restoreTransition(ctx, () => step(v)),
             e => restoreTransition(ctx, () => step(e, true))
           );

@@ -135,6 +135,29 @@ describe("action", () => {
       expect(receivedValue).toBe(42);
     });
 
+    it("should await a non-Promise thenable and resume with its fulfilled value (#2765)", async () => {
+      let receivedValue: any;
+
+      const thenable = {
+        then(onFulfilled: (v: number) => void) {
+          queueMicrotask(() => onFulfilled(42));
+        }
+      };
+
+      const myAction = action(function* () {
+        receivedValue = yield thenable;
+      });
+
+      myAction();
+      // Before the fix, the generator resumed synchronously with the raw
+      // thenable object because `instanceof Promise` was false; after the
+      // fix the thenable's `then` callback fires and the resumed value is 42.
+      expect(receivedValue).toBeUndefined();
+      await new Promise(resolve => queueMicrotask(() => resolve(undefined)));
+      await Promise.resolve();
+      expect(receivedValue).toBe(42);
+    });
+
     it("should handle multiple async yields in sequence", async () => {
       const values: number[] = [];
 
