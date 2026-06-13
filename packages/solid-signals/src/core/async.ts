@@ -233,6 +233,8 @@ export function handleAsync<T>(
 
   if (isThenable) {
     let resolved = false,
+      rejected = false,
+      syncError: any,
       isSync = true;
     (result as PromiseLike<T>).then(
       v => {
@@ -242,11 +244,21 @@ export function handleAsync<T>(
         } else asyncWrite(v);
       },
       e => {
-        if (!isSync) handleError(e);
+        if (isSync) {
+          // Library/cache thenables can invoke the rejection handler
+          // synchronously during `.then(…)`. Capturing the error here and
+          // surfacing it after `.then` returns is what lets `<Errored>` see
+          // it instead of being stuck on the pending path forever (#2764).
+          syncError = e;
+          rejected = true;
+        } else handleError(e);
       }
     );
     isSync = false;
-    if (!resolved) {
+    if (rejected) {
+      handleError(syncError);
+      throw syncError;
+    } else if (!resolved) {
       globalQueue.initTransition(resolveTransition(el as any));
       throw new NotReadyError(context!);
     }

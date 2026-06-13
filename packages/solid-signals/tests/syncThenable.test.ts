@@ -1,4 +1,5 @@
 import {
+  createErrorBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -513,5 +514,38 @@ describe("fromObservable pattern", () => {
     subject.complete();
     // Should handle gracefully - value remains
     expect(signal()).toBe(42);
+  });
+});
+
+describe("sync rejecting thenable", () => {
+  // Helper: a thenable that calls its rejection handler synchronously
+  function syncRejectingThenable(reason: unknown): PromiseLike<never> {
+    return {
+      then<R1, R2 = never>(
+        _onfulfilled?: ((v: never) => R1 | PromiseLike<R1>) | null,
+        onrejected?: ((reason: any) => R2 | PromiseLike<R2>) | null
+      ): PromiseLike<R1 | R2> {
+        try {
+          const result = onrejected ? onrejected(reason) : (reason as any);
+          return syncThenable(result) as PromiseLike<R1 | R2>;
+        } catch (err) {
+          return syncRejectingThenable(err) as PromiseLike<R1 | R2>;
+        }
+      }
+    };
+  }
+
+  it("reaches Errored on synchronous rejection (#2764)", () => {
+    const error = new Error("sync-reject");
+    const result = createRoot(() =>
+      createErrorBoundary(
+        () => {
+          const value = createMemo(() => syncRejectingThenable(error));
+          return value();
+        },
+        (err: () => unknown) => `caught: ${(err() as Error).message}`
+      )
+    );
+    expect(result()).toBe("caught: sync-reject");
   });
 });
