@@ -80,13 +80,23 @@ export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>,
   moduleUrl?: string
 ): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string } {
-  let p: Promise<{ default: T }> & { v?: T };
+  let p: Promise<{ default: T }> & { v?: T; error?: unknown };
   let load = () => {
     if (!p) {
       p = fn() as any;
-      p.then(mod => {
-        p.v = mod.default;
-      });
+      p.then(
+        mod => {
+          p.v = mod.default;
+        },
+        err => {
+          // Capture the rejection so the SSR render path can surface it to
+          // `<Errored>` instead of leaving p.v `undefined` forever (which
+          // would keep throwing `NotReadyError` and look like the module is
+          // still loading) and instead of leaking the rejection as a
+          // process-level `unhandledRejection` (#2780).
+          p.error = err;
+        }
+      );
     }
     return p;
   };
@@ -121,13 +131,21 @@ export function lazy<T extends Component<any>>(
     }
     if (ctx?.async) {
       ctx.block(
-        p.then(() => {
-          (p as any).s = "success";
-        })
+        p.then(
+          () => {
+            (p as any).s = "success";
+          },
+          () => {
+            // Rejection is captured on `p.error` by `load()` and surfaced
+            // through the memo below; swallow the rejection of this branch
+            // so `ctx.block` doesn't propagate a second unhandled rejection.
+          }
+        )
       );
     }
     return createMemo(
       () => {
+        if (p.error) throw p.error;
         if (!p.v) throw new NotReadyError(p);
         return p.v(props);
       },
