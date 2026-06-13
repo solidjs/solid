@@ -129,14 +129,17 @@ it("should call cleanup when disposed", () => {
   expect(cleanup).toHaveBeenCalledTimes(1);
 });
 
-it("should call cleanup immediately when no owner", () => {
+it("should drop fallback cleanup when no owner is available", () => {
   const cleanup = vi.fn();
 
   onSettled(() => cleanup);
 
   expect(cleanup).toHaveBeenCalledTimes(0);
   flush();
-  expect(cleanup).toHaveBeenCalledTimes(1);
+  // No owner means no scope to anchor disposal to. Eager firing during the
+  // same flush is what #2766 explicitly fixed; dropping the cleanup is the
+  // intentional fallback so setup helpers are not torn down on settle.
+  expect(cleanup).toHaveBeenCalledTimes(0);
 });
 
 it("should throw on invalid cleanup values", () => {
