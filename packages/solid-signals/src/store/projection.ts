@@ -17,6 +17,7 @@ import {
   STORE_WRAP,
   storeSetter,
   storeTraps,
+  type NoFn,
   type ProjectionOptions,
   type Store
 } from "./store.js";
@@ -107,7 +108,7 @@ export function createProjectionInternal<T extends object = {}>(
  */
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
   return createProjectionInternal(fn, seed, options).store;
