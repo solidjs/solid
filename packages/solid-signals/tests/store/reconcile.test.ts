@@ -23,6 +23,28 @@ describe("setState with reconcile", () => {
     expect(state[1]).toBe(null);
   });
 
+  test("Reconcile keyed array with null entries", () => {
+    const [state, setState] = createStore<Array<{ id: number; value?: string } | null>>([
+      { id: 1 },
+      null,
+      { id: 2 }
+    ]);
+
+    setState(reconcile([{ id: 1 }, null, { id: 2, value: "updated" }], "id"));
+
+    expect(snapshot(state)).toEqual([{ id: 1 }, null, { id: 2, value: "updated" }]);
+  });
+
+  test("Reconcile keyed array replacing an object with a primitive", () => {
+    const [state, setState] = createStore<Array<{ id: number; value: string } | number>>([
+      { id: 1, value: "object" }
+    ]);
+
+    setState(reconcile([5], "id"));
+
+    expect(snapshot(state)).toEqual([5]);
+  });
+
   test("Reconcile a simple object on a nested path", () => {
     const [state, setState] = createStore<{
       data: { user: { firstName: string; middleName: string; lastName?: string } };

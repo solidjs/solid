@@ -31,6 +31,34 @@ function getAllKeys(value, override, next) {
   return Array.from(new Set([...keys, ...nextKeys]));
 }
 
+function wrapValue(value: any, target: any) {
+  return isWrappable(value) ? wrap(value, target) : value;
+}
+
+function keyedMatch(a: any, b: any, keyFn: (item: NonNullable<any>) => any) {
+  return a === b || (isWrappable(a) && isWrappable(b) && keyFn(a) === keyFn(b));
+}
+
+function itemKey(item: any, keyFn: (item: NonNullable<any>) => any) {
+  return isWrappable(item) ? keyFn(item) : item;
+}
+
+function applyArrayItem(
+  next: any,
+  previous: any,
+  target: any,
+  node: any,
+  keyFn: (item: NonNullable<any>) => any
+) {
+  if (isWrappable(next) && isWrappable(previous)) {
+    const wrapped = wrap(previous, target);
+    node && setSignal(node, wrapped);
+    applyState(next, wrapped, keyFn);
+  } else {
+    node && setSignal(node, wrapValue(next, target));
+  }
+}
+
 // Dispatcher: every applyState call (including recursion) checks for the
 // presence of override / optimistic-override slots once and routes to the
 // appropriate body. The fast body never calls `getOverrideValue` and never
@@ -59,17 +87,17 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
   if (Array.isArray(previous)) {
     let changed = false;
     const prevLength = (previous as any).length;
-    if (next.length && prevLength && next[0] && keyFn(next[0]) != null) {
+    if (next.length && prevLength && isWrappable(next[0]) && keyFn(next[0]) != null) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
 
       for (
         start = 0, end = Math.min(prevLength, next.length);
-        start < end &&
-        ((item = previous[start]) === next[start] ||
-          (item && next[start] && keyFn(item) === keyFn(next[start])));
+        start < end && keyedMatch((item = previous[start]), next[start], keyFn);
         start++
       ) {
-        applyState(next[start], wrap(item, target), keyFn);
+        isWrappable(item) &&
+          isWrappable(next[start]) &&
+          applyState(next[start], wrap(item, target), keyFn);
       }
 
       const temp = new Array(next.length),
@@ -77,10 +105,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
 
       for (
         end = prevLength - 1, newEnd = next.length - 1;
-        end >= start &&
-        newEnd >= start &&
-        ((item = previous[end]) === next[newEnd] ||
-          (item && next[newEnd] && keyFn(item) === keyFn(next[newEnd])));
+        end >= start && newEnd >= start && keyedMatch((item = previous[end]), next[newEnd], keyFn);
         end--, newEnd--
       ) {
         temp[newEnd] = item;
@@ -89,14 +114,12 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
       if (start > newEnd || start > end) {
         for (j = start; j <= newEnd; j++) {
           changed = true;
-          arrayNodes?.[j] && setSignal(arrayNodes[j], wrap(next[j], target));
+          arrayNodes?.[j] && setSignal(arrayNodes[j], wrapValue(next[j], target));
         }
 
         for (; j < next.length; j++) {
           changed = true;
-          const wrapped = wrap(temp[j], target);
-          arrayNodes?.[j] && setSignal(arrayNodes[j], wrapped);
-          applyState(next[j], wrapped, keyFn);
+          applyArrayItem(next[j], temp[j], target, arrayNodes?.[j], keyFn);
         }
 
         changed && notifySelf(target);
@@ -110,7 +133,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
 
       for (j = newEnd; j >= start; j--) {
         item = next[j];
-        keyVal = item ? keyFn(item) : item;
+        keyVal = itemKey(item, keyFn);
         i = newIndices.get(keyVal);
         newIndicesNext[j] = i === undefined ? -1 : i;
         newIndices.set(keyVal, j);
@@ -118,7 +141,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
 
       for (i = start; i <= end; i++) {
         item = previous[i];
-        keyVal = item ? keyFn(item) : item;
+        keyVal = itemKey(item, keyFn);
         j = newIndices.get(keyVal);
 
         if (j !== undefined && j !== -1) {
@@ -130,19 +153,18 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
 
       for (j = start; j < next.length; j++) {
         if (j in temp) {
-          const wrapped = wrap(temp[j], target);
-          arrayNodes?.[j] && setSignal(arrayNodes[j], wrapped);
-          applyState(next[j], wrapped, keyFn);
-        } else arrayNodes?.[j] && setSignal(arrayNodes[j], wrap(next[j], target));
+          applyArrayItem(next[j], temp[j], target, arrayNodes?.[j], keyFn);
+        } else arrayNodes?.[j] && setSignal(arrayNodes[j], wrapValue(next[j], target));
       }
       if (start < next.length) changed = true;
     } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = previous[i];
-        if (isWrappable(item)) applyState(next[i], wrap(item, target), keyFn);
+        if (isWrappable(item) && isWrappable(next[i]))
+          applyState(next[i], wrap(item, target), keyFn);
         else {
           if (item !== next[i]) changed = true;
-          arrayNodes?.[i] && setSignal(arrayNodes[i], next[i]);
+          arrayNodes?.[i] && setSignal(arrayNodes[i], wrapValue(next[i], target));
         }
       }
     }
@@ -203,17 +225,22 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
   if (Array.isArray(previous)) {
     let changed = false;
     const prevLength = getOverrideValue(previous, override, "length", optOverride);
-    if (next.length && prevLength && next[0] && keyFn(next[0]) != null) {
+    if (next.length && prevLength && isWrappable(next[0]) && keyFn(next[0]) != null) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
 
       for (
         start = 0, end = Math.min(prevLength, next.length);
         start < end &&
-        ((item = getOverrideValue(previous, override, start, optOverride)) === next[start] ||
-          (item && next[start] && keyFn(item) === keyFn(next[start])));
+        keyedMatch(
+          (item = getOverrideValue(previous, override, start, optOverride)),
+          next[start],
+          keyFn
+        );
         start++
       ) {
-        applyState(next[start], wrap(item, target), keyFn);
+        isWrappable(item) &&
+          isWrappable(next[start]) &&
+          applyState(next[start], wrap(item, target), keyFn);
       }
 
       const temp = new Array(next.length),
@@ -223,8 +250,11 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         end = prevLength - 1, newEnd = next.length - 1;
         end >= start &&
         newEnd >= start &&
-        ((item = getOverrideValue(previous, override, end, optOverride)) === next[newEnd] ||
-          (item && next[newEnd] && keyFn(item) === keyFn(next[newEnd])));
+        keyedMatch(
+          (item = getOverrideValue(previous, override, end, optOverride)),
+          next[newEnd],
+          keyFn
+        );
         end--, newEnd--
       ) {
         temp[newEnd] = item;
@@ -233,14 +263,12 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
       if (start > newEnd || start > end) {
         for (j = start; j <= newEnd; j++) {
           changed = true;
-          nodes?.[j] && setSignal(nodes[j], wrap(next[j], target));
+          nodes?.[j] && setSignal(nodes[j], wrapValue(next[j], target));
         }
 
         for (; j < next.length; j++) {
           changed = true;
-          const wrapped = wrap(temp[j], target);
-          nodes?.[j] && setSignal(nodes[j], wrapped);
-          applyState(next[j], wrapped, keyFn);
+          applyArrayItem(next[j], temp[j], target, nodes?.[j], keyFn);
         }
 
         const nextLength = next.length;
@@ -253,7 +281,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
 
       for (j = newEnd; j >= start; j--) {
         item = next[j];
-        keyVal = item ? keyFn(item) : item;
+        keyVal = itemKey(item, keyFn);
         i = newIndices.get(keyVal);
         newIndicesNext[j] = i === undefined ? -1 : i;
         newIndices.set(keyVal, j);
@@ -261,7 +289,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
 
       for (i = start; i <= end; i++) {
         item = getOverrideValue(previous, override, i, optOverride);
-        keyVal = item ? keyFn(item) : item;
+        keyVal = itemKey(item, keyFn);
         j = newIndices.get(keyVal);
 
         if (j !== undefined && j !== -1) {
@@ -273,19 +301,18 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
 
       for (j = start; j < next.length; j++) {
         if (j in temp) {
-          const wrapped = wrap(temp[j], target);
-          nodes?.[j] && setSignal(nodes[j], wrapped);
-          applyState(next[j], wrapped, keyFn);
-        } else nodes?.[j] && setSignal(nodes[j], wrap(next[j], target));
+          applyArrayItem(next[j], temp[j], target, nodes?.[j], keyFn);
+        } else nodes?.[j] && setSignal(nodes[j], wrapValue(next[j], target));
       }
       if (start < next.length) changed = true;
     } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = getOverrideValue(previous, override, i as any, optOverride);
-        if (isWrappable(item)) applyState(next[i], wrap(item, target), keyFn);
+        if (isWrappable(item) && isWrappable(next[i]))
+          applyState(next[i], wrap(item, target), keyFn);
         else {
           if (item !== next[i]) changed = true;
-          nodes?.[i] && setSignal(nodes[i], next[i]);
+          nodes?.[i] && setSignal(nodes[i], wrapValue(next[i], target));
         }
       }
     }
