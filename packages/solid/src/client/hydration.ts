@@ -274,14 +274,27 @@ function readHydratedValue(initP: any, refresh: () => void) {
   return initP?.v ?? initP;
 }
 
+/** Track owners whose serialized value has been consumed (used once, then compute takes over). */
+const consumedSerialized = new WeakSet<object>();
+
 /** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration. */
 function readSerializedOrCompute(compute: (prev: any) => any, prev: any) {
-  if (!sharedConfig.hydrating) return compute(prev);
   const o = getOwner()!;
+  // Even after sharedConfig.hydrating flips to false, a memo whose serialized
+  // key arrived late (after the shell hydrated) hasn't consumed its server
+  // value yet. Use it now so the memo subscribes to the server's deferred
+  // Promise via handleAsync — otherwise the memo re-runs its compute function
+  // (e.g. fetchItems(...)), creating a NEW Promise that resolves after the
+  // Loading boundary's resume window closes, orphaning the server fragment.
+  if (!sharedConfig.hydrating && consumedSerialized.has(o)) return compute(prev);
   let initP: any;
   if (sharedConfig.has!(o.id!)) initP = sharedConfig.load!(o.id!);
   const init = readHydratedValue(initP, () => subFetch(compute, prev));
-  return init !== NO_HYDRATED_VALUE ? init : compute(prev);
+  if (init !== NO_HYDRATED_VALUE) {
+    consumedSerialized.add(o);
+    return init;
+  }
+  return compute(prev);
 }
 
 function forwardIteratorReturn(it: any, value?: any) {
