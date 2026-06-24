@@ -266,6 +266,37 @@ describe("SSR Streaming — Basic Rendering", () => {
     expect(html).not.toContain("tracking scope");
   });
 
+  test("rejected lazy() under Errored serializes the error instead of hanging (#2780)", async () => {
+    const manifest = { "./Boom.tsx": { file: "assets/boom.js" } };
+    const LazyBoom = lazy(
+      () => new Promise<any>((_, rej) => setTimeout(() => rej(new Error("lazy failed")), 10)),
+      "./Boom.tsx"
+    ) as any;
+
+    // Without the rejection capture in lazy(), the failed module load left the
+    // render memo throwing NotReadyError forever (the stream never completes)
+    // and leaked a process-level unhandledRejection. The render now completes,
+    // and — because the boundary's region was already streamed (Loading
+    // placeholder) — the error reaches `<Errored>` and is serialized at its id
+    // for the client to render the fallback via the streamed-fragment path.
+    const html = await renderComplete(
+      () => (
+        <Errored fallback={(e: any) => <span>err: {String(e()?.message || e())}</span>}>
+          <Loading fallback={<span>Pending</span>}>
+            <LazyBoom />
+          </Loading>
+        </Errored>
+      ),
+      { manifest }
+    );
+    const rKeys = [...html.matchAll(/_\$HY\.r\["([^"]+)"\]/g)].map(m => m[1]);
+    // Error captured and serialized at the boundary id, the streamed fragment
+    // settled (rejected), and the shell did not get stuck on the placeholder.
+    expect(html).toContain("lazy failed");
+    expect(rKeys).toContain("0");
+    expect(rKeys).toContain("000_fr");
+  });
+
   test("async memo — shell contains fallback, final has resolved value", async () => {
     function App() {
       const data = createMemo(async () => {
