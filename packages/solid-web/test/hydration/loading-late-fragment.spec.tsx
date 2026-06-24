@@ -25,7 +25,7 @@ function setupHydration() {
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const fetchItems = async (id: number) => {
   await sleep(10);
   return ["item " + id];
@@ -39,7 +39,7 @@ const fetchItems = async (id: number) => {
 const RESOLVER_FN =
   "($R[6]=(resolver, data) => { resolver.s(data); resolver.p.s = 1; resolver.p.v = data; })";
 const DEFERRED =
-  '($R[2]=() => { const resolver = { p: 0, s: 0, f: 0 }; resolver.p = new Promise((resolve, reject) => { resolver.s = resolve; resolver.f = reject; }); return resolver; })';
+  "($R[2]=() => { const resolver = { p: 0, s: 0, f: 0 }; resolver.p = new Promise((resolve, reject) => { resolver.s = resolve; resolver.f = reject; }); return resolver; })";
 
 const SHELL =
   `<template id="pl-3"></template><div _hk=30>loading</div><!--pl-3-->` +
@@ -97,7 +97,7 @@ describe("Loading boundary — late-streamed fragment hydration (chained async m
     const b = createMemo(() => fetchItems(m()));
     return (
       <Loading fallback={<div>loading</div>}>
-        <For each={b()}>{(x) => <div>{x}</div>}</For>
+        <For each={b()}>{x => <div>{x}</div>}</For>
       </Loading>
     );
   }
