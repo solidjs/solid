@@ -202,7 +202,7 @@ Come chat with us on [Discord](https://discord.com/invite/solidjs)! Solid's crea
 
 ### Contributors
 
-<a href="https://github.com/solidjs/solid/graphs/contributors"><img src="https://opencollective.com/solid/contributors.svg?width=890&amp;button=false" style="max-width:100%;"></a>
+<a href="https://github.com/solidjs/solid/graphs/contributors"><img src="https://images.opencollective.com/solid/contributors.svg" style="max-width:100%;"></a>
 
 ### Open Collective
 
