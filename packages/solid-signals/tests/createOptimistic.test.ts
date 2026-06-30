@@ -939,6 +939,51 @@ describe("createOptimistic", () => {
       expect(isPending(() => $data())).toBe(false);
     });
 
+    it("isPending effect fires on the FIRST refresh when isPending is the only consumer (#2799 follow-up)", async () => {
+      // The #2799 test above keeps the node alive with
+      // `createRenderEffect(data, () => {})` — an eager value-observer that
+      // happens to clear STATUS_UNINITIALIZED on the initial load. When the only
+      // consumer is a reactive `isPending(() => data())` (the real JSX case),
+      // nothing cleared that flag on first completion, so the *first* refresh()
+      // was misread as an initial load: the effect never observed `true` until a
+      // second refresh.
+      let resolveFetch: ((v: number[]) => void) | null = null;
+      const makeFetch = () => new Promise<number[]>(r => (resolveFetch = r));
+
+      const seen: boolean[] = [];
+      let $data!: SourceAccessor<number[]>;
+      createRoot(() => {
+        const [data] = createOptimistic<number[]>(() => makeFetch());
+        $data = data;
+        // isPending is the sole consumer — no eager read of data().
+        createEffect(
+          () => isPending(() => data()),
+          p => {
+            seen.push(p);
+          }
+        );
+      });
+
+      // Initial load settles — no stale data yet, so isPending stays false.
+      flush();
+      resolveFetch!([1, 2, 3]);
+      await Promise.resolve();
+      flush();
+      expect(seen.at(-1)).toBe(false);
+
+      // The very FIRST refresh must drive the effect to `true`.
+      refresh($data);
+      flush();
+      expect(seen.at(-1)).toBe(true);
+
+      // Settling the refetch swaps in the new value and clears pending.
+      resolveFetch!([4, 5, 6]);
+      await Promise.resolve();
+      flush();
+      expect($data()).toEqual([4, 5, 6]);
+      expect(seen.at(-1)).toBe(false);
+    });
+
     it("plain optimistic stays true through refresh-of-unrelated-async (issue #2685)", async () => {
       // github.com/solidjs/solid/issues/2685 — the optimistic signal itself
       // is plain (no async source); the async work comes from refresh()ing

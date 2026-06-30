@@ -211,6 +211,13 @@ export function handleAsync<T>(
         el._pendingValue = value;
       else {
         el._value = value;
+        // First successful completion of a *resting* optimistic node (no active
+        // override) must clear STATUS_UNINITIALIZED, same as the `setter` branch
+        // above. Otherwise a node whose only consumer is `isPending(() => x())`
+        // — which never drives the observed commit path — stays UNINITIALIZED
+        // forever, and every later refresh() is misread as an initial load, so
+        // `isPending` never reports `true` (#2799 follow-up).
+        if (wasUninitialized) clearStatus(el, true);
         insertSubs(el);
       }
       el._time = clock;
