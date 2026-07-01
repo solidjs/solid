@@ -1,0 +1,13 @@
+diff --git a/lib/run-task.js b/lib/run-task.js
+index 8cabc03c7ef64f5ca57378009618222fc97ac9b7..53166e6a81a1fb5dfcf0c489ef5815f864f80a13 100644
+--- a/lib/run-task.js
++++ b/lib/run-task.js
+@@ -155,7 +155,7 @@ module.exports = function runTask(task, options) {
+ 
+         // Execute.
+         const npmPath = options.npmPath || process.env.npm_execpath //eslint-disable-line no-process-env
+-        const npmPathIsJs = typeof npmPath === "string" && /\.m?js/.test(path.extname(npmPath))
++        const npmPathIsJs = typeof npmPath === "string" && /^\.[cm]?js$/.test(path.extname(npmPath))
+         const execPath = (npmPathIsJs ? process.execPath : npmPath || "npm")
+         const isYarn = path.basename(npmPath || "npm").startsWith("yarn")
+         const spawnArgs = ["run"]

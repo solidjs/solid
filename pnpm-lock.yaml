@@ -10,6 +10,9 @@ overrides:
   solid-js: workspace:*
   '@solidjs/web': workspace:*
 
+patchedDependencies:
+  npm-run-all@4.1.5: d951d94a1c5ee49d8f3178bf1010d3f25d2903417c114791c51458b6b636929f
+
 importers:
 
   .:
@@ -79,7 +82,7 @@ importers:
         version: 2.0.0
       npm-run-all:
         specifier: ^4.1.5
-        version: 4.1.5
+        version: 4.1.5(patch_hash=d951d94a1c5ee49d8f3178bf1010d3f25d2903417c114791c51458b6b636929f)
       prettier:
         specifier: ^3.6.2
         version: 3.8.1
@@ -6635,7 +6638,7 @@ snapshots:
   normalize-path@3.0.0:
     optional: true
 
-  npm-run-all@4.1.5:
+  npm-run-all@4.1.5(patch_hash=d951d94a1c5ee49d8f3178bf1010d3f25d2903417c114791c51458b6b636929f):
     dependencies:
       ansi-styles: 3.2.1
       chalk: 2.4.2
