@@ -98,6 +98,21 @@ import {
   store[0].name satisfies string;
 }
 
+// ── createProjection — store as seed ──────────────────────────────────
+
+{
+  const [todos] = createStore([] as { id: number; done: boolean }[]);
+  const proj = createProjection(() => todos.filter(t => !t.done), todos);
+  proj[0].id satisfies number;
+  proj[0].done satisfies boolean;
+}
+
+{
+  const [state] = createStore({ count: 0 });
+  const proj = createProjection(() => ({ count: 1 }), state);
+  proj.count satisfies number;
+}
+
 // ── createOptimisticStore (projection) — partial seed ─────────────────
 
 {
