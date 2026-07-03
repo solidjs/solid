@@ -24,5 +24,8 @@
     "solid-js": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.6"
   }
 }
