@@ -622,6 +622,15 @@ function createSyncMemo<T>(
     // memo + one pull is paid per row.
     const prev = currentOwner;
     currentOwner = owner as unknown as SSROwner;
+    // A pull after `NotReadyError` re-runs the compute under the same owner.
+    // The client resets an owner's child state on every recompute (dispose +
+    // `_childCount = 0`), so mirror that here — otherwise every failed pull
+    // leaks the child-id slots it consumed (e.g. the compiler-emitted inner
+    // memo of `{cond && <jsx>}`) and the hydration keys of everything created
+    // by the eventual successful pull drift ahead of the client's (#2801).
+    const o = owner as unknown as SSROwner;
+    if (o._firstChild || o._disposal) disposeOwner(owner, false);
+    o._childCount = 0;
     try {
       value = compute(value) as T;
       error = undefined;
