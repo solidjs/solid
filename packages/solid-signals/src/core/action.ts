@@ -76,8 +76,10 @@ export function action<Args extends any[], Y, R>(
         } catch (e) {
           return done(undefined, e);
         }
-        if (isThenable(r))
-          return void r.then(run, e => restoreTransition(ctx, () => step(e, true)));
+        // A rejected iterator result (async generators) means the error already
+        // escaped the generator body — it is completed, and throwing back in
+        // would just reject again forever. Settle instead.
+        if (isThenable(r)) return void r.then(run, e => done(undefined, e));
         run(r);
       };
 

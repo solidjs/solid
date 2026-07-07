@@ -886,6 +886,73 @@ describe("action", () => {
       await expect(myAction()).rejects.toThrow("error after yield");
     });
 
+    it("should reject the promise when an async generator throws immediately", async () => {
+      const myAction = action(async function* () {
+        throw new Error("boom");
+      });
+
+      await expect(myAction()).rejects.toThrow("boom");
+
+      // The event loop must not be starved — a macrotask still runs
+      await new Promise<void>(r => setTimeout(r, 0));
+    });
+
+    it("should reject the promise when an async generator throws after an await", async () => {
+      const myAction = action(async function* () {
+        await Promise.resolve();
+        yield undefined;
+        throw new Error("async error after yield");
+      });
+
+      await expect(myAction()).rejects.toThrow("async error after yield");
+    });
+
+    it("should allow try/catch inside async generator for awaited rejections", async () => {
+      const steps: string[] = [];
+
+      const myAction = action(async function* () {
+        steps.push("start");
+        try {
+          yield Promise.reject(new Error("test error"));
+          steps.push("unreachable");
+        } catch (e: any) {
+          steps.push("caught: " + e.message);
+        }
+        steps.push("end");
+      });
+
+      await myAction();
+      expect(steps).toEqual(["start", "caught: test error", "end"]);
+    });
+
+    it("should complete the transition when an async generator throws", async () => {
+      const [$x, setX] = createSignal(0);
+
+      const errorAction = action(async function* () {
+        setX(1);
+        yield undefined;
+        throw new Error("async boom");
+      });
+
+      const successAction = action(function* () {
+        setX(v => v + 10);
+        yield Promise.resolve();
+        yield Promise.resolve();
+        setX(v => v + 100);
+      });
+
+      const errorPromise = errorAction();
+      successAction();
+      flush();
+      expect($x()).toBe(0); // Held
+
+      await expect(errorPromise).rejects.toThrow("async boom");
+
+      // Error action was removed from the transition, so it can still commit
+      await new Promise<void>(r => setTimeout(r, 0));
+      expect($x()).toBe(111); // 1 + 10 + 100
+    });
+
     it("should remove action from transition on error but let transition continue", async () => {
       const [$x, setX] = createSignal(0);
 
