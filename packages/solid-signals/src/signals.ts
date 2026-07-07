@@ -23,6 +23,7 @@ import {
   untrack
 } from "./core/index.js";
 import { emitDiagnostic, registerGraph } from "./core/dev.js";
+import { StatusError } from "./core/error.js";
 import { globalQueue } from "./core/scheduler.js";
 
 /**
@@ -588,7 +589,9 @@ export function createReaction(
  * Awaits a reactive expression and returns its first fully-settled value as a
  * `Promise`. Pending async reads (`createMemo` returning a promise, etc.) are
  * waited on; once the expression returns synchronously without `NotReadyError`
- * the promise resolves with that value.
+ * the promise resolves with that value. If the expression settles with an
+ * error instead — including an async source that rejects — the promise
+ * rejects with it.
  *
  * Must be called *outside* a tracking scope — it doesn't subscribe, it just
  * resolves the current value once.
@@ -611,15 +614,24 @@ export function resolve<T>(fn: () => T): Promise<T> {
   }
   return new Promise((res, rej) => {
     createRoot(dispose => {
-      computed(() => {
-        try {
-          res(fn());
-        } catch (err) {
-          if (err instanceof NotReadyError) throw err;
-          rej(err);
-        }
-        dispose();
-      });
+      // A user effect rather than a bare computed: computeds are pull-based and
+      // are only re-enqueued when a pending source *resolves* — a rejection just
+      // marks them errored, so nothing would re-run and the promise would never
+      // settle (#2842). The effect's error channel is notified on rejection.
+      effect(
+        fn,
+        value => {
+          res(value);
+          dispose();
+        },
+        err => {
+          // Compute-phase errors arrive wrapped for source tracking; reject
+          // with the user's original error like error boundaries do.
+          rej(err instanceof StatusError ? (err.cause ?? err) : err);
+          dispose();
+        },
+        { user: true }
+      );
     });
   });
 }
