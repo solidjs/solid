@@ -304,12 +304,18 @@ export class CollectionQueue extends Queue {
     // Notify-through: a real error inside a `Loading` is not this boundary's to
     // handle — remap it to ERROR and forward toward the `Errored` that catches it.
     // This must run before the initialized passthrough below so the error still
-    // reaches its catcher after this boundary has committed. The mirror case
-    // (pending inside an `Errored`) needs no explicit rule: the PENDING dimension
-    // survives `type &= ~collectionType` below and reaches the outer `Loading`
-    // natively, while a pending already caught by an inner `Loading` arrives here
-    // as a bare ERROR-dimension remainder and is correctly swallowed.
-    if (this._collectionType & STATUS_PENDING && flags & STATUS_ERROR) {
+    // reaches its catcher after this boundary has committed. Guarded on the ERROR
+    // dimension still being live in `type`: an `Errored` nested below this
+    // `Loading` consumes ERROR from the mask when it catches, and remapping off
+    // the node's raw `flags` alone would resurrect that consumed error and route
+    // it past the boundary that already handled it (the Loading > Errored >
+    // content composition escape).
+    // The mirror case (pending inside an `Errored`) needs no explicit rule: the
+    // PENDING dimension survives `type &= ~collectionType` below and reaches the
+    // outer `Loading` natively, while a pending already caught by an inner
+    // `Loading` arrives here as a bare ERROR-dimension remainder and is correctly
+    // swallowed.
+    if (this._collectionType & STATUS_PENDING && type & STATUS_ERROR && flags & STATUS_ERROR) {
       return super.notify(node, STATUS_ERROR, flags, error);
     }
 

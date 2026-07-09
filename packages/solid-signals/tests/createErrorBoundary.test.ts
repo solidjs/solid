@@ -829,6 +829,101 @@ it("does not loop when an async memo is read inside Loading > Errored (#2809)", 
 });
 
 /**
+ * #2809 fallout — the `Errored > Loading > Errored > content` composition
+ * escape: a sync error from the content must be caught by the INNER `Errored`,
+ * the boundary between the `Loading` and the throwing content. When the inner
+ * boundary catches, it consumes the ERROR dimension from the notification mask
+ * and forwards only the PENDING remainder up the queue chain — but the
+ * `Loading` queue's notify-through remap keyed off the node's raw status flags
+ * instead of the mask, resurrecting the already-caught error and routing it to
+ * the OUTER boundary, whose fallback then replaced the whole subtree (and with
+ * no outer boundary, reactivity halted). This broke the React-style
+ * `Suspense > ErrorBoundary > content` nesting that TanStack Router mirrors.
+ * The remap now fires only while the ERROR dimension is still live in the mask.
+ */
+function mountNestedComposition(content: () => string) {
+  let rendered: unknown;
+  const dispose = createRoot(dispose => {
+    const outer = createErrorBoundary(
+      () =>
+        createLoadingBoundary(
+          () => createErrorBoundary(content, () => "inner caught")(),
+          () => "loading"
+        )(),
+      () => "outer caught"
+    );
+    createRenderEffect(
+      () => (rendered = outer()),
+      () => {}
+    );
+    return dispose;
+  });
+  return { rendered: () => rendered, dispose };
+}
+
+it("catches at the inner Errored when content throws in the mounting flush (Errored > Loading > Errored)", () => {
+  const { rendered, dispose } = mountNestedComposition(() => {
+    throw new Error("boom on mount");
+  });
+  flush();
+  expect(rendered()).toBe("inner caught");
+  dispose();
+});
+
+it("catches at the inner Errored when content throws reactively after a healthy commit (Errored > Loading > Errored)", () => {
+  const [$boom, setBoom] = createSignal(false);
+  const { rendered, dispose } = mountNestedComposition(() => {
+    if ($boom()) throw new Error("boom");
+    return "ok";
+  });
+  flush();
+  expect(rendered()).toBe("ok");
+
+  setBoom(true);
+  flush();
+  expect(rendered()).toBe("inner caught");
+  dispose();
+});
+
+it("catches an async rejection at the inner Errored (Errored > Loading > Errored)", async () => {
+  const rejected = Promise.reject(new Error("boom async"));
+  rejected.catch(() => {});
+
+  let rendered: unknown;
+  const dispose = createRoot(dispose => {
+    // The memo lives outside the boundary computes (component-body shape); a
+    // memo created inside the inner boundary's fn would be recreated on every
+    // re-run and refetch forever.
+    const data = createMemo(() => rejected);
+    const outer = createErrorBoundary(
+      () =>
+        createLoadingBoundary(
+          () =>
+            createErrorBoundary(
+              () => `value: ${data()}`,
+              () => "inner caught"
+            )(),
+          () => "loading"
+        )(),
+      () => "outer caught"
+    );
+    createRenderEffect(
+      () => (rendered = outer()),
+      () => {}
+    );
+    return dispose;
+  });
+  flush();
+  expect(rendered).toBe("loading");
+
+  await Promise.resolve();
+  await Promise.resolve();
+  flush();
+  expect(rendered).toBe("inner caught");
+  dispose();
+});
+
+/**
  * #2809 hydration interaction: with snapshot capture active (as during
  * `hydrate()`), boundary computeds must not become snapshot sources. The tree no
  * longer carries the foreign PENDING flag (see above), so capture can't rely on
