@@ -885,6 +885,14 @@ describe("action", () => {
       await expect(myAction()).rejects.toThrow("sync error");
     });
 
+    it("should reject the promise when generator throws a falsy value", async () => {
+      const myAction = action(function* () {
+        throw undefined;
+      });
+
+      await expect(myAction()).rejects.toBeUndefined();
+    });
+
     it("should reject the promise when generator throws after yield", async () => {
       const myAction = action(function* () {
         yield Promise.resolve();

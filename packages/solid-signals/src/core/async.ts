@@ -318,6 +318,7 @@ export function handleAsync<T>(
   if (iterator) {
     const it = (result as AsyncIterable<T>)[Symbol.asyncIterator]();
     let hadSyncValue = false;
+    let hadValue = false;
     let completed = false;
 
     cleanup(() => {
@@ -341,11 +342,17 @@ export function handleAsync<T>(
             if (r.done) completed = true;
           } else if (el._inFlight !== result) {
             return;
-          } else if (!r.done) asyncWrite(r.value, iterate);
-          else {
+          } else if (!r.done) {
+            hadValue = true;
+            asyncWrite(r.value, iterate);
+          } else {
             completed = true;
-            schedule();
-            flush();
+            if (!hadValue) asyncWrite(undefined as T);
+            if (el._inFlight === result) el._inFlight = null;
+            if (hadValue) {
+              schedule();
+              flush();
+            }
           }
         },
         e => {
@@ -359,6 +366,7 @@ export function handleAsync<T>(
       if (resolved && !syncResult!.done) {
         syncValue = syncResult!.value;
         hadSyncValue = true;
+        hadValue = true;
         return iterate();
       }
       return resolved && syncResult!.done;

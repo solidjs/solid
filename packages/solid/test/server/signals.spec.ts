@@ -22,6 +22,7 @@ import {
   runWithOwner,
   untrack,
   flush,
+  isDisposed,
   isPending,
   latest,
   refresh,
@@ -37,7 +38,8 @@ import {
 import {
   createErrorBoundary,
   createLoadingBoundary,
-  NotReadyError as NotReadyErrorClass
+  NotReadyError as NotReadyErrorClass,
+  type Owner
 } from "../../src/server/signals.js";
 
 // === createSignal ===
@@ -571,5 +573,26 @@ describe("Server owner tree", () => {
       },
       { id: "test" }
     );
+  });
+
+  test("disposing a parent does not dispose an owner recycled into another root", () => {
+    let disposeParent!: () => void;
+    let disposeChild!: () => void;
+    let recycledOwner!: Owner;
+
+    createRoot(dispose => {
+      disposeParent = dispose;
+      createRoot(childDispose => {
+        disposeChild = childDispose;
+      });
+    });
+    disposeChild();
+
+    createRoot(() => {
+      recycledOwner = getOwner()!;
+    });
+    disposeParent();
+
+    expect(isDisposed(recycledOwner)).toBe(false);
   });
 });

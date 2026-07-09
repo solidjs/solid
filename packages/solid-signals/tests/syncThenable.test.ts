@@ -177,6 +177,32 @@ describe("sync async iterator support", () => {
     expect(value()).toBe(undefined);
   });
 
+  it("should settle consumers when an async iterator is immediately done", async () => {
+    const values: unknown[] = [];
+    const asyncIterator = {
+      next() {
+        return Promise.resolve({ value: undefined, done: true as const });
+      },
+      [Symbol.asyncIterator]() {
+        return this;
+      }
+    } as AsyncIterable<unknown>;
+
+    createRoot(() => {
+      const value = createMemo(() => asyncIterator);
+      createRenderEffect(value, next => {
+        values.push(next);
+      });
+    });
+    flush();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(values).toEqual([undefined]);
+  });
+
   it("should handle mixed sync/async iterator", async () => {
     let asyncResolve: (r: IteratorResult<number>) => void;
     let callCount = 0;

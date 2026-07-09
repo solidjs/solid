@@ -89,13 +89,13 @@ export function action<Args extends any[], Y, R>(
       let ctx = activeTransition!;
       ctx._actions.push(it);
 
-      const done = (v?: R, e?: any) => {
+      const done = (v?: R, e?: any, failed = false) => {
         ctx = currentTransition(ctx);
         const i = ctx._actions.indexOf(it);
         if (i >= 0) ctx._actions.splice(i, 1);
         setActiveTransition(ctx);
         schedule();
-        e ? reject(e) : resolve(v!);
+        failed ? reject(e) : resolve(v!);
       };
 
       const step = (v?: any, err?: boolean): void => {
@@ -103,12 +103,12 @@ export function action<Args extends any[], Y, R>(
         try {
           r = err ? it.throw!(v) : it.next(v);
         } catch (e) {
-          return done(undefined, e);
+          return done(undefined, e, true);
         }
         // A rejected iterator result (async generators) means the error already
         // escaped the generator body — it is completed, and throwing back in
         // would just reject again forever. Settle instead.
-        if (isThenable(r)) return void r.then(run, e => done(undefined, e));
+        if (isThenable(r)) return void r.then(run, e => done(undefined, e, true));
         run(r);
       };
 

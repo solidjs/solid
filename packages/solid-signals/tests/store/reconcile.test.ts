@@ -220,6 +220,21 @@ describe("setState with reconcile", () => {
     expect(snapshot(state)).toEqual([{ id: 1 }, null, { id: 2, value: "updated" }]);
   });
 
+  test("Keyed reconcile preserves object identity when the first entry is null", () => {
+    const [state, setState] = createStore<Array<{ id: number } | null>>([
+      null,
+      { id: 1 },
+      { id: 2 }
+    ]);
+    const first = state[1];
+    const second = state[2];
+
+    setState(reconcile([null, { id: 2 }, { id: 1 }], "id"));
+
+    expect(state[1]).toBe(second);
+    expect(state[2]).toBe(first);
+  });
+
   test("Keyed reconcile replaces a keyed object with a primitive (#2772)", () => {
     const [state, setState] = createStore<Array<{ id: number; value: string } | number>>([
       { id: 1, value: "object" }

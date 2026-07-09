@@ -645,9 +645,14 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         // Symbol-keyed writes on arrays are metadata, not index writes — never run
         // them through the numeric index/length machinery (`parseInt` on a symbol
         // throws). #2769
+        const index = typeof property === "string" ? Number(property) : -1;
         const isArrayIndexWrite =
-          Array.isArray(state) && property !== "length" && typeof property !== "symbol";
-        const nextIndex = isArrayIndexWrite ? parseInt(property as string) + 1 : 0;
+          Array.isArray(state) &&
+          Number.isInteger(index) &&
+          index >= 0 &&
+          index < 4294967295 &&
+          String(index) === property;
+        const nextIndex = isArrayIndexWrite ? index + 1 : 0;
         const len = isArrayIndexWrite && (getOverlayLayer(target, "length") ?? state).length;
         const nextLength = isArrayIndexWrite && nextIndex > len ? nextIndex : undefined;
 

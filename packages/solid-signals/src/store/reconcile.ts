@@ -108,6 +108,13 @@ function keyedMatch(a: any, b: any, keyFn: (item: NonNullable<any>) => any) {
   return a === b || (isWrappable(a) && isWrappable(b) && keyFn(a) === keyFn(b));
 }
 
+function hasKeyedItem(items: any[], keyFn: (item: NonNullable<any>) => any) {
+  for (let i = 0, len = items.length; i < len; i++) {
+    if (isWrappable(items[i]) && keyFn(items[i]) != null) return true;
+  }
+  return false;
+}
+
 // Array reconciliation updates the slots it visits, then swaps STORE_VALUE.
 // Previously tracked keys that are absent from `next` still need invalidating,
 // and `in` dependencies should follow the new value's membership. Use
@@ -178,7 +185,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
   if (Array.isArray(previous)) {
     let changed = false;
     const prevLength = (previous as any).length;
-    if (next.length && prevLength && isWrappable(next[0]) && keyFn(next[0]) != null) {
+    if (next.length && prevLength && hasKeyedItem(next, keyFn)) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
 
       for (
@@ -319,7 +326,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
   if (Array.isArray(previous)) {
     let changed = false;
     const prevLength = getOverrideValue(previous, override, "length", optOverride);
-    if (next.length && prevLength && isWrappable(next[0]) && keyFn(next[0]) != null) {
+    if (next.length && prevLength && hasKeyedItem(next, keyFn)) {
       let i, j, start, end, newEnd, item, newIndicesNext, keyVal;
 
       for (

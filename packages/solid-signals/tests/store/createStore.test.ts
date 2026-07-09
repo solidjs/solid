@@ -1512,6 +1512,18 @@ describe("Store key handling and tracked truncation", () => {
     expect((store.getValue as () => number)()).toBe(42);
   });
 
+  test("Non-index string properties on arrays do not change length", () => {
+    const [list, setList] = createStore<Record<PropertyKey, unknown>>([] as any);
+
+    setList(current => {
+      current["01"] = "metadata";
+    });
+    flush();
+
+    expect(list["01"]).toBe("metadata");
+    expect((list as unknown as unknown[]).length).toBe(0);
+  });
+
   describe("symbol-keyed properties (#2769)", () => {
     const meta = Symbol("meta");
 
