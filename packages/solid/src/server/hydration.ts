@@ -8,7 +8,8 @@ import {
   ErrorContext,
   getContext,
   setContext,
-  runWithBoundaryErrorContext
+  runWithBoundaryErrorContext,
+  RevealGroupContext
 } from "./signals.js";
 import { sharedConfig, NoHydrateContext } from "./shared.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
@@ -20,33 +21,8 @@ export type { HydrationContext, SSRTemplateObject } from "./shared.js";
 
 // --- Reveal SSR coordination ---
 
-export type ServerRevealGroup = {
-  id: string;
-  /**
-   * Register a child fragment (Loading) or composite child (inner Reveal).
-   * Returns `collapseFallback` (hide fallback visually, used for collapsed-sequential
-   * tail) and `held` (stash `revealFragments` swaps until the parent releases us).
-   * `held` only applies when the caller is a nested Reveal — Loadings ignore it.
-   */
-  register(
-    key: string,
-    options?: { onActivate?: () => void }
-  ): { collapseFallback: boolean; held: boolean };
-  /** Called by a child when its subtree is fully resolved. */
-  onResolved(key: string): void;
-  /**
-   * Called by a nested Reveal when it becomes "minimally resolved" under its own
-   * order (together: fully resolved; sequential: first registered fragment resolved;
-   * natural: any fragment resolved). Loadings don't fire this — their `onResolved`
-   * implies minimal readiness at the same time.
-   */
-  onMinimallyResolved?(key: string): void;
-};
-
-export const RevealGroupContext: Context<ServerRevealGroup | null> = {
-  id: Symbol("RevealGroupContext"),
-  defaultValue: null
-};
+export type { ServerRevealGroup } from "./signals.js";
+export { RevealGroupContext } from "./signals.js";
 
 /**
  * Handles errors during SSR rendering.

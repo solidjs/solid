@@ -1608,6 +1608,21 @@ const ErrorContext: Context<((err: any) => void) | null> = {
 };
 
 export { ErrorContext };
+
+export type ServerRevealGroup = {
+  id: string;
+  register(
+    key: string,
+    options?: { onActivate?: () => void }
+  ): { collapseFallback: boolean; held: boolean };
+  onResolved(key: string): void;
+  onMinimallyResolved?(key: string): void;
+};
+
+export const RevealGroupContext: Context<ServerRevealGroup | null> = {
+  id: Symbol("RevealGroupContext"),
+  defaultValue: null
+};
 export function runWithBoundaryErrorContext<T>(
   owner: Owner,
   render: () => T,
@@ -1644,6 +1659,7 @@ export function createErrorBoundary<T, U>(
   const ctx = sharedConfig.context;
   const parent = getOwner();
   const owner = createOwner();
+  setContext(RevealGroupContext, null, owner);
   const outputOwner = ctx ? createOwner() : undefined;
   // Partial template from a pass that went async. A retry pull must resume
   // these surviving holes (their owners and any async computations created

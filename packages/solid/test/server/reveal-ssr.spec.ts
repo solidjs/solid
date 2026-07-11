@@ -2,7 +2,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
 import { createRoot, createMemo, createRevealOrder } from "../../src/server/index.js";
 import { ssrHandleError } from "../../src/server/hydration.js";
-import { Loading, Reveal } from "../../src/server/flow.js";
+import { Loading, Reveal, Errored } from "../../src/server/flow.js";
 import { sharedConfig } from "../../src/server/shared.js";
 
 // ---- Minimal SSR context infrastructure (mirrors ssr-async.spec.ts) ----
@@ -1559,5 +1559,58 @@ describe("Reveal SSR component", () => {
     await tick();
     revealed = mock.revealFragmentsCalls.flatMap(c => (Array.isArray(c) ? c : [c]));
     expect(revealed).toContain(keys[1]);
+  });
+
+  test("Errored-wrapped Loading does not join ancestor Reveal group", async () => {
+    const mock = createMockSSRContext({ async: true });
+    sharedConfig.context = mock.context;
+
+    const d1 = deferred<string>();
+    const d2 = deferred<string>();
+
+    createRoot(
+      () => {
+        Reveal({
+          order: "together",
+          get children() {
+            return [
+              Loading({
+                fallback: "direct-fb",
+                get children() {
+                  const data = createMemo(() => d1.promise);
+                  return ssr(["<div>", "</div>"], () => data()) as any;
+                }
+              }),
+              Errored({
+                fallback: "err-fb",
+                get children() {
+                  return Loading({
+                    fallback: "wrapped-fb",
+                    get children() {
+                      const data = createMemo(() => d2.promise);
+                      return ssr(["<span>", "</span>"], () => data()) as any;
+                    }
+                  }) as any;
+                }
+              })
+            ] as any;
+          }
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    // Only the direct Loading should register as a fragment.
+    // The Errored-wrapped Loading must NOT register because the Errored
+    // severs RevealGroupContext for its children (matching the client).
+    expect(mock.registeredFragments.size).toBe(1);
+
+    const entries = [...mock.registeredFragments.entries()];
+    expect(entries[0][1].revealGroup).toBeDefined();
+
+    // The single registered fragment should resolve the group on its own.
+    d1.resolve("direct-val");
+    await tick();
+    expect(mock.revealFragmentsCalls.length).toBe(1);
   });
 });
