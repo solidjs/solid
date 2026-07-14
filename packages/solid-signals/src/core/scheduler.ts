@@ -14,7 +14,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { currentOptimisticLane, snapCompanionsToState, updatePendingSignal } from "./core.js";
+import { currentOptimisticLane } from "./core.js";
 import { DEV, emitDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { insertIntoHeap, runHeap, type Heap } from "./heap.js";
@@ -33,7 +33,6 @@ import {
   devCheckFlushStart,
   devCheckMergedLaneEmpty,
   devCheckQuiescent,
-  devTrackAffects,
   endAsyncReporterWrites
 } from "./invariants.js";
 import type { Computed, Signal } from "./types.js";
@@ -247,10 +246,10 @@ function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
   // transition that produced them (A19 — pending is a property of the data).
   for (let i = 0; i < len; i++) {
     const node = nodes[i];
-    if (node._pendingSignal || node._latestValueComputed) snapCompanionsToState(node);
+    if (node._pendingSignal || node._latestValueComputed) GlobalQueue._snapCompanions!(node);
     const owner = node._parentSource;
     if (owner && (owner._pendingSignal === node || owner._latestValueComputed === node))
-      snapCompanionsToState(owner);
+      GlobalQueue._snapCompanions!(owner);
   }
   nodes.splice(0, len);
 }
@@ -418,11 +417,39 @@ export class GlobalQueue extends Queue {
   // carrier node's last registration releases (wired by store.ts, mirroring
   // _clearOptimisticStore).
   static _releaseAffectsScope: ((node: OptimisticNode) => void) | null = null;
-  // Async-side hooks (wired by async.ts, mirroring _update): a registered
-  // mark pushes STATUS_PENDING downstream on the normal status rails, and a
-  // released mark settles its sentinel pending-source out of the graph.
-  static _propagateAffects: ((node: OptimisticNode) => void) | null = null;
-  static _settleAffects: ((node: OptimisticNode) => void) | null = null;
+  // affects()-side hooks (wired by affects.ts, mirroring _update): the mark
+  // engine — count/register/release plus the post-commit re-application of
+  // marked reads — lives with the feature. Every call site is gated by state
+  // only that module creates, so `!` invocations are safe once the gate holds.
+  static _applyAffectsReads:
+    | ((el: Computed<any>, sources: (Signal<any> | Computed<any>)[]) => void)
+    | null = null;
+  static _releaseAffectsMarks: ((nodes: OptimisticNode[]) => void) | null = null;
+  static _markAffects: ((node: OptimisticNode) => void) | null = null;
+  static _releaseAffectsMark: ((node: OptimisticNode) => void) | null = null;
+  // Verdict-layer hooks (wired by verdict.ts when isPending()/latest() are
+  // imported; null in apps that never use them). Call sites either guard for
+  // null or sit behind state only the verdict layer can create (`!` is safe
+  // there: `_pendingSignal`/`_latestValueComputed` are only ever assigned by
+  // verdict.ts, and `pendingCheckActive`/`latestReadActive` only flip inside
+  // isPending()/latest()).
+  static _syncCompanions: (<T>(el: Signal<T> | Computed<T>, value: T) => void) | null = null;
+  static _updatePendingSignal: ((el: OptimisticNode) => void) | null = null;
+  static _updateChildCompanions: ((el: Computed<any>) => void) | null = null;
+  static _snapCompanions: ((el: OptimisticNode) => void) | null = null;
+  static _latestRead: (<T>(el: Signal<T> | Computed<T>) => T) | null = null;
+  static _pendingCheck:
+    | ((
+        el: OptimisticNode,
+        c: Computed<any> | null,
+        owner: OptimisticNode,
+        firewall: Computed<any> | null
+      ) => void)
+    | null = null;
+  static _recordFresh: ((el: OptimisticNode, value: any) => void) | null = null;
+  static _applyReask: ((el: Computed<any>, hadReask: boolean) => boolean) | null = null;
+  static _repollVerdicts: ((el: Computed<any>) => void) | null = null;
+  static _witnessAffects: ((node: OptimisticNode) => void) | null = null;
   flush() {
     if (this._running) return;
     this._running = true;
@@ -682,7 +709,7 @@ function commitPendingNode(n: Signal<any>): void {
       n._value = n._pendingValue as any;
       n._pendingValue = NOT_PENDING;
     }
-    if (n._pendingSignal || n._latestValueComputed) snapCompanionsToState(n);
+    if (n._pendingSignal || n._latestValueComputed) GlobalQueue._snapCompanions!(n);
     return;
   }
   if (n._pendingValue !== NOT_PENDING) {
@@ -695,7 +722,7 @@ function commitPendingNode(n: Signal<any>): void {
   if (!(c._statusFlags! & STATUS_PENDING)) c._statusFlags! &= ~STATUS_UNINITIALIZED;
   if (c._pendingFirstChild !== null || c._pendingDisposal !== null)
     GlobalQueue._dispose(c as Computed<unknown>, false, true);
-  if (n._pendingSignal || n._latestValueComputed) snapCompanionsToState(n);
+  if (n._pendingSignal || n._latestValueComputed) GlobalQueue._snapCompanions!(n);
 }
 
 function commitPendingNodes() {
@@ -745,10 +772,12 @@ export function finalizePureQueue(
       completingTransition._gatedSubs.clear();
     }
     // Declared motion ends with the transaction: settle (or plain flush end
-    // for ambient marks) releases each registration's refcount.
-    releaseAffectsMarks(
-      completingTransition ? completingTransition._affectsNodes : globalQueue._affectsNodes
-    );
+    // for ambient marks) releases each registration's refcount. A non-empty
+    // batch means registerAffectsMark ran, which installed the hook.
+    const affectsNodes = completingTransition
+      ? completingTransition._affectsNodes
+      : globalQueue._affectsNodes;
+    if (affectsNodes.length) GlobalQueue._releaseAffectsMarks!(affectsNodes);
     const optimisticStores = completingTransition
       ? completingTransition._optimisticStores
       : globalQueue._optimisticStores;
@@ -785,65 +814,14 @@ export function trackOptimisticStore(store: any): void {
 export let activeAffectsMarks = 0;
 
 /**
- * The counting half of a mark, shared by direct registration and store-scope
- * inheritance (a node created inside a live keyless mark's identity scope):
- * bumps the refcount and pokes the node's verdict companions so an
- * already-materialized `false` flips reactively.
+ * Counter mutation seam for the mark engine in affects.ts: an imported `let`
+ * binding is read-only, and the read-path gate above must stay a plain module
+ * variable so `read()` pays one integer compare, not a function call.
  *
  * @internal
  */
-export function markAffects(node: OptimisticNode): void {
-  node._affectsCount = (node._affectsCount || 0) + 1;
-  activeAffectsMarks++;
-  if (__DEV__) devTrackAffects(node);
-  if (node._affectsCount === 1) updatePendingSignal(node);
-}
-
-/**
- * Registers one `affects()` mark on a node: counts it, records the
- * registration with the current transaction (after initTransition the queue's
- * array aliases the active transition's, mirroring `_optimisticNodes`), and
- * propagates STATUS_PENDING downstream on the status rails so everything
- * DERIVED from the marked data reads pending too. Propagation runs on every
- * registration (not just the first): subscribers gained since an earlier
- * overlapping registration get covered, and dedup stops re-descent early.
- *
- * @internal
- */
-export function registerAffectsMark(node: OptimisticNode): void {
-  markAffects(node);
-  globalQueue._affectsNodes.push(node);
-  GlobalQueue._propagateAffects?.(node);
-  schedule();
-}
-
-/**
- * Releases one registration. When the node's last mark drops, settles the
- * mark's sentinel out of every downstream `_pendingSources` (waking blocked
- * nodes and re-deriving verdicts along the walk). Companion writes go through
- * the settlement snap (committed, not transition-scoped) so releasing a mark
- * can't open a fresh override window that would itself need settlement.
- *
- * @internal
- */
-export function releaseAffectsMark(node: OptimisticNode): void {
-  activeAffectsMarks--;
-  node._affectsCount!--;
-  if (!node._affectsCount) {
-    GlobalQueue._settleAffects?.(node);
-    snapCompanionsToState(node);
-    GlobalQueue._releaseAffectsScope?.(node);
-  }
-}
-
-/**
- * Releases one batch of affects marks (a settling transaction's, or the
- * ambient batch at a plain flush end).
- */
-function releaseAffectsMarks(nodes: OptimisticNode[]): void {
-  if (!nodes.length) return;
-  for (let i = 0; i < nodes.length; i++) releaseAffectsMark(nodes[i]);
-  nodes.length = 0;
+export function shiftAffectsMarks(delta: 1 | -1): void {
+  activeAffectsMarks += delta;
 }
 
 function reassignPendingTransition(pendingNodes: Signal<any>[]) {

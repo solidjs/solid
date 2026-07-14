@@ -1,8 +1,173 @@
-import { $REFRESH, type Computed, type Signal } from "./core/index.js";
+import {
+  addPendingSource,
+  forEachDependent,
+  notifyStatus,
+  setPendingError,
+  settlePendingSource
+} from "./core/async.js";
+import { STATUS_PENDING } from "./core/constants.js";
 import { emitDiagnostic } from "./core/dev.js";
-import { registerAffectsMark } from "./core/scheduler.js";
-import { $TARGET, getStoreAffectsNodes, type Store, type StoreNode } from "./store/store.js";
+import { NotReadyError } from "./core/error.js";
+import { $REFRESH, type Computed, type Signal } from "./core/index.js";
+import { devTrackAffects } from "./core/invariants.js";
+import {
+  GlobalQueue,
+  globalQueue,
+  queuePendingNode,
+  schedule,
+  shiftAffectsMarks
+} from "./core/scheduler.js";
 import type { Accessor } from "./signals.js";
+import { $TARGET, getStoreAffectsNodes, type Store, type StoreNode } from "./store/store.js";
+
+type MarkedNode = Signal<any> | Computed<any>;
+
+/**
+ * The pending-source identity of a live `affects()` mark on `node` (lazy,
+ * one per node, shared by overlapping registrations via the refcount).
+ *
+ * A mark rides the SAME status rails as real in-flight async — downstream
+ * subscribers hold the sentinel in `_pendingSources` — but under its own
+ * identity so the two channels can't clear each other:
+ * - `_reask` is permanently `false`: a mark is by definition a declared
+ *   value change, so `quietPending` never silences a window it participates
+ *   in — even when the mark rides over an otherwise-quiet `refresh()`
+ *   re-ask of the same node (the whole point of declaring one).
+ * - A landing on the marked node settles only the node's OWN source entry;
+ *   the sentinel entry survives until the mark's transaction releases it.
+ * - The sentinel itself never carries `STATUS_PENDING`, so
+ *   `transitionComplete` never counts a mark as a blocker of its own
+ *   transaction (release happens AT settle — self-blocking would deadlock),
+ *   and reads of the marked node never throw (marks are value-transparent
+ *   at the source; pendingness is what propagates).
+ */
+function getAffectsSentinel(node: MarkedNode): Computed<any> {
+  return (node._affectsSentinel ??= {
+    _name: __DEV__ ? "affects-sentinel" : undefined,
+    // Brand + backref: lets the scheduler's settlement checks recognize
+    // mark-sourced pending (which must never block its own transaction —
+    // release happens AT settle).
+    _affectsFor: node,
+    _flags: 0,
+    _statusFlags: 0,
+    _reask: false,
+    _error: undefined,
+    _subs: null,
+    _deps: null
+  } as unknown as Computed<any>);
+}
+
+/**
+ * Push a live mark's pendingness downstream from the marked node through the
+ * normal status rails. Runs on every registration (dedup in `notifyStatus`
+ * stops re-descent at already-covered subscribers). Subscribers that
+ * recompute mid-window shed this via `clearStatus` and re-acquire it through
+ * the read path (`applyAffectsReads`) — the same shape as real async, where
+ * the re-throw on read re-establishes the source.
+ */
+function propagateAffectsMark(node: MarkedNode): void {
+  if (!node._subs && !(node as Computed<any>)._child) return;
+  const sentinel = getAffectsSentinel(node);
+  const error = new NotReadyError(sentinel);
+  forEachDependent(node as Computed<any>, sub => {
+    if (sub._pendingSource !== sentinel && !sub._pendingSources?.has(sentinel)) {
+      if (!sub._transition) queuePendingNode(sub);
+      notifyStatus(sub, STATUS_PENDING, error);
+    }
+  });
+}
+
+/**
+ * Re-establish mark pendingness on a computed that read marked sources
+ * during its recompute (`clearStatus` at the top of the commit path wiped
+ * any sentinel entries it held). Called by `recompute` after the commit —
+ * not before, because setting `_error` earlier would make the commit path
+ * treat the node as errored and skip the value write.
+ */
+function applyAffectsReads(el: Computed<any>, sources: MarkedNode[]): void {
+  let applied = false;
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i];
+    if (!src._affectsCount) continue;
+    const sentinel = getAffectsSentinel(src);
+    if (addPendingSource(el, sentinel)) {
+      el._statusFlags |= STATUS_PENDING;
+      setPendingError(el, sentinel);
+      applied = true;
+    }
+  }
+  if (applied && GlobalQueue._updatePendingSignal !== null) GlobalQueue._updatePendingSignal(el);
+}
+
+/**
+ * The counting half of a mark, shared by direct registration and store-scope
+ * inheritance (a node created inside a live keyless mark's identity scope):
+ * bumps the refcount and pokes the node's verdict companions so an
+ * already-materialized `false` flips reactively.
+ */
+function markAffects(node: MarkedNode): void {
+  node._affectsCount = (node._affectsCount || 0) + 1;
+  shiftAffectsMarks(1);
+  if (__DEV__) devTrackAffects(node);
+  // Companions only exist once the verdict layer (isPending/latest) loaded;
+  // without them there is no materialized verdict to flip.
+  if (node._affectsCount === 1 && GlobalQueue._updatePendingSignal !== null)
+    GlobalQueue._updatePendingSignal(node);
+}
+
+/**
+ * Registers one `affects()` mark on a node: counts it, records the
+ * registration with the current transaction (after initTransition the queue's
+ * array aliases the active transition's, mirroring `_optimisticNodes`), and
+ * propagates STATUS_PENDING downstream on the status rails so everything
+ * DERIVED from the marked data reads pending too. Propagation runs on every
+ * registration (not just the first): subscribers gained since an earlier
+ * overlapping registration get covered, and dedup stops re-descent early.
+ */
+function registerAffectsMark(node: MarkedNode): void {
+  markAffects(node);
+  globalQueue._affectsNodes.push(node);
+  propagateAffectsMark(node);
+  schedule();
+}
+
+/**
+ * Releases one registration. When the node's last mark drops, settles the
+ * mark's sentinel out of every downstream `_pendingSources` (waking blocked
+ * nodes and re-deriving verdicts along the walk). Companion writes go through
+ * the settlement snap (committed, not transition-scoped) so releasing a mark
+ * can't open a fresh override window that would itself need settlement.
+ */
+function releaseAffectsMark(node: MarkedNode): void {
+  shiftAffectsMarks(-1);
+  node._affectsCount!--;
+  if (!node._affectsCount) {
+    const sentinel = node._affectsSentinel;
+    if (sentinel) settlePendingSource(node as Computed<any>, sentinel, true);
+    GlobalQueue._snapCompanions !== null && GlobalQueue._snapCompanions(node);
+    GlobalQueue._releaseAffectsScope?.(node);
+  }
+}
+
+/**
+ * Releases one batch of affects marks (a settling transaction's, or the
+ * ambient batch at a plain flush end).
+ */
+function releaseAffectsMarks(nodes: MarkedNode[]): void {
+  for (let i = 0; i < nodes.length; i++) releaseAffectsMark(nodes[i]);
+  nodes.length = 0;
+}
+
+// Late installation (same pattern as `GlobalQueue._update`): the mark engine
+// lives with the feature so graphs that never declare a mark never ship it.
+// Each call site is gated by state only this module creates (`markedReads`
+// collection under `activeAffectsMarks`, a non-empty `_affectsNodes` batch,
+// a live scope in the store's `affectsScopes`), so the hooks are installed
+// before the first time any of them can fire.
+GlobalQueue._applyAffectsReads = applyAffectsReads;
+GlobalQueue._releaseAffectsMarks = releaseAffectsMarks;
+GlobalQueue._markAffects = markAffects;
+GlobalQueue._releaseAffectsMark = releaseAffectsMark;
 
 /**
  * Declares that in-flight work will change the targeted data: the named

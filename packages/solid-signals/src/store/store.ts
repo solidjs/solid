@@ -3,8 +3,7 @@ import {
   pendingCheckActive,
   snapshotCaptureActive,
   snapshotSources,
-  strictRead,
-  witnessAffects
+  strictRead
 } from "../core/core.js";
 import { DEV, emitDiagnostic, registerGraph } from "../core/dev.js";
 import {
@@ -28,10 +27,8 @@ import {
 import {
   GlobalQueue,
   globalQueue,
-  markAffects,
   projectionWriteActive,
-  registerTransientStoreNode,
-  releaseAffectsMark
+  registerTransientStoreNode
 } from "../core/scheduler.js";
 import { createProjectionInternal } from "./projection.js";
 
@@ -325,9 +322,10 @@ function getNode<T>(
  * release hook below drops them with the entry.
  */
 function inheritAffectsMarks(node: DataNode, raw: object): void {
+  // A live scope exists, so affects.ts already installed the mark engine.
   for (const [carrier, entry] of affectsScopes) {
     if (carrier._affectsCount && entry.scope.has(raw)) {
-      markAffects(node);
+      GlobalQueue._markAffects!(node);
       entry.inherited.push(node);
     }
   }
@@ -422,12 +420,15 @@ function collectRecordNodes(nodes: DataNodes | undefined, found: DataNode[]): vo
  * @internal
  */
 export function witnessAffectsMark(target: StoreNode): void {
+  // Callers guard on `pendingCheckActive`, which only flips inside
+  // isPending() — the verdict layer is loaded and its hook installed.
   const own = target[STORE_NODE]?.[$AFFECTS];
-  if (own?._affectsCount) witnessAffects(own);
+  if (own?._affectsCount) GlobalQueue._witnessAffects!(own);
   if (affectsScopes.size) {
     const raw = target[STORE_VALUE];
     for (const [carrier, entry] of affectsScopes) {
-      if (carrier !== own && carrier._affectsCount && entry.scope.has(raw)) witnessAffects(carrier);
+      if (carrier !== own && carrier._affectsCount && entry.scope.has(raw))
+        GlobalQueue._witnessAffects!(carrier);
     }
   }
 }
@@ -451,7 +452,8 @@ export function getStoreAffectsNodes(target: StoreNode, key?: PropertyKey): Data
       const entry = affectsScopes.get(node as DataNode);
       if (!entry) return;
       affectsScopes.delete(node as DataNode);
-      for (let i = 0; i < entry.inherited.length; i++) releaseAffectsMark(entry.inherited[i]);
+      for (let i = 0; i < entry.inherited.length; i++)
+        GlobalQueue._releaseAffectsMark!(entry.inherited[i]);
     };
     let entry = affectsScopes.get(carrier);
     if (!entry) affectsScopes.set(carrier, (entry = { scope: new Set(), inherited: [] }));

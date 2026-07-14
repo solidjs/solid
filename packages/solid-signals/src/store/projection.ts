@@ -213,5 +213,3 @@ export function createWriteTraps(
   };
   return traps;
 }
-
-export const writeTraps: ProxyHandler<any> = createWriteTraps();

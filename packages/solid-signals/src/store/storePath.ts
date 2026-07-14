@@ -222,7 +222,7 @@ export interface storePath {
  * setState(storePath("user", "nickname", storePath.DELETE));
  * ```
  */
-export const storePath: storePath = Object.assign(
+export const storePath: storePath = /* @__PURE__ */ Object.assign(
   function storePath(...args: any[]) {
     return (state: any) => {
       updatePath(state, args);

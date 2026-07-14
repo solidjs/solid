@@ -1,14 +1,22 @@
 import replace from "@rollup/plugin-replace";
-import terser from "@rollup/plugin-terser";
 import typescript from "@rollup/plugin-typescript";
 import prettier from "rollup-plugin-prettier";
 
+// Each output is a per-module tree (`preserveModules`), not a flat bundle, so
+// consumer bundlers can drop whole feature modules — including their top-level
+// GlobalQueue hook installs, which statement-level shaking of a flat file can
+// never remove (#2883). `_`-prefixed property mangling runs as a single
+// sequential post-pass (scripts/mangle-props.mjs) with one shared nameCache
+// per tree; per-chunk terser would mangle the same property to different
+// names in different modules and break every cross-module member access.
 export default [
   {
     input: "src/index.ts",
     output: {
-      file: "dist/dev.js",
-      format: "esm"
+      dir: "dist/dev",
+      format: "esm",
+      preserveModules: true,
+      preserveModulesRoot: "src"
     },
     plugins: [
       replace({
@@ -18,15 +26,11 @@ export default [
       }),
       typescript({
         declaration: false,
-        outDir: "dist",
+        outDir: "dist/dev",
         module: "esnext",
         target: "esnext",
         moduleResolution: "bundler",
         verbatimModuleSyntax: true
-      }),
-      terser({
-        compress: false,
-        mangle: false
       }),
       prettier({
         parser: "typescript"
@@ -36,8 +40,10 @@ export default [
   {
     input: "src/index.ts",
     output: {
-      file: "dist/prod.js",
-      format: "esm"
+      dir: "dist/prod",
+      format: "esm",
+      preserveModules: true,
+      preserveModulesRoot: "src"
     },
     plugins: [
       replace({
@@ -47,22 +53,11 @@ export default [
       }),
       typescript({
         declaration: false,
-        outDir: "dist",
+        outDir: "dist/prod",
         module: "esnext",
         target: "esnext",
         moduleResolution: "bundler",
         verbatimModuleSyntax: true
-      }),
-      terser({
-        compress: false,
-        mangle: {
-          keep_classnames: true,
-          keep_fnames: true,
-          module: false,
-          properties: {
-            regex: /^_/
-          }
-        }
       }),
       prettier({
         parser: "typescript"
@@ -72,8 +67,12 @@ export default [
   {
     input: "src/index.ts",
     output: {
-      file: "dist/node.cjs",
-      format: "cjs"
+      dir: "dist/node",
+      format: "cjs",
+      preserveModules: true,
+      preserveModulesRoot: "src",
+      entryFileNames: "[name].cjs",
+      exports: "named"
     },
     plugins: [
       replace({
@@ -83,22 +82,11 @@ export default [
       }),
       typescript({
         declaration: false,
-        outDir: "dist",
-        module: "NodeNext",
+        outDir: "dist/node",
+        module: "esnext",
         target: "esnext",
-        moduleResolution: "NodeNext",
+        moduleResolution: "bundler",
         verbatimModuleSyntax: true
-      }),
-      terser({
-        compress: false,
-        mangle: {
-          keep_classnames: true,
-          keep_fnames: true,
-          module: false,
-          properties: {
-            regex: /^_/
-          }
-        }
       }),
       prettier({
         parser: "typescript"

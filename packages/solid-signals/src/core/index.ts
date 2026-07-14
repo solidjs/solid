@@ -11,8 +11,6 @@ export {
   suppressComputedRecompute,
   optimisticSignal,
   optimisticComputed,
-  isPending,
-  latest,
   refresh,
   staleValues,
   setSnapshotCapture,
@@ -46,6 +44,7 @@ export {
   type ContextRecord
 } from "./context.js";
 export { handleAsync } from "./async.js";
+export { isPending, latest } from "./verdict.js";
 export type {
   Computed,
   Disposable,

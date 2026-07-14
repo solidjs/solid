@@ -1,4 +1,4 @@
-import { applyAffectsReads, clearStatus, handleAsync, notifyStatus } from "./async.js";
+import { clearStatus, handleAsync, notifyStatus } from "./async.js";
 import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
@@ -51,12 +51,7 @@ import {
   type OptimisticLane
 } from "./lanes.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
-import {
-  devTrackCompanionOwner,
-  devTrackHeldPending,
-  devTrackOptimistic,
-  InvariantHooks
-} from "./invariants.js";
+import { devTrackHeldPending, devTrackOptimistic } from "./invariants.js";
 import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeAffectsMarks,
@@ -90,28 +85,23 @@ export const REACTIVE_WRITE_IN_OWNED_SCOPE_REFRESH_MESSAGE =
   "Move the invalidation outside pure computation.";
 
 export let tracking = false;
+/** @internal verdict-module glue */
+export function setPendingCheckActive(v: boolean): void {
+  pendingCheckActive = v;
+}
+/** @internal verdict-module glue */
+export function setLatestReadActive(v: boolean): void {
+  latestReadActive = v;
+}
+/** @internal verdict-module glue */
+export function setContextInternal(v: Owner | null): void {
+  context = v;
+}
 export let stale = false;
 export let pendingCheckActive = false;
 export let latestReadActive = false;
 export let context: Owner | null = null;
 export let currentOptimisticLane: OptimisticLane | null = null;
-
-/**
- * Per-probe state for an active isPending() call. `pendingCheckActive` stays a
- * separate boolean because it doubles as the hot-path "intercept reads" toggle
- * (flipped off during nested reads); the probe object holds everything scoped
- * to one isPending() invocation. Invariant: `pendingCheckActive === true`
- * implies `pendingProbe !== null`.
- */
-interface PendingProbe {
-  found: boolean;
-  sources: Set<Signal<any> | Computed<any>>;
-  // Sources whose value this probe observed as the fresh transition-held
-  // `_pendingValue` (not the stale committed value) — see the pair-consistency
-  // rule in `isPending` (#2831).
-  freshReads: Set<Signal<any> | Computed<any>>;
-}
-let pendingProbe: PendingProbe | null = null;
 
 /**
  * Marked sources read by the recompute currently on the stack (saved/restored
@@ -124,11 +114,6 @@ let pendingProbe: PendingProbe | null = null;
  * marks are value-transparent, so they re-establish here instead).
  */
 let affectsReads: (Signal<any> | Computed<any>)[] | null = null;
-
-if (__DEV__) {
-  InvariantHooks.pendingProbeActive = () => pendingProbe !== null;
-  InvariantHooks.computePendingState = computePendingState;
-}
 
 export let snapshotCaptureActive = false;
 export let snapshotSources: Set<any> | null = null;
@@ -211,15 +196,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
   let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
   const hasOverride = el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING;
-  // Track if node was pending (for detecting async resolution)
-  const wasPending = !!(el._statusFlags & STATUS_PENDING);
   const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
-  // Re-ask classification (question-scoped pending): REACTIVE_REASK means the
-  // only reason this recompute runs is an explicit re-ask (refresh) — no
-  // tracked input changed value, so a resulting pending window is quiet.
-  // Monotone guard: a node already pending on an unanswered NEW question stays
-  // non-quiet — a re-ask cannot launder a question change.
-  const isReask = !!(el._flags & REACTIVE_REASK) && !(wasPending && !el._reask);
+  // Re-ask classification lives in the verdict module; capture the flag before
+  // the recompute wipes _flags below.
+  const hadReask = (el._flags & REACTIVE_REASK) !== 0;
 
   const oldcontext = context;
   context = el;
@@ -286,7 +266,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const resolvedLane = resolveLane(el);
       if (resolvedLane) {
         resolvedLane._pendingAsync.delete(el);
-        updatePendingSignal(resolvedLane._source);
+        GlobalQueue._updatePendingSignal !== null &&
+          GlobalQueue._updatePendingSignal(resolvedLane._source);
       }
     }
   } catch (e) {
@@ -297,20 +278,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (lane._source !== el) {
         lane._pendingAsync.add(el);
         el._optimisticLane = lane;
-        updatePendingSignal(lane._source);
+        GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(lane._source);
       }
     }
     let reaskChanged = false;
     if (e instanceof NotReadyError) {
       el._blocked = true;
-      // Classify the pending window before status propagates so downstream
-      // verdicts computed during notifyStatus already see it. When the
-      // classification flips on an already-pending node (a quiet confirm is
-      // overtaken by a real question change, or vice versa), the status graph
-      // doesn't re-propagate (same source), so verdict companions downstream
-      // are re-polled explicitly below.
-      reaskChanged = wasPending && el._reask !== isReask;
-      el._reask = isReask;
+      if (GlobalQueue._applyReask !== null) reaskChanged = GlobalQueue._applyReask(el, hadReask);
     }
     notifyStatus(
       el,
@@ -319,7 +293,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       undefined,
       e instanceof NotReadyError ? el._optimisticLane : undefined
     );
-    if (reaskChanged) repollDownstreamVerdicts(el);
+    if (reaskChanged) GlobalQueue._repollVerdicts!(el);
   } finally {
     tracking = prevTracking;
     if (__DEV__) strictRead = prevStrictRead;
@@ -389,7 +363,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // (#2831). Both companion writes are transition-scoped (optimistic) and
         // auto-revert/re-derive at commit. Skipped for plain flushes where the
         // pending value commits before effects run.
-        if (activeTransition || el._transition) syncCompanions(el, value);
+        if ((activeTransition || el._transition) && GlobalQueue._syncCompanions !== null)
+          GlobalQueue._syncCompanions(el, value);
       }
 
       if (!hasOverride || isOptimisticDirty || el._overrideValue !== prevVisible)
@@ -411,7 +386,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Marks read during this recompute re-attach after the commit above:
   // earlier, the sentinel's NotReadyError in `_error` would have routed the
   // fresh value into the error-skip branch instead of committing it.
-  if (markedReads) applyAffectsReads(el, markedReads);
+  // `markedReads` only collects under a live mark, so the hook is installed.
+  if (markedReads) GlobalQueue._applyAffectsReads!(el, markedReads);
   const needsPendingCommit =
     el._pendingValue !== NOT_PENDING ||
     el._pendingFirstChild !== null ||
@@ -744,7 +720,7 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
  * an isPending() probe (`refresh`) additionally pulls the node fully up to
  * date so its status flags reflect the current graph.
  */
-function prepareComputed(comp: Computed<unknown>, refresh: boolean): void {
+export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void {
   if (comp._flags & REACTIVE_LAZY) {
     comp._flags &= ~REACTIVE_LAZY;
     recompute(comp as Computed<any>, true);
@@ -760,44 +736,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // Checked before isPending so that isPending(() => latest(x)) checks
   // the _pendingSignal of _latestValueComputed (async in flight) rather
   // than the original node (which stays "pending" while held in a transition).
-  if (latestReadActive) {
-    const pendingComputed = getLatestValueComputed(el);
-    const prevPending = latestReadActive;
-    latestReadActive = false;
-    const visibleValue = (
-      el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING
-        ? el._overrideValue
-        : el._value
-    ) as T;
-    let value: T;
-    try {
-      value = read(pendingComputed);
-    } catch (e) {
-      // latest() falls back to the stale committed value while new async is in
-      // flight — it must not suspend the reader (#2829). The only time it
-      // suspends is when the source has never produced a value (initial load):
-      // there is no stale value to show, so let Loading handle it.
-      if (
-        e instanceof NotReadyError &&
-        (!context || !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED))
-      )
-        return visibleValue;
-      throw e;
-    } finally {
-      latestReadActive = prevPending;
-    }
-    if (pendingComputed._statusFlags & STATUS_PENDING) return visibleValue;
-    // Cross-lane stale read: a child lane should keep seeing the parent's
-    // committed value until the parent lane resolves.
-    if (stale && currentOptimisticLane && pendingComputed._optimisticLane) {
-      const pcLane = findLane(pendingComputed._optimisticLane);
-      const curLane = findLane(currentOptimisticLane);
-      if (pcLane !== curLane && pcLane._pendingAsync.size > 0) {
-        return visibleValue;
-      }
-    }
-    return value as T;
-  }
+  if (latestReadActive) return GlobalQueue._latestRead!(el) as T;
 
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
@@ -809,19 +748,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // Probe mode is suspended while preparing the node so nested reads during a
   // recompute don't collect into the probe.
   if (pendingCheckActive) {
-    pendingCheckActive = false;
-    if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, true);
-    if (c && owner._statusFlags! & STATUS_PENDING && owner._statusFlags! & STATUS_UNINITIALIZED) {
-      if (tracking && el !== c) link(el, c as Computed<any>);
-      pendingCheckActive = true;
-      throw (owner as Computed<any>)._error;
-    }
-    // Verdicts come uniformly from the collected sources' pending signals
-    // (computePendingState); an active leaf override is not special-cased to
-    // force `found` — it is verdict-inert (question-scoped pending model).
-    collectPendingSources(el);
-    if (firewall) collectPendingSources(firewall);
-    pendingCheckActive = true;
+    GlobalQueue._pendingCheck!(el, c as Computed<any> | null, owner as any, firewall);
   } else if (typeof computed._fn === "function") {
     prepareComputed(el as Computed<unknown>, false);
   }
@@ -1006,13 +933,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       : (el._pendingValue as T);
   // Record that this isPending() probe observed the fresh pending value, so
   // the probe doesn't pair "pending" with the new value (#2831).
-  if (
-    pendingCheckActive &&
-    pendingProbe !== null &&
-    el._pendingValue !== NOT_PENDING &&
-    value === el._pendingValue
-  )
-    pendingProbe.freshReads.add(el);
+  if (pendingCheckActive) GlobalQueue._recordFresh!(el, value);
   if (
     !c &&
     owner === el &&
@@ -1097,7 +1018,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     if (__DEV__) devTrackHeldPending(el);
   }
 
-  syncCompanions(el, v);
+  GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, v);
 
   el._time = clock;
   insertSubs(el, isOptimistic);
@@ -1178,289 +1099,6 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   }
 }
 
-/**
- * Get or create the pending signal for a node (lazy).
- * Used by isPending() to track pending state reactively.
- */
-function getPendingSignal(el: Signal<any> | Computed<any>): Signal<boolean> {
-  if (!el._pendingSignal) {
-    // Start false, write true if pending - ensures reversion returns to false
-    el._pendingSignal = optimisticSignal(false, { ownedWrite: true });
-    // Back-reference to the owner: parent-child lane relationship (companion
-    // lanes never merge with the owner's lane) and the settlement checkpoint
-    // (resolveOptimisticNodes re-derives a reverted companion from its owner).
-    el._pendingSignal._parentSource = el;
-    if (computePendingState(el)) setSignal(el._pendingSignal, true);
-    if (__DEV__) devTrackCompanionOwner(el);
-  }
-  return el._pendingSignal;
-}
-
-function collectPendingSources(el: Signal<any> | Computed<any>): void {
-  if (!pendingProbe) return;
-  pendingProbe.sources.add(el);
-  const owner = (el as FirewallSignal<any>)._firewall || el;
-  if (owner !== el) pendingProbe.sources.add(owner);
-}
-
-/**
- * Adds a node to the active isPending() probe without reading it. The store's
- * untracked-probe fallback (`witnessAffectsMark`) calls this with `affects()`
- * carrier nodes: an untracked read through a marked record may touch no real
- * signal node at all, so the probe collects the mark's carrier directly.
- *
- * @internal
- */
-export function witnessAffects(node: Signal<any> | Computed<any>): void {
-  pendingProbe?.sources.add(node);
-}
-
-/**
- * Whether an in-flight pending window on `el` is quiet: every pending source
- * blocking it is a re-ask of its own unchanged question (refresh/poll/
- * confirm). A quiet window does not read as pending — the shown answer still
- * answers the question being asked. Any non-quiet source (a real value change
- * in flight) makes the whole window read pending.
- */
-function quietPending(el: Computed<any>): boolean {
-  if (el._pendingSources) {
-    for (const source of el._pendingSources) if (!source._reask) return false;
-    return true;
-  }
-  if (el._pendingSource) return el._pendingSource._reask;
-  // Own-async pending (the node IS the source, e.g. a firewall's own fetch).
-  return el._reask;
-}
-
-/**
- * The core async-pending clause of the verdict: in-flight work with a
- * previous value to show (not an initial load), asking a NEW question (quiet
- * re-asks are silent).
- */
-function newQuestionInFlight(comp: Computed<any>): boolean {
-  return (
-    !!(comp._statusFlags & STATUS_PENDING) &&
-    !(comp._statusFlags & STATUS_UNINITIALIZED) &&
-    !quietPending(comp)
-  );
-}
-
-/**
- * Compute whether a node is in "pending" state.
- *
- * The rule (question-scoped pending, re-ruled 2026-07-13): a read is pending
- * iff a VALUE CHANGE is in flight for it that has not yet revealed, or it
- * carries a live `affects()` mark.
- * - Same-question motion (refresh/poll/confirm — a re-ask whose tracked
- *   inputs are value-stable) is NOT pending: the shown data still answers the
- *   question being asked (`quietPending`).
- * - A new question (any tracked input changed value since the last reveal)
- *   pends everything under the source until its answer reveals. Nothing can
- *   silence it — pendingness is monotone.
- * - Optimistic writes are verdict-inert: an active override neither reads
- *   pending on its own slot (it IS the displayed value; only a differing
- *   held correction re-opens the verdict) nor masks anything else (the
- *   store-wide mask / A21 is deleted).
- * - `affects(target, key?)` is the declaration verb: a live mark is
- *   additive pending on the named slot, held to its transaction's settle.
- * Returns false for initial async loads (no stale data to show — loading, not
- * pending) and for disposed nodes (a dead source can never settle).
- */
-function computePendingState(el: Signal<any> | Computed<any>): boolean {
-  const comp = el as Computed<any>;
-  // A verdict is a property of live data: a disposed source can never settle,
-  // so it is never pending (INV-9 — a latched true would hold a spinner
-  // forever; the PR #2845 disposal edge).
-  if (comp._flags & REACTIVE_DISPOSED) return false;
-  // Declared motion: a live affects() mark is additive pending — nothing
-  // subtracts it before its transaction releases it.
-  if (el._affectsCount) return true;
-  const firewall = (el as FirewallSignal<any>)._firewall;
-  if (el._parentSource) {
-    // The latest() shadow's verdict: pending follows the channel you read
-    // (A20), and the latest view is the fresh channel — it already shows
-    // transition-held values, so a hold cannot supersede what it shows. It
-    // reads pending only while async that will replace what it shows is
-    // actually in flight — and only when that flight is a real question
-    // change; a quiet re-ask leaves the latest view honest too.
-    const parentNode = el._parentSource as FirewallSignal<any>;
-    if (parentNode._affectsCount) return true;
-    // A store leaf's async status lives on its firewall, not the leaf signal
-    // itself (#2831). A leaf downstream of an in-flight refetch is pending in
-    // both forms — the latest view strips holds, never in-flight async.
-    const parent = (parentNode._firewall || parentNode) as Computed<any>;
-    return newQuestionInFlight(parent);
-  }
-  // A held store leaf defers to its firewall: when the firewall's own work is
-  // in flight the firewall carries the verdict (probes collect it alongside
-  // the leaf — #2831), so the leaf reports only holds the firewall does NOT
-  // explain: manual projection writes, holds outliving a settled firewall —
-  // or holds under a QUIET firewall flight (a quiet re-ask doesn't explain a
-  // held value change; the hold is real digestion and reads pending here).
-  // Without this deferral, leaf companions flip in lockstep with the firewall
-  // and churn duplicate effect runs during initial projection loads.
-  if (firewall && el._pendingValue !== NOT_PENDING && !hasActiveOverride(el)) {
-    return (
-      !!(firewall._flags & REACTIVE_MANUAL_WRITE) ||
-      (!firewall._inFlight && !(firewall._statusFlags & STATUS_PENDING)) ||
-      (!!(firewall._statusFlags & STATUS_PENDING) && quietPending(firewall))
-    );
-  }
-  // Value held in transition (not during initial load): a known change not
-  // yet revealed — pending. With an active optimistic override the override
-  // IS the displayed value (verdict-inert); only a held authoritative value
-  // that DIFFERS from the displayed override is a correction in flight and
-  // re-opens the verdict — a matching confirm reveals nothing.
-  if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) {
-    if (hasActiveOverride(el))
-      return !el._equals || !el._equals(el._pendingValue as any, el._overrideValue as any);
-    return true;
-  }
-  // Async in flight with previous value (not initial load; quiet re-asks are
-  // silent). STATUS_UNINITIALIZED is cleared on first successful completion.
-  return newQuestionInFlight(comp);
-}
-
-/**
- * Keep the lazily-created isPending()/latest() companion nodes in sync with a
- * new value. Every path that produces a value for `el` — direct set, async
- * resolution, transition-held sync recompute — must route through here so a
- * new write path can't silently skip the companions (#2831).
- */
-export function syncCompanions<T>(el: Signal<T> | Computed<T>, value: T): void {
-  if (el._pendingSignal) updatePendingSignal(el);
-  if (el._latestValueComputed) setSignal(el._latestValueComputed, value);
-}
-
-/**
- * Update _pendingSignal when pending state changes. When the override clears
- * (pending -> not pending), merge the sub-lane into the source's lane so
- * isPending effects are blocked until the full scope resolves.
- */
-export function updatePendingSignal(el: Signal<any> | Computed<any>): void {
-  if (el._pendingSignal) {
-    setSignal(el._pendingSignal, computePendingState(el));
-  }
-  // The latest() shadow's own verdict derives from the owner (its
-  // computePendingState consults `_parentSource`), so any owner state change
-  // that lands here must flow through to the shadow's companion too (#2838).
-  if (el._latestValueComputed) updatePendingSignal(el._latestValueComputed);
-}
-
-/**
- * A firewall's status change re-derives the verdicts of its probed leaves:
- * leaf companions consult the firewall (broad inheritance), so async
- * starting/settling on the firewall must poke them or they keep a stale
- * verdict forever (V4 stuck-companion class, #2838).
- */
-export function updateChildCompanions(el: Computed<any>): void {
-  for (
-    let child: FirewallSignal<any> | null = el._child;
-    child !== null;
-    child = child._nextChild
-  ) {
-    if (child._pendingSignal || child._latestValueComputed) updatePendingSignal(child);
-  }
-}
-
-/**
- * Re-derive verdict companions across everything downstream of `el`. Needed
- * when a pending source's quiet classification (`_reask`) flips without a
- * status change: `notifyStatus` won't re-propagate (same pending source
- * already registered on subscribers), but every downstream verdict that
- * consults `quietPending` just changed (the navigation-overtakes-quiet-confirm
- * case). Walks subs and firewall children, poking companions along the way.
- */
-function repollDownstreamVerdicts(el: Computed<any>): void {
-  const visited = new Set<Signal<any> | Computed<any>>();
-  const visit = (node: Signal<any> | Computed<any>) => {
-    if (visited.has(node)) return;
-    visited.add(node);
-    if (node._pendingSignal || node._latestValueComputed) updatePendingSignal(node);
-    for (let s = node._subs; s !== null; s = s._nextSub) visit(s._sub);
-    for (
-      let child: FirewallSignal<any> | null = (node as Computed<any>)._child ?? null;
-      child !== null;
-      child = child._nextChild
-    ) {
-      visit(child);
-    }
-  };
-  visit(el);
-}
-
-/**
- * Settlement checkpoint (#2838): re-derive a node's companions directly from
- * its committed state. Called when the transition machinery for the node is
- * done with it — a pending commit or an optimistic revert. Verdicts are
- * written committed (not through setSignal) because a transition-scoped
- * override window opened here would itself need a settlement, re-scheduling
- * forever while async is still in flight. This is what keeps companions
- * coherent past transition completion: a verdict is a property of the data
- * (A19), so it must survive the transition that happened to produce it.
- */
-export function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
-  const sig = owner._pendingSignal;
-  // An active override on the companion belongs to a transition that is still
-  // running; its own settlement re-enters here after the revert.
-  if (sig && (sig._overrideValue === undefined || sig._overrideValue === NOT_PENDING)) {
-    const pending = computePendingState(owner);
-    if (sig._value !== pending || sig._pendingValue !== NOT_PENDING) {
-      sig._value = pending;
-      sig._pendingValue = NOT_PENDING;
-      sig._time = clock;
-      insertSubs(sig);
-      schedule();
-    }
-  }
-  const shadow = owner._latestValueComputed;
-  if (shadow && !(shadow._flags & REACTIVE_DISPOSED)) {
-    // The shadow may have cached a mid-transition view (a stale committed
-    // value read under a lane — the V2 read-order freeze) that no write path
-    // will ever correct. Invalidate it so the next read re-derives from
-    // committed state — but only when its committed value actually diverged;
-    // a shadow with an active override (or already holding the right value)
-    // is coherent and dirtying it mid-settlement would leak a half-settled
-    // view to subscribers.
-    if (
-      (shadow._overrideValue === undefined || shadow._overrideValue === NOT_PENDING) &&
-      shadow._pendingValue === NOT_PENDING &&
-      !Object.is(shadow._value, owner._value) &&
-      !(shadow._flags & (REACTIVE_DIRTY | REACTIVE_CHECK))
-    ) {
-      shadow._flags |= REACTIVE_DIRTY;
-      insertIntoHeap(shadow, shadow._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
-      insertSubs(shadow);
-      schedule();
-    }
-    snapCompanionsToState(shadow);
-  }
-}
-
-/**
- * Get or create the latest value computed for a node (lazy).
- * Used by latest() to read the in-flight value during a transition.
- */
-function getLatestValueComputed<T>(el: Signal<T> | Computed<T>): Computed<T> {
-  if (!el._latestValueComputed) {
-    // Save and restore context flags to prevent leaking isPending/latest
-    // context into the computed's initial recompute.
-    const prevPending = latestReadActive;
-    latestReadActive = false;
-    const prevCheck = pendingCheckActive;
-    pendingCheckActive = false;
-    const prevContext = context;
-    context = null; // Detach from owner so it isn't disposed with effects
-    el._latestValueComputed = optimisticComputed(() => read(el));
-    el._latestValueComputed._parentSource = el; // Parent-child lane relationship
-    if (__DEV__) devTrackCompanionOwner(el);
-    context = prevContext;
-    pendingCheckActive = prevCheck;
-    latestReadActive = prevPending;
-  }
-  return el._latestValueComputed;
-}
-
 export function staleValues<T>(fn: () => T, set = true): T {
   const prevStale = stale;
   stale = set;
@@ -1468,106 +1106,6 @@ export function staleValues<T>(fn: () => T, set = true): T {
     return fn();
   } finally {
     stale = prevStale;
-  }
-}
-
-/**
- * Reads reactive expressions while bypassing any pending async overlay — i.e.
- * always returns the most-recently-committed value, even when newer reads
- * inside `fn` are still in flight.
- *
- * Useful inside a `<Loading>` boundary's children when you want to keep
- * showing the previous resolved data instead of the fallback while the next
- * value loads.
- *
- * @example
- * ```tsx
- * <Loading fallback={<Skeleton />}>
- *   {/* During a transition, render the previous user instead of skeleton: *\/}
- *   <UserCard user={latest(() => user())} />
- * </Loading>
- * ```
- */
-export function latest<T>(fn: () => T): T {
-  const prevLatest = latestReadActive;
-  latestReadActive = true;
-  try {
-    return fn();
-  } finally {
-    latestReadActive = prevLatest;
-  }
-}
-
-/**
- * Returns `true` if any reactive read inside `fn` is showing a stale value
- * while newer async work is pending. Does not subscribe — pair with a tracked
- * memo if you want to react to pending status changes.
- *
- * Useful for showing inline transition indicators alongside the previous
- * value (rather than swapping to a `<Loading>` fallback).
- * Because `fn` is read normally, `isPending` participates in Loading/SSR
- * readiness the same way the read itself would.
- *
- * @example
- * ```tsx
- * const pending = createMemo(() => isPending(() => user()));
- *
- * <button disabled={pending()}>{pending() ? "Saving…" : "Save"}</button>
- *
- * <button disabled={isPending(() => user())}>Save</button>
- * ```
- */
-export function isPending(fn: () => any): boolean {
-  const prevPendingCheck = pendingCheckActive;
-  const prevProbe = pendingProbe;
-  pendingCheckActive = true;
-  const probe: PendingProbe = (pendingProbe = {
-    found: false,
-    sources: new Set(),
-    freshReads: new Set()
-  });
-  const collectPending = () => {
-    pendingCheckActive = false;
-    const prevStrictRead = __DEV__ ? strictRead : false;
-    if (__DEV__) strictRead = false;
-    try {
-      probe.sources.forEach(source => {
-        // Pair consistency: if the probe's read of this source observed the
-        // fresh transition-held `_pendingValue` (non-stale readers such as
-        // user effects do), the value is not stale to this reader and must
-        // not be reported as pending — otherwise [isPending(x), x()] pairs
-        // pending with the new value (#2831). Readers that observed the
-        // committed (stale) value keep the signal's verdict.
-        if (read(getPendingSignal(source)) && !probe.freshReads.has(source)) probe.found = true;
-      });
-    } finally {
-      if (__DEV__) strictRead = prevStrictRead;
-      pendingCheckActive = true;
-    }
-  };
-  try {
-    fn();
-    collectPending();
-    return probe.found;
-  } catch (e) {
-    collectPending();
-    if (e instanceof NotReadyError) {
-      const uninitialized = !!(e.source?._statusFlags & STATUS_UNINITIALIZED);
-      if (probe.found && !uninitialized) return true;
-      // Only a truly uninitialized source re-throws (loading participates in
-      // <Loading>/readiness like the read itself would). An INITIALIZED
-      // source that threw NotReady while the probe found nothing pending is
-      // a quiet re-ask window — the verdict is an honest `false`, and
-      // rethrowing would poison the surrounding memo with NotReady.
-      if (context && uninitialized) throw e;
-    }
-    // When a thunk throws during pending check (e.g., accessing undefined values
-    // from uninitialized async memos), return probe.found. The error indicates
-    // we're reading from something not yet ready.
-    return probe.found;
-  } finally {
-    pendingCheckActive = prevPendingCheck;
-    pendingProbe = prevProbe;
   }
 }
 

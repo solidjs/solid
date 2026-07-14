@@ -10,15 +10,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import {
-  context,
-  setSignal,
-  snapCompanionsToState,
-  syncCompanions,
-  untrack,
-  updateChildCompanions,
-  updatePendingSignal
-} from "./core.js";
+import { context, setSignal, untrack } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
@@ -38,9 +30,9 @@ import {
   schedule,
   zombieQueue
 } from "./scheduler.js";
-import type { Computed, FirewallSignal, Link, Signal } from "./types.js";
+import type { Computed, FirewallSignal, Link } from "./types.js";
 
-function addPendingSource(el: Computed<any>, source: Computed<any>): boolean {
+export function addPendingSource(el: Computed<any>, source: Computed<any>): boolean {
   if (el._pendingSource === source || el._pendingSources?.has(source)) return false;
   if (!el._pendingSource) {
     el._pendingSource = source;
@@ -77,7 +69,7 @@ function clearPendingSources(el: Computed<any>): void {
   el._pendingSources = undefined;
 }
 
-function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {
+export function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any): void {
   if (!source) {
     el._error = null;
     return;
@@ -92,7 +84,10 @@ function setPendingError(el: Computed<any>, source?: Computed<any>, error?: any)
   }
 }
 
-function forEachDependent(el: Computed<any>, fn: (node: Computed<any>, link: Link) => void): void {
+export function forEachDependent(
+  el: Computed<any>,
+  fn: (node: Computed<any>, link: Link) => void
+): void {
   for (let s = el._subs; s !== null; s = s._nextSub) fn(s._sub, s);
   // `?? null`: affects() marks route plain signals (no `_child` slot) through here.
   for (
@@ -130,8 +125,8 @@ export function settlePendingSource(
 ): void {
   let scheduled = false;
   const visited = new Set<Computed<any>>();
-  // snapCompanionsToState no-ops without companions, so no guard is needed.
-  const updateCompanions = snap ? snapCompanionsToState : updatePendingSignal;
+  // Companion updates no-op without the verdict layer (null hooks).
+  const updateCompanions = snap ? GlobalQueue._snapCompanions : GlobalQueue._updatePendingSignal;
   const settle = (node: Computed<any>) => {
     if (visited.has(node) || !removePendingSource(node, source)) return;
     visited.add(node);
@@ -139,11 +134,11 @@ export function settlePendingSource(
     const remaining = node._pendingSource ?? node._pendingSources?.values().next().value;
     if (remaining) {
       setPendingError(node, remaining);
-      updateCompanions(node);
+      updateCompanions !== null && updateCompanions(node);
     } else {
       node._statusFlags &= ~STATUS_PENDING;
       setPendingError(node);
-      updateCompanions(node);
+      updateCompanions !== null && updateCompanions(node);
       if (node._blocked) {
         enqueueForRerun(node);
         scheduled = true;
@@ -255,7 +250,7 @@ export function handleAsync<T>(
       // only notified when the hold is visible to them: under an active
       // override every reader sees the override (A17), so waking subs would
       // re-show an unchanged view — the revert is the notification point.
-      syncCompanions(el, value);
+      GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
       if (!hasActiveOverride(el)) insertSubs(el);
       el._time = clock;
     } else if (lane) {
@@ -270,7 +265,7 @@ export function handleAsync<T>(
           // The latest() shadow write gives latest() effects independent lanes; the
           // _pendingSignal update is a no-op repeat of the clearStatus() call above
           // (computePendingState doesn't read _value).
-          syncCompanions(el, value);
+          GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, value);
           insertSubs(el, true);
         }
       } catch (e) {
@@ -417,9 +412,11 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
   el._reask = false;
   el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
   if (el._error) setPendingError(el);
-  // Update pending signal for isPending() reactivity
-  if (el._pendingSignal || el._latestValueComputed) updatePendingSignal(el);
-  if (el._child) updateChildCompanions(el);
+  // Update pending signal for isPending() reactivity (companions only exist
+  // once the verdict layer created them, which installs the hooks).
+  if (el._pendingSignal || el._latestValueComputed) GlobalQueue._updatePendingSignal!(el);
+  if (el._child && GlobalQueue._updateChildCompanions !== null)
+    GlobalQueue._updateChildCompanions(el);
   if (el._notifyStatus) el._notifyStatus();
 }
 
@@ -458,8 +455,9 @@ export function notifyStatus(
         status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
       el._error = error;
     }
-    updatePendingSignal(el);
-    if (el._child) updateChildCompanions(el);
+    GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(el);
+    if (el._child && GlobalQueue._updateChildCompanions !== null)
+      GlobalQueue._updateChildCompanions(el);
   }
 
   if (lane && !blockStatus) {
@@ -505,91 +503,3 @@ export function notifyStatus(
     }
   });
 }
-
-/**
- * The pending-source identity of a live `affects()` mark on `node` (lazy,
- * one per node, shared by overlapping registrations via the refcount).
- *
- * A mark rides the SAME status rails as real in-flight async — downstream
- * subscribers hold the sentinel in `_pendingSources` — but under its own
- * identity so the two channels can't clear each other:
- * - `_reask` is permanently `false`: a mark is by definition a declared
- *   value change, so `quietPending` never silences a window it participates
- *   in — even when the mark rides over an otherwise-quiet `refresh()`
- *   re-ask of the same node (the whole point of declaring one).
- * - A landing on the marked node settles only the node's OWN source entry;
- *   the sentinel entry survives until the mark's transaction releases it.
- * - The sentinel itself never carries `STATUS_PENDING`, so
- *   `transitionComplete` never counts a mark as a blocker of its own
- *   transaction (release happens AT settle — self-blocking would deadlock),
- *   and reads of the marked node never throw (marks are value-transparent
- *   at the source; pendingness is what propagates).
- */
-export function getAffectsSentinel(node: Signal<any> | Computed<any>): Computed<any> {
-  return (node._affectsSentinel ??= {
-    _name: __DEV__ ? "affects-sentinel" : undefined,
-    // Brand + backref: lets the scheduler's settlement checks recognize
-    // mark-sourced pending (which must never block its own transaction —
-    // release happens AT settle).
-    _affectsFor: node,
-    _flags: 0,
-    _statusFlags: 0,
-    _reask: false,
-    _error: undefined,
-    _subs: null,
-    _deps: null
-  } as unknown as Computed<any>);
-}
-
-/**
- * Push a live mark's pendingness downstream from the marked node through the
- * normal status rails. Runs on every registration (dedup in `notifyStatus`
- * stops re-descent at already-covered subscribers). Subscribers that
- * recompute mid-window shed this via `clearStatus` and re-acquire it through
- * the read path (`applyAffectsReads`) — the same shape as real async, where
- * the re-throw on read re-establishes the source.
- */
-export function propagateAffectsMark(node: Signal<any> | Computed<any>): void {
-  if (!node._subs && !(node as Computed<any>)._child) return;
-  const sentinel = getAffectsSentinel(node);
-  const error = new NotReadyError(sentinel);
-  forEachDependent(node as Computed<any>, sub => {
-    if (sub._pendingSource !== sentinel && !sub._pendingSources?.has(sentinel)) {
-      if (!sub._transition) queuePendingNode(sub);
-      notifyStatus(sub, STATUS_PENDING, error);
-    }
-  });
-}
-
-/**
- * Re-establish mark pendingness on a computed that read marked sources
- * during its recompute (`clearStatus` at the top of the commit path wiped
- * any sentinel entries it held). Called by `recompute` after the commit —
- * not before, because setting `_error` earlier would make the commit path
- * treat the node as errored and skip the value write.
- */
-export function applyAffectsReads(
-  el: Computed<any>,
-  sources: (Signal<any> | Computed<any>)[]
-): void {
-  let applied = false;
-  for (let i = 0; i < sources.length; i++) {
-    const src = sources[i];
-    if (!src._affectsCount) continue;
-    const sentinel = getAffectsSentinel(src);
-    if (addPendingSource(el, sentinel)) {
-      el._statusFlags |= STATUS_PENDING;
-      setPendingError(el, sentinel);
-      applied = true;
-    }
-  }
-  if (applied) updatePendingSignal(el);
-}
-
-// Late installation (same pattern as `GlobalQueue._update`): the scheduler's
-// mark register/release can't import from this module without a cycle.
-GlobalQueue._propagateAffects = propagateAffectsMark;
-GlobalQueue._settleAffects = node => {
-  const sentinel = node._affectsSentinel;
-  if (sentinel) settlePendingSource(node as Computed<any>, sentinel, true);
-};

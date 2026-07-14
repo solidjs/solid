@@ -13,13 +13,12 @@ import {
   pendingCheckActive,
   PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE,
   runWithOwner,
-  snapCompanionsToState,
   tracking
 } from "./core.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { unlinkSubs } from "./graph.js";
 import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight } from "./heap.js";
-import { dirtyQueue, globalQueue, zombieQueue } from "./scheduler.js";
+import { dirtyQueue, GlobalQueue, globalQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, Disposable, Owner, Root } from "./types.js";
 
 const PENDING_OWNER = {} as Owner; // Dummy owner to trigger store's read() path
@@ -68,7 +67,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // edge). Snap runs after the DISPOSED flag is set so the oracle reads
     // false, and notifies subscribers still watching the companion.
     const n = node as Computed<unknown>;
-    if (n._pendingSignal || n._latestValueComputed) snapCompanionsToState(n);
+    if (n._pendingSignal || n._latestValueComputed) GlobalQueue._snapCompanions!(n);
   }
   if (self && __DEV__) clearSignals(node);
   if (self && (node as any)._fn) (node as Computed<unknown>)._inFlight = null;

@@ -31,7 +31,7 @@ importers:
         version: 2.29.8(@types/node@25.6.0)
       '@codspeed/vitest-plugin':
         specifier: ^5.4.0
-        version: 5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))(vitest@4.1.6)
+        version: 5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))(vitest@4.1.6)
       '@dom-expressions/babel-plugin-jsx':
         specifier: 0.50.0-next.21
         version: 0.50.0-next.21(@babel/core@7.29.0)
@@ -118,10 +118,10 @@ importers:
         version: 6.0.3
       vite-plugin-solid:
         specifier: 3.0.0-next.4
-        version: 3.0.0-next.4(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))
+        version: 3.0.0-next.4(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
       vitest:
         specifier: ^4.1.6
-        version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))
+        version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
 
   examples/migrating-element:
     devDependencies:
@@ -381,9 +381,6 @@ importers:
       '@rollup/plugin-replace':
         specifier: ^6.0.3
         version: 6.0.3(rollup@4.59.0)
-      '@rollup/plugin-terser':
-        specifier: ^0.4.4
-        version: 0.4.4(rollup@4.59.0)
       '@rollup/plugin-typescript':
         specifier: ^12.3.0
         version: 12.3.0(rollup@4.59.0)(tslib@2.8.1)(typescript@6.0.3)
@@ -399,6 +396,9 @@ importers:
       rollup-plugin-prettier:
         specifier: ^4.1.2
         version: 4.1.2(prettier@3.8.1)(rollup@4.59.0)
+      terser:
+        specifier: ^5.49.0
+        version: 5.49.0
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
@@ -407,10 +407,10 @@ importers:
         version: 6.0.3
       vite:
         specifier: ^7.0.0
-        version: 7.3.3(@types/node@25.6.0)(terser@5.46.1)
+        version: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
       vitest:
         specifier: ^4.1.6
-        version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))
+        version: 4.1.6(@types/node@25.6.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
 
   packages/solid-universal:
     devDependencies:
@@ -1398,15 +1398,6 @@ packages:
     engines: {node: '>=14.0.0'}
     peerDependencies:
       rollup: ^1.20.0||^2.0.0||^3.0.0||^4.0.0
-    peerDependenciesMeta:
-      rollup:
-        optional: true
-
-  '@rollup/plugin-terser@0.4.4':
-    resolution: {integrity: sha512-XHeJC5Bgvs8LfukDwWZp7yeqin6ns8RTl2B9avbejt6tZqsqvVoWI7ZTQrcNsfKEDWBTnTxM8nMDkO2IFFbd0A==}
-    engines: {node: '>=14.0.0'}
-    peerDependencies:
-      rollup: ^2.0.0||^3.0.0||^4.0.0
     peerDependenciesMeta:
       rollup:
         optional: true
@@ -2862,9 +2853,6 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
-  randombytes@2.1.0:
-    resolution: {integrity: sha512-vYl3iOX+4CKUWuxGi9Ukhie6fsqXqS9FE2Zaic4tNFD2N2QQaXOMFbuKK4QmDHC0JO6B1Zp41J0LpT0oR68amQ==}
-
   range-parser@1.2.1:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
     engines: {node: '>= 0.6'}
@@ -3007,9 +2995,6 @@ packages:
     resolution: {integrity: sha512-VMbMxbDeehAxpOtWJXlcUS5E8iXh6QmN+BkRX1GARS3wRaXEEgzCcB10gTQazO42tpNIya8xIyNx8fll1OFPrg==}
     engines: {node: '>= 0.8.0'}
 
-  serialize-javascript@6.0.2:
-    resolution: {integrity: sha512-Saa1xPByTTq2gdeFZYLLo+RFE35NHZkAbqZeWNd3BpzppeVisAqpDjcp8dyf6uIvEqJRd46jemmyA4iFIeVk8g==}
-
   seroval-plugins@1.5.5:
     resolution: {integrity: sha512-+BDhqYM6CEn3x09v44dpa9p6974FuUB2dxk+Ctn04k0cO1Zt6QODTXfmEZK0eBaTe/fJBvP4NMGuNJ+R8T+QMg==}
     engines: {node: '>=10'}
@@ -3082,10 +3067,6 @@ packages:
   slash@3.0.0:
     resolution: {integrity: sha512-g9Q1haeby36OSStwb4ntCGGGaKsaVSjQ68fBxoQcutl5fS1vuY18H3wSt3jFyFtrkx+Kz0V1G85A4MyAdDMi2Q==}
     engines: {node: '>=8'}
-
-  smob@1.6.1:
-    resolution: {integrity: sha512-KAkBqZl3c2GvNgNhcoyJae1aKldDW0LO279wF9bk1PnluRTETKBq0WyzRXxEhoQLk56yHaOY4JCBEKDuJIET5g==}
-    engines: {node: '>=20.0.0'}
 
   solid-refresh@0.8.0-next.4:
     resolution: {integrity: sha512-0naYXreCaX0yyyzRnwcpje8shioMQc3aOeH0hnT+DMAOnhRtJ5tACpG62yB4jRsLlZLVP7MmQ0GH+9ZdAizmJg==}
@@ -3173,8 +3154,8 @@ packages:
     resolution: {integrity: sha512-wK0Ri4fOGjv/XPy8SBHZChl8CM7uMc5VML7SqiQ0zG7+J5Vr+RMQDoHa2CNT6KHUnTGIXH34UDMkPzAUyapBZg==}
     engines: {node: '>=8'}
 
-  terser@5.46.1:
-    resolution: {integrity: sha512-vzCjQO/rgUuK9sf8VJZvjqiqiHFaZLnOiimmUuOKODxWL8mm/xua7viT7aqX7dgPY60otQjUotzFMmCB4VdmqQ==}
+  terser@5.49.0:
+    resolution: {integrity: sha512-SNiDnXyHSrxVcIOtVbULzcTmniUiwcV7Nwdyj1twVubeTmbjoa8p69KKDpfkdoOavuM4/GRm1+ykI8qqnavHoA==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -4389,12 +4370,12 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@codspeed/vitest-plugin@5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))(vitest@4.1.6)':
+  '@codspeed/vitest-plugin@5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))(vitest@4.1.6)':
     dependencies:
       '@codspeed/core': 5.4.0
       tinybench: 2.9.0
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.46.1)
-      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))
+      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
+      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
     transitivePeerDependencies:
       - debug
 
@@ -4688,14 +4669,6 @@ snapshots:
     optionalDependencies:
       rollup: 4.59.0
 
-  '@rollup/plugin-terser@0.4.4(rollup@4.59.0)':
-    dependencies:
-      serialize-javascript: 6.0.2
-      smob: 1.6.1
-      terser: 5.46.1
-    optionalDependencies:
-      rollup: 4.59.0
-
   '@rollup/plugin-typescript@12.3.0(rollup@4.59.0)(tslib@2.8.1)(typescript@6.0.3)':
     dependencies:
       '@rollup/pluginutils': 5.3.0(rollup@4.59.0)
@@ -4904,7 +4877,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))
+      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
 
   '@vitest/expect@4.1.6':
     dependencies:
@@ -4915,13 +4888,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.6(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))':
+  '@vitest/mocker@4.1.6(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))':
     dependencies:
       '@vitest/spy': 4.1.6
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.46.1)
+      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
 
   '@vitest/pretty-format@4.1.6':
     dependencies:
@@ -6102,10 +6075,6 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
-  randombytes@2.1.0:
-    dependencies:
-      safe-buffer: 5.2.1
-
   range-parser@1.2.1: {}
 
   raw-body@2.5.3:
@@ -6313,10 +6282,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  serialize-javascript@6.0.2:
-    dependencies:
-      randombytes: 2.1.0
-
   seroval-plugins@1.5.5(seroval@1.5.5):
     dependencies:
       seroval: 1.5.5
@@ -6387,8 +6352,6 @@ snapshots:
   slash@2.0.0: {}
 
   slash@3.0.0: {}
-
-  smob@1.6.1: {}
 
   solid-refresh@0.8.0-next.4:
     dependencies:
@@ -6477,7 +6440,7 @@ snapshots:
 
   term-size@2.2.1: {}
 
-  terser@5.46.1:
+  terser@5.49.0:
     dependencies:
       '@jridgewell/source-map': 0.3.11
       acorn: 8.16.0
@@ -6615,19 +6578,19 @@ snapshots:
       core-util-is: 1.0.2
       extsprintf: 1.3.0
 
-  vite-plugin-solid@3.0.0-next.4(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1)):
+  vite-plugin-solid@3.0.0-next.4(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0)):
     dependencies:
       '@babel/core': 7.29.0
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
       merge-anything: 5.1.7
       solid-refresh: 0.8.0-next.4
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.46.1)
-      vitefu: 1.1.2(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))
+      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
+      vitefu: 1.1.2(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
     transitivePeerDependencies:
       - supports-color
 
-  vite@7.3.3(@types/node@25.6.0)(terser@5.46.1):
+  vite@7.3.3(@types/node@25.6.0)(terser@5.49.0):
     dependencies:
       esbuild: 0.27.7
       fdir: 6.5.0(picomatch@4.0.3)
@@ -6638,16 +6601,16 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.6.0
       fsevents: 2.3.3
-      terser: 5.46.1
+      terser: 5.49.0
 
-  vitefu@1.1.2(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1)):
+  vitefu@1.1.2(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0)):
     optionalDependencies:
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.46.1)
+      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
 
-  vitest@4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1)):
+  vitest@4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0)):
     dependencies:
       '@vitest/expect': 4.1.6
-      '@vitest/mocker': 4.1.6(vite@7.3.3(@types/node@25.6.0)(terser@5.46.1))
+      '@vitest/mocker': 4.1.6(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
       '@vitest/pretty-format': 4.1.6
       '@vitest/runner': 4.1.6
       '@vitest/snapshot': 4.1.6
@@ -6664,12 +6627,39 @@ snapshots:
       tinyexec: 1.1.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.46.1)
+      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.6.0
       '@vitest/coverage-v8': 4.1.6(vitest@4.1.6)
       jsdom: 25.0.1
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.6(@types/node@25.6.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0)):
+    dependencies:
+      '@vitest/expect': 4.1.6
+      '@vitest/mocker': 4.1.6(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
+      '@vitest/pretty-format': 4.1.6
+      '@vitest/runner': 4.1.6
+      '@vitest/snapshot': 4.1.6
+      '@vitest/spy': 4.1.6
+      '@vitest/utils': 4.1.6
+      es-module-lexer: 2.1.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.4
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.1.2
+      tinyglobby: 0.2.16
+      tinyrainbow: 3.1.0
+      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 25.6.0
     transitivePeerDependencies:
       - msw
 

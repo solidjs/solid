@@ -84,7 +84,7 @@ function createBoundChildren<T>(
 }
 
 const ON_INIT: unique symbol = Symbol();
-const RevealControllerContext = createContext<RevealController | null>(null);
+const RevealControllerContext = /* @__PURE__ */ createContext<RevealController | null>(null);
 let _revealUsed = false;
 
 type RevealSlot = CollectionQueue | RevealController;
