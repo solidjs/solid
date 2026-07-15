@@ -13,7 +13,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./dist/node/index.cjs",
+  "main": "./dist/node.cjs",
   "module": "./dist/prod/index.js",
   "types": "./dist/types/index.d.ts",
   "type": "module",
@@ -26,13 +26,13 @@
     ".": {
       "import": {
         "types": "./dist/types/index.d.ts",
-        "test": "./dist/dev/index.js",
-        "development": "./dist/dev/index.js",
+        "test": "./dist/dev.js",
+        "development": "./dist/dev.js",
         "default": "./dist/prod/index.js"
       },
       "require": {
         "types": "./dist/types-cjs/index.d.cts",
-        "default": "./dist/node/index.cjs"
+        "default": "./dist/node.cjs"
       }
     },
     "./package.json": "./package.json"
@@ -40,7 +40,7 @@
   "scripts": {
     "build": "npm-run-all -nl build:* && pnpm types",
     "build:clean": "rimraf dist/dev dist/prod dist/node dist/dev.js dist/prod.js dist/node.cjs",
-    "build:js": "rollup -c && node ./scripts/mangle-props.mjs dist/prod dist/node",
+    "build:js": "rollup -c && node ./scripts/mangle-props.mjs dist/prod dist/node.cjs",
     "types": "tsc -p tsconfig.build.json && node ../../scripts/sync-dual-types.mjs ./dist/types ./dist/types-cjs",
     "test": "vitest run",
     "test:watch": "vitest watch tests",

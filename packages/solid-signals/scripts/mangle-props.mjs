@@ -7,13 +7,17 @@
  * options, so `_pendingValue` could mangle to different names in different
  * modules and break cross-module member access at runtime (#2883).
  *
- * Usage: node scripts/mangle-props.mjs <dist-dir> [<dist-dir> ...]
+ * Flat single-file bundles are self-contained consistency domains, so each
+ * argument (directory tree or single file) gets its own nameCache.
+ *
+ * Usage: node scripts/mangle-props.mjs <dist-dir-or-file> [<dist-dir-or-file> ...]
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { minify } from "terser";
 
 function walk(dir) {
+  if (statSync(dir).isFile()) return [dir];
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
     a.name.localeCompare(b.name)
