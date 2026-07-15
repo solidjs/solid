@@ -20,8 +20,7 @@
     "publish": "pnpm run build && pnpm run types && pnpm run release:only",
     "bump": "changeset add",
     "release:only": "changeset publish",
-    "format": "prettier --write --cache \"**/*.[tj]s?(x)\"",
-    "size": "size-limit"
+    "format": "prettier --write --cache \"**/*.[tj]s?(x)\""
   },
   "devDependencies": {
     "@babel/cli": "^7.18.9",
@@ -39,13 +38,11 @@
     "@rollup/plugin-json": "^6.0.0",
     "@rollup/plugin-node-resolve": "^15.0.1",
     "@rollup/plugin-replace": "^5.0.2",
-    "@size-limit/preset-small-lib": "^12.1.0",
     "@types/node": "^25.0.8",
     "@vitest/coverage-v8": "^4.1.6",
     "babel-plugin-transform-rename-import": "^2.3.0",
     "coveralls": "^3.1.1",
     "csstype": "^3.1.0",
-    "esbuild": "^0.28.1",
     "jsdom": "^25.0.1",
     "ncp": "^2.0.0",
     "npm-run-all2": "^8.0.4",
@@ -56,7 +53,6 @@
     "rollup-plugin-copy": "^3.4.0",
     "seroval": "~1.5.4",
     "simple-git-hooks": "^2.8.1",
-    "size-limit": "^12.1.0",
     "symlink-dir": "^5.0.1",
     "tsconfig-replace-paths": "^0.0.11",
     "turbo": "^2.0.0",

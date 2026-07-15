@@ -1,12 +1,13 @@
 name: Size
 
-# Tracks tree-shaken scenario costs per PR (#2883). The .size-limit.json
-# entries are import-cost scenarios, not file sizes: the limits are the strict
-# gate for tree-shaking regressions (a re-coupled feature module shows up as
-# hundreds of bytes against ~5% headroom). The retained-module-graph
-# assertions in packages/solid-signals/tests/treeshake.test.ts remain the
-# precise which-module-re-coupled diagnostic; this is the ceiling gate and
-# trend tracker on top.
+# Tracks tree-shaken scenario costs per PR (#2883). The size/ directory is a
+# standalone npm package OUTSIDE the pnpm workspace on purpose: adding its
+# tooling to the workspace graph re-keys pnpm peer instances (vitest,
+# @codspeed/vitest-plugin), which relocates the benchmark harness and shows
+# up as phantom CodSpeed regressions. The limits in size/.size-limit.js are
+# the strict tree-shaking gate; the retained-module-graph assertions in
+# packages/solid-signals/tests/treeshake.test.ts stay the which-module
+# diagnostic underneath.
 on:
   pull_request:
     branches: [main, next]
@@ -29,11 +30,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm size
+      - run: npm ci --no-audit --no-fund
+        working-directory: size
+      - run: npm run size
+        working-directory: size
 
   # Best-effort base-vs-head delta comment. Requires the base branch to also
-  # carry the size-limit setup, so it is informational and never blocks:
-  # continue-on-error keeps bootstrap PRs (and any action hiccup) green.
+  # carry size/, so it is informational and never blocks: continue-on-error
+  # keeps bootstrap PRs (and any action hiccup) green.
   compare:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -48,5 +52,6 @@ jobs:
         continue-on-error: true
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          package_manager: pnpm
+          package_manager: npm
+          directory: size
           build_script: build
