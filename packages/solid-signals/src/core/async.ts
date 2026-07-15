@@ -84,22 +84,6 @@ export function setPendingError(el: Computed<any>, source?: Computed<any>, error
   }
 }
 
-/**
- * True when a node's pending status comes ONLY from affects() sentinels. A
- * mark is a promise of change, not an absence of value: reads of mark-pended
- * derived nodes stay value-transparent (verdicts report pending; the read
- * path must not suspend). Any real async source among the pending sources
- * keeps normal suspension semantics.
- */
-export function onlyMarkPending(el: Computed<any>): boolean {
-  const sources = el._pendingSources;
-  if (sources) {
-    for (const s of sources) if (!s._affectsFor) return false;
-    return true;
-  }
-  return !!el._pendingSource?._affectsFor;
-}
-
 export function forEachDependent(
   el: Computed<any>,
   fn: (node: Computed<any>, link: Link) => void

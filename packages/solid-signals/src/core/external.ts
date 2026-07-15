@@ -1,3 +1,8 @@
+import { read, setSignal, signal } from "./core.js";
+import { cleanup } from "./owner.js";
+import { GlobalQueue } from "./scheduler.js";
+import type { Computed } from "./types.js";
+
 export type ExternalSourceFactory = (fn: (prev: any) => any, trigger: () => void) => ExternalSource;
 
 export interface ExternalSource {
@@ -45,6 +50,35 @@ export let externalSourceConfig: {
  * });
  * ```
  */
+// Wires a freshly created computed through the active external-source bridge.
+// Lives here (installed on GlobalQueue while a config is active) rather than
+// inline in core: esbuild cannot literal-track the mutable config binding the
+// way rollup does, so an inline `if (externalSourceConfig)` block ships in
+// every bundle even though only enableExternalSource() can make it reachable.
+function wireExternalSource(self: Computed<any>): void {
+  const bridgeSignal = signal<undefined>(undefined, { equals: false, ownedWrite: true });
+  const source = externalSourceConfig!.factory(self._fn as any, () => {
+    setSignal(bridgeSignal, undefined);
+  });
+  cleanup(() => source.dispose());
+  self._fn = ((prev: any) => {
+    read(bridgeSignal);
+    return source.track(prev);
+  }) as any;
+}
+
+function externalUntrack<T>(fn: () => T): T {
+  return externalSourceConfig!.untrack(fn);
+}
+
+// The hooks mirror the config's liveness exactly (installed on enable,
+// removed on reset) so core's null checks stay equivalent to the old
+// `externalSourceConfig` truthiness checks.
+function syncExternalHooks(): void {
+  GlobalQueue._wireExternalSource = externalSourceConfig ? wireExternalSource : null;
+  GlobalQueue._externalUntrack = externalSourceConfig ? externalUntrack : null;
+}
+
 export function enableExternalSource(config: ExternalSourceConfig): void {
   const { factory, untrack: untrackFn = fn => fn() } = config;
   if (externalSourceConfig) {
@@ -66,8 +100,10 @@ export function enableExternalSource(config: ExternalSourceConfig): void {
   } else {
     externalSourceConfig = { factory, untrack: untrackFn };
   }
+  syncExternalHooks();
 }
 
 export function _resetExternalSourceConfig(): void {
   externalSourceConfig = null;
+  syncExternalHooks();
 }

@@ -158,6 +158,23 @@ function releaseAffectsMarks(nodes: MarkedNode[]): void {
   nodes.length = 0;
 }
 
+/**
+ * True when a node's pending status comes ONLY from affects() sentinels. A
+ * mark is a promise of change, not an absence of value: reads of mark-pended
+ * derived nodes stay value-transparent (verdicts report pending; the read
+ * path must not suspend). Any real async source among the pending sources
+ * keeps normal suspension semantics. Core's read path reaches this through
+ * `GlobalQueue._onlyMarkPending`, gated on the `activeAffectsMarks` counter.
+ */
+function onlyMarkPending(el: Computed<any>): boolean {
+  const sources = el._pendingSources;
+  if (sources) {
+    for (const s of sources) if (!s._affectsFor) return false;
+    return true;
+  }
+  return !!el._pendingSource?._affectsFor;
+}
+
 // Late installation (same pattern as `GlobalQueue._update`): the mark engine
 // lives with the feature so graphs that never declare a mark never ship it.
 // Each call site is gated by state only this module creates (`markedReads`
@@ -168,6 +185,7 @@ GlobalQueue._applyAffectsReads = applyAffectsReads;
 GlobalQueue._releaseAffectsMarks = releaseAffectsMarks;
 GlobalQueue._markAffects = markAffects;
 GlobalQueue._releaseAffectsMark = releaseAffectsMark;
+GlobalQueue._onlyMarkPending = onlyMarkPending;
 
 /**
  * Declares that in-flight work will change the targeted data: the named

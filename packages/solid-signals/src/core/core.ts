@@ -1,4 +1,4 @@
-import { clearStatus, handleAsync, notifyStatus, onlyMarkPending } from "./async.js";
+import { clearStatus, handleAsync, notifyStatus } from "./async.js";
 import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
@@ -33,7 +33,6 @@ import {
   type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { externalSourceConfig } from "./external.js";
 import { link, trimStaleDeps, unobserved } from "./graph.js";
 import {
   deleteFromHeap,
@@ -556,17 +555,7 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
   }
   if (__DEV__) DEV.hooks.onOwner?.(self);
   if (parent) self._height = parent._height + 1;
-  if (externalSourceConfig) {
-    const bridgeSignal = signal<undefined>(undefined, { equals: false, ownedWrite: true });
-    const source = externalSourceConfig.factory(self._fn as any, () => {
-      setSignal(bridgeSignal, undefined);
-    });
-    cleanup(() => source.dispose());
-    self._fn = ((prev: any) => {
-      read(bridgeSignal);
-      return source.track(prev);
-    }) as any;
-  }
+  if (GlobalQueue._wireExternalSource !== null) GlobalQueue._wireExternalSource(self);
   !options?.lazy && recompute(self, true);
   if (snapshotCaptureActive && !options?.lazy) {
     if (!(self._statusFlags & STATUS_PENDING) && !(self._config & CONFIG_NO_SNAPSHOT)) {
@@ -670,14 +659,18 @@ export function setStrictRead(v: string | false): string | false {
  * ```
  */
 export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
-  if (!externalSourceConfig && !tracking && (!__DEV__ || (!strictRead && !strictReadLabel)))
+  if (
+    GlobalQueue._externalUntrack === null &&
+    !tracking &&
+    (!__DEV__ || (!strictRead && !strictReadLabel))
+  )
     return fn();
   const prevTracking = tracking;
   const prevStrictRead = strictRead;
   tracking = false;
   if (__DEV__) strictRead = strictReadLabel || false;
   try {
-    if (externalSourceConfig) return externalSourceConfig.untrack(fn);
+    if (GlobalQueue._externalUntrack !== null) return GlobalQueue._externalUntrack(fn);
     return fn();
   } finally {
     tracking = prevTracking;
@@ -790,7 +783,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // sentinels can't survive in pending sources past their last release.)
   if (
     owner._statusFlags & STATUS_PENDING &&
-    !(activeAffectsMarks !== 0 && onlyMarkPending(owner as Computed<any>))
+    !(activeAffectsMarks !== 0 && GlobalQueue._onlyMarkPending!(owner as Computed<any>))
   ) {
     if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {

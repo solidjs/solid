@@ -313,7 +313,7 @@ export class GlobalQueue extends Queue {
   static _update: (el: Computed<unknown>) => void;
   static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
   static _runEffect: (el: Computed<unknown>) => void;
-  static _clearOptimisticStore: ((store: any) => void) | null = null;
+  static _clearOptimisticStores: ((stores: Set<any>) => void) | null = null;
   // Store-side hook: drops a keyless affects() mark's identity scope when the
   // carrier node's last registration releases (wired by store.ts, mirroring
   // _clearOptimisticStore).
@@ -328,6 +328,11 @@ export class GlobalQueue extends Queue {
   static _releaseAffectsMarks: ((nodes: OptimisticNode[]) => void) | null = null;
   static _markAffects: ((node: OptimisticNode) => void) | null = null;
   static _releaseAffectsMark: ((node: OptimisticNode) => void) | null = null;
+  static _onlyMarkPending: ((el: Computed<any>) => boolean) | null = null;
+  // External-source bridge (wired by enableExternalSource(); null while no
+  // config is active — including after _resetExternalSourceConfig()).
+  static _wireExternalSource: ((self: Computed<any>) => void) | null = null;
+  static _externalUntrack: (<T>(fn: () => T) => T) | null = null;
   // Verdict-layer hooks (wired by verdict.ts when isPending()/latest() are
   // imported; null in apps that never use them). Call sites either guard for
   // null or sit behind state only the verdict layer can create (`!` is safe
@@ -686,13 +691,10 @@ export function finalizePureQueue(
     const optimisticStores = completingTransition
       ? completingTransition._optimisticStores
       : globalQueue._optimisticStores;
-    if (GlobalQueue._clearOptimisticStore && optimisticStores.size) {
-      for (const store of optimisticStores) {
-        GlobalQueue._clearOptimisticStore(store);
-      }
-      optimisticStores.clear();
-      schedule();
-    }
+    // A non-empty set means trackOptimisticStore ran, which installed the
+    // hook; the hook iterates, clears, and schedules (keeping the loop out of
+    // core lets esbuild shake it — rollup already folds the null guard).
+    if (optimisticStores.size) GlobalQueue._clearOptimisticStores!(optimisticStores);
     sweepTransientStoreNodes();
     // Lanes only enter activeLanes through the engine's getOrCreateLane.
     if (activeLanes.size) GlobalQueue._cleanupLanes!(completingTransition);

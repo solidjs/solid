@@ -98,7 +98,7 @@ export function createOptimisticStore<T extends object = {}>(
   // STORE_OPTIMISTIC take the engine's write path, so install it before any
   // node can be created.
   installOptimisticEngine();
-  GlobalQueue._clearOptimisticStore ||= clearOptimisticStore;
+  GlobalQueue._clearOptimisticStores ||= clearOptimisticStores;
   const derived = typeof first === "function";
   const initialValue = (derived ? second : first) as T;
   const fn = derived
@@ -111,12 +111,16 @@ export function createOptimisticStore<T extends object = {}>(
   return [wrappedStore, (fn: (draft: T) => void): void => storeSetter(wrappedStore, fn)];
 }
 
-// Clear optimistic override for a store and notify signals
-function clearOptimisticStore(store: any): void {
-  const target = store[$TARGET] as StoreNode | undefined;
-  if (!target?.[STORE_OPTIMISTIC_OVERRIDE]) return;
-
-  clearOptimisticOverride(target);
+// Clear the optimistic overrides of a settling batch of stores and notify
+// signals. Owns the whole batch (iterate + clear + reschedule) so the
+// scheduler's flush tail carries only a size-guarded hook call.
+function clearOptimisticStores(stores: Set<any>): void {
+  for (const store of stores) {
+    const target = store[$TARGET] as StoreNode | undefined;
+    if (target?.[STORE_OPTIMISTIC_OVERRIDE]) clearOptimisticOverride(target);
+  }
+  stores.clear();
+  schedule();
 }
 
 function clearOptimisticOverride(target: StoreNode): void {
