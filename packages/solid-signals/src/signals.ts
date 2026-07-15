@@ -23,6 +23,7 @@ import {
   untrack
 } from "./core/index.js";
 import { emitDiagnostic, registerGraph } from "./core/dev.js";
+import { installOptimisticEngine } from "./core/optimistic.js";
 import { globalQueue } from "./core/scheduler.js";
 
 /**
@@ -703,6 +704,10 @@ export function createOptimistic<T>(
   first?: T | ComputeFunction<T>,
   second?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T | undefined> {
+  // Install before the node exists: only engine-installed programs can carry
+  // an _overrideValue slot (same runtime-install pattern as
+  // GlobalQueue._clearOptimisticStore in createOptimisticStore).
+  installOptimisticEngine();
   if (typeof first === "function") {
     const node = optimisticComputed<T>(first as any, second as any);
     node._config &= ~CONFIG_AUTO_DISPOSE;

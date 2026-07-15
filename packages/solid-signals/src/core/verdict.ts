@@ -36,8 +36,14 @@ import { link } from "./graph.js";
 import { insertIntoHeap } from "./heap.js";
 import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
 import { findLane, hasActiveOverride } from "./lanes.js";
+import { installOptimisticEngine } from "./optimistic.js";
 import { clock, dirtyQueue, GlobalQueue, insertSubs, schedule, zombieQueue } from "./scheduler.js";
 import type { Computed, FirewallSignal, Signal } from "./types.js";
+
+// Companions (pending signals / latest shadows) are optimistic nodes: their
+// writes go through the optimistic write path and their reversion rides the
+// same lanes, so the verdict layer brings the engine with it.
+installOptimisticEngine();
 
 interface PendingProbe {
   found: boolean;

@@ -74,13 +74,14 @@ describe("pay-for-use tree-shaking (#2883)", () => {
         "map.ts",
         "affects.ts",
         "core/verdict.ts",
+        "core/optimistic.ts",
         "core/action.ts",
         "core/context.ts"
       ])
     ).toEqual([]);
-    // Ceiling: 19,546 bytes measured at landing (vite/rollup bundle +
+    // Ceiling: 18,214 bytes measured at landing (vite/rollup bundle +
     // esbuild minify with `_`-property mangling) + ~7% headroom.
-    expect(minifiedBytes).toBeLessThan(21_000);
+    expect(minifiedBytes).toBeLessThan(19_500);
   });
 
   it("plain stores shed the verdict layer, affects, boundaries, and map", async () => {
@@ -90,8 +91,21 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     // reconcile.ts/projection.ts stay: the derived createStore overload keeps
     // them statically coupled by design (API symmetry ruling, #2883).
     expect(
-      retainedFrom(retained, ["core/verdict.ts", "affects.ts", "boundaries.ts", "map.ts"])
+      retainedFrom(retained, [
+        "core/verdict.ts",
+        "core/optimistic.ts",
+        "affects.ts",
+        "boundaries.ts",
+        "map.ts"
+      ])
     ).toEqual([]);
+  });
+
+  it("createOptimistic loads the optimistic engine; the floor ceiling reflects its absence", async () => {
+    const { retained } = await bundleFixture(
+      `export { createSignal, createEffect, createRoot, flush, createOptimistic } from "sigsrc";`
+    );
+    expect(retainedFrom(retained, ["core/optimistic.ts"])).toEqual(["core/optimistic.ts"]);
   });
 
   it("isPending/latest load the verdict layer and nothing else new", async () => {

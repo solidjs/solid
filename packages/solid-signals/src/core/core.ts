@@ -42,22 +42,14 @@ import {
   markHeap,
   markNode
 } from "./heap.js";
-import {
-  findLane,
-  getOrCreateLane,
-  hasActiveOverride,
-  resolveLane,
-  resolveTransition,
-  type OptimisticLane
-} from "./lanes.js";
+import { type OptimisticLane } from "./lanes.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
-import { devTrackHeldPending, devTrackOptimistic } from "./invariants.js";
+import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
 import {
   activeAffectsMarks,
   activeTransition,
   armReaskClear,
-  assignOrMergeLane,
   clock,
   dirtyQueue,
   globalQueue,
@@ -67,7 +59,6 @@ import {
   queuePendingNode,
   runInTransition,
   schedule,
-  shouldReadStashedOptimisticValue,
   zombieQueue
 } from "./scheduler.js";
 import type { Computed, FirewallSignal, Link, NodeOptions, Owner, Root, Signal } from "./types.js";
@@ -220,25 +211,20 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     strictRead = false;
   }
   tracking = true;
+  // Lane posture lives with the engine: OPTIMISTIC_DIRTY is only ever set by
+  // engine-driven paths, and _optimisticNodes is only pushed by
+  // _optimisticWrite, so the hook is installed whenever either gate holds.
   if (isOptimisticDirty) {
-    const lane = resolveLane(el);
+    const lane = GlobalQueue._recomputeLane!(el, true);
     if (lane) currentOptimisticLane = lane;
   } else if (activeTransition && !create && activeTransition._optimisticNodes.length) {
     // Lane adoption: parent-deeper-than-owned-child can run before its OPT-dirty
     // child propagates. Walk deps once and inherit the OPT lane so this node
     // recomputes under the right posture and propagates correctly.
-    for (let d: Link | null = el._deps; d; d = d._nextDep) {
-      const dep = d._dep as Computed<any>;
-      if (dep._flags & REACTIVE_OPTIMISTIC_DIRTY) {
-        const depLane = resolveLane(dep);
-        if (depLane) {
-          isOptimisticDirty = true;
-          currentOptimisticLane = depLane;
-          el._flags |= REACTIVE_OPTIMISTIC_DIRTY;
-          assignOrMergeLane(el as any, depLane);
-          break;
-        }
-      }
+    const lane = GlobalQueue._recomputeLane!(el, false);
+    if (lane) {
+      isOptimisticDirty = true;
+      currentOptimisticLane = lane;
     }
   }
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
@@ -262,25 +248,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (!inFlightChanged && !isAsyncResult) el._inFlight = null;
     }
     clearStatus(el, create);
-    if (el._optimisticLane) {
-      const resolvedLane = resolveLane(el);
-      if (resolvedLane) {
-        resolvedLane._pendingAsync.delete(el);
-        GlobalQueue._updatePendingSignal !== null &&
-          GlobalQueue._updatePendingSignal(resolvedLane._source);
-      }
-    }
+    // _optimisticLane is only ever assigned by engine paths.
+    if (el._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
   } catch (e) {
     // Track pending async in the lane (not the lane's source — it creates the lane
     // but doesn't belong to it). Set lane BEFORE notifyStatus for downstream propagation.
-    if (e instanceof NotReadyError && currentOptimisticLane) {
-      const lane = findLane(currentOptimisticLane);
-      if (lane._source !== el) {
-        lane._pendingAsync.add(el);
-        el._optimisticLane = lane;
-        GlobalQueue._updatePendingSignal !== null && GlobalQueue._updatePendingSignal(lane._source);
-      }
-    }
+    if (e instanceof NotReadyError && currentOptimisticLane) GlobalQueue._laneAsyncPending!(el);
     let reaskChanged = false;
     if (e instanceof NotReadyError) {
       el._blocked = true;
@@ -838,17 +811,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         });
         console.warn(message);
       }
-      if (currentOptimisticLane) {
-        // Per-lane suspension: only throw if in same lane as pending async
-        // AND the node doesn't have an active override (overrides are the visible value,
-        // downstream in the lane should read the override, not throw)
-        const pendingLane = (owner as any)._optimisticLane;
-        const lane = findLane(currentOptimisticLane);
-        if (pendingLane && findLane(pendingLane) === lane && !hasActiveOverride(owner)) {
-          if (!tracking && el !== c) link(el, c as Computed<any>);
-          throw owner._error;
-        }
-      } else {
+      // Per-lane suspension lives with the engine (a non-null lane implies it
+      // is installed): under a lane, only same-lane pending async without an
+      // active override throws.
+      if (currentOptimisticLane === null || GlobalQueue._laneSuspends!(owner)) {
         if (!tracking && el !== c) link(el, c as Computed<any>);
         throw owner._error;
       }
@@ -898,7 +864,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
-    if (c && stale && shouldReadStashedOptimisticValue(el as Signal<any>)) return el._value as T;
+    // An active override means the engine is installed (A17: the override IS
+    // the value for every reader — that check itself stays right here).
+    if (c && stale && GlobalQueue._readStashed!(el as Signal<any>)) return el._value as T;
     return el._overrideValue as T;
   }
 
@@ -907,35 +875,25 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // manual writes use the firewall's manual-write flag to opt into this path.
   // Async drivers are not under an optimistic lane and so bypass this, reading
   // _pendingValue for correct fetching. The sub is recorded for replay at commit
-  // so it re-runs with the new committed view.
+  // so it re-runs with the new committed view. (Gate details live with the
+  // engine — a non-null lane implies it is installed.)
   if (
-    activeTransition !== null &&
     currentOptimisticLane !== null &&
-    !latestReadActive &&
-    el._pendingValue !== NOT_PENDING &&
-    (owner === el || !!((owner as Computed<unknown>)._flags & REACTIVE_MANUAL_WRITE)) &&
-    !(el as Partial<Computed<unknown>>)._fn &&
-    c
+    activeTransition !== null &&
+    c !== null &&
+    GlobalQueue._gatedRead!(el as Signal<any>, owner, c as Computed<any>)
   ) {
-    activeTransition._gatedSubs.add(c as Computed<any>);
     return el._value as T;
   }
 
   // In optimistic lane context, return _value for optimistic/lane-assigned signals
   // and for regular signals in stale mode (render effects). Non-stale readers (user
   // effects) see _pendingValue so that latest() and direct reads stay consistent.
-  // Exception: resolved projection store properties (firewall, owner !== el) whose
-  // STATUS_PENDING has been cleared always return _pendingValue.
-  // The latest() shadow computed (`c._parentSource === el`) always wants the
-  // in-flight value: it may recompute under a stale/lane context inherited from
-  // whichever flush ran it, and must not cache the committed value there (#2829).
+  // (The lane-context clause lives with the engine.)
   const value =
     !c ||
     (currentOptimisticLane !== null &&
-      (el._overrideValue !== undefined ||
-        (el as any)._optimisticLane ||
-        (owner === el && stale && (c as Computed<any>)._parentSource !== el) ||
-        !!(owner._statusFlags & STATUS_PENDING))) ||
+      GlobalQueue._laneReadsCommitted!(el, owner, c as Computed<any>)) ||
     el._pendingValue === NOT_PENDING ||
     (stale && el._transition && activeTransition !== el._transition)
       ? el._value
@@ -980,15 +938,14 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (el._transition && activeTransition !== el._transition)
     globalQueue.initTransition(el._transition);
 
-  const isOptimistic = el._overrideValue !== undefined && !projectionWriteActive;
-  const hasOverride = el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING;
-  const currentValue = isOptimistic
-    ? hasOverride
-      ? (el._overrideValue as T)
-      : el._value
-    : el._pendingValue === NOT_PENDING
-      ? el._value
-      : (el._pendingValue as T);
+  // The optimistic write path lives with the engine: only optimisticSignal /
+  // optimisticComputed callers and optimistic store nodes carry an
+  // _overrideValue slot, and every module that creates one installs the
+  // engine first.
+  if (el._overrideValue !== undefined && !projectionWriteActive)
+    return GlobalQueue._optimisticWrite!(el, v);
+
+  const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);
 
   if (typeof v === "function") v = (v as (prev: T) => T)(currentValue);
 
@@ -998,39 +955,16 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !el._equals ||
     !el._equals(currentValue, v);
-  if (!valueChanged) {
-    // Same-value write with an active override still entangles the current
-    // action's transition — the hold must outlast all overlapping actions.
-    if (isOptimistic && hasOverride) {
-      const transition = resolveTransition(el as any);
-      if (transition && activeTransition !== transition) globalQueue.initTransition(transition);
-    }
-    return v;
-  }
+  if (!valueChanged) return v;
 
-  if (isOptimistic) {
-    const firstOverride = el._overrideValue === NOT_PENDING;
-    if (!firstOverride) globalQueue.initTransition(resolveTransition(el as any));
-    // No revert target is stashed: while the override is active every reader
-    // sees it (A17), so authoritative arrivals commit silently into _value and
-    // reverting is just dropping the override — _value is already correct.
-    if (firstOverride) globalQueue._optimisticNodes.push(el);
-
-    const lane = getOrCreateLane(el);
-    el._optimisticLane = lane;
-
-    el._overrideValue = v;
-    if (__DEV__) devTrackOptimistic(el);
-  } else {
-    if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
-    el._pendingValue = v;
-    if (__DEV__) devTrackHeldPending(el);
-  }
+  if (el._pendingValue === NOT_PENDING) queuePendingNode(el);
+  el._pendingValue = v;
+  if (__DEV__) devTrackHeldPending(el);
 
   GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, v);
 
   el._time = clock;
-  insertSubs(el, isOptimistic);
+  insertSubs(el);
   schedule();
   return v;
 }

@@ -5,6 +5,7 @@ import {
   type Computed,
   type Refreshable
 } from "../core/index.js";
+import { installOptimisticEngine } from "../core/optimistic.js";
 import {
   GlobalQueue,
   insertSubs,
@@ -93,7 +94,10 @@ export function createOptimisticStore<T extends object = {}>(
   second?: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
-  // Register clear function with scheduler
+  // Register clear function with scheduler; store nodes marked
+  // STORE_OPTIMISTIC take the engine's write path, so install it before any
+  // node can be created.
+  installOptimisticEngine();
   GlobalQueue._clearOptimisticStore ||= clearOptimisticStore;
   const derived = typeof first === "function";
   const initialValue = (derived ? second : first) as T;

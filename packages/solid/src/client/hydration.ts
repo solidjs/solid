@@ -220,6 +220,7 @@ let _createStore: Function | undefined;
 let _createOptimisticStore: Function | undefined;
 let _createRenderEffect: Function | undefined;
 let _createEffect: Function | undefined;
+let _createLoadingBoundary: Function | undefined;
 
 // --- Hydration helpers ---
 
@@ -763,6 +764,7 @@ export function enableHydration() {
   _createOptimisticStore = hydratedCreateOptimisticStore;
   _createRenderEffect = hydratedCreateRenderEffect;
   _createEffect = hydratedCreateEffect;
+  _createLoadingBoundary = hydratedCreateLoadingBoundary;
 
   _hydratingValue = sharedConfig.hydrating;
   _doneValue = sharedConfig.done;
@@ -1362,7 +1364,20 @@ function scheduleResumeAfterAssets(
  *
  * @internal
  */
-export function createLoadingBoundary<T, U>(
+export const createLoadingBoundary = (<T, U>(
+  fn: () => T,
+  fallback: () => U,
+  options?: { on?: () => any }
+): Accessor<T | U> => (_createLoadingBoundary || coreLoadingBoundary)(fn, fallback, options)) as <
+  T,
+  U
+>(
+  fn: () => T,
+  fallback: () => U,
+  options?: { on?: () => any }
+) => Accessor<T | U>;
+
+function hydratedCreateLoadingBoundary<T, U>(
   fn: () => T,
   fallback: () => U,
   options?: { on?: () => any }

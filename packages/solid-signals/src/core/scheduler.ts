@@ -1,6 +1,5 @@
 import {
   CONFIG_IN_SNAPSHOT_SCOPE,
-  CONFIG_OWNED_WRITE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -22,8 +21,8 @@ import {
   activeLanes,
   assignOrMergeLane,
   findLane,
-  hasActiveOverride,
-  signalLanes
+  signalLanes,
+  type OptimisticLane
 } from "./lanes.js";
 import {
   beginAsyncReporterWrites,
@@ -31,7 +30,6 @@ import {
   devCensusCompanions,
   devCheckActiveOverrides,
   devCheckFlushStart,
-  devCheckMergedLaneEmpty,
   devCheckQuiescent,
   endAsyncReporterWrites
 } from "./invariants.js";
@@ -65,9 +63,6 @@ let inTrackedQueueCallback = false;
 
 let _enforceLoadingBoundary = false;
 export let _hitUnhandledAsync = false;
-// When a background transition is stashed, plain optimistic signals need one
-// committed-view rerun. Keep that override local to the stash flush.
-let stashedOptimisticReads: Set<Signal<any>> | null = null;
 
 // Store property nodes that were created solely to carry a pending write (no
 // subscribers at write time). Swept after each flush that commits pending
@@ -121,42 +116,6 @@ export function resetUnhandledAsync(): void {
  */
 export function enforceLoadingBoundary(enabled: boolean): void {
   _enforceLoadingBoundary = enabled;
-}
-
-export function shouldReadStashedOptimisticValue(node: Signal<any>): boolean {
-  return !!stashedOptimisticReads?.has(node);
-}
-
-/**
- * Run effects from all lanes that are ready (no pending async).
- */
-function runLaneEffects(type: number): void {
-  for (const lane of activeLanes) {
-    if (__DEV__) devCheckMergedLaneEmpty(lane);
-    if (lane._mergedInto || lane._pendingAsync.size > 0) continue;
-    const effects = lane._effectQueues[type - 1];
-    if (effects.length) {
-      lane._effectQueues[type - 1] = [];
-      runQueue(effects, type);
-    }
-  }
-}
-
-function queueStashedOptimisticEffects(node: Signal<any>): void {
-  for (let s = node._subs; s !== null; s = s._nextSub) {
-    const sub = s._sub as any;
-    if (!sub._type) continue;
-    if (sub._type === EFFECT_TRACKED) {
-      if (!sub._modified) {
-        sub._modified = true;
-        sub._queue.enqueue(EFFECT_USER, sub._run);
-      }
-      continue;
-    }
-    const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-    if (queue._min > sub._height) queue._min = sub._height;
-    insertIntoHeap(sub, queue);
-  }
 }
 
 export function setProjectionWriteActive(value: boolean) {
@@ -213,64 +172,6 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   }
   if (__DEV__) endAsyncReporterWrites();
   for (const sub of outgoing._gatedSubs) target._gatedSubs.add(sub);
-}
-
-function resolveOptimisticNodes(nodes: OptimisticNode[]): void {
-  // Settlement writes below (snapCompanionsToState → updatePendingSignal-style
-  // notifications) may push fresh optimistic nodes; only this batch settles
-  // now, so iterate a fixed window and splice it out at the end.
-  const len = nodes.length;
-  for (let i = 0; i < len; i++) {
-    const node = nodes[i];
-    node._optimisticLane = undefined;
-    // Revert is a pure drop: there is no revert target to commit —
-    // override-covered authoritative values hold in _pendingValue and
-    // elevate on their OWN transition's schedule (A18 as re-ruled 2026-07-07). A pv still held
-    // here belongs to a transition that hasn't completed and must NOT commit
-    // early. (Reverts run inside finalizePureQueue AFTER commitPendingNodes,
-    // so holds owned by the completing transition have already elevated.)
-    // A node that lived its whole first transition under an override (e.g.
-    // the latest() shadow created mid-initial-load, #2829) has shown values
-    // without ever committing one; it is initialized in every observable
-    // sense, so clear the marker or later refetches mis-classify as initial
-    // load (pending reads false / readers suspend).
-    if (!((node as any)._statusFlags & STATUS_PENDING))
-      (node as any)._statusFlags &= ~STATUS_UNINITIALIZED;
-    const prevOverride = node._overrideValue;
-    node._overrideValue = NOT_PENDING;
-    if (prevOverride !== NOT_PENDING && node._value !== prevOverride) insertSubs(node, true);
-    node._transition = null;
-  }
-  // Settlement checkpoint (#2838): companions caught in this batch (or owned
-  // by a node in it) re-derive from committed state, so verdicts survive the
-  // transition that produced them (A19 — pending is a property of the data).
-  for (let i = 0; i < len; i++) {
-    const node = nodes[i];
-    if (node._pendingSignal || node._latestValueComputed) GlobalQueue._snapCompanions!(node);
-    const owner = node._parentSource;
-    if (owner && (owner._pendingSignal === node || owner._latestValueComputed === node))
-      GlobalQueue._snapCompanions!(owner);
-  }
-  nodes.splice(0, len);
-}
-
-function cleanupCompletedLanes(completingTransition: Transition | null): void {
-  for (const lane of activeLanes) {
-    const owned = completingTransition
-      ? lane._transition === completingTransition
-      : !lane._transition;
-    if (!owned) continue;
-    if (!lane._mergedInto) {
-      if (lane._effectQueues[0].length) runQueue(lane._effectQueues[0], EFFECT_RENDER);
-      if (lane._effectQueues[1].length) runQueue(lane._effectQueues[1], EFFECT_USER);
-    }
-    if (lane._source._optimisticLane === lane) lane._source._optimisticLane = undefined;
-    lane._pendingAsync.clear();
-    lane._effectQueues[0].length = 0;
-    lane._effectQueues[1].length = 0;
-    activeLanes.delete(lane);
-    signalLanes.delete(lane._source);
-  }
 }
 
 export function schedule() {
@@ -450,6 +351,32 @@ export class GlobalQueue extends Queue {
   static _applyReask: ((el: Computed<any>, hadReask: boolean) => boolean) | null = null;
   static _repollVerdicts: ((el: Computed<any>) => void) | null = null;
   static _witnessAffects: ((node: OptimisticNode) => void) | null = null;
+  // Optimistic-engine hooks (wired by core/optimistic.ts via
+  // installOptimisticEngine(), called from verdict.ts / createOptimistic /
+  // createOptimisticStore — every module that can create optimistic state).
+  // Call sites are gated by state only the engine can create: an
+  // `_overrideValue` slot, a lane in `activeLanes`, an `_optimisticNodes`
+  // entry, or a non-null `currentOptimisticLane`, so `!` invocations are safe
+  // once the gate holds.
+  static _optimisticWrite: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
+    null;
+  static _resolveOptimistic: ((nodes: OptimisticNode[]) => void) | null = null;
+  static _stashOptimistic: ((stashedTransition: Transition) => void) | null = null;
+  static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
+  static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;
+  static _runLaneEffects: ((type: number) => void) | null = null;
+  static _readStashed: ((el: Signal<any>) => boolean) | null = null;
+  static _gatedRead:
+    | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
+    | null = null;
+  static _laneSuspends: ((owner: OptimisticNode) => boolean) | null = null;
+  static _laneReadsCommitted:
+    | ((el: OptimisticNode, owner: OptimisticNode, c: Computed<any>) => boolean)
+    | null = null;
+  static _recomputeLane: ((el: Computed<any>, own: boolean) => OptimisticLane | null) | null = null;
+  static _laneAsyncPending: ((el: Computed<any>) => void) | null = null;
+  static _laneAsyncSettled: ((el: Computed<any>) => void) | null = null;
+  static _trackOptimisticStore: ((store: any) => void) | null = null;
   flush() {
     if (this._running) return;
     this._running = true;
@@ -468,31 +395,27 @@ export class GlobalQueue extends Queue {
           this._optimisticStores = new Set();
 
           // Run lane effects immediately (before stashing) - lanes with no pending async
-          runLaneEffects(EFFECT_RENDER);
-          runLaneEffects(EFFECT_USER);
+          if (activeLanes.size) {
+            GlobalQueue._runLaneEffects!(EFFECT_RENDER);
+            GlobalQueue._runLaneEffects!(EFFECT_USER);
+          }
 
           this.stashQueues(stashedTransition._queueStash);
           clock++;
           scheduled = dirtyQueue._max >= dirtyQueue._min;
           reassignPendingTransition(stashedTransition._pendingNodes);
           activeTransition = null;
+          // The stash pass (committed-view rerun of plain optimistic signals)
+          // wraps finalizePureQueue in the engine; a non-empty _optimisticNodes
+          // means _optimisticWrite ran, which installed the hook.
           if (
             !stashedTransition._actions.length &&
             !stashedTransition._asyncReporters.size &&
             stashedTransition._optimisticNodes.length
           ) {
-            stashedOptimisticReads = new Set();
-            for (let i = 0; i < stashedTransition._optimisticNodes.length; i++) {
-              const node = stashedTransition._optimisticNodes[i];
-              if ((node as any)._fn || node._config & CONFIG_OWNED_WRITE) continue;
-              stashedOptimisticReads.add(node);
-              queueStashedOptimisticEffects(node);
-            }
-          }
-          try {
+            GlobalQueue._stashOptimistic!(stashedTransition);
+          } else {
             finalizePureQueue(null, true);
-          } finally {
-            stashedOptimisticReads = null;
           }
           return;
         }
@@ -520,9 +443,9 @@ export class GlobalQueue extends Queue {
       // Check if finalization added items to the heap (from optimistic reversion)
       scheduled = dirtyQueue._max >= dirtyQueue._min;
       // Run lane effects first (for ready lanes), then regular effects
-      activeLanes.size && runLaneEffects(EFFECT_RENDER);
+      activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_RENDER);
       this.run(EFFECT_RENDER);
-      activeLanes.size && runLaneEffects(EFFECT_USER);
+      activeLanes.size && GlobalQueue._runLaneEffects!(EFFECT_USER);
       this.run(EFFECT_USER);
       if (__DEV__) {
         devCheckActiveOverrides(n => {
@@ -750,9 +673,12 @@ export function finalizePureQueue(
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
     if (ranHeap) commitPendingNodes();
-    resolveOptimisticNodes(
-      completingTransition ? completingTransition._optimisticNodes : globalQueue._optimisticNodes
-    );
+    // Optimistic reversion: a non-empty batch means _optimisticWrite ran,
+    // which installed the engine's hooks.
+    const optimisticNodes = completingTransition
+      ? completingTransition._optimisticNodes
+      : globalQueue._optimisticNodes;
+    if (optimisticNodes.length) GlobalQueue._resolveOptimistic!(optimisticNodes);
     // Replay entanglement: subs recorded by the read-time gate get rescheduled
     // so they re-run with the now-committed values visible.
     if (completingTransition && completingTransition._gatedSubs.size) {
@@ -789,7 +715,8 @@ export function finalizePureQueue(
       schedule();
     }
     sweepTransientStoreNodes();
-    cleanupCompletedLanes(completingTransition);
+    // Lanes only enter activeLanes through the engine's getOrCreateLane.
+    if (activeLanes.size) GlobalQueue._cleanupLanes!(completingTransition);
   }
 }
 
@@ -798,12 +725,6 @@ function checkBoundaryChildren(queue: Queue) {
     (child as any).checkSources?.();
     checkBoundaryChildren(child as Queue);
   }
-}
-
-export function trackOptimisticStore(store: any): void {
-  // After initTransition, globalQueue._optimisticStores IS activeTransition._optimisticStores (same reference)
-  globalQueue._optimisticStores.add(store);
-  schedule();
 }
 
 /**
@@ -941,24 +862,11 @@ function transitionComplete(transition: Transition): boolean {
       break;
     }
   }
-  if (done) {
-    for (let i = 0; i < transition._optimisticNodes.length; i++) {
-      const node = transition._optimisticNodes[i];
-      if (
-        hasActiveOverride(node) &&
-        "_statusFlags" in node &&
-        node._statusFlags & STATUS_PENDING &&
-        node._error instanceof NotReadyError &&
-        // Mark-sourced pending never blocks settlement: affects() releases AT
-        // settle, so counting its sentinel here would deadlock the window it
-        // is scoped to.
-        !(node._error.source as Computed<any> | undefined)?._affectsFor
-      ) {
-        done = false;
-        break;
-      }
-    }
-  }
+  // Override blockage lives with the engine. Absent hook = "no optimistic
+  // blockage", which is exact: only _optimisticWrite (engine) pushes to
+  // _optimisticNodes, so without the engine the loop was vacuous anyway.
+  if (done && transition._optimisticNodes.length && GlobalQueue._transitionBlocked!(transition))
+    done = false;
   done && (transition._done = true);
   return done;
 }

@@ -61,7 +61,6 @@ export {
   flush,
   Queue,
   GlobalQueue,
-  trackOptimisticStore,
   enforceLoadingBoundary,
   resetErrorHalt,
   type IQueue,

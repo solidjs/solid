@@ -18,7 +18,6 @@ import {
   signal,
   STORE_SNAPSHOT_PROPS,
   suppressComputedRecompute,
-  trackOptimisticStore,
   untrack,
   type Computed,
   type Refreshable,
@@ -589,8 +588,10 @@ function prepareStoreWrite(target: StoreNode, store: any, property: PropertyKey)
  * neither pends its own slot nor silences anyone else's.
  */
 function armOptimisticStoreWrite(target: StoreNode, store: any): void {
+  // STORE_OPTIMISTIC is only set by createOptimisticStore, which installs the
+  // optimistic engine before wrapping.
   if (target[STORE_OPTIMISTIC] && !projectionWriteActive) {
-    trackOptimisticStore(store);
+    GlobalQueue._trackOptimisticStore!(store);
   }
 }
 
