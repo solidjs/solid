@@ -1,0 +1,30 @@
+[
+  {
+    "name": "signals: core floor (createSignal/Memo/Effect/Root/flush)",
+    "path": "packages/solid-signals/dist/prod/index.js",
+    "import": "{ createSignal, createMemo, createEffect, createRoot, flush }",
+    "limit": "7.1 KB"
+  },
+  {
+    "name": "signals: + createStore",
+    "path": "packages/solid-signals/dist/prod/index.js",
+    "import": "{ createSignal, createMemo, createEffect, createRoot, flush, createStore }",
+    "limit": "11.6 KB"
+  },
+  {
+    "name": "signals: + isPending/latest",
+    "path": "packages/solid-signals/dist/prod/index.js",
+    "import": "{ createSignal, createMemo, createEffect, createRoot, flush, isPending, latest }",
+    "limit": "8.75 KB"
+  },
+  {
+    "name": "app: render + one signal (the simple-app floor)",
+    "path": "size-fixtures/minimal-app.js",
+    "limit": "10 KB"
+  },
+  {
+    "name": "app: CSR with Show/For/Loading/Errored/lazy",
+    "path": "size-fixtures/csr-app.js",
+    "limit": "12 KB"
+  }
+]

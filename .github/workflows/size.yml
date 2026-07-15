@@ -1,0 +1,32 @@
+name: Size
+
+# Tracks tree-shaken scenario costs per PR (#2883). The .size-limit.json
+# entries are import-cost scenarios, not file sizes: the limits are the strict
+# gate for tree-shaking regressions (a re-coupled feature module shows up as
+# hundreds of bytes against ~5% headroom), and the PR comment shows the
+# base-vs-head delta per scenario. The retained-module-graph assertions in
+# packages/solid-signals/tests/treeshake.test.ts remain the precise
+# which-module-re-coupled diagnostic; this is the trend tracker on top.
+on:
+  pull_request:
+    branches: [main, next]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: pnpm
+      - uses: andresz1/size-limit-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          package_manager: pnpm
+          build_script: build
