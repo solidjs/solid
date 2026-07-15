@@ -1,6 +1,6 @@
 name: Size
 
-# Tracks tree-shaken scenario costs per PR (#2883). The size/ directory is a
+# Tracks tree-shaken scenario costs per PR (#2883). scripts/size/ is a
 # standalone npm package OUTSIDE the pnpm workspace on purpose: adding its
 # tooling to the workspace graph re-keys pnpm peer instances (vitest,
 # @codspeed/vitest-plugin), which relocates the benchmark harness and shows
@@ -31,12 +31,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: npm ci --no-audit --no-fund
-        working-directory: size
+        working-directory: scripts/size
       - run: npm run size
-        working-directory: size
+        working-directory: scripts/size
 
   # Best-effort base-vs-head delta comment. Requires the base branch to also
-  # carry size/, so it is informational and never blocks: continue-on-error
+  # carry scripts/size/, so it is informational and never blocks: continue-on-error
   # keeps bootstrap PRs (and any action hiccup) green.
   compare:
     runs-on: ubuntu-latest
@@ -53,5 +53,5 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           package_manager: npm
-          directory: size
+          directory: scripts/size
           build_script: build

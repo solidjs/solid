@@ -4,7 +4,7 @@
   "description": "Tree-shaken import-cost tracking for #2883. Deliberately OUTSIDE the pnpm workspace with its own npm lockfile: adding these dev tools to the workspace graph re-keys pnpm peer instances (vitest/@codspeed/vitest-plugin), which relocates the benchmark harness and produces phantom CodSpeed regressions.",
   "scripts": {
     "size": "size-limit",
-    "build": "cd .. && pnpm install --frozen-lockfile && pnpm build"
+    "build": "cd ../.. && pnpm install --frozen-lockfile && pnpm build"
   },
   "devDependencies": {
     "size-limit": "^12.1.0",
