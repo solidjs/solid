@@ -49,7 +49,28 @@ export function getOrCreateLane(signal: Signal<any>): OptimisticLane {
   };
   signalLanes.set(signal, lane);
   activeLanes.add(lane);
+  // A companion may have written before the owner's first optimistic write
+  // (affects() as an action's first statement pokes the verdict companion of a
+  // still lane-less node, #2887), leaving its lane parentless. Adopt it now:
+  // parent-child is a property of the nodes, not of write order — otherwise
+  // the owner's write merges the companion's subscribers into this lane and
+  // their effects wait on its async instead of flushing immediately.
+  adoptCompanionLane(signal._pendingSignal, lane);
+  adoptCompanionLane(signal._latestValueComputed, lane);
   return lane;
+}
+
+function adoptCompanionLane(
+  companion: Signal<any> | Computed<any> | undefined,
+  parent: OptimisticLane
+): void {
+  if (!companion) return;
+  const companionLane = signalLanes.get(companion);
+  if (!companionLane) return;
+  const root = findLane(companionLane);
+  // Only the companion's own unmerged root is safely re-parentable: a root
+  // that absorbed other lanes carries work that is not a child of this owner.
+  if (root !== parent && root._source === companion && !root._parentLane) root._parentLane = parent;
 }
 
 /**

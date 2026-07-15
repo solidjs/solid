@@ -26,6 +26,7 @@ import {
   createStore,
   flush,
   isPending,
+  mapArray,
   refresh
 } from "../src/index.js";
 
@@ -274,6 +275,65 @@ describe("affects — propagation through derivation", () => {
     await done;
     flush();
     expect(isPending(() => statusView())).toBe(false);
+    dispose();
+  });
+
+  it("a mark declared before the action's first optimistic write still lights tracked badges (#2887)", async () => {
+    // affects(store) as an action's FIRST statement writes the isPending
+    // companion while its owner node is still lane-less; the optimistic write
+    // that follows must not absorb the companion's lane into the store's
+    // async-carrying lane, or the badge effect defers to settle.
+    type User = { name: string };
+    let serverUsers: User[] = [{ name: "a" }];
+    const getUsers = async () => serverUsers.map(u => ({ ...u }));
+    const [users, setUsers] = createOptimisticStore<User[]>(() => getUsers(), []);
+    const log: boolean[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      // <For each={users}> stand-in: keeps live subscribers on the array.
+      const rows = mapArray(
+        () => users,
+        u => u.name
+      );
+      createRenderEffect(
+        () => rows(),
+        () => {}
+      );
+      const badge = createMemo(() => isPending(() => users.length));
+      createRenderEffect(badge, v => {
+        log.push(v);
+      });
+    });
+    flush();
+    await Promise.resolve();
+    flush();
+    expect(users.length).toBe(1); // initial load settled
+    log.length = 0;
+
+    let resolveIt!: () => void;
+    const act = action(function* () {
+      affects(users); // declared first — before any write
+      setUsers(u => {
+        u.push({ name: "b" });
+      });
+      yield new Promise<void>(r => (resolveIt = r));
+      serverUsers = [{ name: "a" }, { name: "b" }];
+      refresh(users as any);
+    });
+    const done = act();
+    flush();
+    expect(log).toContain(true); // the badge lit DURING the action
+    expect(isPending(() => users.length)).toBe(true);
+
+    resolveIt();
+    await done;
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    expect(isPending(() => users.length)).toBe(false);
+    expect(log.at(-1)).toBe(false);
     dispose();
   });
 });
