@@ -31,7 +31,7 @@ importers:
         version: 2.29.8(@types/node@25.6.0)
       '@codspeed/vitest-plugin':
         specifier: ^5.4.0
-        version: 5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))(vitest@4.1.6)
+        version: 5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0))(vitest@4.1.6)
       '@dom-expressions/babel-plugin-jsx':
         specifier: 0.50.0-next.21
         version: 0.50.0-next.21(@babel/core@7.29.0)
@@ -62,12 +62,6 @@ importers:
       '@size-limit/preset-small-lib':
         specifier: ^12.1.0
         version: 12.1.0(size-limit@12.1.0)
-      '@solidjs/signals':
-        specifier: workspace:*
-        version: link:packages/solid-signals
-      '@solidjs/web':
-        specifier: workspace:*
-        version: link:packages/solid-web
       '@types/node':
         specifier: ^25.0.8
         version: 25.6.0
@@ -119,9 +113,6 @@ importers:
       size-limit:
         specifier: ^12.1.0
         version: 12.1.0
-      solid-js:
-        specifier: workspace:*
-        version: link:packages/solid
       symlink-dir:
         specifier: ^5.0.1
         version: 5.2.1
@@ -136,10 +127,10 @@ importers:
         version: 6.0.3
       vite-plugin-solid:
         specifier: 3.0.0-next.4
-        version: 3.0.0-next.4(@solidjs/web@packages+solid-web)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
+        version: 3.0.0-next.4(vite@7.3.3(@types/node@25.6.0))
       vitest:
         specifier: ^4.1.6
-        version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
+        version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0))
 
   examples/migrating-element:
     devDependencies:
@@ -4592,12 +4583,12 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@codspeed/vitest-plugin@5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))(vitest@4.1.6)':
+  '@codspeed/vitest-plugin@5.4.0(tinybench@2.9.0)(vite@7.3.3(@types/node@25.6.0))(vitest@4.1.6)':
     dependencies:
       '@codspeed/core': 5.4.0
       tinybench: 2.9.0
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
-      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
+      vite: 7.3.3(@types/node@25.6.0)
+      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0))
     transitivePeerDependencies:
       - debug
 
@@ -5193,7 +5184,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
+      vitest: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0))
 
   '@vitest/expect@4.1.6':
     dependencies:
@@ -5211,6 +5202,14 @@ snapshots:
       magic-string: 0.30.21
     optionalDependencies:
       vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
+
+  '@vitest/mocker@4.1.6(vite@7.3.3(@types/node@25.6.0))':
+    dependencies:
+      '@vitest/spy': 4.1.6
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 7.3.3(@types/node@25.6.0)
 
   '@vitest/pretty-format@4.1.6':
     dependencies:
@@ -6716,11 +6715,10 @@ snapshots:
 
   slash@3.0.0: {}
 
-  solid-refresh@0.8.0-next.4(solid-js@packages+solid):
+  solid-refresh@0.8.0-next.4:
     dependencies:
       '@babel/generator': 7.29.1
       '@babel/types': 7.29.0
-      solid-js: link:packages/solid
 
   source-map-js@1.2.1: {}
 
@@ -6942,19 +6940,29 @@ snapshots:
       core-util-is: 1.0.2
       extsprintf: 1.3.0
 
-  vite-plugin-solid@3.0.0-next.4(@solidjs/web@packages+solid-web)(solid-js@packages+solid)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0)):
+  vite-plugin-solid@3.0.0-next.4(vite@7.3.3(@types/node@25.6.0)):
     dependencies:
       '@babel/core': 7.29.0
-      '@solidjs/web': link:packages/solid-web
       '@types/babel__core': 7.20.5
       babel-preset-solid: link:packages/babel-preset-solid
       merge-anything: 5.1.7
-      solid-js: link:packages/solid
-      solid-refresh: 0.8.0-next.4(solid-js@packages+solid)
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
-      vitefu: 1.1.2(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0))
+      solid-refresh: 0.8.0-next.4
+      vite: 7.3.3(@types/node@25.6.0)
+      vitefu: 1.1.2(vite@7.3.3(@types/node@25.6.0))
     transitivePeerDependencies:
       - supports-color
+
+  vite@7.3.3(@types/node@25.6.0):
+    dependencies:
+      esbuild: 0.27.7
+      fdir: 6.5.0(picomatch@4.0.4)
+      picomatch: 4.0.4
+      postcss: 8.5.6
+      rollup: 4.59.0
+      tinyglobby: 0.2.16
+    optionalDependencies:
+      '@types/node': 25.6.0
+      fsevents: 2.3.3
 
   vite@7.3.3(@types/node@25.6.0)(terser@5.49.0):
     dependencies:
@@ -6969,9 +6977,9 @@ snapshots:
       fsevents: 2.3.3
       terser: 5.49.0
 
-  vitefu@1.1.2(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0)):
+  vitefu@1.1.2(vite@7.3.3(@types/node@25.6.0)):
     optionalDependencies:
-      vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
+      vite: 7.3.3(@types/node@25.6.0)
 
   vitest@4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)(terser@5.49.0)):
     dependencies:
@@ -6994,6 +7002,35 @@ snapshots:
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
       vite: 7.3.3(@types/node@25.6.0)(terser@5.49.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 25.6.0
+      '@vitest/coverage-v8': 4.1.6(vitest@4.1.6)
+      jsdom: 25.0.1
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@7.3.3(@types/node@25.6.0)):
+    dependencies:
+      '@vitest/expect': 4.1.6
+      '@vitest/mocker': 4.1.6(vite@7.3.3(@types/node@25.6.0))
+      '@vitest/pretty-format': 4.1.6
+      '@vitest/runner': 4.1.6
+      '@vitest/snapshot': 4.1.6
+      '@vitest/spy': 4.1.6
+      '@vitest/utils': 4.1.6
+      es-module-lexer: 2.1.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.4
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.1.2
+      tinyglobby: 0.2.16
+      tinyrainbow: 3.1.0
+      vite: 7.3.3(@types/node@25.6.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.6.0
