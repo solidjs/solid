@@ -25,7 +25,7 @@ import {
 } from "./constants.js";
 import { currentOptimisticLane, latestReadActive, stale } from "./core.js";
 import { NotReadyError } from "./error.js";
-import { insertIntoHeap } from "./heap.js";
+import { enqueueSub } from "./heap.js";
 import { devCheckMergedLaneEmpty, devTrackOptimistic } from "./invariants.js";
 import {
   activeLanes,
@@ -108,16 +108,7 @@ function queueStashedOptimisticEffects(node: Signal<any>): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const sub = s._sub as any;
     if (!sub._type) continue;
-    if (sub._type === EFFECT_TRACKED) {
-      if (!sub._modified) {
-        sub._modified = true;
-        sub._queue.enqueue(EFFECT_USER, sub._run);
-      }
-      continue;
-    }
-    const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-    if (queue._min > sub._height) queue._min = sub._height;
-    insertIntoHeap(sub, queue);
+    enqueueSub(sub);
   }
 }
 

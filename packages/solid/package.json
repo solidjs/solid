@@ -1,6 +1,6 @@
 {
   "name": "solid-js",
-  "description": "Reactive JavaScript library for building user interfaces. Compiles JSX to real DOM with fine-grained signal-based updates — no virtual DOM.",
+  "description": "Reactive JavaScript library for building user interfaces. Compiles JSX to real DOM with fine-grained signal-based updates \u2014 no virtual DOM.",
   "version": "2.0.0-beta.18",
   "author": "Ryan Carniato",
   "license": "MIT",
@@ -12,7 +12,8 @@
   },
   "main": "./dist/server.cjs",
   "module": "./dist/server.js",
-  "unpkg": "./dist/solid.cjs",
+  "unpkg": "./dist/solid.js",
+  "jsdelivr": "./dist/solid.js",
   "types": "types/index.d.ts",
   "sideEffects": false,
   "type": "module",

@@ -15,7 +15,7 @@ import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { trimStaleDeps } from "./graph.js";
-import { insertIntoHeap } from "./heap.js";
+import { enqueueSub } from "./heap.js";
 import { hasActiveOverride, resolveLane, resolveTransition, type OptimisticLane } from "./lanes.js";
 import { cleanup } from "./owner.js";
 import {
@@ -116,20 +116,8 @@ export function forEachDependent(
 }
 
 // Queue a node to re-run on the next flush (used both when a pending source
-// settles and when an `isPending` observer must re-evaluate after a real error).
-function enqueueForRerun(node: Computed<any>): void {
-  if ((node as any)._type === EFFECT_TRACKED) {
-    const tracked = node as any;
-    if (!tracked._modified) {
-      tracked._modified = true;
-      tracked._queue.enqueue(EFFECT_USER, tracked._run);
-    }
-  } else {
-    const queue = node._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-    if (queue._min > node._height) queue._min = node._height;
-    insertIntoHeap(node, queue);
-  }
-}
+// settles and when an `isPending` observer must re-evaluate after a real error):
+// shared scheduling helper in heap.ts (tracked effects bypass the heap).
 
 export function settlePendingSource(
   el: Computed<any>,
@@ -156,7 +144,7 @@ export function settlePendingSource(
       setPendingError(node);
       updateCompanions !== null && updateCompanions(node);
       if (node._blocked) {
-        enqueueForRerun(node);
+        enqueueSub(node);
         scheduled = true;
       }
       node._blocked = false;
@@ -510,7 +498,7 @@ export function notifyStatus(
       // read swallows those, and the async path must match. Re-run the observer
       // so `isPending` re-evaluates (to not-pending) instead of forwarding.
       if (link._pendingObserver && status !== STATUS_PENDING && !(error instanceof NotReadyError)) {
-        enqueueForRerun(sub);
+        enqueueSub(sub);
         schedule();
         return;
       }

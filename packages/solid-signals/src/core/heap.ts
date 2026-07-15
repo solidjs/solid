@@ -1,4 +1,6 @@
 import {
+  EFFECT_TRACKED,
+  EFFECT_USER,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_IN_HEAP,
@@ -9,6 +11,30 @@ import {
 } from "./constants.js";
 import { dirtyQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, FirewallSignal, Root } from "./types.js";
+
+/** The queue a node belongs to, picked from its own zombie flag. */
+export function queueFor(n: Computed<any>): Heap {
+  return n._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
+}
+
+/**
+ * Schedule one subscriber to re-run on the next flush: tracked effects bypass
+ * the heap and go directly to their effect queue; everything else is inserted
+ * into its own (zombie-flag-routed) heap with the `_min` cursor pulled down.
+ */
+export function enqueueSub(node: Computed<any>): void {
+  if ((node as any)._type === EFFECT_TRACKED) {
+    const tracked = node as any;
+    if (!tracked._modified) {
+      tracked._modified = true;
+      tracked._queue.enqueue(EFFECT_USER, tracked._run);
+    }
+    return;
+  }
+  const queue = queueFor(node);
+  if (queue._min > node._height) queue._min = node._height;
+  insertIntoHeap(node, queue);
+}
 
 export interface Heap {
   _heap: (Computed<unknown> | undefined)[];
@@ -137,7 +163,7 @@ function adjustHeight(el: Computed<unknown>, heap: Heap) {
       // unconditionally can park a zombie in `dirtyQueue` (or a live node in
       // `zombieQueue`), breaking the flag/queue invariant `deleteFromHeap`
       // relies on — the same corruption class as #2759.
-      insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+      insertIntoHeapHeight(s._sub, queueFor(s._sub));
     }
   }
 }

@@ -16,7 +16,7 @@ import {
 import { currentOptimisticLane } from "./core.js";
 import { DEV, emitDiagnostic } from "./dev.js";
 import { NotReadyError } from "./error.js";
-import { insertIntoHeap, runHeap, type Heap } from "./heap.js";
+import { enqueueSub, runHeap, type Heap } from "./heap.js";
 import {
   activeLanes,
   assignOrMergeLane,
@@ -192,10 +192,10 @@ export function schedule() {
 export function haltReactivity(cause?: unknown): void {
   if (halted) return;
   halted = true;
-  let message = "[REACTIVITY_HALTED] An uncaught error halted the reactive system.";
+  let message = "[REACTIVITY_HALTED]";
   if (__DEV__) {
     message +=
-      " No further updates will be processed. Handle errors with createErrorBoundary/<Errored> or treat this as a crash.";
+      " An uncaught error halted the reactive system. No further updates will be processed. Handle errors with createErrorBoundary/<Errored> or treat this as a crash.";
     emitDiagnostic({
       code: "REACTIVITY_HALTED",
       kind: "error",
@@ -216,7 +216,7 @@ function notifyHalted(): void {
   console.error(
     __DEV__
       ? "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error."
-      : "[REACTIVITY_HALTED] Update ignored."
+      : "[REACTIVITY_HALTED]"
   );
 }
 
@@ -609,19 +609,7 @@ export function insertSubs(node: Signal<any> | Computed<any>, optimistic: boolea
       (s._sub as any)._optimisticLane = undefined;
     }
 
-    // Tracked effects bypass heap, go directly to effect queue
-    const sub = s._sub as any;
-    if (sub._type === EFFECT_TRACKED) {
-      if (!sub._modified) {
-        sub._modified = true;
-        sub._queue.enqueue(EFFECT_USER, sub._run);
-      }
-      continue;
-    }
-
-    const queue = s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-    if (queue._min > s._sub._height) queue._min = s._sub._height;
-    insertIntoHeap(s._sub, queue);
+    enqueueSub(s._sub);
   }
 }
 
@@ -684,16 +672,7 @@ export function finalizePureQueue(
     if (completingTransition && completingTransition._gatedSubs.size) {
       for (const sub of completingTransition._gatedSubs) {
         if (sub._flags & REACTIVE_DISPOSED) continue;
-        if ((sub as any)._type === EFFECT_TRACKED) {
-          if (!(sub as any)._modified) {
-            (sub as any)._modified = true;
-            sub._queue.enqueue(EFFECT_USER, (sub as any)._run);
-          }
-          continue;
-        }
-        const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
-        if (queue._min > sub._height) queue._min = sub._height;
-        insertIntoHeap(sub, queue);
+        enqueueSub(sub);
       }
       completingTransition._gatedSubs.clear();
     }
@@ -722,7 +701,7 @@ export function finalizePureQueue(
 
 function checkBoundaryChildren(queue: Queue) {
   for (const child of queue._children) {
-    (child as any).checkSources?.();
+    (child as any)._checkSources?.();
     checkBoundaryChildren(child as Queue);
   }
 }

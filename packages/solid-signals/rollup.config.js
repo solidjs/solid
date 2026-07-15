@@ -63,10 +63,11 @@ export default [
         target: "esnext",
         moduleResolution: "bundler",
         verbatimModuleSyntax: true
-      }),
-      prettier({
-        parser: "typescript"
       })
+      // NO prettier on the prod tree: rollup-plugin-prettier strips
+      // /*@__PURE__*/ annotations, silently disabling consumer-side DCE of
+      // annotated initializers. The mangle-props post-pass beautifies this
+      // output anyway (and must run terser with preserve_annotations).
     ]
   },
   {

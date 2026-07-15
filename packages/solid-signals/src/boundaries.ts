@@ -99,11 +99,11 @@ function isRevealController(slot: RevealSlot): slot is RevealController {
 }
 
 function isSlotReady(slot: RevealSlot): boolean {
-  return isRevealController(slot) ? slot.isReady() : slot._sources.size === 0 && !slot._pending;
+  return isRevealController(slot) ? slot._isReady() : slot._sources.size === 0 && !slot._pending;
 }
 
 function isSlotMinimallyReady(slot: RevealSlot): boolean {
-  return isRevealController(slot) ? slot.isMinimallyReady() : isSlotReady(slot);
+  return isRevealController(slot) ? slot._isMinimallyReady() : isSlotReady(slot);
 }
 
 function setSlotState(
@@ -116,7 +116,7 @@ function setSlotState(
   setSignal(slot._collapsed, collapsed);
   if (isRevealController(slot)) {
     if (!disabled && slot._parentController === controller) slot._parentController = undefined;
-    return slot.evaluate(disabled, collapsed);
+    return slot._evaluate(disabled, collapsed);
   }
   if (!disabled && slot._revealController === controller && slot._initialized)
     slot._revealController = undefined;
@@ -148,7 +148,7 @@ export class RevealController {
     return true;
   }
 
-  isReady(): boolean {
+  _isReady(): boolean {
     return this._forEachOwnedSlot(isSlotReady);
   }
 
@@ -159,7 +159,7 @@ export class RevealController {
    * - `sequential`: the first owned slot is minimally ready (frontier can advance).
    * - `natural`: any owned slot is minimally ready.
    */
-  isMinimallyReady(): boolean {
+  _isMinimallyReady(): boolean {
     const order = untrack(this._orderAccessor);
     if (order === "together") return this._forEachOwnedSlot(isSlotMinimallyReady);
     if (order === "natural") {
@@ -183,7 +183,7 @@ export class RevealController {
     return firstReady;
   }
 
-  register(slot: RevealSlot): void {
+  _register(slot: RevealSlot): void {
     if (this._slots.includes(slot)) return;
     this._slots.push(slot);
     const order = untrack(this._orderAccessor);
@@ -192,16 +192,16 @@ export class RevealController {
         slot._collapsed,
         order === "sequential" ? !!untrack(this._collapsedAccessor) : false
       ));
-    untrack(() => this.evaluate());
+    untrack(() => this._evaluate());
   }
 
-  unregister(slot: RevealSlot): void {
+  _unregister(slot: RevealSlot): void {
     const index = this._slots.indexOf(slot);
     if (index >= 0) this._slots.splice(index, 1);
-    untrack(() => this.evaluate());
+    untrack(() => this._evaluate());
   }
 
-  evaluate(disabledOverride?: boolean, collapsedOverride?: boolean): void {
+  _evaluate(disabledOverride?: boolean, collapsedOverride?: boolean): void {
     if (this._evaluating) return;
     this._evaluating = true;
     const wasReady = this._ready;
@@ -224,7 +224,7 @@ export class RevealController {
           if (isRevealController(slot)) {
             setSignal(slot._collapsed, false);
             setSignal(slot._disabled, false);
-            slot.evaluate(false, false);
+            slot._evaluate(false, false);
           } else {
             setSlotState(slot, this, !isSlotReady(slot), false);
           }
@@ -252,22 +252,22 @@ export class RevealController {
           if (isRevealController(slot)) {
             setSignal(slot._collapsed, false);
             setSignal(slot._disabled, false);
-            slot.evaluate(false, false);
+            slot._evaluate(false, false);
           } else {
             setSlotState(slot, this, true, false);
           }
         });
       }
     } finally {
-      this._ready = this.isReady();
-      this._minimallyReady = this.isMinimallyReady();
+      this._ready = this._isReady();
+      this._minimallyReady = this._isMinimallyReady();
       this._evaluating = false;
     }
     if (
       this._parentController &&
       (wasReady !== this._ready || wasMinReady !== this._minimallyReady)
     )
-      this._parentController.evaluate();
+      this._parentController._evaluate();
   }
 }
 
@@ -337,7 +337,7 @@ export class CollectionQueue extends Queue {
     type &= ~this._collectionType;
     return type ? super.notify(node, type, flags, error) : true;
   }
-  checkSources() {
+  _checkSources() {
     for (const source of this._sources) {
       if (
         source._flags & REACTIVE_DISPOSED ||
@@ -368,7 +368,7 @@ export class CollectionQueue extends Queue {
         }
       }
     }
-    if (_revealUsed) this._revealController?.evaluate();
+    if (_revealUsed) this._revealController?._evaluate();
   }
 }
 
@@ -413,8 +413,8 @@ function createCollectionBoundary<T>(
     _revealUsed && type === STATUS_PENDING ? getContext(RevealControllerContext) : null;
   if (controller) {
     queue._revealController = controller;
-    controller.register(queue);
-    cleanup(() => controller.unregister(queue));
+    controller._register(queue);
+    cleanup(() => controller._unregister(queue));
   }
   return accessor<T>(
     computed(
@@ -561,12 +561,12 @@ export function createRevealOrder<T>(
     computed(() => {
       order();
       collapsed();
-      controller.evaluate();
+      controller._evaluate();
     });
     if (parentController) {
       controller._parentController = parentController;
-      parentController.register(controller);
-      cleanup(() => parentController.unregister(controller));
+      parentController._register(controller);
+      cleanup(() => parentController._unregister(controller));
     }
     return value;
   });

@@ -42,7 +42,10 @@ for (const dir of process.argv.slice(2)) {
         module: false,
         properties: { regex: /^_/ }
       },
-      format: { beautify: true, comments: true }
+      // preserve_annotations: terser consumes /*@__PURE__*/ during parse and
+      // only re-emits it when asked — without this the prod tree loses the
+      // annotations that consumer bundlers rely on for DCE (#2883 phase 3).
+      format: { beautify: true, comments: true, preserve_annotations: true }
     });
     writeFileSync(file, result.code);
   }

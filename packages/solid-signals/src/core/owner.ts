@@ -17,7 +17,7 @@ import {
 } from "./core.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { unlinkSubs } from "./graph.js";
-import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight } from "./heap.js";
+import { deleteFromHeap, insertIntoHeap, insertIntoHeapHeight, queueFor } from "./heap.js";
 import { dirtyQueue, GlobalQueue, globalQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, Disposable, Owner, Root } from "./types.js";
 
@@ -76,7 +76,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     const nextChild = child._nextSibling;
     if ((child as Computed<unknown>)._deps) {
       const n = child as Computed<unknown>;
-      deleteFromHeap(n, n._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+      deleteFromHeap(n, queueFor(n));
       let toRemove = n._deps;
       do {
         toRemove = unlinkSubs(toRemove!);
@@ -141,7 +141,7 @@ function childId(owner: Owner, consume: boolean): string {
   while (counter._config & CONFIG_TRANSPARENT && counter._parent) counter = counter._parent;
   if (counter.id != null)
     return formatId(counter.id, consume ? counter._childCount++ : counter._childCount);
-  throw new Error("Cannot get child id from owner without an id");
+  throw new Error(__DEV__ ? "Cannot get child id from owner without an id" : "");
 }
 
 /**
@@ -152,6 +152,22 @@ function childId(owner: Owner, consume: boolean): string {
  */
 export function getNextChildId(owner: Owner): string {
   return childId(owner, true);
+}
+
+/**
+ * The id a freshly-created node inherits: an explicit `options.id` wins;
+ * transparent nodes share their parent's id; otherwise the parent's next
+ * child id is consumed (or `undefined` outside an id-carrying tree).
+ */
+export function inheritId(
+  options: { id?: string } | undefined,
+  transparent: boolean,
+  parent: Owner | null | undefined
+): string | undefined {
+  return (
+    options?.id ??
+    (transparent ? parent?.id : parent?.id != null ? getNextChildId(parent) : undefined)
+  );
 }
 
 /**
@@ -261,9 +277,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
   const parent = context;
   const transparent = options?.transparent ?? false;
   const owner = {
-    id:
-      options?.id ??
-      (transparent ? parent?.id : parent?.id != null ? getNextChildId(parent) : undefined),
+    id: inheritId(options, transparent, parent),
     _config: transparent ? CONFIG_TRANSPARENT : 0,
     _root: true,
     _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,

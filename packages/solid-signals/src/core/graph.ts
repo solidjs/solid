@@ -1,5 +1,5 @@
 import { CONFIG_AUTO_DISPOSE, REACTIVE_RECOMPUTING_DEPS, REACTIVE_ZOMBIE } from "./constants.js";
-import { deleteFromHeap } from "./heap.js";
+import { deleteFromHeap, queueFor } from "./heap.js";
 import { disposeChildren } from "./owner.js";
 import { dirtyQueue, zombieQueue } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
@@ -42,7 +42,7 @@ export function trimStaleDeps(el: Computed<any>): void {
 }
 
 export function unobserved(el: Computed<unknown>) {
-  deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+  deleteFromHeap(el, queueFor(el));
   let dep = el._deps;
   while (dep !== null) {
     dep = unlinkSubs(dep);

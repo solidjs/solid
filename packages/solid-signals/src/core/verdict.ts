@@ -33,7 +33,7 @@ import {
 } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { insertIntoHeap } from "./heap.js";
+import { insertIntoHeap, queueFor } from "./heap.js";
 import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
 import { findLane, hasActiveOverride } from "./lanes.js";
 import { installOptimisticEngine } from "./optimistic.js";
@@ -189,7 +189,7 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
       !(shadow._flags & (REACTIVE_DIRTY | REACTIVE_CHECK))
     ) {
       shadow._flags |= REACTIVE_DIRTY;
-      insertIntoHeap(shadow, shadow._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+      insertIntoHeap(shadow, queueFor(shadow));
       insertSubs(shadow);
       schedule();
     }

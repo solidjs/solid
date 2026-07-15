@@ -129,7 +129,9 @@ type SharedConfig = {
   events?: any[] | null;
   verifyHydration?: () => void;
   done: boolean;
-  getNextContextId(): string;
+  // Assigned by enableHydration(); callers only reach it behind a
+  // `sharedConfig.hydrating` check, which can never be true before that.
+  getNextContextId?: () => string;
 };
 
 /**
@@ -142,14 +144,19 @@ type SharedConfig = {
 export const sharedConfig: SharedConfig = {
   hydrating: false,
   registry: undefined,
-  done: false,
-  getNextContextId() {
-    const o = getOwner();
-    if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
-    if (getContext(NoHydrateContext)) return undefined as unknown as string;
-    return getNextChildId(o);
-  }
+  done: false
 };
+
+// Installed on sharedConfig by enableHydration(): defining it in the object
+// literal above retains getContext/NoHydrateContext/getNextChildId (and the
+// signals context/error machinery behind them) in every CSR bundle that
+// imports sharedConfig, i.e. all of them (#2883 phase 3).
+function hydrationGetNextContextId(): string {
+  const o = getOwner();
+  if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+  if (getContext(NoHydrateContext)) return undefined as unknown as string;
+  return getNextChildId(o);
+}
 
 // === Hydration phase API ===
 
@@ -221,25 +228,35 @@ let _createOptimisticStore: Function | undefined;
 let _createRenderEffect: Function | undefined;
 let _createEffect: Function | undefined;
 let _createLoadingBoundary: Function | undefined;
+// lazy()'s server-module lookup: only meaningful under hydration, so the
+// implementation (and peekNextChildId/_$HY access behind it) installs here
+// rather than shipping in CSR bundles that use lazy() (#2883 phase 3).
+export let _lazyHydrationLookup:
+  | (<T>(comp: (() => T | undefined) | undefined, moduleUrl?: string) => (() => T) | undefined)
+  | undefined;
 
 // --- Hydration helpers ---
 
-class MockPromise {
-  static {
-    for (const k of ["all", "allSettled", "any", "race", "reject", "resolve"] as const) {
-      (MockPromise as any)[k] = () => new MockPromise();
+// A `static {}` block marks the class as side-effectful, so bundlers retain
+// it in EVERY client bundle even with zero references; the PURE-annotated
+// factory shakes with its only consumer, subFetch (#2883 phase 3).
+const MockPromise = /* @__PURE__ */ (() => {
+  class MockPromise {
+    catch() {
+      return new MockPromise();
+    }
+    then() {
+      return new MockPromise();
+    }
+    finally() {
+      return new MockPromise();
     }
   }
-  catch() {
-    return new MockPromise();
+  for (const k of ["all", "allSettled", "any", "race", "reject", "resolve"] as const) {
+    (MockPromise as any)[k] = () => new MockPromise();
   }
-  then() {
-    return new MockPromise();
-  }
-  finally() {
-    return new MockPromise();
-  }
-}
+  return MockPromise;
+})();
 
 function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
   const ogFetch = fetch;
@@ -754,6 +771,29 @@ function hydratedCreateEffect(compute: any, effectFn: any, options?: any) {
  *
  * @internal
  */
+// The server keys the module mapping by the hydration id of lazy()'s render
+// memo; compute the same id positionally (peek — the memo consumes the slot).
+// This keeps module identity fully server-side: glob/dynamically composed
+// lazy modules hydrate without a moduleUrl.
+function lazyHydrationLookup<T>(
+  comp: (() => T | undefined) | undefined,
+  moduleUrl?: string
+): (() => T) | undefined {
+  const o = getOwner();
+  const key = o && o.id != null ? peekNextChildId(o) : undefined;
+  const cached = key != null ? (globalThis as any)._$HY?.modules?.[key] : undefined;
+  if (cached) return () => cached.default as T;
+  if (!comp && moduleUrl) {
+    // moduleUrl present means the bundler transform ran, so the server
+    // must have registered this position. A miss is a broken preload.
+    throw new Error(
+      `lazy() module "${moduleUrl}" (hydration id "${key}") was not preloaded before ` +
+        "hydration. Ensure it is inside a Loading boundary."
+    );
+  }
+  return comp as (() => T) | undefined;
+}
+
 export function enableHydration() {
   _createMemo = hydratedCreateMemo;
   _createSignal = hydratedCreateSignal;
@@ -765,6 +805,8 @@ export function enableHydration() {
   _createRenderEffect = hydratedCreateRenderEffect;
   _createEffect = hydratedCreateEffect;
   _createLoadingBoundary = hydratedCreateLoadingBoundary;
+  _lazyHydrationLookup = lazyHydrationLookup;
+  sharedConfig.getNextContextId = hydrationGetNextContextId;
 
   _hydratingValue = sharedConfig.hydrating;
   _doneValue = sharedConfig.done;

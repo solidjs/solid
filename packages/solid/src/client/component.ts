@@ -1,6 +1,6 @@
-import { untrack, createMemo, getOwner, peekNextChildId } from "@solidjs/signals";
+import { untrack, createMemo } from "@solidjs/signals";
 import { $DEVCOMP, IS_DEV, devComponent } from "../client/core.js";
-import { sharedConfig } from "./hydration.js";
+import { _lazyHydrationLookup, sharedConfig } from "./hydration.js";
 import type { Element as SolidElement } from "../types.js";
 
 /**
@@ -115,25 +115,8 @@ export function lazy<T extends Component<any>>(
   let comp: () => T | undefined;
   let p: Promise<{ default: T }> | undefined;
   const wrap: T & { preload?: () => void; moduleUrl?: string } = ((props: any) => {
-    if (sharedConfig.hydrating) {
-      // The server keys the module mapping by the hydration id of the render
-      // memo created below; compute the same id positionally (peek — the memo
-      // consumes the slot). This keeps module identity fully server-side:
-      // glob/dynamically composed lazy modules hydrate without a moduleUrl.
-      const o = getOwner();
-      const key = o && o.id != null ? peekNextChildId(o) : undefined;
-      const cached = key != null ? (globalThis as any)._$HY?.modules?.[key] : undefined;
-      if (cached) {
-        comp = () => cached.default as T;
-      } else if (!comp && moduleUrl) {
-        // moduleUrl present means the bundler transform ran, so the server
-        // must have registered this position. A miss is a broken preload.
-        throw new Error(
-          `lazy() module "${moduleUrl}" (hydration id "${key}") was not preloaded before ` +
-            "hydration. Ensure it is inside a Loading boundary."
-        );
-      }
-    }
+    // `hydrating` can only be true once enableHydration() installed the slot.
+    if (sharedConfig.hydrating) comp = _lazyHydrationLookup!(comp, moduleUrl) as () => T;
     if (!comp) {
       p || (p = fn());
       p.then(mod => {
@@ -179,5 +162,6 @@ let counter = 0;
  * ```
  */
 export function createUniqueId(): string {
-  return sharedConfig.hydrating ? sharedConfig.getNextContextId() : `cl-${counter++}`;
+  // `hydrating` can only be true once enableHydration() assigned the method.
+  return sharedConfig.hydrating ? sharedConfig.getNextContextId!() : `cl-${counter++}`;
 }

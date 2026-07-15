@@ -40,12 +40,13 @@ import {
   insertIntoHeap,
   insertIntoHeapHeight,
   markHeap,
-  markNode
+  markNode,
+  queueFor
 } from "./heap.js";
 import { type OptimisticLane } from "./lanes.js";
 import { clearSignals, DEV, emitDiagnostic } from "./dev.js";
 import { devTrackHeldPending } from "./invariants.js";
-import { cleanup, disposeChildren, getNextChildId, markDisposal } from "./owner.js";
+import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import {
   activeAffectsMarks,
   activeTransition,
@@ -170,7 +171,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if (!create) {
     if (el._transition && (!isEffect || activeTransition) && activeTransition !== el._transition)
       globalQueue.initTransition(el._transition);
-    deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+    deleteFromHeap(el, queueFor(el));
     el._inFlight = null;
     // Tracked effects run after finalizePureQueue, so dispose immediately instead of deferring
     if (el._transition || isEffect === EFFECT_TRACKED) disposeChildren(el);
@@ -351,7 +352,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (__DEV__) devTrackHeldPending(el);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) {
-        insertIntoHeapHeight(s._sub, s._sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+        insertIntoHeapHeight(s._sub, queueFor(s._sub));
       }
     }
   }
@@ -416,9 +417,7 @@ export function computed<T>(
 ): Computed<T> {
   const transparent = options?.transparent ?? false;
   const self: Computed<T> = {
-    id:
-      options?.id ??
-      (transparent ? context?.id : context?.id != null ? getNextChildId(context) : undefined),
+    id: inheritId(options, transparent, context),
     _config:
       (transparent ? CONFIG_TRANSPARENT : 0) |
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
@@ -478,9 +477,7 @@ export function createEffectNode<T>(
 ): any {
   const transparent = options?.transparent ?? false;
   const self = {
-    id:
-      options?.id ??
-      (transparent ? context?.id : context?.id != null ? getNextChildId(context) : undefined),
+    id: inheritId(options, transparent, context),
     _config:
       (transparent ? CONFIG_TRANSPARENT : 0) |
       (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
@@ -771,10 +768,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       (affectsReads ??= []).push(el);
 
     if ((owner as Computed<unknown>)._fn) {
-      const isZombie = (el as Computed<unknown>)._flags & REACTIVE_ZOMBIE;
-      if (owner._height >= (isZombie ? zombieQueue._min : dirtyQueue._min)) {
+      const elQueue = queueFor(el as Computed<unknown>);
+      if (owner._height >= elQueue._min) {
         markNode(c as Computed<any>);
-        markHeap(isZombie ? zombieQueue : dirtyQueue);
+        markHeap(elQueue);
         updateIfNecessary(owner);
       }
       const height = owner._height;
@@ -977,7 +974,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
  * cleanup point.
  */
 export function suppressComputedRecompute(el: Computed<unknown>): void {
-  deleteFromHeap(el, el._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+  deleteFromHeap(el, queueFor(el));
   if (!(el._flags & REACTIVE_MANUAL_WRITE) && el._pendingValue === NOT_PENDING) {
     queuePendingNode(el);
     schedule();
@@ -1123,7 +1120,7 @@ export function refresh<T>(target: Refreshable<T>): void {
       armReaskClear();
     }
     node._flags = (node._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
-    insertIntoHeap(node, node._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue);
+    insertIntoHeap(node, queueFor(node));
     schedule();
   }
 }

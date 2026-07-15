@@ -1,0 +1,8 @@
+---
+"@solidjs/signals": patch
+"solid-js": patch
+---
+
+Pay-for-use tree-shaking, phase 3 (#2883) — mechanical cleanups selected by cost/benefit audit. Signals: the effect re-enqueue block (four copies) and zombie/dirty queue selection dedupe into shared `enqueueSub`/`queueFor` helpers (hot-path microbenched, no regression); boundary/reveal internal method names are `_`-prefixed so property mangling reaches them; production error strings trim to their diagnostic codes (dev builds keep full sentences); and the prod dist build stops stripping `/*@__PURE__*/` annotations — rollup-plugin-prettier is off the prod tree, terser re-emits annotations, and a new `check-pure` build guard fails the build if they ever vanish again. solid-js client: `sharedConfig.getNextContextId` and `lazy()`'s hydration-module lookup install from `enableHydration()` instead of shipping in every CSR bundle, and MockPromise's class static block (which defeated dead-code elimination in every client bundle) becomes a PURE-annotated factory. CDN `unpkg`/`jsdelivr` fields now point at browser production ESM instead of CommonJS files.
+
+Measured: minimal app 10.9 → 10.4 KB gzip; CSR app with `<Loading>`/`lazy` 13.9 → 12.6 KB (includes the dom-expressions `DOMElements` dedup arriving through the rebuilt web runtime); signals floor 7.7 → 7.5 KB; and the full-featured bundle *shrinks* 272 gzip bytes, recovering a third of the phase-1/2 hook indirection tax. Cumulative across all three phases the minimal app is down 17.6% and the signals floor 15.4%, with all 1,941 tests across the affected packages passing unchanged.
