@@ -154,7 +154,13 @@ function mergeTransitionState(target: Transition, outgoing: Transition): void {
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
-  target._optimisticNodes.push(...outgoing._optimisticNodes);
+  if (outgoing._optimisticNodes.length) {
+    // Move (don't copy): the global queue may still alias the outgoing
+    // array, and the adoption pass in initTransition would re-push its
+    // contents into the target — duplicating every entry.
+    target._optimisticNodes.push(...outgoing._optimisticNodes);
+    outgoing._optimisticNodes.length = 0;
+  }
   if (outgoing._affectsNodes.length) {
     // Move (don't copy): the global queue may still alias the outgoing
     // array, and the adoption pass in initTransition would re-push its
