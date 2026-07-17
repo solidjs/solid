@@ -428,7 +428,7 @@ export class GlobalQueue extends Queue {
           runHeap(zombieQueue, GlobalQueue._update);
           // Detach: the stashed transition keeps its batch; ambient work that
           // follows lands in a fresh one.
-          this._batch = createBatch();
+          currentBatch = this._batch = createBatch();
 
           // Run lane effects immediately (before stashing) - lanes with no pending async
           if (activeLanes.size) {
@@ -473,7 +473,7 @@ export class GlobalQueue extends Queue {
           fresh._optimisticNodes = batch._optimisticNodes;
           fresh._affectsNodes = batch._affectsNodes;
           fresh._optimisticStores = batch._optimisticStores;
-          this._batch = fresh;
+          currentBatch = this._batch = fresh;
         }
       } else {
         if (canUseSimpleSyncFlush(this)) {
@@ -578,7 +578,7 @@ export class GlobalQueue extends Queue {
       }
       if (batch._affectsNodes.length) activeTransition._affectsNodes.push(...batch._affectsNodes);
       for (const store of batch._optimisticStores) activeTransition._optimisticStores.add(store);
-      this._batch = activeTransition;
+      currentBatch = this._batch = activeTransition;
     }
     for (const lane of activeLanes) {
       if (!lane._transition) lane._transition = activeTransition;
@@ -587,7 +587,7 @@ export class GlobalQueue extends Queue {
 }
 
 export function queuePendingNode(node: Signal<any>): void {
-  globalQueue._batch._pendingNodes.push(node);
+  currentBatch._pendingNodes.push(node);
 }
 
 // Sticky: flips true on the first refresh() ever (the only setter of
@@ -652,7 +652,7 @@ function commitPendingNode(n: Signal<any>): void {
 }
 
 function commitPendingNodes() {
-  const pendingNodes = globalQueue._batch._pendingNodes;
+  const pendingNodes = currentBatch._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
     commitPendingNode(pendingNodes[i]);
   }
@@ -734,6 +734,12 @@ function reassignPendingTransition(pendingNodes: Signal<any>[]) {
 }
 
 export const globalQueue = new GlobalQueue();
+// Hot-path mirror of `globalQueue._batch`: `queuePendingNode` runs once per
+// staged write and `commitPendingNodes` once per flush, and the extra
+// property hop through `_batch` was a measured instruction-count regression
+// (CodSpeed update1to1, PR #2905). The field stays authoritative for
+// cross-module readers; every `_batch` assignment updates both.
+let currentBatch = globalQueue._batch;
 
 /**
  * Synchronously processes the pending reactive queue, or runs `fn` in a synchronous
