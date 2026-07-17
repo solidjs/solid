@@ -70,7 +70,7 @@ function propagateAffectsMark(node: MarkedNode): void {
   const sentinel = getAffectsSentinel(node);
   const error = new NotReadyError(sentinel);
   forEachDependent(node as Computed<any>, sub => {
-    if (sub._pendingSource !== sentinel && !sub._pendingSources?.has(sentinel)) {
+    if (!sub._pendingSources?.has(sentinel)) {
       notifyStatus(sub, STATUS_PENDING, error);
     }
   });
@@ -117,7 +117,7 @@ function markAffects(node: MarkedNode): void {
 /**
  * Registers one `affects()` mark on a node: counts it, records the
  * registration with the current transaction (after initTransition the queue's
- * array aliases the active transition's, mirroring `_optimisticNodes`), and
+ * batch IS the active transition, mirroring `_optimisticNodes`), and
  * propagates STATUS_PENDING downstream on the status rails so everything
  * DERIVED from the marked data reads pending too. Propagation runs on every
  * registration (not just the first): subscribers gained since an earlier
@@ -125,7 +125,7 @@ function markAffects(node: MarkedNode): void {
  */
 function registerAffectsMark(node: MarkedNode): void {
   markAffects(node);
-  globalQueue._affectsNodes.push(node);
+  globalQueue._batch._affectsNodes.push(node);
   propagateAffectsMark(node);
   schedule();
 }
@@ -171,7 +171,7 @@ function onlyMarkPending(el: Computed<any>): boolean {
     for (const s of sources) if (!s._affectsFor) return false;
     return true;
   }
-  return !!el._pendingSource?._affectsFor;
+  return false;
 }
 
 /**
@@ -186,11 +186,7 @@ function onlyMarkPending(el: Computed<any>): boolean {
  * `GlobalQueue._collectMarkSources`, gated on `activeAffectsMarks`.
  */
 function collectMarkSources(el: Computed<any>, into: MarkedNode[]): void {
-  const single = el._pendingSource;
-  if (single) {
-    const marked = single._affectsFor;
-    if (marked && marked._affectsCount) into.push(marked);
-  } else if (el._pendingSources) {
+  if (el._pendingSources) {
     for (const s of el._pendingSources) {
       const marked = s._affectsFor;
       if (marked && marked._affectsCount) into.push(marked);

@@ -1,5 +1,4 @@
 import {
-  CONFIG_OPTIMISTIC,
   CONFIG_SYNC,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -204,7 +203,7 @@ export function handleAsync<T>(
     if (setter) {
       setter(value);
       if (wasUninitialized) clearStatus(el, true);
-    } else if (el._config & CONFIG_OPTIMISTIC) {
+    } else if (el._overrideValue !== undefined) {
       // Optimistic node — resting OR covered by an active override — holds
       // through the shared pending-node path, exactly like a plain async memo,
       // so the commit clears STATUS_UNINITIALIZED (#2806) and elevation to
@@ -425,7 +424,7 @@ export function notifyStatus(
   if (markSourced && el._statusFlags & STATUS_ERROR) return;
   const isSource = pendingSource === el;
   const isOptimisticBoundary =
-    status === STATUS_PENDING && !!(el._config & CONFIG_OPTIMISTIC) && !isSource;
+    status === STATUS_PENDING && el._overrideValue !== undefined && !isSource;
   const startsBlocking = isOptimisticBoundary && hasActiveOverride(el);
 
   if (!blockStatus) {

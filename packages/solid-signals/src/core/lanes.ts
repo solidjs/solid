@@ -1,4 +1,4 @@
-import { NOT_PENDING } from "./constants.js";
+import { CONFIG_OPTIMISTIC, NOT_PENDING } from "./constants.js";
 import { activeTransition, type QueueCallback, type Transition } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -125,8 +125,8 @@ export function resolveTransition(el: {
 /**
  * Check if a node has an active optimistic override.
  */
-export function hasActiveOverride(el: { _overrideValue?: any }): boolean {
-  return !!(el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING);
+export function hasActiveOverride(el: { _overrideValue?: any; _config?: number }): boolean {
+  return !!(el._config! & CONFIG_OPTIMISTIC && el._overrideValue !== NOT_PENDING);
 }
 
 /**
@@ -134,7 +134,7 @@ export function hasActiveOverride(el: { _overrideValue?: any }): boolean {
  * a different active lane), merge unless the node has an active override.
  */
 export function assignOrMergeLane(
-  el: { _optimisticLane?: OptimisticLane; _overrideValue?: any },
+  el: { _optimisticLane?: OptimisticLane; _overrideValue?: any; _config?: number },
   sourceLane: OptimisticLane
 ): void {
   const sourceRoot = findLane(sourceLane);

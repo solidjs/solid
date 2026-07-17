@@ -76,14 +76,13 @@ export function registerTransientStoreNode(node: Signal<any>): void {
 }
 
 function canUseSimpleSyncFlush(queue: GlobalQueue): boolean {
-  const batch = queue._batch;
   return (
     transitions.size === 0 &&
     activeLanes.size === 0 &&
     queue._children.length === 0 &&
-    batch._optimisticNodes.length === 0 &&
-    batch._affectsNodes.length === 0 &&
-    batch._optimisticStores.size === 0 &&
+    queue._optimisticNodes.length === 0 &&
+    queue._affectsNodes.length === 0 &&
+    queue._optimisticStores.size === 0 &&
     transientStoreNodes.size === 0
   );
 }
@@ -152,44 +151,20 @@ export interface Transition {
   _gatedSubs: Set<Computed<any>>;
 }
 
-/**
- * Ambient work IS a transaction: the global queue always carries one
- * current-transaction-shaped batch (`globalQueue._batch`). With no transition
- * active, registrations (pending commits, optimistic nodes, affects marks,
- * optimistic stores) land in a plain ambient batch that the plain flush
- * finalizes; when a transition initializes it adopts the ambient batch's
- * contents and `_batch` becomes the transition itself, so later registrations
- * land there directly — no per-field aliasing.
- */
-function createBatch(): Transition {
-  return {
-    _time: clock,
-    _pendingNodes: [],
-    _asyncReporters: __DEV__ ? createAsyncReporters() : new Map(),
-    _optimisticNodes: [],
-    _affectsNodes: [],
-    _optimisticStores: new Set(),
-    _actions: [],
-    _queueStash: { _queues: [[], []], _children: [] },
-    _done: false,
-    _gatedSubs: new Set()
-  };
-}
-
 function mergeTransitionState(target: Transition, outgoing: Transition): void {
   outgoing._done = target;
   target._actions.push(...outgoing._actions);
   for (const lane of activeLanes) if (lane._transition === outgoing) lane._transition = target;
   if (outgoing._optimisticNodes.length) {
-    // Move (don't copy): the global queue's batch may still be the outgoing
-    // transition, and the adoption pass in initTransition would re-push its
+    // Move (don't copy): the global queue may still alias the outgoing
+    // array, and the adoption pass in initTransition would re-push its
     // contents into the target — duplicating every entry.
     target._optimisticNodes.push(...outgoing._optimisticNodes);
     outgoing._optimisticNodes.length = 0;
   }
   if (outgoing._affectsNodes.length) {
-    // Move (don't copy): the global queue's batch may still be the outgoing
-    // transition, and the adoption pass in initTransition would re-push its
+    // Move (don't copy): the global queue may still alias the outgoing
+    // array, and the adoption pass in initTransition would re-push its
     // contents into the target — double-releasing every mark.
     target._affectsNodes.push(...outgoing._affectsNodes);
     outgoing._affectsNodes.length = 0;
@@ -337,9 +312,11 @@ export class Queue implements IQueue {
 
 export class GlobalQueue extends Queue {
   _running: boolean = false;
-  // The current transaction-shaped batch: a plain ambient batch while no
-  // transition is active, the active transition itself after initTransition.
-  _batch: Transition = createBatch();
+  _pendingNode: Signal<any> | null = null;
+  _pendingNodes: Signal<any>[] = [];
+  _optimisticNodes: OptimisticNode[] = [];
+  _affectsNodes: OptimisticNode[] = [];
+  _optimisticStores: Set<any> = new Set();
   static _update: (el: Computed<unknown>) => void;
   static _dispose: (el: Computed<unknown>, self: boolean, zombie: boolean) => void;
   static _runEffect: (el: Computed<unknown>) => void;
@@ -426,9 +403,11 @@ export class GlobalQueue extends Queue {
         if (!isComplete) {
           const stashedTransition = activeTransition!;
           runHeap(zombieQueue, GlobalQueue._update);
-          // Detach: the stashed transition keeps its batch; ambient work that
-          // follows lands in a fresh one.
-          this._batch = createBatch();
+          this._pendingNode = null;
+          this._pendingNodes = [];
+          this._optimisticNodes = [];
+          this._affectsNodes = [];
+          this._optimisticStores = new Set();
 
           // Run lane effects immediately (before stashing) - lanes with no pending async
           if (activeLanes.size) {
@@ -455,26 +434,14 @@ export class GlobalQueue extends Queue {
           }
           return;
         }
+        this._pendingNodes !== activeTransition._pendingNodes &&
+          this._pendingNodes.push(...activeTransition._pendingNodes);
+        this.restoreQueues(activeTransition._queueStash);
+        transitions.delete(activeTransition);
         const completingTransition = activeTransition;
-        const batch = this._batch;
-        batch !== completingTransition &&
-          batch._pendingNodes.push(...completingTransition._pendingNodes);
-        this.restoreQueues(completingTransition._queueStash);
-        transitions.delete(completingTransition);
         activeTransition = null;
-        reassignPendingTransition(batch._pendingNodes);
+        reassignPendingTransition(this._pendingNodes);
         finalizePureQueue(completingTransition);
-        if (batch === completingTransition) {
-          // Drop the dead Transition wrapper but keep its (drained) containers
-          // as the ambient batch — late registrations during finalization live
-          // there and must survive to the next flush.
-          const fresh = createBatch();
-          fresh._pendingNodes = batch._pendingNodes;
-          fresh._optimisticNodes = batch._optimisticNodes;
-          fresh._affectsNodes = batch._affectsNodes;
-          fresh._optimisticStores = batch._optimisticStores;
-          this._batch = fresh;
-        }
       } else {
         if (canUseSimpleSyncFlush(this)) {
           commitPendingNodes();
@@ -497,13 +464,13 @@ export class GlobalQueue extends Queue {
       this.run(EFFECT_USER);
       if (__DEV__) {
         devCheckActiveOverrides(n => {
-          if (this._batch._optimisticNodes.includes(n as OptimisticNode)) return true;
+          if (this._optimisticNodes.includes(n as OptimisticNode)) return true;
           if (activeTransition?._optimisticNodes.includes(n as OptimisticNode)) return true;
           for (const t of transitions)
             if (t._optimisticNodes.includes(n as OptimisticNode)) return true;
           return false;
         });
-        devCensusCompanions(n => this._batch._pendingNodes.includes(n));
+        devCensusCompanions(n => n === this._pendingNode || this._pendingNodes.includes(n));
       }
       if (
         __DEV__ &&
@@ -513,7 +480,7 @@ export class GlobalQueue extends Queue {
         activeLanes.size === 0
       ) {
         // Fully drained: no transition-scoped state may survive this point.
-        devCheckQuiescent(n => this._batch._pendingNodes.includes(n));
+        devCheckQuiescent(n => n === this._pendingNode || this._pendingNodes.includes(n));
       }
       if (__DEV__) DEV.hooks.onUpdate?.();
     } finally {
@@ -548,7 +515,18 @@ export class GlobalQueue extends Queue {
     if (transition && transition === activeTransition) return;
     if (!transition && activeTransition && activeTransition._time === clock) return;
     if (!activeTransition) {
-      activeTransition = transition ?? createBatch();
+      activeTransition = transition ?? {
+        _time: clock,
+        _pendingNodes: [],
+        _asyncReporters: __DEV__ ? createAsyncReporters() : new Map(),
+        _optimisticNodes: [],
+        _affectsNodes: [],
+        _optimisticStores: new Set(),
+        _actions: [],
+        _queueStash: { _queues: [[], []], _children: [] },
+        _done: false,
+        _gatedSubs: new Set()
+      };
     } else if (transition) {
       const outgoing = activeTransition;
       mergeTransitionState(transition, outgoing);
@@ -557,37 +535,61 @@ export class GlobalQueue extends Queue {
     }
     transitions.add(activeTransition);
     activeTransition._time = clock;
-    const batch = this._batch;
-    if (batch !== activeTransition) {
-      // Adopt the ambient batch into the transaction, then make the
-      // transaction the batch so later registrations land there directly.
-      // Pending and optimistic nodes are re-stamped as the transaction's;
-      // marks don't hijack the node's _transition — a mark on a plain signal
-      // must not entangle unrelated writes to it; the same rule holds one hop
-      // downstream: propagation never queues pended subscribers as pending
-      // nodes, see propagateAffectsMark, #2893.
-      for (let i = 0; i < batch._pendingNodes.length; i++) {
-        const node = batch._pendingNodes[i];
+    if (this._pendingNode !== null) {
+      this._pendingNode._transition = activeTransition;
+      activeTransition._pendingNodes.push(this._pendingNode);
+      this._pendingNode = null;
+    }
+    if (this._pendingNodes !== activeTransition._pendingNodes) {
+      for (let i = 0; i < this._pendingNodes.length; i++) {
+        const node = this._pendingNodes[i];
         node._transition = activeTransition;
         activeTransition._pendingNodes.push(node);
       }
-      for (let i = 0; i < batch._optimisticNodes.length; i++) {
-        const node = batch._optimisticNodes[i];
+      this._pendingNodes = activeTransition._pendingNodes;
+    }
+    if (this._optimisticNodes !== activeTransition._optimisticNodes) {
+      for (let i = 0; i < this._optimisticNodes.length; i++) {
+        const node = this._optimisticNodes[i];
         node._transition = activeTransition;
         activeTransition._optimisticNodes.push(node);
       }
-      if (batch._affectsNodes.length) activeTransition._affectsNodes.push(...batch._affectsNodes);
-      for (const store of batch._optimisticStores) activeTransition._optimisticStores.add(store);
-      this._batch = activeTransition;
+      this._optimisticNodes = activeTransition._optimisticNodes;
+    }
+    if (this._affectsNodes !== activeTransition._affectsNodes) {
+      // Adopt ambient marks into the transaction (marks don't hijack the
+      // node's _transition — a mark on a plain signal must not entangle
+      // unrelated writes to it; the same rule holds one hop downstream:
+      // propagation never queues pended subscribers as pending nodes, see
+      // propagateAffectsMark, #2893). After adoption the queue aliases the
+      // transition's array, so later registrations land there directly.
+      activeTransition._affectsNodes.push(...this._affectsNodes);
+      this._affectsNodes = activeTransition._affectsNodes;
     }
     for (const lane of activeLanes) {
       if (!lane._transition) lane._transition = activeTransition;
+    }
+    if (this._optimisticStores !== activeTransition._optimisticStores) {
+      for (const store of this._optimisticStores) activeTransition._optimisticStores.add(store);
+      this._optimisticStores = activeTransition._optimisticStores;
     }
   }
 }
 
 export function queuePendingNode(node: Signal<any>): void {
-  globalQueue._batch._pendingNodes.push(node);
+  if (activeTransition) {
+    globalQueue._pendingNodes.push(node);
+    return;
+  }
+  if (globalQueue._pendingNode === null && globalQueue._pendingNodes.length === 0) {
+    globalQueue._pendingNode = node;
+    return;
+  }
+  if (globalQueue._pendingNode !== null) {
+    globalQueue._pendingNodes.push(globalQueue._pendingNode);
+    globalQueue._pendingNode = null;
+  }
+  globalQueue._pendingNodes.push(node);
 }
 
 // Sticky: flips true on the first refresh() ever (the only setter of
@@ -652,7 +654,11 @@ function commitPendingNode(n: Signal<any>): void {
 }
 
 function commitPendingNodes() {
-  const pendingNodes = globalQueue._batch._pendingNodes;
+  if (globalQueue._pendingNode !== null) {
+    commitPendingNode(globalQueue._pendingNode);
+    globalQueue._pendingNode = null;
+  }
+  const pendingNodes = globalQueue._pendingNodes;
   for (let i = 0; i < pendingNodes.length; i++) {
     commitPendingNode(pendingNodes[i]);
   }
@@ -672,11 +678,12 @@ export function finalizePureQueue(
   if (ranHeap) runHeap(dirtyQueue, GlobalQueue._update);
   if (resolvePending) {
     if (ranHeap) commitPendingNodes();
-    // The settling batch: the completing transaction's, or the ambient one.
-    const batch = completingTransition ?? globalQueue._batch;
     // Optimistic reversion: a non-empty batch means _optimisticWrite ran,
     // which installed the engine's hooks.
-    if (batch._optimisticNodes.length) GlobalQueue._resolveOptimistic!(batch._optimisticNodes);
+    const optimisticNodes = completingTransition
+      ? completingTransition._optimisticNodes
+      : globalQueue._optimisticNodes;
+    if (optimisticNodes.length) GlobalQueue._resolveOptimistic!(optimisticNodes);
     // Replay entanglement: subs recorded by the read-time gate get rescheduled
     // so they re-run with the now-committed values visible.
     if (completingTransition && completingTransition._gatedSubs.size) {
@@ -689,13 +696,19 @@ export function finalizePureQueue(
     // Declared motion ends with the transaction: settle (or plain flush end
     // for ambient marks) releases each registration's refcount. A non-empty
     // batch means registerAffectsMark ran, which installed the hook.
-    if (batch._affectsNodes.length) GlobalQueue._releaseAffectsMarks!(batch._affectsNodes);
+    const affectsNodes = completingTransition
+      ? completingTransition._affectsNodes
+      : globalQueue._affectsNodes;
+    if (affectsNodes.length) GlobalQueue._releaseAffectsMarks!(affectsNodes);
+    const optimisticStores = completingTransition
+      ? completingTransition._optimisticStores
+      : globalQueue._optimisticStores;
     // A non-empty set means trackOptimisticStore ran, which installed the
     // hook; the hook iterates, clears, and schedules (keeping the loop out of
     // core lets esbuild shake it — rollup already folds the null guard). The
     // completing transition scopes the clear to its own layer keys (#2899).
-    if (batch._optimisticStores.size)
-      GlobalQueue._clearOptimisticStores!(batch._optimisticStores, completingTransition);
+    if (optimisticStores.size)
+      GlobalQueue._clearOptimisticStores!(optimisticStores, completingTransition);
     sweepTransientStoreNodes();
     // Lanes only enter activeLanes through the engine's getOrCreateLane.
     if (activeLanes.size) GlobalQueue._cleanupLanes!(completingTransition);

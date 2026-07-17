@@ -85,7 +85,7 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
   // No revert target is stashed: while the override is active every reader
   // sees it (A17), so authoritative arrivals commit silently into _value and
   // reverting is just dropping the override — _value is already correct.
-  else globalQueue._batch._optimisticNodes.push(el);
+  else globalQueue._optimisticNodes.push(el);
 
   const lane = getOrCreateLane(el as Signal<any>);
   el._optimisticLane = lane;
@@ -309,8 +309,8 @@ function laneAsyncSettled(el: Computed<any>): void {
 }
 
 function trackOptimisticStore(store: any): void {
-  // After initTransition, globalQueue._batch IS activeTransition (same reference)
-  globalQueue._batch._optimisticStores.add(store);
+  // After initTransition, globalQueue._optimisticStores IS activeTransition._optimisticStores (same reference)
+  globalQueue._optimisticStores.add(store);
   schedule();
 }
 
