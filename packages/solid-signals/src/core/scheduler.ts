@@ -1,6 +1,5 @@
 import {
   CONFIG_IN_SNAPSHOT_SCOPE,
-  CONFIG_OPTIMISTIC,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -96,7 +95,7 @@ function sweepTransientStoreNodes(): void {
       continue;
     }
     if (node._pendingValue !== NOT_PENDING) continue;
-    if (node._config & CONFIG_OPTIMISTIC && node._overrideValue !== NOT_PENDING) continue;
+    if (node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING) continue;
     // A live affects() mark keeps the node addressable: sweeping it would
     // detach the refcount from the slot (a fresh probe would upsert a new,
     // unmarked node for the same property).

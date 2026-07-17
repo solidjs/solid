@@ -13,7 +13,8 @@ import {
   EFFECT_USER,
   NO_SNAPSHOT,
   NOT_PENDING,
-  CONFIG_OPTIMISTIC,
+  OVERRIDE_UNDEFINED,
+  unwrapOverride,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
@@ -193,7 +194,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
 
   let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
-  const hasOverride = !!(el._config & CONFIG_OPTIMISTIC) && el._overrideValue !== NOT_PENDING;
+  const hasOverride = el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING;
   const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
   // Re-ask classification lives in the verdict module; capture the flag before
   // the recompute wipes _flags below.
@@ -287,7 +288,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if (!el._error) {
     trimStaleDeps(el);
     const compareValue = hasOverride
-      ? el._overrideValue
+      ? unwrapOverride(el._overrideValue)
       : el._pendingValue === NOT_PENDING
         ? el._value
         : el._pendingValue;
@@ -332,7 +333,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // own reveal schedule; drop any superseded older hold so its queued
         // commit can't clobber the fresh value.
         if (hasOverride && isOptimisticDirty) {
-          el._overrideValue = value;
+          el._overrideValue = value === undefined ? OVERRIDE_UNDEFINED : value;
           el._pendingValue = NOT_PENDING;
         }
       } else {
@@ -627,7 +628,6 @@ export function signal<T>(
 
 export function optimisticSignal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
   const s = signal(v, options);
-  s._config |= CONFIG_OPTIMISTIC;
   s._overrideValue = NOT_PENDING;
   return s;
 }
@@ -637,7 +637,6 @@ export function optimisticComputed<T>(
   options?: NodeOptions<T>
 ): Computed<T> {
   const c = computed(fn, options);
-  c._config |= CONFIG_OPTIMISTIC;
   c._overrideValue = NOT_PENDING;
   return c;
 }
@@ -740,7 +739,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (
     !computed._fn &&
     owner === el &&
-    !(el._config & CONFIG_OPTIMISTIC) &&
+    el._overrideValue === undefined &&
     el._snapshotValue === undefined &&
     activeTransition === null &&
     currentOptimisticLane === null &&
@@ -861,11 +860,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       nodeName: (owner as any)?._name
     });
 
-  if (el._config & CONFIG_OPTIMISTIC && el._overrideValue !== NOT_PENDING) {
+  if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
     // An active override means the engine is installed (A17: the override IS
     // the value for every reader — that check itself stays right here).
     if (c && stale && GlobalQueue._readStashed!(el as Signal<any>)) return el._value as T;
-    return el._overrideValue as T;
+    return unwrapOverride<T>(el._overrideValue);
   }
 
   // Entanglement gate: a reader recomputing under an optimistic lane that reads
@@ -937,10 +936,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     globalQueue.initTransition(el._transition);
 
   // The optimistic write path lives with the engine: only optimisticSignal /
-  // optimisticComputed callers and optimistic store nodes carry the
-  // CONFIG_OPTIMISTIC brand, and every module that sets it installs the
+  // optimisticComputed callers and optimistic store nodes carry an
+  // _overrideValue slot, and every module that creates one installs the
   // engine first.
-  if (el._config & CONFIG_OPTIMISTIC && !projectionWriteActive)
+  if (el._overrideValue !== undefined && !projectionWriteActive)
     return GlobalQueue._optimisticWrite!(el, v);
 
   const currentValue = el._pendingValue === NOT_PENDING ? el._value : (el._pendingValue as T);

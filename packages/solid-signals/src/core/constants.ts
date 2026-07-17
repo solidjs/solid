@@ -27,16 +27,6 @@ export const CONFIG_IN_SNAPSHOT_SCOPE = 1 << 3;
 export const CONFIG_CHILDREN_FORBIDDEN = 1 << 4;
 export const CONFIG_AUTO_DISPOSE = 1 << 5;
 export const CONFIG_SYNC = 1 << 6;
-/**
- * Brands a node as optimistic (optimisticSignal/optimisticComputed callers and
- * optimistic store leaves). The brand used to live in the `_overrideValue`
- * slot itself (`undefined` = not optimistic), which made an optimistic write
- * of literal `undefined` erase the node's optimistic identity unless wrapped
- * in a sentinel (#2898). As a config bit the brand is write-once static state,
- * so `_overrideValue` is a plain two-state slot: `NOT_PENDING` = at rest,
- * anything else — including literal `undefined` — is the active override.
- */
-export const CONFIG_OPTIMISTIC = 1 << 7;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
@@ -50,7 +40,21 @@ export const EFFECT_TRACKED = 3;
 
 export const NOT_PENDING = {};
 export const NO_SNAPSHOT = {};
+/**
+ * Stand-in stored in `_overrideValue` for an optimistic write of literal
+ * `undefined` (#2898). The slot doubles as the optimistic-node brand
+ * (`undefined` = not optimistic, `NOT_PENDING` = at rest), so the raw value
+ * would erase the node's optimistic identity: the write turns invisible and
+ * follow-up writes route off the optimistic path and commit permanently.
+ * Same shape as NO_SNAPSHOT. Sites that surface the override VALUE unwrap
+ * via `visibleOverrideValue`; slot identity tests stay raw.
+ */
+export const OVERRIDE_UNDEFINED = {};
 
+/** Unwrap an active override's stored value for surfacing to readers (#2898). */
+export function unwrapOverride<T = any>(v: unknown): T {
+  return (v === OVERRIDE_UNDEFINED ? undefined : v) as T;
+}
 export const STORE_SNAPSHOT_PROPS = "sp";
 
 export const SUPPORTS_PROXY = typeof Proxy === "function";

@@ -4,8 +4,8 @@
  * never import isPending/latest never pay for any of it.
  */
 import {
-  CONFIG_OPTIMISTIC,
   NOT_PENDING,
+  unwrapOverride,
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
@@ -122,7 +122,7 @@ function computePendingState(el: Signal<any> | Computed<any>): boolean {
   }
   if (el._pendingValue !== NOT_PENDING && !(comp._statusFlags & STATUS_UNINITIALIZED)) {
     if (hasActiveOverride(el))
-      return !el._equals || !el._equals(el._pendingValue as any, el._overrideValue as any);
+      return !el._equals || !el._equals(el._pendingValue as any, unwrapOverride(el._overrideValue));
     return true;
   }
   return newQuestionInFlight(comp);
@@ -170,7 +170,7 @@ function repollDownstreamVerdicts(el: Computed<any>): void {
 
 function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
   const sig = owner._pendingSignal;
-  if (sig && sig._overrideValue === NOT_PENDING) {
+  if (sig && (sig._overrideValue === undefined || sig._overrideValue === NOT_PENDING)) {
     const pending = computePendingState(owner);
     if (sig._value !== pending || sig._pendingValue !== NOT_PENDING) {
       sig._value = pending;
@@ -183,7 +183,7 @@ function snapCompanionsToState(owner: Signal<any> | Computed<any>): void {
   const shadow = owner._latestValueComputed;
   if (shadow && !(shadow._flags & REACTIVE_DISPOSED)) {
     if (
-      shadow._overrideValue === NOT_PENDING &&
+      (shadow._overrideValue === undefined || shadow._overrideValue === NOT_PENDING) &&
       shadow._pendingValue === NOT_PENDING &&
       !Object.is(shadow._value, owner._value) &&
       !(shadow._flags & (REACTIVE_DIRTY | REACTIVE_CHECK))
@@ -220,7 +220,11 @@ function latestRead<T>(el: Signal<T> | Computed<T>): T {
   const pendingComputed = getLatestValueComputed(el);
   const prevPending = latestReadActive;
   setLatestReadActive(false);
-  const visibleValue = (hasActiveOverride(el) ? el._overrideValue : el._value) as T;
+  const visibleValue = (
+    el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING
+      ? unwrapOverride(el._overrideValue)
+      : el._value
+  ) as T;
   let value: T;
   try {
     value = read(pendingComputed);
