@@ -1,4 +1,4 @@
-import { STATUS_PENDING, STATUS_UNINITIALIZED, unwrapOverride } from "../core/constants.js";
+import { CONFIG_OPTIMISTIC, STATUS_PENDING, STATUS_UNINITIALIZED } from "../core/constants.js";
 import {
   pendingCheckActive,
   snapshotCaptureActive,
@@ -278,8 +278,8 @@ export function getOverlayLayer(
  * override, else held pending value, else committed value.
  */
 export function visibleNodeValue(node: DataNode): any {
-  return node._overrideValue !== undefined && node._overrideValue !== NOT_PENDING
-    ? unwrapOverride(node._overrideValue)
+  return node._config & CONFIG_OPTIMISTIC && node._overrideValue !== NOT_PENDING
+    ? node._overrideValue
     : node._pendingValue !== NOT_PENDING
       ? node._pendingValue
       : node._value;
@@ -349,6 +349,7 @@ function getNode<T>(
     target[STORE_FIREWALL] as Computed<T> | undefined
   );
   if (target[STORE_OPTIMISTIC]) {
+    s._config |= CONFIG_OPTIMISTIC;
     s._overrideValue = NOT_PENDING;
   }
   if (snapshotProps && property in snapshotProps) {
