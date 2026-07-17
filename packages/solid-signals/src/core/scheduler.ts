@@ -819,7 +819,7 @@ function runQueue(queue: QueueCallback[], type: number): void {
 
 function reporterBlocksSource(reporter: Computed<any>, source: Computed<any>): boolean {
   if (reporter._flags & (REACTIVE_ZOMBIE | REACTIVE_DISPOSED)) return false;
-  if (reporter._pendingSource === source || reporter._pendingSources?.has(source)) return true;
+  if (reporter._pendingSources?.has(source)) return true;
   for (let dep = reporter._deps; dep; dep = dep._nextDep) {
     let current = dep._dep as Signal<any> | Computed<any> | undefined;
     while (current) {

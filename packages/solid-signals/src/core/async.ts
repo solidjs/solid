@@ -32,40 +32,24 @@ import {
 } from "./scheduler.js";
 import type { Computed, FirewallSignal, Link } from "./types.js";
 
+// The lazily-created Set is the ONE container for pending sources. Its
+// predecessor — a singular slot promoted to a Set on the second source —
+// created dual state whose migration invariant was easy to break: a third
+// overlapping source landed beside the Set and removePendingSource refused
+// to clear it, stranding the Set members' pending forever (#2893).
 export function addPendingSource(el: Computed<any>, source: Computed<any>): boolean {
-  if (el._pendingSource === source || el._pendingSources?.has(source)) return false;
-  // Once the Set exists it is THE container — the singular slot stays empty
-  // from migration until removePendingSource collapses back to one entry.
-  // Landing a third source in the singular slot instead created dual state
-  // that removePendingSource refused to clear, stranding the Set members'
-  // pending forever (#2893).
-  if (el._pendingSources) el._pendingSources.add(source);
-  else if (!el._pendingSource) el._pendingSource = source;
-  else {
-    el._pendingSources = new Set([el._pendingSource, source]);
-    el._pendingSource = undefined;
-  }
+  if (el._pendingSources?.has(source)) return false;
+  (el._pendingSources ??= new Set()).add(source);
   return true;
 }
 
 function removePendingSource(el: Computed<any>, source: Computed<any>): boolean {
-  if (el._pendingSource) {
-    if (el._pendingSource !== source) return false;
-    el._pendingSource = undefined;
-    return true;
-  }
   if (!el._pendingSources?.delete(source)) return false;
-  if (el._pendingSources.size === 1) {
-    el._pendingSource = el._pendingSources.values().next().value;
-    el._pendingSources = undefined;
-  } else if (el._pendingSources.size === 0) {
-    el._pendingSources = undefined;
-  }
+  if (el._pendingSources.size === 0) el._pendingSources = undefined;
   return true;
 }
 
 function clearPendingSources(el: Computed<any>): void {
-  el._pendingSource = undefined;
   el._pendingSources?.clear();
   el._pendingSources = undefined;
 }
@@ -120,7 +104,7 @@ export function settlePendingSource(
     if (visited.has(node) || !removePendingSource(node, source)) return;
     visited.add(node);
     node._time = clock;
-    const remaining = node._pendingSource ?? node._pendingSources?.values().next().value;
+    const remaining = node._pendingSources?.values().next().value;
     if (remaining) {
       setPendingError(node, remaining);
       updateCompanions !== null && updateCompanions(node);
@@ -393,7 +377,7 @@ export function handleAsync<T>(
 }
 
 export function clearStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
-  if (el._pendingSource || el._pendingSources) clearPendingSources(el);
+  if (el._pendingSources) clearPendingSources(el);
   if (el._blocked) el._blocked = false;
   // The pending window is over; its quiet classification dies with it.
   // (Unconditional: _reask is baked into the node literals, so this is a
@@ -482,12 +466,8 @@ export function notifyStatus(
   forEachDependent(el, (sub, link) => {
     sub._time = clock;
     if (
-      (status === STATUS_PENDING &&
-        pendingSource &&
-        sub._pendingSource !== pendingSource &&
-        !sub._pendingSources?.has(pendingSource)) ||
-      (status !== STATUS_PENDING &&
-        (sub._error !== error || sub._pendingSource || sub._pendingSources))
+      (status === STATUS_PENDING && pendingSource && !sub._pendingSources?.has(pendingSource)) ||
+      (status !== STATUS_PENDING && (sub._error !== error || sub._pendingSources))
     ) {
       // A pending-observer link is the subscription an `isPending` read created.
       // It exists so the observer re-runs when the source settles, but it must

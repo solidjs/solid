@@ -91,7 +91,6 @@ function quietPending(el: Computed<any>): boolean {
     for (const source of el._pendingSources) if (!source._reask) return false;
     return true;
   }
-  if (el._pendingSource) return el._pendingSource._reask;
   return el._reask;
 }
 

@@ -103,7 +103,6 @@ export interface Computed<T> extends RawSignal<T>, Owner {
   _depGen: number;
   _flags: number;
   _blocked?: boolean;
-  _pendingSource?: Computed<any>;
   _pendingSources?: Set<Computed<any>>;
   _error?: unknown;
   _statusFlags: number;
