@@ -117,7 +117,7 @@ function markAffects(node: MarkedNode): void {
 /**
  * Registers one `affects()` mark on a node: counts it, records the
  * registration with the current transaction (after initTransition the queue's
- * array aliases the active transition's, mirroring `_optimisticNodes`), and
+ * batch IS the active transition, mirroring `_optimisticNodes`), and
  * propagates STATUS_PENDING downstream on the status rails so everything
  * DERIVED from the marked data reads pending too. Propagation runs on every
  * registration (not just the first): subscribers gained since an earlier
@@ -125,7 +125,7 @@ function markAffects(node: MarkedNode): void {
  */
 function registerAffectsMark(node: MarkedNode): void {
   markAffects(node);
-  globalQueue._affectsNodes.push(node);
+  globalQueue._batch._affectsNodes.push(node);
   propagateAffectsMark(node);
   schedule();
 }
