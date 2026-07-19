@@ -22,6 +22,7 @@ import {
 } from "../src/client/hydration.js";
 import { lazy } from "../src/client/component.js";
 import { Errored, Loading } from "../src/client/flow.js";
+import { $$component, $$registry } from "../src/refresh/index.js";
 
 // Enable the hydration-aware wrappers
 enableHydration();
@@ -65,6 +66,35 @@ function stopHydration() {
   (sharedConfig as any).cleanupFragment = undefined;
   (sharedConfig as any).loadModuleAssets = undefined;
 }
+
+describe("Refresh registration during hydration", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("registers a component without a reactive owner", () => {
+    startHydration({});
+
+    const proxy = $$component($$registry(), "LazyComponent", () => "content");
+
+    expect(proxy({})).toBe("content");
+  });
+
+  test("does not consume a hydration child id", () => {
+    startHydration({ t0: "server" });
+
+    let result: unknown;
+    createRoot(
+      () => {
+        $$component($$registry(), "Component", () => "component");
+        result = createMemo(() => "client")();
+      },
+      { id: "t" }
+    );
+
+    expect(result).toBe("server");
+  });
+});
 
 describe("Error Boundary Hydration", () => {
   afterEach(() => {

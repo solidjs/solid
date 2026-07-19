@@ -176,16 +176,15 @@ export function $$component<P extends Record<string, any>>(
 ): (props: P) => SolidElement {
   if (!IS_DEV) return component;
   let current = component;
-  // A writable memo: `createSignal(fn)` in 2.0 computes its value from `fn`
-  // on first read and accepts updater writes. `current` mirrors the latest
-  // component so a recompute (which has no dependencies) stays consistent.
-  const [comp, setComp] = createSignal<(props: P) => SolidElement>(() => current);
+  // Keep the component inside a plain signal so module-level registration is
+  // never treated as a hydration-aware computation.
+  const [comp, setComp] = createSignal({ current });
   const update = (action: () => (props: P) => SolidElement): void => {
     current = action();
-    setComp(() => current);
+    setComp({ current });
   };
   const instances: LiveInstances = { count: 0 };
-  const proxy = createProxy(comp, id, instances, options.location);
+  const proxy = createProxy(() => comp().current, id, instances, options.location);
   registry.components.set(id, {
     id,
     component,
