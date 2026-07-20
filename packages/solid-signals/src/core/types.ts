@@ -66,19 +66,14 @@ export interface RawSignal<T> {
   _parentSource?: Signal<any> | Computed<any>; // Back-reference for parent-child lane relationship
   /**
    * Live `affects()` marks on this node (refcount). Non-zero is declared
-   * motion: the node reads pending regardless of graph state, until every
-   * declaring transaction settles/reverts and releases its mark.
+   * motion: the node — and, via the verdict layer's dep-graph coverage walk,
+   * everything derived from it — reads pending regardless of graph state,
+   * until every declaring transaction settles/reverts and releases its mark.
+   * This count is the mark's ONLY graph state: the dedicated channel stores
+   * nothing downstream and never touches status flags, errors, or pending
+   * sources.
    */
   _affectsCount?: number;
-  /**
-   * The mark's identity on the pending-source rails (lazy, see
-   * `getAffectsSentinel`). Downstream subscribers hold it in
-   * `_pendingSources` exactly like a real in-flight source, but with its own
-   * identity so a landing or quiet re-ask on the node itself can't clear it.
-   */
-  _affectsSentinel?: Computed<any>;
-  /** Set only on sentinels: the marked node this sentinel stands for. */
-  _affectsFor?: Signal<any> | Computed<any>;
 }
 
 export interface FirewallSignal<T> extends RawSignal<T> {

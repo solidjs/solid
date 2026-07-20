@@ -153,12 +153,7 @@ function transitionBlocked(transition: Transition): boolean {
       hasActiveOverride(node) &&
       "_statusFlags" in node &&
       (node as Computed<any>)._statusFlags & STATUS_PENDING &&
-      (node as Computed<any>)._error instanceof NotReadyError &&
-      // Mark-sourced pending never blocks settlement: affects() releases AT
-      // settle, so counting its sentinel here would deadlock the window it
-      // is scoped to.
-      !(((node as Computed<any>)._error as NotReadyError).source as Computed<any> | undefined)
-        ?._affectsFor
+      (node as Computed<any>)._error instanceof NotReadyError
     ) {
       return true;
     }

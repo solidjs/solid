@@ -23,6 +23,13 @@
  * ```
  */
 export class NotReadyError extends Error {
+  /**
+   * Tags a visibility-only notification on the affects() boundary channel:
+   * boundaries update display state from it, but the root queue never
+   * registers a reporter — marks are invisible to completion accounting by
+   * construction.
+   */
+  declare _markVisual?: boolean;
   constructor(public source: any) {
     super();
   }

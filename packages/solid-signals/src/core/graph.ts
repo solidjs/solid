@@ -58,9 +58,14 @@ export function link(
   sub: Computed<any>,
   pendingObserver: boolean = false
 ) {
+  // Repeat touches within one pass AND-combine `_pendingObserver`: a probe
+  // read (`isPending(() => x())`) beside a value read of the same dep must
+  // not relabel the value dependency as probe-only — the value read is what
+  // real-error propagation and affects() coverage key off, regardless of
+  // read order within the computation.
   const prevDep = sub._depsTail;
   if (prevDep !== null && prevDep._dep === dep) {
-    prevDep._pendingObserver = pendingObserver;
+    prevDep._pendingObserver &&= pendingObserver;
     return;
   }
 
@@ -71,6 +76,7 @@ export function link(
     if (nextDep !== null && nextDep._dep === dep) {
       nextDep._gen = sub._depGen;
       sub._depsTail = nextDep;
+      // First touch of this pass: the previous pass's label is stale.
       nextDep._pendingObserver = pendingObserver;
       return;
     }
@@ -87,7 +93,10 @@ export function link(
     prevSub._sub === sub &&
     (!isRecomputing || prevSub._gen === sub._depGen)
   ) {
-    prevSub._pendingObserver = pendingObserver;
+    // Gen-matched during a recompute = repeat touch this pass (AND); outside
+    // a recompute there is no pass boundary, so the latest read labels it.
+    if (isRecomputing) prevSub._pendingObserver &&= pendingObserver;
+    else prevSub._pendingObserver = pendingObserver;
     return;
   }
 
