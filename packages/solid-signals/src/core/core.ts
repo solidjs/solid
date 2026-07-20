@@ -861,9 +861,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     });
 
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
-    // An active override means the engine is installed (A17: the override IS
-    // the value for every reader — that check itself stays right here).
-    if (c && stale && GlobalQueue._readStashed!(el as Signal<any>)) return el._value as T;
+    // A17: the override IS the value for every reader.
     return unwrapOverride<T>(el._overrideValue);
   }
 

@@ -398,11 +398,9 @@ export class GlobalQueue extends Queue {
   static _optimisticWrite: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
     null;
   static _resolveOptimistic: ((nodes: OptimisticNode[]) => void) | null = null;
-  static _stashOptimistic: ((stashedTransition: Transition) => void) | null = null;
   static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
   static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;
   static _runLaneEffects: ((type: number) => void) | null = null;
-  static _readStashed: ((el: Signal<any>) => boolean) | null = null;
   static _gatedRead:
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
@@ -447,18 +445,7 @@ export class GlobalQueue extends Queue {
           scheduled = dirtyQueue._max >= dirtyQueue._min || this._batch._pendingNodes.length > 0;
           reassignPendingTransition(stashedTransition._pendingNodes);
           activeTransition = null;
-          // The stash pass (committed-view rerun of plain optimistic signals)
-          // wraps finalizePureQueue in the engine; a non-empty _optimisticNodes
-          // means _optimisticWrite ran, which installed the hook.
-          if (
-            !stashedTransition._actions.length &&
-            !stashedTransition._asyncReporters.size &&
-            stashedTransition._optimisticNodes.length
-          ) {
-            GlobalQueue._stashOptimistic!(stashedTransition);
-          } else {
-            finalizePureQueue(null, true);
-          }
+          finalizePureQueue(null, true);
           return;
         }
         const completingTransition = activeTransition;
