@@ -88,20 +88,13 @@ export function forEachDependent(
 // settles and when an `isPending` observer must re-evaluate after a real error):
 // shared scheduling helper in heap.ts (tracked effects bypass the heap).
 
-export function settlePendingSource(
-  el: Computed<any>,
-  source: Computed<any> = el,
-  // Mark release runs inside queue finalization: companion writes must go
-  // through the settlement snap (committed), because a setSignal here would
-  // open a fresh transition-scoped override window that nothing reverts.
-  snap: boolean = false
-): void {
+export function settlePendingSource(el: Computed<any>): void {
   let scheduled = false;
   const visited = new Set<Computed<any>>();
-  // Companion updates no-op without the verdict layer (null hooks).
-  const updateCompanions = snap ? GlobalQueue._snapCompanions : GlobalQueue._updatePendingSignal;
+  // Companion updates no-op without the verdict layer (null hook).
+  const updateCompanions = GlobalQueue._updatePendingSignal;
   const settle = (node: Computed<any>) => {
-    if (visited.has(node) || !removePendingSource(node, source)) return;
+    if (visited.has(node) || !removePendingSource(node, el)) return;
     visited.add(node);
     node._time = clock;
     const remaining = node._pendingSources?.values().next().value;
@@ -410,18 +403,6 @@ export function notifyStatus(
 
   const pendingSource =
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
-  // Mark-sourced propagation must not capture subscribers into the marking
-  // action's transaction (#2893): they carry no held value needing a
-  // transition-scheduled commit, and stamping `_transition` on them would
-  // freeze unrelated writes that share a downstream memo until the action
-  // settles. Real async keeps queuing (its commits ride the transition).
-  const markSourced = pendingSource?._affectsFor !== undefined;
-  // A real error is a settled verdict a mark must not erase (#2893): landing
-  // STATUS_PENDING here would clobber `_error` with the sentinel's
-  // NotReadyError, and unlike real async there is no arriving value whose
-  // recompute would surface the error again. Descent stops too — everything
-  // downstream holds the propagated error for the same reason.
-  if (markSourced && el._statusFlags & STATUS_ERROR) return;
   const isSource = pendingSource === el;
   const isOptimisticBoundary =
     status === STATUS_PENDING && el._overrideValue !== undefined && !isSource;
@@ -479,7 +460,7 @@ export function notifyStatus(
         schedule();
         return;
       }
-      if (!downstreamBlockStatus && !markSourced && !sub._transition) queuePendingNode(sub);
+      if (!downstreamBlockStatus && !sub._transition) queuePendingNode(sub);
       notifyStatus(sub, status, error, downstreamBlockStatus, downstreamLane);
     }
   });

@@ -55,7 +55,6 @@ import {
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, markDisposal } from "./owner.js";
 import {
-  activeAffectsMarks,
   activeTransition,
   armReaskClear,
   clock,
@@ -101,18 +100,6 @@ export let pendingCheckActive = false;
 export let latestReadActive = false;
 export let context: Owner | null = null;
 export let currentOptimisticLane: OptimisticLane | null = null;
-
-/**
- * Marked sources read by the recompute currently on the stack (saved/restored
- * per recompute, like `context`). A computed that reads a node with a live
- * `affects()` mark inherits the mark's pendingness — `recompute` applies the
- * collected sources through `applyAffectsReads` after its commit, because the
- * `clearStatus` at the top of the commit path wipes whatever sentinel entries
- * the node held from the registration-time push. This is the pull half of
- * mark propagation (real async re-establishes itself by re-throwing on read;
- * marks are value-transparent, so they re-establish here instead).
- */
-let affectsReads: (Signal<any> | Computed<any>)[] | null = null;
 
 export let snapshotCaptureActive = false;
 export let snapshotSources: Set<any> | null = null;
@@ -209,9 +196,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let value = el._pendingValue === NOT_PENDING ? el._value : el._pendingValue;
   let oldHeight = el._height;
   let prevTracking = tracking;
-  const prevAffectsReads = affectsReads;
-  affectsReads = null;
-  let markedReads: (Signal<any> | Computed<any>)[] | null = null;
   let prevLane = currentOptimisticLane;
   let prevStrictRead: string | false = false;
   if (__DEV__) {
@@ -281,8 +265,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (isStaleEffect) stale = prevStale;
     el._flags = REACTIVE_NONE | (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
-    markedReads = affectsReads;
-    affectsReads = prevAffectsReads;
   }
 
   if (!el._error) {
@@ -364,28 +346,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     }
   }
   currentOptimisticLane = prevLane;
-  // Marks read during this recompute re-attach after the commit above:
-  // earlier, the sentinel's NotReadyError in `_error` would have routed the
-  // fresh value into the error-skip branch instead of committing it. A real
-  // (non-NotReady) error wins over marks (#2893): applying the sentinel here
-  // would clobber the user's error with a NotReadyError from a node whose
-  // reads value-transparency promises can never throw NotReady.
-  // `markedReads` only collects under a live mark, so the hook is installed.
-  if (markedReads && !(el._statusFlags & STATUS_ERROR))
-    GlobalQueue._applyAffectsReads!(el, markedReads);
-  // Mark-only pending doesn't queue (#2893): the node holds no value needing
-  // a transition-scheduled commit, and queueing would stamp the marking
-  // action's transaction onto it — freezing unrelated writes that share it.
-  // (Single mask test up front keeps the mark-free hot path at original cost.)
-  const pendFlags = el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED);
   const needsPendingCommit =
     el._pendingValue !== NOT_PENDING ||
     el._pendingFirstChild !== null ||
     el._pendingDisposal !== null ||
-    (pendFlags !== 0 &&
-      (pendFlags !== STATUS_PENDING ||
-        activeAffectsMarks === 0 ||
-        !GlobalQueue._onlyMarkPending!(el)));
+    (el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) !== 0;
   // Override-covered holds (hasOverride) always queue: their commit belongs
   // to their own transition's schedule (A18 re-rule) and is unobservable
   // under the override (A17). Revert no longer commits anything, so an
@@ -746,14 +711,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !snapshotCaptureActive &&
     (!__DEV__ || !strictRead)
   ) {
-    if (c && tracking) {
-      link(el, c as Computed<any>);
-      // A live mark on a read source flows to the reader (probe reads are
-      // excluded: the probe's own collection owns that verdict, and marking
-      // the enclosing memo would make an `isPending` wrapper itself pending).
-      if (activeAffectsMarks !== 0 && el._affectsCount && !pendingCheckActive)
-        (affectsReads ??= []).push(el);
-    }
+    if (c && tracking) link(el, c as Computed<any>);
     return (!c || el._pendingValue === NOT_PENDING ? el._value : el._pendingValue) as T;
   }
 
@@ -766,16 +724,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 
   if (c && tracking) {
     link(el, c as Computed<any>, pendingCheckActive);
-    // Mark inheritance through derivation (see the fast path above), and its
-    // transitive half (#2893): a mark-pended owner's sentinel sources flow to
-    // the reader like a direct mark — value-transparent reads have no throw
-    // to re-establish through, so without this a mid-window recompute sheds
-    // pendingness permanently past one derivation level.
-    if (activeAffectsMarks !== 0 && !pendingCheckActive) {
-      if (el._affectsCount) (affectsReads ??= []).push(el);
-      if (owner._statusFlags & STATUS_PENDING)
-        GlobalQueue._collectMarkSources!(owner as Computed<any>, (affectsReads ??= []));
-    }
 
     if ((owner as Computed<unknown>)._fn) {
       const elQueue = queueFor(el as Computed<unknown>);
@@ -792,16 +740,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
   }
 
-  // Mark-only pending never suspends the reader (#2886): an affects() mark is
-  // a promise of change, not an absence of value, so a derived node whose only
-  // pending sources are mark sentinels keeps its real value readable —
-  // pendingness reaches readers through verdicts (isPending), not throws.
-  // (`activeAffectsMarks` gates the source scan off the mark-free hot path;
-  // sentinels can't survive in pending sources past their last release.)
-  if (
-    owner._statusFlags & STATUS_PENDING &&
-    !(activeAffectsMarks !== 0 && GlobalQueue._onlyMarkPending!(owner as Computed<any>))
-  ) {
+  if (owner._statusFlags & STATUS_PENDING) {
     if (c && !(stale && owner._transition && activeTransition !== owner._transition)) {
       if (__DEV__ && c && c._config & CONFIG_CHILDREN_FORBIDDEN) {
         const message =
@@ -861,9 +800,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     });
 
   if (el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING) {
-    // An active override means the engine is installed (A17: the override IS
-    // the value for every reader — that check itself stays right here).
-    if (c && stale && GlobalQueue._readStashed!(el as Signal<any>)) return el._value as T;
+    // A17: the override IS the value for every reader.
     return unwrapOverride<T>(el._overrideValue);
   }
 

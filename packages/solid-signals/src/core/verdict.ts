@@ -10,7 +10,9 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_MANUAL_WRITE,
+  REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -39,6 +41,7 @@ import { devTrackCompanionOwner, InvariantHooks } from "./invariants.js";
 import { findLane, hasActiveOverride } from "./lanes.js";
 import { installOptimisticEngine } from "./optimistic.js";
 import {
+  activeAffectsMarks,
   activeTransition,
   clock,
   dirtyQueue,
@@ -94,6 +97,51 @@ function witnessAffects(node: Signal<any> | Computed<any>): void {
   pendingProbe?.sources.add(node);
 }
 
+/**
+ * The affects() coverage walk — the read half of the dedicated mark channel.
+ * A node is covered by a live mark iff it carries one (`_affectsCount`) or
+ * derives, through its CURRENT deps (hopping store firewalls), from a node
+ * that does. Pull-based coverage means graph rewires, mid-window recomputes,
+ * and probe-triggered recomputes can never strand or strip a mark — there is
+ * nothing stored downstream to corrupt. Probe-created links
+ * (`_pendingObserver`) are skipped so an `isPending` wrapper memo never
+ * inherits the coverage it reports on.
+ */
+function markWalk(
+  el: Signal<any> | Computed<any>,
+  seen: Set<Signal<any> | Computed<any>>
+): boolean {
+  if (el._affectsCount) return true;
+  // A real error outranks an inherited mark (A16/A24c): an errored node
+  // answers probes with its error, not a coverage verdict, and coverage does
+  // not flow through it — matching the rails' behavior, where propagation
+  // stopped at errored nodes. A DIRECT mark on an errored node still reads
+  // pending (the count check above), also matching.
+  if ((el as Computed<any>)._statusFlags & STATUS_ERROR) return false;
+  if (seen.has(el)) return false;
+  seen.add(el);
+  const firewall = (el as FirewallSignal<any>)._firewall;
+  if (firewall && markWalk(firewall, seen)) return true;
+  // Mid-recompute (the clearStatus companion poke runs before
+  // trimStaleDeps), only the validated prefix [_deps.._depsTail] is this
+  // pass's dependency set — walking past it would read dropped deps and
+  // latch a stale verdict on the companion.
+  const comp = el as Computed<any>;
+  const tail = comp._flags & REACTIVE_RECOMPUTING_DEPS ? comp._depsTail : undefined;
+  if (tail !== null) {
+    for (let d = comp._deps ?? null; d !== null; d = d._nextDep) {
+      if (!d._pendingObserver && markWalk(d._dep, seen)) return true;
+      if (d === tail) break;
+    }
+  }
+  return false;
+}
+
+/** Gated entry: apps with no live mark pay one integer compare. */
+function markCovered(el: Signal<any> | Computed<any>): boolean {
+  return activeAffectsMarks !== 0 && markWalk(el, new Set());
+}
+
 function quietPending(el: Computed<any>): boolean {
   if (el._pendingSources) {
     for (const source of el._pendingSources) if (!source._reask) return false;
@@ -113,11 +161,13 @@ function newQuestionInFlight(comp: Computed<any>): boolean {
 function computePendingState(el: Signal<any> | Computed<any>): boolean {
   const comp = el as Computed<any>;
   if (comp._flags & REACTIVE_DISPOSED) return false;
-  if (el._affectsCount) return true;
+  // Mark coverage is transitive by dep-graph reachability: a latest() shadow
+  // reaches its owner (and a store leaf its firewall) through its own deps,
+  // so the one walk covers direct marks, derivation, and companion chains.
+  if (markCovered(el)) return true;
   const firewall = (el as FirewallSignal<any>)._firewall;
   if (el._parentSource) {
     const parentNode = el._parentSource as FirewallSignal<any>;
-    if (parentNode._affectsCount) return true;
     const parent = (parentNode._firewall || parentNode) as Computed<any>;
     return newQuestionInFlight(parent);
   }
@@ -158,12 +208,22 @@ function updateChildCompanions(el: Computed<any>): void {
   }
 }
 
-function repollDownstreamVerdicts(el: Computed<any>): void {
+/**
+ * Re-derive every verdict companion downstream of `el` (subs + firewall
+ * children, dedup'd). The affects() channel's poke walk: registration and
+ * re-ask flips use the live write path (companion setSignal — its own lane
+ * lets the wake escape an incomplete transition's effect stash, #2887);
+ * mark release passes `snap` because it runs inside queue finalization,
+ * where companion writes must land committed (a setSignal there would open
+ * a fresh override window that nothing settles).
+ */
+function repollDownstreamVerdicts(el: Computed<any>, snap: boolean = false): void {
+  const update = snap ? snapCompanionsToState : updatePendingSignal;
   const visited = new Set<Signal<any> | Computed<any>>();
   const visit = (node: Signal<any> | Computed<any>) => {
     if (visited.has(node)) return;
     visited.add(node);
-    if (node._pendingSignal || node._latestValueComputed) updatePendingSignal(node);
+    if (node._pendingSignal || node._latestValueComputed) update(node);
     for (let s = node._subs; s !== null; s = s._nextSub) visit(s._sub);
     for (
       let child: FirewallSignal<any> | null = (node as Computed<any>)._child ?? null;

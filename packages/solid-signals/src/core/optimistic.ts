@@ -12,9 +12,7 @@
  * once the gate holds — the same late-binding contract as verdict.ts.
  */
 import {
-  CONFIG_OWNED_WRITE,
   EFFECT_RENDER,
-  EFFECT_TRACKED,
   EFFECT_USER,
   NOT_PENDING,
   OVERRIDE_UNDEFINED,
@@ -27,7 +25,6 @@ import {
 } from "./constants.js";
 import { currentOptimisticLane, latestReadActive, stale } from "./core.js";
 import { NotReadyError } from "./error.js";
-import { enqueueSub } from "./heap.js";
 import { devCheckMergedLaneEmpty, devTrackOptimistic } from "./invariants.js";
 import {
   activeLanes,
@@ -43,23 +40,16 @@ import {
 import {
   activeTransition,
   clock,
-  dirtyQueue,
-  finalizePureQueue,
   GlobalQueue,
   globalQueue,
   insertSubs,
   schedule,
-  zombieQueue,
   type QueueCallback,
   type Transition
 } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
 
 type OptimisticNode = Signal<any> | Computed<any>;
-
-// When a background transition is stashed, plain optimistic signals need one
-// committed-view rerun. Keep that override local to the stash flush.
-let stashedOptimisticReads: Set<Signal<any>> | null = null;
 
 /** The optimistic half of setSignal, fired when `_overrideValue !== undefined`. */
 function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
@@ -110,37 +100,6 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
   return v;
 }
 
-function readStashed(node: Signal<any>): boolean {
-  return !!stashedOptimisticReads?.has(node);
-}
-
-function queueStashedOptimisticEffects(node: Signal<any>): void {
-  for (let s = node._subs; s !== null; s = s._nextSub) {
-    const sub = s._sub as any;
-    if (!sub._type) continue;
-    enqueueSub(sub);
-  }
-}
-
-/**
- * Incomplete-transition finalization when the stashed transition holds
- * optimistic nodes: give plain optimistic signals one committed-view rerun.
- */
-function stashOptimistic(stashedTransition: Transition): void {
-  stashedOptimisticReads = new Set();
-  for (let i = 0; i < stashedTransition._optimisticNodes.length; i++) {
-    const node = stashedTransition._optimisticNodes[i];
-    if ((node as any)._fn || node._config & CONFIG_OWNED_WRITE) continue;
-    stashedOptimisticReads.add(node as Signal<any>);
-    queueStashedOptimisticEffects(node as Signal<any>);
-  }
-  try {
-    finalizePureQueue(null, true);
-  } finally {
-    stashedOptimisticReads = null;
-  }
-}
-
 /**
  * transitionComplete's override blockage: a settling transition stays open
  * while one of its optimistic nodes holds an active override that is still
@@ -153,12 +112,7 @@ function transitionBlocked(transition: Transition): boolean {
       hasActiveOverride(node) &&
       "_statusFlags" in node &&
       (node as Computed<any>)._statusFlags & STATUS_PENDING &&
-      (node as Computed<any>)._error instanceof NotReadyError &&
-      // Mark-sourced pending never blocks settlement: affects() releases AT
-      // settle, so counting its sentinel here would deadlock the window it
-      // is scoped to.
-      !(((node as Computed<any>)._error as NotReadyError).source as Computed<any> | undefined)
-        ?._affectsFor
+      (node as Computed<any>)._error instanceof NotReadyError
     ) {
       return true;
     }
@@ -334,11 +288,9 @@ export function installOptimisticEngine(): void {
   if (GlobalQueue._optimisticWrite !== null) return;
   GlobalQueue._optimisticWrite = optimisticWrite;
   GlobalQueue._resolveOptimistic = resolveOptimisticNodes;
-  GlobalQueue._stashOptimistic = stashOptimistic;
   GlobalQueue._transitionBlocked = transitionBlocked;
   GlobalQueue._cleanupLanes = cleanupCompletedLanes;
   GlobalQueue._runLaneEffects = runLaneEffects;
-  GlobalQueue._readStashed = readStashed;
   GlobalQueue._gatedRead = gatedRead;
   GlobalQueue._laneSuspends = laneSuspends;
   GlobalQueue._laneReadsCommitted = laneReadsCommitted;

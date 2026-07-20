@@ -339,9 +339,14 @@ export class CollectionQueue extends Queue {
   }
   _checkSources() {
     for (const source of this._sources) {
+      // A source with a live affects() mark holds display state for the
+      // mark's lifetime (the visual channel): the marked node carries no
+      // status of its own, so the count is the liveness test. The release
+      // sweep (finalizePureQueue after mark release) re-runs this check.
       if (
         source._flags & REACTIVE_DISPOSED ||
-        (!(source._statusFlags & this._collectionType) &&
+        (!source._affectsCount &&
+          !(source._statusFlags & this._collectionType) &&
           !(this._collectionType & STATUS_ERROR && source._statusFlags & STATUS_PENDING))
       )
         this._sources.delete(source);

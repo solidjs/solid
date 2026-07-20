@@ -350,17 +350,12 @@ export class GlobalQueue extends Queue {
   // _clearOptimisticStore).
   static _releaseAffectsScope: ((node: OptimisticNode) => void) | null = null;
   // affects()-side hooks (wired by affects.ts, mirroring _update): the mark
-  // engine — count/register/release plus the post-commit re-application of
-  // marked reads — lives with the feature. Every call site is gated by state
-  // only that module creates, so `!` invocations are safe once the gate holds.
-  static _applyAffectsReads:
-    | ((el: Computed<any>, sources: (Signal<any> | Computed<any>)[]) => void)
-    | null = null;
+  // engine — count/register/release — lives with the feature. Every call site
+  // is gated by state only that module creates, so `!` invocations are safe
+  // once the gate holds.
   static _releaseAffectsMarks: ((nodes: OptimisticNode[]) => void) | null = null;
   static _markAffects: ((node: OptimisticNode) => void) | null = null;
   static _releaseAffectsMark: ((node: OptimisticNode) => void) | null = null;
-  static _onlyMarkPending: ((el: Computed<any>) => boolean) | null = null;
-  static _collectMarkSources: ((el: Computed<any>, into: OptimisticNode[]) => void) | null = null;
   // External-source bridge (wired by enableExternalSource(); null while no
   // config is active — including after _resetExternalSourceConfig()).
   static _wireExternalSource: ((self: Computed<any>) => void) | null = null;
@@ -386,7 +381,7 @@ export class GlobalQueue extends Queue {
     | null = null;
   static _recordFresh: ((el: OptimisticNode, value: any) => void) | null = null;
   static _applyReask: ((el: Computed<any>, hadReask: boolean) => boolean) | null = null;
-  static _repollVerdicts: ((el: Computed<any>) => void) | null = null;
+  static _repollVerdicts: ((el: Computed<any>, snap?: boolean) => void) | null = null;
   static _witnessAffects: ((node: OptimisticNode) => void) | null = null;
   // Optimistic-engine hooks (wired by core/optimistic.ts via
   // installOptimisticEngine(), called from verdict.ts / createOptimistic /
@@ -398,11 +393,9 @@ export class GlobalQueue extends Queue {
   static _optimisticWrite: (<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)) => T) | null =
     null;
   static _resolveOptimistic: ((nodes: OptimisticNode[]) => void) | null = null;
-  static _stashOptimistic: ((stashedTransition: Transition) => void) | null = null;
   static _transitionBlocked: ((transition: Transition) => boolean) | null = null;
   static _cleanupLanes: ((completingTransition: Transition | null) => void) | null = null;
   static _runLaneEffects: ((type: number) => void) | null = null;
-  static _readStashed: ((el: Signal<any>) => boolean) | null = null;
   static _gatedRead:
     | ((el: Signal<any>, owner: OptimisticNode, c: Computed<any>) => boolean)
     | null = null;
@@ -447,18 +440,7 @@ export class GlobalQueue extends Queue {
           scheduled = dirtyQueue._max >= dirtyQueue._min || this._batch._pendingNodes.length > 0;
           reassignPendingTransition(stashedTransition._pendingNodes);
           activeTransition = null;
-          // The stash pass (committed-view rerun of plain optimistic signals)
-          // wraps finalizePureQueue in the engine; a non-empty _optimisticNodes
-          // means _optimisticWrite ran, which installed the hook.
-          if (
-            !stashedTransition._actions.length &&
-            !stashedTransition._asyncReporters.size &&
-            stashedTransition._optimisticNodes.length
-          ) {
-            GlobalQueue._stashOptimistic!(stashedTransition);
-          } else {
-            finalizePureQueue(null, true);
-          }
+          finalizePureQueue(null, true);
           return;
         }
         const completingTransition = activeTransition;
@@ -531,6 +513,11 @@ export class GlobalQueue extends Queue {
     if (mask & STATUS_PENDING) {
       if (flags & STATUS_PENDING) {
         const actualError = error !== undefined ? error : node._error;
+        // A visibility-only mark notification (the affects() boundary
+        // channel) updates display state on its way up but must be invisible
+        // to completion accounting BY CONSTRUCTION: it never registers a
+        // reporter and never counts toward the loading-boundary diagnostic.
+        if ((actualError as NotReadyError)?._markVisual) return true;
         if (activeTransition && actualError) {
           const source = (actualError as NotReadyError).source;
           // The one sanctioned registration site (INV-3): async blockers only
@@ -694,8 +681,14 @@ export function finalizePureQueue(
     }
     // Declared motion ends with the transaction: settle (or plain flush end
     // for ambient marks) releases each registration's refcount. A non-empty
-    // batch means registerAffectsMark ran, which installed the hook.
-    if (batch._affectsNodes.length) GlobalQueue._releaseAffectsMarks!(batch._affectsNodes);
+    // batch means registerAffectsMark ran, which installed the hook. Marks
+    // held boundary display state through the visual channel, and their
+    // release is the display-state update point — re-run the boundary sweep
+    // (the earlier sweep above ran while the marks were still live).
+    if (batch._affectsNodes.length) {
+      GlobalQueue._releaseAffectsMarks!(batch._affectsNodes);
+      if (globalQueue._children.length) checkBoundaryChildren(globalQueue);
+    }
     // A non-empty set means trackOptimisticStore ran, which installed the
     // hook; the hook iterates, clears, and schedules (keeping the loop out of
     // core lets esbuild shake it — rollup already folds the null guard). The
