@@ -21,6 +21,7 @@ import {
   lookupTarget,
   markRawIngest,
   isRawValue,
+  rawValuesUsed,
   symbolKeyedRecords,
   wrap
 } from "./store.js";
@@ -194,7 +195,11 @@ function applyArrayItem(
   node: any,
   keyFn: (item: NonNullable<any>) => any
 ) {
-  if (isWrappable(next) && isWrappable(previous) && !isRawValue(previous) && !isRawValue(next)) {
+  if (
+    isWrappable(next) &&
+    isWrappable(previous) &&
+    !(rawValuesUsed && (isRawValue(previous) || isRawValue(next)))
+  ) {
     const wrapped = wrap(previous, target);
     node && setSignal(node, wrapped);
     applyState(next, wrapped, keyFn);
@@ -416,7 +421,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
         // the recursion dispatch entirely. Raw-marked values are leaves:
         // replace the slot node instead of recursing.
         if (item !== next[start]) {
-          if (isRawValue(item) || isRawValue(next[start])) {
+          if (rawValuesUsed && (isRawValue(item) || isRawValue(next[start]))) {
             arrayNodes?.[start] && setSignal(arrayNodes[start], wrapValue(next[start], target));
           } else applyStateChild(next[start], item, target, keyFn);
         }
@@ -492,8 +497,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
         if (
           isWrappable(item) &&
           isWrappable(next[i]) &&
-          !isRawValue(item) &&
-          !isRawValue(next[i])
+          !(rawValuesUsed && (isRawValue(item) || isRawValue(next[i])))
         ) {
           if (item !== next[i]) applyStateChild(next[i], item, target, keyFn);
         } else {
@@ -535,8 +539,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
           !isWrappable(nextValue) ||
           // Raw-marked values are leaves replaced by reference — a "wrappable
           // pair" is only recursable when both sides are actual store children.
-          isRawValue(previousValue) ||
-          isRawValue(nextValue) ||
+          (rawValuesUsed && (isRawValue(previousValue) || isRawValue(nextValue))) ||
           Array.isArray(previousValue) !== Array.isArray(nextValue) ||
           (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
         ) {
@@ -559,8 +562,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
           !isWrappable(nextValue) ||
           // Raw-marked values are leaves replaced by reference — a "wrappable
           // pair" is only recursable when both sides are actual store children.
-          isRawValue(previousValue) ||
-          isRawValue(nextValue) ||
+          (rawValuesUsed && (isRawValue(previousValue) || isRawValue(nextValue))) ||
           Array.isArray(previousValue) !== Array.isArray(nextValue) ||
           (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
         ) {
@@ -614,7 +616,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         start++
       ) {
         if (isWrappable(item) && isWrappable(next[start]) && item !== next[start]) {
-          if (isRawValue(item) || isRawValue(next[start])) {
+          if (rawValuesUsed && (isRawValue(item) || isRawValue(next[start]))) {
             nodes?.[start] && setSignal(nodes[start], wrapValue(next[start], target));
           } else applyState(next[start], wrap(item, target), keyFn);
         }
@@ -689,8 +691,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         if (
           isWrappable(item) &&
           isWrappable(next[i]) &&
-          !isRawValue(item) &&
-          !isRawValue(next[i])
+          !(rawValuesUsed && (isRawValue(item) || isRawValue(next[i])))
         ) {
           if (item !== next[i]) applyState(next[i], wrap(item, target), keyFn);
         } else {
@@ -726,8 +727,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         !previousValue ||
         !isWrappable(previousValue) ||
         !isWrappable(nextValue) ||
-        isRawValue(previousValue) ||
-        isRawValue(nextValue) ||
+        (rawValuesUsed && (isRawValue(previousValue) || isRawValue(nextValue))) ||
         Array.isArray(previousValue) !== Array.isArray(nextValue) ||
         (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
       ) {

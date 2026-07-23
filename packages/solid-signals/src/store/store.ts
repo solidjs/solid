@@ -236,10 +236,11 @@ const rawValues = new WeakSet<object>();
  * scene graphs, Maps) and for record-shaped data updated wholesale. Sticky
  * for the value's lifetime.
  */
-// Flipped on the first mark: reconcile consults isRawValue on every
-// recursable pair, and apps that never use shallow stores should pay one
-// predictable branch there instead of a WeakSet probe.
-let rawValuesUsed = false;
+// Flipped on the first mark and exported as a LIVE binding: reconcile
+// consults it on every recursable pair, and importing the boolean directly
+// lets those sites skip even the function call when no shallow store or raw
+// mark exists anywhere in the app.
+export let rawValuesUsed = false;
 
 export function isRawValue(value: any): boolean {
   return rawValuesUsed && rawValues.has(value);
