@@ -23,7 +23,11 @@ module.exports = [
     name: "signals: + createStore",
     path: "../../packages/solid-signals/dist/prod/index.js",
     import: "{ createSignal, createMemo, createEffect, createRoot, flush, createStore }",
-    limit: "11.6 KB",
+    // 2.0.0-beta.25: +~0.7 KB from shallow stores + markRaw landing in the
+    // createStore graph (the options.shallow branch retains wrapShallow /
+    // applyStateShallow under tree-shaking) plus the reconcile raw-leaf
+    // handling. Reviewed trade-off — see PR #2931.
+    limit: "12.5 KB",
     modifyEsbuildConfig
   },
   {
