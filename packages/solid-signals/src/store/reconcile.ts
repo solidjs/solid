@@ -122,30 +122,35 @@ function keyedMatch(a: any, b: any, keyFn: (item: NonNullable<any>) => any) {
 // and `in` dependencies should follow the new value's membership. Use
 // membership rather than length arithmetic so sparse arrays and named array
 // props behave like normal property reads.
-// Iterate a node record's keys without allocating for the common string-only
-// case — nodeKeys() built a key array per call (a 1,000-entry one for a
-// 1,000-row array's index nodes); symbol-bearing records take the array path.
-function eachNodeKey(nodes: any, fn: (key: PropertyKey) => void) {
-  if (symbolKeyedRecords.has(nodes)) {
-    const keys = nodeKeys(nodes);
-    for (let i = 0, len = keys.length; i < len; i++) fn(keys[i]);
-  } else {
-    for (const key in nodes) fn(key);
-  }
-}
-
+// Inline key iteration on purpose: these loops run per array target per
+// reconcile pass, and a shared helper means a closure + per-key call in
+// instruction counts. String-only records (the common case) iterate in
+// place; symbol-bearing records take the nodeKeys array path.
 function syncArrayNodeMembership(target: any, next: any) {
   let nodes = target[STORE_NODE];
   if (nodes) {
-    eachNodeKey(nodes, key => {
-      key in next || setSignal(nodes[key], undefined);
-    });
+    if (symbolKeyedRecords.has(nodes)) {
+      const keys = nodeKeys(nodes);
+      for (let i = 0, len = keys.length; i < len; i++) {
+        keys[i] in next || setSignal(nodes[keys[i]], undefined);
+      }
+    } else {
+      for (const key in nodes) {
+        key in next || setSignal(nodes[key], undefined);
+      }
+    }
   }
   if ((nodes = target[STORE_HAS])) {
-    const has = nodes;
-    eachNodeKey(has, key => {
-      setSignal(has[key], key in next);
-    });
+    if (symbolKeyedRecords.has(nodes)) {
+      const keys = nodeKeys(nodes);
+      for (let i = 0, len = keys.length; i < len; i++) {
+        setSignal(nodes[keys[i]], keys[i] in next);
+      }
+    } else {
+      for (const key in nodes) {
+        setSignal(nodes[key], key in next);
+      }
+    }
   }
 }
 
@@ -222,45 +227,43 @@ function applyDescendants(
     const keys = getKeys(previous, override).concat(getStoreSymbols(previous, override));
     for (let i = 0, len = keys.length; i < len; i++) {
       const key = keys[i];
-      descendKey(
-        key,
-        unwrap(getOverrideValue(previous, override, key, optOverride)),
-        next,
-        nodes,
-        lookup,
-        target,
-        keyFn
-      );
+      if (nodes?.[key]) continue; // main loop already diffed this slot
+      const previousValue = unwrap(getOverrideValue(previous, override, key, optOverride));
+      if (!isWrappable(previousValue)) continue;
+      descendInto(previousValue, next[key], lookup, keyFn);
     }
     return;
   }
   // No-override path (every applyStateFast call): iterate in place instead of
-  // building keys + symbols + concat arrays per object per pass.
+  // building keys + symbols + concat arrays per object per pass. The cheap
+  // bails (noded key, primitive value) stay inline — only genuine descent
+  // candidates pay a call.
   for (const key in previous) {
-    descendKey(key, unwrap(previous[key]), next, nodes, lookup, target, keyFn);
+    if (nodes?.[key]) continue; // main loop already diffed this slot
+    const previousValue = unwrap(previous[key]);
+    if (!isWrappable(previousValue)) continue;
+    descendInto(previousValue, next[key], lookup, keyFn);
   }
   const syms = Object.getOwnPropertySymbols(previous);
   for (let i = 0, len = syms.length; i < len; i++) {
     if (Object.prototype.propertyIsEnumerable.call(previous, syms[i])) {
-      descendKey(syms[i], unwrap(previous[syms[i]]), next, nodes, lookup, target, keyFn);
+      if (nodes?.[syms[i]]) continue;
+      const previousValue = unwrap(previous[syms[i]]);
+      if (!isWrappable(previousValue)) continue;
+      descendInto(previousValue, next[syms[i]], lookup, keyFn);
     }
   }
 }
 
-function descendKey(
-  key: PropertyKey,
+function descendInto(
   previousValue: any,
-  next: any,
-  nodes: any,
+  rawNext: any,
   lookup: any,
-  target: any,
   keyFn: (item: NonNullable<any>) => any
 ) {
-  if (nodes?.[key]) return; // main loop already diffed this slot
-  if (!isWrappable(previousValue)) return;
   const childTarget = lookupTarget(previousValue, lookup);
   if (!childTarget?.[STORE_DESC]) return;
-  const nextValue = unwrap(next[key]);
+  const nextValue = unwrap(rawNext);
   if (
     previousValue === nextValue ||
     !isWrappable(nextValue) ||
@@ -514,17 +517,56 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
   let tracked;
   if (nodes) {
     tracked = nodes[$TRACK];
+    // The per-key body is duplicated across both loops on purpose: this is
+    // the hottest object-diff site and a shared helper costs a per-key call
+    // in instruction counts (CodSpeed regressed ~7% on deep-tree reconciles
+    // with the extracted form).
     if (tracked || symbolKeyedRecords.has(nodes)) {
       const keys = tracked ? getAllKeys(previous, undefined, next) : nodeKeys(nodes);
       for (let i = 0, len = keys.length; i < len; i++) {
-        diffNodeKey(keys[i], nodes, previous, next, target, tracked, keyFn);
+        const key = keys[i];
+        const node = nodes[key];
+        const previousValue = unwrap(previous[key]);
+        const nextValue = unwrap(next[key]);
+        if (previousValue === nextValue) continue;
+        if (
+          !previousValue ||
+          !isWrappable(previousValue) ||
+          !isWrappable(nextValue) ||
+          // Raw-marked values are leaves replaced by reference — a "wrappable
+          // pair" is only recursable when both sides are actual store children.
+          isRawValue(previousValue) ||
+          isRawValue(nextValue) ||
+          Array.isArray(previousValue) !== Array.isArray(nextValue) ||
+          (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
+        ) {
+          tracked && setSignal(tracked, void 0);
+          node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
+        } else applyStateChild(nextValue, previousValue, target, keyFn);
       }
     } else {
       // Untracked, string-only node records (the overwhelmingly common case)
       // iterate in place — nodeKeys() allocated a fresh key array per object
       // per pass, which dominates allocation on large-graph reconciles.
       for (const key in nodes) {
-        diffNodeKey(key, nodes, previous, next, target, tracked, keyFn);
+        const node = nodes[key];
+        const previousValue = unwrap(previous[key]);
+        const nextValue = unwrap(next[key]);
+        if (previousValue === nextValue) continue;
+        if (
+          !previousValue ||
+          !isWrappable(previousValue) ||
+          !isWrappable(nextValue) ||
+          // Raw-marked values are leaves replaced by reference — a "wrappable
+          // pair" is only recursable when both sides are actual store children.
+          isRawValue(previousValue) ||
+          isRawValue(nextValue) ||
+          Array.isArray(previousValue) !== Array.isArray(nextValue) ||
+          (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
+        ) {
+          tracked && setSignal(tracked, void 0);
+          node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
+        } else applyStateChild(nextValue, previousValue, target, keyFn);
       }
     }
   }
@@ -538,37 +580,6 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
       setSignal(nodes[key], key in next);
     }
   }
-}
-
-// One node-key step of the fast object diff — shared by the array-iterating
-// (tracked / symbol-keyed) and for-in (plain) loops in applyStateFast.
-function diffNodeKey(
-  key: PropertyKey,
-  nodes: any,
-  previous: any,
-  next: any,
-  target: any,
-  tracked: any,
-  keyFn: (item: NonNullable<any>) => any
-) {
-  const node = nodes[key];
-  const previousValue = unwrap(previous[key]);
-  let nextValue = unwrap(next[key]);
-  if (previousValue === nextValue) return;
-  if (
-    !previousValue ||
-    !isWrappable(previousValue) ||
-    !isWrappable(nextValue) ||
-    // Raw-marked values are leaves replaced by reference — a "wrappable
-    // pair" is only recursable when both sides are actual store children.
-    isRawValue(previousValue) ||
-    isRawValue(nextValue) ||
-    Array.isArray(previousValue) !== Array.isArray(nextValue) ||
-    (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
-  ) {
-    tracked && setSignal(tracked, void 0);
-    node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
-  } else applyStateChild(nextValue, previousValue, target, keyFn);
 }
 
 function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) => any) {
