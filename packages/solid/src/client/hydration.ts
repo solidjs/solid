@@ -1183,7 +1183,10 @@ type NoFn<T> = T extends Function ? never : T;
  * @returns `[store: Store<T>, setStore: StoreSetter<T>]`
  */
 export const createStore: {
-  <T extends object = {}>(store: NoFn<T> | Store<NoFn<T>>): [get: Store<T>, set: StoreSetter<T>];
+  <T extends object = {}>(
+    store: NoFn<T> | Store<NoFn<T>>,
+    options?: { name?: string; shallow?: boolean }
+  ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
     fn: (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     store: NoFn<T> | Store<NoFn<T>>,

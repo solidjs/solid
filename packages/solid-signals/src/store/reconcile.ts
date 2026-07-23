@@ -20,6 +20,7 @@ import {
   storeLookup,
   lookupTarget,
   markRawIngest,
+  isRawValue,
   symbolKeyedRecords,
   wrap
 } from "./store.js";
@@ -121,36 +122,30 @@ function keyedMatch(a: any, b: any, keyFn: (item: NonNullable<any>) => any) {
 // and `in` dependencies should follow the new value's membership. Use
 // membership rather than length arithmetic so sparse arrays and named array
 // props behave like normal property reads.
+// Iterate a node record's keys without allocating for the common string-only
+// case — nodeKeys() built a key array per call (a 1,000-entry one for a
+// 1,000-row array's index nodes); symbol-bearing records take the array path.
+function eachNodeKey(nodes: any, fn: (key: PropertyKey) => void) {
+  if (symbolKeyedRecords.has(nodes)) {
+    const keys = nodeKeys(nodes);
+    for (let i = 0, len = keys.length; i < len; i++) fn(keys[i]);
+  } else {
+    for (const key in nodes) fn(key);
+  }
+}
+
 function syncArrayNodeMembership(target: any, next: any) {
   let nodes = target[STORE_NODE];
   if (nodes) {
-    if (symbolKeyedRecords.has(nodes)) {
-      const keys = nodeKeys(nodes);
-      for (let i = 0, len = keys.length; i < len; i++) {
-        const key = keys[i];
-        key in next || setSignal(nodes[key], undefined);
-      }
-    } else {
-      // String-only records (the common case) iterate in place — nodeKeys()
-      // allocated a key array per call, a 1000-entry one for a 1000-row
-      // array's index nodes.
-      for (const key in nodes) {
-        key in next || setSignal(nodes[key], undefined);
-      }
-    }
+    eachNodeKey(nodes, key => {
+      key in next || setSignal(nodes[key], undefined);
+    });
   }
   if ((nodes = target[STORE_HAS])) {
-    if (symbolKeyedRecords.has(nodes)) {
-      const keys = nodeKeys(nodes);
-      for (let i = 0, len = keys.length; i < len; i++) {
-        const key = keys[i];
-        setSignal(nodes[key], key in next);
-      }
-    } else {
-      for (const key in nodes) {
-        setSignal(nodes[key], key in next);
-      }
-    }
+    const has = nodes;
+    eachNodeKey(has, key => {
+      setSignal(has[key], key in next);
+    });
   }
 }
 
@@ -176,7 +171,9 @@ function applyStateChild(
   const childTarget = prevRaw[$TARGET] ?? storeLookup.get(prevRaw);
   if (childTarget === undefined) return;
   next = unwrap(next);
-  if (childTarget[STORE_OVERRIDE] || childTarget[STORE_OPTIMISTIC_OVERRIDE]) {
+  if (childTarget[STORE_SHALLOW]) {
+    applyStateShallow(next, childTarget, keyFn);
+  } else if (childTarget[STORE_OVERRIDE] || childTarget[STORE_OPTIMISTIC_OVERRIDE]) {
     applyStateSlow(next, childTarget, keyFn);
   } else {
     applyStateFast(next, childTarget, keyFn);
@@ -192,7 +189,7 @@ function applyArrayItem(
   node: any,
   keyFn: (item: NonNullable<any>) => any
 ) {
-  if (isWrappable(next) && isWrappable(previous)) {
+  if (isWrappable(next) && isWrappable(previous) && !isRawValue(previous) && !isRawValue(next)) {
     const wrapped = wrap(previous, target);
     node && setSignal(node, wrapped);
     applyState(next, wrapped, keyFn);
@@ -271,7 +268,9 @@ function descendKey(
     (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
   )
     return;
-  if (childTarget[STORE_OVERRIDE] || childTarget[STORE_OPTIMISTIC_OVERRIDE]) {
+  if (childTarget[STORE_SHALLOW]) {
+    applyStateShallow(nextValue, childTarget, keyFn);
+  } else if (childTarget[STORE_OVERRIDE] || childTarget[STORE_OPTIMISTIC_OVERRIDE]) {
     applyStateSlow(nextValue, childTarget, keyFn);
   } else {
     applyStateFast(nextValue, childTarget, keyFn);
@@ -303,17 +302,46 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
 // positionally (below a shallow boundary the VALUE is the identity; keyed
 // row identity belongs to the consumer, e.g. <For keyed>). Incoming
 // wrappables are sticky-marked raw so they present raw through every store.
-function applyStateShallow(next: any, target: any, keyFn: (item: NonNullable<any>) => any) {
-  if (target[STORE_OVERRIDE] || target[STORE_OPTIMISTIC_OVERRIDE]) {
-    // Setter-staged overrides need folding. The generic slow path degrades to
-    // boundary granularity on its own: marked values refuse wrapping, which
-    // stops its recursion at the boundary.
-    markRawIngest(next);
-    applyStateSlow(next, target, keyFn);
-    return;
+// One pass over a shallow target's node record: replace changed slots with
+// raw next values, null out slots absent from next. Returns whether anything
+// differed.
+function shallowDiffNodes(
+  nodes: any,
+  next: any,
+  prevAt: (key: PropertyKey) => any,
+  skipLength: boolean
+): boolean {
+  let changed = false;
+  for (const key in nodes) {
+    if (skipLength && key === "length") continue;
+    if (key in next) {
+      const v = next[key];
+      if (v !== prevAt(key)) {
+        changed = true;
+        setSignal(nodes[key], v);
+      }
+    } else {
+      changed = true;
+      setSignal(nodes[key], undefined);
+    }
   }
+  return changed;
+}
+
+function applyStateShallow(next: any, target: any, keyFn: (item: NonNullable<any>) => any) {
   const previous = target[STORE_VALUE];
-  if (next === previous) return;
+  const override = target[STORE_OVERRIDE];
+  const optOverride = target[STORE_OPTIMISTIC_OVERRIDE];
+  if (next === previous && !override && !optOverride) return;
+  // Setter-staged writes fold into the diff: previous values resolve through
+  // the override layers (so a replaced slot compares against what readers
+  // saw), and the regular override clears with the swap — reconcile makes
+  // `next` the authoritative base, same as the deep slow path.
+  const prevAt = (key: PropertyKey) => {
+    const v = getOverrideValue(previous, override, key, optOverride);
+    return v === $DELETED ? undefined : v;
+  };
+  target[STORE_OVERRIDE] = undefined;
   const fam = target[STORE_LOOKUP];
   fam !== undefined ? fam.set(next, target[$PROXY]) : storeLookup.set(next, target);
   target[STORE_VALUE] = next;
@@ -323,28 +351,17 @@ function applyStateShallow(next: any, target: any, keyFn: (item: NonNullable<any
   const tracked = nodes && nodes[$TRACK];
   let changed = false;
   if (Array.isArray(previous)) {
+    const prevLength = override?.length ?? optOverride?.length ?? previous.length;
     if (nodes) {
-      for (const key in nodes) {
-        if (key === "length") continue;
-        if (key in next) {
-          const v = next[key];
-          if (v !== previous[key as any]) {
-            changed = true;
-            setSignal(nodes[key], v);
-          }
-        } else {
-          changed = true;
-          setSignal(nodes[key], undefined);
-        }
-      }
-      if (nodes.length && previous.length !== next.length) setSignal(nodes.length, next.length);
+      changed = shallowDiffNodes(nodes, next, prevAt, true);
+      if (nodes.length && prevLength !== next.length) setSignal(nodes.length, next.length);
     }
     if (!changed && (tracked || target[STORE_HAS])) {
       // Slots without nodes still feed $TRACK enumerators / `in` probes.
-      if (previous.length !== next.length) changed = true;
+      if (prevLength !== next.length) changed = true;
       else {
         for (let i = 0, len = next.length; i < len; i++) {
-          if (previous[i] !== next[i]) {
+          if (prevAt(i) !== next[i]) {
             changed = true;
             break;
           }
@@ -353,18 +370,7 @@ function applyStateShallow(next: any, target: any, keyFn: (item: NonNullable<any
     }
   } else {
     if (nodes) {
-      for (const key in nodes) {
-        if (key in next) {
-          const v = next[key];
-          if (v !== previous[key]) {
-            changed = true;
-            setSignal(nodes[key], v);
-          }
-        } else {
-          changed = true;
-          setSignal(nodes[key], undefined);
-        }
-      }
+      changed = shallowDiffNodes(nodes, next, prevAt, false);
     }
     if (!changed && (tracked || target[STORE_HAS])) changed = true;
   }
@@ -404,8 +410,13 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
         // keyedMatch established both sides wrappable unless they're the
         // SAME reference — and an identical slot is a guaranteed no-op
         // (the child's STORE_VALUE tracks the previous graph), so skip
-        // the recursion dispatch entirely.
-        if (item !== next[start]) applyStateChild(next[start], item, target, keyFn);
+        // the recursion dispatch entirely. Raw-marked values are leaves:
+        // replace the slot node instead of recursing.
+        if (item !== next[start]) {
+          if (isRawValue(item) || isRawValue(next[start])) {
+            arrayNodes?.[start] && setSignal(arrayNodes[start], wrapValue(next[start], target));
+          } else applyStateChild(next[start], item, target, keyFn);
+        }
       }
 
       // Every position key-matched at equal length (the steady-state shape
@@ -475,7 +486,12 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
     } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = previous[i];
-        if (isWrappable(item) && isWrappable(next[i])) {
+        if (
+          isWrappable(item) &&
+          isWrappable(next[i]) &&
+          !isRawValue(item) &&
+          !isRawValue(next[i])
+        ) {
           if (item !== next[i]) applyStateChild(next[i], item, target, keyFn);
         } else {
           if (item !== next[i]) changed = true;
@@ -543,6 +559,10 @@ function diffNodeKey(
     !previousValue ||
     !isWrappable(previousValue) ||
     !isWrappable(nextValue) ||
+    // Raw-marked values are leaves replaced by reference — a "wrappable
+    // pair" is only recursable when both sides are actual store children.
+    isRawValue(previousValue) ||
+    isRawValue(nextValue) ||
     Array.isArray(previousValue) !== Array.isArray(nextValue) ||
     (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
   ) {
@@ -582,9 +602,11 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         );
         start++
       ) {
-        isWrappable(item) &&
-          isWrappable(next[start]) &&
-          applyState(next[start], wrap(item, target), keyFn);
+        if (isWrappable(item) && isWrappable(next[start]) && item !== next[start]) {
+          if (isRawValue(item) || isRawValue(next[start])) {
+            nodes?.[start] && setSignal(nodes[start], wrapValue(next[start], target));
+          } else applyState(next[start], wrap(item, target), keyFn);
+        }
       }
 
       const temp = new Array(next.length),
@@ -653,9 +675,14 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
     } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = getOverrideValue(previous, override, i as any, optOverride);
-        if (isWrappable(item) && isWrappable(next[i]))
-          applyState(next[i], wrap(item, target), keyFn);
-        else {
+        if (
+          isWrappable(item) &&
+          isWrappable(next[i]) &&
+          !isRawValue(item) &&
+          !isRawValue(next[i])
+        ) {
+          if (item !== next[i]) applyState(next[i], wrap(item, target), keyFn);
+        } else {
           if (item !== next[i]) changed = true;
           nodes?.[i] && setSignal(nodes[i], wrapValue(next[i], target));
         }
@@ -688,6 +715,8 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         !previousValue ||
         !isWrappable(previousValue) ||
         !isWrappable(nextValue) ||
+        isRawValue(previousValue) ||
+        isRawValue(nextValue) ||
         Array.isArray(previousValue) !== Array.isArray(nextValue) ||
         (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
       ) {

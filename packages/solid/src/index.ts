@@ -19,6 +19,7 @@ export {
   isPending,
   isWrappable,
   mapArray,
+  markRaw,
   merge,
   omit,
   onCleanup,

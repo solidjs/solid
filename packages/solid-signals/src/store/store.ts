@@ -72,6 +72,8 @@ export interface StoreOptions {
 export interface ProjectionOptions extends StoreOptions {
   /** Key property name or function for reconciliation identity */
   key?: string | ((item: NonNullable<any>) => any);
+  /** Single-layer store: root keys reactive, values raw records replaced by reference */
+  shallow?: boolean;
 }
 export type NoFn<T> = T extends Function ? never : T;
 
@@ -234,6 +236,10 @@ const rawValues = new WeakSet<object>();
  * scene graphs, Maps) and for record-shaped data updated wholesale. Sticky
  * for the value's lifetime.
  */
+export function isRawValue(value: any): boolean {
+  return rawValues.has(value);
+}
+
 export function markRaw<T>(value: T): T {
   if (isWrappable(value)) {
     if (__DEV__ && storeLookup.has(value as object))
@@ -243,17 +249,21 @@ export function markRaw<T>(value: T): T {
   return value;
 }
 
+function markRawOne(v: any) {
+  if (isWrappable(v)) {
+    if (__DEV__ && storeLookup.has(v))
+      throw new Error(
+        "shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw"
+      );
+    rawValues.add(v);
+  }
+}
+
 export function markRawIngest(container: any) {
   if (Array.isArray(container)) {
-    for (let i = 0, len = container.length; i < len; i++) {
-      const v = container[i];
-      if (isWrappable(v)) rawValues.add(v);
-    }
+    for (let i = 0, len = container.length; i < len; i++) markRawOne(container[i]);
   } else {
-    for (const k in container) {
-      const v = container[k];
-      if (isWrappable(v)) rawValues.add(v);
-    }
+    for (const k in container) markRawOne(container[k]);
   }
 }
 
@@ -283,8 +293,14 @@ export function wrap<T extends Record<PropertyKey, any>>(value: T, target?: Stor
 // membership, $TRACK); its values are served raw. Seed values are marked at
 // creation; reconcile and the set trap mark on ingest.
 export function wrapShallow<T extends Record<PropertyKey, any>>(value: T): T {
-  if (__DEV__ && storeLookup.has(value))
-    throw new Error("createStore({ shallow }): value is already tracked as a deep store");
+  const existing = storeLookup.get(value);
+  if (existing !== undefined) {
+    if (existing[STORE_SHALLOW]) return existing[$PROXY];
+    if (__DEV__)
+      throw new Error("createStore({ shallow }): value is already tracked as a deep store");
+  }
+  if (__DEV__ && (value as any)[$TARGET])
+    throw new Error("createStore({ shallow }): value is already a store proxy");
   const p = createStoreProxy(value);
   const newTarget = p[$TARGET];
   newTarget[STORE_SHALLOW] = true;
@@ -1025,10 +1041,11 @@ export const storeTraps: ProxyHandler<StoreNode> = {
         tracked && (overridden || !proxySource) ? visibleNodeValue(tracked) : storeValue[property];
       value === $DELETED && (value = undefined);
       if (!isWrappable(value)) return value;
-      if (target[STORE_SHALLOW])
-        throw new Error(
-          __DEV__ ? "Cannot mutate below a shallow store boundary — replace the record instead" : ""
-        );
+      // Shallow boundary: records are replaced, never edited in place. Reads
+      // inside a setter serve the raw so read-then-replace, filter/pop and
+      // projection derives all work; in-place mutation of a raw is inert by
+      // construction — the same contract as a markRaw child in a deep store.
+      if (target[STORE_SHALLOW]) return value;
       const wrapped = wrap(value, target);
       Writing?.add(wrapped);
       return wrapped;

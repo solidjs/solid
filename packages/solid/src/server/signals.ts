@@ -1179,7 +1179,8 @@ function setProperty(state: any, property: PropertyKey, value: any) {
 }
 
 export function createStore<T extends object>(
-  store: T | Store<T>
+  store: T | Store<T>,
+  options?: { name?: string; shallow?: boolean }
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object>(
   fn: (store: T) => void | T | Promise<void | T>,
@@ -1198,6 +1199,14 @@ export function createStore<T extends object>(
 }
 
 export const createOptimisticStore = createStore;
+
+/**
+ * Server no-op: values are already served raw on the server (no proxies to
+ * refuse). Identity, so isomorphic code can mark unconditionally.
+ */
+export function markRaw<T>(value: T): T {
+  return value;
+}
 
 /**
  * Wraps a store in a Proxy that throws NotReadyError on property reads

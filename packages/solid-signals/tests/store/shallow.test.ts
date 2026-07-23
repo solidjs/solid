@@ -3,6 +3,7 @@ import {
   createStore,
   createOptimisticStore,
   createProjection,
+  createSignal,
   markRaw,
   reconcile,
   createEffect,
@@ -110,14 +111,35 @@ describe("createStore shallow", () => {
     expect(state[0].count).toBe(2);
   });
 
-  test("mutating below the boundary through the setter throws", () => {
+  test("setter reads serve raws; in-place mutation is reactively inert", () => {
     const [state, setState] = createStore(makeRows(0), { shallow: true });
-    expect(() =>
-      setState(s => {
-        (s[0] as any).count = 99;
-      })
-    ).toThrow();
-    expect(state[0].count).toBe(0);
+    let runs = 0;
+    createRoot(() => {
+      createEffect(
+        () => state[0],
+        () => {
+          runs++;
+        }
+      );
+    });
+    flush();
+    runs = 0;
+    setState(s => {
+      // reads in write scope hand back the raw record (read-then-replace,
+      // filter, pop all depend on this); mutating it notifies nothing —
+      // records are replaced, not edited.
+      (s[0] as any).count = 99;
+    });
+    flush();
+    expect(runs).toBe(0);
+  });
+
+  test("canonical filter-removal idiom works on shallow stores", () => {
+    const [state, setState] = createStore(makeRows(0), { shallow: true });
+    setState(s => s.filter(r => r.id !== 1) as any);
+    flush();
+    expect(state.length).toBe(3);
+    expect(state.some(r => r.id === 1)).toBe(false);
   });
 
   test("record replacement through the setter works and marks raw", () => {
@@ -153,13 +175,7 @@ describe("createStore shallow", () => {
 
   test("optimistic shallow store: replacement stages, base rows untouched, children raw", () => {
     const rows = makeRows(0);
-    const [state, setState] = createOptimisticStore(
-      rows as any,
-      undefined as any,
-      {
-        shallow: true
-      } as any
-    );
+    const [state, setState] = createOptimisticStore(rows as any, { shallow: true });
     // children served raw
     expect((state as any)[0]).toBe(rows[0]);
     const optimisticRow = { id: 0, count: 777, queries: [{ elapsed: 0 }] };
@@ -176,27 +192,133 @@ describe("createStore shallow", () => {
     expect(rows[0].count).toBe(0);
   });
 
-  test("shallow projection: derive reconciles at the boundary, rows stay raw", () => {
-    const [version, setVersion] = (() => {
-      let v = 0;
-      const listeners: any[] = [];
-      return [() => v, (n: number) => (v = n)] as any;
-    })();
-    void version;
-    void setVersion;
-    let frame = 0;
+  test("shallow projection: derive re-runs, reconciles at the boundary, rows stay raw", () => {
+    const [frame, setFrame] = createSignal(0);
     const proj = createProjection(
       (draft: any) => {
-        // return-form derive: fresh rows each run, reconciled by key at the boundary
-        return makeRows(frame);
+        // reading the draft must not poison the derive (write-scope reads
+        // serve raws), and the signal read registers the dependency
+        void draft[0];
+        return makeRows(frame());
       },
       makeRows(0) as any,
-      { shallow: true } as any
+      { shallow: true }
     );
+    createRoot(() => {
+      createEffect(
+        () => (proj as any)[0],
+        () => {}
+      );
+    });
+    flush();
     expect((proj as any)[0].count).toBe(0);
-    // rows are raw records
-    const r0 = (proj as any)[0];
-    expect(r0.queries[0].elapsed).toBe(0);
+    expect((proj as any)[0].queries[0].elapsed).toBe(0);
+    setFrame(2);
+    flush();
+    expect((proj as any)[0].count).toBe(2);
+  });
+
+  test("setter write followed by reconcile lands the reconciled value", () => {
+    // regression: the staged override must fold into the shallow diff, not
+    // freeze the slot
+    const [state, setState] = createStore(makeRows(0), { shallow: true });
+    const replacement = { id: 0, count: 555, queries: [{ elapsed: 9 }] };
+    setState(s => {
+      (s as any)[0] = replacement;
+    });
+    flush();
+    expect(state[0]).toBe(replacement);
+    const fresh = makeRows(7);
+    setState(reconcile(fresh, null));
+    flush();
+    expect(state[0]).toBe(fresh[0]);
+    expect(state[0].count).toBe(7);
+  });
+
+  test("markRaw values in DEEP stores reconcile by replacement", () => {
+    // regression: raw-marked pairs are leaves, not recursable children
+    const a = markRaw({ v: 1 });
+    const b = markRaw({ v: 2 });
+    const [state, setState] = createStore<{ item: any }>({ item: a });
+    let seen: any;
+    createRoot(() => {
+      createEffect(
+        () => state.item,
+        v => {
+          seen = v;
+        }
+      );
+    });
+    flush();
+    expect(seen).toBe(a);
+    setState(reconcile({ item: b }, null));
+    flush();
+    expect(state.item).toBe(b);
+    expect(seen).toBe(b);
+  });
+
+  test("shallow store nested in a deep store reconciles through the parent", () => {
+    // regression: applyStateChild/descendKey must route STORE_SHALLOW
+    const rows = makeRows(0);
+    const [inner] = createStore(rows, { shallow: true });
+    const [outer, setOuter] = createStore<{ list: any }>({ list: rows });
+    expect(outer.list).toBe(inner);
+    let seen: any;
+    createRoot(() => {
+      createEffect(
+        () => outer.list[0],
+        v => {
+          seen = v;
+        }
+      );
+    });
+    flush();
+    const fresh = makeRows(7);
+    setOuter(reconcile({ list: fresh }, null));
+    flush();
+    expect(inner[0]).toBe(fresh[0]);
+    expect(seen).toBe(fresh[0]);
+  });
+
+  test("shallow OBJECT store: per-key nodes, membership, raw values", () => {
+    const a = { v: 1 };
+    const b = { v: 2 };
+    const [state, setState] = createStore<Record<string, any>>({ a }, { shallow: true });
+    expect(state.a).toBe(a);
+    let runs = 0;
+    createRoot(() => {
+      createEffect(
+        () => state.a,
+        () => {
+          runs++;
+        }
+      );
+    });
+    flush();
+    runs = 0;
+    setState(reconcile({ a: b, extra: { z: 1 } }, null));
+    flush();
+    expect(runs).toBe(1);
+    expect(state.a).toBe(b);
+    expect((state as any).extra.z).toBe(1);
+  });
+
+  test("keyed reconcile on a shallow store is positional by design", () => {
+    const rows = makeRows(0);
+    const [state, setState] = createStore(rows, { shallow: true });
+    const reversed = rows.slice().reverse();
+    setState(reconcile(reversed));
+    expect(state[0]).toBe(rows[3]);
+    expect(state[0].id).toBe(3);
+  });
+
+  test("ingesting a deep-tracked value into a shallow store throws in dev", () => {
+    const child = { v: 1 };
+    const [deep] = createStore({ child });
+    // reading through the deep store wraps child into the global lookup
+    // (creation happens lazily on read)
+    void deep.child;
+    expect(() => createStore([child], { shallow: true })).toThrow();
   });
 
   test("setter replacement never mutates the base rows", () => {
