@@ -236,14 +236,20 @@ const rawValues = new WeakSet<object>();
  * scene graphs, Maps) and for record-shaped data updated wholesale. Sticky
  * for the value's lifetime.
  */
+// Flipped on the first mark: reconcile consults isRawValue on every
+// recursable pair, and apps that never use shallow stores should pay one
+// predictable branch there instead of a WeakSet probe.
+let rawValuesUsed = false;
+
 export function isRawValue(value: any): boolean {
-  return rawValues.has(value);
+  return rawValuesUsed && rawValues.has(value);
 }
 
 export function markRaw<T>(value: T): T {
   if (isWrappable(value)) {
     if (__DEV__ && storeLookup.has(value as object))
       throw new Error("markRaw: value is already tracked by a store");
+    rawValuesUsed = true;
     rawValues.add(value as object);
   }
   return value;
@@ -255,6 +261,7 @@ function markRawOne(v: any) {
       throw new Error(
         "shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw"
       );
+    rawValuesUsed = true;
     rawValues.add(v);
   }
 }
@@ -270,7 +277,7 @@ export function markRawIngest(container: any) {
 export function wrap<T extends Record<PropertyKey, any>>(value: T, target?: StoreNode): T {
   // Raw is raw in every family: the mark must preempt family wrapping too,
   // or a shallow projection/optimistic store would proxy its raw records.
-  if (rawValues.has(value)) return value;
+  if (rawValuesUsed && rawValues.has(value)) return value;
   if (target?.[STORE_WRAP]) {
     const p = target[STORE_WRAP](value, target);
     const t: StoreNode | undefined = p[$TARGET];
