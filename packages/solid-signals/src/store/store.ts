@@ -196,10 +196,23 @@ export function createStoreProxy<T extends object>(
   return (newTarget[$PROXY] = new Proxy(newTarget, traps));
 }
 
+// The global lookup maps raw value -> StoreNode TARGET (not proxy): reconcile
+// and the unwrap/snapshot walks resolve targets through it constantly, and a
+// target hit is a plain field read away from its proxy while a proxy hit
+// costs a trap to get back to the target. Per-family STORE_LOOKUP maps
+// (projections/optimistic) still map raw -> proxy — their wrap functions own
+// that contract — so mixed-lookup consumers resolve through lookupTarget().
 export const storeLookup = new WeakMap();
 // Node records that hold at least one user (non-`$TRACK`) symbol-keyed node.
 // Lets reconcile enumerate symbols only for records that need it (#2851).
 export const symbolKeyedRecords = new WeakSet<object>();
+export function lookupTarget(value: any, lookup?: WeakMap<any, any>): StoreNode | undefined {
+  if (lookup !== undefined && lookup !== storeLookup) {
+    const p = lookup.get(value);
+    if (p !== undefined) return p[$TARGET];
+  }
+  return storeLookup.get(value);
+}
 export function wrap<T extends Record<PropertyKey, any>>(value: T, target?: StoreNode): T {
   if (target?.[STORE_WRAP]) {
     const p = target[STORE_WRAP](value, target);
@@ -207,10 +220,14 @@ export function wrap<T extends Record<PropertyKey, any>>(value: T, target?: Stor
     if (t && !t[STORE_PARENT] && t !== target) t[STORE_PARENT] = target;
     return p;
   }
-  let p = value[$PROXY] || storeLookup.get(value);
+  const t = storeLookup.get(value);
+  if (t !== undefined) return t[$PROXY];
+  let p = value[$PROXY];
   if (!p) {
-    storeLookup.set(value, (p = createStoreProxy(value)));
-    if (target) p[$TARGET][STORE_PARENT] = target;
+    p = createStoreProxy(value);
+    const newTarget = p[$TARGET];
+    storeLookup.set(value, newTarget);
+    if (target) newTarget[STORE_PARENT] = target;
   }
   return p;
 }
@@ -232,7 +249,7 @@ function writeOnly(proxy: any) {
 }
 
 function unwrapStoreValue(value: any, map?: Map<any, any>, lookup?: WeakMap<any, any>) {
-  const target = value?.[$TARGET] || lookup?.get(value)?.[$TARGET];
+  const target = value?.[$TARGET] || lookupTarget(value, lookup);
   if (!target) return value;
   const override = target[STORE_OVERRIDE];
   if (!override) return target[STORE_VALUE];
@@ -462,8 +479,7 @@ function walkAffectsScope(
   visited: Set<object>
 ): void {
   if (!isWrappable(value)) return;
-  const target: StoreNode | undefined =
-    value[$TARGET] || (lookup ?? storeLookup).get(value)?.[$TARGET];
+  const target: StoreNode | undefined = value[$TARGET] || lookupTarget(value, lookup);
   const raw = target ? target[STORE_VALUE] : value;
   if (visited.has(raw)) return;
   visited.add(raw);
@@ -888,6 +904,18 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       if (node !== undefined && target[STORE_VALUE][$TARGET] === undefined) {
         let value = read(node);
         if (value === $DELETED) value = undefined;
+        // Every node-writing site wraps wrappables before setSignal (see the
+        // dev assertion below), so re-wrapping on read is redundant — except
+        // during snapshot capture, where read() can surface a raw captured
+        // value seeded from snapshot props.
+        if (!snapshotCaptureActive) {
+          if (__DEV__ && isWrappable(value) && wrap(value, target) !== value) {
+            throw new Error(
+              "store node invariant violated: node held an unwrapped wrappable value"
+            );
+          }
+          return value;
+        }
         return isWrappable(value) ? wrap(value, target) : value;
       }
     }

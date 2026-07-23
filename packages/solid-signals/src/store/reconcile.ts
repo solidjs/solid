@@ -14,8 +14,10 @@ import {
   STORE_OPTIMISTIC_OVERRIDE,
   STORE_OVERRIDE,
   STORE_VALUE,
+  STORE_WRAP,
   notifySelf,
   storeLookup,
+  lookupTarget,
   symbolKeyedRecords,
   wrap
 } from "./store.js";
@@ -120,18 +122,62 @@ function keyedMatch(a: any, b: any, keyFn: (item: NonNullable<any>) => any) {
 function syncArrayNodeMembership(target: any, next: any) {
   let nodes = target[STORE_NODE];
   if (nodes) {
-    const keys = nodeKeys(nodes);
-    for (let i = 0, len = keys.length; i < len; i++) {
-      const key = keys[i];
-      key in next || setSignal(nodes[key], undefined);
+    if (symbolKeyedRecords.has(nodes)) {
+      const keys = nodeKeys(nodes);
+      for (let i = 0, len = keys.length; i < len; i++) {
+        const key = keys[i];
+        key in next || setSignal(nodes[key], undefined);
+      }
+    } else {
+      // String-only records (the common case) iterate in place — nodeKeys()
+      // allocated a key array per call, a 1000-entry one for a 1000-row
+      // array's index nodes.
+      for (const key in nodes) {
+        key in next || setSignal(nodes[key], undefined);
+      }
     }
   }
   if ((nodes = target[STORE_HAS])) {
-    const keys = nodeKeys(nodes);
-    for (let i = 0, len = keys.length; i < len; i++) {
-      const key = keys[i];
-      setSignal(nodes[key], key in next);
+    if (symbolKeyedRecords.has(nodes)) {
+      const keys = nodeKeys(nodes);
+      for (let i = 0, len = keys.length; i < len; i++) {
+        const key = keys[i];
+        setSignal(nodes[key], key in next);
+      }
+    } else {
+      for (const key in nodes) {
+        setSignal(nodes[key], key in next);
+      }
     }
+  }
+}
+
+// Recurse into a matched wrappable child pair without manufacturing a proxy:
+// resolve the child's target through the lookup and dispatch directly. A
+// lookup miss means the child was never observed — no proxy, no nodes, no
+// subscribers anywhere below — so the parent's swap making `next`
+// authoritative IS the whole update; a later read wraps next's child on
+// demand. This turns the diff from O(previous graph) into O(observed graph)
+// and drops the wrap()/$PROXY/$TARGET round-trip per visited child.
+// Wrap-family stores (projections/optimistic) own child proxy creation and
+// keep the proxy-based recursion.
+function applyStateChild(
+  next: any,
+  prevRaw: any,
+  target: any,
+  keyFn: (item: NonNullable<any>) => any
+) {
+  if (target[STORE_WRAP] !== undefined) {
+    applyState(next, wrap(prevRaw, target), keyFn);
+    return;
+  }
+  const childTarget = prevRaw[$TARGET] ?? storeLookup.get(prevRaw);
+  if (childTarget === undefined) return;
+  next = unwrap(next);
+  if (childTarget[STORE_OVERRIDE] || childTarget[STORE_OPTIMISTIC_OVERRIDE]) {
+    applyStateSlow(next, childTarget, keyFn);
+  } else {
+    applyStateFast(next, childTarget, keyFn);
   }
 }
 
@@ -173,27 +219,60 @@ function applyDescendants(
   optOverride?: any
 ) {
   const lookup = target[STORE_LOOKUP] || storeLookup;
-  const keys = (
-    override ? getKeys(previous, override) : (Object.keys(previous) as PropertyKey[])
-  ).concat(getStoreSymbols(previous, override));
-  for (let i = 0, len = keys.length; i < len; i++) {
-    const key = keys[i];
-    if (nodes?.[key]) continue; // main loop already diffed this slot
-    const previousValue = unwrap(
-      override ? getOverrideValue(previous, override, key, optOverride) : previous[key]
-    );
-    if (!isWrappable(previousValue)) continue;
-    const childTarget = (lookup.get(previousValue) ?? storeLookup.get(previousValue))?.[$TARGET];
-    if (!childTarget?.[STORE_DESC]) continue;
-    const nextValue = unwrap(next[key]);
-    if (
-      previousValue === nextValue ||
-      !isWrappable(nextValue) ||
-      Array.isArray(previousValue) !== Array.isArray(nextValue) ||
-      (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
-    )
-      continue;
-    applyState(nextValue, wrap(previousValue, target), keyFn);
+  if (override) {
+    const keys = getKeys(previous, override).concat(getStoreSymbols(previous, override));
+    for (let i = 0, len = keys.length; i < len; i++) {
+      const key = keys[i];
+      descendKey(
+        key,
+        unwrap(getOverrideValue(previous, override, key, optOverride)),
+        next,
+        nodes,
+        lookup,
+        target,
+        keyFn
+      );
+    }
+    return;
+  }
+  // No-override path (every applyStateFast call): iterate in place instead of
+  // building keys + symbols + concat arrays per object per pass.
+  for (const key in previous) {
+    descendKey(key, unwrap(previous[key]), next, nodes, lookup, target, keyFn);
+  }
+  const syms = Object.getOwnPropertySymbols(previous);
+  for (let i = 0, len = syms.length; i < len; i++) {
+    if (Object.prototype.propertyIsEnumerable.call(previous, syms[i])) {
+      descendKey(syms[i], unwrap(previous[syms[i]]), next, nodes, lookup, target, keyFn);
+    }
+  }
+}
+
+function descendKey(
+  key: PropertyKey,
+  previousValue: any,
+  next: any,
+  nodes: any,
+  lookup: any,
+  target: any,
+  keyFn: (item: NonNullable<any>) => any
+) {
+  if (nodes?.[key]) return; // main loop already diffed this slot
+  if (!isWrappable(previousValue)) return;
+  const childTarget = lookupTarget(previousValue, lookup);
+  if (!childTarget?.[STORE_DESC]) return;
+  const nextValue = unwrap(next[key]);
+  if (
+    previousValue === nextValue ||
+    !isWrappable(nextValue) ||
+    Array.isArray(previousValue) !== Array.isArray(nextValue) ||
+    (keyFn(previousValue) != null && keyFn(previousValue) !== keyFn(nextValue))
+  )
+    return;
+  if (childTarget[STORE_OVERRIDE] || childTarget[STORE_OPTIMISTIC_OVERRIDE]) {
+    applyStateSlow(nextValue, childTarget, keyFn);
+  } else {
+    applyStateFast(nextValue, childTarget, keyFn);
   }
 }
 
@@ -221,7 +300,10 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
   const arrayNodes = target[STORE_NODE];
 
   // swap
-  (target[STORE_LOOKUP] || storeLookup).set(next, target[$PROXY]);
+  {
+    const fam = target[STORE_LOOKUP];
+    fam !== undefined ? fam.set(next, target[$PROXY]) : storeLookup.set(next, target);
+  }
   target[STORE_VALUE] = next;
 
   // merge
@@ -236,10 +318,18 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
         start < end && keyedMatch((item = previous[start]), next[start], keyFn);
         start++
       ) {
-        isWrappable(item) &&
-          isWrappable(next[start]) &&
-          applyState(next[start], wrap(item, target), keyFn);
+        // keyedMatch established both sides wrappable unless they're the
+        // SAME reference — and an identical slot is a guaranteed no-op
+        // (the child's STORE_VALUE tracks the previous graph), so skip
+        // the recursion dispatch entirely.
+        if (item !== next[start]) applyStateChild(next[start], item, target, keyFn);
       }
+
+      // Every position key-matched at equal length (the steady-state shape
+      // of a polling tick): membership, length, and order are unchanged —
+      // nothing below could do observable work, so skip the staging
+      // allocations and membership sync outright.
+      if (start === next.length && start === prevLength) return;
 
       const temp = new Array(next.length),
         newIndices = new Map();
@@ -302,9 +392,9 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
     } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = previous[i];
-        if (isWrappable(item) && isWrappable(next[i]))
-          applyState(next[i], wrap(item, target), keyFn);
-        else {
+        if (isWrappable(item) && isWrappable(next[i])) {
+          if (item !== next[i]) applyStateChild(next[i], item, target, keyFn);
+        } else {
           if (item !== next[i]) changed = true;
           arrayNodes?.[i] && setSignal(arrayNodes[i], wrapValue(next[i], target));
         }
@@ -375,7 +465,7 @@ function diffNodeKey(
   ) {
     tracked && setSignal(tracked, void 0);
     node && setSignal(node, isWrappable(nextValue) ? wrap(nextValue, target) : nextValue);
-  } else applyState(nextValue, wrap(previousValue, target), keyFn);
+  } else applyStateChild(nextValue, previousValue, target, keyFn);
 }
 
 function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) => any) {
@@ -385,7 +475,10 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
   let nodes = target[STORE_NODE];
 
   // swap
-  (target[STORE_LOOKUP] || storeLookup).set(next, target[$PROXY]);
+  {
+    const fam = target[STORE_LOOKUP];
+    fam !== undefined ? fam.set(next, target[$PROXY]) : storeLookup.set(next, target);
+  }
   target[STORE_VALUE] = next;
   target[STORE_OVERRIDE] = undefined;
 

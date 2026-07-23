@@ -320,7 +320,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     } else if (valueChanged) {
       const prevVisible = hasOverride ? el._overrideValue : undefined;
 
-      if (create || (isEffect && activeTransition !== el._transition) || isOptimisticDirty) {
+      if (
+        create ||
+        // Plain sync flush (no transition on either side) commits effect
+        // values directly — the pending round-trip (queuePendingNode +
+        // commitPendingNodes) exists to sequence transition reveals, and
+        // paying it per effect on the plain path is pure overhead.
+        (isEffect && (activeTransition !== el._transition || activeTransition === null)) ||
+        isOptimisticDirty
+      ) {
         el._value = value;
         // Lane-propagated correction: upstream data is fresh, correct the
         // override unconditionally. The direct _value commit is the lane's

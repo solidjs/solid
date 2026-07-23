@@ -16,6 +16,7 @@ import {
   STORE_LOOKUP,
   STORE_VALUE,
   storeLookup,
+  lookupTarget,
   trackSelf,
   witnessAffectsMark,
   wrap,
@@ -32,7 +33,7 @@ function snapshotImpl<T>(
   if (!isWrappable(item)) return item;
   if (map && map.has(item)) return map.get(item) as T;
   if (!map) map = new Map();
-  if ((target = item[$TARGET] || lookup?.get(item)?.[$TARGET])) {
+  if ((target = item[$TARGET] || lookupTarget(item, lookup))) {
     if (track) {
       trackSelf(target, $TRACK);
       // A tracked walk reads THROUGH the record without touching the proxy
