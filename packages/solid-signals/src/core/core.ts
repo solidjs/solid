@@ -250,7 +250,21 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       value = inFlightChanged || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!inFlightChanged && !isAsyncResult) el._inFlight = null;
     }
-    clearStatus(el, create);
+    // On a status-free node clearStatus is a guaranteed no-op: every branch
+    // in its body is gated on one of these fields, and with _statusFlags === 0
+    // the flags write (create or not) stores the 0 already there.
+    if (
+      el._statusFlags !== 0 ||
+      el._notifyStatus !== undefined ||
+      el._error ||
+      el._reask ||
+      el._blocked ||
+      el._pendingSources !== undefined ||
+      el._pendingSignal !== undefined ||
+      el._latestValueComputed !== undefined ||
+      el._child !== null
+    )
+      clearStatus(el, create);
     // _optimisticLane is only ever assigned by engine paths.
     if (el._optimisticLane) GlobalQueue._laneAsyncSettled!(el);
   } catch (e) {
@@ -350,7 +364,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           GlobalQueue._syncCompanions(el, value);
       }
 
-      if (!hasOverride || isOptimisticDirty || el._overrideValue !== prevVisible)
+      // insertSubs only walks _subs (no scheduling of its own), so a
+      // subscriber-less node has nothing to notify.
+      if (
+        el._subs !== null &&
+        (!hasOverride || isOptimisticDirty || el._overrideValue !== prevVisible)
+      )
         insertSubs(el, isOptimisticDirty || hasOverride);
     } else if (hasOverride) {
       // Unchanged value (equals the override) recomputed while the override
@@ -699,6 +718,41 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
   }
 }
 
+/**
+ * Sentinel returned by readNodeFast when the plain-signal fast path does not
+ * apply and the caller must fall back to the full read().
+ */
+export const READ_SLOW = Symbol("read-slow");
+
+/**
+ * read()'s plain-signal fast path as a standalone entry for hot callers
+ * (store traps). Safe to substitute for read() only because the bail
+ * conditions mirror read()'s prelude and fast-path guard exactly: the
+ * latestRead and pendingCheck windows run side-effectful hooks before the
+ * fast path, `_fn` nodes need prepareComputed, and firewall / override /
+ * snapshot / transition / lane / dev-strictRead state all take the full
+ * resolution. Anything slow returns READ_SLOW; the caller then calls read().
+ */
+export function readNodeFast<T>(el: Signal<T>): T | typeof READ_SLOW {
+  if (
+    latestReadActive ||
+    pendingCheckActive ||
+    (el as Partial<Computed<T>>)._fn ||
+    (el as FirewallSignal<T>)._firewall ||
+    el._overrideValue !== undefined ||
+    el._snapshotValue !== undefined ||
+    activeTransition !== null ||
+    currentOptimisticLane !== null ||
+    snapshotCaptureActive ||
+    (__DEV__ && strictRead)
+  )
+    return READ_SLOW;
+  let c = context;
+  if ((c as Root)?._root) c = (c as Root)._parentComputed;
+  if (c && tracking) link(el, c as Computed<any>);
+  return (!c || el._pendingValue === NOT_PENDING ? el._value : el._pendingValue) as T;
+}
+
 export function read<T>(el: Signal<T> | Computed<T>): T {
   // Handle latest() mode: read from _latestValueComputed
   // Checked before isPending so that isPending(() => latest(x)) checks
@@ -919,7 +973,12 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   el._pendingValue = v;
   if (__DEV__) devTrackHeldPending(el);
 
-  GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, v);
+  // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
+  // neither companion present the call is a guaranteed no-op (companions are
+  // only ever created, never removed, and creating one installs the hook).
+  (el._pendingSignal !== undefined || el._latestValueComputed !== undefined) &&
+    GlobalQueue._syncCompanions !== null &&
+    GlobalQueue._syncCompanions(el, v);
 
   el._time = clock;
   insertSubs(el);

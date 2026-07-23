@@ -92,7 +92,11 @@ function optimisticWrite<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)
   el._overrideValue = v === undefined ? (OVERRIDE_UNDEFINED as T) : v;
   if (__DEV__) devTrackOptimistic(el);
 
-  GlobalQueue._syncCompanions !== null && GlobalQueue._syncCompanions(el, v);
+  // syncCompanions only pokes _pendingSignal/_latestValueComputed — with
+  // neither companion present the call is a guaranteed no-op.
+  (el._pendingSignal !== undefined || el._latestValueComputed !== undefined) &&
+    GlobalQueue._syncCompanions !== null &&
+    GlobalQueue._syncCompanions(el, v);
 
   el._time = clock;
   insertSubs(el, true);

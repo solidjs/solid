@@ -1,6 +1,8 @@
 import { STATUS_PENDING, STATUS_UNINITIALIZED, unwrapOverride } from "../core/constants.js";
 import {
   pendingCheckActive,
+  READ_SLOW,
+  readNodeFast,
   snapshotCaptureActive,
   snapshotSources,
   strictRead
@@ -961,7 +963,12 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       const nodes = target[STORE_NODE];
       const node = nodes && nodes[property];
       if (node !== undefined && target[STORE_VALUE][$TARGET] === undefined) {
-        let value = read(node);
+        // readNodeFast is read()'s plain-signal fast path hoisted over the
+        // call; READ_SLOW means a global read window (latest/pending-check/
+        // transition/lane/snapshot capture) or a node layer is active, and
+        // only then does the full read() resolution have anything to do.
+        let value = readNodeFast(node);
+        if (value === READ_SLOW) value = read(node);
         if (value === $DELETED) value = undefined;
         // Every node-writing site wraps wrappables before setSignal (see the
         // dev assertion below), so re-wrapping on read is redundant — except
