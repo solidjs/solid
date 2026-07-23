@@ -13,11 +13,13 @@ import {
   STORE_NODE,
   STORE_OPTIMISTIC_OVERRIDE,
   STORE_OVERRIDE,
+  STORE_SHALLOW,
   STORE_VALUE,
   STORE_WRAP,
   notifySelf,
   storeLookup,
   lookupTarget,
+  markRawIngest,
   symbolKeyedRecords,
   wrap
 } from "./store.js";
@@ -287,11 +289,92 @@ function applyState(next: any, state: any, keyFn: (item: NonNullable<any>) => an
   next = unwrap(next);
   const target = state?.[$TARGET];
   if (!target) return;
-  if (target[STORE_OVERRIDE] || target[STORE_OPTIMISTIC_OVERRIDE]) {
+  if (target[STORE_SHALLOW]) {
+    applyStateShallow(next, target, keyFn);
+  } else if (target[STORE_OVERRIDE] || target[STORE_OPTIMISTIC_OVERRIDE]) {
     applyStateSlow(next, target, keyFn);
   } else {
     applyStateFast(next, target, keyFn);
   }
+}
+
+// Shallow boundary diff: the target's own keys are reactive, its values are
+// raw records replaced by reference — no recursion, no wrapping. Arrays merge
+// positionally (below a shallow boundary the VALUE is the identity; keyed
+// row identity belongs to the consumer, e.g. <For keyed>). Incoming
+// wrappables are sticky-marked raw so they present raw through every store.
+function applyStateShallow(next: any, target: any, keyFn: (item: NonNullable<any>) => any) {
+  if (target[STORE_OVERRIDE] || target[STORE_OPTIMISTIC_OVERRIDE]) {
+    // Setter-staged overrides need folding. The generic slow path degrades to
+    // boundary granularity on its own: marked values refuse wrapping, which
+    // stops its recursion at the boundary.
+    markRawIngest(next);
+    applyStateSlow(next, target, keyFn);
+    return;
+  }
+  const previous = target[STORE_VALUE];
+  if (next === previous) return;
+  const fam = target[STORE_LOOKUP];
+  fam !== undefined ? fam.set(next, target[$PROXY]) : storeLookup.set(next, target);
+  target[STORE_VALUE] = next;
+  markRawIngest(next);
+
+  const nodes = target[STORE_NODE];
+  const tracked = nodes && nodes[$TRACK];
+  let changed = false;
+  if (Array.isArray(previous)) {
+    if (nodes) {
+      for (const key in nodes) {
+        if (key === "length") continue;
+        if (key in next) {
+          const v = next[key];
+          if (v !== previous[key as any]) {
+            changed = true;
+            setSignal(nodes[key], v);
+          }
+        } else {
+          changed = true;
+          setSignal(nodes[key], undefined);
+        }
+      }
+      if (nodes.length && previous.length !== next.length) setSignal(nodes.length, next.length);
+    }
+    if (!changed && (tracked || target[STORE_HAS])) {
+      // Slots without nodes still feed $TRACK enumerators / `in` probes.
+      if (previous.length !== next.length) changed = true;
+      else {
+        for (let i = 0, len = next.length; i < len; i++) {
+          if (previous[i] !== next[i]) {
+            changed = true;
+            break;
+          }
+        }
+      }
+    }
+  } else {
+    if (nodes) {
+      for (const key in nodes) {
+        if (key in next) {
+          const v = next[key];
+          if (v !== previous[key]) {
+            changed = true;
+            setSignal(nodes[key], v);
+          }
+        } else {
+          changed = true;
+          setSignal(nodes[key], undefined);
+        }
+      }
+    }
+    if (!changed && (tracked || target[STORE_HAS])) changed = true;
+  }
+  let has = target[STORE_HAS];
+  if (has) {
+    for (const key in has) {
+      setSignal(has[key], key in next);
+    }
+  }
+  changed && notifySelf(target);
 }
 
 function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) => any) {

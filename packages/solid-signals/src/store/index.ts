@@ -11,7 +11,7 @@ export type {
 } from "./store.js";
 export type { Merge, Omit } from "./utils.js";
 
-export { isWrappable, createStore, $TRACK, $PROXY, $TARGET } from "./store.js";
+export { isWrappable, createStore, markRaw, $TRACK, $PROXY, $TARGET } from "./store.js";
 
 export { createProjection } from "./projection.js";
 

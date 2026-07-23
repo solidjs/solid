@@ -14,7 +14,10 @@ import {
   setWriteOverride,
   STORE_FIREWALL,
   STORE_LOOKUP,
+  STORE_SHALLOW,
+  STORE_VALUE,
   STORE_WRAP,
+  markRawIngest,
   storeSetter,
   storeTraps,
   type NoFn,
@@ -29,9 +32,16 @@ export function createProjectionInternal<T extends object = {}>(
 ) {
   let node;
   const wrappedMap = new WeakMap();
+  // A shallow projection's children are raw and never wrapped, so the
+  // wrapper only ever runs for the root — flagging unconditionally is safe.
+  const shallow = !!(options as any)?.shallow;
   const wrapper = s => {
     s[STORE_WRAP] = wrapProjection;
     s[STORE_LOOKUP] = wrappedMap;
+    if (shallow) {
+      s[STORE_SHALLOW] = true;
+      markRawIngest(s[STORE_VALUE]);
+    }
     Object.defineProperty(s, STORE_FIREWALL, {
       get() {
         return node;

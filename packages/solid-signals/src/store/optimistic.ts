@@ -30,7 +30,9 @@ import {
   STORE_OPTIMISTIC_OVERRIDE,
   STORE_OPTIMISTIC_OWNERS,
   STORE_VALUE,
+  STORE_SHALLOW,
   STORE_WRAP,
+  markRawIngest,
   notifySelf,
   storeSetter,
   storeTraps,
@@ -217,9 +219,14 @@ function createOptimisticProjectionInternal<T extends object = {}>(
   let node: Computed<void> | undefined;
   const wrappedMap = new WeakMap();
 
+  const shallow = !!(options as any)?.shallow;
   const wrapper = (s: any) => {
     s[STORE_WRAP] = wrapProjection;
     s[STORE_LOOKUP] = wrappedMap;
+    if (shallow) {
+      s[STORE_SHALLOW] = true;
+      markRawIngest(s[STORE_VALUE]);
+    }
     s[STORE_OPTIMISTIC] = true; // Mark as optimistic store
     Object.defineProperty(s, STORE_FIREWALL, {
       get() {
