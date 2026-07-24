@@ -20,7 +20,12 @@ import {
   sharedConfig
 } from "solid-js";
 import type { Element as SolidElement } from "solid-js";
-import { insert } from "@dom-expressions/runtime/src/client.js";
+// `insert` MUST resolve to the shared @solidjs/web instance the compiled app
+// already uses — importing it from the runtime source instead bundles a second
+// copy of `insert` and the reconcile/render machinery it drags in (~4kb the app
+// already has). Kept external in rollup.config.js for the same reason the
+// server-functions/client import below is.
+import { insert } from "@solidjs/web";
 import {
   createFrame,
   createFrameElement,

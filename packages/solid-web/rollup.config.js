@@ -201,6 +201,7 @@ export default [
     ],
     external: [
       "solid-js",
+      "@solidjs/web",
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client"
@@ -228,6 +229,7 @@ export default [
     ],
     external: [
       "solid-js",
+      "@solidjs/web",
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client"
