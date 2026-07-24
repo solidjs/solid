@@ -231,6 +231,16 @@
         }
       },
       "browser": {
+        "development": {
+          "import": {
+            "types": "./types/frames/client.d.ts",
+            "default": "./frames/dist/client.dev.js"
+          },
+          "require": {
+            "types": "./types-cjs/frames/client.d.cts",
+            "default": "./frames/dist/client.dev.cjs"
+          }
+        },
         "import": {
           "types": "./types/frames/client.d.ts",
           "default": "./frames/dist/client.js"
@@ -258,6 +268,16 @@
         "require": {
           "types": "./types-cjs/frames/server.d.cts",
           "default": "./frames/dist/server.cjs"
+        }
+      },
+      "development": {
+        "import": {
+          "types": "./types/frames/client.d.ts",
+          "default": "./frames/dist/client.dev.js"
+        },
+        "require": {
+          "types": "./types-cjs/frames/client.d.cts",
+          "default": "./frames/dist/client.dev.cjs"
         }
       },
       "import": {

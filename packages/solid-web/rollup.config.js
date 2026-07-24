@@ -205,7 +205,34 @@ export default [
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client"
     ],
-    plugins: plugins.concat(assertFramesClientTransport)
+    // Prod build: strip `_DX_DEV_` like the main `dist/web.js` entry, so the
+    // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
+    // not ship. The dev build below keeps them, selected via the `frames`
+    // export's `development` condition — mirroring `web.js`/`dev.js`.
+    plugins: [replaceDev(false)].concat(plugins).concat(assertFramesClientTransport)
+  },
+  {
+    // Dev build (`development` export condition): keeps the frame runtime's
+    // `_DX_DEV_` diagnostics for marker-corruption / CDN-strip debugging.
+    input: "frames/src/client.ts",
+    output: [
+      {
+        file: "frames/dist/client.dev.cjs",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "frames/dist/client.dev.js",
+        format: "es"
+      }
+    ],
+    external: [
+      "solid-js",
+      "seroval",
+      "seroval-plugins/web",
+      "@solidjs/web/server-functions/client"
+    ],
+    plugins: [replaceDev(true)].concat(plugins).concat(assertFramesClientTransport)
   },
   {
     input: "frames/src/server.ts",
