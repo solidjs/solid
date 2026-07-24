@@ -399,6 +399,28 @@ function DynamicFallbackStream() {
 }
 
 // ---------------------------------------------------------------------------
+// Streamed boundary whose fallback keeps UPDATING while pending (#2936): the
+// fallback's reactive text hole must claim the server-rendered text between
+// the placeholder <template> and its <!--pl-X--> end marker and replace it in
+// place on every signal update — not append fresh text nodes after the
+// claimed one, piling up "012…" debris until the boundary resolves.
+export let bumpPendingFallback!: () => void;
+function LoadingFallbackReactiveText() {
+  const [count, setCount] = createSignal(0);
+  bumpPendingFallback = () => setCount(c => c + 1);
+  const data = createMemo(async () => {
+    await sleep(10);
+    return "done";
+  });
+  return (
+    <div>
+      <h1>head </h1>
+      <Loading fallback={<>{count()}</>}>{data()}</Loading>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Portal: client-only island (#2876). Server renders nothing for the portal;
 // the client renders its children fresh once hydration settles. Mounting into
 // a host inside the container lets the harness textContent assertion cover
@@ -665,6 +687,14 @@ export const scenarios: Scenario[] = [
     update: () => refreshDynamicFallback(),
     expectedTextAfterUpdate: "status ready-1",
     stableSelector: "div, span"
+  },
+  {
+    name: "loading-fallback-reactive-text",
+    App: LoadingFallbackReactiveText,
+    async: true,
+    expectedText: "head done",
+    serverText: "head 0",
+    stableSelector: "div, h1"
   },
   {
     name: "portal-client-island",
