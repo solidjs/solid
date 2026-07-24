@@ -45,6 +45,7 @@
     "babel-plugin-transform-rename-import": "^2.3.0",
     "coveralls": "^3.1.1",
     "csstype": "^3.1.0",
+    "esbuild": "^0.25.12",
     "jsdom": "^25.0.1",
     "ncp": "^2.0.0",
     "npm-run-all2": "^8.0.4",
