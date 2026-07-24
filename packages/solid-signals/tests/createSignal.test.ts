@@ -103,7 +103,7 @@ it("should call unobserved callback when signal is unobserved", () => {
 });
 
 describe("async computed transition entanglement", () => {
-  it("async computed in an incomplete transition blocks entangled effects", async () => {
+  it("async computed's first settle does not permanently entangle unrelated effects", async () => {
     const values: number[] = [];
     let setCounter!: (v: number | ((prev: number) => number)) => number;
 
@@ -142,14 +142,18 @@ describe("async computed transition entanglement", () => {
     setCounter(1);
     flush();
     await new Promise(r => setTimeout(r, 50));
-    // Updates are blocked: the incomplete transition stashes all entangled effects.
-    // This is expected — use a <Loading> boundary to isolate async work.
-    expect(values).not.toContain(1);
+    // The async computed's FIRST settle is loading-rail (uninitialized, never
+    // a reporter of the incomplete transition), so it drops its stale
+    // transition stamp instead of re-entering it (#2937). The stamp was the
+    // bridge that permanently entangled counter's render effect with the
+    // never-resolving async's transition; without it, unrelated sync updates
+    // keep flowing.
+    expect(values).toContain(1);
 
     setCounter(2);
     flush();
     await new Promise(r => setTimeout(r, 50));
-    expect(values).not.toContain(2);
+    expect(values).toContain(2);
 
     dispose();
   });

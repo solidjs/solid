@@ -22,6 +22,7 @@ import { cleanup } from "./owner.js";
 import {
   assignOrMergeLane,
   clock,
+  currentTransition,
   dirtyQueue,
   flush,
   GlobalQueue,
@@ -216,9 +217,34 @@ export function handleAsync<T>(
   el._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
   let syncValue: T;
 
+  // Settle-time transition re-entry. The loading rail is invisible to
+  // transactions (#2933): a boundary-caught first load never registers as an
+  // async reporter, so its settle — the boundary's fallback -> content
+  // reveal — must flow ambiently. The node can still carry a `_transition`
+  // stamp (pending-node bookkeeping rides through the stamping sites), and
+  // blindly re-entering that stamped, still-incomplete transaction stashed
+  // the reveal with it — a deadlock when the transaction's completion
+  // depended on the reveal (#2937). An ESCAPED first load did register and
+  // keeps transition scheduling; initialized (value-holding) pending settles
+  // are the transaction's reveal machinery and always re-enter.
+  const settleTransition = () => {
+    const transition = resolveTransition(el as any);
+    if (
+      transition &&
+      el._statusFlags & STATUS_UNINITIALIZED &&
+      !currentTransition(transition)._asyncReporters.has(el)
+    ) {
+      // Drop the stale stamp too: the plain settle write (setSignal) and the
+      // stash-path restamp both re-enter the transaction through it.
+      el._transition = null;
+      return;
+    }
+    globalQueue.initTransition(transition);
+  };
+
   const handleError = (error: any) => {
     if (el._inFlight !== result) return;
-    globalQueue.initTransition(resolveTransition(el as any));
+    settleTransition();
     // NotReadyError from rejected promises should be treated as pending, not error
     const stillPending = error instanceof NotReadyError;
     notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
@@ -235,7 +261,7 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & (REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY)) return;
-    globalQueue.initTransition(resolveTransition(el as any));
+    settleTransition();
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
     trimStaleDeps(el);
     clearStatus(el);
