@@ -11,8 +11,16 @@
 // server content morphs in place while client-owned slot ranges and their
 // state survive (policy A).
 
-import { createOwner, getOwner, onCleanup, runWithOwner, sharedConfig } from "solid-js";
+import {
+  createLoadingBoundary,
+  createOwner,
+  getOwner,
+  onCleanup,
+  runWithOwner,
+  sharedConfig
+} from "solid-js";
 import type { Element as SolidElement } from "solid-js";
+import { insert } from "@dom-expressions/runtime/src/client.js";
 import {
   createFrame,
   createFrameElement,
@@ -179,6 +187,32 @@ function slotsFor(props: Record<string, any>) {
   );
 }
 
+// Boundary-driven segment reveal (the per-`<Loading>` model). A streamed
+// segment's placeholder is the client footprint of the server `<Loading>` that
+// produced it, so we reconstruct a client `<Loading>` right there: a FRESH
+// loading boundary shows the server-rendered fallback while its children — the
+// segment content plus its client fills — are pending, then reveals. Because
+// the fills render INSIDE this boundary, an unboundaried async fill's
+// `NotReadyError` propagates up the graph to it and is covered (not orphaned on
+// the frame's already-latched outer boundary); a fill with its OWN `<Loading>`
+// contains itself and this one reads it as resolved. One boundary per revealed
+// segment — i.e. per author-placed `<Loading>` (a single high one for most
+// apps) — so this is React's granularity, not a per-chunk tax. Runs under the
+// frame's owner so the boundary disposes with the frame.
+function revealSeam(owner: any) {
+  return (seam: { before: Node; fallback: Node[]; content: () => Node }) =>
+    runWithOwner(owner, () =>
+      insert(
+        (seam.before as any).parentNode,
+        createLoadingBoundary(
+          () => seam.content(),
+          () => seam.fallback
+        ) as any,
+        seam.before as any
+      )
+    );
+}
+
 function boundaryComponent(host: any, id: string) {
   return (props: Record<string, any>) => {
     // Element-claim sweeps (router link-state contract) run under this
@@ -193,7 +227,8 @@ function boundaryComponent(host: any, id: string) {
       host,
       id,
       slots: slotsFor(props),
-      ownerScope: (fn: () => any) => runWithOwner(owner, fn)
+      ownerScope: (fn: () => any) => runWithOwner(owner, fn),
+      reveal: revealSeam(owner)
     });
     onCleanup(dispose);
     return element as unknown as SolidElement;
@@ -283,7 +318,8 @@ function documentBoundary(host: any, id: string, props: Record<string, any>) {
     host,
     id,
     slots: slotsFor(props),
-    ownerScope: (fn: () => any) => runWithOwner(owner, fn)
+    ownerScope: (fn: () => any) => runWithOwner(owner, fn),
+    reveal: revealSeam(owner)
   });
   onCleanup(() => frame.dispose());
   // The boundary IS the element — hand hydration the single SSR'd node so it

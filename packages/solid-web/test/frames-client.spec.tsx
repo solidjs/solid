@@ -11,9 +11,21 @@
 // stubbed fetch, so the REAL server-function stub → transport → component
 // pipeline is what's under test.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createRoot, createSignal, flush, getOwner, Loading, onCleanup } from "solid-js";
+import {
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+  getOwner,
+  Loading,
+  onCleanup
+} from "solid-js";
 import { dynamic, registerElementClaim } from "../src/index.js";
-import { installServerComponents, createFrameHost, createJSONDataTable } from "../frames/src/client.js";
+import {
+  installServerComponents,
+  createFrameHost,
+  createJSONDataTable
+} from "../frames/src/client.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
 import { createChunk } from "@dom-expressions/runtime/src/server-functions/shared.js";
 
@@ -132,6 +144,82 @@ describe("server components through dynamic", () => {
     dispose();
     flush();
     expect(div.querySelector("article")).toBe(null);
+    container.remove();
+  });
+
+  test("covers an unboundaried async client fill revealed in a deferred segment (no orphan)", async () => {
+    // The #1 case: a deferred segment reveals content containing a client fill
+    // that is async and has NO <Loading> of its own. The reveal reconstructs a
+    // client <Loading> at the segment's placeholder seam, so the fill's
+    // NotReadyError propagates up to THAT boundary — the segment's server
+    // fallback holds until the fill settles, instead of flashing empty on the
+    // frame's already-latched outer boundary.
+    let resolveComment!: (v: string) => void;
+    const commentReady = new Promise<string>(r => (resolveComment = r));
+
+    vi.stubGlobal("fetch", async () =>
+      frameResponse("srv", [
+        { type: "start", id: "srv", version: 1 },
+        { type: "slot", id: "srv", version: 1, key: "comment#0", args: {} },
+        {
+          type: "html",
+          id: "srv",
+          version: 1,
+          html: '<article><template id="pl-c"><span>seg-loading</span></template><!--pl-c--></article>'
+        },
+        {
+          type: "fragment",
+          id: "srv",
+          version: 1,
+          key: "c",
+          html: "<div><!--slot:comment#0:start--><!--slot:comment#0:end--></div>"
+        },
+        { type: "reveal", id: "srv", version: 1, keys: ["c"], waitForStyles: false },
+        { type: "complete", id: "srv", version: 1 }
+      ])
+    );
+
+    const Story = dynamic(() => getStory(1) as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>outer</span>}>
+          <Story
+            comment={() => {
+              // Async fill, NO local <Loading>: reads a pending async source.
+              const text = createMemo(() => commentReady);
+              return <b>{text()}</b>;
+            }}
+          />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+
+    // The segment revealed, but its async fill is pending: the reconstructed
+    // boundary holds the SEGMENT fallback — not empty, not the outer fallback.
+    expect(div.querySelector("template#pl-c")).toBe(null); // placeholder consumed
+    expect(div.textContent).toContain("seg-loading"); // segment fallback held
+    expect(div.textContent).not.toContain("outer"); // outer already resolved
+    expect(div.querySelector("b")).toBe(null); // fill not shown yet
+
+    // The fill settles -> the boundary reveals the content.
+    resolveComment("hello");
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.textContent).not.toContain("seg-loading");
+    expect(div.querySelector("b")!.textContent).toBe("hello");
+
+    dispose();
     container.remove();
   });
 
