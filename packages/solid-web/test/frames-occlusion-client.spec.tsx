@@ -11,7 +11,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
-import { installServerComponents, createFrameHost, createJSONDataTable } from "../frames/src/client.js";
+import {
+  installServerComponents,
+  createFrameHost,
+  createJSONDataTable
+} from "../frames/src/client.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
 
 const settle = () => new Promise(r => setTimeout(r));
@@ -37,11 +41,11 @@ describe("occlusion records at adoption", () => {
     // The SSR'd document: boundary with a collapsed wrapper whose body was
     // never rendered (occluded), plus the records the producer flipped.
     document.body.innerHTML =
-      '<div id="app"><!--frame:occ/thread:start-->' +
+      '<div id="app"><dx-frame data-fid="occ/thread" style="display:contents">' +
       "<article><!--slot:comment#c1:start-->" +
       '<div class="comment collapsed"><button>[+]</button></div>' +
       "<!--slot:comment#c1:end--></article>" +
-      "<!--frame:occ/thread:end--></div>";
+      "</dx-frame></div>";
     (window as any)._$HY = {
       r: {
         "sc:slot:occ/thread:comment#c1": {

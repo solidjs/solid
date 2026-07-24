@@ -14,9 +14,10 @@
 import { createOwner, getOwner, onCleanup, runWithOwner, sharedConfig } from "solid-js";
 import type { Element as SolidElement } from "solid-js";
 import {
-  adoptFrameRange,
+  createFrame,
+  createFrameElement,
   createFrameHost,
-  createFrameInsertable
+  FRAME_ID_ATTR
 } from "@dom-expressions/runtime/src/frame-client.js";
 import { createServerComponentHandler } from "@dom-expressions/runtime/src/frame-transport.js";
 // The one import that must resolve to the SHARED built instance, not a
@@ -33,7 +34,7 @@ import { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js"
 export {
   createFrame,
   createFrameHost,
-  createFrameInsertable,
+  createFrameElement,
   FRAME_APPLIED_EVENT
 } from "@dom-expressions/runtime/src/frame-client.js";
 export {
@@ -185,14 +186,17 @@ function boundaryComponent(host: any, id: string) {
     // boundary, and streamed chunks — applied from microtasks with no owner
     // of their own — still claim with the right lifetime.
     const owner = getOwner();
-    const insertable = createFrameInsertable({
+    // The boundary is a DOM element (`<dx-frame>`), not a branded value:
+    // `insert` places it natively in any position (array/fragment/single —
+    // no #550), and the frame mounts INTO it. Return the element itself.
+    const { element, dispose } = createFrameElement({
       host,
       id,
       slots: slotsFor(props),
       ownerScope: (fn: () => any) => runWithOwner(owner, fn)
     });
-    onCleanup(() => insertable.dispose());
-    return insertable as unknown as SolidElement;
+    onCleanup(dispose);
+    return element as unknown as SolidElement;
   };
 }
 
@@ -210,45 +214,35 @@ function boundaryComponent(host: any, id: string) {
 // to the network like any other call.
 const claimedBoundaries = new Set<string>();
 
-// One document walk indexes every SSR'd frame-marker pair; the intercept
-// and adoption paths become map lookups (previously each ran its own full
-// TreeWalker — 2N walks for N boundaries). Boundaries are static document
-// output: entries are only consumed once (claimedBoundaries), so the index
-// never needs invalidation.
-let boundaryIndex: Map<string, [Comment, Comment]> | null = null;
-function findBoundaryRange(id: string): [Comment, Comment] | undefined {
+// One document query indexes every SSR'd frame ELEMENT by its id; the
+// intercept and adoption paths become map lookups. Boundaries (and regions)
+// are static document output carried as `<dx-frame data-fid>` elements — a
+// single attribute query, no per-boundary TreeWalk and no comment-pair
+// depth-matching. Entries are consumed once (claimedBoundaries), so the
+// index never needs invalidation. (A region's element is indexed too but
+// never looked up as a boundary — its id is `fn.occurrence.key`, never a
+// function id.)
+let boundaryIndex: Map<string, Element> | null = null;
+function findBoundaryElement(id: string): Element | undefined {
   if (!boundaryIndex) {
     boundaryIndex = new Map();
     if (typeof document !== "undefined" && document.body) {
-      const walker = document.createTreeWalker(document.body, 128 /* COMMENT */);
-      const opens: Record<string, Comment> = {};
-      let c: Node | null;
-      while ((c = walker.nextNode())) {
-        const d = (c as Comment).data;
-        if (!d.startsWith("frame:")) continue;
-        if (d.endsWith(":start")) {
-          const key = d.slice(6, -6);
-          if (key && !(key in opens)) opens[key] = c as Comment;
-        } else if (d.endsWith(":end")) {
-          const key = d.slice(6, -4);
-          if (key && opens[key] && !boundaryIndex.has(key)) {
-            boundaryIndex.set(key, [opens[key], c as Comment]);
-          }
-        }
-      }
+      document.body.querySelectorAll(`[${FRAME_ID_ATTR}]`).forEach(el => {
+        const key = el.getAttribute(FRAME_ID_ATTR);
+        if (key && !boundaryIndex!.has(key)) boundaryIndex!.set(key, el);
+      });
     }
   }
   return boundaryIndex.get(id);
 }
 
 function documentBoundary(host: any, id: string, props: Record<string, any>) {
-  const range = !claimedBoundaries.has(id) && findBoundaryRange(id);
+  const el = !claimedBoundaries.has(id) ? findBoundaryElement(id) : undefined;
   // No SSR'd boundary on the page (client-only boot, or already claimed):
   // mount fresh — the pending/late stream fills it exactly like the
   // non-document path.
-  if (!range) return boundaryComponent(host, id)(props);
+  if (!el) return boundaryComponent(host, id)(props);
   claimedBoundaries.add(id);
-  const [start, end] = range;
   // Occlusion records (case 3, document face): content a client wrapper
   // never rendered during SSR shipped ONCE as hydration data instead of
   // markup. Apply the records BEFORE binding the frame — the host buffers
@@ -281,22 +275,20 @@ function documentBoundary(host: any, id: string, props: Record<string, any>) {
     }
   }
   // ownerScope: element-claim sweeps — both the adoption sweep over the
-  // SSR'd range (whose anchors never ran compiled creation) and later
+  // SSR'd element (whose anchors never ran compiled creation) and later
   // streamed morphs — bind consumer cleanup to this boundary's owner.
   const owner = getOwner();
-  const frame = adoptFrameRange(start, end, {
+  const frame = createFrame(el, {
+    adopt: true,
     host,
     id,
     slots: slotsFor(props),
     ownerScope: (fn: () => any) => runWithOwner(owner, fn)
   });
   onCleanup(() => frame.dispose());
-  const nodes: Node[] = [];
-  for (let n: Node | null = start; n; n = n.nextSibling) {
-    nodes.push(n);
-    if (n === end) break;
-  }
-  return nodes as unknown as SolidElement;
+  // The boundary IS the element — hand hydration the single SSR'd node so it
+  // claims it in place rather than re-rendering.
+  return el as unknown as SolidElement;
 }
 
 /**
@@ -339,7 +331,7 @@ export function installServerComponents(host: any = getFrameHost()) {
       // consumed on adoption, so navigations fetch normally and (via
       // documentComponent above) resolve to the SAME placeholder.
       intercept: ({ id }: { id: string }) => {
-        if (claimedBoundaries.has(id) || !findBoundaryRange(id)) return undefined;
+        if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
         return g._$SC.r(id);
       }
     })

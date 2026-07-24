@@ -12,7 +12,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
-import { installServerComponents, createFrameHost, createJSONDataTable } from "../frames/src/client.js";
+import {
+  installServerComponents,
+  createFrameHost,
+  createJSONDataTable
+} from "../frames/src/client.js";
 import { createServerReference } from "@dom-expressions/runtime/src/server-functions/client.js";
 
 const settle = () => new Promise(r => setTimeout(r));
@@ -34,11 +38,11 @@ describe("adopted boundary stream re-calls (#547)", () => {
 
   test("an identical re-sent record does not re-call; a changed record re-renders for real and its {$frame} region mounts and morphs", async () => {
     document.body.innerHTML =
-      '<div id="app"><!--frame:occ/used:start-->' +
+      '<div id="app"><dx-frame data-fid="occ/used" style="display:contents">' +
       "<article><!--slot:comment#c1:start-->" +
       '<div class="comment"><button>[-]</button></div>' +
       "<!--slot:comment#c1:end--></article>" +
-      "<!--frame:occ/used:end--></div>";
+      "</dx-frame></div>";
     (window as any)._$HY = {
       r: { "sc:slot:occ/used:comment#c1": { cid: "c1" } }
     };
