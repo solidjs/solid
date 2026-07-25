@@ -1,5 +1,14 @@
 # @solidjs/signals
 
+## 2.0.0-beta.26
+
+### Patch Changes
+
+- 0c206fd: Fix a deadlock where a boundary-caught first load settled back into an incomplete action transaction (#2937). The loading rail is invisible to transactions: an uninitialized async that never registered as a transition reporter now drops its stale transition stamp at settle instead of re-entering the transaction, so the boundary's fallback-to-content reveal (and its onCleanup) flows ambiently. Same-tick writes before an action call — plain or optimistic — still join the transaction; escaped (unboundaried) first loads keep transition scheduling.
+- c5cf84f: Fix two autodispose leaks in lazy nodes kept alive by the STATUS_PENDING exemption (#2934, #2935). The exemption keeps a lazy node alive when it loses its last subscriber mid-flight, but only the thenable branch's own settle callbacks ran the matching release. Now every path that clears pending state on a subscriber-less lazy node releases it: `settlePendingSource` (derivatively-pending nodes settling by upstream resolution), the error propagation path (upstream rejection), and the AsyncIterable branch — which also stops pulling values once unobserved, closing the iterator via its cleanup instead of pumping the stream forever.
+- 47fbc0d: Fix a projection over an async store wedging its Loading boundary on `undefined` (#2938). The store trap's uninitialized guard (#2897) also ran for observer-present reads, vetoing `read()`'s verdict with the stale UNINITIALIZED flag during the settle flush (the firewall's flag clear is deferred to batch commit) and throwing a fresh NotReadyError for an already-settled source that no sweep would ever release. The guard is now scoped to its documented contract — genuinely untracked fall-throughs — so downstream recomputes read the first values off the pending rail at settle, while untracked reads still throw for the whole uninitialized window (the seed never leaks).
+- 6b95ce3: Fix a shallow store leaking writes across a derived chain when it holds another store's proxy (#2932). Shallow ingest sticky-marked the ingested value raw — but the mark is global, so marking a live store proxy made every store serve it verbatim: a downstream deep store captured the upstream proxy instead of wrapping it in its own family, and its writes landed in the upstream store's override layer. Store proxies now pass through the shallow boundary unmarked (slot semantics unchanged: replaced by reference), so each store wraps them in its own family and write isolation matches the non-shallow chain. Also fixes the set-trap ingest mark being inert unless a raw mark already existed somewhere (`rawValuesUsed` was never flipped).
+
 ## 2.0.0-beta.25
 
 ### Patch Changes

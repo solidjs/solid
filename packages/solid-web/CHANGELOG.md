@@ -1,5 +1,14 @@
 # @solidjs/web
 
+## 2.0.0-beta.26
+
+### Patch Changes
+
+- 685d597: Bump dom-expressions to 0.50.0-next.30. Picks up the hydration fix for streamed `<Loading>` fallbacks (#2936): a pending boundary's placeholder scaffolding (`<template id="pl-X">` and its `<!--pl-X-->` end comment) is now excluded from hydration claim arrays, so a reactive text hole in the fallback adopts the server-rendered node and updates replace it in place instead of appending debris.
+- 144801e: Fix frames types build on fresh installs: map bare `@solidjs/web` in `frames/tsconfig.build.json` paths (alongside the existing server-functions/client mapping). The insert-dedup change imports `insert` from `@solidjs/web`, which fails under NodeNext without the package self-link that only local `link` checkouts have.
+- b29ca0a: Adopt the element-based frame seams from `@dom-expressions/runtime`: a server-component boundary is now a client-owned `<dx-frame>` element rather than a branded comment-marker range. `boundaryComponent` uses `createFrameElement` and returns the element (which `insert` places natively in any position, fixing the array/fragment crash class), and `documentBoundary` adopts the SSR'd boundary element via `createFrame(el, { adopt: true })`, located by a single `[data-fid]` attribute query instead of a comment-pair TreeWalk. The occlusion drain, hydration-claim scoping, and stable-component transport policy are unchanged. Requires `@dom-expressions/runtime` with the element seam (`createFrameElement`/`FRAME_ID_ATTR`, `createFrame` adopt option); `createFrameInsertable`/`adoptFrameRange` are gone.
+  - solid-js@2.0.0-beta.26
+
 ## 2.0.0-beta.25
 
 ### Patch Changes
