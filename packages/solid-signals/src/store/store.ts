@@ -1112,7 +1112,14 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     }
     // Untracked fall-through (tracked reads already threw via their node in
     // read(); the dev strictRead error above wins first for memo parity).
-    if (!selfRead) throwIfUninitialized(target);
+    // Observer-present reads must NOT re-consult the flag here: during the
+    // settle flush the firewall has recomputed (first values live on the
+    // pending rail, served by read() above) but its UNINITIALIZED clear is
+    // deferred to batch commit — vetoing read()'s verdict with the stale flag
+    // threw a fresh NotReadyError for an already-settled source, which no
+    // sweep would ever release (#2938: projection over an async store wedged
+    // its Loading boundary on `undefined`).
+    if (!selfRead && !getObserver()) throwIfUninitialized(target);
     return isWrappable(value) ? wrap(value, target) : value;
   },
 

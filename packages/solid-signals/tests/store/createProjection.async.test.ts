@@ -1,16 +1,19 @@
 import {
   affects,
+  createEffect,
   createMemo,
   createLoadingBoundary,
   createProjection,
   createRenderEffect,
   createRoot,
   createSignal,
+  createStore,
   flush,
   isPending,
   latest,
   NotReadyError,
-  refresh
+  refresh,
+  untrack
 } from "../../src/index.js";
 
 function deferred<T>() {
@@ -886,5 +889,86 @@ describe("Projection isPending behavior", () => {
     expect(proj.value).toBe("READY");
     expect(boundary()).toBe("READY");
     expect(isPending(() => proj.value)).toBe(false);
+  });
+
+  // #2938: a projection deriving from an async store settles through a Loading
+  // boundary. The firewall's UNINITIALIZED clear is deferred to batch commit,
+  // so during the settle flush downstream recomputes read the first values off
+  // the pending rail — the trap's untracked uninitialized guard must not veto
+  // those reads with the stale flag (it threw a fresh NotReadyError for an
+  // already-settled source, which no sweep would ever release, wedging the
+  // boundary on the tree's never-produced `undefined`).
+  it("projection over an async store settles through a Loading boundary (#2938)", async () => {
+    const gate = deferred<{ value: string }>();
+    let view: unknown;
+    const effectLog: string[] = [];
+    let dispose!: () => void;
+
+    createRoot(d => {
+      dispose = d;
+      const [store] = createStore(() => gate.promise, { value: "" } as { value: string });
+
+      const proj = createProjection<{ value: string }>(
+        draft => {
+          draft.value = store.value;
+        },
+        { value: "" }
+      );
+
+      const boundary = createLoadingBoundary(
+        () => "content:" + proj.value,
+        () => "loading"
+      );
+      createRenderEffect(
+        () => (view = boundary()),
+        () => {}
+      );
+      createEffect(
+        () => proj.value,
+        v => {
+          effectLog.push(v);
+        }
+      );
+    });
+    flush();
+    expect(view).toBe("loading");
+    expect(effectLog).toEqual([]);
+
+    gate.resolve({ value: "hello" });
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(view).toBe("content:hello");
+    expect(effectLog).toEqual(["hello"]);
+    dispose();
+  });
+
+  it("untracked reads of a loading projection still throw NotReady (#2897 invariant)", async () => {
+    const gate = deferred<{ value: string }>();
+    let proj!: { value: string };
+    let dispose!: () => void;
+
+    createRoot(d => {
+      dispose = d;
+      const [store] = createStore(() => gate.promise, { value: "" } as { value: string });
+      proj = createProjection<{ value: string }>(
+        draft => {
+          draft.value = store.value;
+        },
+        { value: "" }
+      );
+    });
+    flush();
+    // The seed never leaks: observer-less reads throw for the whole
+    // uninitialized window.
+    expect(() => untrack(() => proj.value)).toThrow(NotReadyError);
+
+    gate.resolve({ value: "hello" });
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(untrack(() => proj.value)).toBe("hello");
+    dispose();
   });
 });
