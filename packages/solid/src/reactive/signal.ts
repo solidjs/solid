@@ -851,7 +851,8 @@ export function createSelector<T, U = T>(
       for (const [key, val] of subs.entries())
         if (fn(key, v) !== fn(key, p!)) {
           for (const c of val.values()) {
-            c.state = STALE;
+            if (Transition && Transition.running) c.tState = STALE;
+            else c.state = STALE;
             if (c.pure) Updates!.push(c);
             else Effects!.push(c);
           }
