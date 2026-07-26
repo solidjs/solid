@@ -410,6 +410,70 @@ describe("createOptimisticStore", () => {
       expect(state.value).toBe(20);
     });
 
+    it("swaps when the derive returns a different entity", () => {
+      const [$id, setId] = createSignal(1);
+      const [state] = createOptimisticStore<{ id: number; name: string }>(
+        () => ({ id: $id(), name: `user ${$id()}` }),
+        {} as any
+      );
+
+      flush();
+      expect(state.name).toBe("user 1");
+
+      setId(2);
+      flush();
+      expect(state.id).toBe(2);
+      expect(state.name).toBe("user 2");
+    });
+
+    it("swaps entity with an optimistic overlay in flight", () => {
+      const [$id, setId] = createSignal(1);
+      const [state, setState] = createOptimisticStore<{ id: number; name: string }>(
+        () => ({ id: $id(), name: `user ${$id()}` }),
+        {} as any
+      );
+
+      flush();
+      // Overlay shadows `id`, so the identity probe reads through the layer
+      // rather than the raw — the swap must still resolve against the base.
+      setState(s => {
+        s.id = 99;
+        s.name = "optimistic";
+      });
+      expect(state.id).toBe(99);
+
+      setId(2);
+      flush();
+      expect(state.id).toBe(2);
+      expect(state.name).toBe("user 2");
+    });
+
+    it('honours key: null instead of defaulting to "id"', () => {
+      const [$id, setId] = createSignal(1);
+      let firstPost!: { id: number; title: string };
+      const [state] = createOptimisticStore<{ id: number; posts: { id: number; title: string }[] }>(
+        () => ({ id: $id(), posts: [{ id: $id() * 10, title: `t${$id()}` }] }),
+        {} as any,
+        { key: null }
+      );
+
+      createRoot(() => {
+        createRenderEffect(
+          () => state.posts[0],
+          p => {
+            firstPost = p;
+          }
+        );
+      });
+
+      flush();
+      const before = firstPost;
+      setId(2);
+      flush();
+      expect(firstPost).toBe(before);
+      expect(firstPost.title).toBe("t2");
+    });
+
     it("should handle async projection and revert optimistic writes", async () => {
       const [$x, setX] = createSignal(1);
       const [state, setState] = createOptimisticStore(

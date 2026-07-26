@@ -4,7 +4,9 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
-  flush
+  createStore,
+  flush,
+  reconcile
 } from "../../src/index.js";
 
 describe("Projection basics", () => {
@@ -324,5 +326,180 @@ describe("selection with projections", () => {
     expect(list[6][0]).toBe("selected");
     expect(list[3][1]).toBe("non");
     expect(list[6][1]).toBe("oui");
+  });
+});
+
+describe("Projection root entity swap", () => {
+  test("swaps in place when the derive returns a different entity", () => {
+    const seen: string[] = [];
+    let setId!: (v: number) => void;
+    let user!: { id: number; name: string };
+
+    createRoot(() => {
+      const [id, set] = createSignal(1);
+      setId = set;
+      user = createProjection<{ id: number; name: string }>(
+        () => ({ id: id(), name: `user ${id()}` }),
+        {} as any
+      );
+      createRenderEffect(
+        () => user.name,
+        v => {
+          seen.push(v);
+        }
+      );
+    });
+
+    flush();
+    expect(seen).toEqual(["user 1"]);
+
+    setId(2);
+    flush();
+    expect(seen).toEqual(["user 1", "user 2"]);
+    expect(user.id).toBe(2);
+  });
+
+  test("does not merge children across an entity change", () => {
+    // Both users own a post keyed `1`. They are different posts, so the row
+    // must be a new proxy rather than user 2's title merged into user 1's.
+    type Post = { id: number; title: string };
+    const users: Record<number, { id: number; posts: Post[] }> = {
+      1: { id: 1, posts: [{ id: 1, title: "one/a" }] },
+      2: { id: 2, posts: [{ id: 1, title: "two/a" }] }
+    };
+    let setId!: (v: number) => void;
+    let user!: { id: number; posts: Post[] };
+    let firstPost!: Post;
+
+    createRoot(() => {
+      const [id, set] = createSignal(1);
+      setId = set;
+      user = createProjection<{ id: number; posts: Post[] }>(
+        () => structuredClone(users[id()]),
+        {} as any
+      );
+      createRenderEffect(
+        () => user.posts[0],
+        p => {
+          firstPost = p;
+        }
+      );
+    });
+
+    flush();
+    const beforeSwap = firstPost;
+    expect(beforeSwap.title).toBe("one/a");
+
+    setId(2);
+    flush();
+    expect(firstPost.title).toBe("two/a");
+    expect(firstPost).not.toBe(beforeSwap);
+    // The dropped entity's proxy keeps showing its own data.
+    expect(beforeSwap.title).toBe("one/a");
+  });
+
+  test("keeps merging when identity is unchanged", () => {
+    type User = { id: number; name: string; posts: { id: number; title: string }[] };
+    let setName!: (v: string) => void;
+    let user!: User;
+    let firstPost!: { id: number; title: string };
+    let postRuns = 0;
+
+    createRoot(() => {
+      const [name, set] = createSignal("Ada");
+      setName = set;
+      user = createProjection<User>(
+        () => ({ id: 1, name: name(), posts: [{ id: 1, title: "a" }] }),
+        {} as any
+      );
+      createRenderEffect(
+        () => user.posts[0],
+        p => {
+          postRuns++;
+          firstPost = p;
+        }
+      );
+      createRenderEffect(
+        () => user.name,
+        () => {}
+      );
+    });
+
+    flush();
+    const before = firstPost;
+    expect(postRuns).toBe(1);
+
+    setName("Grace");
+    flush();
+    expect(user.name).toBe("Grace");
+    // Same entity: the post keeps its proxy and the slot never re-notifies.
+    expect(firstPost).toBe(before);
+    expect(postRuns).toBe(1);
+  });
+
+  test("the outgoing raw stops resolving to the projection root", () => {
+    const ONE = { id: 1, name: "one", self: null as any };
+    const TWO = { id: 2, name: "two", self: null as any };
+    // Each payload nests the previous entity, so a stale family-map entry for
+    // the outgoing raw would surface the root proxy (showing the NEW entity)
+    // where the OLD entity's data belongs.
+    TWO.self = ONE;
+    let setId!: (v: number) => void;
+    let user!: { id: number; name: string; self: { id: number; name: string } | null };
+
+    createRoot(() => {
+      const [id, set] = createSignal(1);
+      setId = set;
+      user = createProjection<typeof TWO>(() => (id() === 1 ? ONE : TWO), {} as any);
+      createRenderEffect(
+        () => user.name,
+        () => {}
+      );
+    });
+
+    flush();
+    setId(2);
+    flush();
+    expect(user.name).toBe("two");
+    expect(user.self!.name).toBe("one");
+    expect(user.self).not.toBe(user);
+  });
+
+  test("key: null merges positionally", () => {
+    let setId!: (v: number) => void;
+    let user!: { id: number; posts: { id: number; title: string }[] };
+    let firstPost!: { id: number; title: string };
+
+    createRoot(() => {
+      const [id, set] = createSignal(1);
+      setId = set;
+      user = createProjection<typeof user>(
+        () => ({ id: id(), posts: [{ id: id() * 10, title: `t${id()}` }] }),
+        {} as any,
+        { key: null }
+      );
+      createRenderEffect(
+        () => user.posts[0],
+        p => {
+          firstPost = p;
+        }
+      );
+    });
+
+    flush();
+    const before = firstPost;
+    expect(before.title).toBe("t1");
+
+    setId(2);
+    flush();
+    // Positional: slot 0 merges in place despite both ids changing.
+    expect(user.id).toBe(2);
+    expect(firstPost).toBe(before);
+    expect(firstPost.title).toBe("t2");
+  });
+
+  test("reconcile() itself still rejects a root identity mismatch", () => {
+    const [store, setStore] = createStore({ id: 1, name: "one" });
+    expect(() => setStore(reconcile({ id: 2, name: "two" }))).toThrow(/different identity/);
   });
 });

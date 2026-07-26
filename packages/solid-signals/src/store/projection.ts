@@ -7,7 +7,7 @@ import {
   type Refreshable
 } from "../core/index.js";
 import { setProjectionWriteActive } from "../core/scheduler.js";
-import { reconcile } from "./reconcile.js";
+import { reconcileState } from "./reconcile.js";
 import {
   $TARGET,
   createStoreProxy,
@@ -61,7 +61,7 @@ export function createProjectionInternal<T extends object = {}>(
   node = computed(
     () => {
       if (!node) node = getOwner();
-      runProjectionComputed(wrappedStore, fn, options?.key || "id");
+      runProjectionComputed(wrappedStore, fn, options?.key === undefined ? "id" : options.key);
     },
     __DEV__ && options?.name ? { name: options.name } : undefined
   );
@@ -81,6 +81,10 @@ export function createProjectionInternal<T extends object = {}>(
  * items keep their proxy identity — only added/removed items are
  * created/disposed.
  *
+ * If the derive returns a different entity than the one currently held (the
+ * `/users/1` → `/users/2` shape), the store swaps to it rather than merging,
+ * and nothing below it is treated as surviving.
+ *
  * Returns the projected store directly (no setter — reads only).
  *
  * Use this when you want the structural-sharing / per-property tracking
@@ -93,7 +97,8 @@ export function createProjectionInternal<T extends object = {}>(
  * @param seed the backing store value to wrap and reconcile into
  * @param options `ProjectionOptions` — `name`, `key`. `key` defaults to
  *   `"id"`; specify it only when your data uses a different identity field
- *   (e.g. `{ key: "uuid" }` or `{ key: u => u.slug }`).
+ *   (e.g. `{ key: "uuid" }` or `{ key: u => u.slug }`), or `null` to merge
+ *   positionally with no keyed pass.
  *
  * @example
  * ```ts
@@ -140,7 +145,7 @@ export function createProjection<T extends object = {}>(
 export function runProjectionComputed<T extends object>(
   wrappedStore: Store<T>,
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  key: string | ((item: NonNullable<any>) => any),
+  key: string | ((item: NonNullable<any>) => any) | null,
   wrapCommit?: (write: () => void) => void,
   onDraftWrite?: () => void
 ): Computed<void | T> {
@@ -156,7 +161,7 @@ export function runProjectionComputed<T extends object>(
     settled = true;
     const commit = (v: void | T) => {
       if (v === s || v === undefined) return;
-      const write = () => storeSetter(wrappedStore, reconcile(v, key));
+      const write = () => storeSetter(wrappedStore, s => reconcileState(v, s, key, true));
       wrapCommit ? wrapCommit(write) : write();
     };
     commit(handleAsync(owner, result, commit));

@@ -753,6 +753,37 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
 // the positional branch and object descent to plain per-property merging.
 const NOKEY = () => null;
 
+// Identity-as-key: distinct objects never match, so every slot takes the diff's
+// "not the same entity" branch and is replaced by reference rather than merged
+// into. Slots holding the same raw on both sides still keep their proxy.
+const IDENTITY = (item: any) => item;
+
+/**
+ * Shared body of `reconcile()` and the projection commit. `replace` is the
+ * only difference: a projection commit is a value swap, not a merge — its root
+ * proxy is a cell handed out by `createProjection` that can never change
+ * reference, so a derive returning a different entity is not the slot mistake
+ * `reconcile()` throws on. Nothing below the root survives that swap, which is
+ * the rule the keyed diff already applies at a nested slot on a key mismatch.
+ *
+ * @internal
+ */
+export function reconcileState(value: any, state: any, key: any, replace: boolean) {
+  if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
+  if (key === null) return applyState(value, state, NOKEY);
+  let keyFn = typeof key === "string" ? item => item[key] : key;
+  const eq = keyFn(state);
+  if (eq !== undefined && keyFn(value) !== eq) {
+    if (!replace) throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
+    // Or the outgoing raw keeps resolving to this proxy and surfaces the
+    // incoming entity wherever it reappears in this family.
+    const t = state[$TARGET];
+    if (t && t[STORE_VALUE] !== unwrap(value)) t[STORE_LOOKUP]?.delete(t[STORE_VALUE]);
+    keyFn = IDENTITY;
+  }
+  applyState(value, state, keyFn);
+}
+
 /**
  * Returns a draft-mutating function that smart-merges `value` into a store,
  * preserving fine-grained reactivity: only changed leaves trigger updates.
@@ -766,6 +797,9 @@ const NOKEY = () => null;
  * merges into index N of the old, and object properties merge recursively —
  * the classic pattern for fixed-shape data that churns in place (dashboards,
  * monitors), where no keyed diff pass is needed or wanted.
+ *
+ * Merging into a slot that holds a *different* entity throws — the caller
+ * picked the slot, so a key mismatch there is a bug.
  *
  * @param value the next state to merge in
  * @param key property name (string) or extractor function for stable
@@ -788,16 +822,5 @@ export function reconcile<T extends U, U>(
   value: T,
   key: string | ((item: NonNullable<any>) => any) | null = "id"
 ) {
-  return (state: U) => {
-    if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
-    if (key === null) {
-      applyState(value, state, NOKEY);
-      return;
-    }
-    const keyFn = typeof key === "string" ? item => item[key] : key;
-    const eq = keyFn(state);
-    if (eq !== undefined && keyFn(value) !== eq)
-      throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
-    applyState(value, state, keyFn);
-  };
+  return (state: U) => reconcileState(value, state, key, false);
 }

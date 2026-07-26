@@ -59,8 +59,8 @@ import {
  *   optimistic overlay reverts after each transition.
  *
  * `options.key` defaults to `"id"`; specify it only when your data uses a
- * different identity field (e.g. `{ key: "uuid" }` or `{ key: t => t.slug }`).
- * Restating the default just adds noise.
+ * different identity field (e.g. `{ key: "uuid" }` or `{ key: t => t.slug }`),
+ * or `null` to merge positionally. Restating the default just adds noise.
  *
  * @example
  * ```ts
@@ -277,7 +277,7 @@ function createOptimisticProjectionInternal<T extends object = {}>(
           runProjectionComputed(
             wrappedStore,
             fn,
-            options?.key || "id",
+            options?.key === undefined ? "id" : options.key,
             wrapCommit,
             clearProjectionOverride
           );

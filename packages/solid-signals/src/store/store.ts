@@ -70,8 +70,8 @@ export interface StoreOptions {
 }
 /** Options for derived/projected stores created with `createStore(fn)`, `createProjection`, or `createOptimisticStore(fn)`. */
 export interface ProjectionOptions extends StoreOptions {
-  /** Key property name or function for reconciliation identity */
-  key?: string | ((item: NonNullable<any>) => any);
+  /** Key property name or function for reconciliation identity; `null` merges positionally */
+  key?: string | ((item: NonNullable<any>) => any) | null;
   /** Single-layer store: root keys reactive, values raw records replaced by reference */
   shallow?: boolean;
 }
