@@ -1,6 +1,11 @@
 /**
  * @jsxImportSource @solidjs/web
+ * @vitest-environment jsdom
  */
+// jsdom, because a pending dynamic() now streams: the reveal scripts these
+// documents carry are real `$df` calls that touch `document`. Under the old
+// shell-blocking behavior nothing streamed and this ran fine on bare node.
+//
 // Two sibling <Loading> boundaries each holding a promise-backed dynamic():
 // EVERY boundary's `<id>_fr` fragment record must patch in the streamed
 // document, regardless of resolution order. Found via the hackernews
@@ -29,18 +34,29 @@ function collect(code: () => any): Promise<string> {
 async function fragmentPatches(html: string) {
   const sandbox: any = { _$HY: { r: {}, fe() {} } };
   sandbox.self = sandbox;
+  // Give the reveal scripts the markup they operate on, so $df does its real
+  // work (find the template, swap the placeholder) rather than no-oping.
+  document.body.innerHTML = html;
+  // One shared scope for every script: the first reveal script DECLARES $df
+  // and later ones only call it, so running each in its own Function scope
+  // loses the declaration.
+  const scripts: string[] = [];
   for (const [, code] of html.matchAll(/<script(?:\s[^>]*)?>([^]*?)<\/script>/g)) {
     if (!code.trim() || code.includes("window._$HY||")) continue;
-    // eslint-disable-next-line no-new-func
-    new Function("self", "_$HY", `with(self){${code}}`)(sandbox, sandbox._$HY);
+    scripts.push(code);
   }
+  // eslint-disable-next-line no-new-func
+  new Function("self", "_$HY", `with(self){${scripts.join("\n;\n")}}`)(sandbox, sandbox._$HY);
   const out: Record<string, boolean> = {};
   await Promise.all(
     Object.entries(sandbox._$HY.r)
       .filter(([k]) => k.endsWith("_fr"))
       .map(async ([k, v]) => {
         out[k] = await Promise.race([
-          Promise.resolve(v).then(() => true, () => true),
+          Promise.resolve(v).then(
+            () => true,
+            () => true
+          ),
           new Promise<boolean>(r => setTimeout(() => r(false), 50))
         ]);
       })
@@ -76,10 +92,14 @@ describe("concurrent promise-backed dynamics under Loading", () => {
 
     expect(html).toContain(">alpha</b>");
     expect(html).toContain(">beta</i>");
+    // Guard the streaming shape itself. A pending dynamic() must suspend into
+    // its enclosing boundary, not gate the shell: if it gates, both resolve
+    // before the flush, neither fallback is ever emitted, and the fragment
+    // assertions below pass vacuously against a document that never streamed.
+    expect(html).toContain(">f…</span>");
+    expect(html).toContain(">s…</span>");
     const status = await fragmentPatches(html);
     expect(Object.keys(status).length).toBeGreaterThanOrEqual(2);
-    expect(status).toEqual(
-      Object.fromEntries(Object.keys(status).map(k => [k, true]))
-    );
+    expect(status).toEqual(Object.fromEntries(Object.keys(status).map(k => [k, true])));
   });
 });

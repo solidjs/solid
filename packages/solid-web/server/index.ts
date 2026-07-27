@@ -5,7 +5,6 @@ import {
   omit,
   getOwner,
   getNextChildId,
-  sharedConfig,
   NotReadyError,
   type Component
 } from "solid-js";
@@ -55,54 +54,27 @@ export type ComponentProps<T extends ValidComponent> =
 export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | null | undefined | false
 ): Component<ComponentProps<T>> {
-  const o = getOwner();
-  if (o?.id != null) getNextChildId(o);
+  // Mirrors the client exactly: a factory-level memo over the source, then a
+  // per-instance memo that applies props. An async source needs no bespoke
+  // handling — the (async-aware, non-`sync`) server memo suspends the read
+  // while pending, and the nearest boundary owns it and streams.
+  //
+  // Notably the pending read must NOT be registered as a renderer-blocking
+  // promise: that gates the shell flush on the source, so the boundary never
+  // shows its fallback and a slow source stalls the whole document. With no
+  // boundary to defer to the read becomes a root hole and resolveRootHoles
+  // blocks the shell on it anyway — correct, since there is nothing else to
+  // do.
+  //
+  // `serialize: false` because the resolved component must never cross the
+  // wire (it isn't serializable, and the client re-runs `source()` during
+  // hydration anyway, the same way lazy() re-imports its module). The owner
+  // id is still allocated, so hydration keys stay aligned with the client.
+  const cached = createMemo(source as () => any, { serialize: false });
   return props => {
-    // `source()` runs once per instance — the memo below is re-pulled by the
-    // streaming engine on retry and must not mint a fresh promise each pull.
-    const comp = source();
-    // Promise sources follow lazy()'s SSR contract: block async renderers and
-    // throw NotReadyError from a sync memo until the promise lands, so the
-    // engine captures the position as a retry hole. The component itself
-    // never crosses the wire; the client re-runs `source()` during hydration,
-    // the same way lazy() re-loads its module.
-    let p: Promise<T> | undefined;
-    let settled = false;
-    let value: T | undefined;
-    let error: unknown;
-    if (comp && typeof (comp as any).then === "function") {
-      p = comp as Promise<T>;
-      p.then(
-        v => {
-          value = v;
-          settled = true;
-        },
-        err => {
-          error = err;
-          settled = true;
-        }
-      );
-      // `context` only exists on the server-side SharedConfig; typed locally
-      // so this file checks under both client and server type resolutions.
-      const ctx = (sharedConfig as { context?: { async?: boolean; block(p: Promise<any>): void } })
-        .context;
-      // Swallow rejection here — it's surfaced through the memo below.
-      if (ctx?.async)
-        ctx.block(
-          p.then(
-            () => {},
-            () => {}
-          )
-        );
-    }
     return createMemo(
       () => {
-        let c: unknown = comp;
-        if (p) {
-          if (!settled) throw new NotReadyError(p);
-          if (error) throw error;
-          c = value;
-        }
+        const c: unknown = cached();
         if (c) {
           if (typeof c === "function") return (c as Function)(props);
           if (typeof c === "string") {

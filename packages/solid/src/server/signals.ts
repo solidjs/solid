@@ -442,7 +442,17 @@ interface ServerComputation<T = any> {
 type SsrSourceMode = "server" | "hybrid" | "client";
 type ServerSsrOptions = { deferStream?: boolean; ssrSource?: SsrSourceMode };
 type ServerClientMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & { ssrSource: "client" };
-type ServerMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & { ssrSource?: "server" | "hybrid" };
+type ServerMemoOptions<T> = Omit<MemoOptions<T>, "ssrSource"> & {
+  ssrSource?: "server" | "hybrid";
+  /**
+   * Keep this value out of the hydration payload. The subtree still hydrates;
+   * the client is expected to RECOMPUTE the value instead of reading it back.
+   * Only correct where recomputation is intended — see processResult.
+   *
+   * @internal
+   */
+  serialize?: false;
+};
 type ServerClientSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & { ssrSource: "client" };
 type ServerSignalOptions<T> = Omit<SignalOptions<T>, "ssrSource"> & {
   ssrSource?: "server" | "hybrid";
@@ -646,7 +656,16 @@ export function createMemo<T>(
       comp.errored = false;
       const result = run();
       comp.computed = true;
-      processResult(comp, result, owner, ctx, options?.deferStream, options?.ssrSource, run);
+      processResult(
+        comp,
+        result,
+        owner,
+        ctx,
+        options?.deferStream,
+        options?.ssrSource,
+        run,
+        (options as any)?.serialize
+      );
     } catch (err) {
       if (err instanceof NotReadyError) {
         subscribePendingRetry(err, update);
@@ -855,11 +874,19 @@ function processResult<T>(
   ctx: any,
   deferStream?: boolean,
   ssrSource?: SsrSourceMode,
-  rerun?: () => any
+  rerun?: () => any,
+  serialize?: boolean
 ) {
   if (comp.disposed) return;
   const id = owner.id;
-  const noHydrate = getContext(NoHydrateContext, owner);
+  // `serialize: false` keeps this value out of the hydration payload while the
+  // subtree still hydrates normally — distinct from NoHydrateContext, which
+  // opts the whole subtree out (and suppresses the id allocation this needs
+  // for client parity). The contract is that the client RECOMPUTES the value,
+  // so it is only correct where recomputation is intended: dynamic() re-runs
+  // its source and lazy() re-imports its module. Both resolve to component
+  // functions, which are not serializable in the first place.
+  const noHydrate = serialize === false || getContext(NoHydrateContext, owner);
 
   // Async-iterable takes precedence over thenable, mirroring the client
   // runtime's detection order (`handleAsync` in @solidjs/signals core/async.ts).

@@ -219,20 +219,17 @@ export function lazy<T extends Component<any>>(
         assetsPending = assetsPending.then(clear, clear);
       }
     }
-    if (ctx?.async) {
-      ctx.block(
-        p.then(
-          () => {
-            (p as any).s = "success";
-          },
-          () => {
-            // Rejection is captured on `p.error` by `load()` and surfaced
-            // through the memo below; swallow the rejection of this branch
-            // so `ctx.block` doesn't propagate a second unhandled rejection.
-          }
-        )
-      );
-    }
+    // The module promise is deliberately NOT registered as a renderer-blocking
+    // promise. Doing so gates the shell flush on the module load, so an
+    // enclosing boundary never shows its fallback and a slow module stalls the
+    // whole document. Suspending on read (below) lets the nearest boundary own
+    // the wait and stream the module in behind its placeholder; with no
+    // boundary to defer to the read becomes a root hole and the renderer
+    // blocks the shell on it anyway.
+    //
+    // Asset ordering does not depend on this: `assetsPending` gates the render
+    // memo separately, so a fragment still cannot flush before its styles and
+    // module map are registered.
     return createMemo(
       () => {
         if (p.errored) throw p.error;
