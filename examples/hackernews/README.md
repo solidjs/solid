@@ -1,101 +1,91 @@
-# Frame News — Solid Server Components
+# HackerNews — Solid Server Components
 
-A HN-shaped app demonstrating **Solid Server Components** end to end over
-real HTTP, with **no Vite**: the native `@dom-expressions/compiler` runs the
-`"use server"` directive pass and both JSX targets through the small esbuild
-plugin in [build.mjs](./build.mjs).
+A real HackerNews client built with **Solid Server Components**: the story
+lists, threads, and user pages are rendered on the server and arrive as HTML,
+while the browser gets the router and the one component that owns state.
+
+Its twin, [../hackernews-spa](../hackernews-spa), is the *same application* —
+same routes, same markup, same data layer — built the conventional way, with
+server functions returning JSON and client components rendering everything.
+Reading the two side by side is the point of this example.
 
 ```sh
-pnpm build   # compile + bundle client and server (node build.mjs)
-pnpm start   # http://localhost:3003        (node server.mjs)
+pnpm dev                  # http://localhost:5173
+pnpm build && pnpm start  # http://localhost:3003
 ```
+
+## What a server component is
+
+A `"use server"` function that **returns a function** is a server component.
+The function's arguments are the server's inputs; the returned component's
+props are client positions — holes the client fills, which never travel to the
+server. From [src/lib/views.tsx](./src/lib/views.tsx):
+
+```tsx
+export async function storyView(id: string) {
+  const story = await getStory(id);
+  return (props: { toggle: Slot }) => <div class="item-view">…</div>;
+}
+```
+
+On the client side there is no server-component API at all. `dynamic()` over
+the call is the entire surface ([src/routes/story.tsx](./src/routes/story.tsx)):
+
+```tsx
+const View = dynamic(() => storyView(props.params.id));
+return <View toggle={p => <Toggle>{p.children}</Toggle>} />;
+```
+
+The source is tracked, so navigating to another story re-calls it and the
+response morphs that boundary in place — no remount, no fallback re-flash.
 
 ## What to look at
 
-**Expand a deep reply (the best trick in the app).** Deep replies start
-collapsed — and because the wrapper never *rendered* them, their bodies are
-not in the page at all. View-source and search for the deepest comment's
-text: it appears exactly once, inside a small data record, not as markup.
-Click `[+]`: the body mounts **with zero network** — from a record that
-shipped once. That's transport dispatch case 3 (the occlusion flip): the
-server tracks which content the client actually rendered and ships the
-rest as data instead of markup — never both.
+**View source on a thread.** Every comment's text appears exactly once, as
+markup. There is no hydration data behind it, because there is no client-side
+render to feed. Compare with the same view in the SPA twin, where each comment
+is present twice: once as the HTML the server painted, and again as the JSON
+that produced it.
 
-**The initial page.** View-source: the story and nav are server-rendered
-inline, every visible comment's text exactly once, no hydration blob for
-server content — and no hydration keys on it either: the only `_hk`
-attributes on the page are the client wrappers' claim keys. The current
-story's link ships already active (`aria-current` in the markup, before
-any JS). On boot the client makes **zero requests** — the page
-itself is the payload; wrappers *claim* their server-rendered DOM by
-hydration key (inspect a comment: the live node still carries its
-`sc-…` key), and behavior binds onto claimed nodes.
+**The single client component in a 1,406-comment thread.**
+[src/components/toggle.tsx](./src/components/toggle.tsx) owns collapse state
+and nothing else. The server calls `props.toggle` for each comment that has
+replies, and the replies inside it are server markup again — so a subtree
+streams as HTML once at any depth, with client behavior interleaved. Collapse
+state is client state: it never appears in a request, and `$key` keeps it
+attached to its comment across refetches.
 
-**The wire.** Open devtools → network, click a story. The server function
-returned a *function*, so the response is a frame stream: HTML chunks,
-streamed (the shell flushes immediately; the comments fragment arrives
-~400ms later and reveals in place). Search the response for any comment's
-text: exactly once. The only data records are per-occurrence primitives
-(`cid`) — and only those not already recoverable from the rendered page.
+**The client bundle.** No story, comment, or list templates reach the browser:
+grep `dist/client/` for `item-view-comments-header` and it isn't there, because
+[src/lib/views.tsx](./src/lib/views.tsx) is a `"use server"` module and the
+client build strips it. What *is* there is the router, the loading fallbacks,
+and `Toggle` — which is why `comment-children` still appears, since the client
+owns the replies list it wraps. (The 1,406-comment capture stays on the server
+in both apps; `hn.ts` is server-only either way.)
 
-**The client bundle.** Grep `dist/client.js` for any story title or comment
-text — nothing. The client build replaced the server functions with
-reference proxies and stripped the server-component JSX entirely
-([src/data.jsx](./src/data.jsx) never reaches the browser).
+**The nav is a server component too.** It is static chrome with no reactive
+input, so it renders inline at t=0, the client adopts it, and navigation
+leaves it alone — no reason for that markup to ship as client templates.
 
-**Client state across navigations.** Type into the draft box, collapse a
-comment, then click another story. The response morphs the same boundary in
-place: the draft keeps its text (same DOM node), and none of that state ever
-appears in a request — requests carry the story id and nothing else. Toggle
-"collapse new comments" and navigate: a client-only signal affects every
-future story the server knows nothing about.
+**The wire.** Open devtools → network and click a feed. A server function that
+returned a *function* responds as a frame stream of HTML chunks rather than
+JSON, and the boundary morphs as they arrive.
 
 ## How it's wired
 
-- [src/data.jsx](./src/data.jsx) — the server side. `getStory` says
-  `"use server"` and **returns a function: that makes it a server
-  component.** Its arguments are the server's inputs; the returned
-  component's props are client positions. Comment bodies are server JSX
-  passed *into* a client position (`props.comment({ $key, cid, children })`)
-  — they stream as nested regions, HTML once, wrapped by the client without
-  re-rendering.
-- [src/app.jsx](./src/app.jsx) — the client side. There is no
-  server-component API: `dynamic(() => getStory(storyId()))` is the whole
-  surface. Every response for the call site resolves to the same stable
-  component, so nothing remounts — the stream morphs the boundary
-  underneath.
-- [src/entry-client.jsx](./src/entry-client.jsx) — one line of wiring:
-  `installServerComponents()`.
-- [src/entry-server.jsx](./src/entry-server.jsx) — one handler
-  (`handleServerFunctionRequest`) with one hook (`frameTransformResult`).
-  A server function returning data behaves exactly as before — the stories
-  list in the nav rides the same endpoint as plain serialized data.
-- [server.mjs](./server.mjs) — a plain node http server; the frame chunks
-  stream through it as the server renders.
-
-## Measured against the SSR-SPA baseline
-
-[../hackernews-spa](../hackernews-spa) is the same app built the classic
-way (server functions return JSON, client renders everything, hydration
-data blob). Same seed, same pipeline, same server — measured 2026-07-20:
-
-| axis | SSR-SPA | Server Components |
-| --- | --- | --- |
-| each comment's text at initial load | **2×** (HTML + hydration JSON) | **1×** (HTML only) |
-| content in hydration data | full story JSON | none |
-| content components in the bundle | all of them | interactive wrappers only |
-| requests at boot | 0 | 0 |
-| initial document | 7.1 KB | 7.5 KB |
-| inline data scripts | 3.1 KB | 2.6 KB |
-| client bundle (min/gz) | 89.4 K / 30.9 K | 109.7 K / 37.8 K |
-| per-navigation wire | 0.7 KB JSON | 2.3 KB HTML chunks |
-
-Read it honestly: at this toy content scale the constant costs show — the
-SC document is slightly *larger* (slot/region markers are per-position
-overhead) and its bundle carries the ~7 KB gz frames runtime that the SPA
-doesn't need, while per-navigation JSON beats HTML on bytes. What scales
-differently is the structure: the SPA's double-copy and its shipped
-content components grow with every component and every byte of content,
-while the SC costs are constant. The grep row is the invariant the
-architecture exists for — and the SPA can't fix its row by optimizing,
-because the hydration data *is* its rendering input.
+- [src/lib/hn.ts](./src/lib/hn.ts) — the data source, server-only. Live HN API,
+  except story `30186326` ("Facebook loses users for the first time", 1,406
+  comments, 14 levels deep), which is served from a capture so the big thread
+  is deterministic.
+- [src/lib/views.tsx](./src/lib/views.tsx) — the server components. Every view
+  here renders the exact markup its SPA counterpart renders in the browser.
+- [src/routes/](./src/routes) — one `dynamic()` call each, no templates.
+- [src/app.tsx](./src/app.tsx) — the router, the loading boundaries, and
+  nothing else. There are no story, comment, or list templates on this side.
+- [vite.config.ts](./vite.config.ts) — identical to the SPA twin's but for one
+  flag: `serverFunctions: { components: true }`. That flag is the entire wiring
+  difference between the two apps. The turnkey `ssr` object generates the
+  entries, the render plugin, and the document bootstrap, so nothing in `src/`
+  imports the frames runtime.
+- [server.js](./server.js) — a plain node server: static assets, the SSR
+  handler, and the `/_server` endpoint, with negotiated brotli/gzip.

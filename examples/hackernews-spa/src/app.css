@@ -1,0 +1,309 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  background-color: #f2f3f5;
+  margin: 0;
+  padding-top: 55px;
+  color: #34495e;
+  overflow-y: scroll;
+}
+
+a {
+  color: #34495e;
+  text-decoration: none;
+}
+
+.header {
+  background-color: #335d92;
+  position: fixed;
+  z-index: 999;
+  height: 55px;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.header .inner {
+  max-width: 800px;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 15px 5px;
+}
+
+.header a {
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 24px;
+  transition: color 0.15s ease;
+  display: inline-block;
+  vertical-align: middle;
+  font-weight: 300;
+  letter-spacing: 0.075em;
+  margin-right: 1.8em;
+}
+
+.header a:hover {
+  color: #fff;
+}
+
+/* Router 1.0 marks exact-or-prefix matched anchors with `data-active`
+   (the root path only ever matches exactly, so "/" doesn't stay lit). */
+.header a[data-active] {
+  color: #fff;
+  font-weight: 400;
+}
+
+.header a:nth-child(6) {
+  margin-right: 0;
+}
+
+.header .github {
+  color: #fff;
+  font-size: 0.9em;
+  margin: 0;
+  float: right;
+}
+
+.logo {
+  width: 24px;
+  margin-right: 10px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.view {
+  max-width: 800px;
+  margin: 0 auto;
+  position: relative;
+}
+
+@media (max-width: 860px) {
+  .header .inner {
+    padding: 15px 30px;
+  }
+}
+
+@media (max-width: 600px) {
+  .header .inner {
+    padding: 15px;
+  }
+
+  .header a {
+    margin-right: 1em;
+  }
+
+  .header .github {
+    display: none;
+  }
+}
+
+.news-view {
+  padding-top: 45px;
+}
+
+.news-list, .news-list-nav {
+  background-color: #fff;
+  border-radius: 2px;
+}
+
+.news-list-nav {
+  padding: 15px 30px;
+  position: fixed;
+  text-align: center;
+  top: 55px;
+  left: 0;
+  right: 0;
+  z-index: 998;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.news-list-nav .page-link {
+  margin: 0 1em;
+}
+
+.news-list-nav .disabled {
+  color: #aaa;
+}
+
+.news-list {
+  position: absolute;
+  margin: 30px 0;
+  width: 100%;
+}
+
+.news-list ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .news-list {
+    margin: 10px 0;
+  }
+}
+
+.news-item {
+  background-color: #fff;
+  padding: 20px 30px 20px 80px;
+  border-bottom: 1px solid #eee;
+  position: relative;
+  line-height: 20px;
+}
+
+.news-item .score {
+  color: #335d92;
+  font-size: 1.1em;
+  font-weight: 700;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 80px;
+  text-align: center;
+  margin-top: -10px;
+}
+
+.news-item .host, .news-item .meta {
+  font-size: 0.85em;
+  color: #626262;
+}
+
+.news-item .host a, .news-item .meta a {
+  color: #626262;
+  text-decoration: underline;
+}
+
+.news-item .host a:hover, .news-item .meta a:hover {
+  color: #335d92;
+}
+
+.item-view-header {
+  background-color: #fff;
+  padding: 1.8em 2em 1em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.item-view-header h1 {
+  display: inline;
+  font-size: 1.5em;
+  margin: 0;
+  margin-right: 0.5em;
+}
+
+.item-view-header .host, .item-view-header .meta, .item-view-header .meta a {
+  color: #626262;
+}
+
+.item-view-header .meta a {
+  text-decoration: underline;
+}
+
+.item-view-comments {
+  background-color: #fff;
+  margin-top: 10px;
+  padding: 0 2em 0.5em;
+}
+
+.item-view-comments-header {
+  margin: 0;
+  font-size: 1.1em;
+  padding: 1em 0;
+  position: relative;
+}
+
+.item-view-comments-header .spinner {
+  display: inline-block;
+  margin: -15px 0;
+}
+
+.comment-children {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .item-view-header h1 {
+    font-size: 1.25em;
+  }
+}
+
+.comment-children .comment-children {
+  margin-left: 1.5em;
+}
+
+.comment {
+  border-top: 1px solid #eee;
+  position: relative;
+}
+
+.comment .by, .comment .text, .comment .toggle {
+  font-size: 0.9em;
+  margin: 1em 0;
+}
+
+.comment .by {
+  color: #626262;
+}
+
+.comment .by a {
+  color: #626262;
+  text-decoration: underline;
+}
+
+.comment .text {
+  overflow-wrap: break-word;
+}
+
+.comment .text a:hover {
+  color: #335d92;
+}
+
+.comment .text pre {
+  white-space: pre-wrap;
+}
+
+.comment .toggle {
+  background-color: #fffbf2;
+  padding: 0.3em 0.5em;
+  border-radius: 4px;
+}
+
+.comment .toggle a {
+  color: #626262;
+  cursor: pointer;
+}
+
+.comment .toggle.open {
+  padding: 0;
+  background-color: transparent;
+  margin-bottom: -0.5em;
+}
+
+.user-view {
+  background-color: #fff;
+  box-sizing: border-box;
+  padding: 2em 3em;
+}
+
+.user-view h1 {
+  margin: 0;
+  font-size: 1.5em;
+}
+
+.user-view .meta {
+  list-style-type: none;
+  padding: 0;
+}
+
+.user-view .label {
+  display: inline-block;
+  min-width: 4em;
+}
+
+.user-view .about {
+  margin: 1em 0;
+}
+
+.user-view .links a {
+  text-decoration: underline;
+}

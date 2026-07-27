@@ -1,6 +1,8 @@
 node_modules/
 dist/
 lib/
+# ...but an example's source tree may legitimately have one (src/lib/api.ts).
+!examples/*/src/lib/
 .vscode/
 .cursor/
 .idea/

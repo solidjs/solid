@@ -1,20 +1,23 @@
 {
   "name": "hackernews-spa-example",
-  "description": "The SSR-SPA comparison baseline for the hackernews server-components example: the SAME app, same seed data, same pipeline — but server functions return JSON and client components render everything, with the standard hydration data blob",
+  "description": "The SSR-SPA comparison baseline for the hackernews server-components example: the SAME app — same routes, same components, same data — but server functions return JSON and client components render everything, with the standard hydration data blob",
   "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "node build.mjs",
-    "start": "node server.mjs",
-    "dev": "node build.mjs && node server.mjs"
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@solidjs/router": "1.0.0-next.11",
+    "@solidjs/web": "workspace:*",
+    "solid-js": "workspace:*"
   },
   "devDependencies": {
-    "@dom-expressions/compiler": "0.50.0-next.24",
-    "@solidjs/web": "workspace:*",
-    "esbuild": "^0.25.0",
-    "solid-js": "workspace:*"
+    "vite": "^8.0.0",
+    "vite-plugin-solid": "3.0.0-next.17"
   }
 }
