@@ -13,6 +13,7 @@
 
 import {
   createLoadingBoundary,
+  createMemo,
   createOwner,
   getOwner,
   onCleanup,
@@ -262,34 +263,110 @@ function boundaryComponent(host: any, id: string) {
 // to the network like any other call.
 const claimedBoundaries = new Set<string>();
 
-// One document query indexes every SSR'd frame ELEMENT by its id; the
-// intercept and adoption paths become map lookups. Boundaries (and regions)
-// are static document output carried as `<dx-frame data-fid>` elements — a
-// single attribute query, no per-boundary TreeWalk and no comment-pair
-// depth-matching. Entries are consumed once (claimedBoundaries), so the
-// index never needs invalidation. (A region's element is indexed too but
-// never looked up as a boundary — its id is `fn.occurrence.key`, never a
-// function id.)
+// One document query indexes the SSR'd frame ELEMENTS by id; the intercept and
+// adoption paths become map lookups. Boundaries are static document output
+// carried as `<dx-frame data-fid>` elements — a single attribute query, no
+// per-boundary TreeWalk and no comment-pair depth-matching. Entries are
+// consumed once (claimedBoundaries), so entries never need invalidation.
+//
+// The page is NOT a single snapshot, though: a server component whose source
+// settles after the shell flush has its markup streamed in afterwards and
+// swapped over the `<Loading>` fallback it left behind. So the index is seeded
+// from what has parsed so far and EXTENDED at every reveal, and a miss while
+// the document is still streaming means "not yet", not "never".
 let boundaryIndex: Map<string, Element> | null = null;
+// Region ids are `fn.occurrence.key`; only function ids are ever looked up as
+// boundaries, so leaving regions out keeps this at a handful of entries rather
+// than one per nested region (a large comment thread carries hundreds).
+const isBoundaryId = (id: string) => !id.includes(".");
+function indexBoundaries(root: ParentNode) {
+  root.querySelectorAll(`[${FRAME_ID_ATTR}]`).forEach(el => {
+    const key = el.getAttribute(FRAME_ID_ATTR);
+    if (key && isBoundaryId(key) && !boundaryIndex!.has(key)) boundaryIndex!.set(key, el);
+  });
+}
 function findBoundaryElement(id: string): Element | undefined {
   if (!boundaryIndex) {
     boundaryIndex = new Map();
-    if (typeof document !== "undefined" && document.body) {
-      document.body.querySelectorAll(`[${FRAME_ID_ATTR}]`).forEach(el => {
-        const key = el.getAttribute(FRAME_ID_ATTR);
-        if (key && !boundaryIndex!.has(key)) boundaryIndex!.set(key, el);
-      });
-    }
+    if (typeof document !== "undefined" && document.body) indexBoundaries(document.body);
   }
   return boundaryIndex.get(id);
 }
 
+// Boundaries whose element has not been delivered yet, waiting on the reveal
+// that carries it. One waiter per id: a second mount while the first is still
+// waiting takes the fresh-frame path, since only one frame may adopt an
+// element.
+const boundaryWaiters = new Map<string, (el: Element) => void>();
+
+/** Whether the document may still deliver boundary elements. */
+function documentStreaming() {
+  const hy = (globalThis as any)._$HY;
+  return !!hy && !hy.done;
+}
+
+/**
+ * Subscribe to fragment reveals to learn when a late boundary lands.
+ *
+ * `_$HY.fe(fragmentId, parent)` is called by the streaming layer's `$df`
+ * immediately after it swaps a settled fragment's content into the live
+ * document — the only moment a boundary element can enter the page after the
+ * initial parse. It is a shared notification rather than our slot, so
+ * whatever was installed stays installed.
+ *
+ * Scoping the rescan to the revealed fragment's parent (rather than the
+ * document) keeps this proportional to what just arrived; older producers
+ * that pass no parent fall back to the body.
+ */
+function installRevealHook() {
+  const hy = (globalThis as any)._$HY;
+  if (!hy || hy.$sc) return;
+  hy.$sc = true;
+  const prev = hy.fe;
+  hy.fe = (fragmentId: string, parent?: ParentNode) => {
+    if (prev) prev(fragmentId, parent);
+    // Nothing has looked a boundary up yet, so there is nothing to keep
+    // current — the first lookup scans the document as it stands then.
+    if (!boundaryIndex) return;
+    const root = parent || (typeof document !== "undefined" ? document.body : null);
+    if (!root) return;
+    indexBoundaries(root);
+    for (const [id, notify] of boundaryWaiters) {
+      const el = boundaryIndex.get(id);
+      if (!el) continue;
+      boundaryWaiters.delete(id);
+      notify(el);
+    }
+  };
+}
+
 function documentBoundary(host: any, id: string, props: Record<string, any>) {
-  const el = !claimedBoundaries.has(id) ? findBoundaryElement(id) : undefined;
+  const claimed = claimedBoundaries.has(id);
+  const el = !claimed ? findBoundaryElement(id) : undefined;
+  if (el) return adoptBoundary(host, id, el, props);
+  // Not in the page (yet). While the document is still streaming, this is a
+  // boundary whose content settled after the shell flush: its markup is on the
+  // way and will be swapped over the fallback that is on screen right now.
+  // Mounting a fresh frame here is unrecoverable — the markup arrives owned by
+  // nothing (visible but inert) while the stream drives an element outside the
+  // page, so the boundary never updates again. Suspend instead and adopt on
+  // delivery; the enclosing <Loading> goes on showing the server's fallback,
+  // which is exactly what the document is displaying.
+  if (!claimed && !boundaryWaiters.has(id) && documentStreaming()) {
+    const owner = getOwner();
+    const arrival = new Promise<Element>(resolve => boundaryWaiters.set(id, resolve));
+    onCleanup(() => boundaryWaiters.delete(id));
+    return createMemo(() =>
+      arrival.then(node => runWithOwner(owner, () => adoptBoundary(host, id, node, props)))
+    ) as unknown as SolidElement;
+  }
   // No SSR'd boundary on the page (client-only boot, or already claimed):
   // mount fresh — the pending/late stream fills it exactly like the
   // non-document path.
-  if (!el) return boundaryComponent(host, id)(props);
+  return boundaryComponent(host, id)(props);
+}
+
+function adoptBoundary(host: any, id: string, el: Element, props: Record<string, any>) {
   claimedBoundaries.add(id);
   // Occlusion records (case 3, document face): content a client wrapper
   // never rendered during SSR shipped ONCE as hydration data instead of
@@ -366,6 +443,9 @@ export function installServerComponents(host: any = getFrameHost()) {
     };
   }
   g._$SC.impl = (id: string, props: any) => documentBoundary(host, id, props);
+  // Late boundaries arrive with the reveals, so subscribe before the first one
+  // can land (this runs from the client entry, during document parse).
+  installRevealHook();
   configureServerFunctionsClient({
     responseHandler: createServerComponentHandler({
       host,
