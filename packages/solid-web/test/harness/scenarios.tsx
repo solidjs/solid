@@ -204,6 +204,26 @@ function AsyncSettledDiv() {
 }
 
 // ---------------------------------------------------------------------------
+// 10b. Async memo under Loading that settles BEFORE the shell flush. Every
+// other async scenario sleeps, so the boundary always takes the streaming
+// path: placeholder in the shell, content in a late <template>, swapped in by
+// $df. A memo that resolves on a microtask (a cache hit, a preloaded query)
+// never gets a placeholder — the renderer has the value in hand at flush time
+// and inlines the content in the shell. That inline shape is the one the
+// client has to claim from the document itself rather than adopt from a swap.
+let refreshInline!: () => void;
+function AsyncInlineSettled() {
+  const [version, setVersion] = createSignal(0);
+  refreshInline = () => setVersion(v => v + 1);
+  const data = createMemo(async () => 42 + version());
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>Value: {data()}</div>
+    </Loading>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 11. Async memo at fragment root beside loose text (#2801 bug 1, settled case)
 let refreshAsyncFrag!: () => void;
 function AsyncSettledFragment() {
@@ -606,6 +626,15 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "Value: 42",
     update: () => refreshAsyncDiv(),
+    expectedTextAfterUpdate: "Value: 43",
+    stableSelector: "div"
+  },
+  {
+    name: "async-inline-settled",
+    App: AsyncInlineSettled,
+    async: true,
+    expectedText: "Value: 42",
+    update: () => refreshInline(),
     expectedTextAfterUpdate: "Value: 43",
     stableSelector: "div"
   },
