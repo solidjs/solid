@@ -115,15 +115,23 @@ function normalizeSlotContent(value: any): Node | Node[] {
  * whose id chain reproduces the document producer's keys. No nodes in the
  * range → plain client render (CSR boot, post-load streams).
  */
+function gatherClaims(el: Element, registry: Map<string, Element>) {
+  if (el.hasAttribute("_hk")) registry.set(el.getAttribute("_hk")!, el);
+  // A nested frame region is server-owned and opaque: the occurrences inside
+  // it run their own claims with their own registries. Not descending keeps
+  // gathering linear over an adopted tree — a blanket querySelectorAll here
+  // re-collected every nested comment's subtree once per enclosing level.
+  if (el.hasAttribute(FRAME_ID_ATTR)) return;
+  for (let c = el.firstElementChild; c; c = c.nextElementSibling) gatherClaims(c, registry);
+}
+
 function claimRender(prefix: string, existing: Node[], render: () => any) {
   const sc: any = sharedConfig;
   if (!sc.getNextContextId) return render();
   const registry = new Map<string, Element>();
   for (const n of existing) {
-    const el = n as Element;
-    if (el.nodeType !== 1) continue;
-    if (el.hasAttribute("_hk")) registry.set(el.getAttribute("_hk")!, el);
-    el.querySelectorAll("*[_hk]").forEach(child => registry.set(child.getAttribute("_hk")!, child));
+    if (n.nodeType !== 1) continue;
+    gatherClaims(n as Element, registry);
   }
   if (!registry.size) return render();
   const prevRegistry = sc.registry;
