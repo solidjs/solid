@@ -27,7 +27,17 @@ module.exports = [
     // createStore graph (the options.shallow branch retains wrapShallow /
     // applyStateShallow under tree-shaking) plus the reconcile raw-leaf
     // handling. Reviewed trade-off — see PR #2931.
-    limit: "12.5 KB",
+    //
+    // 2.0.0-beta.27: 12.5 -> 12.85 KB, measured at 12.59 KB. Not one feature:
+    // correctness fixes accumulated across the store + scheduler graph, and
+    // the scenario had already drifted ~30 B past the cap before this batch.
+    // The identifiable additions are reconcile's container-kind guard
+    // (`recursablePair`, #2946), the projection derive-swap path (#2941), and
+    // the queue-traversal pass stamp that makes child disposal recoverable
+    // (#2947). Each was reviewed on its own; none is shakeable, since all sit
+    // on paths `createStore` always retains. Headroom is back to the ~2% the
+    // sibling scenarios carry.
+    limit: "12.85 KB",
     modifyEsbuildConfig
   },
   {
