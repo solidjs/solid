@@ -4,7 +4,6 @@ import {
   flush,
   globalQueue,
   schedule,
-  setActiveTransition,
   type Transition
 } from "./scheduler.js";
 import { isThenable } from "./async.js";
@@ -122,7 +121,12 @@ export function action<Args extends any[], Y, R>(
         ctx = currentTransition(ctx);
         const i = ctx._actions.indexOf(it);
         if (i >= 0) ctx._actions.splice(i, 1);
-        setActiveTransition(ctx);
+        // Re-adopt through initTransition like every other resumption site:
+        // a bare setActiveTransition leaves globalQueue._batch as a detached
+        // ambient batch, and anything registered before the scheduled flush
+        // (held writes on a merging transition, optimistic overrides,
+        // affects() marks) lands there with nothing to ever finalize it.
+        globalQueue.initTransition(ctx);
         schedule();
         failed ? reject(e) : resolve(v!);
       };
