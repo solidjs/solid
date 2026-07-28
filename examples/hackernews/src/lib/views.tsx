@@ -9,19 +9,19 @@
 // produced once on the server, and the data behind it (a 1,406-comment thread)
 // never crosses the wire. In the SPA twin that same thread arrives twice — as
 // the HTML the server painted and again as the JSON that produced it.
+import type { ComponentProps } from "solid-js";
+import type { Slot } from "@solidjs/web/frames";
 import { getStories, getStory, getUser } from "./hn";
+import type Toggle from "~/components/toggle";
 import type { CommentDefinition, StoryTypes } from "~/types";
 
 /**
- * A client position. The server calls it where client-owned markup belongs and
- * the client renders its own component there. Only primitives and a single
- * `children` JSX position cross this boundary: `children` has creation-time
- * hydration-key parity on both sides, which arbitrary JSX props do not.
- *
- * `$key` names the occurrence by entity, so the client wrapper's state follows
- * that comment across refetches instead of being positional.
+ * A client position: the server renders it where client-owned markup belongs
+ * and the client puts its own component there. `Slot` takes the client
+ * component's own props, so the hole is described with the same type that
+ * fills it rather than a restatement of its shape.
  */
-type Slot = (props: { $key?: string | number; children?: unknown }) => unknown;
+type ToggleSlot = Slot<ComponentProps<typeof Toggle>>;
 
 export async function navView() {
   return () => (
@@ -127,19 +127,19 @@ export async function storyView(id: string) {
    * Toggle there and the nested comments inside it are server markup again.
    * Each subtree therefore streams as HTML exactly once, at any depth.
    */
-  const comment = (c: CommentDefinition, toggle: Slot): unknown => (
+  const comment = (c: CommentDefinition, toggle: ToggleSlot): unknown => (
     <li class="comment">
       <div class="by">
         <a href={`/users/${c.user}`}>{c.user}</a> {c.time_ago} ago
       </div>
       <div class="text" innerHTML={c.content} />
       {c.comments.length
-        ? toggle({ $key: c.id, children: c.comments.map(child => comment(child, toggle)) })
+        ? toggle({ children: c.comments.map(child => comment(child, toggle)) })
         : null}
     </li>
   );
 
-  return (props: { toggle: Slot }) => (
+  return (props: { toggle: ToggleSlot }) => (
     <div class="item-view">
       <div class="item-view-header">
         <a href={story.url} target="_blank">

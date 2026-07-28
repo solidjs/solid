@@ -58,6 +58,10 @@ export {
   createServerComponentHandler
 } from "@dom-expressions/runtime/src/frame-transport.js";
 export { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
+// Server components are authored in universal code, so the slot type has to
+// resolve under the browser condition too. Type-only, so nothing crosses into
+// the client bundle.
+export type { Slot } from "./server.js";
 
 // One host per app is the norm: one chunk router, with codec data tables
 // rotated PER RESPONSE — the deserializer's cross-reference space is
