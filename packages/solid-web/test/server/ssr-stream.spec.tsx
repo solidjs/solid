@@ -445,9 +445,14 @@ describe("SSR Streaming — Error Handling", () => {
     const html = chunks.join("");
 
     expect(shell).toContain("Loading...");
-    expect(shell).not.toContain("Error:");
-    expect(html).toContain("Error:");
-    expect(html).toContain("Boom");
+    expect(shell).not.toContain("Boom");
+    // The fallback is not server-rendered: the boundary streams an empty swap
+    // and rejects its `_fr` resolver so the client's Errored fallback takes
+    // over. The error must cross the stream by message alone — the stack is
+    // stripped outside development (it leaks server paths), so nothing may
+    // assert on stack text here.
+    expect(html).toContain('new Error("Boom")');
+    expect(html).toContain('_$HY.r["100_fr"]');
   });
 
   test("isPending inside an Errored fallback resolves to false on the errored source (#2790)", async () => {

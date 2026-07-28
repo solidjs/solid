@@ -324,7 +324,7 @@
     "types:web-storage": "tsc --project ./storage/tsconfig.build.json",
     "types:web-frames": "tsc --project ./frames/tsconfig.build.json",
     "types:copy-serialization": "node -e \"fs.mkdirSync('./serialization/types', { recursive: true }); fs.copyFileSync('../../node_modules/@dom-expressions/runtime/src/serializer.d.ts', './serialization/types/index.d.ts');\"",
-    "types:copy-server-functions": "node -e \"fs.mkdirSync('./types/server-functions', { recursive: true }); for (const f of ['shared', 'client', 'server']) fs.copyFileSync('../../node_modules/@dom-expressions/runtime/src/server-functions/' + f + '.d.ts', './types/server-functions/' + f + '.d.ts');\"",
+    "types:copy-server-functions": "node -e \"fs.mkdirSync('./types/server-functions', { recursive: true }); for (const f of ['shared', 'flash', 'client', 'server']) fs.copyFileSync('../../node_modules/@dom-expressions/runtime/src/server-functions/' + f + '.d.ts', './types/server-functions/' + f + '.d.ts');\"",
     "types:copy-frames": "node -e \"fs.mkdirSync('./types/frames', { recursive: true }); for (const f of ['frame-client', 'frame-transport', 'frame-sink', 'serializer']) fs.copyFileSync('../../node_modules/@dom-expressions/runtime/src/' + f + '.d.ts', './types/frames/' + f + '.d.ts'); for (const f of ['client', 'server']) fs.writeFileSync('./types/frames/' + f + '.d.ts', fs.readFileSync('./frames/types/' + f + '.d.ts', 'utf8').replaceAll('@dom-expressions/runtime/src/', './'));\"",
     "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./storage/types ./storage/types-cjs ./serialization/types ./serialization/types-cjs",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",

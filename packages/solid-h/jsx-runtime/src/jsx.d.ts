@@ -235,7 +235,7 @@ export namespace JSX {
   }
 
   type RefCallback<T> = (el: T) => void;
-  type Ref<T> = T | RefCallback<T> | (RefCallback<T> | Ref<T>)[];
+  type Ref<T> = T | RefCallback<T> | Ref<T>[];
 
   interface IntrinsicAttributes {
     ref?: Ref<unknown> | undefined;
