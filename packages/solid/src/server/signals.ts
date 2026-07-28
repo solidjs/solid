@@ -1255,6 +1255,21 @@ function createPendingProxy<T extends object>(
   ];
 }
 
+/**
+ * A replacement value returned/yielded by a projection derive is an
+ * authoritative snapshot, not a merge patch (client parity: the projection
+ * commit reconciles with replace semantics): keys absent from the
+ * replacement are deleted rather than retained from the seed or a previous
+ * yield (#2948). When `target` is the patch-recording draft, the deletes
+ * and sets both join the emitted batch.
+ */
+function replaceState<T extends object>(target: T, next: T): void {
+  for (const key of Object.keys(target)) {
+    if (!(key in (next as object))) delete (target as any)[key];
+  }
+  Object.assign(target, next);
+}
+
 export function createProjection<T extends object>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   initialValue: Partial<T> | Store<T>,
@@ -1297,7 +1312,7 @@ export function createProjection<T extends object>(
       deferred,
       (value: void | T) => {
         if (value !== undefined && value !== state && value !== draft) {
-          Object.assign(state, value);
+          replaceState(state, value as T);
         }
         markReady();
         return state as T;
@@ -1339,7 +1354,7 @@ export function createProjection<T extends object>(
         deferred,
         (value: void | T) => {
           if (value !== undefined && value !== state) {
-            Object.assign(state, value);
+            replaceState(state, value as T);
           }
           markReady();
           return state as T;
@@ -1387,7 +1402,7 @@ export function createProjection<T extends object>(
             resolved.value !== undefined &&
             resolved.value !== draft
           ) {
-            Object.assign(state, resolved.value as T);
+            replaceState(state, resolved.value as T);
           }
           // Lock SSR-visible state at V1: subsequent generator mutations update
           // `state` (for draft/patch correctness) but reads go through the frozen copy.
@@ -1414,12 +1429,14 @@ export function createProjection<T extends object>(
               }
               return iter.next().then((r: IteratorResult<void | T>) => {
                 if (disposed) return { done: true as const, value: undefined };
-                const flushed = patches.splice(0);
                 if (!r.done) {
+                  // Apply the replacement through the patch-recording draft
+                  // BEFORE draining: its sets/deletes must ride in THIS batch,
+                  // not sit unsent behind an already-emitted empty one (#2948).
                   if (r.value !== undefined && r.value !== draft) {
-                    Object.assign(state, r.value as T);
+                    replaceState(draft, r.value as T);
                   }
-                  return { done: false as const, value: flushed };
+                  return { done: false as const, value: patches.splice(0) };
                 }
                 return { done: true as const, value: undefined };
               });
@@ -1444,7 +1461,7 @@ export function createProjection<T extends object>(
       deferred,
       (value: void | T) => {
         if (value !== undefined && value !== state) {
-          Object.assign(state, value);
+          replaceState(state, value as T);
         }
         markReady();
         return state as T;
@@ -1461,7 +1478,7 @@ export function createProjection<T extends object>(
 
   // Synchronous: fn either mutated state directly (void) or returned a new value
   if (result !== undefined && result !== state && result !== draft) {
-    Object.assign(state, result as T);
+    replaceState(state, result as T);
   }
   return state;
 }

@@ -541,6 +541,12 @@ function hydrateStoreFromAsyncIterable(
               for (let i = 0; i < res.value.length; i++) draft[i] = res.value[i];
               draft.length = res.value.length;
             } else {
+              // Replace, not merge: the snapshot is the full authoritative
+              // state, so seed keys absent from it were removed on the server
+              // and must not survive on the client either (#2948).
+              for (const key of Object.keys(draft)) {
+                if (!(key in res.value)) delete draft[key];
+              }
               Object.assign(draft, res.value);
             }
           } finally {

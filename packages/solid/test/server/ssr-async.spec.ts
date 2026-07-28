@@ -2479,6 +2479,134 @@ describe("Async Iterable — createProjection", () => {
     expect(store.role).toBe("user");
   });
 
+  test("server mode: replacement yields are authoritative snapshots (#2948)", async () => {
+    const { context, serializeLog } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    createRoot(
+      () => {
+        createProjection(
+          async function* () {
+            yield { name: "A" } as any;
+            yield { name: "B" } as any;
+          },
+          { name: "seed", stale: true } as any
+        );
+      },
+      { id: "t" }
+    );
+
+    const tapped = serializeLog[0].value;
+    const iter = tapped[Symbol.asyncIterator]();
+
+    // First snapshot: replace, not merge — seed keys absent from the
+    // replacement (`stale`) must not survive.
+    const r1 = await iter.next();
+    expect(r1.done).toBe(false);
+    expect(r1.value).toEqual({ name: "A" });
+
+    // Second replacement yield: its changes ride in THIS patch batch —
+    // previously the batch was drained before the replacement was applied,
+    // so the client never saw the new value.
+    const r2 = await iter.next();
+    expect(r2.done).toBe(false);
+    expect(r2.value).toEqual([[["name"], "B"]]);
+
+    const r3 = await iter.next();
+    expect(r3.done).toBe(true);
+  });
+
+  test("server mode: later replacement yield dropping a key emits a delete patch (#2948)", async () => {
+    const { context, serializeLog } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    createRoot(
+      () => {
+        createProjection(
+          async function* () {
+            yield { a: 1, b: 2 } as any;
+            yield { a: 3 } as any;
+          },
+          { a: 0 } as any
+        );
+      },
+      { id: "t" }
+    );
+
+    const tapped = serializeLog[0].value;
+    const iter = tapped[Symbol.asyncIterator]();
+
+    const r1 = await iter.next();
+    expect(r1.value).toEqual({ a: 1, b: 2 });
+
+    const r2 = await iter.next();
+    expect(r2.done).toBe(false);
+    expect(r2.value).toEqual([[["b"]], [["a"], 3]]);
+  });
+
+  test("hybrid mode: replacement first yield removes stale seed keys (#2948)", async () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(
+          async function* () {
+            yield { name: "A" } as any;
+          },
+          { name: "seed", stale: true } as any,
+          { ssrSource: "hybrid" } as any
+        );
+      },
+      { id: "t" }
+    );
+
+    await tick();
+    expect(store.name).toBe("A");
+    expect(store.stale).toBeUndefined();
+    expect("stale" in store).toBe(false);
+  });
+
+  test("promise result: replacement value removes stale seed keys (#2948)", async () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(async () => ({ name: "A" }) as any, {
+          name: "seed",
+          stale: true
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    await tick();
+    expect(store.name).toBe("A");
+    expect(store.stale).toBeUndefined();
+  });
+
+  test("sync result: replacement value removes stale seed keys (#2948)", () => {
+    const { context } = createStreamTrackingContext();
+    sharedConfig.context = context;
+
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(() => ({ name: "A" }) as any, {
+          name: "seed",
+          stale: true
+        } as any);
+      },
+      { id: "t" }
+    );
+
+    expect(store.name).toBe("A");
+    expect(store.stale).toBeUndefined();
+  });
+
   test("server mode: deep nested mutations tracked", async () => {
     const { context, serializeLog } = createStreamTrackingContext();
     sharedConfig.context = context;
