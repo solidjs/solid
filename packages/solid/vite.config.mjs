@@ -12,6 +12,8 @@ export default defineConfig({
     port: 3000
   },
   test: {
+    name: "client",
+    exclude: ["**/node_modules/**", "**/dist/**", "test/server/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],

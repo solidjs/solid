@@ -556,11 +556,14 @@ export function createResource<T, S>(
 export function lazy<T extends Component<any>>(
   fn: () => Promise<{ default: T }>
 ): T & { preload: () => Promise<{ default: T }> } {
-  let p: Promise<{ default: T }> & { resolved?: T };
+  let p: Promise<{ default: T }> & { resolved?: T; error?: any };
   let load = (id?: string) => {
     if (!p) {
       p = fn();
-      p.then(mod => (p.resolved = mod.default));
+      p.then(
+        mod => (p.resolved = mod.default),
+        err => (p.error = castError(err))
+      );
       if (id) sharedConfig.context!.lazy[id] = p;
     }
     return p;
@@ -574,18 +577,26 @@ export function lazy<T extends Component<any>>(
     if (ref) p = ref;
     else load(id);
     if (p.resolved) return p.resolved(props);
+    if (p.error) throw p.error;
     const ctx = useContext(SuspenseContext);
-    const track = { _loading: true, error: undefined };
+    const track = { _loading: true, error: undefined as any };
     if (ctx) {
       ctx.resources.set(id, track);
       contexts.add(ctx);
     }
     if (sharedConfig.context!.async) {
       sharedConfig.context!.block(
-        p.then(() => {
-          track._loading = false;
-          notifySuspense(contexts);
-        })
+        p.then(
+          () => {
+            track._loading = false;
+            notifySuspense(contexts);
+          },
+          err => {
+            track._loading = false;
+            track.error = castError(err);
+            notifySuspense(contexts);
+          }
+        )
       );
     }
     return "";

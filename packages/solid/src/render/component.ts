@@ -365,12 +365,25 @@ export function lazy<T extends Component<any>>(
       const [s, set] = createSignal<T>();
       sharedConfig.count || (sharedConfig.count = 0);
       sharedConfig.count++;
-      (p || (p = fn())).then(mod => {
-        !sharedConfig.done && setHydrateContext(ctx);
-        sharedConfig.count!--;
-        set(() => mod.default);
-        setHydrateContext();
-      });
+      (p || (p = fn())).then(
+        mod => {
+          !sharedConfig.done && setHydrateContext(ctx);
+          sharedConfig.count!--;
+          set(() => mod.default);
+          setHydrateContext();
+        },
+        err => {
+          !sharedConfig.done && setHydrateContext(ctx);
+          sharedConfig.count!--;
+          set(
+            () =>
+              (() => {
+                throw err;
+              }) as unknown as T
+          );
+          setHydrateContext();
+        }
+      );
       comp = s;
     } else if (!comp) {
       const [s] = createResource<T>(() => (p || (p = fn())).then(mod => mod.default));

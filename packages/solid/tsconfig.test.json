@@ -4,8 +4,10 @@
     "baseUrl": "",
     "paths": {
       "solid-js/jsx-runtime": ["./src/jsx"],
-      "solid-js": ["./src"],
+      "solid-js": ["./src"]
     }
   },
-  "include": ["./test", "./web/test", "./store/test"]
+  "include": ["./test", "./web/test", "./store/test"],
+  // test/server imports the server entries, which don't match the client paths above
+  "exclude": ["./test/server"]
 }
