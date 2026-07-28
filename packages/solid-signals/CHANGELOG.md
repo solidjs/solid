@@ -1,5 +1,52 @@
 # @solidjs/signals
 
+## 2.0.0-beta.27
+
+### Patch Changes
+
+- 82d61b4: Re-adopt the queue batch when an action completes. `done()` restored the
+  active transition with a bare `setActiveTransition`, leaving the global
+  queue's batch as a detached ambient batch until the scheduled flush. Anything
+  registered in that microtask window was stranded with nothing to finalize it:
+  a completed action's held writes were silently lost when another action
+  resumed in the window (its transition merge never transferred them), a bare
+  optimistic write never reverted, and an `affects()` mark could leak — leaving
+  `isPending` stuck true. Completing an action now goes through
+  `initTransition`, the same batch-adoption path every other
+  transition-resumption site already uses.
+- 55e2682: An errored derived-store/projection derive now follows async memo rules for every reader. Previously the rejection only reached subscribers that existed at settle time: any later reader — fresh tracked or untracked — silently got node values instead (the seed while uninitialized, last-good data after a failed refetch). Late readers now throw the derive's error, and a genuine tracked re-read on a later cycle retries the derive exactly like an errored async memo (never for untracked reads or `isPending` probes, once per cycle).
+- e17a31f: Fix `<For>`/`mapArray`/`repeat` over an async-derived store key rendering nothing after the source first settles (#2944). The store's untracked-read uninitialized guard consulted `STATUS_UNINITIALIZED`, whose clear is deferred to batch commit — so during the settle flush it vetoed the keyed diff's item reads (untracked by design inside the map's internal owner) with a fresh `NotReadyError` that nothing would sweep, wedging the map computed permanently. The guard now also requires the firewall to still be in flight (`STATUS_PENDING`, the live bit that mirrors core `read()`'s verdict) or errored.
+- e9e6a78: Bare optimistic store writes made while the store's own refetch is in flight now hold until truth lands and compose across consecutive writes, instead of reverting at plain flush end and clobbering each other (#2951). Net bundle-size reduction: the transition-completion gate this replaces was larger than the hook call.
+- b32c105: Fix `createProjection(() => store)` not updating when the source store is mutated (#2941). A projection commit whose derive returns a foreign store now adopts it as the live backing (store-in-store chain) instead of flattening a disconnected raw copy, so the source's updates flow through the projection with no re-derive — restoring the beta.15 semantics without regressing the #2825 self-proxy guards.
+- 09d2540: Keep traversing sibling effect queues when a flush disposes queues mid-pass. An effect can dispose an owner, and disposal removes queues from the parent's child list — the running child itself, an earlier sibling, or several at once when one root owns multiple boundaries. The index walk then skipped whatever shifted into the cursor, leaving those effects unexecuted with no later flush scheduled. Each child is now stamped with the current pass before it runs, so the traversal can rescan after a shift and still run every child exactly once; children appended mid-pass still run, as before.
+- 0208ff2: Fix `createErrorBoundary`/`Errored` revealing stale content when a failing source recovers by recomputing to a value equal to its last committed one (#2949). Such a recovery fires no value notification, but dependents that re-ran during the error window consumed their dirty flag in an errored run — fresh sibling values were absorbed and nothing committed. `recompute` now mirrors `settlePendingSource`'s blocked re-enqueue on the error dimension: a silent recovery sweeps dependents still holding the propagated error object (one identity down the whole tree) and re-enqueues them, so fresh values commit and flow, and a dependent with another still-broken source simply re-errors.
+- e89a479: Let a projection's derive return a different entity than the one it currently holds
+
+  A projection fetching route data (`createProjection(() => fetchUser(params.id), {})`) crashed on the second navigation with "Cannot reconcile states with different identity": the seed has no `id`, so the first commit passed the root identity guard and the next one threw — inside the projection's computed, which stopped all further updates.
+
+  The guard belongs to `reconcile()`, where the caller picked the slot and merging entity X into entity Y's slot is a bug. A projection commit is not a merge: the root proxy is a cell handed out by `createProjection` that can never change reference, so no consumer can hold it as an entity token, and the return form's semantics require the backing data to be swappable. Projection commits now swap instead of throwing. Nothing below the root survives an identity change — every slot is replaced by reference rather than merged into, matching what the keyed diff already does at a nested slot on a key mismatch — and the outgoing raw is dropped from the projection's family map so it can't resurface as the new entity. `reconcile()` itself is unchanged.
+
+  Applies to all three projection commit paths: `createProjection`, the derived `createStore(fn, seed)` form, and the derived `createOptimisticStore(fn, seed)` form.
+
+  Also fixes `key: null` on those same three forms. `ProjectionOptions["key"]` did not admit `null`, and both call sites resolved the default with `options?.key || "id"`, so a `null` meant to select positional merging was silently swallowed into the `"id"` default — the one escape hatch from keyed identity did not reach `reconcile`.
+
+- b19d23a: Stop `reconcile` from merging an array into an object slot (and vice versa) inside arrays
+
+  The object diff has always refused to recurse into a pair whose kinds disagree — `Array.isArray(previous) !== Array.isArray(next)` replaces the slot instead of merging. The array paths reach the same recursion through `keyedMatch` and positional pairing, and neither applied that rule: two keyless wrappables "match" because `keyFn` returns `undefined` for both, regardless of whether they are arrays or objects.
+
+  The result was a slot whose proxy is permanently the wrong kind. `Array.isArray` on a store proxy inspects the proxy's target, which is fixed at wrap time, so after
+
+  ```js
+  const [state, setState] = createStore({ list: [{ x: 1 }] });
+  setState(reconcile({ list: [[10, 20]] }, "id"));
+  ```
+
+  `state.list[0]` reports `Array.isArray === false` and enumerates as `{ "0": 10, "1": 20 }` — spread, `.map`, `<For each>` and `JSON.stringify` all see an object. The reverse direction (array slot receiving an object) is worse: the array-shaped target reads `length` off the incoming object and the store presents an empty array, silently dropping the data.
+
+  Four call sites shared the gap — the keyed prefix loop and the positional loop in both `applyStateFast` and `applyStateSlow`, plus `applyArrayItem` (which covers the keyed diff's trailing and moved slots). They now share a `recursablePair()` helper that folds the existing raw-value (`markRaw`) check together with the container-kind check, so a kind change replaces the slot by reference — exactly what the object diff and `descendInto` already do.
+
+- ef01b13: Platform objects (Map, Set, Date, URL, DOM nodes, and other natives/host objects) are no longer wrapped by stores (#2952). Native code brand-checks internal slots and throws when invoked through a proxy (`store.map.size`, draft `s.map.set(...)` — "called on incompatible receiver"), so they can't honestly be stores. `isWrappable` now excludes them structurally via the tag check (`[object Object]` vs `[object Map]`, ...), giving them the markRaw-children contract automatically: served raw, mutations land on the raw object, and the property holding them still tracks so reassignment notifies. User class instances (which stringify as `[object Object]`) keep wrapping — getters and draft methods stay fully reactive. The hot path is unchanged perf-wise: plain/null-proto objects resolve on one `getPrototypeOf`, and the custom-proto verdict is memoized per prototype.
+
 ## 2.0.0-beta.26
 
 ### Patch Changes

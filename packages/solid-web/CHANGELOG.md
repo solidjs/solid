@@ -1,5 +1,32 @@
 # @solidjs/web
 
+## 2.0.0-beta.27
+
+### Patch Changes
+
+- 2a38f8a: Adopt @dom-expressions/runtime 0.50.0-next.32, which absorbs the router-agnostic wire protocols from Solid Router. Through the `server-functions` entries this adds: the flash cookie protocol (`FLASH_COOKIE`/`hasFlashCookie`/`clearFlashCookie` on both entries; `encodeFlashCookie`/`decodeFlashCookie` and the `FlashSubmission` shape on the server entry), `foldSetCookies` for replaying a mutation's `Set-Cookie` deltas onto request headers, `REVALIDATE_HEADER` as a named export next to the response helpers that write it, and `createNoJSHandler` — which `handleServerFunctionRequest` now applies to browser form posts by default, so form posts made without the client runtime redirect back with the outcome flashed instead of answering with a serialized payload (configure or disable via `handleNoJS`). Also fixes a thrown bodyless `Response` being nulled before reaching `handleNoJS`, which silently dropped the redirect target.
+- 76cb1aa: Fix `dynamic()` and `lazy()` gating the SSR shell flush instead of suspending into their boundary
+
+  Both registered their source promise as a renderer-blocking promise, so the document's first flush waited on it. An enclosing `<Loading>` never rendered its fallback and a slow source stalled the entire document — a 500ms server component pushed the shell from 27ms to 527ms with nothing streamed, and an un-preloaded `lazy()` held the shell for the full module load.
+
+  The pending read now simply suspends, letting the nearest boundary own it and stream the content in behind its placeholder. Where there is no boundary to defer to the read becomes a root hole and the renderer blocks the shell on it as before, so a bare `dynamic()` or `lazy()` still resolves inline. Near-instant sources and preloaded modules continue to inline with no fallback flash.
+
+  For `lazy()` this does not affect asset ordering: `assetsPending` gates the render memo separately, so a fragment still cannot flush before its styles and module map are registered.
+
+  Also adds an internal `serialize: false` option to the server `createMemo`, which keeps a value out of the hydration payload while the subtree still hydrates normally (unlike `NoHydrateContext`, which opts the subtree out entirely and suppresses the id allocation needed for client parity). It carries the contract that the client recomputes the value. This lets the server `dynamic()` drop its hand-rolled promise tracking and mirror the client's two-memo shape, since its resolved value is a component function that must never cross the wire.
+
+- 919a081: Frames: gather hydration-claim registries without descending into nested regions
+
+  `claimRender` built each occurrence's registry with `querySelectorAll("*[_hk]")` over its existing nodes, which descends into nested `<dx-frame>` regions — content that belongs to nested occurrences running their own claims. On a deeply nested adopted tree (an HN comment thread) every level re-collected its entire subtree, making registry gathering O(nodes × depth). The registry is now gathered by a walk that treats region elements as opaque, so the total work across all claims is linear in the tree.
+
+- 137e5ec: Adopt server-component boundaries that arrive after the shell flush. A boundary was looked up in a one-time `[data-fid]` snapshot of `document.body`, and a miss immediately mounted a fresh client frame. That decision is unrecoverable, and it was wrong for every server component whose source settles after the shell flush: the producer emits the resolver script (`$R[n](…, self._$SC.r(id))`) ahead of the markup, so the placeholder mounts while the boundary element is still in flight — on a live feed the shell flushes with a few hundred bytes of body, and the markup follows after `</html>` inside the reveal template. The server's markup then landed owned by nothing, visible but inert, while the stream drove an element outside the page: the boundary never updated again, so every navigation into it fetched correctly and changed nothing, and route changes left the orphan behind, stacking the old route's DOM under the new one.
+
+  A miss while the document is still streaming now means "not yet" rather than "never": the boundary suspends — the enclosing `<Loading>` goes on showing the server's fallback, which is what the page is already displaying — and adopts the element when the reveal delivers it. Reveals are picked up from `_$HY.fe`, which the streaming layer already calls on every swap, wrapped rather than overwritten so other consumers keep working; when the producer passes the revealed fragment's parent, the rescan is scoped to what just arrived. Client-only boots are unchanged (no `_$HY`, or the document is done → mount fresh), and the index now skips nested region ids, which keeps it at a handful of entries instead of one per region.
+
+- Updated dependencies [76cb1aa]
+- Updated dependencies [17b0afb]
+  - solid-js@2.0.0-beta.27
+
 ## 2.0.0-beta.26
 
 ### Patch Changes
