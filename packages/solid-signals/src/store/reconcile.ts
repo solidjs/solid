@@ -118,6 +118,22 @@ function keyedMatch(a: any, b: any, keyFn: (item: NonNullable<any>) => any) {
   return a === b || (isWrappable(a) && isWrappable(b) && keyFn(a) === keyFn(b));
 }
 
+// A pair of array slots may only be merged into when both sides are real store
+// children of the SAME container kind. An array and an object are different
+// shapes, and merging one into the other leaves the slot's proxy permanently
+// mismatched with its value (an array target holding an object, so
+// `Array.isArray`/spread/`map` lie). The object diff has always applied this
+// rule; the array paths reach the same recursion through `keyedMatch` /
+// positional pairing, where two keyless wrappables "match" regardless of kind.
+function recursablePair(previous: any, next: any): boolean {
+  return (
+    isWrappable(previous) &&
+    isWrappable(next) &&
+    !(rawValuesUsed && (isRawValue(previous) || isRawValue(next))) &&
+    Array.isArray(previous) === Array.isArray(next)
+  );
+}
+
 // Array reconciliation updates the slots it visits, then swaps STORE_VALUE.
 // Previously tracked keys that are absent from `next` still need invalidating,
 // and `in` dependencies should follow the new value's membership. Use
@@ -195,11 +211,7 @@ function applyArrayItem(
   node: any,
   keyFn: (item: NonNullable<any>) => any
 ) {
-  if (
-    isWrappable(next) &&
-    isWrappable(previous) &&
-    !(rawValuesUsed && (isRawValue(previous) || isRawValue(next)))
-  ) {
+  if (recursablePair(previous, next)) {
     const wrapped = wrap(previous, target);
     node && setSignal(node, wrapped);
     applyState(next, wrapped, keyFn);
@@ -421,7 +433,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
         // the recursion dispatch entirely. Raw-marked values are leaves:
         // replace the slot node instead of recursing.
         if (item !== next[start]) {
-          if (rawValuesUsed && (isRawValue(item) || isRawValue(next[start]))) {
+          if (!recursablePair(item, next[start])) {
             arrayNodes?.[start] && setSignal(arrayNodes[start], wrapValue(next[start], target));
           } else applyStateChild(next[start], item, target, keyFn);
         }
@@ -494,11 +506,7 @@ function applyStateFast(next: any, target: any, keyFn: (item: NonNullable<any>) 
     } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = previous[i];
-        if (
-          isWrappable(item) &&
-          isWrappable(next[i]) &&
-          !(rawValuesUsed && (isRawValue(item) || isRawValue(next[i])))
-        ) {
+        if (recursablePair(item, next[i])) {
           if (item !== next[i]) applyStateChild(next[i], item, target, keyFn);
         } else {
           if (item !== next[i]) changed = true;
@@ -615,8 +623,8 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
         );
         start++
       ) {
-        if (isWrappable(item) && isWrappable(next[start]) && item !== next[start]) {
-          if (rawValuesUsed && (isRawValue(item) || isRawValue(next[start]))) {
+        if (item !== next[start] && isWrappable(item) && isWrappable(next[start])) {
+          if (!recursablePair(item, next[start])) {
             nodes?.[start] && setSignal(nodes[start], wrapValue(next[start], target));
           } else applyState(next[start], wrap(item, target), keyFn);
         }
@@ -688,11 +696,7 @@ function applyStateSlow(next: any, target: any, keyFn: (item: NonNullable<any>) 
     } else if (next.length) {
       for (let i = 0, len = next.length; i < len; i++) {
         const item = getOverrideValue(previous, override, i as any, optOverride);
-        if (
-          isWrappable(item) &&
-          isWrappable(next[i]) &&
-          !(rawValuesUsed && (isRawValue(item) || isRawValue(next[i])))
-        ) {
+        if (recursablePair(item, next[i])) {
           if (item !== next[i]) applyState(next[i], wrap(item, target), keyFn);
         } else {
           if (item !== next[i]) changed = true;
