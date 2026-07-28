@@ -918,8 +918,11 @@ function armOptimisticStoreWrite(target: StoreNode, store: any): void {
  * concurrent actions writing disjoint keys must revert independently, exactly
  * like optimistic signal nodes do via the transition's _optimisticNodes.
  * `activeTransition` is the write's transaction (action() opens it before the
- * body runs); null marks an ambient write that clears at plain flush end.
- * Same-key writes across actions keep last-write-wins layer semantics.
+ * body runs); null marks an ambient write, which clears at plain flush end —
+ * unless its flush's transition is blocked on the store's own in-flight truth
+ * (pending firewall, #2951), in which case it rides that transaction to
+ * settle. Same-key writes across actions keep last-write-wins layer
+ * semantics.
  */
 function stampOptimisticOwner(target: StoreNode, overrideKey: string, property: PropertyKey): void {
   if (overrideKey === STORE_OPTIMISTIC_OVERRIDE)

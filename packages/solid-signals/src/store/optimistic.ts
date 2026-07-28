@@ -1,3 +1,4 @@
+import { STATUS_PENDING } from "../core/constants.js";
 import {
   computed,
   CONFIG_AUTO_DISPOSE,
@@ -104,7 +105,28 @@ export function createOptimisticStore<T extends object = {}>(
   // STORE_OPTIMISTIC take the engine's write path, so install it before any
   // node can be created.
   installOptimisticEngine();
-  GlobalQueue._clearOptimisticStores ||= clearOptimisticStores;
+  if (!GlobalQueue._clearOptimisticStores) {
+    GlobalQueue._clearOptimisticStores = clearOptimisticStores;
+    // Store half of the engine's override blockage (#2951): signal-form
+    // createOptimistic carries the pending async and the override on ONE node,
+    // so transitionBlocked sees both; a derived optimistic STORE splits them —
+    // the layer sits on store targets while the in-flight truth lives on the
+    // firewall computed. Without this, the transition adopting a bare store
+    // write settled in the same flush that started the refetch and its settle
+    // consumed the layer mid-flight (follow-up writes then drafted from base,
+    // clobbering instead of composing). Optimistic state clears when truth
+    // lands or its transaction ends — never mid-refetch. Wrapped here (engine
+    // is already installed above) so store-free apps never carry the check.
+    const engineBlocked = GlobalQueue._transitionBlocked!;
+    GlobalQueue._transitionBlocked = transition => {
+      if (engineBlocked(transition)) return true;
+      for (const store of transition._optimisticStores) {
+        const firewall = (store[$TARGET] as StoreNode | undefined)?.[STORE_FIREWALL];
+        if (firewall && firewall._statusFlags & STATUS_PENDING) return true;
+      }
+      return false;
+    };
+  }
   const derived = typeof first === "function";
   // Plain form: the second slot carries options.
   if (!derived && options === undefined) options = second as ProjectionOptions | undefined;

@@ -875,9 +875,14 @@ function transitionComplete(transition: Transition): boolean {
     }
   }
   // Override blockage lives with the engine. Absent hook = "no optimistic
-  // blockage", which is exact: only _optimisticWrite (engine) pushes to
-  // _optimisticNodes, so without the engine the loop was vacuous anyway.
-  if (done && transition._optimisticNodes.length && GlobalQueue._transitionBlocked!(transition))
+  // blockage", which is exact: only the engine pushes to _optimisticNodes
+  // (via _optimisticWrite) or _optimisticStores (via _trackOptimisticStore),
+  // so without the engine the loop was vacuous anyway.
+  if (
+    done &&
+    (transition._optimisticNodes.length || transition._optimisticStores.size) &&
+    GlobalQueue._transitionBlocked!(transition)
+  )
     done = false;
   done && (transition._done = true);
   return done;
