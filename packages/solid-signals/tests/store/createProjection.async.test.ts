@@ -1,6 +1,7 @@
 import {
   affects,
   createEffect,
+  createErrorBoundary,
   createMemo,
   createLoadingBoundary,
   createProjection,
@@ -969,6 +970,161 @@ describe("Projection isPending behavior", () => {
     await Promise.resolve();
     flush();
     expect(untrack(() => proj.value)).toBe("hello");
+    dispose();
+  });
+});
+
+/**
+ * Errored derives follow async memo rules (the #2897 ruling: derived stores
+ * mirror async memos). Before this was enforced, a rejected derive pushed its
+ * error to settle-time subscribers only — every later reader (fresh tracked
+ * or untracked) silently got node values instead: the seed when
+ * uninitialized, last-good data after a failed refetch. Memo parity means:
+ * - late readers throw the derive's error;
+ * - a genuine tracked re-read on a later cycle retries the derive (same
+ *   rules as read()'s computed error branch: never for untracked reads,
+ *   never inside an isPending probe, once per cycle);
+ * - a successful retry serves the fresh value.
+ */
+describe("errored derive follows memo rules", () => {
+  const settle = async () => {
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+  };
+
+  it("untracked reads of a rejected uninitialized derive throw its error", async () => {
+    const boom = new Error("boom");
+    let store!: any;
+    const dispose = createRoot(d => {
+      [store] = createStore(
+        async () => {
+          throw boom;
+        },
+        { v: 0 } as any
+      ) as any;
+      return d;
+    });
+    flush();
+    await settle();
+    // Thrown as a StatusError wrapping the derive's error, same as an
+    // errored async memo; boundaries unwrap it to the original.
+    expect(() => untrack(() => store.v)).toThrow("boom");
+    dispose();
+  });
+
+  it("a fresh tracked reader after rejection sees the error (not the seed), then retries", async () => {
+    const boom = new Error("boom");
+    let runs = 0;
+    let store!: any;
+    const dispose = createRoot(d => {
+      [store] = createStore(
+        async () => {
+          runs++;
+          throw boom;
+        },
+        { v: 0 } as any
+      ) as any;
+      return d;
+    });
+    flush();
+    await settle();
+    expect(runs).toBe(1);
+
+    // A late subscriber must not silently read the seed. Its tracked read
+    // retries the derive (memo parity); the retry re-rejects and the error
+    // lands in the boundary.
+    const views: unknown[] = [];
+    const lateDispose = createRoot(d => {
+      const view = createErrorBoundary(
+        () => `value:${store.v}`,
+        (e: () => unknown) => `caught:${(e() as Error)?.message}`
+      );
+      createEffect(
+        () => view(),
+        (v: unknown) => {
+          views.push(v);
+        }
+      );
+      return d;
+    });
+    flush();
+    await settle();
+    expect(views).toEqual(["caught:boom"]);
+    expect(runs).toBe(2); // the tracked re-read retried the derive
+    expect(views).not.toContain("value:0");
+    lateDispose();
+    dispose();
+  });
+
+  it("a failed refetch stops serving last-good data (memo parity)", async () => {
+    const gate1 = deferred<string>();
+    let fail = false;
+    let store!: any;
+    let setSource!: (v: number) => void;
+    const dispose = createRoot(d => {
+      const [$source, set] = createSignal(0);
+      setSource = set;
+      [store] = createStore(
+        async () => {
+          $source();
+          if (fail) throw new Error("refetch-boom");
+          return { v: await gate1.promise };
+        },
+        { v: "" } as any
+      ) as any;
+      return d;
+    });
+    flush();
+    gate1.resolve("good");
+    await settle();
+    expect(untrack(() => store.v)).toBe("good");
+
+    fail = true;
+    setSource(1); // trigger refetch, which rejects
+    flush();
+    await settle();
+    expect(() => untrack(() => store.v)).toThrow("refetch-boom");
+    dispose();
+  });
+
+  it("a successful retry recovers and serves the fresh value", async () => {
+    let attempts = 0;
+    let store!: any;
+    const dispose = createRoot(d => {
+      [store] = createStore(
+        async () => {
+          attempts++;
+          if (attempts === 1) throw new Error("first-boom");
+          return { v: "recovered" };
+        },
+        { v: "" } as any
+      ) as any;
+      return d;
+    });
+    flush();
+    await settle();
+    expect(() => untrack(() => store.v)).toThrow("first-boom");
+
+    // A tracked read on a later cycle retries; this attempt succeeds.
+    const views: unknown[] = [];
+    const lateDispose = createRoot(d => {
+      const view = createLoadingBoundary(
+        () => store.v,
+        () => "loading"
+      );
+      createEffect(
+        () => view(),
+        (v: unknown) => {
+          views.push(v);
+        }
+      );
+      return d;
+    });
+    flush();
+    await settle();
+    expect(views).toContain("recovered");
+    expect(attempts).toBe(2);
+    lateDispose();
     dispose();
   });
 });

@@ -859,6 +859,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       return read(el);
     } else throw (el as Computed<any>)._error;
   }
+  // Firewall-backed store nodes follow the same rules (memo parity, #2897
+  // ruling): an errored derive throws for every late reader instead of
+  // silently serving node values (the seed, or last-good data), and a
+  // genuine tracked re-read on a later cycle retries the derive. Without
+  // this, only settle-time subscribers ever saw the error.
+  if (owner !== el && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
+    if (tracking && !pendingCheckActive && (owner as Computed<any>)._time < clock) {
+      recompute(owner as Computed<unknown>);
+      return read(el);
+    } else throw (owner as Computed<any>)._error;
+  }
 
   if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
     const sv = el._snapshotValue;

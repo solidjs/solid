@@ -959,15 +959,23 @@ function notifyStoreProperty(
 let Writing: Set<Object> | null = null;
 
 /**
- * A derived store's seed is a draft for the derive function, never an
- * observable value (#2897): until the firewall first resolves there is
- * nothing to read, so every consumer path throws NotReady — tracked reads
- * through their node (core read()), and the untracked fall-throughs in the
- * traps through this guard. Returning the seed leaked it; returning
- * `undefined` would break non-nullable types. Callers exempt the firewall
- * itself (the derive function works its own draft while uninitialized).
+ * A derived store follows async memo rules (#2897 ruling): its seed is a
+ * draft for the derive function, never an observable value, and an errored
+ * derive is an error state, never a silent stale/seed serve. Until the
+ * firewall first resolves there is nothing to read, so every consumer path
+ * throws NotReady — tracked reads through their node (core read()), and the
+ * untracked fall-throughs in the traps through this guard. Returning the
+ * seed leaked it; returning `undefined` would break non-nullable types.
+ * Callers exempt the firewall itself (the derive function works its own
+ * draft while uninitialized).
  *
- * The veto requires the firewall to still be in flight (or errored), not
+ * Error rail: a firewall carrying STATUS_ERROR throws its error for every
+ * late reader — memo parity, where read()'s error branch does the same for
+ * plain computeds. Rejection clears STATUS_UNINITIALIZED at commit, so
+ * without this check late readers silently got the seed while settle-time
+ * subscribers saw the error.
+ *
+ * Loading rail: the veto requires the firewall to still be in flight, not
  * just flagged: STATUS_UNINITIALIZED's clear is deferred to batch commit,
  * so during the settle flush a firewall that has already recomputed — and
  * reconciled real values into STORE_VALUE — still carries the stale flag.
@@ -977,13 +985,11 @@ let Writing: Set<Object> | null = null;
  * keyed diff reads items inside its internal owner (untracked by design)
  * in exactly this window, and the stale throw wedged <For> permanently.
  */
-function throwIfUninitialized(target: StoreNode): void {
+function throwIfUnreadable(target: StoreNode): void {
   const firewall = target[STORE_FIREWALL];
-  if (
-    firewall &&
-    firewall._statusFlags & STATUS_UNINITIALIZED &&
-    firewall._statusFlags & (STATUS_PENDING | STATUS_ERROR)
-  )
+  if (!firewall) return;
+  const flags = firewall._statusFlags;
+  if (flags & STATUS_ERROR || (flags & STATUS_UNINITIALIZED && flags & STATUS_PENDING))
     throw firewall._error ?? new NotReadyError(firewall);
 }
 
@@ -1138,7 +1144,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     // threw a fresh NotReadyError for an already-settled source, which no
     // sweep would ever release (#2938: projection over an async store wedged
     // its Loading boundary on `undefined`).
-    if (!selfRead && !getObserver()) throwIfUninitialized(target);
+    if (!selfRead && !getObserver()) throwIfUnreadable(target);
     return isWrappable(value) ? wrap(value, target) : value;
   },
 
@@ -1160,7 +1166,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
     if (getObserver()) {
       return read(getNode(target, nodes, property, has));
     }
-    throwIfUninitialized(target);
+    throwIfUnreadable(target);
     return has;
   },
 
@@ -1334,7 +1340,7 @@ export const storeTraps: ProxyHandler<StoreNode> = {
       // path is exempt (like the get/has traps' writeOnly early returns):
       // the first landing's reconcile enumerates the store while
       // STATUS_UNINITIALIZED is still set — it IS the initialization.
-      if (!getObserver() && !writeOnly(target[$PROXY])) throwIfUninitialized(target);
+      if (!getObserver() && !writeOnly(target[$PROXY])) throwIfUnreadable(target);
     }
     // Merge optimistic override with regular override for key enumeration
     let keys = getKeys(target[STORE_VALUE], target[STORE_OVERRIDE], false);
