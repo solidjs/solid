@@ -119,12 +119,10 @@ export function createOptimisticStore<T extends object = {}>(
     // is already installed above) so store-free apps never carry the check.
     const engineBlocked = GlobalQueue._transitionBlocked!;
     GlobalQueue._transitionBlocked = transition => {
-      if (engineBlocked(transition)) return true;
       for (const store of transition._optimisticStores) {
-        const firewall = (store[$TARGET] as StoreNode | undefined)?.[STORE_FIREWALL];
-        if (firewall && firewall._statusFlags & STATUS_PENDING) return true;
+        if ((store[$TARGET]?.[STORE_FIREWALL]?._statusFlags ?? 0) & STATUS_PENDING) return true;
       }
-      return false;
+      return engineBlocked(transition);
     };
   }
   const derived = typeof first === "function";
