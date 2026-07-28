@@ -123,6 +123,37 @@ export function releaseSettledDependents(el: Computed<any>): void {
   if (candidates) for (const node of candidates) releaseIfSettledUnobserved(node);
 }
 
+// Error-dimension twin of settlePendingSource's blocked re-enqueue (#2949):
+// a node in STATUS_ERROR that recovers by recomputing to an UNCHANGED value
+// fires no value notification — the recovery is completely silent. But a
+// dependent that re-ran during the error window consumed its dirty flag and
+// committed nothing (the fresh sibling values it read were absorbed into an
+// errored run), so its committed value is stale. The propagated error is one
+// object identity down the whole dependent tree, and holding it is exactly
+// the "blocked on this error" marker — re-enqueue those holders so they
+// re-run: fresh values commit and flow, and a dependent with another
+// still-broken source simply re-errors. The async dimension needs no twin of
+// its own: recovery there passes through a pending window whose re-runners
+// set _blocked and ride settlePendingSource. Walks the full dependent graph
+// (releaseSettledDependents shape): identity holders can sit below an
+// intermediate whose own error state has since been scrubbed or replaced
+// (e.g. an error boundary's tree node).
+export function settleErroredDependents(el: Computed<any>, error: any): void {
+  let scheduled = false;
+  const visited = new Set<Computed<any>>();
+  const visit = (node: Computed<any>) => {
+    if (visited.has(node)) return;
+    visited.add(node);
+    if (node._error === error) {
+      enqueueSub(node);
+      scheduled = true;
+    }
+    forEachDependent(node, visit);
+  };
+  forEachDependent(el, visit);
+  if (scheduled) schedule();
+}
+
 export function settlePendingSource(el: Computed<any>): void {
   let scheduled = false;
   let released: Computed<any>[] | undefined;

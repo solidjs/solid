@@ -1,4 +1,4 @@
-import { clearStatus, handleAsync, notifyStatus } from "./async.js";
+import { clearStatus, handleAsync, notifyStatus, settleErroredDependents } from "./async.js";
 import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
@@ -186,6 +186,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let isOptimisticDirty = !!(el._flags & REACTIVE_OPTIMISTIC_DIRTY);
   const hasOverride = el._overrideValue !== undefined && el._overrideValue !== NOT_PENDING;
   const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+  // Outgoing error, captured before the compute clears status: if this run
+  // recovers to an unchanged value, dependents still holding this object must
+  // be swept (settleErroredDependents, #2949).
+  const outgoingError = el._statusFlags & STATUS_ERROR ? el._error : undefined;
   // Re-ask classification lives in the verdict module; capture the flag before
   // the recompute wipes _flags below.
   const hadReask = (el._flags & REACTIVE_REASK) !== 0;
@@ -383,6 +387,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         insertIntoHeapHeight(s._sub, queueFor(s._sub));
       }
     }
+
+    // Silent recovery: errored → unchanged value fires no notification, but
+    // dependents still holding the propagated error consumed their dirty flag
+    // in an errored run and may sit on stale commits (#2949). Changed-value
+    // recoveries ride insertSubs above; a comparator throw re-errored the node
+    // (el._error re-set), so this only runs on a genuinely clean recovery.
+    if (outgoingError !== undefined && !valueChanged && !el._error)
+      settleErroredDependents(el, outgoingError);
   }
   currentOptimisticLane = prevLane;
   const needsPendingCommit =
