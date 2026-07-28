@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "node server.js"
+    "start": "node server.js",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@solidjs/router": "1.0.0-next.11",

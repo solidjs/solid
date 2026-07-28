@@ -4,11 +4,11 @@ import Comment from "~/components/comment";
 import { getStory } from "~/lib/api";
 
 export const preload = ({ params }: { params: RouteSectionProps["params"] }) => {
-  void getStory(params.id);
+  void getStory(params.id!);
 };
 
 export default function Story(props: RouteSectionProps) {
-  const story = createMemo(() => getStory(props.params.id));
+  const story = createMemo(() => getStory(props.params.id!));
   return (
     <div class="item-view">
       <div class="item-view-header">

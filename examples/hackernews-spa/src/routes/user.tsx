@@ -3,11 +3,11 @@ import { Show, createMemo } from "solid-js";
 import { getUser } from "~/lib/api";
 
 export const preload = ({ params }: { params: RouteSectionProps["params"] }) => {
-  void getUser(params.id);
+  void getUser(params.id!);
 };
 
 export default function User(props: RouteSectionProps) {
-  const user = createMemo(() => getUser(props.params.id));
+  const user = createMemo(() => getUser(props.params.id!));
   return (
     <div class="user-view">
       <h1>User : {user().id}</h1>

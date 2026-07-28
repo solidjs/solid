@@ -12,7 +12,7 @@ export default function Stories(props: RouteSectionProps) {
   // source is tracked, so changing feed or page re-calls it and the response
   // morphs this boundary in place — no remount, no fallback re-flash.
   const View = dynamic(() =>
-    storiesView(storyType(props.location.pathname), +props.location.query.page || 1)
+    storiesView(storyType(props.location.pathname), Number(props.location.query.page) || 1)
   );
   return <View />;
 }

@@ -9,11 +9,11 @@ export const storyType = (pathname: string): StoryTypes =>
   (pathname.split("/")[1] || "top") as StoryTypes;
 
 export const preload = ({ location }: { location: RouteSectionProps["location"] }) => {
-  void getStories(storyType(location.pathname), +location.query.page || 1);
+  void getStories(storyType(location.pathname), Number(location.query.page) || 1);
 };
 
 export default function Stories(props: RouteSectionProps) {
-  const page = () => +props.location.query.page || 1;
+  const page = () => Number(props.location.query.page) || 1;
   const type = () => storyType(props.location.pathname);
   const stories = createMemo(() => getStories(type(), page()));
 

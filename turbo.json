@@ -57,6 +57,10 @@
     "coverage": {
       "outputs": ["coverage/**"]
     },
+    "typecheck": {
+      "dependsOn": ["^types"],
+      "outputs": []
+    },
     "test": {
       "outputs": []
     },
