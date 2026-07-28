@@ -774,18 +774,42 @@ const IDENTITY = (item: any) => item;
  */
 export function reconcileState(value: any, state: any, key: any, replace: boolean) {
   if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
-  if (key === null) return applyState(value, state, NOKEY);
-  let keyFn = typeof key === "string" ? item => item[key] : key;
-  const eq = keyFn(state);
-  if (eq !== undefined && keyFn(value) !== eq) {
-    if (!replace) throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
-    // Or the outgoing raw keeps resolving to this proxy and surfaces the
-    // incoming entity wherever it reappears in this family.
-    const t = state[$TARGET];
-    if (t && t[STORE_VALUE] !== unwrap(value)) t[STORE_LOOKUP]?.delete(t[STORE_VALUE]);
-    keyFn = IDENTITY;
+  // A projection commit whose derive returns a foreign store adopts it as the
+  // live backing (store-in-store chain — the same shape as a store-proxy
+  // seed): reads route through the inner store's own graph, so its updates
+  // flow with no re-derive, and a derive with no dependencies never recomputes
+  // (#2941). The diff below still runs against raw values so THIS store's
+  // existing subscribers see the swap; the live proxy is installed after.
+  // Shallow projections keep their raw-ingest contract and never chain.
+  let chain: any;
+  const target = replace ? state[$TARGET] : undefined;
+  if (target !== undefined) {
+    if (value?.[$TARGET] !== undefined && value[$TARGET] !== target && !target[STORE_SHALLOW]) {
+      if (target[STORE_VALUE] === value) return; // already chained to this store
+      chain = value;
+    }
+    // Re-diffing a previously chained backing goes through its raw — reads
+    // off the outgoing proxy would subscribe this computed to a store it is
+    // about to drop.
+    while ((target[STORE_VALUE] as any)?.[$TARGET] !== undefined)
+      target[STORE_VALUE] = unwrap(target[STORE_VALUE]);
   }
-  applyState(value, state, keyFn);
+  if (key === null) applyState(value, state, NOKEY);
+  else {
+    let keyFn = typeof key === "string" ? item => item[key] : key;
+    const eq = keyFn(state);
+    if (eq !== undefined && keyFn(value) !== eq) {
+      if (!replace)
+        throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
+      // Or the outgoing raw keeps resolving to this proxy and surfaces the
+      // incoming entity wherever it reappears in this family.
+      const t = state[$TARGET];
+      if (t && t[STORE_VALUE] !== unwrap(value)) t[STORE_LOOKUP]?.delete(t[STORE_VALUE]);
+      keyFn = IDENTITY;
+    }
+    applyState(value, state, keyFn);
+  }
+  if (chain !== undefined) target[STORE_VALUE] = chain;
 }
 
 /**

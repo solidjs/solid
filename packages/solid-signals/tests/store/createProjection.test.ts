@@ -1,4 +1,5 @@
 import {
+  createEffect,
   createMemo,
   createProjection,
   createRenderEffect,
@@ -6,7 +7,8 @@ import {
   createSignal,
   createStore,
   flush,
-  reconcile
+  reconcile,
+  snapshot
 } from "../../src/index.js";
 
 describe("Projection basics", () => {
@@ -501,5 +503,215 @@ describe("Projection root entity swap", () => {
   test("reconcile() itself still rejects a root identity mismatch", () => {
     const [store, setStore] = createStore({ id: 1, name: "one" });
     expect(() => setStore(reconcile({ id: 2, name: "two" }))).toThrow(/different identity/);
+  });
+});
+
+describe("projection over a store — chained backing (#2941)", () => {
+  test("derive returning a store adopts it live: updates flow with no re-derive", () => {
+    const seen: unknown[] = [];
+    const derive = vi.fn();
+    let setStore!: (fn: (s: { a: number }) => void) => void;
+    let proj!: { a: number };
+    const dispose = createRoot(dispose => {
+      const [store, set] = createStore({ a: 1 });
+      setStore = set;
+      proj = createProjection(() => {
+        derive();
+        return store;
+      }, {}) as { a: number };
+      createEffect(
+        () => proj.a,
+        v => {
+          seen.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+    setStore(s => {
+      s.a = 5555;
+    });
+    flush();
+    expect(seen).toEqual([1, 5555]);
+    // No dependencies were read: the derive must not recompute — the source
+    // store's own graph carries the update through the chained backing.
+    expect(derive).toHaveBeenCalledTimes(1);
+    expect(proj.a).toBe(5555);
+    dispose();
+  });
+
+  test("nested updates stay fine-grained through the chain", () => {
+    const outer: unknown[] = [];
+    const inner: unknown[] = [];
+    let setStore!: (fn: (s: any) => void) => void;
+    const dispose = createRoot(dispose => {
+      const [store, set] = createStore({ top: "t1", nest: { deep: "d1" } });
+      setStore = set;
+      const proj = createProjection(() => store, {}) as typeof store;
+      createEffect(
+        () => proj.top,
+        v => {
+          outer.push(v);
+        }
+      );
+      createEffect(
+        () => proj.nest.deep,
+        v => {
+          inner.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+    setStore(s => {
+      s.nest.deep = "d2";
+    });
+    flush();
+    expect(outer).toEqual(["t1"]);
+    expect(inner).toEqual(["d1", "d2"]);
+    dispose();
+  });
+
+  test("derive switching store -> plain -> other store notifies and drops the old chain", () => {
+    const seen: unknown[] = [];
+    let setA!: (fn: (s: any) => void) => void;
+    let setB!: (fn: (s: any) => void) => void;
+    let setMode!: (m: "a" | "plain" | "b") => void;
+    const dispose = createRoot(dispose => {
+      const [a, _setA] = createStore({ v: "a1" });
+      const [b, _setB] = createStore({ v: "b1" });
+      const [mode, _setMode] = createSignal<"a" | "plain" | "b">("a");
+      setA = _setA;
+      setB = _setB;
+      setMode = _setMode;
+      const proj = createProjection(() => {
+        const m = mode();
+        return m === "a" ? a : m === "b" ? b : { v: "plain" };
+      }, {}) as { v: string };
+      createEffect(
+        () => proj.v,
+        v => {
+          seen.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+    setA(s => {
+      s.v = "a2";
+    });
+    flush();
+    setMode("plain");
+    flush();
+    setMode("b");
+    flush();
+    setB(s => {
+      s.v = "b2";
+    });
+    flush();
+    // The dropped store must no longer feed the projection.
+    setA(s => {
+      s.v = "a3";
+    });
+    flush();
+    expect(seen).toEqual(["a1", "a2", "plain", "b1", "b2"]);
+    dispose();
+  });
+
+  test("array store at the root: structural and row updates flow", () => {
+    const seen: unknown[] = [];
+    let setList!: (fn: (l: any) => void) => void;
+    const dispose = createRoot(dispose => {
+      const [list, set] = createStore([{ id: 1, n: "x" }]);
+      setList = set;
+      const proj = createProjection(() => list, [] as any) as typeof list;
+      createEffect(
+        () => proj.map(r => r.n).join(","),
+        v => {
+          seen.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+    setList(l => {
+      l.push({ id: 2, n: "y" });
+    });
+    flush();
+    setList(l => {
+      l[0].n = "X";
+    });
+    flush();
+    expect(seen).toEqual(["x", "x,y", "X,y"]);
+    dispose();
+  });
+
+  test("derived createStore(fn, seed) chains the same way", () => {
+    const seen: unknown[] = [];
+    let setSrc!: (fn: (s: any) => void) => void;
+    const dispose = createRoot(dispose => {
+      const [src, set] = createStore({ v: 1 });
+      setSrc = set;
+      const [proj] = createStore(() => src, { v: 0 });
+      createEffect(
+        () => proj.v,
+        v => {
+          seen.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+    setSrc(s => {
+      s.v = 2;
+    });
+    flush();
+    expect(seen).toEqual([1, 2]);
+    dispose();
+  });
+
+  test("snapshot() of a chained projection returns plain detached data", () => {
+    let proj!: any;
+    let setStore!: (fn: (s: any) => void) => void;
+    const dispose = createRoot(dispose => {
+      const [store, set] = createStore({ a: 1, nest: { b: 2 } });
+      setStore = set;
+      proj = createProjection(() => store, {});
+      return dispose;
+    });
+    flush();
+    proj.a; // realize the projection
+    const snap = snapshot(proj);
+    expect(snap).toEqual({ a: 1, nest: { b: 2 } });
+    setStore(s => {
+      s.a = 99;
+    });
+    flush();
+    expect(snap.a).toBe(1);
+    dispose();
+  });
+
+  test("enumeration tracks through the chain", () => {
+    const seen: unknown[] = [];
+    let setStore!: (fn: (s: any) => void) => void;
+    const dispose = createRoot(dispose => {
+      const [store, set] = createStore<Record<string, number>>({ a: 1 });
+      setStore = set;
+      const proj = createProjection(() => store, {}) as Record<string, number>;
+      createEffect(
+        () => Object.keys(proj).join(","),
+        v => {
+          seen.push(v);
+        }
+      );
+      return dispose;
+    });
+    flush();
+    setStore(s => {
+      s.b = 2;
+    });
+    flush();
+    expect(seen).toEqual(["a", "a,b"]);
+    dispose();
   });
 });
