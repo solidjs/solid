@@ -30,6 +30,8 @@ describe("Packed package type resolution", () => {
   ];
   const packedPackages: string[] = [];
 
+  // Packing six packages plus the fixture installs takes well over the
+  // default 10s hook budget (npm pack alone is ~2s per package).
   beforeAll(() => {
     for (const packageRoot of packageRoots) {
       if (!existsSync(resolve(join(packageRoot, "dist")))) {
@@ -55,7 +57,7 @@ describe("Packed package type resolution", () => {
       fatal: true,
       silent: true
     });
-  });
+  }, 180_000);
 
   test("Node16 CommonJS consumers can import packed packages", () => {
     const result = exec("npx tsc -p tsconfig.json", { cwd: fixtureRun, silent: true });
