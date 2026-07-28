@@ -330,12 +330,40 @@ export function wrapShallow<T extends Record<PropertyKey, any>>(value: T): T {
   return p;
 }
 
+const OBJECT_PROTO = Object.prototype;
+// Per-prototype memo for the custom-proto branch of isWrappable: the verdict
+// is fully determined by the prototype (tag and Node lineage both live on
+// the chain), so each class pays the tag call once — not per read.
+const wrappableProtos = new WeakMap<object, boolean>();
+
 export function isWrappable<T>(obj: T | NotWrappable): obj is T;
 export function isWrappable(obj: any) {
   if (obj == null || typeof obj !== "object" || Object.isFrozen(obj)) return false;
-  // Dynamic Node check (kept dynamic so test/SSR overrides of `globalThis.Node`
-  // are observed at call time).
-  return typeof Node === "undefined" || !(obj instanceof Node);
+  // Plain data and user class instances wrap; platform objects never do
+  // (#2952). Native code brand-checks internal slots and throws through a
+  // proxy (`Map.prototype.size`, `Date.prototype.getTime`, ...), so
+  // collections and other built-ins can't honestly be stores — they get the
+  // markRaw-children contract automatically: served raw, mutations land raw,
+  // the property holding them still tracks (reassignment notifies). The tag
+  // check separates them structurally: user classes stringify as
+  // `[object Object]` while every native/host object carries its own brand
+  // (`[object Map]`, `[object Date]`, `[object Headers]`, ...), including
+  // subclasses, which inherit the tag. getPrototypeOf keeps the hot path
+  // (plain and null-proto objects) intrinsic-only — no property lookup.
+  const proto = Object.getPrototypeOf(obj);
+  if (proto === OBJECT_PROTO || proto === null) return true;
+  if (Array.isArray(obj)) return true;
+  let wrappable = wrappableProtos.get(proto);
+  if (wrappable === undefined) {
+    wrappable =
+      Object.prototype.toString.call(obj) === "[object Object]" &&
+      // Dynamic Node check (kept dynamic so test/SSR overrides of
+      // `globalThis.Node` are observed at call time): shimmed DOMs implement
+      // nodes as plain user classes, which pass the tag check.
+      (typeof Node === "undefined" || !(obj instanceof Node));
+    wrappableProtos.set(proto, wrappable);
+  }
+  return wrappable;
 }
 let writeOverride = false;
 export function setWriteOverride(value: boolean) {
