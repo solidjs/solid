@@ -849,22 +849,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       throw owner._error;
     }
   }
-  if ((el as Computed<any>)._fn && (el as Computed<any>)._statusFlags & STATUS_ERROR) {
+  // `owner` is the computed itself, or the firewall behind a store node —
+  // firewall-backed reads follow the same rules (memo parity, #2897 ruling):
+  // an errored derive throws for every late reader instead of silently
+  // serving node values (the seed, or last-good data after a failed refetch).
+  if ((owner as Computed<any>)._fn && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - !pendingCheckActive: an `isPending` probe observes the error, never refetches
-    // - el._time < clock: only on a later cycle than the one the error was found
-    if (tracking && !pendingCheckActive && el._time < clock) {
-      recompute(el as Computed<unknown>);
-      return read(el);
-    } else throw (el as Computed<any>)._error;
-  }
-  // Firewall-backed store nodes follow the same rules (memo parity, #2897
-  // ruling): an errored derive throws for every late reader instead of
-  // silently serving node values (the seed, or last-good data), and a
-  // genuine tracked re-read on a later cycle retries the derive. Without
-  // this, only settle-time subscribers ever saw the error.
-  if (owner !== el && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
+    // - owner._time < clock: only on a later cycle than the one the error was found
     if (tracking && !pendingCheckActive && (owner as Computed<any>)._time < clock) {
       recompute(owner as Computed<unknown>);
       return read(el);
