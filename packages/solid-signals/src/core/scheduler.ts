@@ -295,7 +295,12 @@ export class Queue implements IQueue {
       this._queues[type - 1] = [];
       runQueue(effects, type);
     }
-    for (let i = 0; i < this._children.length; i++) (this._children[i] as any).run?.(type);
+    for (let i = 0; i < this._children.length; ) {
+      const child = this._children[i];
+      (child as any).run?.(type);
+      // A child may remove itself or an earlier sibling while its effects run.
+      if (this._children[i] === child) i++;
+    }
   }
   enqueue(type: number, fn: QueueCallback): void {
     if (type) {

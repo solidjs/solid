@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import {
   createEffect,
+  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -186,4 +187,48 @@ it("isPending(() => latest(x)) in a user effect does not loop on refetch (#2843)
 
   dispose();
   flush();
+});
+
+it("disposing the current boundary queue does not skip its sibling", () => {
+  const effects: string[] = [];
+  const disposers: (() => void)[] = [];
+
+  try {
+    createRoot(dispose => {
+      disposers.push(dispose);
+      createLoadingBoundary(
+        () => {
+          createEffect(
+            () => undefined,
+            () => {
+              effects.push("first");
+              dispose();
+            }
+          );
+        },
+        () => undefined
+      )();
+    });
+
+    createRoot(dispose => {
+      disposers.push(dispose);
+      createLoadingBoundary(
+        () => {
+          createEffect(
+            () => undefined,
+            () => {
+              effects.push("second");
+            }
+          );
+        },
+        () => undefined
+      )();
+    });
+
+    flush();
+    expect(effects).toEqual(["first", "second"]);
+  } finally {
+    for (const dispose of disposers) dispose();
+    flush();
+  }
 });
