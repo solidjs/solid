@@ -80,7 +80,7 @@ async function drive(mode: "in-step" | "adopted", preFlush: boolean) {
   // promise when the fallback cleans up (the issue's createTransition).
   createRoot(dispose => {
     createEffect(
-      () => latest(h.isL as any),
+      () => latest(h.isL),
       (v: boolean) => {
         if (!v) {
           p.resolve();

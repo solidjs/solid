@@ -996,12 +996,12 @@ describe("errored derive follows memo rules", () => {
     const boom = new Error("boom");
     let store!: any;
     const dispose = createRoot(d => {
-      [store] = createStore(
+      [store] = createStore<{ v: number }>(
         async () => {
           throw boom;
         },
-        { v: 0 } as any
-      ) as any;
+        { v: 0 }
+      );
       return d;
     });
     flush();
@@ -1017,13 +1017,13 @@ describe("errored derive follows memo rules", () => {
     let runs = 0;
     let store!: any;
     const dispose = createRoot(d => {
-      [store] = createStore(
+      [store] = createStore<{ v: number }>(
         async () => {
           runs++;
           throw boom;
         },
-        { v: 0 } as any
-      ) as any;
+        { v: 0 }
+      );
       return d;
     });
     flush();
