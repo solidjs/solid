@@ -1,4 +1,9 @@
-import { STATUS_PENDING, STATUS_UNINITIALIZED, unwrapOverride } from "../core/constants.js";
+import {
+  STATUS_ERROR,
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED,
+  unwrapOverride
+} from "../core/constants.js";
 import {
   pendingCheckActive,
   READ_SLOW,
@@ -961,10 +966,24 @@ let Writing: Set<Object> | null = null;
  * traps through this guard. Returning the seed leaked it; returning
  * `undefined` would break non-nullable types. Callers exempt the firewall
  * itself (the derive function works its own draft while uninitialized).
+ *
+ * The veto requires the firewall to still be in flight (or errored), not
+ * just flagged: STATUS_UNINITIALIZED's clear is deferred to batch commit,
+ * so during the settle flush a firewall that has already recomputed — and
+ * reconciled real values into STORE_VALUE — still carries the stale flag.
+ * STATUS_PENDING is the live bit (it clears eagerly at settle, mirroring
+ * core read()'s verdict), so gating on it stops the guard from throwing a
+ * fresh NotReadyError that nothing would ever sweep. #2944: mapArray's
+ * keyed diff reads items inside its internal owner (untracked by design)
+ * in exactly this window, and the stale throw wedged <For> permanently.
  */
 function throwIfUninitialized(target: StoreNode): void {
   const firewall = target[STORE_FIREWALL];
-  if (firewall && firewall._statusFlags & STATUS_UNINITIALIZED)
+  if (
+    firewall &&
+    firewall._statusFlags & STATUS_UNINITIALIZED &&
+    firewall._statusFlags & (STATUS_PENDING | STATUS_ERROR)
+  )
     throw firewall._error ?? new NotReadyError(firewall);
 }
 

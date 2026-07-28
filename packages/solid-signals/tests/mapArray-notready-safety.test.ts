@@ -20,6 +20,7 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
+  createStore,
   flush,
   mapArray,
   onCleanup,
@@ -476,6 +477,103 @@ describe("updateKeyedMap NotReadyError safety (#2903)", () => {
     await settle();
     expect(result).toBe("x1:v,a,x2:v,b");
 
+    dispose();
+  });
+});
+
+/**
+ * #2944: mapArray over an async-derived store key wedged permanently after
+ * the source settled. The map computed re-ran during the settle flush and its
+ * source read succeeded (observer-present, served off the pending rail —
+ * #2938), but the keyed diff's item reads run inside the internal owner with
+ * no observer. Those untracked reads hit the store's uninitialized guard,
+ * which consulted STATUS_UNINITIALIZED — a flag whose clear is deferred to
+ * batch commit and therefore stale mid-flush — and threw a fresh
+ * NotReadyError that nothing would sweep. The guard now also requires the
+ * firewall to still be in flight (STATUS_PENDING, the live bit) or errored.
+ */
+describe("mapArray/repeat over an async-derived store key (#2944)", () => {
+  it("mapArray renders the list when the store's async key first settles", async () => {
+    const gate = deferred<{ id: number; name: string }[]>();
+    const mapped: string[] = [];
+    let result = "";
+    let dispose!: () => void;
+
+    createRoot(d => {
+      dispose = d;
+      const items = createMemo(() => gate.promise);
+      const [s1] = createStore(() => ({ items: items() }), { items: [] as any[] });
+      const map = mapArray(
+        () => (s1 as any).items,
+        (v: any) => {
+          mapped.push(v.name);
+          return v.name;
+        }
+      );
+      const b = createLoadingBoundary(
+        () => map().join(","),
+        () => "loading"
+      );
+      createRenderEffect(
+        () => (result = b()),
+        () => {}
+      );
+    });
+    flush();
+    expect(result).toBe("loading");
+
+    gate.resolve([
+      { id: 1, name: "A" },
+      { id: 2, name: "B" }
+    ]);
+    await settle();
+    expect(result).toBe("A,B");
+    expect(mapped).toEqual(["A", "B"]);
+
+    dispose();
+  });
+
+  it("repeat rows reading store items settle the same way", async () => {
+    const gate = deferred<string[]>();
+    let result = "";
+    let dispose!: () => void;
+
+    createRoot(d => {
+      dispose = d;
+      const items = createMemo(() => gate.promise);
+      const [s1] = createStore(() => ({ items: items() }), { items: [] as string[] });
+      const rows = repeat(
+        () => (s1 as any).items.length,
+        (i: number) => (s1 as any).items[i]
+      );
+      const b = createLoadingBoundary(
+        () => rows().join(","),
+        () => "loading"
+      );
+      createRenderEffect(
+        () => (result = b()),
+        () => {}
+      );
+    });
+    flush();
+    expect(result).toBe("loading");
+
+    gate.resolve(["A", "B"]);
+    await settle();
+    expect(result).toBe("A,B");
+
+    dispose();
+  });
+
+  it("the uninitialized guard still vetoes genuinely loading untracked reads (#2897)", () => {
+    let s1!: any;
+    const dispose = createRoot(d => {
+      const [s] = createStore(() => new Promise(() => {}) as any, { v: 0 });
+      s1 = s;
+      return d;
+    });
+    flush();
+    expect(() => s1.v).toThrow(); // NotReadyError while the firewall is in flight
     dispose();
   });
 });
