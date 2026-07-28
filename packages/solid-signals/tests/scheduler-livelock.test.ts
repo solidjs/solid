@@ -232,3 +232,45 @@ it("disposing the current boundary queue does not skip its sibling", () => {
     flush();
   }
 });
+
+// One disposal can remove SEVERAL sibling queues at once (a root owning more
+// than one boundary), shifting the list by more than a single slot. Stepping
+// the cursor back by one is not enough to recover — the pass has to be able to
+// rescan without re-running what it already ran.
+it("disposing a root that owns two boundary queues does not skip a later sibling", () => {
+  const effects: string[] = [];
+  const disposers: (() => void)[] = [];
+
+  const boundaryWithEffect = (label: string, body?: () => void) =>
+    createLoadingBoundary(
+      () => {
+        createEffect(
+          () => undefined,
+          () => {
+            effects.push(label);
+            body?.();
+          }
+        );
+      },
+      () => undefined
+    )();
+
+  try {
+    createRoot(dispose => {
+      disposers.push(dispose);
+      boundaryWithEffect("a1");
+      boundaryWithEffect("a2", () => dispose());
+    });
+
+    createRoot(dispose => {
+      disposers.push(dispose);
+      boundaryWithEffect("b");
+    });
+
+    flush();
+    expect(effects).toEqual(["a1", "a2", "b"]);
+  } finally {
+    for (const dispose of disposers) dispose();
+    flush();
+  }
+});

@@ -269,10 +269,15 @@ export interface IQueue {
   _parent: IQueue | null;
 }
 
+// Identifies one child-traversal pass in `Queue.run` so a rescan after the
+// child list shifts can tell "already run this pass" from "still pending".
+let queueRunToken = 0;
+
 export class Queue implements IQueue {
   _parent: IQueue | null = null;
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
   _children: IQueue[] = [];
+  _ranAt = 0;
   created = clock;
   addChild(child: IQueue) {
     this._children.push(child);
@@ -295,11 +300,26 @@ export class Queue implements IQueue {
       this._queues[type - 1] = [];
       runQueue(effects, type);
     }
-    for (let i = 0; i < this._children.length; ) {
-      const child = this._children[i];
-      (child as any).run?.(type);
-      // A child may remove itself or an earlier sibling while its effects run.
-      if (this._children[i] === child) i++;
+    // Effects run here can dispose owners, and disposal removes queues from
+    // this list — the running child itself, an earlier sibling, or several at
+    // once. A plain index walk then skips whatever shifted into the cursor.
+    // Stamping each child before it runs makes the pass idempotent, so a shift
+    // can be recovered by rescanning from the front and every child still runs
+    // exactly once. Children appended mid-pass carry a stale stamp and run,
+    // matching the previous live-array behaviour.
+    const children = this._children;
+    const token = ++queueRunToken;
+    for (let i = 0; i < children.length; ) {
+      const child = children[i] as Queue;
+      if (child._ranAt !== token) {
+        child._ranAt = token;
+        (child as any).run?.(type);
+        if (children[i] !== child) {
+          i = 0;
+          continue;
+        }
+      }
+      i++;
     }
   }
   enqueue(type: number, fn: QueueCallback): void {
