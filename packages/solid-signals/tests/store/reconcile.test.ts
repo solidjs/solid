@@ -761,6 +761,72 @@ describe("reconcile without a key (positional merge)", () => {
     expect(state.items[0].v).toBe(9);
   });
 
+  describe("array/object shape changes at an array slot", () => {
+    // Two keyless wrappables "match" for the array diff (both report no key),
+    // so an array and an object used to be merged into each other, leaving the
+    // slot's proxy permanently the wrong kind.
+    test("object -> array at an unkeyed position", () => {
+      const [state, setState] = createStore<any>({ list: [{ x: 1 }] });
+      createRoot(() => {
+        createEffect(
+          () => state.list[0].x,
+          () => {}
+        );
+      });
+      flush();
+      setState(reconcile({ list: [[10, 20]] }, "id"));
+      flush();
+      expect(Array.isArray(state.list[0])).toBe(true);
+      expect(snapshot(state.list[0])).toEqual([10, 20]);
+    });
+
+    test("array -> object at an unkeyed position", () => {
+      const [state, setState] = createStore<any>({ list: [[10, 20]] });
+      createRoot(() => {
+        createEffect(
+          () => state.list[0][0],
+          () => {}
+        );
+      });
+      flush();
+      setState(reconcile({ list: [{ x: 1 }] }, "id"));
+      flush();
+      expect(Array.isArray(state.list[0])).toBe(false);
+      expect(snapshot(state.list[0])).toEqual({ x: 1 });
+    });
+
+    test("keyless slot trailing a keyed array", () => {
+      const [state, setState] = createStore<any>({ list: [{ id: "a" }, { x: 1 }] });
+      createRoot(() => {
+        createEffect(
+          () => state.list[1].x,
+          () => {}
+        );
+      });
+      flush();
+      setState(reconcile({ list: [{ id: "a" }, [10, 20]] }, "id"));
+      flush();
+      expect(Array.isArray(state.list[1])).toBe(true);
+      expect(snapshot(state.list[1])).toEqual([10, 20]);
+    });
+
+    test("positional (key: null) merge keeps the incoming kind", () => {
+      const [state, setState] = createStore<any>({ list: [{ x: 1 }, [1]] });
+      createRoot(() => {
+        createEffect(
+          () => [state.list[0].x, state.list[1][0]],
+          () => {}
+        );
+      });
+      flush();
+      setState(reconcile({ list: [[7], { y: 2 }] }, null));
+      flush();
+      expect(Array.isArray(state.list[0])).toBe(true);
+      expect(Array.isArray(state.list[1])).toBe(false);
+      expect(snapshot(state.list)).toEqual([[7], { y: 2 }]);
+    });
+  });
+
   test("does not enforce root identity", () => {
     const [state, setState] = createStore({ id: 1, v: 2 });
     // keyed (including the "id" default) this throws "different identity"; key: null must merge
