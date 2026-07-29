@@ -1,7 +1,7 @@
 {
   "name": "hackernews-spa-example",
   "description": "The SSR-SPA comparison baseline for the hackernews server-components example: the SAME app — same routes, same components, same data — but server functions return JSON and client components render everything, with the standard hydration data blob",
-  "version": "0.0.1-beta.0",
+  "version": "0.0.1-beta.1",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",

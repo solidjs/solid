@@ -1,5 +1,22 @@
 # @solidjs/web
 
+## 2.0.0-beta.28
+
+### Patch Changes
+
+- 8b20c1a: Export a `Slot<P>` type from `@solidjs/web/frames` for typing server-component client positions.
+
+  A server component describes its client positions as props the server renders where client-owned markup belongs. Typing those by hand meant restating the client component's shape and adding `$key` to it, which pushed apps toward wrapper types per component. `Slot<P>` takes the client component's own props and adds the optional `$key`, so the hole is described with the same type that fills it:
+
+  ```ts
+  type ToggleSlot = Slot<ComponentProps<typeof Toggle>>;
+  ```
+
+  The type is exported from both halves of the subpath — server components are authored in universal code, so it has to resolve under the browser condition too. It is type-only, so nothing crosses into the client bundle.
+
+- Update `@dom-expressions/runtime` to 0.50.0-next.33. The server function handler now pre-digests the single-flight outcome before invoking `collectFlightData` — `targetUrl` (the URL the client will show after the mutation, origin-checked), `revalidateKeys` (the outcome's `X-Revalidate` keys, split), and `foldedHeaders` (request headers with the mutation's `Set-Cookie` effects applied) arrive on the outcome, so integrations only supply the data strategy. Raw body-carrying `Response` values skip collection entirely. Adds `decodeResponsePayload` beside `decodeResponse` for splitting the single-flight envelope on manually opted-in calls.
+  - solid-js@2.0.0-beta.28
+
 ## 2.0.0-beta.27
 
 ### Patch Changes

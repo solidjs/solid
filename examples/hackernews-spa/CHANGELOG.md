@@ -1,5 +1,14 @@
 # hackernews-spa-example
 
+## 0.0.1-beta.1
+
+### Patch Changes
+
+- Updated dependencies [8b20c1a]
+- Updated dependencies
+  - @solidjs/web@2.0.0-beta.28
+  - solid-js@2.0.0-beta.28
+
 ## 0.0.1-beta.0
 
 ### Patch Changes
