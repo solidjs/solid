@@ -21,7 +21,7 @@
  *   instantiation, so the hydrate spec can drive post-hydration updates.
  * - Keep async delays short (5-15ms) — the specs own the settle waits.
  */
-import { createSignal, createMemo, Show, For, Loading, Errored } from "solid-js";
+import { createSignal, createMemo, createStore, Show, For, Loading, Errored } from "solid-js";
 import { Portal } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -553,6 +553,31 @@ function PortalUnderErrored() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Client-sourced async memo feeding a derived store WITHOUT ssrSource (the
+// midival Discord report shape): the server never runs the memo (reads
+// undefined → guard → seed), serializes the seed as the store's settled
+// truth, and the client must still re-derive once the client-only source
+// settles post-hydration. `connect` deliberately constructs its promise via
+// the GLOBAL Promise binding at call time — transpiled libraries (midival's
+// __async helper) do exactly this, so if the memo's first compute lands
+// inside subFetch's mocked-Promise window it latches a never-settling
+// MockPromise and the store stays frozen at the seed.
+function ClientSourceDerivedStore() {
+  const connect = () =>
+    new Promise<{ inputs: string[] }>(r => setTimeout(() => r({ inputs: ["piano"] }), 10));
+  const access = createMemo(() => connect(), { ssrSource: "client" });
+  const [store] = createStore<{ inputs: string[] }>(
+    () => {
+      const a = access();
+      if (!a) return { inputs: [] };
+      return { inputs: [...a.inputs] };
+    },
+    { inputs: [] }
+  );
+  return <div>Inputs: {store.inputs.join(",") || "none"}</div>;
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -763,5 +788,13 @@ export const scenarios: Scenario[] = [
     expectedText: "safe tip",
     serverText: "safe",
     stableSelector: "div, span, section"
+  },
+  {
+    name: "client-source-derived-store",
+    App: ClientSourceDerivedStore,
+    async: true,
+    expectedText: "Inputs: piano",
+    serverText: "Inputs: none",
+    stableSelector: "div"
   }
 ];
