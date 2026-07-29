@@ -1,13 +1,15 @@
-import { type RouteSectionProps } from "@solidjs/router";
+import { type RouteParams, type RoutePreloadFuncArgs, type RouteProps } from "@solidjs/router";
 import { Show, createMemo } from "solid-js";
 import { getUser } from "~/lib/api";
 
-export const preload = ({ params }: { params: RouteSectionProps["params"] }) => {
-  void getUser(params.id!);
+type Path = "/users/:id";
+
+export const preload = ({ params }: RoutePreloadFuncArgs<RouteParams<Path>>) => {
+  void getUser(params.id);
 };
 
-export default function User(props: RouteSectionProps) {
-  const user = createMemo(() => getUser(props.params.id!));
+export default function User(props: RouteProps<Path>) {
+  const user = createMemo(() => getUser(props.params.id));
   return (
     <div class="user-view">
       <h1>User : {user().id}</h1>

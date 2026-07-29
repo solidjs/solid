@@ -8,7 +8,7 @@
 // Note there is no server-component API in this file. `dynamic()` over a
 // `"use server"` call is the entire client surface (see the routes); the
 // transport install lives in the generated entry.
-import { createRouter } from "@solidjs/router";
+import { createRouter, defineRoute } from "@solidjs/router";
 import { Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { navView } from "~/lib/views";
@@ -17,11 +17,13 @@ import Story from "~/routes/story";
 import User from "~/routes/user";
 import "./app.css";
 
+// `defineRoute` types each route's component from its own `path`, so the `:id`
+// routes read `params.id` as `string` rather than `string | undefined`.
 const Router = createRouter({
   routes: [
-    { path: ["/", "/top", "/new", "/show", "/ask", "/job"], component: Stories },
-    { path: "/stories/:id", component: Story },
-    { path: "/users/:id", component: User }
+    defineRoute({ path: ["/", "/top", "/new", "/show", "/ask", "/job"], component: Stories }),
+    defineRoute({ path: "/stories/:id", component: Story }),
+    defineRoute({ path: "/users/:id", component: User })
   ]
 });
 

@@ -1,4 +1,4 @@
-import { type RouteSectionProps } from "@solidjs/router";
+import { type RoutePreloadFuncArgs, type RouteSectionProps } from "@solidjs/router";
 import { For, Show, createMemo } from "solid-js";
 import Story from "~/components/story";
 import { getStories } from "~/lib/api";
@@ -8,7 +8,8 @@ import type { StoryTypes } from "~/types";
 export const storyType = (pathname: string): StoryTypes =>
   (pathname.split("/")[1] || "top") as StoryTypes;
 
-export const preload = ({ location }: { location: RouteSectionProps["location"] }) => {
+// The feed routes take no params, so the open `RouteSectionProps` is honest here.
+export const preload = ({ location }: RoutePreloadFuncArgs) => {
   void getStories(storyType(location.pathname), Number(location.query.page) || 1);
 };
 

@@ -1,14 +1,18 @@
-import { type RouteSectionProps } from "@solidjs/router";
+import { type RouteParams, type RoutePreloadFuncArgs, type RouteProps } from "@solidjs/router";
 import { For, Show, createMemo } from "solid-js";
 import Comment from "~/components/comment";
 import { getStory } from "~/lib/api";
 
-export const preload = ({ params }: { params: RouteSectionProps["params"] }) => {
-  void getStory(params.id!);
+// The route lives in app.tsx, so the component and preload here name the
+// pattern they belong to; `params.id` is then `string`, not `string | undefined`.
+type Path = "/stories/:id";
+
+export const preload = ({ params }: RoutePreloadFuncArgs<RouteParams<Path>>) => {
+  void getStory(params.id);
 };
 
-export default function Story(props: RouteSectionProps) {
-  const story = createMemo(() => getStory(props.params.id!));
+export default function Story(props: RouteProps<Path>) {
+  const story = createMemo(() => getStory(props.params.id));
   return (
     <div class="item-view">
       <div class="item-view-header">
