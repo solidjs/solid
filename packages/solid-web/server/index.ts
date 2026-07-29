@@ -1,8 +1,9 @@
-import { ssrElement } from "./server.js";
+import { ssrElement, getRequestEvent, type RequestEvent, type ResponseStub } from "./server.js";
 import {
   createComponent,
   createMemo,
   omit,
+  onCleanup,
   getOwner,
   getNextChildId,
   NotReadyError,
@@ -115,4 +116,87 @@ export function Portal(props: { mount?: Element; children: JSX.Element }) {
   const o = getOwner();
   if (o?.id != null) getNextChildId(o);
   return undefined as unknown as JSX.Element;
+}
+
+/**
+ * Server half of `clientOnly`: the wrapped component never renders on the
+ * server — the import is never even started — only `props.fallback` is
+ * SSR'd. The client build swaps the real component in after load + mount.
+ * See the client entry's JSDoc for the full contract.
+ */
+export function clientOnly<T extends Component<any>>(
+  _fn: () => Promise<{ default: T }>,
+  _options: { lazy?: boolean } = {}
+): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
+  return props => props.fallback as JSX.Element;
+}
+
+export interface HttpStatusCodeProps {
+  code: number;
+  text?: string;
+}
+
+/**
+ * Sets the HTTP response status (and optional status text) on the request
+ * event's `response` head during SSR.
+ *
+ * Retraction semantics: the previous `status`/`statusText` are snapshotted
+ * at write time and restored when the component is disposed — a boundary
+ * that errored, set a status, and then recovered retracts its write instead
+ * of stomping a status a surviving part of the tree legitimately set (e.g.
+ * a 404 page whose inner boundary recovers stays a 404). Both the write and
+ * the cleanup restore are no-ops once the integration marks the event
+ * `complete` (response head sent — status can no longer change).
+ */
+export function HttpStatusCode(props: HttpStatusCodeProps): JSX.Element {
+  // `response` is an integration-augmented field (see core's ResponseStub);
+  // read it structurally so the components work against the bare contract.
+  const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
+  const response = event && event.response;
+  if (response && !event.complete) {
+    const prevStatus = response.status;
+    const prevStatusText = response.statusText;
+    response.status = props.code;
+    response.statusText = props.text;
+    onCleanup(() => {
+      if (event.complete) return;
+      response.status = prevStatus;
+      response.statusText = prevStatusText;
+    });
+  }
+  return null as unknown as JSX.Element;
+}
+
+export interface HttpHeaderProps {
+  name: string;
+  value: string;
+  append?: boolean;
+}
+
+/**
+ * Sets (or with `append`, appends) an HTTP response header on the request
+ * event's `response` head during SSR.
+ *
+ * Retraction semantics: the header's prior value is snapshotted at write
+ * time and restored when the component is disposed — deleted if there was
+ * none — so a boundary that errors or recovers retracts its writes without
+ * disturbing values other writers contributed before it. Both the write and
+ * the cleanup restore are no-ops once the integration marks the event
+ * `complete` (response head sent — headers can no longer change).
+ */
+export function HttpHeader(props: HttpHeaderProps): JSX.Element {
+  const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
+  const response = event && event.response;
+  if (response && !event.complete) {
+    const headers = response.headers;
+    const prev = headers.get(props.name);
+    if (props.append) headers.append(props.name, props.value);
+    else headers.set(props.name, props.value);
+    onCleanup(() => {
+      if (event.complete) return;
+      if (prev === null) headers.delete(props.name);
+      else headers.set(props.name, prev);
+    });
+  }
+  return null as unknown as JSX.Element;
 }

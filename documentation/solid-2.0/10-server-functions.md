@@ -64,7 +64,7 @@ The handler resolves the function id, decodes arguments, runs the function under
 - **`collectFlightData(event, outcome)`** — the single-flight hook (below).
 - **`handleNoJS(result, request, args, thrown?)`** — build the response for unscripted calls (below).
 
-Inside a function body, `getRequestEvent()` (from `@solidjs/web`) reads the current event and `getServerFunctionMeta()` reads the calling function’s id — usable for keying caches or logs. In-process SSR calls run the original function directly (no HTTP loopback) under a derived event marked `serverOnly`.
+Inside a function body, `getRequestEvent()` (from `@solidjs/web`) reads the current event and `getServerFunctionInvocation()` reads the in-flight call’s id — usable for keying caches or logs. (Renamed from `getServerFunctionMeta` to keep clear of `getServerFunctionMetadata(fn)`, which reads a reference’s *static declaration* metadata; the invocation accessor describes the call currently executing.) In-process SSR calls run the original function directly (no HTTP loopback) under a derived event marked `serverOnly`.
 
 `registerServerFunction(id, fn)` / `getServerFunction(id)` remain exported for integrations building custom dispatch or introspection. Registry *mutation* as a userland extension pattern is rejected (see Alternatives).
 

@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   GET as serverGET,
   createServerReference as createServerSideReference,
+  getServerFunctionInvocation,
   getServerFunctionMetadata as getServerFunctionMetadataServer,
   handleServerFunctionRequest,
   isServerFunction as isServerFunctionServer,
@@ -22,6 +23,7 @@ import {
   registerServerReference,
   withMeta as withMetaServer
 } from "@solidjs/web/server-functions/server";
+import type { ServerFunctionInvocation } from "@solidjs/web/server-functions/server";
 import {
   GET,
   configureServerFunctionsClient,
@@ -90,6 +92,25 @@ describe("server-function extension surface (built bundles)", () => {
     );
     expect(undeclared.status).toBe(405);
     expect(undeclared.headers.get("Allow")).toBe("POST");
+  });
+
+  it("exposes the in-flight invocation through the bridge (getServerFunctionInvocation)", async () => {
+    // Distinct from getServerFunctionMetadata(fn) — this reads the call in
+    // flight off the request event, not a reference's declaration metadata.
+    let seen: ServerFunctionInvocation | undefined;
+    registerServerFunction("ext-invocation-0", async () => {
+      seen = getServerFunctionInvocation();
+      return null;
+    });
+    const restore = connectTransport();
+    try {
+      await createServerReference("ext-invocation-0")();
+      expect(seen).toEqual({ id: "ext-invocation-0" });
+    } finally {
+      restore();
+    }
+    // outside a call there is no invocation
+    expect(getServerFunctionInvocation()).toBeUndefined();
   });
 
   it("metadata written by one bundle is read by the other", () => {

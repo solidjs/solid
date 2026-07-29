@@ -683,6 +683,8 @@ These APIs are new additions (not renames of 1.x APIs):
 - **`createMemo` `lazy` option** — defers initial computation until first read; also opts the memo into autodisposal when its subscriber count drops to zero. Non-lazy owned memos live for their owner's lifetime.
 - **`unobserved` callback** — fires when a signal/memo loses all subscribers (resource cleanup).
 - **`dynamic(source)` factory** — `lazy`-style factory that returns a stable component whose identity is driven by a reactive (and optionally async) source. Backs the `<Dynamic>` JSX wrapper.
+- **`clientOnly(() => import(...), { lazy? })`** (`@solidjs/web`, hoisted from SolidStart) — wraps a dynamically imported component so it renders only in the browser: the server renders `props.fallback` and never starts the import. Unlike `lazy()`, it avoids Suspense entirely and never server-renders, so it participates in no hydration asset manifest; a mount gate keeps hydration mismatch-free. `{ lazy: true }` defers the import to first render.
+- **`<HttpStatusCode code text?>` / `<HttpHeader name value append?>`** (`@solidjs/web`, hoisted from SolidStart) — declare response status/headers from JSX during SSR against the request event's `response` head. Writes snapshot the prior value and retract it on disposal (a boundary that errors/recovers un-writes rather than stomping to defaults), and both writes and retractions become no-ops once the integration marks the event `complete` (response head sent). Client builds render nothing.
 
 ## Detailed removal guide
 

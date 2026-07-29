@@ -16,7 +16,9 @@ import {
   createMemo,
   createOwner,
   createRoot,
+  createSignal,
   getOwner,
+  onSettled,
   runWithOwner,
   untrack,
   omit,
@@ -28,7 +30,8 @@ import {
   Component,
   createEffect,
   createRenderEffect,
-  type Owner
+  type Owner,
+  type Setter
 } from "solid-js";
 import type { JSX } from "./jsx.js";
 
@@ -382,4 +385,101 @@ function createElement(tagName: string, is = undefined): HTMLElement | SVGElemen
         ? document.createElementNS(Namespaces.mathml, tagName)
         : document.createElement(tagName, { is })
   ) as HTMLElement | SVGElement | MathMLElement;
+}
+
+function loadClientOnly<T>(fn: () => Promise<{ default: T }>, setComp: Setter<T | undefined>) {
+  fn().then(m => setComp(() => m.default));
+}
+
+/**
+ * Wraps a dynamically imported component so it renders only in the browser.
+ * The server renders `props.fallback` (and nothing else); the client shows
+ * the fallback until the import resolves and the tree has mounted, then
+ * swaps the real component in.
+ *
+ * Unlike `lazy()`, this avoids Suspense entirely and never server-renders
+ * the wrapped component — only the fallback — so the component participates
+ * in no hydration asset manifest and its code is guaranteed to never run on
+ * the server (safe for browser-only libraries touching `window`, DOM
+ * measurement, etc.). The mount gate keeps hydration safe: during hydration
+ * the fallback is rendered exactly as the server did, and the swap happens
+ * only after settle, so there is no mismatch.
+ *
+ * By default the import starts as soon as `clientOnly` is called (module
+ * load); pass `{ lazy: true }` to defer the import to the component's first
+ * render.
+ *
+ * @example
+ * ```tsx
+ * const Chart = clientOnly(() => import("./Chart.jsx"));
+ * // <Chart fallback={<div>Loading chart…</div>} data={data()} />
+ * ```
+ */
+export function clientOnly<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>,
+  options: { lazy?: boolean } = {}
+): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
+  const [comp, setComp] = createSignal<T>();
+  !options.lazy && loadClientOnly(fn, setComp);
+  return props => {
+    let Comp: T | undefined;
+    let m: boolean;
+    const rest = omit(props, "fallback") as ComponentProps<T>;
+    options.lazy && loadClientOnly(fn, setComp);
+    // Deliberately untracked fast path: an already-loaded module (fresh
+    // render after the import settled) skips the gate machinery entirely.
+    if ((Comp = untrack(comp)) && !sharedConfig.hydrating) return Comp(rest);
+    const [mounted, setMounted] = createSignal(!sharedConfig.hydrating);
+    onSettled(() => {
+      setMounted(true);
+    });
+    return createMemo(
+      () => (
+        (Comp = comp()),
+        (m = mounted()),
+        untrack(() => (Comp && m ? Comp(rest) : props.fallback))
+      )
+    ) as unknown as JSX.Element;
+  };
+}
+
+export interface HttpStatusCodeProps {
+  code: number;
+  text?: string;
+}
+
+/**
+ * Sets the HTTP response status (and optional status text) from JSX during
+ * SSR — declare it where the status is decided (a 404 route, an error
+ * fallback). Client build: renders nothing and touches nothing.
+ *
+ * Retraction semantics (server): the write snapshots the previous
+ * `event.response` status at write time and restores it when the component
+ * is disposed — so a boundary that errored, set a status, and then
+ * recovered retracts its write instead of stomping a status a surviving
+ * part of the tree legitimately set. Once the integration marks the event
+ * `complete` (response head sent), writes and retractions are no-ops.
+ */
+export function HttpStatusCode(_props: HttpStatusCodeProps): JSX.Element {
+  return null as unknown as JSX.Element;
+}
+
+export interface HttpHeaderProps {
+  name: string;
+  value: string;
+  append?: boolean;
+}
+
+/**
+ * Sets (or with `append`, appends) an HTTP response header from JSX during
+ * SSR. Client build: renders nothing and touches nothing.
+ *
+ * Retraction semantics (server): the header's prior value is snapshotted at
+ * write time and restored when the component is disposed (deleted if there
+ * was none) — a boundary that errors or recovers retracts its writes. Once
+ * the integration marks the event `complete` (response head sent), writes
+ * and retractions are no-ops.
+ */
+export function HttpHeader(_props: HttpHeaderProps): JSX.Element {
+  return null as unknown as JSX.Element;
 }
