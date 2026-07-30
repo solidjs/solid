@@ -202,6 +202,19 @@ The intended shape, in brief: a non-throwing `validate(schema, value)` helper ov
 
 Unprivileged patterns that need neither core nor router access — the validation helper above being the canonical example — ship as standalone packages.
 
+### What belongs in `@solidjs/web` (decision record)
+
+`@solidjs/web` deliberately owns the HTTP exchange itself. Peer ecosystems park Request/Response in a metaframework (React→Next/Remix, Vue→Nuxt, Svelte→SvelteKit); Solid 2.0 collapses that layer, so the exchange vocabulary lives in core:
+
+- `getRequestEvent` — the request coming in.
+- `ResponseStub` / `committed` — the response head as it forms.
+- `redirect` / `reload` / `respond` — the response going out.
+- Server functions — the RPC exchange.
+- Frames — the streaming exchange.
+- `httpStatus` / `httpHeader` — the render tree's authority over the response head, with scope-tied retraction.
+
+The boundary rule for future additions: **own the exchange, not the application semantics above it.** Status, headers, redirects, streaming commitment are core's. Caching policy, routing, sessions, cookie conveniences with options bags, data layers (query/action) belong to the layer above, where routers and libraries legitimately differ. Scope-tied declarations over the core response contract (`httpStatus`/`httpHeader`) are the last stop on that line, not the first step — proposals that carry policy, or that duplicate one-liners without a correctness story, should be declined.
+
 ### Compiler implications
 
 - **None, by design.** `GET` (like any in-body helper) is an ordinary runtime import; the wrapper round-trip and body-scoped DCE that make the design work are existing, verified behavior.
