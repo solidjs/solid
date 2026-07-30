@@ -1,18 +1,21 @@
 /**
  * @jsxImportSource @solidjs/web
  *
- * The JSX response components hoisted from SolidStart: `HttpStatusCode` and
- * `HttpHeader` write to the request event's `response` head during SSR and
- * retract their writes on disposal (snapshot/restore, not reset-to-default),
- * with both writes and retractions gated on `response.committed`. Also
- * covers the server half of `clientOnly` (fallback-only, import never
- * started).
+ * The response primitives hoisted from SolidStart: `httpStatus` and
+ * `httpHeader` declare against the request event's `response` head during
+ * SSR for the lifetime of the calling reactive scope, and retract their
+ * writes on disposal (snapshot/restore, not reset-to-default), with both
+ * writes and retractions gated on `response.committed`. `HttpStatusCode`
+ * and `HttpHeader` are their JSX sugar. Also covers the server half of
+ * `clientOnly` (fallback-only, import never started).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import {
   HttpHeader,
   HttpStatusCode,
+  httpHeader,
+  httpStatus,
   clientOnly,
   renderToString,
   renderToStream,
@@ -64,16 +67,15 @@ function renderComplete(code: () => any): Promise<string> {
   });
 }
 
-describe("HttpStatusCode (server)", () => {
-  test("sets status and statusText on the event's response during SSR", () => {
+describe("httpStatus (server primitive)", () => {
+  test("declares status and statusText on the event's response during SSR", () => {
     const event = makeEvent();
+    const Page = () => {
+      httpStatus(404, "Not Found");
+      return <div>not found</div>;
+    };
     storage.run(event, () => {
-      renderToString(() => (
-        <div>
-          <HttpStatusCode code={404} text="Not Found" />
-          not found
-        </div>
-      ));
+      renderToString(() => <Page />);
     });
     // Read synchronously after render — renderToString defers its dispose to
     // a macrotask, so the write is still in place for the integration.
@@ -82,13 +84,13 @@ describe("HttpStatusCode (server)", () => {
   });
 
   test("restores the snapshotted status on disposal, not a hardcoded 200", () => {
-    // A 404 page whose inner boundary sets (then retracts) a different
+    // A 404 page whose inner boundary declares (then retracts) a different
     // status must come back to 404 — the SolidStart reference stomped this
     // back to 200.
     const event = makeEvent({ status: 404, statusText: "Not Found" });
     storage.run(event, () => {
       createRoot(dispose => {
-        HttpStatusCode({ code: 500, text: "Server Error" });
+        httpStatus(500, "Server Error");
         expect(event.response!.status).toBe(500);
         expect(event.response!.statusText).toBe("Server Error");
         dispose();
@@ -98,11 +100,43 @@ describe("HttpStatusCode (server)", () => {
     expect(event.response!.statusText).toBe("Not Found");
   });
 
+  test("declares and retracts from a conditional (if-branch) in a component body", () => {
+    // The primitive form's point: no JSX slot needed — a bare call behind an
+    // `if` in the component body declares for the component's scope and
+    // un-declares when that scope is disposed.
+    const Page = (props: { missing: boolean }) => {
+      if (props.missing) httpStatus(404, "Not Found");
+      return "page";
+    };
+
+    const skipped = makeEvent();
+    storage.run(skipped, () => {
+      createRoot(dispose => {
+        Page({ missing: false });
+        expect(skipped.response!.status).toBe(200);
+        dispose();
+      });
+    });
+    expect(skipped.response!.status).toBe(200);
+
+    const taken = makeEvent();
+    storage.run(taken, () => {
+      createRoot(dispose => {
+        Page({ missing: true });
+        expect(taken.response!.status).toBe(404);
+        expect(taken.response!.statusText).toBe("Not Found");
+        dispose();
+      });
+    });
+    expect(taken.response!.status).toBe(200);
+    expect(taken.response!.statusText).toBeUndefined();
+  });
+
   test("skips the restore once the response head is committed (head sent)", () => {
     const event = makeEvent({ status: 200 });
     storage.run(event, () => {
       createRoot(dispose => {
-        HttpStatusCode({ code: 404 });
+        httpStatus(404);
         // The integration sent the head mid-render.
         event.response!.committed = true;
         dispose();
@@ -115,50 +149,45 @@ describe("HttpStatusCode (server)", () => {
     const event = makeEvent({ status: 200, committed: true });
     storage.run(event, () => {
       createRoot(dispose => {
-        HttpStatusCode({ code: 404 });
+        httpStatus(404);
         dispose();
       });
     });
     expect(event.response!.status).toBe(200);
   });
 
-  test("renders nothing and survives an event without a response head", () => {
+  test("is a silent no-op on an event without a response head", () => {
     const event = { request: new Request("http://localhost/"), locals: {} } as HttpEvent;
     let html = "";
     storage.run(event, () => {
-      html = renderToString(() => (
-        <div>
-          <HttpStatusCode code={404} />
-          body
-        </div>
-      ));
+      const Page = () => {
+        httpStatus(404);
+        return <div>body</div>;
+      };
+      html = renderToString(() => <Page />);
     });
     expect(html).toContain("body");
     expect(html).not.toContain("404");
   });
 
-  test("streaming: status set in the page survives the final dispose once committed", async () => {
+  test("streaming: status declared in the page survives the final dispose once committed", async () => {
     const event = makeEvent();
+    const Page = () => {
+      httpStatus(404);
+      return <div>gone</div>;
+    };
     const html = await storage.run(
       event,
       () =>
         new Promise<string>(resolve => {
           const chunks: string[] = [];
-          renderToStream(
-            () => (
-              <div>
-                <HttpStatusCode code={404} />
-                gone
-              </div>
-            ),
-            {
-              onCompleteShell() {
-                // The integration sends the head when the shell flushes.
-                expect(event.response!.status).toBe(404);
-                event.response!.committed = true;
-              }
+          renderToStream(() => <Page />, {
+            onCompleteShell() {
+              // The integration sends the head when the shell flushes.
+              expect(event.response!.status).toBe(404);
+              event.response!.committed = true;
             }
-          ).pipe({
+          }).pipe({
             write(v: string) {
               chunks.push(v);
             },
@@ -175,16 +204,15 @@ describe("HttpStatusCode (server)", () => {
   });
 });
 
-describe("HttpHeader (server)", () => {
-  test("sets a header on the event's response during SSR", () => {
+describe("httpHeader (server primitive)", () => {
+  test("declares a header on the event's response during SSR", () => {
     const event = makeEvent();
+    const Page = () => {
+      httpHeader("cache-control", "no-store");
+      return <div>body</div>;
+    };
     storage.run(event, () => {
-      renderToString(() => (
-        <div>
-          <HttpHeader name="cache-control" value="no-store" />
-          body
-        </div>
-      ));
+      renderToString(() => <Page />);
     });
     expect(event.response!.headers.get("cache-control")).toBe("no-store");
   });
@@ -192,11 +220,9 @@ describe("HttpHeader (server)", () => {
   test("append adds to an existing value instead of replacing it", () => {
     const event = makeEvent({ headers: { link: "</a.css>; rel=preload" } });
     storage.run(event, () => {
-      renderToString(() => (
-        <div>
-          <HttpHeader name="link" value="</b.css>; rel=preload" append />
-        </div>
-      ));
+      createRoot(() => {
+        httpHeader("link", "</b.css>; rel=preload", { append: true });
+      });
     });
     expect(event.response!.headers.get("link")).toBe(
       "</a.css>; rel=preload, </b.css>; rel=preload"
@@ -207,7 +233,7 @@ describe("HttpHeader (server)", () => {
     const event = makeEvent({ headers: { "x-frame-options": "DENY" } });
     storage.run(event, () => {
       createRoot(dispose => {
-        HttpHeader({ name: "x-frame-options", value: "SAMEORIGIN" });
+        httpHeader("x-frame-options", "SAMEORIGIN");
         expect(event.response!.headers.get("x-frame-options")).toBe("SAMEORIGIN");
         dispose();
       });
@@ -219,7 +245,7 @@ describe("HttpHeader (server)", () => {
     const event = makeEvent();
     storage.run(event, () => {
       createRoot(dispose => {
-        HttpHeader({ name: "x-custom", value: "yes" });
+        httpHeader("x-custom", "yes");
         expect(event.response!.headers.get("x-custom")).toBe("yes");
         dispose();
       });
@@ -234,7 +260,7 @@ describe("HttpHeader (server)", () => {
     const event = makeEvent({ headers: { vary: "Accept" } });
     storage.run(event, () => {
       createRoot(dispose => {
-        HttpHeader({ name: "vary", value: "Accept-Language", append: true });
+        httpHeader("vary", "Accept-Language", { append: true });
         expect(event.response!.headers.get("vary")).toBe("Accept, Accept-Language");
         dispose();
       });
@@ -246,7 +272,7 @@ describe("HttpHeader (server)", () => {
     const committed = makeEvent({ headers: { "x-a": "1" }, committed: true });
     storage.run(committed, () => {
       createRoot(dispose => {
-        HttpHeader({ name: "x-a", value: "2" });
+        httpHeader("x-a", "2");
         dispose();
       });
     });
@@ -255,12 +281,68 @@ describe("HttpHeader (server)", () => {
     const midway = makeEvent();
     storage.run(midway, () => {
       createRoot(dispose => {
-        HttpHeader({ name: "x-b", value: "kept" });
+        httpHeader("x-b", "kept");
         midway.response!.committed = true;
         dispose();
       });
     });
     expect(midway.response!.headers.get("x-b")).toBe("kept");
+  });
+});
+
+describe("HttpStatusCode / HttpHeader (JSX sugar over the primitives)", () => {
+  test("HttpStatusCode declares status and statusText from JSX during SSR", () => {
+    const event = makeEvent();
+    storage.run(event, () => {
+      renderToString(() => (
+        <div>
+          <HttpStatusCode code={404} text="Not Found" />
+          not found
+        </div>
+      ));
+    });
+    expect(event.response!.status).toBe(404);
+    expect(event.response!.statusText).toBe("Not Found");
+  });
+
+  test("HttpStatusCode retracts on disposal like the primitive", () => {
+    const event = makeEvent({ status: 404, statusText: "Not Found" });
+    storage.run(event, () => {
+      createRoot(dispose => {
+        HttpStatusCode({ code: 500, text: "Server Error" });
+        expect(event.response!.status).toBe(500);
+        dispose();
+      });
+    });
+    expect(event.response!.status).toBe(404);
+    expect(event.response!.statusText).toBe("Not Found");
+  });
+
+  test("HttpHeader declares a header from JSX during SSR", () => {
+    const event = makeEvent();
+    storage.run(event, () => {
+      renderToString(() => (
+        <div>
+          <HttpHeader name="cache-control" value="no-store" />
+          body
+        </div>
+      ));
+    });
+    expect(event.response!.headers.get("cache-control")).toBe("no-store");
+  });
+
+  test("HttpHeader forwards append and retracts on disposal", () => {
+    const event = makeEvent({ headers: { link: "</a.css>; rel=preload" } });
+    storage.run(event, () => {
+      createRoot(dispose => {
+        HttpHeader({ name: "link", value: "</b.css>; rel=preload", append: true });
+        expect(event.response!.headers.get("link")).toBe(
+          "</a.css>; rel=preload, </b.css>; rel=preload"
+        );
+        dispose();
+      });
+    });
+    expect(event.response!.headers.get("link")).toBe("</a.css>; rel=preload");
   });
 });
 

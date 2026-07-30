@@ -131,39 +131,97 @@ export function clientOnly<T extends Component<any>>(
   return props => props.fallback as JSX.Element;
 }
 
-export interface HttpStatusCodeProps {
-  code: number;
-  text?: string;
-}
-
 /**
- * Sets the HTTP response status (and optional status text) on the request
- * event's `response` head during SSR.
+ * Declares the HTTP response status (and optional status text) for the
+ * lifetime of the current reactive scope during SSR, writing to the request
+ * event's `response` head (core's `ResponseStub`, exposed by the
+ * integration).
+ *
+ * Naming note — this is a scope-tied *declaration*, not a mutation: "while
+ * this reactive scope is live, the response has this status." Solid reserves
+ * `set*` verbs for event-time mutation; `httpStatus` is called bare in a
+ * component or reactive-scope body (like `createSignal`/`onCleanup`) and
+ * un-declares on scope disposal.
  *
  * Retraction semantics: the previous `status`/`statusText` are snapshotted
- * at write time and restored when the component is disposed — a boundary
- * that errored, set a status, and then recovered retracts its write instead
- * of stomping a status a surviving part of the tree legitimately set (e.g.
- * a 404 page whose inner boundary recovers stays a 404). Both the write and
- * the cleanup restore are no-ops once the integration marks the response
- * head `committed` (head derived/sent — status can no longer change).
+ * at write time and restored when the owning scope is disposed — a boundary
+ * that errored, declared a status, and then recovered retracts its write
+ * instead of stomping a status a surviving part of the tree legitimately set
+ * (e.g. a 404 page whose inner boundary recovers stays a 404). Both the
+ * write and the cleanup restore are no-ops once the integration marks the
+ * response head `committed` (head derived/sent — status can no longer
+ * change). On the client this is a no-op.
+ *
+ * `<HttpStatusCode>` is the JSX sugar over this primitive.
  */
-export function HttpStatusCode(props: HttpStatusCodeProps): JSX.Element {
+export function httpStatus(code: number, text?: string): void {
   // `response` is an integration-augmented field (see core's ResponseStub);
-  // read it structurally so the components work against the bare contract.
+  // read it structurally so the primitives work against the bare contract.
   const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
   const response = event && event.response;
   if (response && !response.committed) {
     const prevStatus = response.status;
     const prevStatusText = response.statusText;
-    response.status = props.code;
-    response.statusText = props.text;
+    response.status = code;
+    response.statusText = text;
     onCleanup(() => {
       if (response.committed) return;
       response.status = prevStatus;
       response.statusText = prevStatusText;
     });
   }
+}
+
+/**
+ * Declares an HTTP response header (or with `append`, appends to one) for
+ * the lifetime of the current reactive scope during SSR, writing to the
+ * request event's `response` head (core's `ResponseStub`, exposed by the
+ * integration).
+ *
+ * Naming note — this is a scope-tied *declaration*, not a mutation: "while
+ * this reactive scope is live, the response has this header." Solid reserves
+ * `set*` verbs for event-time mutation; `httpHeader` is called bare in a
+ * component or reactive-scope body (like `createSignal`/`onCleanup`) and
+ * un-declares on scope disposal.
+ *
+ * Retraction semantics: the header's prior value is snapshotted at write
+ * time and restored when the owning scope is disposed — deleted if there
+ * was none — so a boundary that errors or recovers retracts its writes
+ * without disturbing values other writers contributed before it. Both the
+ * write and the cleanup restore are no-ops once the integration marks the
+ * response head `committed` (head derived/sent — headers can no longer
+ * change). On the client this is a no-op.
+ *
+ * `<HttpHeader>` is the JSX sugar over this primitive.
+ */
+export function httpHeader(name: string, value: string, options?: { append?: boolean }): void {
+  const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
+  const response = event && event.response;
+  if (response && !response.committed) {
+    const headers = response.headers;
+    const prev = headers.get(name);
+    if (options && options.append) headers.append(name, value);
+    else headers.set(name, value);
+    onCleanup(() => {
+      if (response.committed) return;
+      if (prev === null) headers.delete(name);
+      else headers.set(name, prev);
+    });
+  }
+}
+
+export interface HttpStatusCodeProps {
+  code: number;
+  text?: string;
+}
+
+/**
+ * JSX sugar over the `httpStatus` primitive: declares the response status
+ * for the lifetime of the surrounding scope during SSR. See `httpStatus`
+ * for the full semantics (snapshot/restore retraction, `committed` guard).
+ */
+export function HttpStatusCode(props: HttpStatusCodeProps): JSX.Element {
+  httpStatus(props.code, props.text);
   return null as unknown as JSX.Element;
 }
 
@@ -174,29 +232,11 @@ export interface HttpHeaderProps {
 }
 
 /**
- * Sets (or with `append`, appends) an HTTP response header on the request
- * event's `response` head during SSR.
- *
- * Retraction semantics: the header's prior value is snapshotted at write
- * time and restored when the component is disposed — deleted if there was
- * none — so a boundary that errors or recovers retracts its writes without
- * disturbing values other writers contributed before it. Both the write and
- * the cleanup restore are no-ops once the integration marks the response
- * head `committed` (head derived/sent — headers can no longer change).
+ * JSX sugar over the `httpHeader` primitive: declares a response header for
+ * the lifetime of the surrounding scope during SSR. See `httpHeader` for
+ * the full semantics (snapshot/restore retraction, `committed` guard).
  */
 export function HttpHeader(props: HttpHeaderProps): JSX.Element {
-  const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
-  const response = event && event.response;
-  if (response && !response.committed) {
-    const headers = response.headers;
-    const prev = headers.get(props.name);
-    if (props.append) headers.append(props.name, props.value);
-    else headers.set(props.name, props.value);
-    onCleanup(() => {
-      if (response.committed) return;
-      if (prev === null) headers.delete(props.name);
-      else headers.set(props.name, prev);
-    });
-  }
+  httpHeader(props.name, props.value, { append: props.append });
   return null as unknown as JSX.Element;
 }

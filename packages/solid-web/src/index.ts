@@ -443,23 +443,63 @@ export function clientOnly<T extends Component<any>>(
   };
 }
 
+/**
+ * Declares the HTTP response status (and optional status text) for the
+ * lifetime of the current reactive scope during SSR — call it bare in a
+ * component or reactive-scope body where the status is decided (a 404
+ * route, an error fallback). Client build: a no-op — the response head was
+ * sent long ago.
+ *
+ * Naming note — this is a scope-tied *declaration*, not a mutation: "while
+ * this reactive scope is live, the response has this status." Solid
+ * reserves `set*` verbs for event-time mutation; like
+ * `createSignal`/`onCleanup` this is called in scope bodies and un-declares
+ * on scope disposal.
+ *
+ * Retraction semantics (server): the write snapshots the previous
+ * `event.response` status at write time and restores it when the owning
+ * scope is disposed — so a boundary that errored, declared a status, and
+ * then recovered retracts its write instead of stomping a status a
+ * surviving part of the tree legitimately set. Once the integration marks
+ * the response head `committed` (head derived/sent), writes and
+ * retractions are no-ops.
+ *
+ * `<HttpStatusCode>` is the JSX sugar over this primitive.
+ */
+export function httpStatus(_code: number, _text?: string): void {}
+
+/**
+ * Declares an HTTP response header (or with `append`, appends to one) for
+ * the lifetime of the current reactive scope during SSR — call it bare in a
+ * component or reactive-scope body. Client build: a no-op — the response
+ * head was sent long ago.
+ *
+ * Naming note — this is a scope-tied *declaration*, not a mutation: "while
+ * this reactive scope is live, the response has this header." Solid
+ * reserves `set*` verbs for event-time mutation; like
+ * `createSignal`/`onCleanup` this is called in scope bodies and un-declares
+ * on scope disposal.
+ *
+ * Retraction semantics (server): the header's prior value is snapshotted at
+ * write time and restored when the owning scope is disposed (deleted if
+ * there was none) — a boundary that errors or recovers retracts its writes.
+ * Once the integration marks the response head `committed` (head
+ * derived/sent), writes and retractions are no-ops.
+ *
+ * `<HttpHeader>` is the JSX sugar over this primitive.
+ */
+export function httpHeader(_name: string, _value: string, _options?: { append?: boolean }): void {}
+
 export interface HttpStatusCodeProps {
   code: number;
   text?: string;
 }
 
 /**
- * Sets the HTTP response status (and optional status text) from JSX during
- * SSR — declare it where the status is decided (a 404 route, an error
- * fallback). Client build: renders nothing and touches nothing.
- *
- * Retraction semantics (server): the write snapshots the previous
- * `event.response` status at write time and restores it when the component
- * is disposed — so a boundary that errored, set a status, and then
- * recovered retracts its write instead of stomping a status a surviving
- * part of the tree legitimately set. Once the integration marks the
- * response head `committed` (head derived/sent), writes and retractions
- * are no-ops.
+ * JSX sugar over the `httpStatus` primitive: declares the response status
+ * for the lifetime of the surrounding scope during SSR. Client build:
+ * renders nothing and touches nothing. See `httpStatus` for the full
+ * semantics (snapshot/restore retraction, `committed` guard).
  */
 export function HttpStatusCode(_props: HttpStatusCodeProps): JSX.Element {
   return null as unknown as JSX.Element;
@@ -472,14 +512,10 @@ export interface HttpHeaderProps {
 }
 
 /**
- * Sets (or with `append`, appends) an HTTP response header from JSX during
- * SSR. Client build: renders nothing and touches nothing.
- *
- * Retraction semantics (server): the header's prior value is snapshotted at
- * write time and restored when the component is disposed (deleted if there
- * was none) — a boundary that errors or recovers retracts its writes. Once
- * the integration marks the response head `committed` (head derived/sent),
- * writes and retractions are no-ops.
+ * JSX sugar over the `httpHeader` primitive: declares a response header for
+ * the lifetime of the surrounding scope during SSR. Client build: renders
+ * nothing and touches nothing. See `httpHeader` for the full semantics
+ * (snapshot/restore retraction, `committed` guard).
  */
 export function HttpHeader(_props: HttpHeaderProps): JSX.Element {
   return null as unknown as JSX.Element;
