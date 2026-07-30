@@ -55,6 +55,8 @@ const DOCUMENT_BOOTSTRAP = generateHydrationScript() + `<script>${SERVER_COMPONE
 renderToStream(() => <App />, { plugins: [ServerComponentPlugin] }).pipe(writable);
 ```
 
+(`renderToStream`'s result offers `pipe`, `pipeTo`, or a `Response`-body-ready `readable` — exactly one per render; see [12 — SSR and the HTTP exchange](12-ssr-http.md).)
+
 With this in place the initial document renders server components **inline** — the page itself is the payload. Boot makes zero server-function requests: boundaries the page carries are **adopted**, client wrappers **claim** their server-rendered DOM by hydration key, and each component’s hydration data is a one-line reference instead of a serialized tree. Without step 3, the first render client-side fetches each boundary as a stream — everything still works, you just give up the zero-request boot.
 
 A complete working setup (no Vite, no metaframework) is `examples/hackernews`; its SSR-SPA twin `examples/hackernews-spa` is the measured baseline every published number compares against.
