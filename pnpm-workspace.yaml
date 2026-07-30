@@ -18,3 +18,7 @@ overrides:
   '@solidjs/signals': workspace:*
   solid-js: workspace:*
   '@solidjs/web': workspace:*
+  # TEMPORARY: local link while the plugin's single-flight handler wiring
+  # (frameTransformFlightResult) and the isRunnableEnvironment fix are
+  # unreleased; drop once the release after 3.0.0-next.20 is out.
+  'vite-plugin-solid': link:../vite-plugin-solid
