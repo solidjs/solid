@@ -33,17 +33,17 @@ importers:
         specifier: ^5.4.0
         version: 5.4.0(tinybench@2.9.0)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.25.12)(terser@5.49.0))(vitest@4.1.6)
       '@dom-expressions/babel-plugin-jsx':
-        specifier: 0.50.0-next.33
-        version: 0.50.0-next.33(@babel/core@7.29.0)
+        specifier: 0.50.0-next.34
+        version: 0.50.0-next.34(@babel/core@7.29.0)
       '@dom-expressions/hyperscript':
-        specifier: 0.50.0-next.33
-        version: 0.50.0-next.33
+        specifier: 0.50.0-next.34
+        version: 0.50.0-next.34
       '@dom-expressions/runtime':
-        specifier: 0.50.0-next.33
-        version: 0.50.0-next.33(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)
+        specifier: 0.50.0-next.34
+        version: 0.50.0-next.34(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)
       '@dom-expressions/tagged-jsx':
-        specifier: 0.50.0-next.33
-        version: 0.50.0-next.33
+        specifier: 0.50.0-next.34
+        version: 0.50.0-next.34
       '@rollup/plugin-babel':
         specifier: ^6.0.3
         version: 6.0.3(@babel/core@7.29.0)(@types/babel__core@7.20.5)(rollup@4.59.0)
@@ -260,8 +260,8 @@ importers:
         specifier: ^7.0.0
         version: 7.29.0
       '@dom-expressions/babel-plugin-jsx':
-        specifier: 0.50.0-next.33
-        version: 0.50.0-next.33(@babel/core@7.29.0)
+        specifier: 0.50.0-next.34
+        version: 0.50.0-next.34(@babel/core@7.29.0)
       solid-js:
         specifier: workspace:*
         version: link:../solid
@@ -1040,8 +1040,8 @@ packages:
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
 
-  '@dom-expressions/babel-plugin-jsx@0.50.0-next.33':
-    resolution: {integrity: sha512-LihNVZsuGAruNaldHoa2JAGVY6s/a8Bb+p2vLPb8l6UX5r5DXkaMoMmfF5qdnupxKMqMcrEwNuVl9CRfeeVbwg==}
+  '@dom-expressions/babel-plugin-jsx@0.50.0-next.34':
+    resolution: {integrity: sha512-mcH1h/FgNkf9jatVCuU/tE9PUGRxQfT3862GXh+IbCcH9PKEbxQKoA3GsKpixsOmLVkbcW2auJxKIV8u8WacOw==}
     peerDependencies:
       '@babel/core': ^7.20.12
 
@@ -1113,19 +1113,19 @@ packages:
   '@dom-expressions/compiler@0.50.0-next.33':
     resolution: {integrity: sha512-xqos+uZd9ztAUAE+U9fv4xSR5oq/MHSc2balhXnsz5/P88MbfKHKOAyhtjBu4fKlxcxcXAi3rMbeMSvXP8P2hQ==}
 
-  '@dom-expressions/hyperscript@0.50.0-next.33':
-    resolution: {integrity: sha512-fqBAhBqeRrfAMFoVXaEW1dutkvfr7i5jhnQMcKsTRcg2IbWmeLK1hA4jVJrJhSNBhEYQiAJgE+x1PLlDnrIstA==}
+  '@dom-expressions/hyperscript@0.50.0-next.34':
+    resolution: {integrity: sha512-lCVvNmNC0zGORlcKojtPodDEeFIMZwZBa6ClNXjDXSBFea0uojk2CXRF3LQF0untrgwanoIhBhUykd7QF34gYg==}
 
-  '@dom-expressions/runtime@0.50.0-next.33':
-    resolution: {integrity: sha512-PQo3tcdinAxowjFZoGTb4Dk69MO22+VkbK5+4Peslp8uhQUH6Gr+1c2gNxH+R7xRvye7Fz+5Q3s1MmvUe9Bwsg==}
+  '@dom-expressions/runtime@0.50.0-next.34':
+    resolution: {integrity: sha512-0SPYzGJwyKbXHyCbMqutnQRc4oSIwO/JwN8Qqh+j4Obt21Uq+MFlVckJPa6R9sgRxnuri5lI80YEiFUjABWmdg==}
     hasBin: true
     peerDependencies:
       csstype: ^3.0
       seroval: ~1.5.4
       seroval-plugins: ~1.5.4
 
-  '@dom-expressions/tagged-jsx@0.50.0-next.33':
-    resolution: {integrity: sha512-gtCebTEXPLTO9fDM6aE8Kgr9XOqthkCoVw+E3S1FITdl58p+e8CGGGtdUr/hY0tc/PGWP1HgNJTlfqUHPLa2Ig==}
+  '@dom-expressions/tagged-jsx@0.50.0-next.34':
+    resolution: {integrity: sha512-CWXVgZ3kc63Kbb9ovU4Xpgf++0DMDkz2rOGcCDP75rNFb9FekJxA+NgqFBbFNVvxiC+Bg1v7dqDH72XcAJEODQ==}
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -4648,7 +4648,7 @@ snapshots:
 
   '@csstools/css-tokenizer@3.0.4': {}
 
-  '@dom-expressions/babel-plugin-jsx@0.50.0-next.33(@babel/core@7.29.0)':
+  '@dom-expressions/babel-plugin-jsx@0.50.0-next.34(@babel/core@7.29.0)':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/helper-module-imports': 7.18.6
@@ -4720,16 +4720,16 @@ snapshots:
       '@dom-expressions/compiler-wasm32-wasi': 0.50.0-next.33
       '@dom-expressions/compiler-win32-x64-msvc': 0.50.0-next.33
 
-  '@dom-expressions/hyperscript@0.50.0-next.33': {}
+  '@dom-expressions/hyperscript@0.50.0-next.34': {}
 
-  '@dom-expressions/runtime@0.50.0-next.33(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)':
+  '@dom-expressions/runtime@0.50.0-next.34(csstype@3.2.3)(seroval-plugins@1.5.5(seroval@1.5.5))(seroval@1.5.5)':
     dependencies:
       babel-plugin-transform-rename-import: 2.3.0
       csstype: 3.2.3
       seroval: 1.5.5
       seroval-plugins: 1.5.5(seroval@1.5.5)
 
-  '@dom-expressions/tagged-jsx@0.50.0-next.33': {}
+  '@dom-expressions/tagged-jsx@0.50.0-next.34': {}
 
   '@emnapi/core@1.11.1':
     dependencies:
