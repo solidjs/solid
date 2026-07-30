@@ -1,0 +1,27 @@
+{
+  "name": "notes-example",
+  "description": "The React server-components notes demo as Solid Server Components with single-flight mutations: list and note markup render on the server and stream as HTML, and a save/delete answers with the redirect, the invalidated regions, and the data in one round trip",
+  "version": "0.0.1-beta.1",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solidjs/router": "2.0.0-next.12",
+    "@solidjs/web": "workspace:*",
+    "date-fns": "^3.6.0",
+    "marked": "^12.0.2",
+    "solid-js": "workspace:*",
+    "unstorage": "^1.17.5"
+  },
+  "devDependencies": {
+    "vite": "^8.0.0",
+    "vite-plugin-solid": "3.0.0-next.18"
+  }
+}

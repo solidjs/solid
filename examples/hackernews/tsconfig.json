@@ -10,6 +10,7 @@
     "allowJs": true,
     "strict": true,
     "noEmit": true,
+    "skipLibCheck": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
     "paths": {

@@ -12,18 +12,25 @@ import { createRouter, defineRoute } from "@solidjs/router";
 import { Loading } from "solid-js";
 import { dynamic } from "@solidjs/web";
 import { navView } from "~/lib/views";
-import Stories from "~/routes/stories";
-import Story from "~/routes/story";
-import User from "~/routes/user";
+import Stories, { preload as preloadStories } from "~/routes/stories";
+import Story, { preload as preloadStory } from "~/routes/story";
+import User, { preload as preloadUser } from "~/routes/user";
 import "./app.css";
 
-// `defineRoute` types each route's component from its own `path`, so the `:id`
-// routes read `params.id` as `string` rather than `string | undefined`.
+// `defineRoute` types each route's component and preload from its own `path`,
+// so the `:id` routes read `params.id` as `string` rather than
+// `string | undefined`. The preloads make link hover/focus fetch the route's
+// server component ahead of the click — same wiring as the SPA twin, and the
+// preloaded boundary stays isolated until navigation actually reads it.
 const Router = createRouter({
   routes: [
-    defineRoute({ path: ["/", "/top", "/new", "/show", "/ask", "/job"], component: Stories }),
-    defineRoute({ path: "/stories/:id", component: Story }),
-    defineRoute({ path: "/users/:id", component: User })
+    defineRoute({
+      path: ["/", "/top", "/new", "/show", "/ask", "/job"],
+      component: Stories,
+      preload: preloadStories
+    }),
+    defineRoute({ path: "/stories/:id", component: Story, preload: preloadStory }),
+    defineRoute({ path: "/users/:id", component: User, preload: preloadUser })
   ]
 });
 
