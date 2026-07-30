@@ -1,0 +1,21 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./types",
+    "baseUrl": "./src",
+    "rootDir": "./src",
+    "types": ["node"],
+    "paths": {
+      // Resolve against built declarations (types:web, types:copy-server-functions
+      // and types:web-storage run earlier in the pipeline): d.ts inputs are exempt
+      // from rootDir, so the emit lands at data/types/*.d.ts — the paths the
+      // nested package.json advertises. See storage/tsconfig.build.json for the
+      // fuller rationale.
+      "@solidjs/web": ["../../types/index.d.ts"],
+      "@solidjs/web/server-functions": ["../../types/server-functions/client.d.ts"],
+      "@solidjs/web/server-functions/server": ["../../types/server-functions/server.d.ts"],
+      "@solidjs/web/storage": ["../../storage/types/index.d.ts"]
+    }
+  },
+  "include": ["./src"]
+}

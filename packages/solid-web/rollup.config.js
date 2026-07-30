@@ -139,6 +139,43 @@ export default [
     external: ["seroval", "seroval-plugins/web"],
     plugins
   },
+  // @solidjs/web/data — router-agnostic query()/action() and the single-flight
+  // query channel. The isomorphic entry keeps solid-js and the sibling
+  // subpaths external (each environment's bundler resolves them per its
+  // conditions); the server entry additionally reaches for storage
+  // (node:async_hooks), which is why it is a separate subpath.
+  {
+    input: "data/src/index.ts",
+    output: [
+      {
+        file: "data/dist/data.cjs",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "data/dist/data.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js", "@solidjs/web", "@solidjs/web/server-functions"],
+    plugins
+  },
+  {
+    input: "data/src/server.ts",
+    output: [
+      {
+        file: "data/dist/server.cjs",
+        format: "cjs",
+        exports: "auto"
+      },
+      {
+        file: "data/dist/server.js",
+        format: "es"
+      }
+    ],
+    external: ["solid-js", "@solidjs/web", "@solidjs/web/server-functions", "@solidjs/web/storage"],
+    plugins
+  },
   {
     input: "server-functions/src/client.ts",
     output: [

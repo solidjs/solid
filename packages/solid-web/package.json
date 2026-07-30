@@ -36,7 +36,11 @@
     "server-functions/dist",
     "server-functions/package.json",
     "frames/dist",
-    "frames/package.json"
+    "frames/package.json",
+    "data/dist",
+    "data/types",
+    "data/types-cjs",
+    "data/package.json"
   ],
   "exports": {
     ".": {
@@ -147,6 +151,26 @@
       "require": {
         "types": "./serialization/types-cjs/index.d.cts",
         "default": "./serialization/dist/serialization.cjs"
+      }
+    },
+    "./data": {
+      "import": {
+        "types": "./data/types/index.d.ts",
+        "default": "./data/dist/data.js"
+      },
+      "require": {
+        "types": "./data/types-cjs/index.d.cts",
+        "default": "./data/dist/data.cjs"
+      }
+    },
+    "./data/server": {
+      "import": {
+        "types": "./data/types/server.d.ts",
+        "default": "./data/dist/server.js"
+      },
+      "require": {
+        "types": "./data/types-cjs/server.d.cts",
+        "default": "./data/dist/server.cjs"
       }
     },
     "./server-functions": {
@@ -316,17 +340,18 @@
     "build:clean": "rimraf dist/",
     "build:js": "rollup -c",
     "link": "symlink-dir . node_modules/@solidjs/web",
-    "types": "npm-run-all -nl types:clean types:copy-jsx types:web types:copy-web types:web-storage types:copy-server-functions types:web-frames types:copy-serialization types:copy-frames types:cjs",
-    "types:clean": "rimraf types/ types-cjs/ storage/types/ storage/types-cjs/ serialization/types/ serialization/types-cjs/ frames/types/",
+    "types": "npm-run-all -nl types:clean types:copy-jsx types:web types:copy-web types:web-storage types:copy-server-functions types:web-data types:web-frames types:copy-serialization types:copy-frames types:cjs",
+    "types:clean": "rimraf types/ types-cjs/ storage/types/ storage/types-cjs/ data/types/ data/types-cjs/ serialization/types/ serialization/types-cjs/ frames/types/",
     "types:copy-jsx": "ncp ../../node_modules/@dom-expressions/runtime/src/jsx.d.ts ./src/jsx.d.ts && ncp ../../node_modules/@dom-expressions/runtime/src/jsx-properties.d.ts ./src/jsx-properties.d.ts && dom-expressions-jsx-types --input ./src/jsx.d.ts --element \"SolidElement | Node | ArrayElement\" --import 'import type { Element as SolidElement } from \"solid-js\";'",
     "types:web": "tsc --project ./tsconfig.build.json",
     "types:copy-web": "ncp ../../node_modules/@dom-expressions/runtime/src/client.d.ts ./types/client.d.ts && ncp ../../node_modules/@dom-expressions/runtime/src/server.d.ts ./types/server.d.ts && ncp ../../node_modules/@dom-expressions/runtime/src/serializer.d.ts ./types/serializer.d.ts && ncp ../../node_modules/@dom-expressions/runtime/src/response.d.ts ./types/response.d.ts && ncp ./src/jsx.d.ts ./types/jsx.d.ts && ncp ./src/jsx-properties.d.ts ./types/jsx-properties.d.ts",
     "types:web-storage": "tsc --project ./storage/tsconfig.build.json",
+    "types:web-data": "tsc --project ./data/tsconfig.build.json",
     "types:web-frames": "tsc --project ./frames/tsconfig.build.json",
     "types:copy-serialization": "node -e \"fs.mkdirSync('./serialization/types', { recursive: true }); fs.copyFileSync('../../node_modules/@dom-expressions/runtime/src/serializer.d.ts', './serialization/types/index.d.ts');\"",
     "types:copy-server-functions": "node -e \"fs.mkdirSync('./types/server-functions', { recursive: true }); for (const f of ['shared', 'flash', 'client', 'server']) fs.copyFileSync('../../node_modules/@dom-expressions/runtime/src/server-functions/' + f + '.d.ts', './types/server-functions/' + f + '.d.ts');\"",
     "types:copy-frames": "node -e \"fs.mkdirSync('./types/frames', { recursive: true }); for (const f of ['frame-client', 'frame-transport', 'frame-sink', 'serializer']) fs.copyFileSync('../../node_modules/@dom-expressions/runtime/src/' + f + '.d.ts', './types/frames/' + f + '.d.ts'); for (const f of ['client', 'server']) fs.writeFileSync('./types/frames/' + f + '.d.ts', fs.readFileSync('./frames/types/' + f + '.d.ts', 'utf8').replaceAll('@dom-expressions/runtime/src/', './'));\"",
-    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./storage/types ./storage/types-cjs ./serialization/types ./serialization/types-cjs",
+    "types:cjs": "node ../../scripts/sync-dual-types.mjs ./types ./types-cjs ./storage/types ./storage/types-cjs ./serialization/types ./serialization/types-cjs ./data/types ./data/types-cjs",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",
     "test:server": "vitest run --config vite.config.server.mjs",
     "coverage": "vitest run --coverage",

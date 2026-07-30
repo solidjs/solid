@@ -1,0 +1,30 @@
+{
+  "name": "@solidjs/web/data",
+  "main": "./dist/data.cjs",
+  "module": "./dist/data.js",
+  "types": "./types/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./types/index.d.ts",
+        "default": "./dist/data.js"
+      },
+      "require": {
+        "types": "./types-cjs/index.d.cts",
+        "default": "./dist/data.cjs"
+      }
+    },
+    "./server": {
+      "import": {
+        "types": "./types/server.d.ts",
+        "default": "./dist/server.js"
+      },
+      "require": {
+        "types": "./types-cjs/server.d.cts",
+        "default": "./dist/server.cjs"
+      }
+    }
+  }
+}
