@@ -173,6 +173,24 @@ The `<Dynamic component={...}>` JSX wrapper from 1.x still exists and is unchang
 
 - The source evaluation is shared across all mounted instances of the returned component, so using one `dynamic(...)` in many places doesn't duplicate work.
 
+### Client-only components: `clientOnly`
+
+`clientOnly` (from `@solidjs/web`, hoisted from SolidStart) wraps a dynamically imported component so it renders only in the browser — the same factory shape as `lazy`/`dynamic`, with an SSR contract: the server renders `props.fallback` (and nothing else) and never starts the import.
+
+```jsx
+import { clientOnly } from "@solidjs/web";
+
+const Chart = clientOnly(() => import("./Chart.jsx"));
+
+<Chart fallback={<div>Loading chart…</div>} data={data()} />;
+```
+
+Unlike `lazy()`, it avoids Suspense entirely — it composes with no `Loading` boundary — and never server-renders the wrapped component, so the component participates in no hydration asset manifest and its code is guaranteed never to run on the server. This is the tool for browser-only libraries: anything that touches `window`, measures the DOM, or simply can't be loaded in a server build.
+
+Hydration is mismatch-free by construction: during hydration the client renders the fallback exactly as the server did — the server-rendered fallback DOM is claimed, not re-created — and the swap to the real component happens only after the tree has settled. In pure client rendering (no hydration), the fallback shows until the import resolves.
+
+By default the import starts as soon as `clientOnly(...)` is called (module load); pass `{ lazy: true }` to defer it to the component's first render. Either way the importer is invoked at most once, no matter how many instances render — all instances share the loaded module.
+
 ### Reveal timing: `Reveal`
 
 `Reveal` coordinates the reveal timing of sibling `Loading` boundaries. It replaces `SuspenseList` from 1.x.

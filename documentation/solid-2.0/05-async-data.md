@@ -134,6 +134,29 @@ const result = await resolve(() => computedValue());
 
 2.0 treats transitions as a core scheduling concept rather than something you explicitly wrap in `startTransition`/`useTransition`. Multiple transitions can be in flight; “entangling” determines what should block what. The user-facing pieces are the observable pending state (`isPending`) and optimistic APIs (RFC 06).
 
+### SSR and hydration: `ssrSource` and `deferStream`
+
+Because async lives in ordinary computations, SSR/hydration policy is a per-primitive option rather than a resource feature. Two option fields are accepted wherever computation options are — `createMemo`, function-form `createSignal`/`createStore`, `createProjection`, the optimistic variants, and effects:
+
+**`ssrSource`** is the hydration policy: what initial value the client uses, and whether the compute re-runs.
+
+- `"server"` *(default)* — the client uses the serialized server value as its initial state. The compute does **not** re-run for the initial value; the serialized result is authoritative. Choose this when the compute is deterministic from server-available inputs — the common data-fetch case, where it means no duplicate fetch on load.
+- `"hybrid"` — the client seeds from the serialized server value, then re-runs the compute to take over. Choose this for computes that mix server data with client-only signals (window size, user locale).
+- `"client"` — skip the server value entirely. On the server the compute never runs (an owner is still created so hydration ids stay aligned); on the client it is deferred until hydration completes, then runs as if first-mounted. Choose this for client-only state where serialization is meaningless.
+
+```js
+// Default ("server"): serialized value is authoritative; no client refetch on load.
+const user = createMemo(() => fetchUser(id()));
+
+// Server renders from the signal's default; client re-runs with the live viewport.
+const columns = createMemo(() => Math.ceil(viewportWidth() / 240), { ssrSource: "hybrid" });
+
+// Never serialized; computed fresh once hydration completes.
+const draft = createMemo(() => readDraftFromStorage(key()), { ssrSource: "client" });
+```
+
+**`deferStream: true`** defers the SSR stream flush until this primitive's first value has resolved. It lets a late-resolving source hold the document open rather than forcing the surrounding `<Loading>` boundary to render its fallback into the HTML. Server-only; ignored on the client.
+
 ## Migration / replacement
 
 ### `createResource` → async computations + `Loading`
