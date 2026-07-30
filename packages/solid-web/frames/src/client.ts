@@ -34,14 +34,17 @@ import {
   FRAME_ID_ATTR
 } from "@dom-expressions/runtime/src/frame-client.js";
 import { createServerComponentHandler } from "@dom-expressions/runtime/src/frame-transport.js";
-// The one import that must resolve to the SHARED built instance, not a
-// bundled copy: configuring the server-function client only counts if it's
-// the same module the compiled reference proxies call through
+// This import must resolve to the SHARED built instance, not a bundled
+// copy: configuring the server-function client only counts if it's the same
+// module the compiled reference proxies call through
 // (`@solidjs/web/server-functions` resolves to this file in the browser).
 // A private copy breaks instance identity — and, because this entry never
 // calls that copy's readers, rollup would tree-shake the whole
 // `configureServerFunctionsClient` call out of the dist as unobservable.
-// Kept external in rollup.config.js for the same reason.
+// Kept external in rollup.config.js — and the transport's own wire-layer
+// imports are resolved to the same external entry there
+// (externalizeSharedTransport), so the codec/flight config its defaults
+// read is this instance by construction.
 import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
 import { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
 
@@ -141,23 +144,51 @@ function claimRender(prefix: string, existing: Node[], render: () => any) {
   if (!registry.size) return render();
   const prevRegistry = sc.registry;
   const prevHydrating = sc.hydrating;
+  const prevClaimRoots = sc.claimRoots;
   sc.registry = registry;
   sc.hydrating = true;
+  // The range may be DETACHED right now (an async slot fill renders before
+  // its boundary re-inserts it), and the runtime's hydration guards read
+  // connectivity to tell claimed SSR nodes from fresh clones. Declaring the
+  // range as claim roots keeps its interior walking as hydration either way.
+  sc.claimRoots = existing;
   try {
     return runWithOwner(createOwner({ id: prefix }), render);
   } finally {
     sc.registry = prevRegistry;
     sc.hydrating = prevHydrating;
+    sc.claimRoots = prevClaimRoots;
   }
 }
 
+/** Whether a resolved slot value is reactive at the top level. */
+function isReactiveContent(value: any): boolean {
+  if (typeof value === "function") return true;
+  if (Array.isArray(value)) {
+    for (const v of value) if (isReactiveContent(v)) return true;
+  }
+  return false;
+}
+
 function slotsFor(props: Record<string, any>) {
+  // Live range bindings, one per occurrence. A re-call replaces its
+  // occurrence's binding (the frame only runs slot cleanups at unmount, not
+  // between re-calls), so dispose the outgoing one before the incoming
+  // invocation takes either path — a static re-call after a reactive one must
+  // not leave a binding fighting the frame for the range.
+  const bindings = new Map<string, { dispose(): void }>();
   return new Proxy(
     {},
     {
       get(_, prop) {
         if (typeof prop !== "string" || !(prop in props)) return undefined;
         return (slotProps: any, ctx: any) => {
+          const key = ctx && ctx.key;
+          const prev = key !== undefined && bindings.get(key);
+          if (prev) {
+            bindings.delete(key);
+            prev.dispose();
+          }
           // A render whose output is already inside the range (hydration
           // claims: the nodes ARE the server-rendered DOM) is a CLAIM —
           // return undefined per the frame contract so nothing moves.
@@ -172,33 +203,87 @@ function slotsFor(props: Record<string, any>) {
             }
             return out;
           };
-          // The prop is read INSIDE the render: compiled component props are
-          // getters, so JSX evaluates lazily at access — deferring the access
-          // into the scoped owner is what makes plain JSX (no thunks) get the
-          // producer's hydration keys.
-          const render = () => {
+          // The prop is read INSIDE the claim scope: compiled component props
+          // are getters, so JSX evaluates lazily at access — deferring the
+          // access into the scoped owner is what makes plain JSX (no thunks)
+          // get the producer's hydration keys. A render-prop occurrence (the
+          // server placed it with args, `ctx.invoked` — the args may be
+          // empty) is CALLED here, so async fills throw inside the frame's
+          // fill machinery where reveal seams catch them; a direct-insert
+          // value is left as-is — for a reactive value (a boundary accessor,
+          // changing route children) calling it here would snapshot ONE
+          // state of it.
+          const evaluate = () => {
             const v = props[prop];
-            return settle(normalizeSlotContent(typeof v === "function" ? v(slotProps) : v));
+            return typeof v === "function" && ctx && ctx.invoked ? v(slotProps) : v;
           };
-          if (ctx && ctx.frame && ctx.adopted && ctx.existing && ctx.existing.length) {
-            // The claim: re-render this occurrence under the SAME
-            // hydration-key owner scope the document producer used —
-            // solid's registry hands the render its server-rendered nodes
-            // by key, so the SSR'd wrapper (interior included) becomes the
-            // live component's DOM. Templates never ship as data; the
-            // claim IS the transfer. Adoption mounts a microtask after the
-            // hydrate window closes, so this is a scoped RE-ENTRY (the
-            // late-boundary-resume pattern): a registry gathered from the
-            // range, swapped in for the synchronous render.
-            //
-            // ONLY for ctx.adopted (the hydration-attach sync): a
-            // stream-driven re-call with existing nodes must render for
-            // real — claiming would no-op its inserts and silently drop
-            // whatever the re-call displaced, e.g. moved-out {$frame}
-            // region ranges (#547).
-            return claimRender(`sc-${ctx.frame}-${ctx.key}-`, ctx.existing, render);
+          const adopted = !!(
+            ctx &&
+            ctx.frame &&
+            ctx.adopted &&
+            ctx.existing &&
+            ctx.existing.length
+          );
+          const prefix = ctx && ctx.frame ? `sc-${ctx.frame}-${ctx.key}-` : "";
+          // The claim: evaluate this occurrence under the SAME hydration-key
+          // owner scope the document producer used — solid's registry hands
+          // the render its server-rendered nodes by key, so the SSR'd wrapper
+          // (interior included) becomes the live component's DOM. Templates
+          // never ship as data; the claim IS the transfer. Adoption mounts a
+          // microtask after the hydrate window closes, so this is a scoped
+          // RE-ENTRY (the late-boundary-resume pattern): a registry gathered
+          // from the range, swapped in for the synchronous render.
+          //
+          // ONLY for ctx.adopted (the hydration-attach sync): a stream-driven
+          // re-call with existing nodes must render for real — claiming would
+          // no-op its inserts and silently drop whatever the re-call
+          // displaced, e.g. moved-out {$frame} region ranges (#547).
+          const value = adopted ? claimRender(prefix, ctx.existing, evaluate) : evaluate();
+          // Static content (the common case: render props returning component
+          // roots, plain JSX with no top-level control flow): today's
+          // zero-cost path — claim in place or hand the frame the nodes. No
+          // effect is created and hydration stays a no-op.
+          if (!isReactiveContent(value)) {
+            return settle(normalizeSlotContent(value));
           }
-          return render();
+          // Reactive content (a boundary accessor, route children): snapshot-
+          // ting it would freeze ONE state of it into the range, so own the
+          // range instead — bind the value before the range's end marker with
+          // insert() (the same primitive compiled JSX uses for `{expr}`
+          // positions) and return undefined so the frame leaves the interior
+          // alone. `existing` seeds insert's tracked array: an accessor that
+          // yields the claimed nodes reconciles to a zero-mutation no-op, one
+          // that yields new content swaps it in place. The accessor's FIRST
+          // evaluation re-enters the claim scope — boundary-deferred children
+          // (route content behind <Loading>) create on that read and must see
+          // the producer's hydration keys.
+          if (ctx && ctx.range) {
+            let claim = adopted;
+            const source = value;
+            const accessor = () => {
+              if (claim) {
+                claim = false;
+                return claimRender(prefix, ctx.existing, () =>
+                  typeof source === "function" ? source() : source
+                );
+              }
+              return typeof source === "function" ? source() : source;
+            };
+            const owner = createOwner();
+            bindings.set(key, owner);
+            ctx.onCleanup(() => {
+              if (bindings.get(key) === owner) bindings.delete(key);
+              owner.dispose();
+            });
+            const end = ctx.range.end;
+            runWithOwner(owner, () =>
+              insert(end.parentNode as any, accessor, end, [...ctx.existing])
+            );
+            return undefined;
+          }
+          // No range handle (a consumer-constructed frame without markers):
+          // static placement is the only option — degrade to the snapshot.
+          return settle(normalizeSlotContent(value));
         };
       }
     }
@@ -245,7 +330,12 @@ function boundaryComponent(host: any, id: string) {
       host,
       id,
       slots: slotsFor(props),
-      ownerScope: (fn: () => any) => runWithOwner(owner, fn),
+      // Ambient-preserving: only supply the boundary's owner when the frame
+      // invokes from an ownerless context (stream microtasks). A caller that
+      // established its own owner — the reveal seam's reconstructed segment
+      // boundary running a fill — must keep it, or async fills escalate past
+      // the segment fallback to an already-latched outer boundary.
+      ownerScope: (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn)),
       reveal: revealSeam(owner)
     });
     onCleanup(dispose);
@@ -406,13 +496,15 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
   // ownerScope: element-claim sweeps — both the adoption sweep over the
   // SSR'd element (whose anchors never ran compiled creation) and later
   // streamed morphs — bind consumer cleanup to this boundary's owner.
+  // Ambient-preserving (see boundaryComponent): a caller with its own owner
+  // — a reveal seam's reconstructed segment boundary — keeps it.
   const owner = getOwner();
   const frame = createFrame(el, {
     adopt: true,
     host,
     id,
     slots: slotsFor(props),
-    ownerScope: (fn: () => any) => runWithOwner(owner, fn),
+    ownerScope: (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn)),
     reveal: revealSeam(owner)
   });
   onCleanup(() => frame.dispose());
@@ -423,11 +515,13 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
 
 /**
  * Installs the server-component transport policy on the server-function
- * client: boundary identity derives from the reactive owner captured at
- * each call site (`getOwner`), so distinct `dynamic()` sources get
- * independent boundaries with nothing declared, refetches from the same
- * source resolve to the identical component, and ownerless calls fall back
- * to one boundary per function id.
+ * client: boundary identity is the call's intrinsic (function, arguments)
+ * address — per-args, exactly like the query cache, so a cached component
+ * always mounts the boundary showing the call it was cached for. Repeat
+ * calls for the same args resolve the identical component (refetches morph
+ * in place, cache hits pass `dynamic`'s equals-gate); a source switching
+ * args swaps boundaries, re-materialized instantly from the host's
+ * retained state.
  *
  * Call once in the client entry (an explicit call — the package is
  * `sideEffects: false`, so a bare import would be tree-shaken away);
@@ -441,7 +535,12 @@ export function installServerComponents(host: any = getFrameHost()) {
   if (!g._$SC) {
     g._$SC = {
       c: {},
-      r(i: string) {
+      a: {},
+      r(i: string, a?: string) {
+        if (a) {
+          g._$SC.a[a] = i;
+          g._$SC.reg && g._$SC.reg(a, i);
+        }
         return g._$SC.c[i] || (g._$SC.c[i] = (p: any) => g._$SC.impl(i, p));
       }
     };
@@ -450,23 +549,42 @@ export function installServerComponents(host: any = getFrameHost()) {
   // Late boundaries arrive with the reveals, so subscribe before the first one
   // can land (this runs from the client entry, during document parse).
   installRevealHook();
-  configureServerFunctionsClient({
-    responseHandler: createServerComponentHandler({
-      host,
-      capture: () => getOwner() ?? undefined,
-      component: (frameId: string) => boundaryComponent(host, frameId),
-      onStream: (frameId: string) => beginStream(frameId),
-      documentComponent: (functionId: string) => g._$SC.c[functionId],
-      // The page IS the t=0 record: a call whose function has an unclaimed
-      // SSR'd boundary in the document resolves locally with the stable
-      // placeholder — the source re-runs during hydration per dynamic's
-      // contract, but no request leaves the browser. The boundary is
-      // consumed on adoption, so navigations fetch normally and (via
-      // documentComponent above) resolve to the SAME placeholder.
-      intercept: ({ id }: { id: string }) => {
-        if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
-        return g._$SC.r(id);
-      }
-    })
+  const handler = createServerComponentHandler({
+    host,
+    component: (frameId: string) => boundaryComponent(host, frameId),
+    onStream: (frameId: string) => beginStream(frameId),
+    // Only while the document boundary is UNCLAIMED: once a mount has
+    // bound it, the transport's address entries are the only way back to
+    // it — answering here again would hand the mounted boundary to a call
+    // with OTHER args (a hover preload), whose stream would then morph
+    // what the page is showing.
+    documentComponent: (functionId: string) =>
+      claimedBoundaries.has(functionId) ? undefined : g._$SC.c[functionId],
+    // The page IS the t=0 record: a call whose function has an unclaimed
+    // SSR'd boundary in the document resolves locally with the stable
+    // placeholder — the source re-runs during hydration per dynamic's
+    // contract, but no request leaves the browser. The boundary is
+    // consumed on adoption, so navigations fetch normally and (via
+    // documentComponent above) resolve to the SAME placeholder.
+    intercept: ({ id }: { id: string }) => {
+      if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
+      return g._$SC.r(id);
+    }
+    // Single-flight delivery (the transport's `consumer`/`codec` defaults)
+    // reads the server-function client's SHARED built instance: this
+    // bundle resolves the transport's wire-layer imports to that external
+    // entry (externalizeSharedTransport in rollup.config.js), so no getter
+    // overrides are needed.
   });
+  // Which calls the document is showing: hydration references carry their
+  // call's address (`_$SC.r(id, address)`), and those records — never seen
+  // by the transport, since hydration data seeds caches directly — are what
+  // route a post-load refetch of the same call back to its adopted boundary.
+  // Drain what the bootstrap collected before this ran, then register live
+  // for references still streaming in.
+  const showing = (address: string, id: string) => handler.showing(address, id, g._$SC.r(id));
+  const records = g._$SC.a || (g._$SC.a = {});
+  for (const address in records) showing(address, records[address]);
+  g._$SC.reg = showing;
+  configureServerFunctionsClient({ responseHandler: handler });
 }

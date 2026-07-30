@@ -44,6 +44,25 @@ const replaceDev = isDev =>
 // `configureServerFunctionsClient` is the (external) import that applies
 // it — both were silently tree-shaken out of beta.23/24 when the
 // server-function client was bundled as a private copy.
+// The frames client bundles the frame runtime, but the server-function WIRE
+// layer it leans on (chunk framing, intrinsic addressing, the codec/flight
+// config) must be the same instance the compiled reference proxies call
+// through. Resolving frame-transport's shared.js/response.js imports to the
+// external client entry keeps exactly one copy of that code in an app AND
+// makes the config the transport's defaults read the shared built instance
+// by construction — no getter plumbing. A name the client entry stops
+// exporting fails the build loudly (missing-export), never silently.
+const externalizeSharedTransport = {
+  name: "externalize-shared-transport",
+  resolveId(source, importer) {
+    if (!importer || !/[\\/]frame-transport\.js$/.test(importer)) return null;
+    if (source === "./server-functions/shared.js" || source === "./response.js") {
+      return { id: "@solidjs/web/server-functions/client", external: true };
+    }
+    return null;
+  }
+};
+
 const assertFramesClientTransport = {
   name: "assert-frames-client-transport",
   generateBundle(_, bundle) {
@@ -210,7 +229,9 @@ export default [
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
     // not ship. The dev build below keeps them, selected via the `frames`
     // export's `development` condition — mirroring `web.js`/`dev.js`.
-    plugins: [replaceDev(false)].concat(plugins).concat(assertFramesClientTransport)
+    plugins: [replaceDev(false), externalizeSharedTransport]
+      .concat(plugins)
+      .concat(assertFramesClientTransport)
   },
   {
     // Dev build (`development` export condition): keeps the frame runtime's
@@ -234,7 +255,9 @@ export default [
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client"
     ],
-    plugins: [replaceDev(true)].concat(plugins).concat(assertFramesClientTransport)
+    plugins: [replaceDev(true), externalizeSharedTransport]
+      .concat(plugins)
+      .concat(assertFramesClientTransport)
   },
   {
     input: "frames/src/server.ts",

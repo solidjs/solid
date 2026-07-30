@@ -36,6 +36,9 @@ export {
   renderServerComponent,
   serverComponentResponse,
   frameTransformResult,
+  // Single-flight: mutations whose invalidated payload includes markup
+  // stream it as regions in one response (install as transformFlightResult)
+  frameTransformFlightResult,
   createFrameSink,
   // Document SSR (t=0): inline rendering + the hydration reference
   frameTransformDirectResult,

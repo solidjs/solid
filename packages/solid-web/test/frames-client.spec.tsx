@@ -77,6 +77,7 @@ describe("server components through dynamic", () => {
 
   test("mounts, fills slot ranges from props, morphs on re-fetch without remounting", async () => {
     const [story, setStory] = createSignal(1);
+    const [tick, setTick] = createSignal(0);
     const fetched: number[] = [];
     // Like a real server, derive the response from the REQUEST body (the
     // codec-encoded args) — signals read inside a foreign async continuation
@@ -88,7 +89,7 @@ describe("server components through dynamic", () => {
     });
 
     let mounts = 0;
-    const Story = dynamic(() => getStory(story()) as any);
+    const Story = dynamic(() => (tick(), getStory(story()) as any));
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -122,23 +123,37 @@ describe("server components through dynamic", () => {
     expect(fetched).toEqual([1]);
     expect(mounts).toBe(1);
 
-    // Client-only state, then navigation: the refetch resolves to the SAME
+    // Client-only state, then a SAME-args refetch: it resolves to the SAME
     // component reference — nothing remounts — while the new stream morphs
     // server content in the same boundary. Client node identity survives.
     (button as HTMLElement).dataset.on = "yes";
     const h1 = div.querySelector("h1");
+    setTick(1);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(fetched).toEqual([1, 1]);
+    expect(div.querySelector("h1")).toBe(h1);
+    expect(h1!.textContent).toBe("Story 1");
+    expect(div.querySelector("footer button")).toBe(button);
+    expect((button as HTMLElement).dataset.on).toBe("yes");
+    // Equivalent re-sent slot args: the occurrence was not re-called.
+    expect(mounts).toBe(1);
+
+    // An ARGS change is a different call, so it resolves a DIFFERENT
+    // boundary (per-args identity, mirroring the query cache): the swap
+    // replaces the content and the new boundary's slots mount fresh —
+    // story 1's client state does not leak into story 2.
     setStory(2);
     flush();
     await settle();
     flush();
     await settle();
-    expect(fetched).toEqual([1, 2]);
-    expect(div.querySelector("h1")).toBe(h1);
-    expect(h1!.textContent).toBe("Story 2");
-    expect(div.querySelector("footer button")).toBe(button);
-    expect((button as HTMLElement).dataset.on).toBe("yes");
-    // Equivalent re-sent slot args: the occurrence was not re-called.
-    expect(mounts).toBe(1);
+    expect(fetched).toEqual([1, 1, 2]);
+    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
+    expect(div.querySelector("h1")).not.toBe(h1);
+    expect(mounts).toBe(2);
 
     // Owner disposal tears the boundary down.
     dispose();
@@ -310,12 +325,72 @@ describe("server components through dynamic", () => {
     container.remove();
   });
 
-  test("ownerless calls fall back to one stable component per function id", async () => {
+  test("ownerless calls resolve by call address: same args stable, different args independent", async () => {
     vi.stubGlobal("fetch", async () => storyResponse(1, "Solo"));
+    // Same (function, arguments): the refetch resolves to the identical
+    // component, so equals-gates hold and mounted content morphs in place.
     const first = await (getStory(1) as any);
-    const second = await (getStory(2) as any);
+    const again = await (getStory(1) as any);
     expect(typeof first).toBe("function");
-    expect(second).toBe(first);
+    expect(again).toBe(first);
+    // Different arguments are a different call: an ownerless preload for
+    // other args must NOT collapse onto the boundary showing this one (a
+    // hover preload would morph what the page is showing).
+    const other = await (getStory(2) as any);
+    expect(other).not.toBe(first);
+  });
+
+  test("preloading the args a mounted site navigated away from does not morph its boundary", async () => {
+    // The notes-app hover bug, second form: view note 1, navigate to note 2
+    // (the SAME dynamic source switches args, morphing its boundary in
+    // place), then hover note 1 again. The boundary's showing-record for
+    // args 1 must have been retired by the switch — a stale record routed
+    // the hover preload's stream back into the mounted boundary, replacing
+    // the note 2 the page was showing.
+    const [story, setStory] = createSignal(1);
+    vi.stubGlobal("fetch", async (_base: any, init: any) => {
+      const v = JSON.parse(String(init.body))[0];
+      return storyResponse(v, `Story ${v}`);
+    });
+    const Story = dynamic(() => getStory(story()) as any);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let div!: HTMLDivElement;
+    const dispose = createRoot(d => {
+      <div ref={div}>
+        <Loading fallback={<span>...</span>}>
+          <Story comment={(p: any) => <li>{p.text}</li>} />
+        </Loading>
+      </div>;
+      container.appendChild(div);
+      return d;
+    });
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("h1")!.textContent).toBe("Story 1");
+
+    // Navigate: same call site, new args — morphs in place.
+    setStory(2);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
+
+    // Hover preload for the note just left: ownerless, args 1. It mints its
+    // own (offscreen) boundary; the mounted one keeps showing Story 2.
+    const preloaded = await (getStory(1) as any);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(typeof preloaded).toBe("function");
+    expect(div.querySelector("h1")!.textContent).toBe("Story 2");
+
+    dispose();
+    container.remove();
   });
 
   test("props the server never placed stay unmounted; unknown occurrences without props stay empty", async () => {
