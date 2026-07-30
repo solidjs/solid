@@ -10,8 +10,8 @@ server functions returning JSON and client components rendering everything.
 Reading the two side by side is the point of this example.
 
 ```sh
-pnpm dev                  # http://localhost:5173
-pnpm build && pnpm start  # http://localhost:3003
+pnpm dev                  # http://localhost:3004
+pnpm build && pnpm start  # http://localhost:3004
 ```
 
 ## What a server component is

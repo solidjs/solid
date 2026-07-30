@@ -12,8 +12,8 @@ round trip whose response carries the redirect, the invalidated data, and the
 invalidated server-rendered regions together.
 
 ```sh
-pnpm dev                  # http://localhost:5173
-pnpm build && pnpm start  # http://localhost:3005
+pnpm dev                  # http://localhost:3006
+pnpm build && pnpm start  # http://localhost:3006
 ```
 
 Notes live in an in-memory store ([src/lib/db.ts](./src/lib/db.ts), unstorage's

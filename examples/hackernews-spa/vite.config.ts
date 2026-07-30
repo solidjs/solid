@@ -14,5 +14,6 @@ export default defineConfig({
   resolve: {
     alias: { "~": fileURLToPath(new URL("./src", import.meta.url)) }
   },
+  server: { port: 3005 },
   plugins: [solid({ ssr: {}, serverFunctions: true })]
 });

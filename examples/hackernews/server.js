@@ -17,7 +17,7 @@ import { brotliCompressSync, createBrotliCompress, createGzip, constants } from 
 import { handleRequest } from "./dist/server/server.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3003;
+const PORT = process.env.PORT || 3004;
 
 const MIME = {
   ".js": "application/javascript",

@@ -10,8 +10,8 @@ differing only in where the markup comes from. Reading the two side by side is
 the point of both examples.
 
 ```sh
-pnpm dev                  # http://localhost:5173
-pnpm build && pnpm start  # http://localhost:3004
+pnpm dev                  # http://localhost:3005
+pnpm build && pnpm start  # http://localhost:3005
 ```
 
 ## What to look at
