@@ -463,8 +463,6 @@ export function clientOnly<T extends Component<any>>(
  * surviving part of the tree legitimately set. Once the integration marks
  * the response head `committed` (head derived/sent), writes and
  * retractions are no-ops.
- *
- * `<HttpStatusCode>` is the JSX sugar over this primitive.
  */
 export function httpStatus(_code: number, _text?: string): void {}
 
@@ -485,38 +483,5 @@ export function httpStatus(_code: number, _text?: string): void {}
  * there was none) — a boundary that errors or recovers retracts its writes.
  * Once the integration marks the response head `committed` (head
  * derived/sent), writes and retractions are no-ops.
- *
- * `<HttpHeader>` is the JSX sugar over this primitive.
  */
 export function httpHeader(_name: string, _value: string, _options?: { append?: boolean }): void {}
-
-export interface HttpStatusCodeProps {
-  code: number;
-  text?: string;
-}
-
-/**
- * JSX sugar over the `httpStatus` primitive: declares the response status
- * for the lifetime of the surrounding scope during SSR. Client build:
- * renders nothing and touches nothing. See `httpStatus` for the full
- * semantics (snapshot/restore retraction, `committed` guard).
- */
-export function HttpStatusCode(_props: HttpStatusCodeProps): JSX.Element {
-  return null as unknown as JSX.Element;
-}
-
-export interface HttpHeaderProps {
-  name: string;
-  value: string;
-  append?: boolean;
-}
-
-/**
- * JSX sugar over the `httpHeader` primitive: declares a response header for
- * the lifetime of the surrounding scope during SSR. Client build: renders
- * nothing and touches nothing. See `httpHeader` for the full semantics
- * (snapshot/restore retraction, `committed` guard).
- */
-export function HttpHeader(_props: HttpHeaderProps): JSX.Element {
-  return null as unknown as JSX.Element;
-}

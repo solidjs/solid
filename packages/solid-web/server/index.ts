@@ -151,8 +151,6 @@ export function clientOnly<T extends Component<any>>(
  * write and the cleanup restore are no-ops once the integration marks the
  * response head `committed` (head derived/sent — status can no longer
  * change). On the client this is a no-op.
- *
- * `<HttpStatusCode>` is the JSX sugar over this primitive.
  */
 export function httpStatus(code: number, text?: string): void {
   // `response` is an integration-augmented field (see core's ResponseStub);
@@ -191,8 +189,6 @@ export function httpStatus(code: number, text?: string): void {
  * write and the cleanup restore are no-ops once the integration marks the
  * response head `committed` (head derived/sent — headers can no longer
  * change). On the client this is a no-op.
- *
- * `<HttpHeader>` is the JSX sugar over this primitive.
  */
 export function httpHeader(name: string, value: string, options?: { append?: boolean }): void {
   const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
@@ -208,35 +204,4 @@ export function httpHeader(name: string, value: string, options?: { append?: boo
       else headers.set(name, prev);
     });
   }
-}
-
-export interface HttpStatusCodeProps {
-  code: number;
-  text?: string;
-}
-
-/**
- * JSX sugar over the `httpStatus` primitive: declares the response status
- * for the lifetime of the surrounding scope during SSR. See `httpStatus`
- * for the full semantics (snapshot/restore retraction, `committed` guard).
- */
-export function HttpStatusCode(props: HttpStatusCodeProps): JSX.Element {
-  httpStatus(props.code, props.text);
-  return null as unknown as JSX.Element;
-}
-
-export interface HttpHeaderProps {
-  name: string;
-  value: string;
-  append?: boolean;
-}
-
-/**
- * JSX sugar over the `httpHeader` primitive: declares a response header for
- * the lifetime of the surrounding scope during SSR. See `httpHeader` for
- * the full semantics (snapshot/restore retraction, `committed` guard).
- */
-export function HttpHeader(props: HttpHeaderProps): JSX.Element {
-  httpHeader(props.name, props.value, { append: props.append });
-  return null as unknown as JSX.Element;
 }

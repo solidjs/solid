@@ -5,15 +5,12 @@
  * `httpHeader` declare against the request event's `response` head during
  * SSR for the lifetime of the calling reactive scope, and retract their
  * writes on disposal (snapshot/restore, not reset-to-default), with both
- * writes and retractions gated on `response.committed`. `HttpStatusCode`
- * and `HttpHeader` are their JSX sugar. Also covers the server half of
- * `clientOnly` (fallback-only, import never started).
+ * writes and retractions gated on `response.committed`. Also covers the
+ * server half of `clientOnly` (fallback-only, import never started).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import {
-  HttpHeader,
-  HttpStatusCode,
   httpHeader,
   httpStatus,
   clientOnly,
@@ -287,62 +284,6 @@ describe("httpHeader (server primitive)", () => {
       });
     });
     expect(midway.response!.headers.get("x-b")).toBe("kept");
-  });
-});
-
-describe("HttpStatusCode / HttpHeader (JSX sugar over the primitives)", () => {
-  test("HttpStatusCode declares status and statusText from JSX during SSR", () => {
-    const event = makeEvent();
-    storage.run(event, () => {
-      renderToString(() => (
-        <div>
-          <HttpStatusCode code={404} text="Not Found" />
-          not found
-        </div>
-      ));
-    });
-    expect(event.response!.status).toBe(404);
-    expect(event.response!.statusText).toBe("Not Found");
-  });
-
-  test("HttpStatusCode retracts on disposal like the primitive", () => {
-    const event = makeEvent({ status: 404, statusText: "Not Found" });
-    storage.run(event, () => {
-      createRoot(dispose => {
-        HttpStatusCode({ code: 500, text: "Server Error" });
-        expect(event.response!.status).toBe(500);
-        dispose();
-      });
-    });
-    expect(event.response!.status).toBe(404);
-    expect(event.response!.statusText).toBe("Not Found");
-  });
-
-  test("HttpHeader declares a header from JSX during SSR", () => {
-    const event = makeEvent();
-    storage.run(event, () => {
-      renderToString(() => (
-        <div>
-          <HttpHeader name="cache-control" value="no-store" />
-          body
-        </div>
-      ));
-    });
-    expect(event.response!.headers.get("cache-control")).toBe("no-store");
-  });
-
-  test("HttpHeader forwards append and retracts on disposal", () => {
-    const event = makeEvent({ headers: { link: "</a.css>; rel=preload" } });
-    storage.run(event, () => {
-      createRoot(dispose => {
-        HttpHeader({ name: "link", value: "</b.css>; rel=preload", append: true });
-        expect(event.response!.headers.get("link")).toBe(
-          "</a.css>; rel=preload, </b.css>; rel=preload"
-        );
-        dispose();
-      });
-    });
-    expect(event.response!.headers.get("link")).toBe("</a.css>; rel=preload");
   });
 });
 
