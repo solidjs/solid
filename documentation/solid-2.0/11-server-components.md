@@ -6,7 +6,7 @@
 
 ## Summary
 
-A **server component is a function returned from a server function** — there is no new component API, no new directive, and no `"use client"`. The server function’s *arguments* are the server’s inputs (ids, filters); the returned component’s *props* are client positions (**slots**) the server marks but never renders. On the client, `dynamic` is the entire consumption surface: a server-function call that resolves to a frame stream produces a **stable per-call-site component**, so refetches never remount — server content **morphs in place** underneath and client state inside the boundary (focus, inputs, toggles, video) survives navigation.
+A **server component is a function returned from a server function** — there is no new component API, no new directive, and no `"use client"`. The server function’s *arguments* are the server’s inputs (ids, filters); the returned component’s *props* are client positions (**slots**) the server marks but never renders. On the client, `dynamic` is the entire consumption surface: a server-function call that resolves to a frame stream produces a **stable per-call component** — one boundary per (function, arguments), the same per-args rule a query cache keys values by — so refetches of the same call never remount: server content **morphs in place** underneath and client state inside the boundary (focus, inputs, toggles, video) survives server updates. A call with different arguments resolves its own boundary; the site swaps to it, re-materialized instantly from retained state when that call has shown before.
 
 The governing invariant is **single-copy**: server content travels as HTML, values the client needs travel as data records, and nothing travels as both. The acceptance test is literal — view-source the page or a navigation response and search for any piece of content; it appears exactly once.
 
@@ -18,15 +18,20 @@ In a Vite app this is now one line: `serverFunctions: { components: true }` on `
 
 ```ts
 import { configureServerFunctionsServer } from "@solidjs/web/server-functions/server";
-import { frameTransformResult, frameTransformDirectResult } from "@solidjs/web/frames/server";
+import {
+  frameTransformResult,
+  frameTransformDirectResult,
+  frameTransformFlightResult
+} from "@solidjs/web/frames/server";
 
 configureServerFunctionsServer({
   transformResult: frameTransformResult,        // HTTP: function results stream as frames
-  transformDirectResult: frameTransformDirectResult // document SSR: function results render inline
+  transformDirectResult: frameTransformDirectResult, // document SSR: function results render inline
+  transformFlightResult: frameTransformFlightResult // single-flight: invalidated markup rides as regions
 });
 ```
 
-Both are configurable server-wide (per-request `handleServerFunctionRequest` options still override), so this works through any generic dispatcher — including dev middlewares that call `handleServerFunctionRequest(request)` with no options. A server function returning *data* behaves exactly as before; only function-returning results engage the frames path.
+All are configurable server-wide (per-request `handleServerFunctionRequest` options still override), so this works through any generic dispatcher — including dev middlewares that call `handleServerFunctionRequest(request)` with no options. A server function returning *data* behaves exactly as before; only function-returning results engage the frames path. The third transform matters only with single-flight (RFC 10): when part of what a mutation invalidates is a server component, it answers with one frame-stream response carrying each invalidated call’s markup as a region plus the ordinary `{ value, data }` envelope. Data-only payloads keep the byte-identical plain envelope; install all three together whenever components are enabled.
 
 **2. Client — install the transport policy once** (from `@solidjs/web/frames`):
 
@@ -57,7 +62,7 @@ A complete working setup (no Vite, no metaframework) is `examples/hackernews`; i
 ## Motivation
 
 - **Islands fall apart on navigation; RSC ships everything twice.** Islands architectures give a lean initial page but degenerate to full-page loads or bespoke protocols when you navigate. RSC-style server components keep rich composition but serialize the rendered tree alongside the HTML — every piece of server content pays twice. This design — *lakes, not islands* — keeps one copy: the server owns and streams content, the client owns islands of interactivity **inside** it, and neither re-sends what the other has.
-- **No new API surface.** Every prior server-components design grew a parallel component model. Here the entire client surface is `dynamic` + server functions (RFC 10) plus one `installServerComponents()` call. Boundary identity is **derived, never declared** — the reactive owner captured at the call site keys the boundary, so two mounted panes are independent with nothing annotated, and multi-instance mounting is invisible to the user.
+- **No new API surface.** Every prior server-components design grew a parallel component model. Here the entire client surface is `dynamic` + server functions (RFC 10) plus one `installServerComponents()` call. Boundary identity is **derived, never declared** — the call’s intrinsic (function, arguments) address keys the boundary, mirroring a data layer’s cache keys by construction, so panes over different calls are independent with nothing annotated and multi-instance mounting fans one stream out to every mounted frame.
 - **Client state must survive server updates.** The failure mode that kills server-driven UIs is the refetch that blows away a half-typed reply. Policy here is structural: refetching into the same boundary morphs server content in place; teardown is disposal, never a version bump.
 
 ## Detailed design
@@ -104,11 +109,11 @@ function StoryPage(props) {
 }
 ```
 
-Navigation is a prop change: the tracked source re-calls the server function, the response resolves to the *same* component reference (equals-gated — `dynamic` never remounts), and the stream morphs the boundary. Client-only state (`CollapsibleComment`’s toggles, `ShareBar`) never reaches the server and survives every navigation. First load composes with `<Loading>`; refetches don’t re-fallback.
+Navigation is a prop change: the tracked source re-calls the server function. A same-arguments refetch resolves the *same* component reference (equals-gated — `dynamic` never remounts) and the stream morphs the boundary; a new `storyId` resolves that story’s own boundary and the site swaps to it — instantly, from retained content, when the story has shown before. Client-only state never reaches the server. State *inside* a boundary belongs to its call (`CollapsibleComment`’s toggles reset per story — story 1’s collapse state never bleeds into story 2), while state *outside* the boundary (`StoryPage`’s own signals) survives every navigation. First load composes with `<Loading>`; refetches don’t re-fallback.
 
 ### What routers get
 
-Server-component anchors and forms participate in the **element-claim contract** (the same one compiled JSX uses), so a router’s link-state layer sees server-rendered `a[href]`/`form[action]` with cleanup scoped to the boundary’s owner — active-link state works on server content unchanged, morph-precise. The `frame:applied` document event exists for coarser affordances (scroll restoration) without a MutationObserver. Boundary identity, versioning, and re-fetch-into-the-same-id semantics are specified in the dom-expressions architecture contract; a router integration is deliberately thin.
+Server-component anchors and forms participate in the **element-claim contract** (the same one compiled JSX uses), so a router’s link-state layer sees server-rendered `a[href]`/`form[action]` with cleanup scoped to the boundary’s owner — active-link state works on server content unchanged, morph-precise. The `frame:applied` document event exists for coarser affordances (scroll restoration) without a MutationObserver. Boundary identity (the per-call address), versioning, and retention semantics are specified in the dom-expressions architecture contract; a router integration is deliberately thin — wrapping the section functions in `query` gives the same calls cache identity and preload participation, and a back/forward cache hit re-materializes the boundary from retained state with no request.
 
 ### The one hard rule
 
@@ -123,13 +128,13 @@ Measured, min+gzip, CI-guarded in dom-expressions: the whole client machinery �
 | Layer | Owns |
 |---|---|
 | **dom-expressions** | Wire format (frame chunks, `slot:` markers), frame client (store/morph/host), producer/sink, transport policy, document-SSR inlining, element-claim sweeps, the architecture contract |
-| **Core (`@solidjs/web/frames`)** | The Solid binding: `installServerComponents`, hydration-claim re-entry, owner-derived boundary identity, `getFrameHost`, the packaged subpath |
+| **Core (`@solidjs/web/frames`)** | The Solid binding: `installServerComponents`, hydration-claim re-entry, call-address boundary identity, `getFrameHost`, the packaged subpath |
 | **Router (future)** | Outlet ids, URL→call translation, back/forward re-fetch, link state via element claims, query/preload/single-flight composition |
 | **Start (future)** | Configuration only, as with server functions |
 
 ## Alternatives considered
 
-- **`createServerComponent()` / any declared API** — rejected; `dynamic` + owner-derived identity covers it with zero new surface. Deleted during design.
+- **`createServerComponent()` / any declared API** — rejected; `dynamic` + call-address identity covers it with zero new surface. Deleted during design. (An intermediate owner/observer-captured identity — one boundary per call *site*, morphing across argument changes — was implemented and then replaced: it broke one-to-one with per-args caches, so a fresh cache hit for one args-variant could resolve a component mounted showing another.)
 - **`"use client"`** — rejected; the hydration-once rule plus marked client positions make the annotation unnecessary.
 - **Serialized component trees (RSC-style flight data)** — rejected on the single-copy invariant; templates never ship as data. The claim *is* the transfer at t = 0.
 - **Event-based router integration instead of element claims** — rejected: `frame:applied` alone loses claim-time owner scoping and morph-precision, and would split anchors into two mechanisms depending on who rendered them.
@@ -138,5 +143,5 @@ Measured, min+gzip, CI-guarded in dom-expressions: the whole client machinery �
 
 1. **Template/block payload mode** — the wire supports send-markup-once/instantiate-many; the producer doesn’t emit it yet. Post-stabilization optimization.
 2. **Reverse-templating** — recovering more t = 0 slot args from rendered content (the current recoverability check is a conservative interim).
-3. **Router retention semantics** — replay-after-unregister, multi-frame envelopes, revalidation bookkeeping; being designed with the router update.
+3. **Router retention semantics** — *resolved since first draft, in the protocol rather than the router*: the frame host retains an unmounted boundary’s store and re-materializes the next mount from it (replay-after-unregister — a fresh cache hit with no new stream renders what the call last showed instead of blank), and single-flight mutations ship multi-frame envelopes (invalidated regions addressed by call, the `{ value, data }` outcome riding the same response, component entries as references). What remains router-side is composition only: `query` wrapping, preload wiring, revalidation bookkeeping.
 4. **Stabilization criteria** — what graduates this from experimental: wire-format freeze, router integration shipping, and the `enableHydration` granularity work.
