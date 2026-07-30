@@ -4,8 +4,9 @@
  * The JSX response components hoisted from SolidStart: `HttpStatusCode` and
  * `HttpHeader` write to the request event's `response` head during SSR and
  * retract their writes on disposal (snapshot/restore, not reset-to-default),
- * with both writes and retractions gated on `event.complete`. Also covers
- * the server half of `clientOnly` (fallback-only, import never started).
+ * with both writes and retractions gated on `response.committed`. Also
+ * covers the server half of `clientOnly` (fallback-only, import never
+ * started).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
@@ -43,7 +44,7 @@ function makeEvent(init?: {
   status?: number;
   statusText?: string;
   headers?: Record<string, string>;
-  complete?: boolean;
+  committed?: boolean;
 }): HttpEvent {
   return {
     request: new Request("http://localhost/"),
@@ -51,9 +52,9 @@ function makeEvent(init?: {
     response: {
       status: init?.status ?? 200,
       statusText: init?.statusText,
-      headers: new Headers(init?.headers)
-    },
-    complete: init?.complete
+      headers: new Headers(init?.headers),
+      committed: init?.committed
+    }
   };
 }
 
@@ -97,21 +98,21 @@ describe("HttpStatusCode (server)", () => {
     expect(event.response!.statusText).toBe("Not Found");
   });
 
-  test("skips the restore once the event is complete (head sent)", () => {
+  test("skips the restore once the response head is committed (head sent)", () => {
     const event = makeEvent({ status: 200 });
     storage.run(event, () => {
       createRoot(dispose => {
         HttpStatusCode({ code: 404 });
         // The integration sent the head mid-render.
-        event.complete = true;
+        event.response!.committed = true;
         dispose();
       });
     });
     expect(event.response!.status).toBe(404);
   });
 
-  test("write is a no-op when the event is already complete", () => {
-    const event = makeEvent({ status: 200, complete: true });
+  test("write is a no-op when the response head is already committed", () => {
+    const event = makeEvent({ status: 200, committed: true });
     storage.run(event, () => {
       createRoot(dispose => {
         HttpStatusCode({ code: 404 });
@@ -136,7 +137,7 @@ describe("HttpStatusCode (server)", () => {
     expect(html).not.toContain("404");
   });
 
-  test("streaming: status set in the page survives the final dispose once complete", async () => {
+  test("streaming: status set in the page survives the final dispose once committed", async () => {
     const event = makeEvent();
     const html = await storage.run(
       event,
@@ -154,7 +155,7 @@ describe("HttpStatusCode (server)", () => {
               onCompleteShell() {
                 // The integration sends the head when the shell flushes.
                 expect(event.response!.status).toBe(404);
-                event.complete = true;
+                event.response!.committed = true;
               }
             }
           ).pipe({
@@ -241,21 +242,21 @@ describe("HttpHeader (server)", () => {
     expect(event.response!.headers.get("vary")).toBe("Accept");
   });
 
-  test("write and retraction are no-ops once the event is complete", () => {
-    const completed = makeEvent({ headers: { "x-a": "1" }, complete: true });
-    storage.run(completed, () => {
+  test("write and retraction are no-ops once the response head is committed", () => {
+    const committed = makeEvent({ headers: { "x-a": "1" }, committed: true });
+    storage.run(committed, () => {
       createRoot(dispose => {
         HttpHeader({ name: "x-a", value: "2" });
         dispose();
       });
     });
-    expect(completed.response!.headers.get("x-a")).toBe("1");
+    expect(committed.response!.headers.get("x-a")).toBe("1");
 
     const midway = makeEvent();
     storage.run(midway, () => {
       createRoot(dispose => {
         HttpHeader({ name: "x-b", value: "kept" });
-        midway.complete = true;
+        midway.response!.committed = true;
         dispose();
       });
     });

@@ -145,21 +145,21 @@ export interface HttpStatusCodeProps {
  * that errored, set a status, and then recovered retracts its write instead
  * of stomping a status a surviving part of the tree legitimately set (e.g.
  * a 404 page whose inner boundary recovers stays a 404). Both the write and
- * the cleanup restore are no-ops once the integration marks the event
- * `complete` (response head sent — status can no longer change).
+ * the cleanup restore are no-ops once the integration marks the response
+ * head `committed` (head derived/sent — status can no longer change).
  */
 export function HttpStatusCode(props: HttpStatusCodeProps): JSX.Element {
   // `response` is an integration-augmented field (see core's ResponseStub);
   // read it structurally so the components work against the bare contract.
   const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
   const response = event && event.response;
-  if (response && !event.complete) {
+  if (response && !response.committed) {
     const prevStatus = response.status;
     const prevStatusText = response.statusText;
     response.status = props.code;
     response.statusText = props.text;
     onCleanup(() => {
-      if (event.complete) return;
+      if (response.committed) return;
       response.status = prevStatus;
       response.statusText = prevStatusText;
     });
@@ -181,19 +181,19 @@ export interface HttpHeaderProps {
  * time and restored when the component is disposed — deleted if there was
  * none — so a boundary that errors or recovers retracts its writes without
  * disturbing values other writers contributed before it. Both the write and
- * the cleanup restore are no-ops once the integration marks the event
- * `complete` (response head sent — headers can no longer change).
+ * the cleanup restore are no-ops once the integration marks the response
+ * head `committed` (head derived/sent — headers can no longer change).
  */
 export function HttpHeader(props: HttpHeaderProps): JSX.Element {
   const event = getRequestEvent() as (RequestEvent & { response?: ResponseStub }) | undefined;
   const response = event && event.response;
-  if (response && !event.complete) {
+  if (response && !response.committed) {
     const headers = response.headers;
     const prev = headers.get(props.name);
     if (props.append) headers.append(props.name, props.value);
     else headers.set(props.name, props.value);
     onCleanup(() => {
-      if (event.complete) return;
+      if (response.committed) return;
       if (prev === null) headers.delete(props.name);
       else headers.set(props.name, prev);
     });

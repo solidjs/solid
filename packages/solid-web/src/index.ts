@@ -457,8 +457,9 @@ export interface HttpStatusCodeProps {
  * `event.response` status at write time and restores it when the component
  * is disposed — so a boundary that errored, set a status, and then
  * recovered retracts its write instead of stomping a status a surviving
- * part of the tree legitimately set. Once the integration marks the event
- * `complete` (response head sent), writes and retractions are no-ops.
+ * part of the tree legitimately set. Once the integration marks the
+ * response head `committed` (head derived/sent), writes and retractions
+ * are no-ops.
  */
 export function HttpStatusCode(_props: HttpStatusCodeProps): JSX.Element {
   return null as unknown as JSX.Element;
@@ -477,8 +478,8 @@ export interface HttpHeaderProps {
  * Retraction semantics (server): the header's prior value is snapshotted at
  * write time and restored when the component is disposed (deleted if there
  * was none) — a boundary that errors or recovers retracts its writes. Once
- * the integration marks the event `complete` (response head sent), writes
- * and retractions are no-ops.
+ * the integration marks the response head `committed` (head derived/sent),
+ * writes and retractions are no-ops.
  */
 export function HttpHeader(_props: HttpHeaderProps): JSX.Element {
   return null as unknown as JSX.Element;
