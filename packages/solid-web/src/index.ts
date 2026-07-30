@@ -420,12 +420,20 @@ export function clientOnly<T extends Component<any>>(
   options: { lazy?: boolean } = {}
 ): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
   const [comp, setComp] = createSignal<T>();
-  !options.lazy && loadClientOnly(fn, setComp);
+  let started = !options.lazy;
+  started && loadClientOnly(fn, setComp);
   return props => {
     let Comp: T | undefined;
     let m: boolean;
     const rest = omit(props, "fallback") as ComponentProps<T>;
-    options.lazy && loadClientOnly(fn, setComp);
+    // The deferred import starts on the FIRST instance only — all instances
+    // share the module signal, so a second invocation of the importer could
+    // at best duplicate a request the browser dedupes anyway, and at worst
+    // re-run a side-effectful importer.
+    if (!started) {
+      started = true;
+      loadClientOnly(fn, setComp);
+    }
     // Deliberately untracked fast path: an already-loaded module (fresh
     // render after the import settled) skips the gate machinery entirely.
     if ((Comp = untrack(comp)) && !sharedConfig.hydrating) return Comp(rest);

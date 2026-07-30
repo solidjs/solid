@@ -47,6 +47,31 @@ describe("clientOnly (client)", () => {
     dispose();
   });
 
+  test("lazy import starts once no matter how many instances render", async () => {
+    const { importer, resolve } = deferredModule(() => <span>widget</span>);
+    const Widget = clientOnly(importer, { lazy: true });
+
+    const div = document.createElement("div");
+    const dispose = render(
+      () => (
+        <>
+          <Widget fallback={<i>a</i>} />
+          <Widget fallback={<i>b</i>} />
+        </>
+      ),
+      div
+    );
+    // Both instances share the one module signal; the first render started
+    // the import and the second must not re-invoke the importer.
+    expect(importer).toHaveBeenCalledTimes(1);
+
+    resolve();
+    await settle();
+    expect(div.querySelectorAll("span")).toHaveLength(2);
+    expect(importer).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
   test("renders the fallback until the module loads, then swaps", async () => {
     const { importer, resolve } = deferredModule((props: { name: string }) => (
       <span>hello {props.name}</span>
