@@ -1,7 +1,7 @@
 {
   "name": "hackernews-example",
   "description": "Solid Server Components over frame streams: the same HN app as ../hackernews-spa — same routes, same markup, same data layer — with the static markup returned by server components, so it arrives as HTML once and never again as hydration data",
-  "version": "0.0.1-beta.1",
+  "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",

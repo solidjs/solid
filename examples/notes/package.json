@@ -1,7 +1,7 @@
 {
   "name": "notes-example",
   "description": "The React server-components notes demo as Solid Server Components with single-flight mutations: list and note markup render on the server and stream as HTML, and a save/delete answers with the redirect, the invalidated regions, and the data in one round trip",
-  "version": "0.0.1-beta.1",
+  "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
