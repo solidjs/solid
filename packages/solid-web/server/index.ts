@@ -128,7 +128,12 @@ export function clientOnly<T extends Component<any>>(
   _fn: () => Promise<{ default: T }>,
   _options: { lazy?: boolean } = {}
 ): Component<ComponentProps<T> & { fallback?: JSX.Element }> {
-  return props => props.fallback as JSX.Element;
+  // The memo is not caching anything — it mirrors the client half's gate
+  // memo so the fallback's elements derive their hydration ids at the same
+  // owner depth on both sides and the client claims them instead of
+  // duplicating (the same id-alignment trick as lazy(), see
+  // solid/src/server/component.ts).
+  return props => createMemo(() => props.fallback as JSX.Element) as unknown as JSX.Element;
 }
 
 /**

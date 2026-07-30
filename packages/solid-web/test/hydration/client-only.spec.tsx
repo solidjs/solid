@@ -61,6 +61,18 @@ function expectNoHydrationWarnings(warn: ReturnType<typeof vi.spyOn>) {
   expect(bad).toHaveLength(0);
 }
 
+/** The server-rendered fallback's text node — captured pre-hydrate so tests
+ * can assert the hydration pass ADOPTED it (same node object) rather than
+ * leaving it orphaned and rendering a fresh copy. */
+function findText(root: Node, text: string): Text {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (node.textContent === text) return node as Text;
+  }
+  throw new Error(`text node "${text}" not found`);
+}
+
 describe("clientOnly hydration", () => {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -98,6 +110,7 @@ describe("clientOnly hydration", () => {
     setupHydration();
     mountStreamHtml(container, html);
     expect(container.textContent).toContain("fallback-content");
+    const serverFallbackNode = findText(container, "fallback-content");
 
     // Client side: module load is gated behind a deferred we control.
     let resolveModule!: () => void;
@@ -108,8 +121,11 @@ describe("clientOnly hydration", () => {
 
     dispose = hydrate(() => Widget({ fallback: "fallback-content" } as any), container);
 
-    // Still the fallback during the hydration pass (mounted gate).
-    expect(container.textContent).toContain("fallback-content");
+    // Still the fallback during the hydration pass (mounted gate) — and the
+    // SAME server-rendered node, adopted, not a fresh client copy beside an
+    // orphan (exact equality catches duplication).
+    expect(container.textContent).toBe("fallback-content");
+    expect(serverFallbackNode.isConnected).toBe(true);
 
     resolveModule();
     await settleHydration();
@@ -133,6 +149,7 @@ describe("clientOnly hydration", () => {
 
     setupHydration();
     mountStreamHtml(container, html);
+    const serverFallbackNode = findText(container, "fallback-content");
 
     // Never resolves during the test.
     const Widget = clientOnly(() => new Promise<{ default: Component<{}> }>(() => {}));
@@ -140,7 +157,10 @@ describe("clientOnly hydration", () => {
 
     await settleHydration();
 
-    expect(container.textContent).toContain("fallback-content");
+    // Post-settle the fallback must still be the ADOPTED server node — not an
+    // orphaned server copy sitting next to freshly created client DOM.
+    expect(container.textContent).toBe("fallback-content");
+    expect(serverFallbackNode.isConnected).toBe(true);
     expectNoHydrationWarnings(warn);
     warn.mockRestore();
   });

@@ -22,7 +22,7 @@
  * - Keep async delays short (5-15ms) — the specs own the settle waits.
  */
 import { createSignal, createMemo, createStore, Show, For, Loading, Errored } from "solid-js";
-import { Portal, httpStatus, httpHeader } from "@solidjs/web";
+import { Portal, httpStatus, httpHeader, clientOnly } from "@solidjs/web";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -630,6 +630,25 @@ function HttpPrimitivesStreamed() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// clientOnly with an ELEMENT fallback between id-bearing siblings. The server
+// renders only the fallback (never invokes the importer); the import never
+// resolves on the client, so the fallback is the settled state — the
+// server-rendered <button> must be ADOPTED by the hydration pass (same node,
+// claimed, no fresh client DOM), not orphaned and replaced by a client copy.
+// This is the load-bearing property of clientOnly's hydration gate: the
+// fallback renders DURING the walk so its compiled template claims server DOM.
+const NeverWidget = clientOnly(() => new Promise<{ default: (props: {}) => any }>(() => {}));
+function ClientOnlyElementFallback() {
+  return (
+    <div>
+      <span>lead </span>
+      <NeverWidget fallback={<button>fb</button>} />
+      <span> tail</span>
+    </div>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "text-hole",
@@ -865,5 +884,11 @@ export const scenarios: Scenario[] = [
     update: () => refreshHttpStream(),
     expectedTextAfterUpdate: "head Value: 43 tail",
     stableSelector: "div, span"
+  },
+  {
+    name: "client-only-element-fallback",
+    App: ClientOnlyElementFallback,
+    expectedText: "lead fb tail",
+    stableSelector: "div, span, button"
   }
 ];

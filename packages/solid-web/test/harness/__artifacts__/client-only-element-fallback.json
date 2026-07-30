@@ -1,0 +1,5 @@
+{
+  "name": "client-only-element-fallback",
+  "shell": "<div _hk=0><span>lead </span><!--$--><button _hk=10>fb</button><!--/--><span> tail</span></div>",
+  "rest": ""
+}

@@ -437,17 +437,32 @@ export function clientOnly<T extends Component<any>>(
     // Deliberately untracked fast path: an already-loaded module (fresh
     // render after the import settled) skips the gate machinery entirely.
     if ((Comp = untrack(comp)) && !sharedConfig.hydrating) return Comp(rest);
+    // This hand-rolled gate is NOT replaceable with `ssrSource: "client"`
+    // (the Portal pattern): that defers the compute past hydration, so the
+    // fallback would first evaluate with hydration over and its compiled
+    // templates would CREATE fresh DOM instead of claiming the
+    // server-rendered fallback — observed as an orphaned server fallback
+    // duplicated next to a fresh client copy. Portal can defer because its
+    // server half renders nothing; clientOnly's renders the fallback, so the
+    // fallback must render DURING the walk (mounted=false branch) to adopt
+    // that DOM, and only the post-settle swap is deferred.
     const [mounted, setMounted] = createSignal(!sharedConfig.hydrating);
-    onSettled(() => {
-      setMounted(true);
-    });
-    return createMemo(
+    // The gate memo must be the component's FIRST id-consuming child so the
+    // fallback's elements derive the same hydration ids as under the server
+    // half's mirror memo and get claimed instead of duplicated. onSettled
+    // creates a tracked effect (an id-consuming owner), so it registers
+    // AFTER the memo.
+    const gate = createMemo(
       () => (
         (Comp = comp()),
         (m = mounted()),
         untrack(() => (Comp && m ? Comp(rest) : props.fallback))
       )
     ) as unknown as JSX.Element;
+    onSettled(() => {
+      setMounted(true);
+    });
+    return gate;
   };
 }
 
