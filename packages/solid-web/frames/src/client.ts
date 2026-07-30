@@ -6,10 +6,12 @@
 // policy that makes `dynamic` + server functions the whole client surface.
 // A server-function call whose response is a frame
 // stream resolves with a stable component — the same reference for every
-// refetch from the same call site — so `dynamic(() => getStory(id()))`
-// never remounts; the response streams into the boundary underneath and
-// server content morphs in place while client-owned slot ranges and their
-// state survive (policy A).
+// call with the same (function, arguments) — so `dynamic(() => getStory(id()))`
+// never remounts on a refetch; the response streams into the boundary
+// underneath and server content morphs in place while client-owned slot
+// ranges and their state survive (policy A). An args switch swaps to that
+// call's own boundary (re-materialized from the host's retained state)
+// rather than morphing one boundary across different calls.
 
 import {
   createLoadingBoundary,
@@ -42,7 +44,11 @@ import { createServerComponentHandler } from "@dom-expressions/runtime/src/frame
 // calls that copy's readers, rollup would tree-shake the whole
 // `configureServerFunctionsClient` call out of the dist as unobservable.
 // Kept external in rollup.config.js for the same reason.
-import { configureServerFunctionsClient } from "@solidjs/web/server-functions/client";
+import {
+  configureServerFunctionsClient,
+  getFlightDataConsumer,
+  getServerFunctionsCodec
+} from "@solidjs/web/server-functions/client";
 import { createJSONDataTable } from "@dom-expressions/runtime/src/serializer.js";
 
 export {
@@ -231,6 +237,20 @@ function revealSeam(owner: any) {
     );
 }
 
+// The frame invokes slots and element-claim sweeps through `ownerScope`
+// two ways: from stream microtasks with no owner of their own — those get
+// the boundary's owner, so consumer cleanup disposes with the boundary —
+// and from inside a live render (the t=0 adoption sync, a reveal
+// boundary's content render), where the ambient owner is already the
+// right scope and MUST stay it: the reconstructed segment `<Loading>`
+// owns its content render, and re-parenting the fill to the frame's outer
+// owner would let an unboundaried async fill escape the boundary that
+// exists to cover it (revealing the segment with a hole instead of
+// holding the server fallback).
+function boundaryScope(owner: any) {
+  return (fn: () => any) => (getOwner() ? fn() : runWithOwner(owner, fn));
+}
+
 function boundaryComponent(host: any, id: string) {
   return (props: Record<string, any>) => {
     // Element-claim sweeps (router link-state contract) run under this
@@ -245,7 +265,7 @@ function boundaryComponent(host: any, id: string) {
       host,
       id,
       slots: slotsFor(props),
-      ownerScope: (fn: () => any) => runWithOwner(owner, fn),
+      ownerScope: boundaryScope(owner),
       reveal: revealSeam(owner)
     });
     onCleanup(dispose);
@@ -412,7 +432,7 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
     host,
     id,
     slots: slotsFor(props),
-    ownerScope: (fn: () => any) => runWithOwner(owner, fn),
+    ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner)
   });
   onCleanup(() => frame.dispose());
@@ -423,11 +443,12 @@ function adoptBoundary(host: any, id: string, el: Element, props: Record<string,
 
 /**
  * Installs the server-component transport policy on the server-function
- * client: boundary identity derives from the reactive owner captured at
- * each call site (`getOwner`), so distinct `dynamic()` sources get
- * independent boundaries with nothing declared, refetches from the same
- * source resolve to the identical component, and ownerless calls fall back
- * to one boundary per function id.
+ * client: boundary identity is the call's intrinsic (function, arguments)
+ * address, so distinct calls get independent boundaries with nothing
+ * declared, a repeat call for the same (function, args) resolves to the
+ * identical component (refetches morph in place), and an args switch swaps
+ * boundaries — re-materialized from the host's retained state — instead of
+ * morphing one boundary across different calls.
  *
  * Call once in the client entry (an explicit call — the package is
  * `sideEffects: false`, so a bare import would be tree-shaken away);
@@ -439,9 +460,18 @@ export function installServerComponents(host: any = getFrameHost()) {
   // per-id placeholders; installing `impl` makes them mount-adopting.
   const g = globalThis as any;
   if (!g._$SC) {
+    // Mirror the runtime's SERVER_COMPONENT_BOOTSTRAP shape (CSR boot, no
+    // document shell): `a` records address -> id for references that carried
+    // their call's wire address, and `reg` (installed below) forwards them
+    // to the live transport.
     g._$SC = {
       c: {},
-      r(i: string) {
+      a: {},
+      r(i: string, a?: string) {
+        if (a) {
+          g._$SC.a[a] = i;
+          if (g._$SC.reg) g._$SC.reg(a, i);
+        }
         return g._$SC.c[i] || (g._$SC.c[i] = (p: any) => g._$SC.impl(i, p));
       }
     };
@@ -450,23 +480,34 @@ export function installServerComponents(host: any = getFrameHost()) {
   // Late boundaries arrive with the reveals, so subscribe before the first one
   // can land (this runs from the client entry, during document parse).
   installRevealHook();
-  configureServerFunctionsClient({
-    responseHandler: createServerComponentHandler({
-      host,
-      capture: () => getOwner() ?? undefined,
-      component: (frameId: string) => boundaryComponent(host, frameId),
-      onStream: (frameId: string) => beginStream(frameId),
-      documentComponent: (functionId: string) => g._$SC.c[functionId],
-      // The page IS the t=0 record: a call whose function has an unclaimed
-      // SSR'd boundary in the document resolves locally with the stable
-      // placeholder — the source re-runs during hydration per dynamic's
-      // contract, but no request leaves the browser. The boundary is
-      // consumed on adoption, so navigations fetch normally and (via
-      // documentComponent above) resolve to the SAME placeholder.
-      intercept: ({ id }: { id: string }) => {
-        if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
-        return g._$SC.r(id);
-      }
-    })
+  const handler = createServerComponentHandler({
+    host,
+    component: (frameId: string) => boundaryComponent(host, frameId),
+    onStream: (frameId: string) => beginStream(frameId),
+    documentComponent: (functionId: string) => g._$SC.c[functionId],
+    // The flight consumer and codec are module state in the SHARED
+    // server-functions client instance; the transport module is bundled
+    // privately into this entry, so its local-copy defaults would read the
+    // wrong instance — pass getters that read the built one.
+    consumer: getFlightDataConsumer,
+    codec: getServerFunctionsCodec,
+    // The page IS the t=0 record: a call whose function has an unclaimed
+    // SSR'd boundary in the document resolves locally with the stable
+    // placeholder — the source re-runs during hydration per dynamic's
+    // contract, but no request leaves the browser. The boundary is
+    // consumed on adoption, so navigations fetch normally and (via
+    // documentComponent above) resolve to the SAME placeholder.
+    intercept: ({ id }: { id: string }) => {
+      if (claimedBoundaries.has(id) || !findBoundaryElement(id)) return undefined;
+      return g._$SC.r(id);
+    }
   });
+  // Hydration-data references never travel through the transport, so their
+  // address -> id records reach it here: declare what the document is
+  // showing (with the reference's per-function placeholder), draining the
+  // records the bootstrap collected before this install and forwarding the
+  // ones still to come.
+  g._$SC.reg = (address: string, id: string) => handler.showing(address, id, g._$SC.r(id));
+  for (const address of Object.keys(g._$SC.a)) g._$SC.reg(address, g._$SC.a[address]);
+  configureServerFunctionsClient({ responseHandler: handler });
 }

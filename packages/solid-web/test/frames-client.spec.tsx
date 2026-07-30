@@ -4,12 +4,13 @@
  */
 // The zero-API client surface: `dynamic` + a server function IS the server
 // component. Importing @solidjs/web/frames installs the transport policy —
-// a frame-stream response resolves the call with a stable per-call-site
-// component (owner-derived boundary identity), so dynamic's equals-gate
-// never remounts across refetches; the response streams into the boundary
-// underneath. The server side is mocked as hand-framed Responses behind a
-// stubbed fetch, so the REAL server-function stub → transport → component
-// pipeline is what's under test.
+// a frame-stream response resolves the call with a stable component keyed
+// by the call's intrinsic (function, arguments) address, so dynamic's
+// equals-gate never remounts across same-args refetches (the response
+// streams into the boundary underneath) while an args switch swaps to that
+// call's own boundary. The server side is mocked as hand-framed Responses
+// behind a stubbed fetch, so the REAL server-function stub → transport →
+// component pipeline is what's under test.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   createMemo,
@@ -80,11 +81,13 @@ describe("server components through dynamic", () => {
     const fetched: number[] = [];
     // Like a real server, derive the response from the REQUEST body (the
     // codec-encoded args) — signals read inside a foreign async continuation
-    // see 2.0's consistent snapshot, not the freshly written value.
+    // see 2.0's consistent snapshot, not the freshly written value. The
+    // title carries the fetch count so a same-args refetch delivers NEW
+    // content (a morph has something to show).
     vi.stubGlobal("fetch", async (_base: any, init: any) => {
       const v = JSON.parse(String(init.body))[0];
       fetched.push(v);
-      return storyResponse(v, `Story ${v}`);
+      return storyResponse(v, `Story ${v} r${fetched.length}`);
     });
 
     let mounts = 0;
@@ -115,30 +118,49 @@ describe("server components through dynamic", () => {
     await settle();
 
     // Server content + both slot ranges in place.
-    expect(div.querySelector("h1")!.textContent).toBe("Story 1");
+    expect(div.querySelector("h1")!.textContent).toBe("Story 1 r1");
     expect(div.querySelector("ul li")!.textContent).toBe("first!");
     const button = div.querySelector("footer button")!;
     expect(button.textContent).toBe("toggle");
     expect(fetched).toEqual([1]);
     expect(mounts).toBe(1);
 
-    // Client-only state, then navigation: the refetch resolves to the SAME
-    // component reference — nothing remounts — while the new stream morphs
-    // server content in the same boundary. Client node identity survives.
+    // Client-only state, then a refetch of the SAME (function, args): the
+    // call resolves to the identical component — nothing remounts — while
+    // the new stream morphs server content in the showing boundary. Client
+    // node identity survives.
     (button as HTMLElement).dataset.on = "yes";
     const h1 = div.querySelector("h1");
+    await (getStory(1) as any);
+    flush();
+    await settle();
+    flush();
+    await settle();
+    expect(fetched).toEqual([1, 1]);
+    expect(div.querySelector("h1")).toBe(h1);
+    expect(h1!.textContent).toBe("Story 1 r2");
+    expect(div.querySelector("footer button")).toBe(button);
+    expect((button as HTMLElement).dataset.on).toBe("yes");
+    // Equivalent re-sent slot args: the occurrence was not re-called.
+    expect(mounts).toBe(1);
+
+    // An args switch is a DIFFERENT call: identity is the (function, args)
+    // address, so the site swaps to that call's own boundary instead of
+    // morphing one boundary across calls — the old boundary's nodes leave
+    // with it, and the new one mounts (and fills its slots) fresh.
     setStory(2);
     flush();
     await settle();
     flush();
     await settle();
-    expect(fetched).toEqual([1, 2]);
-    expect(div.querySelector("h1")).toBe(h1);
-    expect(h1!.textContent).toBe("Story 2");
-    expect(div.querySelector("footer button")).toBe(button);
-    expect((button as HTMLElement).dataset.on).toBe("yes");
-    // Equivalent re-sent slot args: the occurrence was not re-called.
-    expect(mounts).toBe(1);
+    expect(fetched).toEqual([1, 1, 2]);
+    const swapped = div.querySelector("h1")!;
+    expect(swapped).not.toBe(h1);
+    expect(swapped.textContent).toBe("Story 2 r3");
+    expect(h1!.isConnected).toBe(false);
+    expect(button.isConnected).toBe(false);
+    expect(div.querySelector("footer button")!.textContent).toBe("toggle");
+    expect(mounts).toBe(2);
 
     // Owner disposal tears the boundary down.
     dispose();
@@ -310,12 +332,20 @@ describe("server components through dynamic", () => {
     container.remove();
   });
 
-  test("ownerless calls fall back to one stable component per function id", async () => {
+  test("calls key per (function, arguments): same args stable, different args independent", async () => {
+    // Boundary identity is the call's intrinsic address — owner or no
+    // owner, nothing declared. Repeat calls for the same (function, args)
+    // resolve the identical component (the equals-gate holds across
+    // refetches); a different args list is a different call with its own
+    // boundary, mirroring a per-args query cache one-to-one.
     vi.stubGlobal("fetch", async () => storyResponse(1, "Solo"));
     const first = await (getStory(1) as any);
     const second = await (getStory(2) as any);
+    const again = await (getStory(1) as any);
     expect(typeof first).toBe("function");
-    expect(second).toBe(first);
+    expect(typeof second).toBe("function");
+    expect(second).not.toBe(first);
+    expect(again).toBe(first);
   });
 
   test("props the server never placed stay unmounted; unknown occurrences without props stay empty", async () => {

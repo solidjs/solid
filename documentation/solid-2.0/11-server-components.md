@@ -6,7 +6,7 @@
 
 ## Summary
 
-A **server component is a function returned from a server function** — there is no new component API, no new directive, and no `"use client"`. The server function’s *arguments* are the server’s inputs (ids, filters); the returned component’s *props* are client positions (**slots**) the server marks but never renders. On the client, `dynamic` is the entire consumption surface: a server-function call that resolves to a frame stream produces a **stable per-call-site component**, so refetches never remount — server content **morphs in place** underneath and client state inside the boundary (focus, inputs, toggles, video) survives navigation.
+A **server component is a function returned from a server function** — there is no new component API, no new directive, and no `"use client"`. The server function’s *arguments* are the server’s inputs (ids, filters); the returned component’s *props* are client positions (**slots**) the server marks but never renders. On the client, `dynamic` is the entire consumption surface: a server-function call that resolves to a frame stream produces a **stable per-call component** — keyed by the call's intrinsic (function, arguments) address — so refetches never remount — server content **morphs in place** underneath and client state inside the boundary (focus, inputs, toggles, video) survives navigation. A call site that switches arguments swaps to that call's own boundary (re-materialized from the host's retained state) rather than morphing one boundary across different calls.
 
 The governing invariant is **single-copy**: server content travels as HTML, values the client needs travel as data records, and nothing travels as both. The acceptance test is literal — view-source the page or a navigation response and search for any piece of content; it appears exactly once.
 
@@ -57,7 +57,7 @@ A complete working setup (no Vite, no metaframework) is `examples/hackernews`; i
 ## Motivation
 
 - **Islands fall apart on navigation; RSC ships everything twice.** Islands architectures give a lean initial page but degenerate to full-page loads or bespoke protocols when you navigate. RSC-style server components keep rich composition but serialize the rendered tree alongside the HTML — every piece of server content pays twice. This design — *lakes, not islands* — keeps one copy: the server owns and streams content, the client owns islands of interactivity **inside** it, and neither re-sends what the other has.
-- **No new API surface.** Every prior server-components design grew a parallel component model. Here the entire client surface is `dynamic` + server functions (RFC 10) plus one `installServerComponents()` call. Boundary identity is **derived, never declared** — the reactive owner captured at the call site keys the boundary, so two mounted panes are independent with nothing annotated, and multi-instance mounting is invisible to the user.
+- **No new API surface.** Every prior server-components design grew a parallel component model. Here the entire client surface is `dynamic` + server functions (RFC 10) plus one `installServerComponents()` call. Boundary identity is **derived, never declared** — the call's intrinsic (function, arguments) address keys the boundary, mirroring a per-args query cache one-to-one, so two calls with different arguments are independent with nothing annotated, and multi-instance mounting is invisible to the user.
 - **Client state must survive server updates.** The failure mode that kills server-driven UIs is the refetch that blows away a half-typed reply. Policy here is structural: refetching into the same boundary morphs server content in place; teardown is disposal, never a version bump.
 
 ## Detailed design
@@ -123,13 +123,13 @@ Measured, min+gzip, CI-guarded in dom-expressions: the whole client machinery �
 | Layer | Owns |
 |---|---|
 | **dom-expressions** | Wire format (frame chunks, `slot:` markers), frame client (store/morph/host), producer/sink, transport policy, document-SSR inlining, element-claim sweeps, the architecture contract |
-| **Core (`@solidjs/web/frames`)** | The Solid binding: `installServerComponents`, hydration-claim re-entry, owner-derived boundary identity, `getFrameHost`, the packaged subpath |
+| **Core (`@solidjs/web/frames`)** | The Solid binding: `installServerComponents`, hydration-claim re-entry, per-args boundary identity, `getFrameHost`, the packaged subpath |
 | **Router (future)** | Outlet ids, URL→call translation, back/forward re-fetch, link state via element claims, query/preload/single-flight composition |
 | **Start (future)** | Configuration only, as with server functions |
 
 ## Alternatives considered
 
-- **`createServerComponent()` / any declared API** — rejected; `dynamic` + owner-derived identity covers it with zero new surface. Deleted during design.
+- **`createServerComponent()` / any declared API** — rejected; `dynamic` + derived (per-args) identity covers it with zero new surface. Deleted during design.
 - **`"use client"`** — rejected; the hydration-once rule plus marked client positions make the annotation unnecessary.
 - **Serialized component trees (RSC-style flight data)** — rejected on the single-copy invariant; templates never ship as data. The claim *is* the transfer at t = 0.
 - **Event-based router integration instead of element claims** — rejected: `frame:applied` alone loses claim-time owner scoping and morph-precision, and would split anchors into two mechanisms depending on who rendered them.

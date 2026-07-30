@@ -38,3 +38,14 @@ export const memo = fn => createMemo(() => fn(), syncOptions);
 // slot render) yields identical `_hk` keys — which is what lets frame slot
 // claims match by key regardless of tree position.
 export const runWithHydrationScope = (id, fn) => runWithOwner(createOwner({ id }), fn);
+
+// The frame sink's optional context barrier for a server component's own
+// render ("user context does not cross a server component root"). The sink
+// guards the call — `runInServerComponentScope ? runInServerComponentScope(render) : render()`
+// — so cores without a barrier export undefined and rendering proceeds
+// plain. Solid opts out for now: server components render on the server
+// where context comes from the request-scoped tree the integration builds
+// per render, so the divergence the barrier prevents (a t=0 inline read
+// resolving an app-level provider that a standalone refetch render would
+// miss) is left to land with its own tests rather than stubbed in blind.
+export const runInServerComponentScope = undefined;
