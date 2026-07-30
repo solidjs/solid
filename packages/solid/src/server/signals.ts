@@ -1833,6 +1833,86 @@ export function createLoadingBoundary<T, U>(
   }
 }
 
+// === Server Component Scope (context barrier) ===
+
+/**
+ * Marker entry present in every context record descended from a
+ * server-component render root. Lets `useContext` explain a blocked read
+ * instead of surfacing a misleading "no provider" error.
+ *
+ * @internal
+ */
+const ServerComponentContext: Context<boolean> = {
+  id: Symbol("ServerComponentContext"),
+  defaultValue: false
+};
+
+/**
+ * Runs `fn` under a context barrier — the render root of a server
+ * component.
+ *
+ * A server component renders standalone on every response after the first
+ * (refetches, mutation regions): there is no surrounding app tree, so app
+ * context can never reach it there. At t=0 it renders INLINE in the
+ * document tree, where an app-level provider WOULD resolve — a silent
+ * divergence where context "works" once and breaks on the next response.
+ * The barrier makes t=0 behave like every later render by construction:
+ * the scope owner gets a rebuilt context record carrying only the boundary
+ * plumbing, so
+ *
+ *   - `Loading` / `Errored` / reveal-group coordination still crosses (the
+ *     back-and-forth between a server component's async content and the
+ *     enclosing boundaries at t=0 is intentional — `ErrorContext`,
+ *     `RevealGroupContext`, and `NoHydrateContext` are copied through);
+ *   - providers rendered INSIDE the server component work normally;
+ *   - defaulted contexts read their default (both paths agree);
+ *   - default-less contexts throw — `useContext` upgrades the miss to an
+ *     error that explains the boundary.
+ *
+ * The owner is transparent, so hydration-id chains are untouched.
+ *
+ * @internal
+ */
+export function runInServerComponentScope<T>(fn: () => T): T {
+  const owner = createOwner({ transparent: true }) as unknown as SSROwner;
+  const inherited = owner._context;
+  const scoped: Record<symbol | string, unknown> = {
+    [ServerComponentContext.id]: true
+  };
+  if (inherited[ErrorContext.id] !== undefined) {
+    scoped[ErrorContext.id] = inherited[ErrorContext.id];
+  }
+  if (inherited[RevealGroupContext.id] !== undefined) {
+    scoped[RevealGroupContext.id] = inherited[RevealGroupContext.id];
+  }
+  if (inherited[NoHydrateContext.id] !== undefined) {
+    scoped[NoHydrateContext.id] = inherited[NoHydrateContext.id];
+  }
+  owner._context = scoped;
+  return runWithOwner(owner as unknown as Owner, fn);
+}
+
+/**
+ * Builds the explanatory error for a context read that missed INSIDE a
+ * server-component scope, or returns `null` when the current owner isn't
+ * inside one (the caller rethrows its original error). Called by
+ * `useContext` only on the failure path — the success path stays a plain
+ * record read.
+ *
+ * @internal
+ */
+export function serverComponentContextError(context: Context<any>): Error | null {
+  const o = currentOwner;
+  if (!o || o._context[ServerComponentContext.id] !== true) return null;
+  const name = context.id.description;
+  return new Error(
+    `Context${name ? ` "${name}"` : ""} cannot be read inside a server component. ` +
+      "Server components render standalone on refetches and mutations, so app-level " +
+      "providers do not cross the boundary. Pass the value as an argument, render the " +
+      "provider inside the server component, or read per-request state via getRequestEvent()."
+  );
+}
+
 export type RevealOrder = "sequential" | "together" | "natural";
 
 export function createRevealOrder<T>(

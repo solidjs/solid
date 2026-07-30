@@ -1,4 +1,12 @@
-import { createMemo, createRoot, setContext, getContext, flatten } from "./signals.js";
+import {
+  createMemo,
+  createRoot,
+  setContext,
+  getContext,
+  flatten,
+  ContextNotFoundError,
+  serverComponentContextError
+} from "./signals.js";
 import type { Accessor, EffectOptions } from "./signals.js";
 import type { ArrayElement, Element as SolidElement } from "../types.js";
 import type { FlowComponent, FlowProps } from "./component.js";
@@ -45,9 +53,23 @@ export function createContext<T>(defaultValue?: T, options?: EffectOptions): Con
 /**
  * Reads the current value of a context. Throws `ContextNotFoundError` if no
  * Provider is mounted and the context was created without a default.
+ *
+ * Inside a server component the miss is upgraded to an error explaining the
+ * boundary: app-level providers exist at t=0 (the component renders inline
+ * in the document) but not on refetches or mutation regions (it renders
+ * standalone), so context deliberately never crosses a server-component
+ * root — surfacing "no provider" there would point at the wrong problem.
  */
 export function useContext<T>(context: Context<T>): T {
-  return getContext(context);
+  try {
+    return getContext(context);
+  } catch (err) {
+    if (err instanceof ContextNotFoundError) {
+      const barrier = serverComponentContextError(context);
+      if (barrier) throw barrier;
+    }
+    throw err;
+  }
 }
 
 export type ResolvedElement = Exclude<SolidElement, ArrayElement>;

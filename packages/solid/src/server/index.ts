@@ -40,6 +40,7 @@ export {
   repeat,
   resolve,
   NotReadyError,
+  runInServerComponentScope,
   runWithOwner,
   snapshot,
   storePath,

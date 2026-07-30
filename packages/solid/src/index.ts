@@ -112,6 +112,10 @@ export function ssrHandleError() {}
 export function ssrScope<T>(fn: () => T): () => T {
   return fn;
 }
+/** @internal */
+export function runInServerComponentScope<T>(fn: () => T): T {
+  return fn();
+}
 
 // dev
 import { IS_DEV } from "./client/core.js";

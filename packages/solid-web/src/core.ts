@@ -15,7 +15,11 @@ export {
   // under NoHydration (no `_hk` keys, no async-value hydration records — the
   // HTML is the data) and re-enters via Hydration for client positions.
   NoHydration,
-  Hydration
+  Hydration,
+  // Context barrier for server-component render roots: user context does not
+  // cross (a refetch renders standalone, so t=0 must agree), while boundary
+  // plumbing (Loading/Errored/reveal coordination) still does.
+  runInServerComponentScope
 } from "solid-js";
 
 const transparentOptions = { transparent: true, sync: true };
